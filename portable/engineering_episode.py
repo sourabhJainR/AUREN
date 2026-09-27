@@ -201,6 +201,8 @@ class EngineeringEpisode:
             raise EpisodeGateError("failure can only be recorded during active execution")
         if not failure_class.strip() or not rules:
             raise EpisodeGateError("verified failure requires a failure class and at least one do-not rule")
+        if not self.evidence_ids:
+            raise EpisodeGateError("verified failure requires evidence")
         return self._next(phase=EpisodePhase.FAILED, failure_class=failure_class.strip(),
                           dont_rules=rules, outcome=outcome)
 
@@ -208,7 +210,6 @@ class EngineeringEpisode:
         if envelope.task_id != self.task_id or envelope.repository_snapshot_digest != self.repository_snapshot:
             raise EpisodeGateError("episode and evidence envelope lineage do not match")
         return envelope.bind(
-            decision_ids=(self.plan_digest,) if self.plan_digest else None,
             verification_ids=self.verification_ids,
             review_ids=self.review_ids,
             regression_ids=self.regression_ids,
