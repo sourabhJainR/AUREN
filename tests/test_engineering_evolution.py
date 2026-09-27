@@ -88,6 +88,17 @@ class EngineeringEvolutionTests(unittest.TestCase):
         self.assertEqual(result.sample_count, 1)
         self.assertGreater(result.probability, 0)
 
+    def test_failure_gate_requires_approval_when_risk_is_high(self):
+        self.cp.backlog.upsert(
+            finding_id="f-gate", task_family="coding", capability="testing", hat="quality",
+            severity="critical", title="Regression", detail="test gap",
+            recommendation="add test", evidence_ids=("e1",), attempts_increment=3,
+        )
+        with self.assertRaises(PermissionError):
+            self.cp.failure_gate(task_family="coding", capability="testing")
+        prediction = self.cp.failure_gate(task_family="coding", capability="testing", approved=True)
+        self.assertGreaterEqual(prediction.probability, 0.5)
+
     def test_historical_decomposition_is_dependency_safe(self):
         self.cp.backlog.upsert(
             finding_id="f1", task_family="coding", capability="testing", hat="quality",
