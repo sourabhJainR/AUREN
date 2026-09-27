@@ -11,7 +11,7 @@ from portable.decision_fabric import (
 
 
 class DecisionRecipeTests(unittest.TestCase):
-    def test_recipe_batches_typed_questions_and_preserves_no_match(self) -> None:
+    def test_recipe_groups_typed_questions_over_one_shared_state(self) -> None:
         recipe = DecisionRecipe(
             name="route-work",
             behavior="Select the safest execution route; do not invent a route.",
@@ -35,8 +35,8 @@ class DecisionRecipeTests(unittest.TestCase):
             return NoulDecision(0.9, 0.9)
 
         batch = DecisionFabric(evaluate).evaluate_recipe({"cpu": 4, "risk": 0.1}, recipe)
-        self.assertEqual(batch.state_digest, DecisionFabric(evaluate).evaluate({"cpu": 4, "risk": 0.1}, recipe.questions).state_digest)
-        self.assertEqual(tuple(key for _, key in calls), ("route", "risk", "safe", "route", "risk", "safe"))
+        self.assertEqual(tuple(key for _, key in calls), ("route", "risk", "safe"))
+        self.assertEqual({tuple(sorted(state.items())) for state, _ in calls}, {(('cpu', 4), ('risk', 0.1))})
         self.assertEqual(recipe.no_match["route"], "no_match")
         self.assertEqual(len(recipe.digest), 16)
 
