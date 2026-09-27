@@ -8,9 +8,9 @@ model/topology-neutral evaluation without granting itself execution authority.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable, Mapping, Sequence
+from typing import Callable, Mapping, Sequence
 
-from .architecture_contract import ArchitectureContract
+from typing import Any
 from .engineering_quality_gate import EngineeringQualityGate, QualityGate, QualityReport
 from .engineering_traceability import EngineeringTraceability, TraceLink, TraceabilityReport
 from .full_stack_contract import FullStackContract
@@ -27,7 +27,7 @@ from .whole_system_engineering import EngineeringCoverage, EngineeringEvaluation
 class EngineeringEpisodeRequest:
     intent: str
     requirements: RequirementContract
-    architecture: ArchitectureContract
+    architecture: Any
     implementation_plan: ImplementationPlan
     full_stack: FullStackContract
 
