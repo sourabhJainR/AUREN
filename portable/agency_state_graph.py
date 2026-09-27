@@ -62,6 +62,67 @@ class CheckpointStore(Protocol):
 
 
 @dataclass(frozen=True)
+class NodeContract:
+    """Optional bounded input/output contract for a graph node."""
+    inputs: tuple[str, ...] = ()
+    outputs: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if len(set(self.inputs)) != len(self.inputs) or len(set(self.outputs)) != len(self.outputs):
+            raise ValueError("node contract keys must be unique")
+        if any(not key.strip() for key in (*self.inputs, *self.outputs)):
+            raise ValueError("node contract keys must be non-empty")
+
+
+@dataclass(frozen=True)
+class EdgeContract:
+    """Data contract carried by a graph edge."""
+    source: str
+    target: str
+    data_keys: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not self.source or not self.target:
+            raise ValueError("edge contract endpoints are required")
+        if any(not key.strip() for key in self.data_keys):
+            raise ValueError("edge data keys must be non-empty")
+
+
+@dataclass(frozen=True)
+class ConvergenceGuard:
+    """Bounded loop guard that deduplicates against everything observed."""
+    max_dry_rounds: int = 2
+    max_seen: int = 10000
+
+    def __post_init__(self) -> None:
+        if self.max_dry_rounds < 1 or self.max_seen < 1:
+            raise ValueError("convergence limits must be positive")
+
+    def unique_rounds(self, rounds: Sequence[Sequence[object]]) -> tuple[tuple[object, ...], ...]:
+        seen: set[str] = set()
+        accepted: list[tuple[object, ...]] = []
+        dry = 0
+        import hashlib
+        for current in rounds:
+            fresh: list[object] = []
+            for item in current:
+                key = hashlib.sha256(canonical_json_bytes(item)).hexdigest()
+                if key not in seen:
+                    seen.add(key)
+                    if len(seen) > self.max_seen:
+                        raise RuntimeError("convergence guard exceeded max_seen")
+                    fresh.append(item)
+            if fresh:
+                dry = 0
+                accepted.append(tuple(fresh))
+            else:
+                dry += 1
+                if dry >= self.max_dry_rounds:
+                    break
+        return tuple(accepted)
+
+
+@dataclass(frozen=True)
 class RetryPolicy:
     max_attempts: int = 1
     retryable_exceptions: tuple[type[BaseException], ...] = (Exception,)
@@ -159,23 +220,35 @@ class StateGraph:
         self._effects: dict[str, str] = {}
         self._edges: dict[str, tuple[str, ...]] = {}
         self._routers: dict[str, Router] = {}
+        self._contracts: dict[str, NodeContract] = {}
+        self._edge_contracts: dict[tuple[str, str], EdgeContract] = {}
         self._reducers = dict(reducers or {})
         self._retry: dict[str, RetryPolicy] = {}
         self._before: set[str] = set()
         self._after: set[str] = set()
 
-    def add_node(self, name: str, node: Node, *, retry_policy: RetryPolicy | None = None, effect: str = "pure") -> "StateGraph":
+    def add_node(self, name: str, node: Node, *, retry_policy: RetryPolicy | None = None, effect: str = "pure", contract: NodeContract | None = None) -> "StateGraph":
         if not name.strip() or name in {self.START, self.END}: raise ValueError("invalid node name")
         if name in self._nodes: raise ValueError(f"duplicate node: {name}")
         if effect not in self.EFFECTS: raise ValueError(f"unsupported node effect: {effect}")
         if retry_policy and retry_policy.max_attempts > 1 and effect == "external": raise ValueError("external nodes are not retryable; model the operation as idempotent before enabling retry")
         self._nodes[name] = node; self._effects[name] = effect
+        if contract is not None: self._contracts[name] = contract
         if retry_policy: self._retry[name] = retry_policy
         return self
 
-    def add_edge(self, source: str, target: str) -> "StateGraph":
+    def add_edge(self, source: str, target: str, *, data_keys: Sequence[str] = ()) -> "StateGraph":
         self._validate_source(source); self._validate_target(target)
-        self._edges[source] = self._edges.get(source, ()) + (target,); return self
+        keys = tuple(data_keys)
+        source_contract = self._contracts.get(source)
+        target_contract = self._contracts.get(target)
+        if keys and source_contract and not set(keys).issubset(source_contract.outputs):
+            raise ValueError(f"edge {source}->{target} references undeclared source outputs")
+        if keys and target_contract and not set(keys).issubset(target_contract.inputs):
+            raise ValueError(f"edge {source}->{target} references undeclared target inputs")
+        self._edges[source] = self._edges.get(source, ()) + (target,)
+        if keys: self._edge_contracts[(source, target)] = EdgeContract(source, target, keys)
+        return self
 
     def add_join(self, source: str, target: str) -> "StateGraph":
         """Declare an explicit join edge while retaining normal StateGraph semantics."""
@@ -209,10 +282,11 @@ class StateGraph:
 class CompiledStateGraph:
     def __init__(self, graph: StateGraph) -> None: self._g = graph
 
-    def invoke(self, state: Mapping[str, Any], *, run_id: str = "run", checkpoint: CheckpointStore | None = None, resume: bool = False, max_steps: int = 100, parallel_nodes: Callable[[str], bool] | None = None, max_parallel_nodes: int = 1, node_timeout_seconds: float | None = None, cancellation: Event | None = None) -> GraphRun:
+    def invoke(self, state: Mapping[str, Any], *, run_id: str = "run", checkpoint: CheckpointStore | None = None, resume: bool = False, max_steps: int = 100, parallel_nodes: Callable[[str], bool] | None = None, max_parallel_nodes: int = 1, node_timeout_seconds: float | None = None, cancellation: Event | None = None, parallel_failure_mode: str = "fail_fast") -> GraphRun:
         validate_state(state)
         if max_steps < 1: raise ValueError("max_steps must be positive")
         if max_parallel_nodes < 1: raise ValueError("max_parallel_nodes must be positive")
+        if parallel_failure_mode not in {"fail_fast", "isolate"}: raise ValueError("parallel_failure_mode must be fail_fast or isolate")
         if node_timeout_seconds is not None and node_timeout_seconds <= 0: raise ValueError("node_timeout_seconds must be positive")
         existing = checkpoint.load(run_id) if resume and checkpoint else None
         current: dict[str, Any] = dict(existing.state if existing else state)
@@ -236,6 +310,7 @@ class CompiledStateGraph:
             parallel = [name for name in next_nodes if name != StateGraph.END and parallel_nodes and parallel_nodes(name)]
             sequential = [name for name in next_nodes if name != StateGraph.END and name not in parallel]
             results_by_name: dict[str, tuple[Mapping[str, Any], int]] = {}
+            isolated_failures: set[str] = set()
             if cancellation and cancellation.is_set():
                 self._checkpoint(checkpoint, run_id, step - 1, current, next_nodes, trace)
                 return GraphRun(run_id, dict(current), tuple(events), tuple(trace), step - 1, True)
@@ -249,11 +324,18 @@ class CompiledStateGraph:
                             executor.shutdown(wait=False, cancel_futures=True)
                             self._checkpoint(checkpoint, run_id, step - 1, current, next_nodes, trace)
                             return GraphRun(run_id, dict(current), tuple(events), tuple(trace), step - 1, True)
-                        results_by_name[name] = futures[name].result(timeout=node_timeout_seconds)
+                        try:
+                            results_by_name[name] = futures[name].result(timeout=node_timeout_seconds)
+                        except Exception as exc:
+                            if parallel_failure_mode == "fail_fast":
+                                raise
+                            isolated_failures.add(name)
+                            events.append(GraphEvent(step, name, "failed-isolated", 1, type(exc).__name__))
                 except FutureTimeoutError as exc:
                     for future in futures.values(): future.cancel()
                     executor.shutdown(wait=False, cancel_futures=True)
-                    raise TimeoutError("parallel node exceeded timeout") from exc
+                    if parallel_failure_mode == "fail_fast":
+                        raise TimeoutError("parallel node exceeded timeout") from exc
                 else:
                     executor.shutdown(wait=True)
             for name in sequential:
@@ -262,7 +344,7 @@ class CompiledStateGraph:
                     return GraphRun(run_id, dict(current), tuple(events), tuple(trace), step - 1, True)
                 results_by_name[name] = self._run_node_with_timeout(name, snapshot, node_timeout_seconds)
             for name in next_nodes:
-                if name == StateGraph.END: continue
+                if name == StateGraph.END or name in isolated_failures: continue
                 output, attempts = results_by_name[name]
                 self._merge(current, output); events.append(GraphEvent(step, name, "completed", attempts)); trace.append(name)
                 if name in self._g._after:
@@ -270,7 +352,7 @@ class CompiledStateGraph:
                     raise GraphInterrupt(run_id, step, dict(current), tuple(next_after), f"interrupted after {name}")
             next_set: list[str] = []
             for name in next_nodes:
-                if name != StateGraph.END: next_set.extend(self._next(name, current))
+                if name != StateGraph.END and name not in isolated_failures: next_set.extend(self._next(name, current))
             next_nodes = list(dict.fromkeys(next_set)); self._checkpoint(checkpoint, run_id, step, current, next_nodes, trace)
             if StateGraph.END in next_nodes: next_nodes = []
         return GraphRun(run_id, dict(current), tuple(events), tuple(trace), step)
@@ -315,4 +397,4 @@ class CompiledStateGraph:
             validate_state({key: state[key]}, label=f"state.{key}")
 
 
-__all__ = ["Checkpoint", "CompiledStateGraph", "GraphEvent", "GraphInterrupt", "GraphRun", "InMemoryCheckpointStore", "RetryPolicy", "StateGraph", "canonical_json_bytes", "state_digest", "validate_state"]
+__all__ = ["Checkpoint", "ConvergenceGuard", "EdgeContract", "NodeContract", "CompiledStateGraph", "GraphEvent", "GraphInterrupt", "GraphRun", "InMemoryCheckpointStore", "RetryPolicy", "StateGraph", "canonical_json_bytes", "state_digest", "validate_state"]

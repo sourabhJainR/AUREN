@@ -21,6 +21,7 @@ from .hypothesis_engine import BeliefEvidence
 from .persistent_memory import PersistentMemory
 from .skill_optimization import SkillEdit, SkillOptimizationResult, SkillOptimizer, SkillScore
 from .episode_skill_evolution import EpisodeSkillEvolution
+from .regression_corpus import RegressionCorpus
 
 
 def _utc() -> str:
@@ -174,6 +175,7 @@ class AdaptiveLearningStore:
     ) -> tuple[object, ...]:
         """Automatically evolve skills from completed/failed episodes in maintenance."""
         bridge = EpisodeSkillEvolution(self.memory, self.project)
+        regression = RegressionCorpus(self.memory, self.project)
         results: list[object] = []
         for episode in episodes:
             phase = str(getattr(getattr(episode, "phase", None), "value", getattr(episode, "phase", "")))
@@ -190,6 +192,8 @@ class AdaptiveLearningStore:
             if row is not None:
                 continue
             try:
+                # Regression protection is independent of skill evolution.
+                regression_case = regression.ingest_episode(episode)
                 result = bridge.evolve(
                     episode=episode,
                     current_skill=current_skill,
@@ -197,6 +201,13 @@ class AdaptiveLearningStore:
                     independent_replay_evaluator=independent_replay_evaluator,
                     holdout_limit=holdout_limit,
                 )
+                if result.replay.case_ids:
+                    regression.record_validation(
+                        regression_case.case_id,
+                        passed=result.replay.passed,
+                        evidence_ids=getattr(episode, "evidence_ids", ()),
+                        independent=True,
+                    )
                 results.append(result)
                 status = "staged" if result.staged else "rejected"
                 result_digest = result.optimization.digest
