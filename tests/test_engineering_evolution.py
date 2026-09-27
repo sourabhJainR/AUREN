@@ -107,7 +107,7 @@ class EngineeringEvolutionTests(unittest.TestCase):
         self.assertFalse(readiness.ready)
 
     def test_compaction_never_drops_required_evidence(self):
-        required = {"evidence_id": "required", "confidence": 0.1, "required": True, "value": "must-keep"}
+        required = {"evidence_id": "required", "confidence": 0.1, "required": True, "value": "must-keep" * 40}
         with self.assertRaises(ValueError):
             self.cp.compact_context([required], budget=128)
         result = self.cp.compact_context([required], budget=256)
