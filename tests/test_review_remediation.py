@@ -31,7 +31,7 @@ class ReviewRemediationTests(unittest.TestCase):
             (finding,), tuple(ReviewHat), ("review-1",), "address"
         )
 
-    def _candidate(self, finding, text="print('new')\\n"):
+    def _candidate(self, finding, text="print('new')\n"):
         return RepairCandidate(
             RepairAttempt(1, finding.detail, 0.1, True, "verify-1"),
             __import__("portable").PatchProposal(
