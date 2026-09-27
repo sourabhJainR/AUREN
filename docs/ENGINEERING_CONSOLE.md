@@ -14,7 +14,7 @@ The server uses only the Python standard library and is loopback-only by default
 
 ## What it shows
 
-- Current executions recorded through the dashboard event sink.
+- Current executions from durable `engineering_episodes`, with the dashboard event sink as a fallback.
 - Task/run counts and observed duration information.
 - Durable learning, maintenance, regression and SkillOpt activity when those SQLite stores exist.
 - Findings, failures and verified do-not rules where existing stores expose them.
