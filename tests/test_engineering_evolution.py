@@ -31,6 +31,17 @@ class EngineeringEvolutionTests(unittest.TestCase):
         self.assertGreaterEqual(len(result.node_ids), 4)
         self.assertTrue(result.graph_digest)
 
+    def test_evidence_graph_integrity_is_fail_closed(self):
+        envelope = EngineeringEvidenceEnvelope(
+            task_id="task-1", intent_digest="intent", repository_snapshot_digest="repo",
+            evidence=(EvidenceRef("e1", "repo"),),
+            verification_ids=("v1",), review_ids=("r1",), regression_ids=("g1",), outcome_id="o1",
+        )
+        result = self.cp.evidence_graph(envelope)
+        integrity = self.cp.validate_evidence_graph(envelope, result)
+        self.assertTrue(integrity.valid)
+        self.assertFalse(integrity.missing_nodes)
+
     def test_aer_compaction_is_deterministic_and_bounded(self):
         items = [
             {"evidence_id": "e2", "confidence": 0.4, "value": "secondary"},
