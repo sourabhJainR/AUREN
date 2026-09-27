@@ -98,7 +98,6 @@ class SandboxedRepository:
                 workspace,
                 ignore=shutil.ignore_patterns(".git", "__pycache__", ".pytest_cache"),
             )
-            before = self._snapshot(workspace)
             evidence: list[CommandEvidence] = []
             passed = True
             failure = ""
@@ -144,6 +143,7 @@ class SandboxedRepository:
                 workspace,
                 ignore=shutil.ignore_patterns(".git", "__pycache__", ".pytest_cache"),
             )
+            before = self._snapshot(workspace)
             for relative, content in files.items():
                 if not isinstance(relative, str) or not relative.strip():
                     raise ValueError("patch paths must be non-empty strings")
