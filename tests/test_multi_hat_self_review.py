@@ -25,6 +25,16 @@ class MultiHatSelfReviewTests(unittest.TestCase):
         self.assertEqual(report.developer_decision, "pending")
         self.assertEqual(report.decide("address").developer_decision, "address")
 
+    def test_finding_identity_is_stable_when_evidence_changes(self):
+        first = ReviewFinding(ReviewHat.QUALITY, "warning", "Missing regression", "test gap", "add test", ("verify-1",))
+        second = ReviewFinding(ReviewHat.QUALITY, "warning", "Missing regression", "test gap", "add test", ("verify-2", "verify-3"))
+        self.assertEqual(first.stable_id, second.stable_id)
+
+    def test_finding_identity_distinguishes_same_title_with_different_detail(self):
+        first = ReviewFinding(ReviewHat.SECURITY, "high", "Boundary issue", "network boundary", "enforce loopback")
+        second = ReviewFinding(ReviewHat.SECURITY, "high", "Boundary issue", "file boundary", "enforce confinement")
+        self.assertNotEqual(first.stable_id, second.stable_id)
+
     def test_missing_hat_is_rejected(self):
         reviewer = MultiHatSelfReview()
         with self.assertRaises(ValueError):
