@@ -1,4 +1,4 @@
-use aer_core::{route_resource, sha256_hex, Request, Response};
+use aer_core::{repository_digest, route_resource, sha256_hex, Request, Response};
 use std::io::{self, BufRead, Write};
 
 fn main() {
@@ -19,6 +19,11 @@ fn main() {
                 ok: true,
                 op: "resource_route".into(),
                 value: serde_json::json!({"lane": route_resource(&task_class, &observations, &lanes)}),
+            },
+            Request::RepositoryDigest { files } => Response {
+                ok: true,
+                op: "repository_digest".into(),
+                value: serde_json::json!({"digest": repository_digest(&files)}),
             },
         });
         let response = match result {
