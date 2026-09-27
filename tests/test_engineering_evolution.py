@@ -108,6 +108,14 @@ class EngineeringEvolutionTests(unittest.TestCase):
         self.assertIsInstance(result.plan, TaskPlan)
         self.assertEqual(result.source_findings, ("f1",))
 
+    def test_historical_decomposition_gate_requires_evidence(self):
+        self.cp.backlog.upsert(
+            finding_id="f-evidence", task_family="coding", capability="testing", hat="quality",
+            severity="high", title="A", detail="a", recommendation="fix a", evidence_ids=("e1",),
+        )
+        result = self.cp.historical_decomposition_gate(task_family="coding", capability="testing")
+        self.assertEqual(result.source_findings, ("f-evidence",))
+
     def test_provider_and_transfer_calibration(self):
         for success in (True, True, False):
             self.cp.record_provider_result("local", "coding", success=success, duration_seconds=2, quality=0.8)
