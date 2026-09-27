@@ -162,7 +162,7 @@ class SkillOptimizer:
         return current, tuple(applied), tuple(unmatched)
 
     def _record(self, epoch_id: str, task_family: str, baseline: SkillScore,
-                candidate: SkillScore, accepted: bool, holdout_ids: Sequence[str],
+                candidate: SkillScore, accepted: bool, holdout_ids: Sequence[str], evidence_ids: Sequence[str],
                 edits: Iterable[SkillEdit], status: str) -> None:
         now = _utc()
         with self.memory._lock, self.memory._connect() as db:
