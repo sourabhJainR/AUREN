@@ -179,6 +179,19 @@ class ContinuousEngineeringRuntime:
         existing = self._load(episode_id)
         if existing and existing.state in {"completed", "escalated", "failed"}:
             return ContinuousEngineeringReceipt(existing, None, None, True)
+        # A crash after the execution checkpoint leaves the episode in
+        # "verifying". Re-executing unknown work could risk duplicate mutation,
+        # so recovery is explicitly fail-closed.
+        if existing and existing.state == "verifying":
+            state = self._save(
+                episode_id=episode_id, task_family=task_family, capability=capability,
+                state="escalated", iteration=existing.iteration,
+                plan_digest=existing.plan_digest, evidence_ids=existing.evidence_ids,
+                remediation_ids=existing.remediation_ids,
+                terminal_action="manual_verification_required",
+                last_error="execution checkpoint exists without a durable execution receipt",
+            )
+            return ContinuousEngineeringReceipt(state, None, None, True)
 
         resumed = existing is not None
         if existing and (
@@ -234,7 +247,7 @@ class ContinuousEngineeringRuntime:
         state = self._save(
             episode_id=episode_id, task_family=task_family, capability=capability,
             state=("completed" if receipt.accepted else "escalated"),
-            iteration=receipt.iterations,
+            iteration=max(start_iteration, start_iteration + receipt.iterations),
             plan_digest=_digest([
                 d.decomposition.source_findings if d.decomposition else ()
                 for d in receipt.decisions
