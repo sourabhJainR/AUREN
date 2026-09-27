@@ -95,7 +95,7 @@ class EngineeringDashboard:
     def _repository(self):
         now = time.monotonic()
         if self._repo_cache is None or now - self._repo_cache[0] >= self._cache_seconds:
-            self._repo_cache = (now, RepositoryIntelligence.build(self.root))
+            self._repo_cache = (now, RepositoryIntelligence.build(self.root, ignores={".aer", "state"}))
         return self._repo_cache[1]
 
     def _sqlite_files(self) -> tuple[Path, ...]:
