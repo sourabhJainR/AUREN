@@ -69,6 +69,17 @@ class EngineeringEvidenceEnvelopeTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self._envelope().bind(verification_ids=("verify-1", "verify-1"))
 
+    def test_malformed_state_evidence_is_rejected(self) -> None:
+        state = self._envelope().to_state()
+        state["evidence"] = ["not-a-reference"]
+        with self.assertRaises(ValueError):
+            EngineeringEvidenceEnvelope.from_state(state)
+
+    def test_context_without_evidence_items_is_rejected(self) -> None:
+        context = SimpleNamespace(task_id="T-3", intent_digest="intent-3", context_plan_digest="plan-3", repository_snapshot_digest="repo-3", evidence_digest="context-3", items=())
+        with self.assertRaises(ValueError):
+            EngineeringEvidenceEnvelope.from_context_evidence(context)
+
     def test_references_validate_against_canonical_evidence_spine(self) -> None:
         envelope = self._envelope()
         spine = EvidenceSpine((
