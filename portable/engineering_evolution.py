@@ -235,8 +235,8 @@ class EngineeringEvolutionControlPlane:
         expected_edge_count = 2 + len(envelope.evidence)
         expected_edge_count += sum(len(ids) for _, ids in lifecycle)
         missing_edges = (f"expected_at_least_{expected_edge_count}_edges",) if len(result.edge_ids) < expected_edge_count else ()
-        valid = not missing_nodes and not missing_edges and not duplicate_nodes and bool(result.digest)
-        return EvidenceGraphIntegrity(valid, missing_nodes, missing_edges, duplicate_nodes, result.digest)
+        valid = not missing_nodes and not missing_edges and not duplicate_nodes and bool(result.graph_digest)
+        return EvidenceGraphIntegrity(valid, missing_nodes, missing_edges, duplicate_nodes, result.graph_digest)
 
     # Phase 3: predictive world feedback is recorded by the existing WorldModel.
     def record_world_feedback(self, world_model: Any, prediction: Any, actual: Any, *, evidence: Iterable[str] = ()) -> WorldFeedback:
