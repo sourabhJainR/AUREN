@@ -122,6 +122,14 @@ class EpisodeSkillReplayCorpus:
             ).fetchall()
         return tuple(row[0] for row in rows)
 
+    def register_regression_case(self, *, case_id: str, task_family: str, task_id: str, expected_outcome: str = "") -> ReplayCase:
+        """Register an existing regression case in the shared replay manifest."""
+        case = ReplayCase(
+            case_id=f"regression:{case_id}", task_family=task_family, task_id=task_id,
+            source="regression_corpus", expected_outcome=expected_outcome,
+        )
+        self.register(case)
+        return case
     def case_ids(self, *, task_family: str | None = None, limit: int = 100) -> tuple[str, ...]:
         with self.memory._lock, self.memory._connect() as db:
             if task_family:
