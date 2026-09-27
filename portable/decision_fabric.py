@@ -147,6 +147,134 @@ class DecisionFabric:
             raise ValueError(f"noul evaluator returned an incompatible result for {question.key}")
 
 
+class EvidenceTrustLevel(int):
+    """Numeric trust ordering for evidence consumed by policy decisions."""
+    MODEL_CLAIM = 0
+    TOOL_OBSERVATION = 1
+    DETERMINISTIC_RESULT = 2
+    INDEPENDENT_VERIFICATION = 3
+    INDEPENDENT_REVIEW = 4
+    PRODUCTION_OBSERVATION = 5
+
+
+@dataclass(frozen=True)
+class EvidenceAssessment:
+    evidence_id: str
+    trust_level: int
+    snapshot: str
+    verified: bool = False
+    independent: bool = False
+
+    def __post_init__(self) -> None:
+        if not self.evidence_id.strip() or not self.snapshot.strip():
+            raise ValueError("evidence_id and snapshot are required")
+        if not 0 <= self.trust_level <= 5:
+            raise ValueError("trust_level must be between 0 and 5")
+        if self.independent and self.trust_level < EvidenceTrustLevel.INDEPENDENT_VERIFICATION:
+            raise ValueError("independent evidence must be independently verifiable")
+
+
+@dataclass(frozen=True)
+class UncertaintyAssessment:
+    confidence: float
+    evidence_gap: float = 0.0
+    disagreement: float = 0.0
+    stale_evidence: float = 0.0
+    failure_risk: float = 0.0
+
+    def __post_init__(self) -> None:
+        for name, value in (("confidence", self.confidence), ("evidence_gap", self.evidence_gap),
+                            ("disagreement", self.disagreement), ("stale_evidence", self.stale_evidence),
+                            ("failure_risk", self.failure_risk)):
+            _validate_probability(value, name)
+
+    @property
+    def score(self) -> float:
+        penalty = max(self.evidence_gap, self.disagreement, self.stale_evidence, self.failure_risk)
+        return round(max(0.0, min(1.0, 0.5 * (1.0 - self.confidence) + 0.5 * penalty)), 4)
+
+    @property
+    def verification_depth(self) -> str:
+        if self.score >= 0.75:
+            return "independent-plus-human"
+        if self.score >= 0.5:
+            return "independent"
+        if self.score >= 0.25:
+            return "deep"
+        return "standard"
+
+
+@dataclass(frozen=True)
+class ResourceProfile:
+    cpu_available: int
+    memory_mb: int
+    queue_depth: int = 0
+    gpu_available: bool = False
+
+    def __post_init__(self) -> None:
+        if self.cpu_available < 1 or self.memory_mb < 128 or self.queue_depth < 0:
+            raise ValueError("invalid resource profile")
+
+
+@dataclass(frozen=True)
+class ResourceRequest:
+    estimated_cpu: int = 1
+    estimated_memory_mb: int = 512
+    estimated_seconds: float = 60.0
+    requires_gpu: bool = False
+    requires_isolation: bool = False
+
+    def __post_init__(self) -> None:
+        if self.estimated_cpu < 1 or self.estimated_memory_mb < 128 or self.estimated_seconds <= 0:
+            raise ValueError("invalid resource request")
+
+
+@dataclass(frozen=True)
+class ResourceDecision:
+    lane: str
+    workers: int
+    timeout_seconds: float
+    isolation: str
+    reason: str
+
+
+def assess_evidence_trust(assessments: Sequence[EvidenceAssessment], *, minimum: int = EvidenceTrustLevel.DETERMINISTIC_RESULT) -> bool:
+    """Return true only when every input is verified at the requested trust level."""
+    if not assessments:
+        return False
+    if not 0 <= minimum <= 5:
+        raise ValueError("minimum trust level must be between 0 and 5")
+    return all(item.verified and item.trust_level >= minimum for item in assessments)
+
+
+def assess_uncertainty(*, confidence: float, evidence_gap: float = 0.0,
+                       disagreement: float = 0.0, stale_evidence: float = 0.0,
+                       failure_risk: float = 0.0) -> UncertaintyAssessment:
+    return UncertaintyAssessment(confidence, evidence_gap, disagreement, stale_evidence, failure_risk)
+
+
+def route_resource(request: ResourceRequest, profile: ResourceProfile,
+                   *, historical_local_success: float | None = None) -> ResourceDecision:
+    if request.requires_isolation:
+        return ResourceDecision("isolated", 1, max(60.0, request.estimated_seconds * 2),
+                                "strong-isolation", "task requires isolation")
+    if request.requires_gpu and not profile.gpu_available:
+        return ResourceDecision("cloud", 1, max(60.0, request.estimated_seconds * 2),
+                                "provider-isolation", "GPU required but unavailable locally")
+    local = (
+        request.estimated_cpu <= profile.cpu_available
+        and request.estimated_memory_mb <= profile.memory_mb
+        and profile.queue_depth < max(1, profile.cpu_available * 2)
+        and (historical_local_success is None or historical_local_success >= 0.8)
+    )
+    if local:
+        return ResourceDecision("local", min(profile.cpu_available, 4),
+                                max(30.0, request.estimated_seconds * 1.5),
+                                "bounded-local", "capacity and empirical history support local execution")
+    return ResourceDecision("cloud", 1, max(60.0, request.estimated_seconds * 2),
+                            "provider-isolation", "local capacity or empirical history is insufficient")
+
+
 @dataclass(frozen=True)
 class PolicyDecision:
     action: str
@@ -181,4 +309,7 @@ class DecisionPolicy:
 __all__ = [
     "ChoiceDecision", "DecisionBatch", "DecisionFabric", "DecisionPolicy", "DecisionQuestion",
     "NoulDecision", "PolicyDecision", "ScoreDecision", "state_digest",
+    "EvidenceAssessment", "EvidenceTrustLevel", "UncertaintyAssessment",
+    "ResourceProfile", "ResourceRequest", "ResourceDecision",
+    "assess_evidence_trust", "assess_uncertainty", "route_resource",
 ]
