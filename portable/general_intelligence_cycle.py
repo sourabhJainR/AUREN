@@ -181,12 +181,19 @@ class GeneralIntelligenceCycle:
             )
             self.model.record_learning(learning)
 
+        if not result.accepted:
+            self.model.record_failure_dont(
+                problem=request.intent,
+                dont="; ".join(result.defects) or result.next_action,
+                evidence_ids=evidence,
+                confidence=0.95,
+            )
         return CognitiveCycleResult(
             cycle_id.strip(),
             intent.strip(),
             observed,
             plan,
-            {"cycle_id": cycle_id.strip(), "action": "engineering_episode"},
+            {"cycle_id": cycle_id.strip(), "action": "engineering_episode", "avoid": tuple(x.dont for x in plan.avoid)},
             result.implementation_result,
             None,
             learning,
