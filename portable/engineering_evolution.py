@@ -332,6 +332,19 @@ class EngineeringEvolutionControlPlane:
                                   tuple(controls))
 
     # Phase 7: derive a dependency-safe task plan from recurring remediation families.
+    def historical_decomposition_gate(self, *, task_family: str, capability: str,
+                                      require_evidence: bool = True) -> HistoricalDecomposition:
+        """Build historical remediation work and reject unevidenced work items when required."""
+        result = self.historical_decomposition(task_family=task_family, capability=capability)
+        if require_evidence:
+            missing = [
+                finding_id for finding_id in result.source_findings
+                if not (self.backlog.get(finding_id) and self.backlog.get(finding_id).evidence_ids)
+            ]
+            if missing:
+                raise ValueError("historical remediation lacks evidence: " + ", ".join(missing))
+        return result
+
     def historical_decomposition(self, *, task_family: str, capability: str) -> HistoricalDecomposition:
         findings = self.backlog.pending(limit=100, task_family=task_family, capability=capability)
         tasks: list[Task] = []
