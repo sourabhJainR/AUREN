@@ -286,6 +286,18 @@ class EngineeringEvolutionControlPlane:
     def change_impact(self, root: str | Path, changed: Iterable[str]) -> ImpactReport:
         return analyze(Path(root), tuple(changed))
 
+    def impact_gate(self, root: str | Path, changed: Iterable[str], *, critical_approved: bool = False) -> ImpactReport:
+        """Run impact analysis and fail closed on unapproved critical shared changes."""
+        changed_paths = tuple(str(x) for x in changed)
+        if not changed_paths:
+            raise ValueError("at least one changed path is required")
+        report = self.change_impact(root, changed_paths)
+        if report.review_required and not critical_approved:
+            critical = [item.path for item in report.impacted if item.review_level == "critical"]
+            if critical:
+                raise PermissionError("critical impact requires explicit approval: " + ", ".join(critical))
+        return report
+
     # Phase 6: predict failures before execution from persistent remediation history.
     def failure_prediction(self, *, task_family: str, capability: str) -> FailurePrediction:
         with self.memory._lock, self.memory._connect() as db:
