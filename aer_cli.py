@@ -2,6 +2,7 @@
 """Stable, self-bootstrapping AER command-line entry point."""
 from __future__ import annotations
 
+import argparse
 import hashlib
 import importlib.util
 import json
@@ -132,6 +133,18 @@ def _prepare_runtime_for_distribution(runtime) -> None:
     runtime.build = build_with_provider_payload
 
 
+def _run_dashboard(args: list[str]) -> int:
+    """Run the local Engineering Console from the active AER installation."""
+    parser = argparse.ArgumentParser(description="Run the AER Engineering Console.")
+    parser.add_argument("--project-root", default=".", help="Repository whose AER state and code graph should be displayed.")
+    parser.add_argument("--host", default="127.0.0.1", help="Bind address. Keep the default for local-only access.")
+    parser.add_argument("--port", type=int, default=8765)
+    options = parser.parse_args(args)
+    from portable.dashboard_server import serve
+    serve(options.project_root, options.host, options.port)
+    return 0
+
+
 def _has_flag(args: list[str], flag: str) -> bool:
     return flag in args or any(value.startswith(flag + "=") for value in args)
 
@@ -255,6 +268,8 @@ def main(argv: list[str] | None = None) -> int:
         args = ["install", *args, "--skill", "auto"]
     elif args and args[0] in {"install", "update"} and not _has_flag(args, "--skill"):
         args = [*args, "--skill", "auto"]
+    if args and args[0] == "dashboard":
+        return _run_dashboard(args[1:])
     runtime, temp_root = _load_runtime(args)
     _prepare_runtime_for_distribution(runtime)
     result = 1
