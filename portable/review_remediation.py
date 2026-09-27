@@ -65,7 +65,9 @@ class ReviewRemediationCycle:
 
     @staticmethod
     def _same_finding(left: ReviewFinding, right: ReviewFinding) -> bool:
-        return left.hat == right.hat and left.title.strip() == right.title.strip()
+        # Compare the same semantic identity used by the remediation backlog.
+        # Evidence IDs are intentionally excluded from stable_id.
+        return left.stable_id == right.stable_id
 
     def run(
         self,
