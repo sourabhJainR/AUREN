@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Callable, Mapping, Sequence
 
 from .sandboxed_repository import CommandEvidence, CommandSpec, RepositoryExecutionResult, SandboxedRepository
+from .multi_hat_self_review import MultiHatSelfReview, ReviewFinding, ReviewHat, SelfReviewReport
 
 
 @dataclass(frozen=True)
@@ -23,6 +24,7 @@ class RepositoryEngineeringCycleResult:
     accepted: bool
     evidence_ids: tuple[str, ...]
     rejection_reason: str = ""
+    self_review: SelfReviewReport | None = None
 
 
 class RepositoryEngineeringCycle:
@@ -62,7 +64,27 @@ class RepositoryEngineeringCycle:
             execution.failure or "verification evidence was insufficient"
         )
         return RepositoryEngineeringCycleResult(
-            proposal, execution, accepted, evidence, reason
+            proposal, execution, accepted, evidence, reason, None
+        )
+
+    def review(
+        self,
+        result: RepositoryEngineeringCycleResult,
+        *,
+        reviewers: Mapping[ReviewHat, Callable[[str, tuple[str, ...], tuple[str, ...]], Sequence[ReviewFinding]]],
+        developer_decision: str | None = None,
+    ) -> RepositoryEngineeringCycleResult:
+        report = MultiHatSelfReview().review(
+            implementation=result.proposal.intent,
+            changed_files=result.execution.changed_files,
+            evidence_ids=result.evidence_ids,
+            reviewers=reviewers,
+        )
+        if developer_decision is not None:
+            report = report.decide(developer_decision)
+        return RepositoryEngineeringCycleResult(
+            result.proposal, result.execution, result.accepted,
+            result.evidence_ids, result.rejection_reason, report
         )
 
     def propose_and_run(

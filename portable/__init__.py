@@ -111,3 +111,5 @@ __all__ = [
 from .sandboxed_repository import CommandSpec, CommandEvidence, RepositoryInspection, RepositoryExecutionResult, SandboxedRepository
 
 from .repository_engineering_cycle import PatchProposal, RepositoryEngineeringCycle, RepositoryEngineeringCycleResult
+
+from .multi_hat_self_review import ReviewHat, ReviewFinding, SelfReviewReport, MultiHatSelfReview
