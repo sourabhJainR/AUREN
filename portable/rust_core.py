@@ -1,12 +1,7 @@
 """Optional Rust-kernel bridge.
 
-The Python runtime remains authoritative for orchestration and policy. When the
-native aer-core executable is installed, deterministic hot-path operations may
-be delegated to it. If it is unavailable or fails, callers retain their
-existing Python implementation.
-
-The bridge uses JSON Lines so the native process can later be replaced by an
-in-process binding without changing the Python-facing contract.
+Python remains authoritative for orchestration and policy. Deterministic
+kernels may be delegated to the optional aer-core worker.
 """
 from __future__ import annotations
 
@@ -73,3 +68,11 @@ def route_resource(task_class: str, observations: Sequence[Mapping[str, Any]], l
         return None
     value = result.get("value")
     return value.get("lane") if isinstance(value, dict) else None
+
+
+def repository_digest(files: Sequence[Mapping[str, str]]) -> str | None:
+    result = _request({"op": "repository_digest", "files": list(files)})
+    if not result:
+        return None
+    value = result.get("value")
+    return value.get("digest") if isinstance(value, dict) else None
