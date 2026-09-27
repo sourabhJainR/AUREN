@@ -20,6 +20,7 @@ from .dream_memory import DreamMemory
 from .hypothesis_engine import BeliefEvidence
 from .persistent_memory import PersistentMemory
 from .skill_optimization import SkillEdit, SkillOptimizationResult, SkillOptimizer, SkillScore
+from .episode_skill_evolution import EpisodeSkillEvolution
 
 
 def _utc() -> str:
@@ -79,6 +80,10 @@ class AdaptiveLearningStore:
                 confidence REAL NOT NULL, observations INTEGER NOT NULL,
                 average_quality REAL NOT NULL, updated_at TEXT NOT NULL)""")
             db.execute("CREATE INDEX IF NOT EXISTS idx_deferred_learning_pending ON deferred_learning_jobs(project, status, created_at)")
+            db.execute("""CREATE TABLE IF NOT EXISTS processed_episode_skill_evolution(
+                project TEXT NOT NULL, episode_digest TEXT NOT NULL, status TEXT NOT NULL,
+                result_digest TEXT, processed_at TEXT NOT NULL,
+                PRIMARY KEY(project, episode_digest))""")
 
     def record_outcome(
         self,
@@ -157,6 +162,53 @@ class AdaptiveLearningStore:
         if row is None:
             return WorkStyleProfile(self.project, "balanced", "evidence-first", 2.0, 0.0, 0, 0.0)
         return WorkStyleProfile(self.project, row[0], row[1], float(row[2]), float(row[3]), int(row[4]), float(row[5]))
+
+    def process_engineering_episodes(
+        self,
+        *,
+        episodes: Iterable[object],
+        current_skill: str,
+        evaluator: Callable[[str, str], SkillScore],
+        independent_replay_evaluator: Callable[[str, str], SkillScore],
+        holdout_limit: int = 20,
+    ) -> tuple[object, ...]:
+        """Automatically evolve skills from completed/failed episodes in maintenance."""
+        bridge = EpisodeSkillEvolution(self.memory, self.project)
+        results: list[object] = []
+        for episode in episodes:
+            phase = str(getattr(getattr(episode, "phase", None), "value", getattr(episode, "phase", "")))
+            if phase not in {"completed", "failed"} or not getattr(episode, "evidence_ids", ()):
+                continue
+            digest = str(getattr(episode, "digest", ""))
+            if not digest:
+                continue
+            with self.memory._lock, self.memory._connect() as db:
+                row = db.execute(
+                    "SELECT status FROM processed_episode_skill_evolution WHERE project=? AND episode_digest=?",
+                    (self.project, digest),
+                ).fetchone()
+            if row is not None:
+                continue
+            try:
+                result = bridge.evolve(
+                    episode=episode,
+                    current_skill=current_skill,
+                    evaluator=evaluator,
+                    independent_replay_evaluator=independent_replay_evaluator,
+                    holdout_limit=holdout_limit,
+                )
+                results.append(result)
+                status = "staged" if result.staged else "rejected"
+                result_digest = result.optimization.digest
+            except Exception as exc:
+                status = "failed"
+                result_digest = _digest({"episode": digest, "error": type(exc).__name__})
+            with self.memory._lock, self.memory._connect() as db:
+                db.execute(
+                    "INSERT OR REPLACE INTO processed_episode_skill_evolution VALUES(?,?,?,?,?)",
+                    (self.project, digest, status, result_digest, _utc()),
+                )
+        return tuple(results)
 
     def process(self, *, limit: int = 20, dream: bool = True) -> tuple[DeferredLearningJob, ...]:
         jobs = self.pending(limit=limit)

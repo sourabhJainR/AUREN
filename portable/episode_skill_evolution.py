@@ -122,6 +122,14 @@ class EpisodeSkillReplayCorpus:
             ).fetchall()
         return tuple(row[0] for row in rows)
 
+    def register_regression_case(self, *, case_id: str, task_family: str, task_id: str, expected_outcome: str = "") -> ReplayCase:
+        """Register an existing regression case in the shared replay manifest."""
+        case = ReplayCase(
+            case_id=f"regression:{case_id}", task_family=task_family, task_id=task_id,
+            source="regression_corpus", expected_outcome=expected_outcome,
+        )
+        self.register(case)
+        return case
     def case_ids(self, *, task_family: str | None = None, limit: int = 100) -> tuple[str, ...]:
         with self.memory._lock, self.memory._connect() as db:
             if task_family:
@@ -132,6 +140,20 @@ class EpisodeSkillReplayCorpus:
             else:
                 rows = db.execute(
                     "SELECT case_id FROM skill_replay_cases WHERE project=? ORDER BY case_id LIMIT ?",
+                    (self.project, limit),
+                ).fetchall()
+        return tuple(row[0] for row in rows)
+
+    def regression_case_ids(self, *, task_family: str | None = None, limit: int = 100) -> tuple[str, ...]:
+        with self.memory._lock, self.memory._connect() as db:
+            if task_family:
+                rows = db.execute(
+                    "SELECT case_id FROM skill_replay_cases WHERE project=? AND task_family=? AND source='regression_corpus' ORDER BY case_id LIMIT ?",
+                    (self.project, task_family, limit),
+                ).fetchall()
+            else:
+                rows = db.execute(
+                    "SELECT case_id FROM skill_replay_cases WHERE project=? AND source='regression_corpus' ORDER BY case_id LIMIT ?",
                     (self.project, limit),
                 ).fetchall()
         return tuple(row[0] for row in rows)
