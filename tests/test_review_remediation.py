@@ -91,7 +91,7 @@ class ReviewRemediationTests(unittest.TestCase):
         def same_reviewers():
             return {
                 hat: (lambda h: lambda *_: (
-                    ReviewFinding(h, "high", "Unsafe path", "still unsafe", "reject unsafe path", ("verify-2",))
+                    ReviewFinding(h, "high", "Unsafe path", "unsafe write", "reject unsafe path", ("verify-2",))
                     if h == ReviewHat.SECURITY else
                     ReviewFinding(h, "info", "post-check", "reviewed", "none")
                 ,))(hat)
