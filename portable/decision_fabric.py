@@ -11,7 +11,7 @@ local development can use deterministic evaluators.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from math import isfinite
 from typing import Any, Callable, Mapping, Sequence
 
@@ -78,15 +78,16 @@ class DecisionRecipe:
     """Small, reviewable contract for a batch of semantic decisions.
 
     A recipe keeps behavior, typed questions, thresholds and optional no-match
-    choices together. It adds no execution or provider layer; DecisionFabric
+    choices together. Thresholds are metadata for the consuming policy; they
+    are not enforced by the recipe. It adds no execution or provider layer; DecisionFabric
     remains the only evaluator. The intent is to keep semantic judgment typed
     while deterministic code retains rules, calculations, execution and policy.
     """
     name: str
     behavior: str
     questions: tuple["DecisionQuestion", ...]
-    thresholds: Mapping[str, float] = ()
-    no_match: Mapping[str, str] = ()
+    thresholds: Mapping[str, float] = field(default_factory=dict)
+    no_match: Mapping[str, str] = field(default_factory=dict)
     source: str = ""
 
     def __post_init__(self) -> None:
