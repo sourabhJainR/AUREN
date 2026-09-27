@@ -231,7 +231,6 @@ class EngineeringEvolutionControlPlane:
 
     # Phase 5: deterministic repository impact prediction delegates to existing analyzer.
     def change_impact(self, root: str | Path, changed: Iterable[str]) -> ImpactReport:
-        from .impact_analysis import analyze_impact
         return analyze(Path(root), tuple(changed))
 
     # Phase 6: predict failures before execution from persistent remediation history.
