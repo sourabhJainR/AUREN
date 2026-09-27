@@ -20,7 +20,7 @@ from .output_quality import OutputQualityGate, QualityResult
 from .feedback_loop import BoundedLoop, LoopAction, LoopDefinition, LoopPass, LoopRunReceipt, VerificationResult
 from .agency_provenance import ProvenanceLedger, ProvenanceRecord
 from .engineering_design_guard import DesignDimension, DesignFinding, DesignReviewReceipt, EngineeringDesignGuard, FindingSeverity
-from .agency_state_graph import Checkpoint, CompiledStateGraph, GraphEvent, GraphInterrupt, GraphRun, InMemoryCheckpointStore, RetryPolicy, StateGraph
+from .agency_state_graph import Checkpoint, CompiledStateGraph, ConvergenceGuard, EdgeContract, GraphEvent, GraphInterrupt, GraphRun, InMemoryCheckpointStore, NodeContract, RetryPolicy, StateGraph
 from .decision_fabric import ChoiceDecision, DecisionBatch, DecisionFabric, DecisionPolicy, DecisionQuestion, NoulDecision, PolicyDecision, ScoreDecision
 from .adaptive_decision import AdaptiveInferencePolicy, HttpDecisionProvider, InferenceDecision
 from .experience_router import ExperienceRouter, ExperienceSummary
@@ -73,10 +73,11 @@ from .requirement_contract import Requirement, RequirementContract, RequirementC
 from .end_to_end_engineering_episode import EngineeringEpisodeRequest, EngineeringEpisodeResult, EndToEndEngineeringEpisode
 from .engineering_evolution import (PHASES, CompactionResult, CrossProjectValidation, EngineeringEvolutionControlPlane, EvidenceGraphResult, FailurePrediction, HistoricalDecomposition, LocalExecutionReadiness, ProviderCalibration, WorldFeedback)
 from .episode_skill_evolution import EpisodeSkillEvolution, EpisodeSkillReplayCorpus, ReplayCase, ReplayResult, SkillEvolutionResult
+from .regression_corpus import RegressionCase, RegressionCorpus
 
 __all__ = [
     "main", "AdaptiveRuntime", "AdaptiveLearningStore", "DeferredLearningJob", "WorkStyleProfile", "AdaptivePolicy", "AdaptiveTuner", "ExperienceRecord", "MaintenanceReceipt", "TuningDecision", "EmpiricalImprovement", "ImprovementObservation", "ImprovementReport",
-    "EpisodeSkillEvolution", "EpisodeSkillReplayCorpus", "ReplayCase", "ReplayResult", "SkillEvolutionResult",
+    "EpisodeSkillEvolution", "EpisodeSkillReplayCorpus", "ReplayCase", "ReplayResult", "SkillEvolutionResult", "RegressionCase", "RegressionCorpus",
     "HookBus", "HookDecision", "HookEvent", "HookPhase", "HookedExecution",
     "CapabilityRequest", "ProviderCapability", "ProviderFabric", "RoutingDecision", "SessionCheckpoint", "SessionStore",
     "ImpactRecord", "ImpactReport", "analyze", "Task", "TaskPlan", "STATUSES", "PRIORITIES",
@@ -85,7 +86,7 @@ __all__ = [
     "Handoff", "handoff_from_output", "DreamMemory", "AutomationScheduler", "Schedule", "OutputQualityGate", "QualityResult",
     "BoundedLoop", "LoopAction", "LoopDefinition", "LoopPass", "LoopRunReceipt", "VerificationResult",
     "ProvenanceLedger", "ProvenanceRecord", "DesignDimension", "DesignFinding", "DesignReviewReceipt", "EngineeringDesignGuard", "FindingSeverity",
-    "Checkpoint", "CompiledStateGraph", "GraphEvent", "GraphInterrupt", "GraphRun", "InMemoryCheckpointStore", "RetryPolicy", "StateGraph",
+    "Checkpoint", "CompiledStateGraph", "ConvergenceGuard", "EdgeContract", "GraphEvent", "GraphInterrupt", "GraphRun", "InMemoryCheckpointStore", "NodeContract", "RetryPolicy", "StateGraph",
     "ChoiceDecision", "DecisionBatch", "DecisionFabric", "DecisionPolicy", "DecisionQuestion", "NoulDecision", "PolicyDecision", "ScoreDecision", "AdaptiveInferencePolicy", "HttpDecisionProvider", "InferenceDecision", "ExperienceRouter", "ExperienceSummary",
     "AgencyReceipt", "CycleObservation", "RecursiveAgency", "WorkItem",
     "PackedFile", "RepositoryPack", "RepositoryEvidence", "RepositoryAnswer", "RepositoryIntelligence", "RepositoryMap", "render_compact",
