@@ -17,6 +17,7 @@ from .autonomous_engineering_loop import AutonomousEngineeringLoop, EngineeringL
 from .autonomous_evolution_controller import AutonomousEvolutionController, EvolutionTrigger
 from .engineering_evolution import EngineeringEvolutionControlPlane
 from .persistent_memory import PersistentMemory
+from .multi_hat_self_review import SelfReviewReport
 
 
 def _utc() -> str:
@@ -168,6 +169,7 @@ class ContinuousEngineeringRuntime:
         promote: Callable[[Any, tuple[str, ...]], bool] | None = None,
         failure_threshold: float = 0.5,
         on_evolution_trigger: Callable[[EvolutionTrigger], None] | None = None,
+        self_review: Callable[[Any, tuple[str, ...]], SelfReviewReport] | None = None,
     ) -> ContinuousEngineeringReceipt:
         for value, name in (
             (episode_id, "episode_id"), (task_family, "task_family"),
@@ -218,6 +220,7 @@ class ContinuousEngineeringRuntime:
                 learn=learn,
                 promote=promote,
                 failure_threshold=failure_threshold,
+                self_review=self_review,
             )
         except Exception as exc:
             state = self._load(episode_id) or self._save(
