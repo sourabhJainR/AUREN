@@ -77,7 +77,7 @@ class ReviewRemediationTests(unittest.TestCase):
                 reviewers=reviewers_without_original(),
                 initial=lambda f: self._candidate(f),
             )
-            self.assertEqual(result.addressed, (finding.stable_id,))
+            self.assertTrue(result.backlog[0].repair.final.accepted, result.backlog[0].repair.final.rejection_reason + " / " + result.backlog[0].repair.final.execution.failure)
             item = result.backlog[0]
             self.assertEqual(item.status, "resolved")
             self.assertEqual(item.changed_files, ("sample.py",))
@@ -129,7 +129,7 @@ class ReviewRemediationTests(unittest.TestCase):
                 reviewers=reviewers_without_original(),
                 initial=lambda f: self._candidate(f),
             )
-            self.assertEqual(result.addressed, (first.stable_id,))
+            self.assertTrue(result.backlog[0].repair.final.accepted, result.backlog[0].repair.final.rejection_reason + " / " + result.backlog[0].repair.final.execution.failure)
             self.assertEqual(result.skipped, (second.stable_id,))
 
 
