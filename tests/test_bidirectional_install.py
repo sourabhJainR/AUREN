@@ -14,11 +14,13 @@ class BidirectionalInstallTests(unittest.TestCase):
         (root / ".claude-plugin").mkdir(parents=True, exist_ok=True)
         (root / "skills" / "ai-coding-orchestrator").mkdir(parents=True, exist_ok=True)
         (root / "portable").mkdir(parents=True, exist_ok=True)
+        (root / "dashboard").mkdir(parents=True, exist_ok=True)
         (root / ".claude-plugin" / "plugin.json").write_text(json.dumps({"version": version}), encoding="utf-8")
         (root / ".ai-harness" / "config.toml").write_text("version = 20\n", encoding="utf-8")
         (root / ".ai-harness" / "marker.txt").write_text(marker, encoding="utf-8")
         (root / "skills" / "ai-coding-orchestrator" / "SKILL.md").write_text("skill\n", encoding="utf-8")
         (root / "portable" / "aer_runtime.py").write_text("print('runtime')\n", encoding="utf-8")
+        (root / "dashboard" / "index.html").write_text("<html>AER Engineering Console</html>\n", encoding="utf-8")
         (root / "aer_cli.py").write_text("print('launcher')\n", encoding="utf-8")
 
     def test_explicit_old_artifact_can_replace_new_active_version(self) -> None:
