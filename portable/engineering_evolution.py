@@ -161,23 +161,43 @@ class EngineeringEvolutionControlPlane:
 
     # Phase 2: turn the envelope into an end-to-end graph without copying claims.
     def evidence_graph(self, envelope: EngineeringEvidenceEnvelope) -> EvidenceGraphResult:
-        base = f"envelope:{envelope.envelope_digest}"
+        """Materialize complete lifecycle lineage as a bounded relationship graph."""
+        root = f"envelope:{envelope.envelope_digest}"
         nodes = [
-            ContextNode(base, "evidence_envelope", envelope.task_id, "engineering_evidence_envelope"),
+            ContextNode(root, "evidence_envelope", envelope.task_id, "engineering_evidence_envelope"),
             ContextNode(f"intent:{envelope.intent_digest}", "intent", envelope.intent_digest, "intent"),
             ContextNode(f"repo:{envelope.repository_snapshot_digest}", "repository_snapshot", envelope.repository_snapshot_digest, "repository"),
         ]
+        edges: list[ContextEdge] = []
         for ref in envelope.evidence:
             nodes.append(ContextNode(f"evidence:{ref.evidence_id}", "evidence", ref.evidence_id, "canonical_evidence",
                                       properties={"snapshot": ref.snapshot, "freshness": ref.freshness}))
+        lifecycle = (
+            ("decision", envelope.decision_ids),
+            ("changeset", (envelope.changeset_id,) if envelope.changeset_id else ()),
+            ("verification", envelope.verification_ids),
+            ("review", envelope.review_ids),
+            ("regression", envelope.regression_ids),
+            ("release", envelope.release_ids),
+            ("outcome", (envelope.outcome_id,) if envelope.outcome_id else ()),
+        )
+        for kind, ids in lifecycle:
+            for identifier in ids:
+                nodes.append(ContextNode(f"{kind}:{identifier}", kind, identifier, "engineering_lifecycle"))
         for node in nodes:
             self.graph.upsert_node(node)
-        edges: list[ContextEdge] = []
-        edges.append(self.graph.link(base, "has_intent", nodes[1].node_id, source="envelope"))
-        edges.append(self.graph.link(base, "uses_snapshot", nodes[2].node_id, source="envelope"))
+        edges.append(self.graph.link(root, "has_intent", f"intent:{envelope.intent_digest}", source="envelope"))
+        edges.append(self.graph.link(root, "uses_snapshot", f"repo:{envelope.repository_snapshot_digest}", source="envelope"))
         for ref in envelope.evidence:
-            edges.append(self.graph.link(base, "references_evidence", f"evidence:{ref.evidence_id}", source="envelope"))
-        return EvidenceGraphResult(envelope.envelope_digest, tuple(n.node_id for n in nodes), tuple(e.edge_id for e in edges), self.graph.digest())
+            edges.append(self.graph.link(root, "references_evidence", f"evidence:{ref.evidence_id}", source="envelope"))
+        previous = root
+        for kind, ids in lifecycle:
+            for identifier in ids:
+                node_id = f"{kind}:{identifier}"
+                edges.append(self.graph.link(previous, f"produces_{kind}", node_id, source="lifecycle"))
+                previous = node_id
+        return EvidenceGraphResult(envelope.envelope_digest, tuple(n.node_id for n in nodes),
+                                   tuple(e.edge_id for e in edges), self.graph.digest())
 
     # Phase 3: predictive world feedback is recorded by the existing WorldModel.
     def record_world_feedback(self, world_model: Any, prediction: Any, actual: Any, *, evidence: Iterable[str] = ()) -> WorldFeedback:
