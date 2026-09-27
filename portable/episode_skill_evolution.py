@@ -189,7 +189,7 @@ class EpisodeSkillReplayCorpus:
             ).fetchone()
             if row is None:
                 raise KeyError("staged skill epoch not found")
-            if row[2] != "staged" or row[1] != replay.digest:
+            if row[3] != "staged" or row[2] != replay.digest:
                 raise ValueError("promotion receipt does not match staged replay")
             db.execute(
                 "UPDATE skill_evolution_staging SET status='promoted' WHERE project=? AND epoch_id=?",
