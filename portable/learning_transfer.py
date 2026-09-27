@@ -56,7 +56,6 @@ class TransferCandidate:
 
 
 @dataclass(frozen=True)
-@dataclass(frozen=True)
 class FailureConstraint:
     problem: str
     dont: str
