@@ -67,6 +67,17 @@ class EngineeringEvolutionTests(unittest.TestCase):
         self.assertEqual(a.digest, b.digest)
         self.assertLessEqual(len(a.representation), 200)
 
+    def test_impact_gate_requires_approval_for_critical_shared_change(self):
+        root = Path(self.tmp.name) / "impact"
+        root.mkdir()
+        (root / "shared.py").write_text("VALUE = 1\n", encoding="utf-8")
+        (root / "one.py").write_text("from shared import VALUE\n", encoding="utf-8")
+        (root / "two.py").write_text("from shared import VALUE\n", encoding="utf-8")
+        with self.assertRaises(PermissionError):
+            self.cp.impact_gate(root, ["shared.py"])
+        report = self.cp.impact_gate(root, ["shared.py"], critical_approved=True)
+        self.assertTrue(report.review_required)
+
     def test_failure_prediction_uses_persistent_history(self):
         self.cp.backlog.upsert(
             finding_id="f1", task_family="coding", capability="testing", hat="quality",
