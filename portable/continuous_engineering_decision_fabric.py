@@ -184,7 +184,7 @@ class ContinuousEngineeringDecisionFabric:
         rate=len(passed)/len(rows); status="promote" if rate>=.9 and regressions==0 else "rollback"
         record=CanaryRecord(capability,candidate_id,baseline_id,status,len(rows),round(rate,4),regressions,baseline_id,evidence)
         with self.memory._lock,self.memory._connect() as db:
-            db.execute("""INSERT INTO decision_canaries VALUES(?,?,?,?,?,?,?,?,?,?)
+            db.execute("""INSERT INTO decision_canaries VALUES(?,?,?,?,?,?,?,?,?,?,?)
               ON CONFLICT(project,capability,candidate_id) DO UPDATE SET status=excluded.status,
               samples=excluded.samples,pass_rate=excluded.pass_rate,regressions=excluded.regressions,
               rollback_target=excluded.rollback_target,evidence_json=excluded.evidence_json,updated_at=excluded.updated_at""",
