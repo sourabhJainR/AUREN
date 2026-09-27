@@ -404,6 +404,16 @@ class EngineeringEvolutionControlPlane:
                        (source_project, target_project, capability, int(success), int(regression), _utc()))
         return self.cross_project_validation(source_project, target_project, capability)
 
+    def cross_project_gate(self, source_project: str, target_project: str, capability: str,
+                           *, min_samples: int = 5, min_transfer: float = 0.8) -> CrossProjectValidation:
+        """Require held-out transfer evidence and zero observed regressions."""
+        if source_project.strip() == target_project.strip():
+            raise ValueError("cross-project validation requires distinct projects")
+        result = self.cross_project_validation(source_project, target_project, capability)
+        if result.samples < min_samples or result.transfer_rate < min_transfer or result.regressions:
+            raise PermissionError("cross-project transfer gate failed")
+        return result
+
     def cross_project_validation(self, source_project: str, target_project: str, capability: str) -> CrossProjectValidation:
         with self.memory._lock, self.memory._connect() as db:
             rows = db.execute("SELECT success,regression FROM transfer_validation WHERE source_project=? AND target_project=? AND capability=?",
