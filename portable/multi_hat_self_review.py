@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
 from enum import Enum
 from typing import Callable, Mapping, Sequence
 
@@ -24,6 +25,14 @@ class ReviewFinding:
     detail: str
     recommendation: str
     evidence_ids: tuple[str, ...] = ()
+
+    @property
+    def stable_id(self) -> str:
+        payload = "\\0".join((
+            self.hat.value, self.severity.strip().lower(), self.title.strip(),
+            self.detail.strip(), self.recommendation.strip(), "|".join(sorted(self.evidence_ids)),
+        ))
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
 
 
 @dataclass(frozen=True)
