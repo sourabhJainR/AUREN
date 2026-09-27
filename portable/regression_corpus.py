@@ -76,10 +76,10 @@ class RegressionCorpus:
                 created_at TEXT NOT NULL, PRIMARY KEY(project,case_id,validation_digest))""")
 
     @staticmethod
-    def episode_fingerprint(*, task_family: str, task_id: str, intent_digest: str,
+    def episode_fingerprint(*, task_family: str, task_id: str = "", intent_digest: str,
                             failure_class: str = "", dont_rules: Iterable[str] = ()) -> str:
         return _digest({
-            "task_family": task_family.strip(), "task_id": task_id.strip(),
+            "task_family": task_family.strip(),
             "intent_digest": intent_digest.strip(), "failure_class": failure_class.strip(),
             "dont_rules": sorted(set(str(x).strip() for x in dont_rules if str(x).strip())),
         })[:32]
@@ -142,7 +142,7 @@ class RegressionCorpus:
             raise ValueError("regression validation requires evidence")
         if not independent:
             raise ValueError("regression promotion requires independent validation")
-        digest = _digest({"case_id": case_id, "passed": passed, "evidence": evidence, "time": _utc()})[:32]
+        digest = _digest({"case_id": case_id, "passed": passed, "evidence": evidence, "independent": independent})[:32]
         with self.memory._lock, self.memory._connect() as db:
             row = db.execute(
                 "SELECT status,validation_passes,validation_failures,consecutive_passes,evidence_ids FROM regression_cases WHERE project=? AND case_id=?",
@@ -150,10 +150,12 @@ class RegressionCorpus:
             ).fetchone()
             if row is None:
                 raise KeyError(case_id)
-            db.execute(
+            inserted = db.execute(
                 "INSERT OR IGNORE INTO regression_validations VALUES(?,?,?,?,?,?,?)",
                 (self.project, case_id, digest, int(passed), 1, json.dumps(evidence), _utc()),
-            )
+            ).rowcount
+            if not inserted:
+                return self.get(case_id)
             if passed:
                 passes, failures, consecutive = row[1] + 1, row[2], row[3] + 1
                 status = "active" if consecutive >= self.PROMOTION_PASSES else row[0]
