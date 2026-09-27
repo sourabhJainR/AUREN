@@ -105,7 +105,7 @@ __all__ = [
     "LocalWorkbench", "WorkPacket", "WorkReceipt", "WorkbenchReceipt", "packet",
     "CognitiveCycleResult", "GeneralIntelligenceCycle", "EvolutionReceipt", "MegaPlan", "MegaPromotion", "AutonomousGeneralizationCycle", "AutonomousCapabilityEvolutionCycle", "WorldMegaModel",
     "AutonomousCapabilityInvention", "CapabilityComposition", "HoldoutResult", "InventionCandidate", "InventionReceipt", "SafetyResult",
-    "AutonomousEvolutionController", "EvolutionTrigger", "CapabilityLifecycle", "CapabilityLifecycleReceipt", "GeneralizationCurriculum", "GeneralizationExperiment", "ExperimentResult", "GeneralizationReport", "AutonomousCurriculumDiscovery", "CurriculumCandidate", "CurriculumDecision", "ENGINEERING_DOMAINS", "EngineeringTask", "EngineeringEvaluation", "EngineeringCoverage", "WholeSystemEngineeringEvaluator", "Requirement", "RequirementContract", "RequirementContractEngine", "EngineeringEpisodeRequest", "EngineeringEpisodeResult", "EndToEndEngineeringEpisode",
+    "AutonomousEvolutionController", "EvolutionTrigger", "CapabilityLifecycle", "CapabilityLifecycleReceipt", "GeneralizationCurriculum", "GeneralizationExperiment", "ExperimentResult", "GeneralizationReport", "AutonomousCurriculumDiscovery", "CurriculumCandidate", "CurriculumDecision", "ENGINEERING_DOMAINS", "EngineeringTask", "EngineeringEvaluation", "EngineeringCoverage", "WholeSystemEngineeringEvaluator", "Requirement", "RequirementContract", "RequirementContractEngine", "EngineeringEpisodeRequest", "EngineeringEpisodeResult", "EndToEndEngineeringEpisode", "ReviewRemediationItem", "ReviewRemediationResult", "ReviewRemediationCycle",
 ]
 
 from .sandboxed_repository import CommandSpec, CommandEvidence, RepositoryInspection, RepositoryExecutionResult, SandboxedRepository
