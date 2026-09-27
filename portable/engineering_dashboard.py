@@ -182,12 +182,36 @@ class EngineeringDashboard:
                 "event_failures": sum(1 for e in events if e.get("status") in {"failed", "error"})}
 
     def _usage(self, tables, events, dbs):
-        durations = [int(e["duration_ms"]) for e in events
-                     if isinstance(e.get("duration_ms"), (int, float)) and e["duration_ms"] >= 0]
+        task_rows = {}
+        for event in events:
+            task_id = str(event.get("task_id") or "").strip()
+            if task_id:
+                task_rows.setdefault(task_id, []).append(event)
+        durations = []
+        task_durations = []
+        for task_id, rows in task_rows.items():
+            values = [r.get("duration_ms") for r in rows
+                      if isinstance(r.get("duration_ms"), (int, float)) and r.get("duration_ms") >= 0]
+            duration = int(values[-1]) if values else self._elapsed_ms(rows[0].get("timestamp"), rows[-1].get("timestamp"))
+            if duration is not None:
+                durations.append(duration)
+                task_durations.append({"task_id": task_id, "duration_ms": duration})
+        task_durations.sort(key=lambda x: (-x["duration_ms"], x["task_id"]))
         return {"runs": len({e.get("run_id") for e in events if e.get("run_id")}),
                 "events": len(events), "sqlite_stores": len(dbs),
-                "event_duration_ms": sum(durations),
-                "average_task_duration_ms": round(sum(durations) / len(durations)) if durations else None}
+                "average_task_duration_ms": round(sum(durations) / len(durations)) if durations else None,
+                "total_task_duration_ms": sum(durations), "task_durations": task_durations[-100:]}
+
+    @staticmethod
+    def _elapsed_ms(start, end):
+        if not start or not end:
+            return None
+        try:
+            first = datetime.fromisoformat(str(start).replace("Z", "+00:00"))
+            last = datetime.fromisoformat(str(end).replace("Z", "+00:00"))
+            return max(0, round((last - first).total_seconds() * 1000))
+        except (TypeError, ValueError):
+            return None
 
     def _quality(self, repo, tests, tables):
         source_files = len(repo.files)
