@@ -137,4 +137,64 @@ class GeneralIntelligenceCycle:
         )
 
 
+    def run_engineering_episode(
+        self,
+        *,
+        cycle_id: str,
+        intent: str,
+        observation: Observation,
+        request: EngineeringEpisodeRequest,
+        executor: Callable[[EngineeringEpisodeRequest], Any],
+        episode: EndToEndEngineeringEpisode | None = None,
+        **episode_kwargs: Any,
+    ) -> CognitiveCycleResult:
+        """Run an engineering episode and feed verified outcomes into learning."""
+        if not isinstance(cycle_id, str) or not cycle_id.strip():
+            raise ValueError("cycle_id is required")
+        if not isinstance(request, EngineeringEpisodeRequest):
+            raise TypeError("request must be an EngineeringEpisodeRequest")
+        if not callable(executor):
+            raise TypeError("executor must be callable")
+
+        observed = self.model.observe(observation)
+        plan = self.model.plan(intent.strip(), uncertainty=0.5)
+        engineering = episode or EndToEndEngineeringEpisode()
+        result = engineering.run(request, executor=executor, **episode_kwargs)
+        evidence = tuple(dict.fromkeys(result.evidence_ids))
+
+        learning = None
+        if result.accepted and evidence:
+            learning = LearningExperience(
+                id=f"{cycle_id.strip()}:engineering",
+                source_project=self.model.project,
+                task_family="software-engineering",
+                capability="end-to-end-engineering",
+                outcome="worked",
+                detail=(
+                    f"Verified engineering episode: {request.intent}. "
+                    f"coverage={result.engineering.completeness_ratio:.3f}; "
+                    f"score={result.engineering.overall_score:.3f}"
+                ),
+                evidence_ids=evidence,
+                confidence=min(1.0, max(0.5, result.engineering.overall_score)),
+                verified=True,
+            )
+            self.model.record_learning(learning)
+
+        return CognitiveCycleResult(
+            cycle_id.strip(),
+            intent.strip(),
+            observed,
+            plan,
+            {"cycle_id": cycle_id.strip(), "action": "engineering_episode"},
+            result.implementation_result,
+            None,
+            learning,
+            result.accepted,
+            "continue" if result.accepted else result.next_action,
+            evidence,
+            result,
+        )
+
+
 __all__ = ["CognitiveCycleResult", "GeneralIntelligenceCycle"]
