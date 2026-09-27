@@ -76,6 +76,20 @@ class SkillOptimizationTests(unittest.TestCase):
         self.assertEqual(len(result.unmatched_edits), 1)
         self.assertEqual(self.optimizer.rejected(), ())
 
+    def test_adaptive_learning_owns_the_maintenance_entrypoint(self):
+        from portable.adaptive_learning import AdaptiveLearningStore
+
+        store = AdaptiveLearningStore(self.memory, "demo")
+        result = store.optimize_skill(
+            task_family="coding",
+            skill="# Skill",
+            proposals=(SkillEdit("add", content="Use evidence."),),
+            train_ids=("t1",),
+            holdout_ids=("v1",),
+            score=lambda skill, ids: SkillScore(0.9 if "evidence" in skill else 0.5),
+        )
+        self.assertTrue(result.accepted)
+
     def test_slow_update_is_bounded(self):
         current = "# Skill\nRule A"
         accepted = "# Skill\nRule A\nRule B\nRule C"
