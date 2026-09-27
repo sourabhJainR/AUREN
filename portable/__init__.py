@@ -115,3 +115,5 @@ from .repository_engineering_cycle import PatchProposal, RepositoryEngineeringCy
 from .multi_hat_self_review import ReviewHat, ReviewFinding, SelfReviewReport, MultiHatSelfReview
 
 from .review_gated_repair_cycle import RepairCandidate, ReviewGatedRepairCycle, ReviewGatedRepairResult
+
+from .review_remediation import ReviewRemediationItem, ReviewRemediationResult, ReviewRemediationCycle
