@@ -112,6 +112,8 @@ See [`docs/LOCAL_OFFLOAD.md`](docs/LOCAL_OFFLOAD.md) for the API and safety mode
 
 ## Engineering lifecycle and evidence
 
+The twelve-phase engineering evolution control plane is available through `portable.engineering_evolution.EngineeringEvolutionControlPlane`, spanning canonical evidence, evidence graph, predictive feedback, AER compaction, impact/failure prediction, historical decomposition, provider calibration, cross-project validation, graduation, benchmark gates, and Ollama-independent embedded local LLM execution.
+
 The canonical `EngineeringEvidenceEnvelope` carries immutable lifecycle references from context through changeset, verification, review, learning and release without duplicating evidence claims. See [`docs/CANONICAL_ENGINEERING_EVIDENCE_ENVELOPE.md`](docs/CANONICAL_ENGINEERING_EVIDENCE_ENVELOPE.md).
 
 For substantial work the control plane follows one evidence lineage:
