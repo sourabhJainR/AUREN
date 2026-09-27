@@ -75,7 +75,10 @@ class SandboxedRepository:
                 if p.is_file() and ".git" not in p.parts
             )
         )
-        head = self._run_readonly(("git", "rev-parse", "HEAD"), self.source)[0].strip()
+        try:
+            head = self._run_readonly(("git", "rev-parse", "HEAD"), self.source)[0].strip()
+        except RuntimeError:
+            head = "unversioned:" + self._digest("snapshot", *files)
         evidence_id = self._digest("inspection", head, *files)
         return RepositoryInspection(str(self.source), files, head, evidence_id)
 
