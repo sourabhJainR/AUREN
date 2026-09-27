@@ -120,3 +120,5 @@ from .review_gated_repair_cycle import RepairCandidate, ReviewGatedRepairCycle, 
 from .review_remediation import ReviewRemediationItem, ReviewRemediationResult, ReviewRemediationCycle
 
 from .persistent_remediation_backlog import PersistentRemediationBacklog, PersistentRemediationItem
+
+from .autonomous_engineering_loop import AutonomousEngineeringLoop, EngineeringLoopDecision, EngineeringLoopReceipt
