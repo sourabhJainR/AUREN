@@ -1,0 +1,92 @@
+from pathlib import Path
+import tempfile
+import unittest
+
+from portable.engineering_evidence_envelope import EvidenceRef, EngineeringEvidenceEnvelope
+from portable.engineering_evolution import EngineeringEvolutionControlPlane, PHASES
+from portable.persistent_memory import PersistentMemory
+from portable.task_planner import TaskPlan
+
+
+class EngineeringEvolutionTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.memory = PersistentMemory(Path(self.tmp.name) / "memory.sqlite", require_approval=False)
+        self.cp = EngineeringEvolutionControlPlane(self.memory, "test-project")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_all_twelve_phases_are_exposed(self):
+        self.assertEqual(len(PHASES), 12)
+        self.assertEqual(tuple(self.cp.status()["phases"]), PHASES)
+
+    def test_evidence_graph_is_derived_from_envelope(self):
+        envelope = EngineeringEvidenceEnvelope(
+            task_id="task-1", intent_digest="intent", repository_snapshot_digest="repo",
+            evidence=(EvidenceRef("e1", "repo"),),
+        )
+        result = self.cp.evidence_graph(envelope)
+        self.assertEqual(result.envelope_id, envelope.envelope_digest)
+        self.assertGreaterEqual(len(result.node_ids), 4)
+        self.assertTrue(result.graph_digest)
+
+    def test_aer_compaction_is_deterministic_and_bounded(self):
+        items = [
+            {"evidence_id": "e2", "confidence": 0.4, "value": "secondary"},
+            {"evidence_id": "e1", "confidence": 0.9, "value": "primary"},
+        ]
+        a = self.cp.compact_context(items, budget=200)
+        b = self.cp.compact_context(items, budget=200)
+        self.assertEqual(a.digest, b.digest)
+        self.assertLessEqual(len(a.representation), 200)
+
+    def test_failure_prediction_uses_persistent_history(self):
+        self.cp.backlog.upsert(
+            finding_id="f1", task_family="coding", capability="testing", hat="quality",
+            severity="high", title="Regression", detail="test gap",
+            recommendation="add test", evidence_ids=("e1",), attempts_increment=2,
+        )
+        result = self.cp.failure_prediction(task_family="coding", capability="testing")
+        self.assertEqual(result.sample_count, 1)
+        self.assertGreater(result.probability, 0)
+
+    def test_historical_decomposition_is_dependency_safe(self):
+        self.cp.backlog.upsert(
+            finding_id="f1", task_family="coding", capability="testing", hat="quality",
+            severity="high", title="A", detail="a", recommendation="fix a",
+        )
+        result = self.cp.historical_decomposition(task_family="coding", capability="testing")
+        self.assertIsInstance(result.plan, TaskPlan)
+        self.assertEqual(result.source_findings, ("f1",))
+
+    def test_provider_and_transfer_calibration(self):
+        for success in (True, True, False):
+            self.cp.record_provider_result("local", "coding", success=success, duration_seconds=2, quality=0.8)
+        calibration = self.cp.provider_calibration("local", "coding")
+        self.assertEqual(calibration.samples, 3)
+        self.assertAlmostEqual(calibration.success_rate, 2 / 3, places=3)
+
+        for success in (True, True, True, True, True):
+            self.cp.record_transfer_result("p1", "p2", "testing", success=success)
+        transfer = self.cp.cross_project_validation("p1", "p2", "testing")
+        self.assertTrue(transfer.accepted)
+
+    def test_benchmark_gate_and_local_readiness_are_fail_closed(self):
+        class Result:
+            success_rate = 0.95
+            transfer_rate = 0.9
+        self.assertTrue(self.cp.benchmark_gate(Result()))
+        readiness = self.cp.local_execution_readiness()
+        self.assertFalse(readiness.ready)
+
+    def test_change_impact_prediction(self):
+        root = Path(self.tmp.name) / "repo"
+        root.mkdir()
+        (root / "a.py").write_text("x = 1\n", encoding="utf-8")
+        report = self.cp.change_impact(root, ["a.py"])
+        self.assertEqual(report.changed, ("a.py",))
+
+
+if __name__ == "__main__":
+    unittest.main()
