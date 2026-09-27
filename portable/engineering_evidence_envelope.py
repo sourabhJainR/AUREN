@@ -155,8 +155,13 @@ class EngineeringEvidenceEnvelope:
         if not isinstance(value, Mapping):
             raise TypeError("evidence envelope state must be a mapping")
         raw_refs = value.get("evidence", ())
+        if isinstance(raw_refs, (str, bytes)) or not isinstance(raw_refs, Iterable):
+            raise ValueError("evidence must be an iterable of mappings")
+        raw_refs = tuple(raw_refs)
+        if any(not isinstance(item, Mapping) for item in raw_refs):
+            raise ValueError("evidence references must be mappings")
         refs = tuple(EvidenceRef(str(item.get("evidence_id", "")), str(item.get("snapshot", "")), str(item.get("freshness", "")))
-                     for item in raw_refs if isinstance(item, Mapping))
+                     for item in raw_refs)
         metadata = value.get("metadata", {})
         metadata_items = tuple(sorted((str(k), str(v)) for k, v in metadata.items())) if isinstance(metadata, Mapping) else ()
         return cls(
@@ -185,7 +190,7 @@ class EngineeringEvidenceEnvelope:
                      for item in getattr(context_evidence, "items", ()))
         refs = _unique_refs(refs)
         if not refs:
-            refs = (EvidenceRef(evidence_digest, snapshot),)
+            raise ValueError("context evidence must contain at least one evidence item")
         return cls(task_id=task_id, intent_digest=intent, repository_snapshot_digest=snapshot,
                    context_plan_digest=plan, evidence=refs, metadata=(("context_evidence_digest", evidence_digest),))
 
