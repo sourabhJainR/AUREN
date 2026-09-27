@@ -79,7 +79,7 @@ class GraphAgentTeamTests(unittest.TestCase):
                         active += 1
                         peak = max(peak, active)
                     import time as _time
-                    _time.sleep(0.03)
+                    _time.sleep(0.20)
                     with lock:
                         active -= 1
                 return 0, agent.name, 0.01
