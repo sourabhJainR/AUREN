@@ -448,7 +448,14 @@ class EngineeringEvolutionControlPlane:
             raise ValueError("benchmark thresholds must be between 0 and 1")
         success = float(getattr(benchmark_result, "success_rate", 0.0))
         transfer = getattr(benchmark_result, "transfer_rate", None)
-        return success >= min_success and (transfer is None or float(transfer) >= min_transfer)
+        adversarial = getattr(benchmark_result, "adversarial_pass_rate", None)
+        if not success >= min_success:
+            return False
+        if transfer is not None and float(transfer) < min_transfer:
+            return False
+        if adversarial is not None and float(adversarial) < min_success:
+            return False
+        return True
 
     # Phase 12: local path is independent of Ollama when an embedded GGUF is configured.
     def local_execution_readiness(self, config: Any | None = None) -> LocalExecutionReadiness:

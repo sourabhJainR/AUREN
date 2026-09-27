@@ -144,6 +144,13 @@ class EngineeringEvolutionTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.cp.cross_project_gate("source", "source", "testing")
 
+    def test_benchmark_gate_rejects_weak_adversarial_evidence(self):
+        class Result:
+            success_rate = 0.95
+            transfer_rate = 0.95
+            adversarial_pass_rate = 0.5
+        self.assertFalse(self.cp.benchmark_gate(Result()))
+
     def test_graduation_gate_fails_closed(self):
         from types import SimpleNamespace
         evaluation = SimpleNamespace(total=1, coverage={"coding": 1}, pass_rate=0.5)
