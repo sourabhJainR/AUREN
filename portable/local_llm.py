@@ -173,7 +173,8 @@ def embedded_available(config: LocalLLMConfig | None = None) -> bool:
     return _embedded_available(config or LocalLLMConfig.from_env())
 
 
-_EMBEDDED_MODELS: dict[tuple[str, int], object] = {}\n_EMBEDDED_LOCK = RLock()
+_EMBEDDED_MODELS: dict[tuple[str, int], object] = {}
+_EMBEDDED_LOCK = RLock()
 
 
 def _generate_embedded(prompt: str, cfg: LocalLLMConfig) -> str:
