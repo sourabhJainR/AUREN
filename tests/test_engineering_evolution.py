@@ -106,6 +106,13 @@ class EngineeringEvolutionTests(unittest.TestCase):
         readiness = self.cp.local_execution_readiness()
         self.assertFalse(readiness.ready)
 
+    def test_compaction_never_drops_required_evidence(self):
+        required = {"evidence_id": "required", "confidence": 0.1, "required": True, "value": "must-keep"}
+        with self.assertRaises(ValueError):
+            self.cp.compact_context([required], budget=128)
+        result = self.cp.compact_context([required], budget=256)
+        self.assertIn("required", result.representation)
+
     def test_change_impact_prediction(self):
         root = Path(self.tmp.name) / "repo"
         root.mkdir()
