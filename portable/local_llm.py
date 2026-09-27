@@ -56,10 +56,16 @@ def enabled() -> bool:
     return os.environ.get("AER_LOCAL_LLM_ENABLED", "0").strip().lower() in {"1","true","yes","on"}
 
 def available(config: LocalLLMConfig | None = None) -> bool:
-    cfg=config or LocalLLMConfig.from_env()
-    req=urllib.request.Request(cfg.endpoint, method="GET")
+    """Return availability for the selected backend, including embedded mode."""
+    cfg = config or LocalLLMConfig.from_env()
+    backend = cfg.backend if cfg.backend in {"auto", "embedded", "ollama"} else "auto"
+    if backend == "embedded":
+        return embedded_available(cfg)
+    if backend == "auto" and cfg.model_path and embedded_available(cfg):
+        return True
+    req = urllib.request.Request(cfg.endpoint, method="GET")
     try:
-        with urllib.request.urlopen(req, timeout=min(3.0,cfg.timeout_seconds)) as response:
+        with urllib.request.urlopen(req, timeout=min(3.0, cfg.timeout_seconds)) as response:
             return 200 <= response.status < 500
     except (OSError, urllib.error.URLError):
         return False
@@ -222,25 +228,6 @@ def generate(prompt: str, *, config: LocalLLMConfig | None = None) -> str:
     if len(output) > cfg.max_output_chars:
         raise LocalLLMError("local LLM response exceeded configured output bound")
     return output
-
-    if not isinstance(prompt, str) or not prompt.strip():
-        raise ValueError("prompt is required")
-    cfg=config or LocalLLMConfig.from_env()
-    prompt = _matrix_prompt(prompt, cfg)
-    payload=json.dumps({"model":cfg.model,"prompt":prompt,"stream":False,
-                        "options":{"temperature":cfg.temperature,"top_p":cfg.top_p,
-                                   "repeat_penalty":cfg.repeat_penalty,"seed":cfg.seed,
-                                   "num_ctx":cfg.num_ctx,"num_predict":cfg.num_predict}}).encode()
-    req=urllib.request.Request(cfg.endpoint,data=payload,headers={"Content-Type":"application/json"},method="POST")
-    try:
-        with urllib.request.urlopen(req, timeout=cfg.timeout_seconds) as response:
-            body=json.loads(response.read().decode("utf-8"))
-    except (OSError, urllib.error.URLError, json.JSONDecodeError) as exc:
-        raise LocalLLMError(f"local LLM unavailable: {exc}") from exc
-    text=body.get("response")
-    if not isinstance(text,str) or not text.strip():
-        raise LocalLLMError("local LLM returned no response")
-    return text.strip()
 
 def fallback_allowed(prompt: str) -> bool:
     text=prompt.lower()
