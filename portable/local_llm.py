@@ -8,6 +8,8 @@ owns tools, credentials, repository mutation, or orchestration.
 from __future__ import annotations
 import json, os, urllib.error, urllib.request
 from dataclasses import dataclass
+from pathlib import Path
+from threading import RLock
 
 @dataclass(frozen=True)
 class LocalLLMConfig:
@@ -157,7 +159,7 @@ defects, regressions, security and compatibility.""",
     )
 
 def _embedded_available(cfg: LocalLLMConfig) -> bool:
-    if not cfg.model_path:
+    if not cfg.model_path or not Path(cfg.model_path).is_file():
         return False
     try:
         import llama_cpp
@@ -172,6 +174,7 @@ def embedded_available(config: LocalLLMConfig | None = None) -> bool:
 
 
 _EMBEDDED_MODELS: dict[tuple[str, int], object] = {}
+_EMBEDDED_LOCK = RLock()
 
 
 def _generate_embedded(prompt: str, cfg: LocalLLMConfig) -> str:
@@ -180,19 +183,20 @@ def _generate_embedded(prompt: str, cfg: LocalLLMConfig) -> str:
     except ImportError as exc:
         raise LocalLLMError("embedded backend requires optional 'llama-cpp-python' and a GGUF model; no Ollama instance is required") from exc
     key = (cfg.model_path, cfg.num_ctx)
-    llm = _EMBEDDED_MODELS.get(key)
-    if llm is None:
+    with _EMBEDDED_LOCK:
+        llm = _EMBEDDED_MODELS.get(key)
+        if llm is None:
+            try:
+                llm = Llama(model_path=cfg.model_path, n_ctx=cfg.num_ctx, verbose=False)
+            except Exception as exc:
+                raise LocalLLMError(f"unable to load embedded GGUF model: {exc}") from exc
+            _EMBEDDED_MODELS[key] = llm
         try:
-            llm = Llama(model_path=cfg.model_path, n_ctx=cfg.num_ctx, verbose=False)
+            result = llm(prompt, max_tokens=cfg.num_predict, temperature=cfg.temperature,
+                          top_p=cfg.top_p, repeat_penalty=cfg.repeat_penalty, seed=cfg.seed)
+            output = result["choices"][0]["text"]
         except Exception as exc:
-            raise LocalLLMError(f"unable to load embedded GGUF model: {exc}") from exc
-        _EMBEDDED_MODELS[key] = llm
-    try:
-        result = llm(prompt, max_tokens=cfg.num_predict, temperature=cfg.temperature,
-                      top_p=cfg.top_p, repeat_penalty=cfg.repeat_penalty, seed=cfg.seed)
-        output = result["choices"][0]["text"]
-    except Exception as exc:
-        raise LocalLLMError(f"embedded local LLM inference failed: {exc}") from exc
+            raise LocalLLMError(f"embedded local LLM inference failed: {exc}") from exc
     if not isinstance(output, str) or not output.strip():
         raise LocalLLMError("embedded local LLM returned no response")
     return output.strip()
