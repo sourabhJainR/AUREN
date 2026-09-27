@@ -61,6 +61,15 @@ class EvidenceGraphResult:
 
 
 @dataclass(frozen=True)
+class EvidenceGraphIntegrity:
+    valid: bool
+    missing_nodes: tuple[str, ...] = ()
+    missing_edges: tuple[str, ...] = ()
+    duplicate_nodes: tuple[str, ...] = ()
+    digest: str = ""
+
+
+@dataclass(frozen=True)
 class WorldFeedback:
     prediction_id: str
     prediction_error: str
@@ -196,8 +205,38 @@ class EngineeringEvolutionControlPlane:
                 node_id = f"{kind}:{identifier}"
                 edges.append(self.graph.link(previous, f"produces_{kind}", node_id, source="lifecycle"))
                 previous = node_id
-        return EvidenceGraphResult(envelope.envelope_digest, tuple(n.node_id for n in nodes),
-                                   tuple(e.edge_id for e in edges), self.graph.digest())
+        result = EvidenceGraphResult(envelope.envelope_digest, tuple(n.node_id for n in nodes),
+                                     tuple(e.edge_id for e in edges), self.graph.digest())
+        integrity = self.validate_evidence_graph(envelope, result)
+        if not integrity.valid:
+            raise ValueError(f"evidence graph integrity failure: missing_nodes={integrity.missing_nodes}, missing_edges={integrity.missing_edges}")
+        return result
+
+    def validate_evidence_graph(self, envelope: EngineeringEvidenceEnvelope,
+                                result: EvidenceGraphResult) -> EvidenceGraphIntegrity:
+        """Validate that every envelope lifecycle reference has graph lineage."""
+        expected_nodes = {
+            f"envelope:{envelope.envelope_digest}",
+            f"intent:{envelope.intent_digest}",
+            f"repo:{envelope.repository_snapshot_digest}",
+            *(f"evidence:{ref.evidence_id}" for ref in envelope.evidence),
+        }
+        lifecycle = (
+            ("decision", envelope.decision_ids), ("changeset", (envelope.changeset_id,) if envelope.changeset_id else ()),
+            ("verification", envelope.verification_ids), ("review", envelope.review_ids),
+            ("regression", envelope.regression_ids), ("release", envelope.release_ids),
+            ("outcome", (envelope.outcome_id,) if envelope.outcome_id else ()),
+        )
+        for kind, ids in lifecycle:
+            expected_nodes.update(f"{kind}:{identifier}" for identifier in ids)
+        node_set = set(result.node_ids)
+        missing_nodes = tuple(sorted(expected_nodes - node_set))
+        duplicate_nodes = tuple(sorted({x for x in result.node_ids if result.node_ids.count(x) > 1}))
+        expected_edge_count = 2 + len(envelope.evidence)
+        expected_edge_count += sum(len(ids) for _, ids in lifecycle)
+        missing_edges = (f"expected_at_least_{expected_edge_count}_edges",) if len(result.edge_ids) < expected_edge_count else ()
+        valid = not missing_nodes and not missing_edges and not duplicate_nodes and bool(result.digest)
+        return EvidenceGraphIntegrity(valid, missing_nodes, missing_edges, duplicate_nodes, result.digest)
 
     # Phase 3: predictive world feedback is recorded by the existing WorldModel.
     def record_world_feedback(self, world_model: Any, prediction: Any, actual: Any, *, evidence: Iterable[str] = ()) -> WorldFeedback:
@@ -354,5 +393,5 @@ __all__ = [
     "PHASES", "EngineeringEvolutionControlPlane", "EvidenceGraphResult",
     "WorldFeedback", "CompactionResult", "FailurePrediction",
     "HistoricalDecomposition", "ProviderCalibration", "CrossProjectValidation",
-    "LocalExecutionReadiness",
+    "LocalExecutionReadiness", "EvidenceGraphIntegrity",
 ]
