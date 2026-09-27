@@ -310,6 +310,7 @@ class CompiledStateGraph:
             parallel = [name for name in next_nodes if name != StateGraph.END and parallel_nodes and parallel_nodes(name)]
             sequential = [name for name in next_nodes if name != StateGraph.END and name not in parallel]
             results_by_name: dict[str, tuple[Mapping[str, Any], int]] = {}
+            isolated_failures: set[str] = set()
             if cancellation and cancellation.is_set():
                 self._checkpoint(checkpoint, run_id, step - 1, current, next_nodes, trace)
                 return GraphRun(run_id, dict(current), tuple(events), tuple(trace), step - 1, True)
@@ -328,6 +329,7 @@ class CompiledStateGraph:
                         except Exception as exc:
                             if parallel_failure_mode == "fail_fast":
                                 raise
+                            isolated_failures.add(name)
                             events.append(GraphEvent(step, name, "failed-isolated", 1, type(exc).__name__))
                 except FutureTimeoutError as exc:
                     for future in futures.values(): future.cancel()
@@ -342,7 +344,7 @@ class CompiledStateGraph:
                     return GraphRun(run_id, dict(current), tuple(events), tuple(trace), step - 1, True)
                 results_by_name[name] = self._run_node_with_timeout(name, snapshot, node_timeout_seconds)
             for name in next_nodes:
-                if name == StateGraph.END: continue
+                if name == StateGraph.END or name in isolated_failures: continue
                 output, attempts = results_by_name[name]
                 self._merge(current, output); events.append(GraphEvent(step, name, "completed", attempts)); trace.append(name)
                 if name in self._g._after:
@@ -350,7 +352,7 @@ class CompiledStateGraph:
                     raise GraphInterrupt(run_id, step, dict(current), tuple(next_after), f"interrupted after {name}")
             next_set: list[str] = []
             for name in next_nodes:
-                if name != StateGraph.END: next_set.extend(self._next(name, current))
+                if name != StateGraph.END and name not in isolated_failures: next_set.extend(self._next(name, current))
             next_nodes = list(dict.fromkeys(next_set)); self._checkpoint(checkpoint, run_id, step, current, next_nodes, trace)
             if StateGraph.END in next_nodes: next_nodes = []
         return GraphRun(run_id, dict(current), tuple(events), tuple(trace), step)
