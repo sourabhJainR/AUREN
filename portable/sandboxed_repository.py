@@ -124,6 +124,60 @@ class SandboxedRepository:
                 failure,
             )
 
+    def execute_patch(
+        self,
+        files: dict[str, str],
+        commands: Sequence[CommandSpec],
+        *,
+        max_files: int = 32,
+        max_file_chars: int = 200_000,
+    ) -> RepositoryExecutionResult:
+        """Apply a bounded proposed patch only inside an isolated workspace."""
+        if not files:
+            raise ValueError("patch must contain at least one file")
+        if len(files) > max_files:
+            raise ValueError("patch exceeds file-count budget")
+        with tempfile.TemporaryDirectory(prefix="aer-engineering-patch-") as temp:
+            workspace = Path(temp) / self.source.name
+            shutil.copytree(
+                self.source,
+                workspace,
+                ignore=shutil.ignore_patterns(".git", "__pycache__", ".pytest_cache"),
+            )
+            for relative, content in files.items():
+                if not isinstance(relative, str) or not relative.strip():
+                    raise ValueError("patch paths must be non-empty strings")
+                if not isinstance(content, str):
+                    raise ValueError("patch content must be text")
+                if len(content) > max_file_chars:
+                    raise ValueError("patch file exceeds size budget")
+                path = Path(relative)
+                if path.is_absolute() or ".." in path.parts or ".git" in path.parts:
+                    raise PermissionError(f"unsafe patch path: {relative}")
+                target = (workspace / path).resolve()
+                if workspace not in target.parents and target != workspace:
+                    raise PermissionError(f"patch escapes workspace: {relative}")
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(content)
+            before = self._snapshot(workspace)
+            evidence: list[CommandEvidence] = []
+            passed = True
+            failure = ""
+            for spec in commands:
+                self._validate_command(spec)
+                result = self._execute_one(workspace, spec, None)
+                evidence.append(result)
+                if result.return_code != 0:
+                    passed = False
+                    failure = spec.name
+                    break
+            after = self._snapshot(workspace)
+            changed = tuple(sorted(k for k in set(before) | set(after) if before.get(k) != after.get(k)))
+            return RepositoryExecutionResult(
+                str(workspace), changed, tuple(evidence), passed,
+                tuple(x.evidence_id for x in evidence), failure,
+            )
+
     def _validate_command(self, spec: CommandSpec) -> None:
         if not spec.name.strip() or not spec.argv:
             raise ValueError("command must have a name and argv")
