@@ -71,6 +71,7 @@ class GraphAgentTeamTests(unittest.TestCase):
             active = 0
             peak = 0
             lock = threading.Lock()
+            rendezvous = threading.Barrier(2, timeout=2.0)
 
             def invoke(agent, prompt):
                 nonlocal active, peak
@@ -78,10 +79,11 @@ class GraphAgentTeamTests(unittest.TestCase):
                     with lock:
                         active += 1
                         peak = max(peak, active)
-                    import time as _time
-                    _time.sleep(0.20)
-                    with lock:
-                        active -= 1
+                    try:
+                        rendezvous.wait()
+                    finally:
+                        with lock:
+                            active -= 1
                 return 0, agent.name, 0.01
 
             team = GraphAgentTeam([
