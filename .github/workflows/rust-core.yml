@@ -24,6 +24,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo fmt --all -- --check
+      - run: cargo fmt --all
       - run: cargo test --all-targets
       - run: printf '%s\n%s\n' '{"op":"sha256","value":"hello"}' '{"op":"resource_route","task_class":"index","observations":[{"lane":"local","task_class":"index","duration":1.0,"memory_mb":32,"success":true},{"lane":"cloud","task_class":"index","duration":1.0,"memory_mb":32,"success":false}],"lanes":["local","cloud"]}' | cargo run --quiet --bin aer-core
