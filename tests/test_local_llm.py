@@ -33,6 +33,12 @@ class LocalLLMTests(unittest.TestCase):
         self.assertIn("every finding must cite supplied evidence", prompt)
         self.assertIn("portable/retry.py", prompt)
 
+    def test_embedded_readiness_requires_a_real_model_file(self):
+        from portable import local_llm
+        cfg = LocalLLMConfig(backend="embedded", model_path="/definitely/missing/model.gguf")
+        with patch("portable.local_llm.llama_cpp", create=True):
+            self.assertFalse(local_llm.embedded_available(cfg))
+
     def test_embedded_backend_routes_without_ollama(self):
         from portable import local_llm
         cfg = LocalLLMConfig(backend="embedded", model_path="/models/test.gguf")
