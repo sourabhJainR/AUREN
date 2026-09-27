@@ -33,8 +33,6 @@ class ClosedLoopTests(unittest.TestCase):
             self.assertEqual(receipt.terminal_action,"escalate")
             self.assertFalse(called)
 
-if __name__=="__main__": unittest.main()
-
     def test_self_review_address_stops_before_learning_or_promotion(self):
         with tempfile.TemporaryDirectory() as d:
             memory = PersistentMemory(Path(d) / "m.sqlite", require_approval=False)
@@ -95,3 +93,5 @@ if __name__=="__main__": unittest.main()
             self.assertTrue(receipt.accepted)
             self.assertEqual(receipt.terminal_action, "promoted")
             self.assertEqual(promoted, [1])
+
+if __name__=="__main__": unittest.main()
