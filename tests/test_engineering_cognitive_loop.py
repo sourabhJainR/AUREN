@@ -17,7 +17,6 @@ from portable.engineering_traceability import TraceLink
 class EngineeringCognitiveLoopTests(unittest.TestCase):
     def setUp(self):
         self.memory = PersistentMemory(":memory:")
-        self.memory.initialize()
 
     def request(self):
         req = RequirementContractEngine().build(
