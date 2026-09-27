@@ -16,12 +16,27 @@ from .decision_fabric import (
     ChoiceDecision,
     DecisionFabric,
     DecisionQuestion,
+    DecisionRecipe,
     NoulDecision,
     ScoreDecision,
 )
 
 
 DecisionEvaluator = Callable[[Mapping[str, Any], DecisionQuestion], Any]
+
+
+INFERENCE_DEPTH_RECIPE = DecisionRecipe(
+    name="inference-depth",
+    behavior="Choose the minimum safe inference depth; escalate rather than invent certainty.",
+    questions=(DecisionQuestion(
+        "depth",
+        "score",
+        levels=("minimal", "standard", "deep", "human"),
+        claim="Choose the minimum safe inference depth for this execution decision.",
+    ),),
+    thresholds={"provider_confidence": 0.75},
+    source="AER typed decision contract",
+)
 
 
 @dataclass(frozen=True)
@@ -122,10 +137,11 @@ class AdaptiveInferencePolicy:
         self,
         *,
         provider: HttpDecisionProvider | None = None,
-        min_confidence: float = 0.75,
+        min_confidence: float | None = None,
     ) -> None:
         self.provider = provider
-        self.min_confidence = max(0.5, min(0.99, float(min_confidence)))
+        configured_confidence = INFERENCE_DEPTH_RECIPE.thresholds["provider_confidence"] if min_confidence is None else float(min_confidence)
+        self.min_confidence = max(0.5, min(0.99, configured_confidence))
 
     def decide(
         self,
@@ -142,16 +158,11 @@ class AdaptiveInferencePolicy:
             "failure_probability": max(0.0, min(1.0, float(failure_probability))),
         }
         state = dict(values)
-        question = DecisionQuestion(
-            "depth",
-            "score",
-            levels=("minimal", "standard", "deep", "human"),
-            claim="Choose the minimum safe inference depth for this execution decision.",
-        )
+        question = INFERENCE_DEPTH_RECIPE.questions[0]
         evaluator = self.provider
         if evaluator and evaluator.configured:
             try:
-                batch = DecisionFabric(lambda current, item: evaluator.evaluate(current, (item,))[item.key]).evaluate(state, (question,))
+                batch = DecisionFabric(lambda current, item: evaluator.evaluate(current, (item,))[item.key]).evaluate_recipe(state, INFERENCE_DEPTH_RECIPE)
                 decision = batch.decisions["depth"]
                 if isinstance(decision, ScoreDecision) and decision.confidence >= self.min_confidence:
                     return InferenceDecision(
@@ -185,4 +196,4 @@ class AdaptiveInferencePolicy:
         )
 
 
-__all__ = ["AdaptiveInferencePolicy", "HttpDecisionProvider", "InferenceDecision"]
+__all__ = ["AdaptiveInferencePolicy", "HttpDecisionProvider", "InferenceDecision", "INFERENCE_DEPTH_RECIPE"]
