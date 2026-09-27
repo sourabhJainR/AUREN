@@ -299,6 +299,19 @@ class EngineeringEvolutionControlPlane:
         return report
 
     # Phase 6: predict failures before execution from persistent remediation history.
+    def failure_gate(self, *, task_family: str, capability: str, threshold: float = 0.5,
+                     approved: bool = False) -> FailurePrediction:
+        """Predict historical failure risk and fail closed above the threshold."""
+        if not 0 <= threshold <= 1:
+            raise ValueError("threshold must be between 0 and 1")
+        prediction = self.failure_prediction(task_family=task_family, capability=capability)
+        if prediction.probability >= threshold and not approved:
+            raise PermissionError(
+                f"historical failure gate requires approval: {task_family}/{capability} "
+                f"probability={prediction.probability:.3f}"
+            )
+        return prediction
+
     def failure_prediction(self, *, task_family: str, capability: str) -> FailurePrediction:
         with self.memory._lock, self.memory._connect() as db:
             rows = db.execute(
