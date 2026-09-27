@@ -426,6 +426,17 @@ class EngineeringEvolutionControlPlane:
         return CrossProjectValidation(capability, source_project, target_project, samples, round(rate,4), regressions, accepted, reason)
 
     # Phase 10: expose graduation evidence while keeping authority with AutonomyGraduator.
+    def graduation_gate(self, evaluation: Any, self_profile: Any, *, regression_passed: bool,
+                        safety_reviewed: bool, human_approved: bool) -> Any:
+        """Fail closed unless the autonomy graduation evidence is eligible."""
+        receipt = self.graduation_ready(
+            evaluation, self_profile, regression_passed=regression_passed,
+            safety_reviewed=safety_reviewed, human_approved=human_approved,
+        )
+        if not receipt.eligible:
+            raise PermissionError("autonomy graduation gate failed: " + "; ".join(receipt.reasons))
+        return receipt
+
     def graduation_ready(self, evaluation: Any, self_profile: Any, *, regression_passed: bool, safety_reviewed: bool, human_approved: bool) -> Any:
         from .autonomy_graduation import AutonomyEvidence, AutonomyGraduator, GraduationPolicy
         evidence = AutonomyEvidence(evaluation, self_profile, regression_passed, safety_reviewed, human_approved)
