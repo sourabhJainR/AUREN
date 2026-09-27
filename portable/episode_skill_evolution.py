@@ -199,7 +199,7 @@ class EpisodeSkillReplayCorpus:
                 "INSERT OR REPLACE INTO skill_evolution_active VALUES(?,?,?,?,?,?)",
                 (self.project, epoch_id, row[1], replay.digest, json.dumps(evidence), _utc()),
             )
-        return row[0]
+        return row[1]
 
     def active_skill(self) -> str | None:
         with self.memory._lock, self.memory._connect() as db:
