@@ -42,6 +42,21 @@ class EngineeringEvolutionTests(unittest.TestCase):
         self.assertTrue(integrity.valid)
         self.assertFalse(integrity.missing_nodes)
 
+    def test_world_feedback_uses_verified_empirical_calibration(self):
+        from types import SimpleNamespace
+        class Model:
+            def score_prediction(self, prediction, actual):
+                return SimpleNamespace(prediction_id="p1", error_digest="err", absolute_match=True)
+            def prediction_calibration(self, *, predicate=None, action=None):
+                return {"samples": 4, "accuracy": 0.75}
+        prediction = SimpleNamespace(prediction_id="p1", predicate="state", action="repair", confidence=0.9)
+        result = self.cp.record_world_feedback(Model(), prediction, "ok", evidence=("observation-1",))
+        self.assertEqual(result.sample_count, 4)
+        self.assertAlmostEqual(result.prediction_accuracy, 0.75)
+        self.assertAlmostEqual(result.calibrated_confidence, 0.825)
+        with self.assertRaises(ValueError):
+            self.cp.record_world_feedback(Model(), prediction, "ok")
+
     def test_aer_compaction_is_deterministic_and_bounded(self):
         items = [
             {"evidence_id": "e2", "confidence": 0.4, "value": "secondary"},
