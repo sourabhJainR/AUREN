@@ -99,6 +99,21 @@ class RepositoryGuard:
         if context.ahead > 0 and context.behind > 0: reasons.append("branch diverged from base; do not auto-merge")
         return not reasons, tuple(reasons)
 
+    @staticmethod
+    def integration_plan(context: RepositoryContext) -> tuple[str, ...]:
+        """Describe explicit host actions required to synchronize branches."""
+        if context.dirty:
+            return ("preserve or commit/stash unrelated local changes",)
+        if not context.upstream_available:
+            return (f"establish/read the configured base ref {context.base_ref}",)
+        if context.behind and context.ahead:
+            return ("review divergence", "resolve integration explicitly", "re-run impact and regression checks")
+        if context.behind:
+            return ("fetch upstream", f"refresh {context.branch} from {context.base_ref}", "re-run impact and regression checks")
+        if context.ahead:
+            return ("run verification", "open/update the integration PR")
+        return ("working tree is synchronized; proceed to scoped planning",)
+
 class ContinuousEngineeringDecisionFabric:
     """Persist routing observations and make bounded evidence-driven decisions."""
     def __init__(self,memory:PersistentMemory,project:str)->None:
@@ -143,12 +158,21 @@ class ContinuousEngineeringDecisionFabric:
                 duration=float(declared.get("duration",duration)); cost=float(declared.get("cost",cost))
                 quality=float(declared.get("quality",quality)); failure=float(declared.get("failure",failure))
             depth_factor={"standard":1.0,"deep":1.15,"independent":1.30}.get(depth,1.20)
+            legacy = tuple(repository.legacy_constraints) if repository else ()
             if impact_review_required or (repository and repository.dirty): depth_factor*=1.15
+            # Legacy constraints never disappear because a faster route exists.
+            # They increase verification/risk cost unless the candidate explicitly
+            # declares compatibility evidence for the named constraints.
+            compatible = set(str(x) for x in raw.get("legacy_compatible", ()))
+            unmet_legacy = tuple(x for x in legacy if x not in compatible)
+            if unmet_legacy:
+                depth_factor*=1.20
+                failure=min(.95, failure+.05*len(unmet_legacy))
             score=quality*100-failure*45-duration*.08-cost*2-(depth_factor-1)*5
             rows.append(DecisionCandidate(provider,tool,depth,parallel,round(duration,4),round(failure,4),round(quality,4),round(cost,4),round(score,4),
                 ((f"{samples} historical observations","verification depth adjusted for repository risk") if samples else ("cold-start; declared defaults used",))))
         ordered=tuple(sorted(rows,key=lambda x:(-x.score,x.expected_failure,x.expected_duration,x.provider)))
-        rationale=("measured success, duration, cost and quality drive routing","repository risk increases verification depth")
+        rationale=("measured success, duration, cost and quality drive routing","repository risk increases verification depth","legacy constraints remain active unless compatibility evidence is supplied")
         if repository and repository.behind:rationale+=("base divergence requires explicit refresh before mutation",)
         return Decision(task_family,capability,ordered[0],ordered[1:],impact_review_required,repository,rationale)
     def compare_counterfactuals(self,candidates:Sequence[DecisionCandidate],execute_and_measure:Callable[[DecisionCandidate],CounterfactualResult])->tuple[CounterfactualResult,...]:
