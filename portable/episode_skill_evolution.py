@@ -184,7 +184,7 @@ class EpisodeSkillReplayCorpus:
             raise ValueError("independent replay gate did not pass")
         with self.memory._lock, self.memory._connect() as db:
             row = db.execute(
-                "SELECT skill,replay_digest,status FROM skill_evolution_staging WHERE project=? AND epoch_id=?",
+                "SELECT skill,candidate_skill,replay_digest,status FROM skill_evolution_staging WHERE project=? AND epoch_id=?",
                 (self.project, epoch_id),
             ).fetchone()
             if row is None:
@@ -197,7 +197,7 @@ class EpisodeSkillReplayCorpus:
             )
             db.execute(
                 "INSERT OR REPLACE INTO skill_evolution_active VALUES(?,?,?,?,?,?)",
-                (self.project, epoch_id, row[0], replay.digest, json.dumps(evidence), _utc()),
+                (self.project, epoch_id, row[1], replay.digest, json.dumps(evidence), _utc()),
             )
         return row[0]
 
