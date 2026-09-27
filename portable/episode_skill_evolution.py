@@ -144,6 +144,20 @@ class EpisodeSkillReplayCorpus:
                 ).fetchall()
         return tuple(row[0] for row in rows)
 
+    def regression_case_ids(self, *, task_family: str | None = None, limit: int = 100) -> tuple[str, ...]:
+        with self.memory._lock, self.memory._connect() as db:
+            if task_family:
+                rows = db.execute(
+                    "SELECT case_id FROM skill_replay_cases WHERE project=? AND task_family=? AND source='regression_corpus' ORDER BY case_id LIMIT ?",
+                    (self.project, task_family, limit),
+                ).fetchall()
+            else:
+                rows = db.execute(
+                    "SELECT case_id FROM skill_replay_cases WHERE project=? AND source='regression_corpus' ORDER BY case_id LIMIT ?",
+                    (self.project, limit),
+                ).fetchall()
+        return tuple(row[0] for row in rows)
+
     def replay(
         self,
         *,
