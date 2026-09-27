@@ -28,7 +28,15 @@ class ReviewFinding:
 
     @property
     def stable_id(self) -> str:
-        # Identity is semantic, not evidence-bound. Verification evidence changes\n        # as a finding moves through repair; it must not create a new finding ID.\n        payload = "\\0".join((\n            self.hat.value, self.severity.strip().lower(), self.title.strip(),\n            self.detail.strip(), self.recommendation.strip(),\n        ))
+        # Identity is semantic, not evidence-bound. Verification evidence changes
+        # as a finding moves through repair; it must not create a new finding ID.
+        payload = "\0".join((
+            self.hat.value,
+            self.severity.strip().lower(),
+            self.title.strip(),
+            self.detail.strip(),
+            self.recommendation.strip(),
+        ))
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
 
 
