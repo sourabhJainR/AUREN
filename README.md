@@ -283,6 +283,36 @@ The service starts automatically and waits efficiently for the durable monthly s
 
 The service only owns lifecycle and execution of the already-gated maintenance lane. It does not change credentials, permissions, merge authority, security policy, or active task policy. A failed maintenance cycle remains retryable through the scheduler's claim/run ledger instead of being silently discarded.
 
+## AER Engineering Console
+
+AER includes a lightweight local web UI for observing engineering execution, learning, evidence, regression protection, repository/code-graph state, quality signals, benchmarks, research activity, and test growth.
+
+The console is observation-only and reuses AER's existing state owners. It is bundled into portable AER installations; no Node.js or separate UI installation is required.
+
+After AER is installed, start it against the repository you want to inspect:
+
+~~~bash
+python ~/.aer/current/aer_cli.py dashboard --project-root /path/to/your/repository
+~~~
+
+Windows PowerShell:
+
+~~~powershell
+python "$HOME\\.aer\\current\\aer_cli.py" dashboard --project-root "C:\\path\\to\\your\\repository"
+~~~
+
+Then open http://127.0.0.1:8765.
+
+If the default port is busy:
+
+~~~bash
+python ~/.aer/current/aer_cli.py dashboard --project-root /path/to/your/repository --port 8876
+~~~
+
+The dashboard uses the selected project root for repository intelligence and existing AER state. It does not expose source contents, prompts, credentials, or provide write/execution APIs.
+
+See [dashboard/README.md](dashboard/README.md) for installation-path details, Windows/Linux/macOS commands, remote access through SSH tunneling, health checks, troubleshooting, and the direct module invocation.
+
 ## AER CLI and portable distribution
 
 The GitHub Actions `aer-portable` artifact is self-contained and includes both the outer `aer_cli.py` launcher and `aer-portable.zip`.

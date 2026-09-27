@@ -29,7 +29,7 @@ AER_BRANCH = "main"
 MANIFEST_NAME = "aer-bundle.json"
 PAYLOAD_ROOT = "payload"
 LAUNCHER_PATH = "aer_cli.py"
-REQUIRED_PATHS = (".ai-harness", "skills/ai-coding-orchestrator", "portable")
+REQUIRED_PATHS = (".ai-harness", "skills/ai-coding-orchestrator", "portable", "dashboard")
 EXCLUDED_PARTS = {"__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".git", "worktrees"}
 MUTABLE_FILE_NAMES = {"execution.journal.jsonl", "telemetry.jsonl", "task-memory.jsonl", "regression-events.jsonl"}
 
@@ -254,7 +254,7 @@ def _copy_tree_without_mutable_state(source: Path, destination: Path) -> None:
 
 def _copy_payload(payload: Path, version_root: Path) -> None:
     version_root.mkdir(parents=True, exist_ok=True)
-    for name in (".ai-harness", "portable"):
+    for name in (".ai-harness", "portable", "dashboard"):
         source = payload / name
         if source.is_dir():
             _copy_tree_without_mutable_state(source, version_root / name)
