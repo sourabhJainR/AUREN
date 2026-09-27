@@ -28,6 +28,7 @@ class SkillOptimizationTests(unittest.TestCase):
             proposals=(SkillEdit("add", content="Always retry once.", rationale="verified failures"),),
             train_ids=("t1", "t2"),
             holdout_ids=("v1", "v2"),
+            evidence_ids=("ev1", "ev2"),
             score=score,
         )
         self.assertTrue(result.accepted)
@@ -46,6 +47,7 @@ class SkillOptimizationTests(unittest.TestCase):
             proposals=(SkillEdit("add", content="bad rule", rationale="candidate"),),
             train_ids=("t1",),
             holdout_ids=("v1",),
+            evidence_ids=("ev1",),
             score=score,
         )
         self.assertFalse(result.accepted)
@@ -60,6 +62,7 @@ class SkillOptimizationTests(unittest.TestCase):
                 proposals=(),
                 train_ids=("same",),
                 holdout_ids=("same",),
+                evidence_ids=("ev1",),
                 score=lambda skill, ids: SkillScore(0.5),
             )
 
@@ -70,6 +73,7 @@ class SkillOptimizationTests(unittest.TestCase):
             proposals=(SkillEdit("replace", content="new", anchor="missing"),),
             train_ids=("t1",),
             holdout_ids=("v1",),
+            evidence_ids=("ev1",),
             score=lambda skill, ids: SkillScore(0.5),
         )
         self.assertFalse(result.accepted)
@@ -89,6 +93,18 @@ class SkillOptimizationTests(unittest.TestCase):
             score=lambda skill, ids: SkillScore(0.9 if "evidence" in skill else 0.5),
         )
         self.assertTrue(result.accepted)
+
+    def test_missing_evidence_is_fail_closed(self):
+        with self.assertRaises(ValueError):
+            self.optimizer.epoch(
+                task_family="coding",
+                skill="# Skill",
+                proposals=(SkillEdit("add", content="Use evidence."),),
+                train_ids=("t1",),
+                holdout_ids=("v1",),
+                evidence_ids=(),
+                score=lambda skill, ids: SkillScore(1.0),
+            )
 
     def test_slow_update_is_bounded(self):
         current = "# Skill\nRule A"
