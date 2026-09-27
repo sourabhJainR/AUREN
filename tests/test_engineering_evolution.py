@@ -116,6 +116,14 @@ class EngineeringEvolutionTests(unittest.TestCase):
         result = self.cp.historical_decomposition_gate(task_family="coding", capability="testing")
         self.assertEqual(result.source_findings, ("f-evidence",))
 
+    def test_provider_selection_uses_empirical_calibration(self):
+        for _ in range(3):
+            self.cp.record_provider_result("fast", "coding", success=True, duration_seconds=1, quality=0.9)
+            self.cp.record_provider_result("slow", "coding", success=True, duration_seconds=5, quality=0.9)
+        self.assertEqual(self.cp.select_provider(("fast", "slow"), "coding"), "fast")
+        with self.assertRaises(LookupError):
+            self.cp.select_provider(("unknown",), "coding")
+
     def test_provider_and_transfer_calibration(self):
         for success in (True, True, False):
             self.cp.record_provider_result("local", "coding", success=success, duration_seconds=2, quality=0.8)

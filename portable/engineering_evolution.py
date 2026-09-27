@@ -372,6 +372,19 @@ class EngineeringEvolutionControlPlane:
                        (self.project, provider, capability, int(success), float(duration_seconds), float(quality), _utc()))
         return self.provider_calibration(provider, capability)
 
+    def select_provider(self, providers: Iterable[str], capability: str, *, min_samples: int = 3) -> str:
+        """Select a calibrated provider using quality, success and latency evidence."""
+        candidates = []
+        for provider in dict.fromkeys(str(x).strip() for x in providers if str(x).strip()):
+            calibration = self.provider_calibration(provider, capability)
+            if calibration.samples >= min_samples:
+                score = calibration.success_rate * calibration.mean_quality
+                latency_penalty = 1.0 / (1.0 + calibration.mean_duration_seconds)
+                candidates.append((score * latency_penalty, provider))
+        if not candidates:
+            raise LookupError("no provider has sufficient empirical calibration")
+        return max(candidates, key=lambda item: (item[0], item[1]))[1]
+
     def provider_calibration(self, provider: str, capability: str) -> ProviderCalibration:
         with self.memory._lock, self.memory._connect() as db:
             rows = db.execute("SELECT success,duration,quality FROM provider_calibration WHERE project=? AND provider=? AND capability=?",
