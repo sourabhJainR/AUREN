@@ -32,7 +32,7 @@
     },
     "verification": {"type": "array", "items": {"$ref": "#/$defs/verification"}},
     "outcome": {"$ref": "#/$defs/outcome"},
-    "evidence_envelope": {"type": "object", "additionalProperties": false, "required": ["schema_version", "task_id", "intent_digest", "repository_snapshot_digest", "evidence", "envelope_digest"], "properties": {"schema_version": {"const": "1.0"}, "task_id": {"type": "string", "minLength": 1}, "intent_digest": {"type": "string", "minLength": 1}, "repository_snapshot_digest": {"type": "string", "minLength": 1}, "context_plan_digest": {"type": "string"}, "evidence": {"type": "array", "items": {"$ref": "#/$defs/evidence_envelope_ref"}, "minItems": 1}, "decision_ids": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}, "changeset_id": {"type": "string"}, "verification_ids": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}, "review_ids": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}, "regression_ids": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}, "release_ids": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}, "outcome_id": {"type": "string"}, "parent_envelope_id": {"type": "string"}, "metadata": {"type": "object"}, "envelope_digest": {"type": "string", "minLength": 1}}},
+    "remediation_backlog": {"type": "array", "items": {"$ref": "#/$defs/remediation_item"}},
     "open_risks": {"type": "array", "items": {"$ref": "#/$defs/item"}},
     "next": {"type": "array", "items": {"type": "string"}},
     "metadata": {"type": "object", "additionalProperties": true}
@@ -76,7 +76,7 @@
         "command": {"type": "string"}, "evidence_ids": {"type": "array", "items": {"type": "string"}}, "details": {"type": "string"}
       }
     },
-    "evidence_envelope_ref": {"type": "object", "additionalProperties": false, "required": ["evidence_id"], "properties": {"evidence_id": {"type": "string", "minLength": 1}, "snapshot": {"type": "string"}, "freshness": {"type": "string"}}},
+    "remediation_item": {"type": "object", "additionalProperties": false, "required": ["finding_id", "status", "priority", "task_family", "capability"], "properties": {"finding_id": {"type": "string", "minLength": 1}, "status": {"enum": ["pending", "in_progress", "blocked", "resolved", "accepted", "deferred"]}, "priority": {"type": "number"}, "task_family": {"type": "string"}, "capability": {"type": "string"}, "attempts": {"type": "integer", "minimum": 0}, "evidence_ids": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}, "resolution_evidence_ids": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}}},
     "outcome": {
       "type": "object", "additionalProperties": false, "required": ["status"],
       "properties": {

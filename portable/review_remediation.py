@@ -12,6 +12,7 @@ from typing import Any, Callable, Mapping, Sequence
 from .multi_hat_self_review import ReviewFinding, ReviewHat, SelfReviewReport
 from .review_gated_repair_cycle import RepairCandidate, ReviewGatedRepairCycle, ReviewGatedRepairResult
 from .sandboxed_repository import CommandSpec
+from .persistent_remediation_backlog import PersistentRemediationBacklog
 
 
 @dataclass(frozen=True)
@@ -83,6 +84,11 @@ class ReviewRemediationCycle:
         repair: Callable[[ReviewFinding, str, int], RepairCandidate] | None = None,
         learning_transfer: Any | None = None,
         max_attempts: int = 3,
+        backlog: PersistentRemediationBacklog | None = None,
+        task_family: str = "review-remediation",
+        capability: str = "remediation",
+        session_id: str = "",
+        episode_id: str = "",
     ) -> ReviewRemediationResult:
         if not isinstance(report, SelfReviewReport):
             raise TypeError("report must be a SelfReviewReport")
@@ -105,6 +111,14 @@ class ReviewRemediationCycle:
 
         for finding_id in selected:
             finding = available[finding_id]
+            if backlog is not None:
+                backlog.upsert(
+                    finding_id=finding_id, task_family=task_family, capability=capability,
+                    hat=finding.hat.value, severity=finding.severity, title=finding.title,
+                    detail=finding.detail, recommendation=finding.recommendation,
+                    evidence_ids=finding.evidence_ids, status="in_progress",
+                    session_id=session_id, episode_id=episode_id,
+                )
             candidate = initial(finding)
             if not isinstance(candidate, RepairCandidate):
                 raise TypeError("initial callback must return RepairCandidate")
@@ -156,6 +170,16 @@ class ReviewRemediationCycle:
                         confidence=0.95,
                     )
 
+            if backlog is not None:
+                backlog.upsert(
+                    finding_id=finding_id, task_family=task_family, capability=capability,
+                    hat=finding.hat.value, severity=finding.severity, title=finding.title,
+                    detail=finding.detail, recommendation=finding.recommendation,
+                    evidence_ids=finding.evidence_ids, status=("resolved" if resolved else "pending"),
+                    session_id=session_id, episode_id=episode_id,
+                    resolution_evidence_ids=resolution_evidence,
+                    attempts_increment=len(cycle_result.repair.attempts) if cycle_result.repair else 0,
+                )
             items.append(ReviewRemediationItem(
                 finding_id=finding_id,
                 hat=finding.hat,
