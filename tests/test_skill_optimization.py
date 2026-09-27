@@ -90,6 +90,7 @@ class SkillOptimizationTests(unittest.TestCase):
             proposals=(SkillEdit("add", content="Use evidence."),),
             train_ids=("t1",),
             holdout_ids=("v1",),
+            evidence_ids=("ev1",),
             score=lambda skill, ids: SkillScore(0.9 if "evidence" in skill else 0.5),
         )
         self.assertTrue(result.accepted)
