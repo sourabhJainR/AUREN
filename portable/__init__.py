@@ -76,7 +76,8 @@ from .episode_skill_evolution import EpisodeSkillEvolution, EpisodeSkillReplayCo
 
 __all__ = [
     "main", "AdaptiveRuntime", "AdaptiveLearningStore", "DeferredLearningJob", "WorkStyleProfile", "AdaptivePolicy", "AdaptiveTuner", "ExperienceRecord", "MaintenanceReceipt", "TuningDecision", "EmpiricalImprovement", "ImprovementObservation", "ImprovementReport",
-    "EpisodeSkillEvolution", "EpisodeSkillReplayCorpus", "ReplayCase", "ReplayResult", "SkillEvolutionResult",\n    "HookBus", "HookDecision", "HookEvent", "HookPhase", "HookedExecution",
+    "EpisodeSkillEvolution", "EpisodeSkillReplayCorpus", "ReplayCase", "ReplayResult", "SkillEvolutionResult",
+    "HookBus", "HookDecision", "HookEvent", "HookPhase", "HookedExecution",
     "CapabilityRequest", "ProviderCapability", "ProviderFabric", "RoutingDecision", "SessionCheckpoint", "SessionStore",
     "ImpactRecord", "ImpactReport", "analyze", "Task", "TaskPlan", "STATUSES", "PRIORITIES",
     "CAPABILITIES", "Capability", "CapabilityFabric", "ProviderAdapter", "ProviderAdapterRegistry",
