@@ -54,6 +54,24 @@ class ContinuousEngineeringRuntimeTests(unittest.TestCase):
             self.assertEqual(receipt.state.state, "escalated")
             self.assertIsNotNone(receipt.evolution)
 
+    def test_interrupted_execution_checkpoint_is_fail_closed(self):
+        with tempfile.TemporaryDirectory() as d:
+            m = PersistentMemory(Path(d) / "m.sqlite", require_approval=False)
+            runtime = ContinuousEngineeringRuntime(m, "p")
+            runtime._save(
+                episode_id="e3", task_family="coding", capability="testing",
+                state="verifying", iteration=1, plan_digest="plan-x",
+            )
+            called = []
+            receipt = runtime.run(
+                episode_id="e3", task_family="coding", capability="testing",
+                execute=lambda plan: called.append(1),
+                verify=lambda result: (True, ("v",)),
+            )
+            self.assertEqual(receipt.state.state, "escalated")
+            self.assertEqual(receipt.state.terminal_action, "manual_verification_required")
+            self.assertFalse(called)
+
 
 if __name__ == "__main__":
     unittest.main()
