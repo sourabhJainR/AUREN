@@ -126,3 +126,11 @@ from .autonomous_engineering_loop import AutonomousEngineeringLoop, EngineeringL
 from .continuous_engineering_runtime import EngineeringEpisodeState, ContinuousEngineeringReceipt, ContinuousEngineeringRuntime
 
 from .continuous_engineering_decision_fabric import RepositoryContext, RepositoryGuard, DecisionCandidate, Decision, CounterfactualResult, CanaryRecord, ContinuousEngineeringDecisionFabric
+
+from .secure_execution import ExecutionLimits, IsolationContract, TrustClass, contract_for
+from .repository_index import ImpactEdge, RepositoryIndex, SymbolRecord
+from .crash_recovery import Checkpoint as CrashCheckpoint, CheckpointStore
+from .resource_calibration import ResourceCalibrator, ResourceObservation
+from .adversarial_benchmark import AdversarialBenchmark, AdversarialCase, AdversarialResult
+from .engineering_console import ConsoleCommand, ConsoleSnapshot, EngineeringConsole
+from .production_readiness import ProductionReadiness
