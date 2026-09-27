@@ -2,6 +2,7 @@
 from __future__ import annotations
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
+import time
 import json
 from pathlib import Path
 import re
@@ -48,6 +49,8 @@ class EngineeringDashboard:
         self.project = project or self.root.name
         self.state_dir = self.root / ".aer" / "dashboard"
         self.event_path = self.state_dir / "events.jsonl"
+        self._repo_cache = None
+        self._cache_seconds = 5.0
 
     def record_event(self, *, run_id: str, event: str, status: str = "running",
                      task_id: str = "", detail: str = "", started_at: str = "",
@@ -66,7 +69,7 @@ class EngineeringDashboard:
             handle.write(json.dumps(payload, sort_keys=True) + "\n")
 
     def snapshot(self) -> DashboardSnapshot:
-        repo = RepositoryIntelligence.build(self.root)
+        repo = self._repository()
         dbs = self._sqlite_files()
         tables = self._table_counts(dbs)
         events = self._events()
@@ -88,6 +91,12 @@ class EngineeringDashboard:
             tests=tests,
             graph=self._graph(repo),
         )
+
+    def _repository(self):
+        now = time.monotonic()
+        if self._repo_cache is None or now - self._repo_cache[0] >= self._cache_seconds:
+            self._repo_cache = (now, RepositoryIntelligence.build(self.root))
+        return self._repo_cache[1]
 
     def _sqlite_files(self) -> tuple[Path, ...]:
         candidates = []
@@ -156,9 +165,9 @@ class EngineeringDashboard:
 
     def _tasks(self, tables, events):
         ids = {str(e.get("task_id")) for e in events if e.get("task_id")}
-        completed = self._sum(tables, ("experience_history", "regression_cases", "episode"))
-        return {"observed": max(completed, len(ids)), "event_runs": len({e.get("run_id") for e in events if e.get("run_id")}),
-                "completed_like_records": completed}
+        experience = self._sum(tables, ("experience_history",))
+        return {"observed": max(experience, len(ids)), "event_runs": len({e.get("run_id") for e in events if e.get("run_id")}),
+                "completed_experience_records": experience}
 
     def _learnings(self, tables):
         return {"deferred_jobs": self._sum(tables, ("deferred_learning",)),
