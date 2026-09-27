@@ -169,7 +169,7 @@ class EpisodeSkillReplayCorpus:
               epoch_id: str) -> None:
         with self.memory._lock, self.memory._connect() as db:
             db.execute(
-                "INSERT OR REPLACE INTO skill_evolution_staging VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                "INSERT OR REPLACE INTO skill_evolution_staging VALUES(?,?,?,?,?,?,?,?,?,?)",
                 (self.project, epoch_id, episode.episode_id, task_family, current_skill,
                  candidate_skill, json.dumps(sorted(set(holdout_ids))), replay.digest,
                  "staged", _utc()),
