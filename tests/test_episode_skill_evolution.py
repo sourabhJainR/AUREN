@@ -64,7 +64,11 @@ class EpisodeSkillEvolutionTests(unittest.TestCase):
         memory = self.memory()
         try:
             bridge = EpisodeSkillEvolution(memory, "p1")
-            failed = self.completed("ep-failed", "task-failed")
+            failed = EngineeringEpisode.start(
+                episode_id="ep-failed", task_id="task-failed", project="p1",
+                repository_snapshot="repo", intent_digest="intent-failed",
+                evidence_ids=("evidence-failed",),
+            ).with_plan("plan-failed", capability="coding").start_execution()
             failed = failed.fail(
                 failure_class="flaky-test",
                 dont_rules=("Do not use timing sleeps for synchronization.",),
