@@ -34,3 +34,20 @@ def test_dashboard_event_file_is_jsonl_and_durable():
         data=__import__("json").loads(dashboard.event_path.read_text(encoding="utf-8").strip())
         assert data["run_id"]=="r2"
         assert data["metadata"]["hat"]=="quality"
+
+def test_dashboard_reads_durable_active_engineering_episode():
+    import sqlite3
+    with tempfile.TemporaryDirectory() as tmp:
+        root=Path(tmp); state=root/"state"; state.mkdir()
+        db_path=state/"aer.sqlite3"
+        with sqlite3.connect(db_path) as db:
+            db.execute("""CREATE TABLE engineering_episodes(
+                project TEXT, episode_id TEXT, task_family TEXT, capability TEXT,
+                state TEXT, iteration INTEGER, plan_digest TEXT, evidence_json TEXT,
+                remediation_json TEXT, evolution_triggered INTEGER, terminal_action TEXT,
+                last_error TEXT, updated_at TEXT, PRIMARY KEY(project,episode_id))""")
+            db.execute("INSERT INTO engineering_episodes VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                       ("demo","ep-1","bugfix","python","verifying",2,"plan","[]","[]",0,"","", "2026-09-28T00:00:00+00:00"))
+        snapshot=EngineeringDashboard(root).snapshot().as_dict()
+        assert snapshot["executions"][0]["episode_id"]=="ep-1"
+        assert snapshot["executions"][0]["status"]=="verifying"
