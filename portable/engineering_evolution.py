@@ -267,11 +267,15 @@ class EngineeringEvolutionControlPlane:
             (dict(x) for x in items),
             key=lambda x: (-float(x.get("confidence", 0.0)), str(x.get("evidence_id", x.get("id", "")))),
         )
+        required = [item for item in ranked if bool(item.get("required", False))]
+        optional = [item for item in ranked if not bool(item.get("required", False))]
         rows: list[str] = []
         used = 0
-        for item in ranked:
+        for item in (*required, *optional):
             compact = "|".join(f"{k}={json.dumps(item[k], ensure_ascii=False, separators=(',', ':'))}" for k in sorted(item))
             if used + len(compact) + 1 > budget:
+                if item in required:
+                    raise ValueError("context budget is too small for required evidence")
                 continue
             rows.append(compact)
             used += len(compact) + 1
