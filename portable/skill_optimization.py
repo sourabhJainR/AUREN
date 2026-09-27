@@ -116,7 +116,10 @@ class SkillOptimizer:
                 op TEXT NOT NULL, content TEXT NOT NULL, anchor TEXT NOT NULL,
                 rationale TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL,
                 PRIMARY KEY(project,epoch_id,target,op,anchor,content))""")
-            db.execute("""CREATE TABLE IF NOT EXISTS skill_optimization_evidence(\n                project TEXT NOT NULL, epoch_id TEXT NOT NULL, evidence_id TEXT NOT NULL,\n                PRIMARY KEY(project,epoch_id,evidence_id))""")\n            db.execute("""CREATE TABLE IF NOT EXISTS skill_optimization_epochs(
+            db.execute("""CREATE TABLE IF NOT EXISTS skill_optimization_evidence(
+                project TEXT NOT NULL, epoch_id TEXT NOT NULL, evidence_id TEXT NOT NULL,
+                PRIMARY KEY(project,epoch_id,evidence_id))""")
+            db.execute("""CREATE TABLE IF NOT EXISTS skill_optimization_epochs(
                 project TEXT NOT NULL, epoch_id TEXT NOT NULL, task_family TEXT NOT NULL,
                 baseline_score REAL NOT NULL, candidate_score REAL NOT NULL,
                 accepted INTEGER NOT NULL, holdout_ids TEXT NOT NULL,
