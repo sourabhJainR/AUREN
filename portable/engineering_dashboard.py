@@ -73,7 +73,7 @@ class EngineeringDashboard:
         dbs = self._sqlite_files()
         tables = self._table_counts(dbs)
         events = self._events()
-        tests = self._tests_snapshot()
+        tests = self._tests_snapshot(events)
         return DashboardSnapshot(
             generated_at=_utc(), project=self.project,
             repository={"root": str(self.root), "snapshot": repo.digest(),
@@ -232,7 +232,7 @@ class EngineeringDashboard:
         return {"research_records": self._sum(tables, ("research", "hypothesis", "information")),
                 "capability_experiments": self._sum(tables, ("capability", "experiment"))}
 
-    def _tests_snapshot(self):
+    def _tests_snapshot(self, events=()):
         files, cases = [], 0
         test_root = self.root / "tests"
         paths = sorted(test_root.rglob("test_*.py")) if test_root.exists() else ()
@@ -243,7 +243,10 @@ class EngineeringDashboard:
                 cases += len(re.findall(r"^\s*(?:async\s+)?def\s+test_", text, re.M))
             except OSError:
                 continue
-        return {"files": len(files), "cases": cases, "paths": files[-100:]}
+        added = sum(int(e.get("metadata", {}).get("tests_added", 0))
+                    for e in events if isinstance(e.get("metadata"), dict)
+                    and str(e.get("metadata", {}).get("tests_added", "")).isdigit())
+        return {"files": len(files), "cases": cases, "tests_added_observed": added, "paths": files[-100:]}
 
     def _graph(self, repo):
         by_kind = {}
@@ -253,7 +256,10 @@ class EngineeringDashboard:
         for path in repo.files:
             degree = sum(1 for e in repo.edges if e.source_path == path or e.target_path == path)
             connected.append((path, degree))
+        top_files = sorted(connected, key=lambda x: (-x[1], x[0]))[:24]
+        edge_rows = [{"source": e.source_path, "target": e.target_path, "kind": e.kind,
+                      "confidence": round(float(e.confidence), 3)} for e in repo.edges[:160]]
         return {"nodes": len(repo.files), "edges": len(repo.edges), "edge_kinds": by_kind,
-                "top_files": sorted(connected, key=lambda x: (-x[1], x[0]))[:12]}
+                "top_files": top_files, "observed_edges": edge_rows}
 
 __all__ = ["DashboardSnapshot", "EngineeringDashboard"]
