@@ -136,6 +136,14 @@ class EngineeringEvolutionTests(unittest.TestCase):
         transfer = self.cp.cross_project_validation("p1", "p2", "testing")
         self.assertTrue(transfer.accepted)
 
+    def test_cross_project_gate_requires_held_out_transfer(self):
+        for _ in range(5):
+            self.cp.record_transfer_result("source", "target", "testing", success=True)
+        result = self.cp.cross_project_gate("source", "target", "testing")
+        self.assertTrue(result.accepted)
+        with self.assertRaises(ValueError):
+            self.cp.cross_project_gate("source", "source", "testing")
+
     def test_benchmark_gate_and_local_readiness_are_fail_closed(self):
         class Result:
             success_rate = 0.95
