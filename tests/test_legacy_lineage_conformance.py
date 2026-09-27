@@ -22,8 +22,8 @@ from portable.agent_capabilities import (
     ProviderAdapterRegistry,
     Skill,
 )
-from portable.adaptive_trigger import AdaptiveTriggerStore
-from portable.ai_coding_agency_bridge import AICodingAgencyBridge
+from portable.adaptive_trigger import AdaptiveTrigger
+from portable.ai_coding_agency_bridge import CodingTask, run_coding_task
 from portable.hermes_runtime import HermesRuntime
 
 
