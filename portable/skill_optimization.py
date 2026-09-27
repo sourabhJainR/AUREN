@@ -73,6 +73,7 @@ class SkillOptimizationResult:
     unmatched_edits: tuple[SkillEdit, ...]
     reason: str
     holdout_ids: tuple[str, ...]
+    evidence_ids: tuple[str, ...]
     digest: str
 
 
@@ -115,7 +116,7 @@ class SkillOptimizer:
                 op TEXT NOT NULL, content TEXT NOT NULL, anchor TEXT NOT NULL,
                 rationale TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL,
                 PRIMARY KEY(project,epoch_id,target,op,anchor,content))""")
-            db.execute("""CREATE TABLE IF NOT EXISTS skill_optimization_epochs(
+            db.execute("""CREATE TABLE IF NOT EXISTS skill_optimization_evidence(\n                project TEXT NOT NULL, epoch_id TEXT NOT NULL, evidence_id TEXT NOT NULL,\n                PRIMARY KEY(project,epoch_id,evidence_id))""")\n            db.execute("""CREATE TABLE IF NOT EXISTS skill_optimization_epochs(
                 project TEXT NOT NULL, epoch_id TEXT NOT NULL, task_family TEXT NOT NULL,
                 baseline_score REAL NOT NULL, candidate_score REAL NOT NULL,
                 accepted INTEGER NOT NULL, holdout_ids TEXT NOT NULL,
@@ -173,6 +174,11 @@ class SkillOptimizer:
                 "baseline": baseline.__dict__, "candidate": candidate.__dict__,
                 "accepted": accepted, "holdout_ids": sorted(set(holdout_ids)),
             }
+            for evidence_id in sorted(set(evidence_ids)):
+                db.execute(
+                    "INSERT OR IGNORE INTO skill_optimization_evidence VALUES(?,?,?)",
+                    (self.project, epoch_id, evidence_id),
+                )
             db.execute(
                 "INSERT OR REPLACE INTO skill_optimization_epochs VALUES(?,?,?,?,?,?,?,?,?)",
                 (self.project, epoch_id, task_family,
@@ -201,6 +207,7 @@ class SkillOptimizer:
         proposals: Sequence[SkillEdit],
         train_ids: Sequence[str],
         holdout_ids: Sequence[str],
+        evidence_ids: Sequence[str],
         score: Callable[[str, Sequence[str]], SkillScore],
     ) -> SkillOptimizationResult:
         """Propose -> bounded edit -> disjoint held-out validation."""
@@ -208,6 +215,9 @@ class SkillOptimizer:
             raise ValueError("task_family is required")
         if not train_ids or not holdout_ids:
             raise ValueError("train and holdout tasks are required")
+        clean_evidence = tuple(sorted({str(x).strip() for x in evidence_ids if str(x).strip()}))
+        if not clean_evidence:
+            raise ValueError("verified skill optimization requires evidence_ids")
         train_set, holdout_set = set(train_ids), set(holdout_ids)
         if train_set & holdout_set:
             raise ValueError("train and holdout sets must be disjoint")
@@ -236,19 +246,19 @@ class SkillOptimizer:
         epoch_id = _digest({
             "project": self.project, "task_family": task_family,
             "skill": _digest(skill), "proposals": [e.__dict__ for e in selected],
-            "train_ids": sorted(train_set), "holdout_ids": sorted(holdout_set),
+            "train_ids": sorted(train_set), "holdout_ids": sorted(holdout_set), "evidence_ids": clean_evidence,
         })[:24]
         if accepted:
             self._record(epoch_id, task_family, baseline, candidate, True,
-                         holdout_ids, applied, "accepted")
+                         holdout_ids, clean_evidence, applied, "accepted")
         else:
             self._record(epoch_id, task_family, baseline, candidate, False,
-                         holdout_ids, rejected, "rejected")
+                         holdout_ids, clean_evidence, rejected, "rejected")
         return SkillOptimizationResult(
             accepted, baseline, candidate,
             candidate_skill if accepted else skill,
             applied if accepted else (), rejected, unmatched, reason,
-            tuple(sorted(holdout_set)), epoch_id,
+            tuple(sorted(holdout_set)), clean_evidence, epoch_id,
         )
 
     def slow_update(self, current: str, accepted: str, *, rate: float = 0.25) -> str:
