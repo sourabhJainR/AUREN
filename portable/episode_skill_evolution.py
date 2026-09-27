@@ -252,6 +252,13 @@ class EpisodeSkillEvolution:
                 ids.append(record.id)
         return tuple(ids)
 
+    def failure_memory_rules(self, *, limit: int = 8) -> tuple[str, ...]:
+        with self.memory._lock, self.memory._connect() as db:
+            rows = db.execute(
+                "SELECT text FROM memory WHERE project=? AND category='failure-dont' AND verified=1 ORDER BY confidence DESC,created_at DESC LIMIT ?",
+                (self.project, limit),
+            ).fetchall()
+        return tuple(row[0] for row in rows)
     def evolve(
         self,
         *,
@@ -269,7 +276,13 @@ class EpisodeSkillEvolution:
         family = task_family or self.corpus.task_family(episode)
         self.corpus.register_episode(episode, task_family=family)
         failure_memory_ids = self.ingest_failure_memory(episode)
-        proposals = self.proposals_from_episode(episode)
+        proposals = list(self.proposals_from_episode(episode))
+        existing = {edit.content.strip() for edit in proposals}
+        for rule in self.failure_memory_rules():
+            content = f"- {rule.strip()}"
+            if content not in existing:
+                proposals.append(SkillEdit("add", content, rationale="verified failure memory"))
+        proposals = tuple(proposals)
         if not proposals:
             raise ValueError("episode produced no bounded skill proposals")
         holdout_ids = self.corpus.holdout(task_family=family, exclude_task_ids=(episode.task_id,), limit=holdout_limit)
