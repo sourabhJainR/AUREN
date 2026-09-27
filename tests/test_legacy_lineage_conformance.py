@@ -20,7 +20,6 @@ from portable.agent_capabilities import (
 )
 from portable.adaptive_trigger import AdaptiveTrigger
 from portable.ai_coding_agency_bridge import CodingTask, run_coding_task
-from portable.hermes_runtime import HermesRuntime
 from portable.trigger_runtime import TriggerRuntime
 
 
@@ -45,7 +44,6 @@ class LegacyLineageConformanceTests(unittest.TestCase):
             registry = SkillRegistry()
             registry.register(Skill("demo", "demo skill", "run safely"))
             self.assertEqual(registry.load("demo", []).name, "demo")
-        self.assertIsNotNone(HermesRuntime())
 
     def test_provider_fallback_contract(self):
         registry = ProviderAdapterRegistry([
