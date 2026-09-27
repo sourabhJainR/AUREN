@@ -80,7 +80,7 @@ class EngineeringDashboard:
                         "files": len(repo.files),
                         "symbols": sum(len(f.symbols) for f in repo.files.values()),
                         "edges": len(repo.edges)},
-            executions=self._executions(events),
+            executions=self._executions(events, dbs),
             tasks=self._tasks(tables, events),
             learnings=self._learnings(tables),
             findings=self._findings(tables, events),
@@ -155,13 +155,48 @@ class EngineeringDashboard:
     def _sum(tables: dict[str, int], needles: Iterable[str]) -> int:
         return sum(v for k, v in tables.items() if any(n in k.lower() for n in needles))
 
-    def _executions(self, events: tuple[dict[str, Any], ...]) -> tuple[dict[str, Any], ...]:
+    def _executions(self, events: tuple[dict[str, Any], ...], dbs: Iterable[Path]) -> tuple[dict[str, Any], ...]:
         latest = {}
         for row in events:
             if row.get("run_id"):
                 latest[str(row["run_id"])] = row
         active = [r for r in latest.values() if r.get("status") in {"running", "executing", "started"}]
-        return tuple(sorted(active, key=lambda r: str(r.get("timestamp", "")), reverse=True)[:50])
+        active.extend(self._active_episode_rows(dbs))
+        unique = {}
+        for row in active:
+            key = str(row.get("run_id") or row.get("episode_id") or "")
+            if key:
+                unique[key] = row
+        return tuple(sorted(unique.values(), key=lambda r: str(r.get("updated_at") or r.get("timestamp") or ""), reverse=True)[:50])
+
+    def _active_episode_rows(self, paths: Iterable[Path]) -> tuple[dict[str, Any], ...]:
+        rows = []
+        for path in paths:
+            try:
+                uri = f"file:{path.as_posix()}?mode=ro"
+                with sqlite3.connect(uri, uri=True, timeout=0.5) as db:
+                    table = db.execute(
+                        "SELECT name FROM sqlite_master WHERE type='table' AND name='engineering_episodes'"
+                    ).fetchone()
+                    if not table:
+                        continue
+                    values = db.execute(
+                        """SELECT episode_id,project,task_family,capability,state,iteration,
+                                  updated_at,last_error
+                           FROM engineering_episodes
+                           WHERE state IN ('planned','running','verifying','learning')
+                           ORDER BY updated_at DESC LIMIT 50"""
+                    ).fetchall()
+                    for row in values:
+                        rows.append({
+                            "run_id": row[0], "episode_id": row[0], "task_id": row[0],
+                            "project": row[1], "task_family": row[2], "capability": row[3],
+                            "status": row[4], "iteration": row[5], "updated_at": row[6],
+                            "detail": row[7] or "",
+                        })
+            except (OSError, sqlite3.Error):
+                continue
+        return tuple(rows)
 
     def _tasks(self, tables, events):
         ids = {str(e.get("task_id")) for e in events if e.get("task_id")}
