@@ -33,7 +33,7 @@ class AutonomousEngineeringLoop:
             verify: Callable[[Any], tuple[bool, Iterable[str]]],
             learn: Callable[[Any, tuple[str, ...]], None] | None = None,
             promote: Callable[[Any, tuple[str, ...]], bool] | None = None,
-            failure_threshold: float = .75) -> EngineeringLoopReceipt:
+            failure_threshold: float = .5) -> EngineeringLoopReceipt:
         if not episode_id.strip() or not task_family.strip() or not capability.strip():
             raise ValueError("episode_id, task_family and capability are required")
         if not 0 <= failure_threshold <= 1: raise ValueError("failure_threshold must be between 0 and 1")
