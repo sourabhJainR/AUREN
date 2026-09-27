@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import replace
 from types import SimpleNamespace
 import unittest
 
@@ -61,9 +60,10 @@ class EngineeringEvidenceEnvelopeTests(unittest.TestCase):
 
     def test_tampered_digest_is_rejected(self) -> None:
         envelope = self._envelope()
-        tampered = replace(envelope, envelope_digest="tampered")
+        tampered = envelope.to_state()
+        tampered["envelope_digest"] = "tampered"
         with self.assertRaises(ValueError):
-            EngineeringEvidenceEnvelope.from_state(tampered.to_state())
+            EngineeringEvidenceEnvelope.from_state(tampered)
 
     def test_duplicate_stage_ids_are_rejected(self) -> None:
         with self.assertRaises(ValueError):
