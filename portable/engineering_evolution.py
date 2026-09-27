@@ -74,6 +74,8 @@ class WorldFeedback:
     prediction_id: str
     prediction_error: str
     calibrated_confidence: float
+    prediction_accuracy: float
+    sample_count: int
     evidence: tuple[str, ...]
 
 
@@ -240,14 +242,22 @@ class EngineeringEvolutionControlPlane:
 
     # Phase 3: predictive world feedback is recorded by the existing WorldModel.
     def record_world_feedback(self, world_model: Any, prediction: Any, actual: Any, *, evidence: Iterable[str] = ()) -> WorldFeedback:
-        if not hasattr(world_model, "score_prediction"):
-            raise TypeError("world_model must expose score_prediction")
+        if not hasattr(world_model, "score_prediction") or not hasattr(world_model, "prediction_calibration"):
+            raise TypeError("world_model must expose score_prediction and prediction_calibration")
+        evidence_ids = tuple(dict.fromkeys(str(x).strip() for x in evidence if str(x).strip()))
+        if not evidence_ids:
+            raise ValueError("verified world feedback requires evidence")
         error = world_model.score_prediction(prediction, actual)
+        predicate = getattr(prediction, "predicate", None)
+        action = getattr(prediction, "action", None)
+        calibration = world_model.prediction_calibration(predicate=predicate, action=action)
+        accuracy = float(calibration.get("accuracy", 0.0))
+        samples = int(calibration.get("samples", 0))
         confidence = float(getattr(prediction, "confidence", 0.0))
-        matched = bool(getattr(error, "absolute_match", False))
-        adjusted = min(1.0, confidence + 0.1) if matched else max(0.0, confidence - 0.2)
-        return WorldFeedback(str(getattr(prediction, "prediction_id", "")), str(getattr(error, "error_digest", "")),
-                             round(adjusted, 4), tuple(dict.fromkeys(str(x) for x in evidence)))
+        adjusted = round((confidence + accuracy) / 2.0, 4) if samples else round(confidence, 4)
+        return WorldFeedback(str(getattr(prediction, "prediction_id", "")),
+                             str(getattr(error, "error_digest", "")), adjusted,
+                             round(accuracy, 4), samples, evidence_ids)
 
     # Phase 4: compact evidence using AER-like stable key/value rows.
     def compact_context(self, items: Sequence[Mapping[str, Any]], *, budget: int = 12000) -> CompactionResult:
