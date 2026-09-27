@@ -74,6 +74,54 @@ class DecisionQuestion:
 
 
 @dataclass(frozen=True)
+class DecisionRecipe:
+    """Small, reviewable contract for a batch of semantic decisions.
+
+    A recipe keeps behavior, typed questions, thresholds and optional no-match
+    choices together. It adds no execution or provider layer; DecisionFabric
+    remains the only evaluator. The intent is to keep semantic judgment typed
+    while deterministic code retains rules, calculations, execution and policy.
+    """
+    name: str
+    behavior: str
+    questions: tuple["DecisionQuestion", ...]
+    thresholds: Mapping[str, float] = ()
+    no_match: Mapping[str, str] = ()
+    source: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.name.strip() or not self.behavior.strip():
+            raise ValueError("recipe name and behavior are required")
+        if not self.questions:
+            raise ValueError("recipe requires at least one question")
+        keys = [question.key for question in self.questions]
+        if len(set(keys)) != len(keys):
+            raise ValueError("recipe question keys must be unique")
+        for key, value in dict(self.thresholds).items():
+            if not str(key).strip() or not 0.0 <= float(value) <= 1.0:
+                raise ValueError("recipe thresholds must be between 0 and 1")
+        questions = {question.key: question for question in self.questions}
+        for key, option in dict(self.no_match).items():
+            question = questions.get(key)
+            if question is None or question.kind != "choice" or option not in question.options:
+                raise ValueError("no_match must reference an existing choice option")
+
+    @property
+    def digest(self) -> str:
+        import hashlib
+        import json
+        payload = {
+            "name": self.name.strip(),
+            "behavior": self.behavior.strip(),
+            "questions": [question.__dict__ for question in self.questions],
+            "thresholds": dict(sorted((str(k), float(v)) for k, v in dict(self.thresholds).items())),
+            "no_match": dict(sorted((str(k), str(v)) for k, v in dict(self.no_match).items())),
+            "source": self.source.strip(),
+        }
+        return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode()).hexdigest()[:16]
+
+
+@dataclass(frozen=True)
 class DecisionBatch:
     state_digest: str
     decisions: Mapping[str, ChoiceDecision | ScoreDecision | NoulDecision]
@@ -121,6 +169,12 @@ class DecisionFabric:
 
     def __init__(self, evaluator: Evaluator) -> None:
         self.evaluator = evaluator
+
+    def evaluate_recipe(self, state: Mapping[str, Any], recipe: DecisionRecipe) -> DecisionBatch:
+        """Evaluate a reviewed decision recipe without adding another runtime layer."""
+        if not isinstance(recipe, DecisionRecipe):
+            raise TypeError("recipe must be a DecisionRecipe")
+        return self.evaluate(state, recipe.questions)
 
     def evaluate(self, state: Mapping[str, Any], questions: Sequence[DecisionQuestion]) -> DecisionBatch:
         if not questions:
@@ -307,7 +361,7 @@ class DecisionPolicy:
 
 
 __all__ = [
-    "ChoiceDecision", "DecisionBatch", "DecisionFabric", "DecisionPolicy", "DecisionQuestion",
+    "ChoiceDecision", "DecisionBatch", "DecisionFabric", "DecisionPolicy", "DecisionQuestion", "DecisionRecipe",
     "NoulDecision", "PolicyDecision", "ScoreDecision", "state_digest",
     "EvidenceAssessment", "EvidenceTrustLevel", "UncertaintyAssessment",
     "ResourceProfile", "ResourceRequest", "ResourceDecision",
