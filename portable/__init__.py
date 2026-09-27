@@ -124,3 +124,5 @@ from .persistent_remediation_backlog import PersistentRemediationBacklog, Persis
 from .autonomous_engineering_loop import AutonomousEngineeringLoop, EngineeringLoopDecision, EngineeringLoopReceipt
 
 from .continuous_engineering_runtime import EngineeringEpisodeState, ContinuousEngineeringReceipt, ContinuousEngineeringRuntime
+
+from .continuous_engineering_decision_fabric import RepositoryContext, RepositoryGuard, DecisionCandidate, Decision, CounterfactualResult, CanaryRecord, ContinuousEngineeringDecisionFabric
