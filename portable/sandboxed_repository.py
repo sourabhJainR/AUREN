@@ -75,7 +75,7 @@ class SandboxedRepository:
                 if p.is_file() and ".git" not in p.parts
             )
         )
-        head = self._run_readonly(("git", "rev-parse", "HEAD"))[0].strip()
+        head = self._run_readonly(("git", "rev-parse", "HEAD"), self.source)[0].strip()
         evidence_id = self._digest("inspection", head, *files)
         return RepositoryInspection(str(self.source), files, head, evidence_id)
 
@@ -185,10 +185,10 @@ class SandboxedRepository:
         return {k: v for k, v in os.environ.items() if k in keep}
     
     @staticmethod
-    def _run_readonly(argv: tuple[str, ...]) -> tuple[str, str]:
+    def _run_readonly(argv: tuple[str, ...], cwd: Path) -> tuple[str, str]:
         result = subprocess.run(
             list(argv),
-            cwd=None,
+            cwd=cwd,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
