@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Mapping, Sequence
 
 from .learning_transfer import LearningExperience
+from .end_to_end_engineering_episode import EngineeringEpisodeRequest, EngineeringEpisodeResult, EndToEndEngineeringEpisode
 from .world_model import Observation, PredictionError
 from .world_mega_model import MegaPlan, WorldMegaModel
 
@@ -29,6 +30,7 @@ class CognitiveCycleResult:
     accepted: bool
     next_action: str
     safety_evidence: tuple[str, ...] = ()
+    engineering_episode: EngineeringEpisodeResult | None = None
 
 
 class GeneralIntelligenceCycle:
