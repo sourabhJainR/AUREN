@@ -48,8 +48,8 @@ class RegressionCorpusTests(unittest.TestCase):
     def test_matching_episode_strengthens_one_case(self):
         memory = self.make_memory()
         corpus = RegressionCorpus(memory, "p")
-        first = corpus.ingest_episode(self.episode("ep-1"))
-        second = corpus.ingest_episode(self.episode("ep-2"))
+        first = corpus.ingest_episode(self.episode("ep-1", task_id="task-a"))
+        second = corpus.ingest_episode(self.episode("ep-2", task_id="task-b"))
         self.assertEqual(first.case_id, second.case_id)
         self.assertEqual(len(second.evidence_ids), 2)
 
