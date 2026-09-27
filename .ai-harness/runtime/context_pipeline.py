@@ -24,6 +24,10 @@ class ContextEvidence:
     task_id: str; query: str; phase: str; risk: str; intent_digest: str; context_plan_digest: str; repository_snapshot_digest: str; selected_paths: tuple[str, ...]; symbol_refs: tuple[str, ...]; graph_paths: tuple[str, ...]; items: tuple[ContextEvidenceItem, ...]; evidence_digest: str; token_estimate: int; unknowns: tuple[str, ...] = ()
     def as_dict(self) -> dict[str, Any]: return asdict(self)
     def deployment_binding(self) -> dict[str, str]: return {"intent_digest": self.intent_digest, "repository_snapshot_digest": self.repository_snapshot_digest, "context_plan_digest": self.context_plan_digest, "evidence_digest": self.evidence_digest}
+    def engineering_envelope(self):
+        """Create the canonical lifecycle envelope for this context snapshot."""
+        from portable.engineering_evidence_envelope import EngineeringEvidenceEnvelope
+        return EngineeringEvidenceEnvelope.from_context_evidence(self)
 class ContextAcquisitionPipeline:
     """DISCOVER -> SCORE -> LEASE -> USE -> COMPRESS -> RELEASE."""
     def __init__(self, root: str | Path, *, budget_chars: int | None = None, max_items: int | None = None) -> None:
