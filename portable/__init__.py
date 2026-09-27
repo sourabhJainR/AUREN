@@ -107,3 +107,5 @@ __all__ = [
     "AutonomousCapabilityInvention", "CapabilityComposition", "HoldoutResult", "InventionCandidate", "InventionReceipt", "SafetyResult",
     "AutonomousEvolutionController", "EvolutionTrigger", "CapabilityLifecycle", "CapabilityLifecycleReceipt", "GeneralizationCurriculum", "GeneralizationExperiment", "ExperimentResult", "GeneralizationReport", "AutonomousCurriculumDiscovery", "CurriculumCandidate", "CurriculumDecision", "ENGINEERING_DOMAINS", "EngineeringTask", "EngineeringEvaluation", "EngineeringCoverage", "WholeSystemEngineeringEvaluator", "Requirement", "RequirementContract", "RequirementContractEngine", "EngineeringEpisodeRequest", "EngineeringEpisodeResult", "EndToEndEngineeringEpisode",
 ]
+
+from .sandboxed_repository import CommandSpec, CommandEvidence, RepositoryInspection, RepositoryExecutionResult, SandboxedRepository
