@@ -70,6 +70,7 @@ from .generalization_curriculum import GeneralizationCurriculum, GeneralizationE
 from .autonomous_curriculum import AutonomousCurriculumDiscovery, CurriculumCandidate, CurriculumDecision
 from .whole_system_engineering import ENGINEERING_DOMAINS, EngineeringTask, EngineeringEvaluation, EngineeringCoverage, WholeSystemEngineeringEvaluator
 from .requirement_contract import Requirement, RequirementContract, RequirementContractEngine
+from .end_to_end_engineering_episode import EngineeringEpisodeRequest, EngineeringEpisodeResult, EndToEndEngineeringEpisode
 
 __all__ = [
     "main", "AdaptiveRuntime", "AdaptiveLearningStore", "DeferredLearningJob", "WorkStyleProfile", "AdaptivePolicy", "AdaptiveTuner", "ExperienceRecord", "MaintenanceReceipt", "TuningDecision", "EmpiricalImprovement", "ImprovementObservation", "ImprovementReport",
@@ -104,5 +105,5 @@ __all__ = [
     "LocalWorkbench", "WorkPacket", "WorkReceipt", "WorkbenchReceipt", "packet",
     "CognitiveCycleResult", "GeneralIntelligenceCycle", "EvolutionReceipt", "MegaPlan", "MegaPromotion", "AutonomousGeneralizationCycle", "AutonomousCapabilityEvolutionCycle", "WorldMegaModel",
     "AutonomousCapabilityInvention", "CapabilityComposition", "HoldoutResult", "InventionCandidate", "InventionReceipt", "SafetyResult",
-    "AutonomousEvolutionController", "EvolutionTrigger", "CapabilityLifecycle", "CapabilityLifecycleReceipt", "GeneralizationCurriculum", "GeneralizationExperiment", "ExperimentResult", "GeneralizationReport", "AutonomousCurriculumDiscovery", "CurriculumCandidate", "CurriculumDecision", "ENGINEERING_DOMAINS", "EngineeringTask", "EngineeringEvaluation", "EngineeringCoverage", "WholeSystemEngineeringEvaluator", "Requirement", "RequirementContract", "RequirementContractEngine",
+    "AutonomousEvolutionController", "EvolutionTrigger", "CapabilityLifecycle", "CapabilityLifecycleReceipt", "GeneralizationCurriculum", "GeneralizationExperiment", "ExperimentResult", "GeneralizationReport", "AutonomousCurriculumDiscovery", "CurriculumCandidate", "CurriculumDecision", "ENGINEERING_DOMAINS", "EngineeringTask", "EngineeringEvaluation", "EngineeringCoverage", "WholeSystemEngineeringEvaluator", "Requirement", "RequirementContract", "RequirementContractEngine", "EngineeringEpisodeRequest", "EngineeringEpisodeResult", "EndToEndEngineeringEpisode",
 ]
