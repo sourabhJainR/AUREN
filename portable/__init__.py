@@ -122,3 +122,5 @@ from .review_remediation import ReviewRemediationItem, ReviewRemediationResult, 
 from .persistent_remediation_backlog import PersistentRemediationBacklog, PersistentRemediationItem
 
 from .autonomous_engineering_loop import AutonomousEngineeringLoop, EngineeringLoopDecision, EngineeringLoopReceipt
+
+from .continuous_engineering_decision_fabric import RepositoryContext, RepositoryGuard, DecisionCandidate, Decision, CounterfactualResult, CanaryRecord, ContinuousEngineeringDecisionFabric
