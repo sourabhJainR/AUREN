@@ -19,6 +19,7 @@ class PortableAerTests(unittest.TestCase):
         (root / ".claude-plugin").mkdir(parents=True, exist_ok=True)
         (root / "skills" / "ai-coding-orchestrator").mkdir(parents=True, exist_ok=True)
         (root / "portable").mkdir(parents=True, exist_ok=True)
+        (root / "dashboard").mkdir(parents=True, exist_ok=True)
         (root / ".ai-harness" / "config.toml").write_text('[harness]\nversion = 20\n', encoding="utf-8")
         (root / ".claude-plugin" / "plugin.json").write_text(json.dumps({"version": version}), encoding="utf-8")
         (root / ".ai-harness" / "runtime" / "engine.py").write_text("print('ok')\n", encoding="utf-8")
@@ -26,6 +27,7 @@ class PortableAerTests(unittest.TestCase):
         (root / "skills" / "ai-coding-orchestrator" / "SKILL.md").write_text("---\nname: ai-coding-orchestrator\ndescription: Repository-aware AI engineering control plane.\n---\n", encoding="utf-8")
         (root / "portable" / "aer_runtime.py").write_text("print('portable')\n", encoding="utf-8")
         (root / "portable" / "__init__.py").write_text("from .aer_runtime import main\n", encoding="utf-8")
+        (root / "dashboard" / "index.html").write_text("<html>AER Engineering Console</html>\n", encoding="utf-8")
         (root / "aer_cli.py").write_text("print('launcher')\n", encoding="utf-8")
 
     def test_build_verify_and_exclude_mutable_state(self) -> None:
