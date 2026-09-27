@@ -19,6 +19,7 @@ from .cognitive_learning import CognitiveLearningLoop
 from .dream_memory import DreamMemory
 from .hypothesis_engine import BeliefEvidence
 from .persistent_memory import PersistentMemory
+from .skill_optimization import SkillEdit, SkillOptimizationResult, SkillOptimizer, SkillScore
 
 
 def _utc() -> str:
@@ -232,6 +233,32 @@ class AdaptiveLearningStore:
         if context and context not in {"balanced", "None"}:
             return context
         return "concise" if quality >= 0.9 else "evidence-detailed"
+
+    def optimize_skill(
+        self,
+        *,
+        task_family: str,
+        skill: str,
+        proposals: Iterable[SkillEdit],
+        train_ids: Iterable[str],
+        holdout_ids: Iterable[str],
+        score: Callable[[str, Sequence[str]], SkillScore],
+    ) -> SkillOptimizationResult:
+        """Run a validation-gated offline skill epoch.
+
+        This is intentionally a maintenance-lane operation. The active worker
+        remains unchanged until the caller takes the accepted artifact through
+        AER's normal regression, shadow, canary and promotion gates.
+        """
+        optimizer = SkillOptimizer(self.memory, self.project)
+        return optimizer.epoch(
+            task_family=task_family,
+            skill=skill,
+            proposals=tuple(proposals),
+            train_ids=tuple(train_ids),
+            holdout_ids=tuple(holdout_ids),
+            score=score,
+        )
 
     def guidance(self) -> dict[str, object]:
         profile = self.profile()
