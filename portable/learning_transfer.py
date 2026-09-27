@@ -56,6 +56,16 @@ class TransferCandidate:
 
 
 @dataclass(frozen=True)
+@dataclass(frozen=True)
+class FailureConstraint:
+    problem: str
+    dont: str
+    evidence_ids: tuple[str, ...]
+    confidence: float
+    source_project: str
+
+
+@dataclass(frozen=True)
 class ConsolidationReceipt:
     task_family: str
     capability: str
@@ -98,6 +108,11 @@ class LearningTransfer:
                 detail_text TEXT NOT NULL, created_at TEXT NOT NULL,
                 PRIMARY KEY(project, validation_id))""")
             db.execute("CREATE INDEX IF NOT EXISTS idx_transfer_validation_lookup ON learning_transfer_validations(project, detail, negative_transfer)")
+            db.execute("""CREATE TABLE IF NOT EXISTS failure_constraints(
+                id TEXT PRIMARY KEY, project TEXT NOT NULL, problem TEXT NOT NULL,
+                dont TEXT NOT NULL, evidence_ids TEXT NOT NULL, confidence REAL NOT NULL,
+                created_at TEXT NOT NULL)""")
+            db.execute("CREATE INDEX IF NOT EXISTS idx_failure_constraints_lookup ON failure_constraints(project, problem, created_at)")
 
     def record(self, experience: LearningExperience) -> None:
         if not isinstance(experience, LearningExperience):
@@ -142,6 +157,42 @@ class LearningTransfer:
             ))
             db.execute("INSERT INTO learning_transfer_signatures VALUES(?,?,?)",
                        (experience.id, json.dumps(structure), json.dumps(negatives)))
+
+    def record_failure(self, *, problem: str, dont: str, evidence_ids: tuple[str, ...],
+                       confidence: float = 0.9) -> FailureConstraint:
+        problem = _clean(problem, "problem")
+        dont = _clean(dont, "dont")
+        evidence = tuple(sorted({_clean(x, "evidence_id") for x in evidence_ids}))
+        if not evidence:
+            raise ValueError("failure constraints require evidence")
+        if not 0 <= confidence <= 1:
+            raise ValueError("confidence must be between 0 and 1")
+        import hashlib
+        from datetime import datetime, timezone
+        key = hashlib.sha256(("\0".join((self.target_project, problem, dont, "|".join(evidence)))).encode()).hexdigest()
+        constraint = FailureConstraint(problem, dont, evidence, confidence, self.target_project)
+        with self.memory._lock, self.memory._connect() as db:
+            db.execute("INSERT OR IGNORE INTO failure_constraints VALUES(?,?,?,?,?,?,?)",
+                       (key, self.target_project, problem, dont, json.dumps(evidence),
+                        confidence, datetime.now(timezone.utc).isoformat()))
+        self.memory.remember(
+            self.target_project, "failure_dont",
+            f"Do not repeat this failed approach for {problem}: {dont}",
+            confidence=confidence, verified=True, approved=True,
+        )
+        return constraint
+
+    def failure_constraints(self, problem: str, *, limit: int = 10) -> list[FailureConstraint]:
+        problem = _clean(problem, "problem")
+        if limit < 1:
+            raise ValueError("limit must be positive")
+        with self.memory._lock, self.memory._connect() as db:
+            rows = db.execute("""SELECT problem,dont,evidence_ids,confidence,project
+                FROM failure_constraints WHERE project=? AND problem LIKE ?
+                ORDER BY confidence DESC,created_at DESC LIMIT ?""",
+                (self.target_project, "%" + problem + "%", limit)).fetchall()
+        return [FailureConstraint(str(p), str(d), tuple(json.loads(e or "[]")), float(c), str(project))
+                for p,d,e,c,project in rows]
 
     def _is_blocked(self, db, detail: str) -> bool:
         return db.execute(
@@ -248,4 +299,4 @@ class LearningTransfer:
                                     candidate.source_projects, candidate.evidence_ids, record.id)
 
 
-__all__ = ["ConsolidationReceipt", "LearningExperience", "LearningTransfer", "TransferCandidate"]
+__all__ = ["ConsolidationReceipt", "FailureConstraint", "LearningExperience", "LearningTransfer", "TransferCandidate"]
