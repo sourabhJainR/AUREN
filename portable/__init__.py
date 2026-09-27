@@ -72,9 +72,11 @@ from .whole_system_engineering import ENGINEERING_DOMAINS, EngineeringTask, Engi
 from .requirement_contract import Requirement, RequirementContract, RequirementContractEngine
 from .end_to_end_engineering_episode import EngineeringEpisodeRequest, EngineeringEpisodeResult, EndToEndEngineeringEpisode
 from .engineering_evolution import (PHASES, CompactionResult, CrossProjectValidation, EngineeringEvolutionControlPlane, EvidenceGraphResult, FailurePrediction, HistoricalDecomposition, LocalExecutionReadiness, ProviderCalibration, WorldFeedback)
+from .episode_skill_evolution import EpisodeSkillEvolution, EpisodeSkillReplayCorpus, ReplayCase, ReplayResult, SkillEvolutionResult
 
 __all__ = [
     "main", "AdaptiveRuntime", "AdaptiveLearningStore", "DeferredLearningJob", "WorkStyleProfile", "AdaptivePolicy", "AdaptiveTuner", "ExperienceRecord", "MaintenanceReceipt", "TuningDecision", "EmpiricalImprovement", "ImprovementObservation", "ImprovementReport",
+    "EpisodeSkillEvolution", "EpisodeSkillReplayCorpus", "ReplayCase", "ReplayResult", "SkillEvolutionResult",
     "HookBus", "HookDecision", "HookEvent", "HookPhase", "HookedExecution",
     "CapabilityRequest", "ProviderCapability", "ProviderFabric", "RoutingDecision", "SessionCheckpoint", "SessionStore",
     "ImpactRecord", "ImpactReport", "analyze", "Task", "TaskPlan", "STATUSES", "PRIORITIES",
