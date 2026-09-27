@@ -20,12 +20,11 @@ from typing import Any, Iterable, Mapping, Sequence
 
 from .context_graph import ContextEdge, ContextGraph, ContextNode
 from .engineering_evidence_envelope import EngineeringEvidenceEnvelope
-from .impact_analysis import ImpactReport
+from .impact_analysis import ImpactReport, analyze
 from .persistent_memory import PersistentMemory
 from .persistent_remediation_backlog import PersistentRemediationBacklog
 from .provider_fabric import ProviderFabric
 from .task_planner import Task, TaskPlan
-from .transfer_validation import TransferValidator
 
 
 PHASES = (
@@ -213,7 +212,7 @@ class EngineeringEvolutionControlPlane:
     # Phase 5: deterministic repository impact prediction delegates to existing analyzer.
     def change_impact(self, root: str | Path, changed: Iterable[str]) -> ImpactReport:
         from .impact_analysis import analyze_impact
-        return analyze_impact(Path(root), tuple(changed))
+        return analyze(Path(root), tuple(changed))
 
     # Phase 6: predict failures before execution from persistent remediation history.
     def failure_prediction(self, *, task_family: str, capability: str) -> FailurePrediction:
