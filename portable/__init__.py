@@ -74,10 +74,11 @@ from .end_to_end_engineering_episode import EngineeringEpisodeRequest, Engineeri
 from .engineering_evolution import (PHASES, CompactionResult, CrossProjectValidation, EngineeringEvolutionControlPlane, EvidenceGraphResult, FailurePrediction, HistoricalDecomposition, LocalExecutionReadiness, ProviderCalibration, WorldFeedback)
 from .episode_skill_evolution import EpisodeSkillEvolution, EpisodeSkillReplayCorpus, ReplayCase, ReplayResult, SkillEvolutionResult
 from .regression_corpus import RegressionCase, RegressionCorpus
+from .engineering_dashboard import DashboardSnapshot, EngineeringDashboard
 
 __all__ = [
     "main", "AdaptiveRuntime", "AdaptiveLearningStore", "DeferredLearningJob", "WorkStyleProfile", "AdaptivePolicy", "AdaptiveTuner", "ExperienceRecord", "MaintenanceReceipt", "TuningDecision", "EmpiricalImprovement", "ImprovementObservation", "ImprovementReport",
-    "EpisodeSkillEvolution", "EpisodeSkillReplayCorpus", "ReplayCase", "ReplayResult", "SkillEvolutionResult", "RegressionCase", "RegressionCorpus",
+    "EpisodeSkillEvolution", "EpisodeSkillReplayCorpus", "ReplayCase", "ReplayResult", "SkillEvolutionResult", "RegressionCase", "RegressionCorpus", "DashboardSnapshot", "EngineeringDashboard",
     "HookBus", "HookDecision", "HookEvent", "HookPhase", "HookedExecution",
     "CapabilityRequest", "ProviderCapability", "ProviderFabric", "RoutingDecision", "SessionCheckpoint", "SessionStore",
     "ImpactRecord", "ImpactReport", "analyze", "Task", "TaskPlan", "STATUSES", "PRIORITIES",

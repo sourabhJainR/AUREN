@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AER Engineering Console</title><link rel="stylesheet" href="/assets/styles.css"></head>
+<body>
+<header class="topbar"><div><div class="eyebrow">Adaptive Engineering Runtime</div><h1>Engineering Console</h1><p>Evidence-backed view of what AER is doing, learning and improving.</p></div><div class="live"><span class="dot"></span><span id="updated">Connecting…</span></div></header>
+<nav class="tabs"><button class="tab active" data-tab="overview">Overview</button><button class="tab" data-tab="executions">Executions</button><button class="tab" data-tab="learning">Learning</button><button class="tab" data-tab="quality">Quality</button><button class="tab" data-tab="graph">Code graph</button><button class="tab" data-tab="evidence">Findings & evidence</button></nav>
+<main>
+<section id="overview" class="panel active"><div class="hero-grid">
+<article class="hero-card"><span class="label">Repository</span><strong id="repo-name">—</strong><small id="repo-snapshot">—</small></article>
+<article class="metric"><span>Tasks observed</span><strong id="tasks">—</strong><small id="runs">— runs</small></article>
+<article class="metric"><span>Learnings</span><strong id="learnings">—</strong><small id="regressions">— regression cases</small></article>
+<article class="metric"><span>Findings</span><strong id="findings">—</strong><small id="failures">— failures</small></article>
+<article class="metric"><span>Tests</span><strong id="test-cases">—</strong><small id="test-files">— files</small></article></div>
+<div class="grid two"><article class="card"><div class="card-title"><h2>System activity</h2><span id="activity-total">— events</span></div><div id="activity" class="bars"></div></article>
+<article class="card"><div class="card-title"><h2>Quality signals</h2><span>descriptive</span></div><div id="quality-summary" class="signal-list"></div></article></div>
+<div class="grid three"><article class="card"><h2>Current executions</h2><div id="active-runs" class="empty">No active executions reported.</div></article>
+<article class="card"><h2>Latest learnings</h2><div id="learning-summary" class="signal-list"></div></article>
+<article class="card"><h2>Benchmark & regression</h2><div id="benchmark-summary" class="signal-list"></div></article></div></section>
+
+<section id="executions" class="panel"><div class="section-head"><div><h2>Execution timeline</h2><p>Live events recorded by AER lifecycle observers.</p></div><span class="pill" id="execution-count">0 active</span></div><div id="execution-list" class="timeline"></div></section>
+
+<section id="learning" class="panel"><div class="section-head"><div><h2>Learning & improvement</h2><p>Durable learning, skill evolution, regression memory and maintenance.</p></div></div><div id="learning-grid" class="grid three"></div><div class="card"><h2>Improvement loop</h2><div class="flow"><span>Episode</span><i>→</i><span>Evidence</span><i>→</i><span>Replay</span><i>→</i><span>Validate</span><i>→</i><span>Learn</span><i>→</i><span>Future task</span></div></div></section>
+
+<section id="quality" class="panel"><div class="section-head"><div><h2>Codebase & output quality</h2><p>Signals are derived from the repository and recorded AER verification data.</p></div></div><div id="quality-grid" class="grid three"></div><div class="card"><h2>Tests added and available</h2><div id="tests-table"></div></div></section>
+
+<section id="graph" class="panel"><div class="section-head"><div><h2>Code graph used by AER</h2><p>Canonical repository intelligence: files, symbols and dependency edges.</p></div><span id="graph-meta" class="pill">—</span></div><div class="graph-card card"><svg id="graph-svg" viewBox="0 0 1000 520"></svg></div><div class="card"><h2>Most connected files</h2><div id="top-files" class="rank-list"></div></div></section>
+
+<section id="evidence" class="panel"><div class="section-head"><div><h2>Findings, evidence & research</h2><p>What AER observed, what it learned and where evidence is present.</p></div></div><div id="evidence-grid" class="grid three"></div></section>
+</main><script src="/assets/app.js"></script></body></html>
