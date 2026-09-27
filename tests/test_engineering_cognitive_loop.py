@@ -1,4 +1,6 @@
 import unittest
+import tempfile
+from pathlib import Path
 
 from portable.architecture_contract import ArchitectureComponent, ArchitectureContractEngine
 from portable.end_to_end_engineering_episode import EngineeringEpisodeRequest
@@ -16,7 +18,8 @@ from portable.engineering_traceability import TraceLink
 
 class EngineeringCognitiveLoopTests(unittest.TestCase):
     def setUp(self):
-        self.memory = PersistentMemory(":memory:")
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.memory = PersistentMemory(Path(self.tempdir.name) / "memory.sqlite3")
 
     def request(self):
         req = RequirementContractEngine().build(
@@ -75,7 +78,7 @@ class EngineeringCognitiveLoopTests(unittest.TestCase):
             cycle_id="c2",
             intent="ship engineering feature",
             observation=__import__("portable.world_model", fromlist=["Observation"]).Observation(
-                "repo", "state", "ready"
+                "obs-failed", "repo", "state", "ready", "test"
             ),
             request=self.request(),
             executor=lambda request: {"changed": True},
