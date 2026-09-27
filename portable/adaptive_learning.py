@@ -242,6 +242,7 @@ class AdaptiveLearningStore:
         proposals: Iterable[SkillEdit],
         train_ids: Iterable[str],
         holdout_ids: Iterable[str],
+        evidence_ids: Iterable[str],
         score: Callable[[str, Sequence[str]], SkillScore],
     ) -> SkillOptimizationResult:
         """Run a validation-gated offline skill epoch.
@@ -257,6 +258,7 @@ class AdaptiveLearningStore:
             proposals=tuple(proposals),
             train_ids=tuple(train_ids),
             holdout_ids=tuple(holdout_ids),
+            evidence_ids=tuple(evidence_ids),
             score=score,
         )
 
