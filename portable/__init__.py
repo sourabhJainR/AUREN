@@ -71,6 +71,7 @@ from .autonomous_curriculum import AutonomousCurriculumDiscovery, CurriculumCand
 from .whole_system_engineering import ENGINEERING_DOMAINS, EngineeringTask, EngineeringEvaluation, EngineeringCoverage, WholeSystemEngineeringEvaluator
 from .requirement_contract import Requirement, RequirementContract, RequirementContractEngine
 from .end_to_end_engineering_episode import EngineeringEpisodeRequest, EngineeringEpisodeResult, EndToEndEngineeringEpisode
+from .engineering_evolution import (PHASES, CompactionResult, CrossProjectValidation, EngineeringEvolutionControlPlane, EvidenceGraphResult, FailurePrediction, HistoricalDecomposition, LocalExecutionReadiness, ProviderCalibration, WorldFeedback)
 
 __all__ = [
     "main", "AdaptiveRuntime", "AdaptiveLearningStore", "DeferredLearningJob", "WorkStyleProfile", "AdaptivePolicy", "AdaptiveTuner", "ExperienceRecord", "MaintenanceReceipt", "TuningDecision", "EmpiricalImprovement", "ImprovementObservation", "ImprovementReport",
@@ -105,7 +106,7 @@ __all__ = [
     "LocalWorkbench", "WorkPacket", "WorkReceipt", "WorkbenchReceipt", "packet",
     "CognitiveCycleResult", "GeneralIntelligenceCycle", "EvolutionReceipt", "MegaPlan", "MegaPromotion", "AutonomousGeneralizationCycle", "AutonomousCapabilityEvolutionCycle", "WorldMegaModel",
     "AutonomousCapabilityInvention", "CapabilityComposition", "HoldoutResult", "InventionCandidate", "InventionReceipt", "SafetyResult",
-    "AutonomousEvolutionController", "EvolutionTrigger", "CapabilityLifecycle", "CapabilityLifecycleReceipt", "GeneralizationCurriculum", "GeneralizationExperiment", "ExperimentResult", "GeneralizationReport", "AutonomousCurriculumDiscovery", "CurriculumCandidate", "CurriculumDecision", "ENGINEERING_DOMAINS", "EngineeringTask", "EngineeringEvaluation", "EngineeringCoverage", "WholeSystemEngineeringEvaluator", "Requirement", "RequirementContract", "RequirementContractEngine", "EngineeringEpisodeRequest", "EngineeringEpisodeResult", "EndToEndEngineeringEpisode", "ReviewRemediationItem", "ReviewRemediationResult", "ReviewRemediationCycle",
+    "AutonomousEvolutionController", "EvolutionTrigger", "CapabilityLifecycle", "CapabilityLifecycleReceipt", "GeneralizationCurriculum", "GeneralizationExperiment", "ExperimentResult", "GeneralizationReport", "AutonomousCurriculumDiscovery", "CurriculumCandidate", "CurriculumDecision", "ENGINEERING_DOMAINS", "EngineeringTask", "EngineeringEvaluation", "EngineeringCoverage", "WholeSystemEngineeringEvaluator", "Requirement", "RequirementContract", "RequirementContractEngine", "EngineeringEpisodeRequest", "EngineeringEpisodeResult", "EndToEndEngineeringEpisode", "PHASES", "EngineeringEvolutionControlPlane", "EvidenceGraphResult", "WorldFeedback", "CompactionResult", "FailurePrediction", "HistoricalDecomposition", "ProviderCalibration", "CrossProjectValidation", "LocalExecutionReadiness", "ReviewRemediationItem", "ReviewRemediationResult", "ReviewRemediationCycle",
 ]
 
 from .sandboxed_repository import CommandSpec, CommandEvidence, RepositoryInspection, RepositoryExecutionResult, SandboxedRepository
@@ -117,3 +118,5 @@ from .multi_hat_self_review import ReviewHat, ReviewFinding, SelfReviewReport, M
 from .review_gated_repair_cycle import RepairCandidate, ReviewGatedRepairCycle, ReviewGatedRepairResult
 
 from .review_remediation import ReviewRemediationItem, ReviewRemediationResult, ReviewRemediationCycle
+
+from .persistent_remediation_backlog import PersistentRemediationBacklog, PersistentRemediationItem
