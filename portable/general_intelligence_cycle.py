@@ -15,6 +15,8 @@ from .learning_transfer import LearningExperience
 from .end_to_end_engineering_episode import EngineeringEpisodeRequest, EngineeringEpisodeResult, EndToEndEngineeringEpisode
 from .world_model import Observation, PredictionError
 from .world_mega_model import MegaPlan, WorldMegaModel
+from .repository_engineering_cycle import PatchProposal, RepositoryEngineeringCycle, RepositoryEngineeringCycleResult
+from .sandboxed_repository import CommandSpec
 
 
 @dataclass(frozen=True)
@@ -136,6 +138,28 @@ class GeneralIntelligenceCycle:
             tuple(safety_evidence),
         )
 
+
+    def run_repository_patch_cycle(
+        self,
+        *,
+        cycle_id: str,
+        intent: str,
+        source: str,
+        proposal: PatchProposal,
+        commands: Sequence[CommandSpec],
+    ) -> RepositoryEngineeringCycleResult:
+        """Verify a proposed repository patch before it can enter learning."""
+        if not cycle_id.strip() or not intent.strip():
+            raise ValueError("cycle_id and intent are required")
+        result = RepositoryEngineeringCycle(source).run(proposal, commands=commands)
+        if not result.accepted:
+            self.model.record_failure_dont(
+                problem=intent,
+                dont=result.rejection_reason or "do not repeat unverified repository change",
+                evidence_ids=result.evidence_ids,
+                confidence=0.95,
+            )
+        return result
 
     def run_engineering_episode(
         self,
