@@ -11,6 +11,12 @@ from .verified_repair_loop import RepairAttempt, RepairReport, VerifiedRepairLoo
 
 
 @dataclass(frozen=True)
+class RepairCandidate:
+    attempt: RepairAttempt
+    proposal: PatchProposal
+
+
+@dataclass(frozen=True)
 class ReviewGatedRepairResult:
     initial: RepositoryEngineeringCycleResult
     repair: RepairReport | None
@@ -31,7 +37,7 @@ class ReviewGatedRepairCycle:
             ReviewHat,
             Callable[[str, tuple[str, ...], tuple[str, ...]], Sequence[ReviewFinding]],
         ],
-        repair: Callable[[str, int], RepairAttempt] | None = None,
+        repair: Callable[[str, int], RepairCandidate] | None = None,
         baseline_score: float = 0.0,
         max_attempts: int = 3,
     ) -> ReviewGatedRepairResult:
@@ -40,19 +46,21 @@ class ReviewGatedRepairCycle:
         final = first
 
         if not first.accepted and repair is not None:
-            repair_report = VerifiedRepairLoop().run(
-                first.rejection_reason or "repository verification failed",
-                baseline_score,
-                repair,
-                max_attempts=max_attempts,
-            )
+            candidate_results: list[RepairCandidate] = []
+            def attempt(defect: str, number: int) -> RepairAttempt:
+                candidate = repair(defect, number)
+                if not isinstance(candidate, RepairCandidate):
+                    raise TypeError("repair callback must return RepairCandidate")
+                candidate_results.append(candidate)
+                return candidate.attempt
+            repair_report = VerifiedRepairLoop().run(first.rejection_reason or "repository verification failed", baseline_score, attempt, max_attempts=max_attempts)
             if repair_report.accepted:
-                candidate = getattr(repair, "proposal", None)
-                if isinstance(candidate, PatchProposal):
-                    final = self.engineering.run(candidate, commands=commands)
+                chosen = next((c for c in reversed(candidate_results) if c.attempt.verified and c.attempt.score == repair_report.final_score), None)
+                if chosen is not None:
+                    final = self.engineering.run(chosen.proposal, commands=commands)
 
         reviewed = self.engineering.review(final, reviewers=reviewers)
         return ReviewGatedRepairResult(first, repair_report, final, reviewed.self_review)
 
 
-__all__ = ["ReviewGatedRepairCycle", "ReviewGatedRepairResult"]
+__all__ = ["RepairCandidate", "ReviewGatedRepairCycle", "ReviewGatedRepairResult"]
