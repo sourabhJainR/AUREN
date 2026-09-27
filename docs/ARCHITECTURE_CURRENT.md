@@ -10,7 +10,7 @@ User task
   -> CodebaseIndex repository facts
   -> deterministic context control
   -> canonical evidence ledger
-  -> typed/probabilistic decisions
+  -> typed/probabilistic decisions + Decision Fabric (trust / uncertainty / resources)
   -> TaskPlan
   -> ExecutionEnvelope
   -> StateGraph
@@ -28,7 +28,7 @@ User task
 | Repository truth | `portable.agency_codebase_context.CodebaseIndex` |
 | Context derivation | `portable.agency_codebase_context.CodebaseContext` |
 | Evidence truth | `state/engineering-state.schema.json:evidence` |
-| Decisions | `state/engineering-state.schema.json:decisions` |
+| Decisions | `state/engineering-state.schema.json:decisions` + `portable.decision_fabric.DecisionFabric` |
 | Planning | `portable.task_planner.TaskPlan` |
 | Cross-phase contract | `portable.execution_contract.ExecutionEnvelope` |
 | Execution | `portable.agency_state_graph.StateGraph` |
@@ -43,3 +43,7 @@ User task
 No second repository graph, evidence store, workflow engine, capability catalog, or memory authority is introduced. Context is a snapshot-bound derived view. Probabilities describe model belief and never become verification truth. Workflow evaluation is measurement only. Learning can recommend strategy and prevention rules, but cannot authorize actions, weaken gates, or replace canonical state.
 
 Parallel work remains an execution strategy on the canonical `StateGraph` and must converge through deterministic merge and verification. Evidence references remain snapshot-bound and stale evidence must be refreshed. The portable layer remains provider-neutral and dependency-light.
+
+## Cross-cutting Decision Fabric
+
+The typed DecisionFabric is the policy bridge between observed evidence and execution choices. Evidence trust, uncertainty, model disagreement, and resource constraints influence verification depth and execution lane without replacing canonical evidence, provider, capability, planner, graph, or scheduler ownership.
