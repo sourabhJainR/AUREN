@@ -25,7 +25,7 @@ from .execution_strategy import ExecutionPathway, PathwayOptimizer, ExecutionStr
 from .generalization import Abstraction, AnalogyCandidate, GeneralizationEngine
 from .generalization_curriculum import GeneralizationCurriculum, GeneralizationExperiment, ExperimentResult, GeneralizationReport
 from .autonomous_curriculum import AutonomousCurriculumDiscovery, CurriculumCandidate, CurriculumDecision
-from .learning_transfer import LearningExperience, LearningTransfer, TransferCandidate
+from .learning_transfer import FailureConstraint, LearningExperience, LearningTransfer, TransferCandidate
 from .persistent_memory import PersistentMemory
 from .transfer_validation import TransferValidation, TransferValidationReceipt, TransferValidator
 from .world_model import Observation, PredictionError, WorldModel, WorldPrediction
@@ -39,6 +39,7 @@ class MegaPlan:
     cognitive: CognitivePlan
     pathway: ExecutionPathway | None
     strategy: str
+    avoid: tuple[FailureConstraint, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -188,13 +189,20 @@ class WorldMegaModel:
                     risk=min(1.0, max(0.0, uncertainty)),
                     evidence_quality=max(0.0, min(1.0, 1.0 - uncertainty)),
                 )
-        return MegaPlan(cognitive, pathway, execution_strategy(strategy).name)
+        avoid = tuple(self.transfer.failure_constraints(intent.strip(), limit=8))
+        return MegaPlan(cognitive, pathway, execution_strategy(strategy).name, avoid)
 
     def predict(self, entity_id: str, predicate: str, action: str, *, current_value: object | None = None) -> WorldPrediction | None:
         return self.world.predict_next(entity_id, predicate, action, current_value=current_value)
 
     def score_prediction(self, prediction: WorldPrediction, actual_value: object) -> PredictionError:
         return self.world.score_prediction(prediction, actual_value)
+
+    def record_failure_dont(self, *, problem: str, dont: str, evidence_ids: Sequence[str], confidence: float = 0.9) -> FailureConstraint:
+        return self.transfer.record_failure(problem=problem, dont=dont, evidence_ids=tuple(evidence_ids), confidence=confidence)
+
+    def failure_donts(self, problem: str, *, limit: int = 8) -> tuple[FailureConstraint, ...]:
+        return tuple(self.transfer.failure_constraints(problem, limit=limit))
 
     def detect_capability_gap(
         self,
