@@ -51,7 +51,7 @@ class EngineeringCognitiveLoopTests(unittest.TestCase):
             cycle_id="c1",
             intent="ship engineering feature",
             observation=__import__("portable.world_model", fromlist=["Observation"]).Observation(
-                "repo", "state", "ready"
+                "obs", "repo", "state", "ready", "test"
             ),
             request=self.request(),
             executor=lambda request: {"changed": True},
