@@ -174,7 +174,7 @@ class SkillOptimizer:
                 "accepted": accepted, "holdout_ids": sorted(set(holdout_ids)),
             }
             db.execute(
-                "INSERT INTO skill_optimization_epochs VALUES(?,?,?,?,?,?,?,?,?)",
+                "INSERT OR REPLACE INTO skill_optimization_epochs VALUES(?,?,?,?,?,?,?,?,?)",
                 (self.project, epoch_id, task_family,
                  baseline.value(self.metric, self.mixed_weight),
                  candidate.value(self.metric, self.mixed_weight), int(accepted),
