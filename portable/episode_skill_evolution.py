@@ -15,6 +15,7 @@ from typing import Callable, Iterable, Mapping, Sequence
 
 from .engineering_episode import EngineeringEpisode, EpisodePhase
 from .persistent_memory import PersistentMemory
+from .regression_corpus import RegressionCorpus
 from .skill_optimization import SkillEdit, SkillOptimizationResult, SkillOptimizer, SkillScore
 
 
@@ -237,6 +238,7 @@ class EpisodeSkillEvolution:
         self.memory = memory
         self.project = project.strip()
         self.corpus = EpisodeSkillReplayCorpus(memory, self.project)
+        self.regression_corpus = RegressionCorpus(memory, self.project)
         self.optimizer = SkillOptimizer(memory, self.project, edit_budget=edit_budget)
 
     @staticmethod
@@ -297,6 +299,7 @@ class EpisodeSkillEvolution:
             raise ValueError("skill evolution requires episode evidence")
         family = task_family or self.corpus.task_family(episode)
         self.corpus.register_episode(episode, task_family=family)
+        self.regression_corpus.ingest_episode(episode, task_family=family)
         failure_memory_ids = self.ingest_failure_memory(episode)
         proposals = list(self.proposals_from_episode(episode))
         existing = {edit.content.strip() for edit in proposals}
