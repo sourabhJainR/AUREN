@@ -98,6 +98,7 @@ class SandboxedRepository:
                 workspace,
                 ignore=shutil.ignore_patterns(".git", "__pycache__", ".pytest_cache"),
             )
+            before = self._snapshot(workspace)
             evidence: list[CommandEvidence] = []
             passed = True
             failure = ""
@@ -159,7 +160,6 @@ class SandboxedRepository:
                     raise PermissionError(f"patch escapes workspace: {relative}")
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_text(content)
-            before = self._snapshot(workspace)
             evidence: list[CommandEvidence] = []
             passed = True
             failure = ""
