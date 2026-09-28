@@ -35,7 +35,7 @@
         "interactive-documentation"
       ],
       "skills": [
-        "./skills/ai-coding-orchestrator/SKILL.md"
+        "./skills/ai-coding-orchestrator"
       ]
     }
   ]
