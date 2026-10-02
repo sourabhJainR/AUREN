@@ -89,7 +89,16 @@ class ContextAcquisitionPipeline:
     different retrieval mode or the pipeline stops.
     """
 
-    _RETRIEVAL_MODES = ("semantic", "structural", "lexical", "history", "pack")
+    _RETRIEVAL_MODES = (
+        "instructions",
+        "task_contract",
+        "semantic",
+        "structural",
+        "lexical",
+        "history",
+        "memory",
+        "security",
+    )
 
     def __init__(
         self,
@@ -402,7 +411,58 @@ class ContextAcquisitionPipeline:
             }
 
         symbols = self._resolve_symbols(SymbolLocator(self.repository.index), query)
-        if mode == "structural":
+        if mode in {"history", "memory"}:
+            rows = relevant_task_memory(self.root, query, limit=min(12, max_items))
+            kind = "memory" if mode == "memory" else "history"
+            evidence = [
+                EvidenceCandidate(
+                    f"{kind}:{row['id']}",
+                    kind,
+                    self._history_text(row),
+                    relevance=0.90 if row.get("outcome") in {"failed", "regressed"} else 0.76,
+                    confidence=0.95 if row.get("promotion") == "verified" else 0.70,
+                    freshness=0.85,
+                    cost=max(1, len(self._history_text(row))),
+                    source="task-memory",
+                )
+                for row in rows
+            ]
+            return {
+                "evidence": evidence,
+                "snapshot": self.repository.digest(),
+                "paths": (),
+                "graph_paths": (),
+                "unknowns": (),
+            }
+
+        if mode == "instructions":
+            retrieval_query = f"{query} AGENTS.md CLAUDE.md SKILL.md instructions"
+            result = self.repository.retrieve(
+                retrieval_query,
+                token_budget=max(1, min(budget // 3, 5000)),
+                max_files=min(max_items, 8),
+                context_lines=12,
+                graph_hops=0,
+            )
+        elif mode == "task_contract":
+            retrieval_query = f"{query} requirements acceptance criteria scope constraints"
+            result = self.repository.retrieve(
+                retrieval_query,
+                token_budget=max(1, min(budget // 3, 5000)),
+                max_files=min(max_items, 8),
+                context_lines=12,
+                graph_hops=1,
+            )
+        elif mode == "security":
+            retrieval_query = f"{query} security authorization permission credential secret trust boundary"
+            result = self.repository.retrieve(
+                retrieval_query,
+                token_budget=max(1, min(budget // 3, 5000)),
+                max_files=min(max_items, 8),
+                context_lines=10,
+                graph_hops=1,
+            )
+        elif mode == "structural":
             retrieval_query = " ".join(symbols[:12]) or query
             result = self.repository.retrieve(
                 retrieval_query,
