@@ -5,6 +5,8 @@ the authority for policy, sandboxing, verification and promotion.
 """
 from __future__ import annotations
 
+import hashlib
+import itertools
 import json
 import os
 import re
@@ -402,6 +404,12 @@ class CapabilityDecision:
     alternatives: tuple[str, ...] = ()
     degraded: bool = False
     selected_set: tuple[str, ...] = ()
+    bundle_id: str = ""
+    bundle_score: float = 0.0
+    bundle_confidence: float = 0.0
+    bundle_status: str = "experimental"
+    bundle_cost: float = 0.0
+    bundle_latency_ms: float = 0.0
 
 
 class CapabilityExecutioner:
@@ -493,6 +501,7 @@ class CapabilityExecutioner:
                 except OSError:
                     continue
                 metadata, body = self._skill_metadata(raw)
+                codex_model_invocable = self._codex_model_invocable(directory)
                 description = str(metadata.get("description") or next(
                     (line.lstrip("# ").strip() for line in body.splitlines() if line.strip() and not line.startswith("---")),
                     directory.name,
@@ -510,7 +519,7 @@ class CapabilityExecutioner:
                     phase=str(metadata.get("phase") or "general").strip().lower(),
                     provides=frozenset(str(item).lower() for item in provides if str(item).strip()),
                     requires=frozenset(str(item).lower() for item in requires if str(item).strip()),
-                    model_invocable=bool(metadata.get("model_invocable", True)),
+                    model_invocable=bool(metadata.get("model_invocable", True)) and codex_model_invocable,
                     risk=str(metadata.get("risk", "low")).strip().lower(),
                     requires_network=bool(metadata.get("requires_network", False)),
                     requires_sandbox=bool(metadata.get("requires_sandbox", False)),
@@ -525,6 +534,17 @@ class CapabilityExecutioner:
             except (TypeError, ValueError, OverflowError):
                 continue
         return tuple(sorted({item.name: item for item in options}.values(), key=lambda item: (item.source, item.name)))
+
+    @staticmethod
+    def _codex_model_invocable(skill_root: Path) -> bool:
+        """Honor the Codex sidecar when a skill declares implicit invocation policy."""
+        sidecar = skill_root / "agents" / "openai.yaml"
+        try:
+            raw = sidecar.read_text(encoding="utf-8", errors="replace")[:2048]
+        except OSError:
+            return True
+        match = re.search(r"(?mi)^\s*allow_implicit_invocation\s*:\s*(true|false)\s*$", raw)
+        return not (match and match.group(1).lower() == "false")
 
     @staticmethod
     def _skill_metadata(raw: str) -> tuple[dict[str, Any], str]:
@@ -702,6 +722,80 @@ class CapabilityExecutioner:
         )
         return CapabilityDecision(selected.name, selected.source, score, confidence, rationale, alternatives, degraded)
 
+    @staticmethod
+    def bundle_id(options: Iterable[CapabilityOption]) -> str:
+        members = sorted(f"{option.source}:{option.name}" for option in options)
+        return hashlib.sha256("|".join(members).encode()).hexdigest()[:16]
+
+    @staticmethod
+    def _bundle_status(prior: Mapping[str, float]) -> str:
+        samples = int(float(prior.get("samples", 0)))
+        success = float(prior.get("success_rate", 0.5))
+        failure = float(prior.get("failure_rate", 0.5))
+        if samples >= 6 and failure >= 0.75:
+            return "retired"
+        if samples >= 3 and (failure >= 0.55 or success < 0.5):
+            return "degraded"
+        if samples >= 4 and success >= 0.78 and float(prior.get("confidence", 0.0)) >= 0.5:
+            return "proven"
+        return "experimental"
+
+    @staticmethod
+    def _bundle_metrics(
+        request: str,
+        members: Sequence[CapabilityOption],
+        history: Mapping[str, Mapping[str, float]],
+    ) -> tuple[float, float, float, float, float, float, str]:
+        tokens = set(re.findall(r"[a-z0-9]+", request.lower()))
+        covered = set(tokens)
+        provided = set(tokens)
+        phases: set[str] = set()
+        sources: set[str] = set()
+        redundancy: list[float] = []
+        total_cost = 0.0
+        total_latency = 0.0
+        evidence: list[float] = []
+        confidence: list[float] = []
+        for option in members:
+            phases.add(option.phase)
+            sources.add(option.source)
+            option_tokens = set(re.findall(r"[a-z0-9]+", (option.name + " " + option.description).lower())) | set(option.tags)
+            covered.update(option_tokens)
+            provided.update(option_tokens | set(option.provides))
+            prior = history.get(option.name, {})
+            evidence.append(max(0.0, min(1.0, float(prior.get("evidence_quality", option.evidence_quality)))))
+            confidence.append(max(0.0, min(1.0, float(prior.get("confidence", option.confidence)))))
+            total_cost += max(0.0, min(1.0, float(prior.get("avg_cost", option.estimated_cost))))
+            total_latency += max(0.0, float(prior.get("avg_latency", option.estimated_latency_ms / 1000.0)))
+        for left, right in itertools.combinations(members, 2):
+            ltags = set(left.tags) | set(re.findall(r"[a-z0-9]+", left.description.lower()))
+            rtags = set(right.tags) | set(re.findall(r"[a-z0-9]+", right.description.lower()))
+            union = ltags | rtags
+            redundancy.append(len(ltags & rtags) / max(1, len(union)))
+        missing = sorted({
+            requirement
+            for option in members
+            for requirement in option.requires
+            if requirement not in provided
+        })
+        if missing:
+            return -1.0, 0.0, 0.0, 0.0, 0.0, 0.0, "missing_requirements=" + ",".join(missing)
+        coverage = min(1.0, len(covered) / max(1, len(tokens)))
+        phase_diversity = len(phases) / max(1, len(members))
+        source_diversity = len(sources) / max(1, len(members))
+        avg_evidence = sum(evidence) / max(1, len(evidence))
+        avg_confidence = sum(confidence) / max(1, len(confidence))
+        redundancy_score = sum(redundancy) / max(1, len(redundancy))
+        return (
+            coverage,
+            phase_diversity,
+            source_diversity,
+            avg_evidence,
+            avg_confidence,
+            redundancy_score,
+            "",
+        )
+
     def select_collaborative(
         self,
         *,
@@ -714,59 +808,108 @@ class CapabilityExecutioner:
         max_risk: str = "high",
         resource_budget: float = 1.0,
         history: Mapping[str, Mapping[str, float]] | None = None,
+        bundle_history: Mapping[str, Mapping[str, float]] | None = None,
         max_skills: int = 3,
     ) -> CapabilityDecision:
-        """Select a bounded complementary skill set without user choreography.
+        """Select and evaluate a bounded skill bundle.
 
-        Start with the single-capability selector, then add only capabilities
-        whose marginal task coverage/evidence justifies their bounded cost.
-        Policy eligibility is rechecked for every member; collaboration never
-        grants authority that an individual option does not have.
+        The selector evaluates singleton, pair and triple bundles from a small
+        candidate portfolio. Historical bundle outcomes can graduate useful
+        combinations and retire repeatedly failing ones. Policy is checked for
+        every member before scoring.
         """
         options = tuple(options)
         history = history or {}
+        bundle_history = bundle_history or {}
         limit = max(1, min(3, int(max_skills)))
         primary = self.select(
             request=request, options=options, required=required, failed=failed,
             network_allowed=network_allowed, sandbox_available=sandbox_available,
             max_risk=max_risk, resource_budget=resource_budget, history=history,
         )
-        by_name = {option.name: option for option in options}
-        selected_names = [primary.selected]
-        covered = set(re.findall(r"[a-z0-9]+", request.lower()))
-        primary_option = by_name.get(primary.selected)
-        if primary_option:
-            covered.update(primary_option.tags)
-        while len(selected_names) < limit:
-            best: tuple[float, CapabilityOption] | None = None
-            for option in options:
-                if option.name in selected_names or option.name in set(failed):
+        eligible = [
+            option for option in options
+            if option.name not in set(failed)
+            and option.available
+            and self._allowed(option, network_allowed, sandbox_available, max_risk)
+        ]
+        request_tokens = set(re.findall(r"[a-z0-9]+", request.lower()))
+        eligible.sort(
+            key=lambda option: (
+                len(request_tokens & (set(option.tags) | set(re.findall(r"[a-z0-9]+", option.description.lower())))),
+                option.evidence_quality,
+                option.confidence,
+                -option.estimated_cost,
+                option.name,
+            ),
+            reverse=True,
+        )
+        pool_names = {primary.selected}
+        pool_names.update(option.name for option in eligible[:11])
+        pool = tuple(option for option in eligible if option.name in pool_names)
+        by_name = {option.name: option for option in pool}
+        candidates: list[tuple[float, tuple[CapabilityOption, ...], float, float, float, float, str, float]] = []
+        for size in range(1, limit + 1):
+            for names in itertools.combinations(sorted(by_name), size):
+                members = tuple(by_name[name] for name in names)
+                 metrics = self._bundle_metrics(request, members, history)
+                coverage, phase_diversity, source_diversity, evidence, confidence, redundancy, reason = metrics
+                if coverage < 0 or reason:
                     continue
-                if not option.available or not self._allowed(option, network_allowed, sandbox_available, max_risk):
+                fingerprint = self.bundle_id(members)
+                prior = bundle_history.get(fingerprint, {})
+                status = self._bundle_status(prior)
+                if status == "retired":
                     continue
-                tokens = set(re.findall(r"[a-z0-9]+", (option.name + " " + option.description).lower())) | set(option.tags)
-                marginal = len(tokens - covered) / max(1, len(covered))
-                prior = history.get(option.name, {})
-                evidence = max(0.0, min(1.0, float(prior.get("evidence_quality", option.evidence_quality))))
-                confidence = max(0.0, min(1.0, float(prior.get("confidence", option.confidence))))
-                cost = max(0.0, min(1.0, float(prior.get("avg_cost", option.estimated_cost))))
-                collaboration = 0.02 if option.source != (primary_option.source if primary_option else option.source) else 0.0
-                score = 0.60 * marginal + 0.20 * evidence + 0.10 * confidence + collaboration - 0.08 * cost
-                if marginal <= 0.0 or score < 0.08:
-                    continue
-                candidate = (score, option)
-                if best is None or (candidate[0], -_RISK_ORDER.get(candidate[1].risk, 99), candidate[1].name) > (best[0], -_RISK_ORDER.get(best[1].risk, 99), best[1].name):
-                    best = candidate
-            if best is None:
-                break
-            selected_names.append(best[1].name)
-            covered.update(set(best[1].tags) | set(re.findall(r"[a-z0-9]+", best[1].description.lower())))
-        rationale = primary.rationale + f"; collaborative_set={','.join(selected_names)}"
+                bundle_success = max(0.0, min(1.0, float(prior.get("success_rate", 0.5))))
+                bundle_evidence = max(0.0, min(1.0, float(prior.get("evidence_quality", evidence))))
+                bundle_confidence = max(0.0, min(1.0, float(prior.get("confidence", confidence))))
+                cost = min(1.0, sum(max(0.0, min(1.0, float(history.get(o.name, {}).get("avg_cost", o.estimated_cost)))) for o in members))
+                latency = sum(max(0.0, float(history.get(o.name, {}).get("avg_latency", o.estimated_latency_ms / 1000.0))) for o in members)
+                normalized_latency = min(1.0, latency / 5.0)
+                growth = 0.04 if size > 1 and phase_diversity > 0.5 else 0.0
+                score = (
+                    0.34 * coverage
+                    + 0.10 * phase_diversity
+                    + 0.06 * source_diversity
+                    + 0.14 * evidence
+                    + 0.08 * confidence
+                    + 0.14 * bundle_success
+                    + 0.06 * bundle_evidence
+                    + 0.04 * bundle_confidence
+                    + growth
+                    - 0.08 * cost
+                    - 0.05 * normalized_latency
+                    - 0.10 * redundancy
+                )
+                candidates.append((score, members, bundle_confidence, cost, latency, bundle_success, status, redundancy))
+        if not candidates:
+            raise LookupError("no safe capability bundle available for request")
+        candidates.sort(key=lambda item: (-item[0], len(item[1]), tuple(o.name for o in item[1])))
+        best_score, members, bundle_confidence, cost, latency, bundle_success, status, redundancy = candidates[0]
+        selected = next((o for o in members if o.name == primary.selected), members[0])
+        bundle_id = self.bundle_id(members)
+        member_names = tuple(o.name for o in members)
+        rationale = (
+            primary.rationale
+            + f"; bundle={bundle_id}; members={','.join(member_names)}; "
+            + f"bundle_score={best_score:.3f}; bundle_status={status}; redundancy={redundancy:.3f}"
+        )
         return CapabilityDecision(
-            selected=primary.selected, source=primary.source, score=primary.score,
-            confidence=primary.confidence, rationale=rationale,
-            alternatives=primary.alternatives, degraded=primary.degraded,
-            selected_set=tuple(selected_names),
+            selected=selected.name,
+            source=selected.source,
+            score=primary.score,
+            confidence=primary.confidence,
+            rationale=rationale,
+            alternatives=primary.alternatives,
+            degraded=primary.degraded or status == "degraded",
+            selected_set=member_names,
+            bundle_id=bundle_id,
+            bundle_score=best_score,
+            bundle_confidence=max(bundle_confidence, bundle_success),
+            bundle_status=status,
+            bundle_cost=cost,
+            bundle_latency_ms=latency * 1000.0,
         )
 
     @staticmethod

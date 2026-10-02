@@ -237,6 +237,27 @@ class AgentCapabilityTests(unittest.TestCase):
         )
         self.assertNotIn("human-only-plan", result.selected_set)
 
+    def test_codex_sidecar_can_disable_implicit_skill_invocation(self):
+        import os, tempfile
+        from portable.agent_capabilities import CapabilityExecutioner
+        previous = os.environ.get("AER_SKILLS_PATH")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "skills"
+            skill = root / "manual-only"
+            (skill / "agents").mkdir(parents=True)
+            (skill / "SKILL.md").write_text("---\nname: manual-only\n---\nHuman-only skill.\n", encoding="utf-8")
+            (skill / "agents" / "openai.yaml").write_text(
+                "policy:\n  allow_implicit_invocation: false\n",
+                encoding="utf-8",
+            )
+            os.environ["AER_SKILLS_PATH"] = str(root)
+            try:
+                option = next(item for item in CapabilityExecutioner().discover_installed(tmp) if item.name == "skill:manual-only")
+                self.assertFalse(option.model_invocable)
+            finally:
+                if previous is None: os.environ.pop("AER_SKILLS_PATH", None)
+                else: os.environ["AER_SKILLS_PATH"] = previous
+
     def test_skill_front_matter_parses_model_invocation_policy(self):
         import os, tempfile
         from portable.agent_capabilities import CapabilityExecutioner
@@ -288,6 +309,57 @@ class AgentCapabilityTests(unittest.TestCase):
             network_allowed=False,
         )
         self.assertNotIn("blocked-network", result.selected_set)
+
+    def test_bundle_fingerprint_is_order_independent(self):
+        from portable.agent_capabilities import CapabilityExecutioner, CapabilityOption
+        first = CapabilityOption("a", source="skill")
+        second = CapabilityOption("b", source="mcp")
+        self.assertEqual(
+            CapabilityExecutioner.bundle_id((first, second)),
+            CapabilityExecutioner.bundle_id((second, first)),
+        )
+
+    def test_proven_complementary_bundle_can_beat_single_skill(self):
+        from portable.agent_capabilities import CapabilityExecutioner, CapabilityOption
+        selector = CapabilityExecutioner(min_exploration=0.0)
+        planner = CapabilityOption(
+            "planner", source="skill", description="planning and decomposition",
+            tags=frozenset({"plan", "decomposition"}), phase="planning",
+        )
+        reviewer = CapabilityOption(
+            "reviewer", source="skill", description="review and validation",
+            tags=frozenset({"review", "validation"}), phase="review",
+        )
+        bundle_id = selector.bundle_id((planner, reviewer))
+        result = selector.select_collaborative(
+            request="plan and review repository changes",
+            options=(planner, reviewer),
+            bundle_history={bundle_id: {
+                "samples": 8, "success_rate": 0.95, "failure_rate": 0.05,
+                "evidence_quality": 0.95, "confidence": 1.0,
+            }},
+            max_skills=2,
+        )
+        self.assertEqual(result.bundle_id, bundle_id)
+        self.assertEqual(result.selected_set, ("planner", "reviewer"))
+        self.assertEqual(result.bundle_status, "proven")
+
+    def test_retired_bundle_is_not_selected(self):
+        from portable.agent_capabilities import CapabilityExecutioner, CapabilityOption
+        selector = CapabilityExecutioner(min_exploration=0.0)
+        planner = CapabilityOption("planner", tags=frozenset({"plan"}), phase="planning")
+        reviewer = CapabilityOption("reviewer", tags=frozenset({"review"}), phase="review")
+        bundle_id = selector.bundle_id((planner, reviewer))
+        result = selector.select_collaborative(
+            request="plan and review",
+            options=(planner, reviewer),
+            bundle_history={bundle_id: {
+                "samples": 8, "success_rate": 0.15, "failure_rate": 0.85,
+                "evidence_quality": 0.2, "confidence": 1.0,
+            }},
+            max_skills=2,
+        )
+        self.assertNotEqual(result.bundle_id, bundle_id)
 
     def test_safe_unobserved_capability_can_be_explored(self):
         from portable.agent_capabilities import CapabilityExecutioner, CapabilityOption
