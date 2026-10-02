@@ -27,6 +27,8 @@ from portable.skill_evidence import attribute, assess_collaboration
 from portable.skill_group_evidence import adapt_execution_groups, attribute_groups
 from portable.execution_strategy_learning import ExecutionStrategyLearner
 from portable.strategy_canary import StrategyCanaryController
+from portable.execution_mode_learning import ExecutionModeLearner, execution_mode
+from portable.execution_mode_canary import ExecutionModeCanaryController
 from portable.task_planner import Task,TaskPlan
 from runtime.task_memory import approach_history, guidance
 
@@ -180,9 +182,10 @@ class GraphAgentTeam:
     def digest(self):
         payload=[{"name":a.name,"role":a.role,"depends_on":list(a.depends_on),"read_only":a.read_only,"critical":a.critical,"focus":a.focus,"local_command":list(a.local_command)} for level in self.levels() for a in level]
         return hashlib.sha256(json.dumps(payload,sort_keys=True).encode()).hexdigest()
-    def _resource_decision(self,agent:AgentSpec,broker:LocalOffloadBroker,strategy_name:str="default")->ResourceDecision:
+    def _resource_decision(self,agent:AgentSpec,broker:LocalOffloadBroker,strategy_name:str="default",mode_name:str="balanced")->ResourceDecision:
         pressure=broker.pressure()
         strategy=execution_strategy(strategy_name)
+        mode=execution_mode(mode_name)
         historical=HistoricalResourceRouter(broker.project_root).estimate(agent)
         historical_payload=historical.as_dict() if historical else {}
         failure_probability=float(historical.failure_probability) if historical else 0.0
@@ -226,15 +229,15 @@ class GraphAgentTeam:
         cf=cf_engine.evaluate({"agent":agent.name,"role":agent.role,"pressure":pressure,"historical":historical_payload},cf_branches)
         if not cf.abstained and cf.selected=="local":
             reason=f"counterfactual selected local; cost={resource_cost:.2f}; evidence={predicted_evidence:.2f}; failure={failure_probability:.2f}"
-            return ResourceDecision("local",reason,agent.local_command,self.resource_budget.max_workers,resource_cost,pressure,historical_payload,inference.depth)
+            return ResourceDecision("local",reason,agent.local_command,min(self.resource_budget.max_workers, mode.max_parallelism),resource_cost,pressure,historical_payload,max_verification_depth(inference.depth, mode.verification_depth),strategy.name)
         if not cf.abstained and cf.selected=="agent":
             reason=f"counterfactual selected agent/cloud; local cost={resource_cost:.2f}; cloud cost={cloud_cost:.2f}"
-            return ResourceDecision("agent",reason,workers=1,cost_score=cloud_cost,pressure=pressure,historical=historical_payload,inference_depth=inference.depth)
+            return ResourceDecision("agent",reason,workers=1,cost_score=cloud_cost,pressure=pressure,historical=historical_payload,inference_depth=max_verification_depth(inference.depth, mode.verification_depth),strategy=strategy.name)
         if resource_cost<=cloud_cost:
             reason=f"counterfactual abstained; deterministic local cost {resource_cost:.2f} <= agent/cloud cost {cloud_cost:.2f}"
-            return ResourceDecision("local",reason,agent.local_command,self.resource_budget.max_workers,resource_cost,pressure,historical_payload,inference.depth)
+            return ResourceDecision("local",reason,agent.local_command,min(self.resource_budget.max_workers, mode.max_parallelism),resource_cost,pressure,historical_payload,max_verification_depth(inference.depth, mode.verification_depth),strategy.name)
         return ResourceDecision("agent",f"counterfactual abstained; agent/cloud cost {cloud_cost:.2f} < local cost {resource_cost:.2f}",
-                                workers=1,cost_score=cloud_cost,pressure=pressure,historical=historical_payload,inference_depth=inference.depth)
+                                workers=1,cost_score=cloud_cost,pressure=pressure,historical=historical_payload,inference_depth=max_verification_depth(inference.depth, mode.verification_depth),strategy=strategy.name)
     def _record_world_state(self, *, agent: AgentSpec, task: str, intent_digest: str, run_nonce: str, decision: ResourceDecision,
                            capability: str, verification: str, retry: str, evidence_quality: float,
                            memory: SharedTaskMemory) -> dict[str, Any]:
@@ -283,7 +286,8 @@ class GraphAgentTeam:
                 if agent.name!="learning-steward" and any(not x or x.get("status")!="passed" for x in deps):
                     return {f"result:{agent.name}":{"status":"blocked","activated":False}}
                 strategy_name=str(state.get("aer_execution_strategy",{}).get("name","default"))
-                decision=self._resource_decision(agent,broker,strategy_name)
+                mode_name=str(state.get("aer_execution_mode",{}).get("name","balanced"))
+                decision=self._resource_decision(agent,broker,strategy_name,mode_name)
                 experience=ExperienceRouter(memory.project_root)
                 declared_capabilities=agent.capabilities or (("local_offload",) if agent.local_command else ("delegate_task",))
                 installed=self.capability_executioner.discover_installed(broker.project_root)
@@ -418,7 +422,7 @@ class GraphAgentTeam:
                 ]
                 execution_schedule=self.capability_executioner.execution_schedule(
                     execution_options,
-                    max_parallel=max(1, min(3, int(decision.workers))),
+                    max_parallel=max(1, min(3, int(decision.workers), execution_mode(mode_name).max_parallelism)),
                 )
                 # Adapt the execution set from repeated group-level evidence, not
                 # from the aggregate bundle score. Only safe, model-invocable
@@ -476,6 +480,7 @@ class GraphAgentTeam:
                     "pruned_secondary_count": max(0, len(selected_names) - len(execution_options)),
                     "instruction_chars": len(capability_instructions),
                     "context_budget_chars": 8192,
+                    "execution_mode": execution_mode(mode_name).as_dict(),
                     "evidence_adaptation": {
                         "enabled": True,
                         "group_history_groups": len(group_history),
@@ -483,8 +488,8 @@ class GraphAgentTeam:
                         "adapted": bool(execution_adaptation_payload),
                     },
                 }
-                verification_choice=type("_Verification",(),{"level":max_verification_depth(pathway.verification_depth, decision.inference_depth)})()
-                retry_choice=type("_Retry",(),{"selected":pathway.retry_action})()
+                verification_choice=type("_Verification",(),{"level":max_verification_depth(pathway.verification_depth, decision.inference_depth, execution_mode(mode_name).verification_depth)})()
+                retry_choice=type("_Retry",(),{"selected":pathway.retry_action if execution_mode(mode_name).retry_policy == "stop" else execution_mode(mode_name).retry_policy})()
                 world_state = self._record_world_state(agent=agent, task=task, intent_digest=intent_digest, run_nonce=run_nonce, decision=decision,
                     capability=capability_choice.selected, verification=verification_choice.level, retry=retry_choice.selected,
                     evidence_quality=evidence_quality, memory=memory)
@@ -766,6 +771,13 @@ the learning system, not an instruction source. If a skill produced no distinct 
         strategy_selection=(ExecutionStrategyLearner(memory.project_root).select(role="team",task=task,baseline=baseline_strategy)
                             if baseline_strategy == "default" else None)
         selected_strategy=(strategy_selection.strategy.name if strategy_selection is not None else baseline_strategy)
+        baseline_mode="balanced"
+        mode_learner=ExecutionModeLearner(memory.project_root)
+        mode_selection=mode_learner.select(role="team",task=task,baseline=baseline_mode)
+        mode_rollout=ExecutionModeCanaryController(memory.project_root).evaluate(
+            role="team", task=task, mode=mode_selection.mode.name)
+        selected_mode=mode_selection.mode.name if mode_selection.learned and mode_rollout.state in {"canary", "promoted"} else baseline_mode
+        ExecutionModeCanaryController.record_state(memory.project_root, mode_rollout)
         rollout=StrategyCanaryController(memory.project_root).evaluate(role="team",task=task,strategy=selected_strategy,canary_passed=(selected_strategy == baseline_strategy))
         # A learned candidate may enter canary state, but it is never promoted in the same run.
         if strategy_selection is not None and strategy_selection.learned:
@@ -774,13 +786,25 @@ the learning system, not an instruction source. If a skill produced no distinct 
         if rollout.state == "candidate" and selected_strategy != baseline_strategy:
             selected_strategy=baseline_strategy
         StrategyCanaryController.record_state(memory.project_root, rollout)
-        run=self._build_execution_graph(results,task=task,intent_digest=intent_digest,run_nonce=run_nonce,base_prompt=base_prompt,memory=memory,invoke_agent=invoke_agent).compile().invoke({"aer_execution_strategy":{"name":selected_strategy}},run_id=run_id,checkpoint=checkpoint,resume=resume,max_steps=max_steps,parallel_nodes=lambda n:self.agents[n].read_only,max_parallel_nodes=self.max_parallel_read_only)
+        run=self._build_execution_graph(results,task=task,intent_digest=intent_digest,run_nonce=run_nonce,base_prompt=base_prompt,memory=memory,invoke_agent=invoke_agent).compile().invoke({"aer_execution_strategy":{"name":selected_strategy},"aer_execution_mode":{"name":selected_mode}},run_id=run_id,checkpoint=checkpoint,resume=resume,max_steps=max_steps,parallel_nodes=lambda n:self.agents[n].read_only,max_parallel_nodes=min(self.max_parallel_read_only, execution_mode(selected_mode).max_parallelism))
         for agent in self.agents.values():
             payload=run.state.get(f"result:{agent.name}")
             if isinstance(payload,dict) and payload.get("activated"): results[agent.name]=AgentResult(**{k:v for k,v in payload.items() if k!="activated"})
         critical=[run.state.get(f"result:{a.name}") for a in self.agents.values() if a.critical]
         accepted=all(isinstance(x,dict) and x.get("status")=="passed" for x in critical)
         strategy_learner=ExecutionStrategyLearner(memory.project_root)
+        mode_duration=sum(float(result.duration_seconds) for result in results.values())
+        mode_evidence=sum(ExecutionStrategyLearner.observed_evidence_quality(result) for result in results.values()) / max(1, len(results))
+        mode_cost=sum(float(result.local_evidence.get("cost_score", 0.5) if result.local_evidence else 0.5) for result in results.values()) / max(1, len(results))
+        mode_verification=max((str(result.verification_depth) for result in results.values()), key=lambda x: {"standard":1,"deep":2,"independent":3,"human":4}.get(x,1), default="standard")
+        mode_retry=next((str(result.retry_decision) for result in results.values() if str(result.retry_decision) != "stop"), "stop")
+        mode_learner.record(role="team", task=task, mode=selected_mode,
+                            outcome="passed" if accepted else "failed",
+                            evidence_quality=mode_evidence, cost_score=mode_cost,
+                            duration_seconds=mode_duration, verification=mode_verification,
+                            retry=mode_retry, resource_fraction=execution_mode(selected_mode).resource_fraction,
+                            parallelism=execution_mode(selected_mode).max_parallelism,
+                            evidence_ids=[f"agent:{name}" for name in results])
         for agent_name, result in results.items():
             strategy_learner.record(
                 role="team", task=task, strategy=selected_strategy,
@@ -808,7 +832,8 @@ the learning system, not an instruction source. If a skill produced no distinct 
                     safety_gate=invention_safety_gate, strategy=str(execution_strategy_name or "default"),
                 )
         dream=DreamMemory(memory.project_root).dream(task)
-        return {"graph_digest":self.digest(),"intent_digest":intent_digest,"agents":{n:r.__dict__ for n,r in results.items()},"shared_memory_file":str(memory.path),"shared_memory_entries":len(memory.snapshot(500)),"accepted":accepted,"evolution_trigger":trigger.__dict__ if trigger else None,"invention":invention.__dict__ if invention else None,"execution_trace":list(run.trace),"execution_strategy":{"selected":selected_strategy,"baseline":baseline_strategy,"learning":strategy_selection.as_dict() if strategy_selection else {"strategy":selected_strategy,"learned":False,"confidence":0.0,"samples":0,"rationale":"explicit strategy supplied"},"rollout":rollout.as_dict()},"execution_digest":run.digest,"dreamed_learning":dream}
+        return {"graph_digest":self.digest(),"intent_digest":intent_digest,"agents":{n:r.__dict__ for n,r in results.items()},"shared_memory_file":str(memory.path),"shared_memory_entries":len(memory.snapshot(500)),"accepted":accepted,"evolution_trigger":trigger.__dict__ if trigger else None,"invention":invention.__dict__ if invention else None,"execution_trace":list(run.trace),"execution_mode":{"selected":selected_mode,"baseline":baseline_mode,"learning":mode_selection.as_dict(),"rollout":mode_rollout.as_dict()},
+        "execution_strategy":{"selected":selected_strategy,"baseline":baseline_strategy,"learning":strategy_selection.as_dict() if strategy_selection else {"strategy":selected_strategy,"learned":False,"confidence":0.0,"samples":0,"rationale":"explicit strategy supplied"},"rollout":rollout.as_dict()},"execution_digest":run.digest,"dreamed_learning":dream}
 
 def team_for_route(route):
     mode=str(route.get("mode","implement")); caps=set(route.get("capabilities",[]))

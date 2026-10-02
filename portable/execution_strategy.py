@@ -41,8 +41,9 @@ def execution_strategy(name: str | None) -> ExecutionStrategy:
 _DEPTH = {"standard": 1, "deep": 2, "independent": 3, "human": 4}
 
 
-def max_verification_depth(a: str, b: str) -> str:
-    return max((str(a), str(b)), key=lambda value: _DEPTH.get(value, 1))
+def max_verification_depth(*depths: str) -> str:
+    values = tuple(str(value) for value in depths if value is not None)
+    return max(values or ("standard",), key=lambda value: _DEPTH.get(value, 1))
 
 
 @dataclass(frozen=True)
