@@ -74,10 +74,12 @@ class EvidenceBackedInventionLifecycle:
         *,
         minimum_holdouts: int = 2,
         minimum_uplift: float = 0.03,
+        minimum_benchmark_delta: float = 0.03,
     ) -> None:
         self.root = Path(root)
         self.minimum_holdouts = max(1, int(minimum_holdouts))
         self.minimum_uplift = max(0.0, min(1.0, float(minimum_uplift)))
+        self.minimum_benchmark_delta = max(-1.0, min(1.0, float(minimum_benchmark_delta)))
 
     @staticmethod
     def _provenance(
@@ -171,6 +173,10 @@ class EvidenceBackedInventionLifecycle:
             reason = rollout.reason
 
         delta = float(benchmark_after) - float(benchmark_before)
+        if state == "promoted" and delta < self.minimum_benchmark_delta:
+            state = "candidate"
+            reason = (f"benchmark improvement gate not met: delta={delta:.3f} "
+                      f"< required={self.minimum_benchmark_delta:.3f}")
         result = InventionLifecycleResult(
             invention.invention_id,
             pattern.pattern_id,
