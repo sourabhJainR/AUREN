@@ -34,13 +34,19 @@ class LearningSteward:
         return rows
     @staticmethod
     def experience_history(root: Path, key: str, limit: int = 60) -> list[dict[str, Any]]:
-        from runtime.task_memory import relevant
-        rows = relevant(Path(root), key, limit=max(1, int(limit)) * 3)
+        from runtime.task_memory import approach_history, relevant
+        bounded_limit = max(1, int(limit))
+        # Capability records must be attributable to the exact selected option.
+        # Do not use relevance ranking here: unrelated failures can crowd the
+        # target record out before filtering, and prefix matches can mix options.
+        if ":capability:" in key:
+            return approach_history(Path(root), key, limit=bounded_limit, exact=True)
+        rows = relevant(Path(root), key, limit=bounded_limit * 3)
         return [
             row for row in rows
             if str(row.get("approach", "")).startswith(key)
             or str(row.get("category", "")) == "decision-experience"
-        ][: max(1, int(limit))]
+        ][:bounded_limit]
 
     def record_experience(
         self, *, key: str, outcome: str, evidence_quality: float,
