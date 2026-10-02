@@ -49,6 +49,30 @@ class DecisionContext:
             "fingerprint": self.fingerprint,
         }
 
+    def similarity(self, other: "DecisionContext") -> float:
+        """Return bounded similarity for generalized learning.
+
+        Similarity is deliberately feature-based rather than embedding/model
+        based so nearby workloads can share evidence without introducing a
+        model dependency. Risk, resources and evidence carry slightly more
+        weight because they directly affect safe execution policy.
+        """
+        if not isinstance(other, DecisionContext):
+            raise TypeError("other must be a DecisionContext")
+        weights = (
+            ("complexity", 0.14),
+            ("dependency_parallelism", 0.14),
+            ("resource_pressure", 0.20),
+            ("latency_pressure", 0.16),
+            ("evidence_value", 0.16),
+            ("failure_risk", 0.20),
+        )
+        distance = sum(
+            weight * abs(float(getattr(self, name)) - float(getattr(other, name)))
+            for name, weight in weights
+        )
+        return max(0.0, min(1.0, 1.0 - distance))
+
 
 def _clip(value: float) -> float:
     return max(0.0, min(1.0, float(value)))
