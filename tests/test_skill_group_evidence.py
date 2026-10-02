@@ -59,3 +59,27 @@ class SkillGroupEvidenceTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+    def test_repeated_failed_candidate_is_not_reselected(self):
+        class O:
+            def __init__(self, name, phase):
+                self.name, self.phase, self.instructions, self.estimated_cost = name, phase, "x", 0.2
+
+        options = (O("planner", "planning"), O("reviewer", "review"), O("researcher", "research"), O("explorer", "discovery"))
+        groups, changes = adapt_execution_groups(
+            execution_groups=(("planner", "reviewer"),),
+            options=options,
+            group_history={
+                "planner|reviewer": {"samples": 4, "useful_evidence": 0.2},
+                "researcher|reviewer": {"samples": 3, "useful_evidence": 0.1, "success_rate": 0.0},
+            },
+            contribution_history={
+                "planner": {"evidence_quality": 0.2},
+                "reviewer": {"evidence_quality": 0.25},
+                "researcher": {"evidence_quality": 0.9},
+                "explorer": {"evidence_quality": 0.8},
+            },
+        )
+        self.assertEqual(groups, (("explorer", "reviewer"),))
+        self.assertEqual(changes[0].action, "replace")
+
