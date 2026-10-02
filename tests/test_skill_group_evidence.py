@@ -57,6 +57,30 @@ class SkillGroupEvidenceTests(unittest.TestCase):
         self.assertEqual(changes[0].action, "add")
 
 
+    def test_observed_candidate_must_beat_parent_group(self):
+        class O:
+            def __init__(self, name, phase):
+                self.name, self.phase, self.instructions, self.estimated_cost = name, phase, "x", 0.2
+
+        options = (O("planner", "planning"), O("reviewer", "review"), O("researcher", "research"), O("explorer", "discovery"))
+        groups, changes = adapt_execution_groups(
+            execution_groups=(("planner", "reviewer"),),
+            options=options,
+            group_history={
+                "planner|reviewer": {"samples": 4, "useful_evidence": 0.2, "success_rate": 0.8},
+                "researcher|reviewer": {"samples": 3, "useful_evidence": 0.23, "success_rate": 0.9},
+            },
+            contribution_history={
+                "planner": {"evidence_quality": 0.2},
+                "reviewer": {"evidence_quality": 0.2},
+                "researcher": {"evidence_quality": 0.9},
+                "explorer": {"evidence_quality": 0.7},
+            },
+        )
+        self.assertEqual(groups, (("explorer", "reviewer"),))
+        self.assertEqual(changes[0].after, ("explorer", "reviewer"))
+
+
 if __name__ == "__main__":
     unittest.main()
 
