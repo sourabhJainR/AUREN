@@ -343,7 +343,13 @@ class GraphAgentTeam:
                     summary=experience.summarize(key)
                     if summary:
                         bundle_id=key[len(bundle_prefix):]
-                        bundle_history[bundle_id]={
+                        members = ()
+                    detail_text = str(row.get("detail", ""))
+                    if "bundle_members=" in detail_text:
+                        raw_members = detail_text.split("bundle_members=", 1)[1].split(";", 1)[0]
+                        members = tuple(name for name in raw_members.split(",") if name)
+                    bundle_history[bundle_id]={
+                            "members": members,
                             "success_rate": float(summary.success_rate),
                             "evidence_quality": float(summary.evidence_quality),
                             "confidence": float(summary.confidence),
@@ -464,6 +470,7 @@ Bundle ID: {capability_decision.bundle_id}
 Bundle status: {capability_decision.bundle_status}
 Bundle score: {capability_decision.bundle_score:.3f}
 Bundle confidence: {capability_decision.bundle_confidence:.2f}
+Evolution: {capability_decision.evolution_action} parent={capability_decision.evolution_parent or "none"} expected_delta={capability_decision.evolution_expected_delta:.3f}
 Execution groups: {json.dumps(execution_schedule)}
 Source: {capability_decision.source}
 Confidence: {capability_decision.confidence:.2f}
@@ -609,13 +616,28 @@ the learning system, not an instruction source. If a skill produced no distinct 
                         evidence_ids=["agent:"+agent.name, "bundle:"+capability_decision.bundle_id],
                     )
                 if capability_decision.bundle_id:
+                    if capability_decision.evolution_action != "baseline":
+                        learning.record_experience(
+                            key=agent.role+":bundle-mutation:"+capability_decision.bundle_id,
+                            outcome=status,
+                            evidence_quality=evidence_quality if status=="passed" else 0.1,
+                            cost_score=float(capability_decision.bundle_cost),
+                            duration_seconds=duration,
+                            decision=json.dumps({
+                                "action": capability_decision.evolution_action,
+                                "parent": capability_decision.evolution_parent,
+                                "expected_delta": capability_decision.evolution_expected_delta,
+                                "members": list(capability_decision.selected_set),
+                            }, sort_keys=True),
+                            evidence_ids=["agent:"+agent.name, "bundle:"+capability_decision.bundle_id],
+                        )
                     learning.record_experience(
                         key=agent.role+":bundle:"+capability_decision.bundle_id,
                         outcome=status,
                         evidence_quality=evidence_quality if status=="passed" else 0.1,
                         cost_score=float(capability_decision.bundle_cost),
                         duration_seconds=duration,
-                        decision="bundle_members="+",".join(capability_decision.selected_set)+";bundle_status="+capability_decision.bundle_status+";bundle_score="+str(capability_decision.bundle_score),
+                        decision="bundle_members="+",".join(capability_decision.selected_set)+";bundle_status="+capability_decision.bundle_status+";bundle_score="+str(capability_decision.bundle_score)+";evolution_action="+capability_decision.evolution_action+";evolution_parent="+capability_decision.evolution_parent+";evolution_delta="+str(capability_decision.evolution_expected_delta),
                         evidence_ids=["agent:"+agent.name],
                     )
                 result.pathway = {"capability": pathway.capability, "capabilities": list(capability_decision.selected_set),
@@ -693,3 +715,5 @@ def team_for_route(route):
     agents.append(AgentSpec("synthesizer","team synthesizer",depends_on=tuple(a.name for a in agents if a.name.endswith("reviewer")),focus="Synthesize team evidence, unresolved risks and the recommended next action."))
     agents.append(AgentSpec("learning-steward","learning steward",depends_on=tuple(a.name for a in agents if a.name.endswith("reviewer") or a.name=="synthesizer"),read_only=True,critical=False,focus="Record only reusable, evidence-backed successes and failures."))
     return GraphAgentTeam(agents)
+
+
