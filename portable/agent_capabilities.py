@@ -663,7 +663,14 @@ class CapabilityExecutioner:
         # Prefer remaining core options, then fill the residual budget by the
         # same evidence-aware fit. Selection is deterministic.
         remaining = [o for o in candidates if o not in selected]
-        remaining.sort(key=lambda option: (option.source != "core",) + tuple(-value for value in fit(option)[:4]) + (option.name,))
+        remaining.sort(key=lambda option: (
+            option.source != "core",
+            -fit(option)[0],
+            -fit(option)[1],
+            -fit(option)[2],
+            -fit(option)[3],
+            option.name,
+        ))
         selected.extend(remaining[:max(0, limit - len(selected))])
         return tuple(sorted(selected[:limit], key=lambda item: (item.source, item.name)))
 
