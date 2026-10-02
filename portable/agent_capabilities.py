@@ -758,7 +758,7 @@ class CapabilityExecutioner:
             raise LookupError("no safe capability available for request")
         if exploration is not None:
             exploration_need = self._exploration_need(history.get(exploration.name, {}))
-            exploration_bonus = min(0.03, self.min_exploration * exploration_need)
+            exploration_bonus = min(0.15, self.min_exploration * (0.75 + exploration_need))
             for index, (option, score) in enumerate(candidates):
                 if option.name == exploration.name:
                     candidates[index] = (option, score + exploration_bonus)
@@ -877,8 +877,8 @@ class CapabilityExecutioner:
         history: Mapping[str, Mapping[str, float]],
     ) -> tuple[float, float, float, float, float, float, str]:
         tokens = set(re.findall(r"[a-z0-9]+", request.lower()))
-        covered = set(tokens)
-        provided = set(tokens)
+        covered: set[str] = set()
+        provided: set[str] = set()
         phases: set[str] = set()
         sources: set[str] = set()
         redundancy: list[float] = []
