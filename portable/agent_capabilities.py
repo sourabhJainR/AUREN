@@ -610,7 +610,6 @@ class CapabilityExecutioner:
                 learned_cost = max(0.0, min(1.0, float(prior.get("avg_cost", option.estimated_cost))))
                 learned_latency = max(0.0, float(prior.get("avg_latency", option.estimated_latency_ms / 1000.0)))
                 failure = max(0.0, min(1.0, float(prior.get("failure_rate", 1.0 - success))))
-                samples = max(0, int(float(prior.get("samples", 0))))
                 # Keep history influential but bounded; no single historical win
                 # can turn an optional provider into a mandatory dependency.
                 history_weight = min(0.45, max(0.0, confidence) * 0.45)
