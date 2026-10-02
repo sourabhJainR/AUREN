@@ -58,6 +58,17 @@ class ContextPlannerTests(unittest.TestCase):
         self.assertEqual([item.evidence_id for item in selected], ["best", "low"])
         self.assertLessEqual(sum(item.cost for item in selected), 250)
 
+    def test_pipeline_fallback_import_exposes_allocator(self):
+        import context_pipeline
+        self.assertIs(context_pipeline.allocate_context, __import__("context_planner").allocate_context)
+
+    def test_context_allocation_reserve_reduces_final_context_budget(self):
+        from context_planner import allocate_context
+        allocation = allocate_context(base_budget=20000, base_items=20, uncertainty="medium")
+        effective_budget = allocation.budget - allocation.reserve
+        self.assertEqual(effective_budget, 17000)
+        self.assertGreater(allocation.reserve, 0)
+
     def test_context_allocation_expands_for_uncertainty(self):
         from context_planner import allocate_context
         allocation = allocate_context(
