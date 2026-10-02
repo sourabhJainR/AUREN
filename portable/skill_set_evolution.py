@@ -121,7 +121,7 @@ class AdaptiveSkillSetEvolver:
 
             for removed in sorted(parent):
                 for added in outsiders[:3]:
-                    candidate = tuple(sorted((name for name in parent if name != removed), default="") + (added,))
+                    candidate = tuple(sorted([name for name in parent if name != removed] + [added]))
                     delta = self._bundle_value(candidate, history, contribution_history) - base
                     if delta >= self.min_expected_delta:
                         mutations.append(SkillSetMutation(
