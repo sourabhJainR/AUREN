@@ -40,7 +40,7 @@ class SkillGroupEvidenceTests(unittest.TestCase):
     def test_strong_group_can_add_complementary_skill(self):
         class O:
             def __init__(self, name, phase):
-                self.name, self.phase, self.instructions = name, phase, "x"
+                self.name, self.phase, self.instructions, self.estimated_cost = name, phase, "x", 0.2
 
         options = (O("planner", "planning"), O("reviewer", "review"), O("researcher", "research"))
         groups, changes = adapt_execution_groups(
