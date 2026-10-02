@@ -199,3 +199,15 @@ The groups are advisory execution structure, not new authority. AER still
 controls permissions, resource budgets, verification and stopping. Cyclic or
 malformed dependency metadata falls back to a deterministic safe order rather
 than blocking the task.
+
+
+## Bounded collaborative execution
+
+After bundle selection, AER converts phase/dependency groups into an execution
+schedule. Independent members may share a group and are bounded by the
+available parallelism. The schedule is deterministic and capped so adding
+skills cannot create an unbounded worker fan-out.
+
+The schedule is still subordinate to AER's resource, policy and verification
+controls. It describes what can run together; it does not grant execution
+authority.

@@ -729,6 +729,21 @@ class CapabilityExecutioner:
         return hashlib.sha256("|".join(members).encode()).hexdigest()[:16]
 
     @staticmethod
+    def execution_schedule(
+        members: Sequence[CapabilityOption],
+        *,
+        max_parallel: int = 3,
+    ) -> tuple[tuple[str, ...], ...]:
+        """Return bounded parallel-ready groups for the selected capabilities."""
+        groups = CapabilityExecutioner._execution_groups(members)
+        limit = max(1, min(int(max_parallel), 3))
+        return tuple(
+            tuple(group[index:index + limit])
+            for group in groups
+            for index in range(0, len(group), limit)
+        )
+
+    @staticmethod
     def _execution_groups(members: Sequence[CapabilityOption]) -> tuple[tuple[str, ...], ...]:
         """Build deterministic phase/dependency groups for a selected bundle."""
         by_name = {option.name: option for option in members}
