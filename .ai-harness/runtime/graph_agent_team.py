@@ -235,7 +235,7 @@ class GraphAgentTeam:
             return ResourceDecision("agent",reason,workers=1,cost_score=cloud_cost,pressure=pressure,historical=historical_payload,inference_depth=max_verification_depth(inference.depth, mode.verification_depth),strategy=strategy.name)
         if resource_cost<=cloud_cost:
             reason=f"counterfactual abstained; deterministic local cost {resource_cost:.2f} <= agent/cloud cost {cloud_cost:.2f}"
-            return ResourceDecision("local",reason,agent.local_command,self.resource_budget.max_workers,resource_cost,pressure,historical_payload,inference.depth)
+            return ResourceDecision("local",reason,agent.local_command,min(self.resource_budget.max_workers, mode.max_parallelism),resource_cost,pressure,historical_payload,max_verification_depth(inference.depth, mode.verification_depth),strategy.name)
         return ResourceDecision("agent",f"counterfactual abstained; agent/cloud cost {cloud_cost:.2f} < local cost {resource_cost:.2f}",
                                 workers=1,cost_score=cloud_cost,pressure=pressure,historical=historical_payload,inference_depth=max_verification_depth(inference.depth, mode.verification_depth),strategy=strategy.name)
     def _record_world_state(self, *, agent: AgentSpec, task: str, intent_digest: str, run_nonce: str, decision: ResourceDecision,
