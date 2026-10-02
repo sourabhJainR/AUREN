@@ -112,6 +112,7 @@ def adapt_execution_groups(
     network_allowed: bool = True,
     sandbox_available: bool = True,
     min_candidate_samples: int = 2,
+    min_confidence: float = 0.55,
 ) -> tuple[tuple[tuple[str, ...], ...], tuple[SkillGroupAdaptation, ...]]:
     """Replace/add skills using group-level evidence, with bounded changes.
 
@@ -152,6 +153,9 @@ def adapt_execution_groups(
             return True
         quality = float(prior.get("useful_evidence", prior.get("evidence_quality", 0.0)))
         success = float(prior.get("success_rate", 0.0))
+        confidence = float(prior.get("confidence", 0.0))
+        if samples >= max(1, int(min_candidate_samples)) and confidence < float(min_confidence):
+            return False
         # Once a candidate group has evidence, require it to beat the current
         # group rather than trusting a strong individual member in isolation.
         return (
