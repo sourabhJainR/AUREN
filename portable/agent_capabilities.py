@@ -525,24 +525,34 @@ class CapabilityExecutioner:
         for row in rows[:64]:
             if not isinstance(row, Mapping) or not str(row.get("name", "")).strip():
                 continue
-            options.append(CapabilityOption(
-                name=str(row["name"]).strip(),
-                source=source,
-                description=str(row.get("description", ""))[:512],
-                instructions=sanitize_capability_reference(row.get("instructions", "")),
-                tags=frozenset(str(item).lower() for item in row.get("tags", ()) if str(item).strip()) if isinstance(row.get("tags", ()), (list, tuple, set)) else frozenset(),
-                risk=str(row.get("risk", "low")),
-                requires_network=bool(row.get("requires_network", False)),
-                requires_sandbox=bool(row.get("requires_sandbox", False)),
-                estimated_latency_ms=max(0.0, float(row.get("estimated_latency_ms", 250.0))),
-                estimated_cost=max(0.0, min(1.0, float(row.get("estimated_cost", 0.5)))),
-                evidence_quality=max(0.0, min(1.0, float(row.get("evidence_quality", 0.5)))),
-                historical_success=max(0.0, min(1.0, float(row.get("historical_success", 0.5)))),
-                confidence=max(0.0, min(1.0, float(row.get("confidence", 0.25)))),
-                resource_demand=max(0.0, min(1.0, float(row.get("resource_demand", 0.25)))),
-                fallback=str(row.get("fallback")) if row.get("fallback") else None,
-            ))
+            try:
+                tags = (
+                    frozenset(str(item).lower() for item in row.get("tags", ()) if str(item).strip())
+                    if isinstance(row.get("tags", ()), (list, tuple, set))
+                    else frozenset()
+                )
+                options.append(CapabilityOption(
+                    name=str(row["name"]).strip(),
+                    source=source,
+                    description=str(row.get("description", ""))[:512],
+                    instructions=sanitize_capability_reference(row.get("instructions", "")),
+                    tags=tags,
+                    risk=str(row.get("risk", "low")),
+                    requires_network=bool(row.get("requires_network", False)),
+                    requires_sandbox=bool(row.get("requires_sandbox", False)),
+                    estimated_latency_ms=max(0.0, float(row.get("estimated_latency_ms", 250.0))),
+                    estimated_cost=max(0.0, min(1.0, float(row.get("estimated_cost", 0.5)))),
+                    evidence_quality=max(0.0, min(1.0, float(row.get("evidence_quality", 0.5)))),
+                    historical_success=max(0.0, min(1.0, float(row.get("historical_success", 0.5)))),
+                    confidence=max(0.0, min(1.0, float(row.get("confidence", 0.25)))),
+                    resource_demand=max(0.0, min(1.0, float(row.get("resource_demand", 0.25)))),
+                    fallback=str(row.get("fallback")) if row.get("fallback") else None,
+                ))
+            except (TypeError, ValueError, OverflowError):
+                # One bad optional descriptor must not hide valid siblings.
+                continue
         return tuple(options)
+
 
     def select(
         self,
