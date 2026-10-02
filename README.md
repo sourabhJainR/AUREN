@@ -58,6 +58,8 @@ Compatibility surfaces adapt to these owners instead of maintaining independent 
 
 See [`docs/CAPABILITY_MEMORY_OWNERSHIP.md`](docs/CAPABILITY_MEMORY_OWNERSHIP.md) for the capability/memory contract and [`docs/RIPWIRE_INTEGRATION.md`](docs/RIPWIRE_INTEGRATION.md) for repository-intelligence design lineage.
 
+See [`docs/CAPABILITY_AWARE_EXECUTION.md`](docs/CAPABILITY_AWARE_EXECUTION.md) for capability-aware execution, optional installed-skill/MCP/plugin discovery, bounded selection, and graceful degradation.
+
 ## Deterministic repository intelligence
 
 AER builds one deterministic repository snapshot and reuses it for multiple structural questions.
