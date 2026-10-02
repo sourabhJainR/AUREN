@@ -62,3 +62,31 @@ This keeps the architecture:
 rather than:
 
 `Episode -> mutate live planner`.
+## Execution-time group adaptation
+
+The execution planner now records a second, narrower learning signal for each
+actual execution group. A group is keyed by its observed member set and receives
+evidence-quality, useful-evidence, success, cost and latency history.
+
+On a later execution, repeated group telemetry can trigger a bounded runtime
+adaptation before the provider prompt is built:
+
+- weak groups can replace a low-contribution member with a stronger observed capability;
+- strong groups can add one complementary capability when the resource and context budgets permit;
+- the primary selected capability is protected from replacement;
+- only available, model-invocable, risk/network/sandbox-safe options are eligible;
+- the existing resource and context budgets remain hard limits.
+
+This is execution-set adaptation, not automatic bundle promotion. The selected
+bundle and its promotion lifecycle remain separate from the actual group
+decision. Every adaptation is exposed in capability_execution_plan and the
+pathway telemetry, while the resulting group evidence is persisted independently
+for the next run.
+
+The learning loop is therefore:
+
+execute group -> attribute useful evidence -> persist group history ->
+replace/add at next execution -> observe -> repeat
+
+A positive bundle result alone is never enough to claim that every member or
+group was useful.

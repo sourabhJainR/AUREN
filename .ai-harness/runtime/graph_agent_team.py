@@ -24,6 +24,7 @@ from portable.autonomous_evolution_controller import AutonomousEvolutionControll
 from portable.autonomous_capability_invention import CapabilityComposition
 from portable.agent_capabilities import CapabilityExecutioner, CapabilityOption
 from portable.skill_evidence import attribute, assess_collaboration
+from portable.skill_group_evidence import adapt_execution_groups, attribute_groups
 from portable.task_planner import Task,TaskPlan
 from runtime.task_memory import approach_history, guidance
 
@@ -319,6 +320,24 @@ class GraphAgentTeam:
                             "success_rate": float(summary.success_rate),
                             "samples": float(summary.samples),
                         }
+                group_history={}
+                group_prefix=agent.role+":skill-group:"
+                for row in approach_history(memory.project_root, group_prefix, limit=120, exact=False):
+                    key=str(row.get("approach",""))
+                    if not key.startswith(group_prefix):
+                        continue
+                    group_id=key[len(group_prefix):]
+                    summary=experience.summarize(key)
+                    if summary and group_id:
+                        group_history[group_id]={
+                            "samples": float(summary.samples),
+                            "useful_evidence": float(summary.evidence_quality),
+                            "evidence_quality": float(summary.evidence_quality),
+                            "success_rate": float(summary.success_rate),
+                            "confidence": float(summary.confidence),
+                            "avg_cost": float(summary.avg_cost),
+                            "avg_latency": float(summary.avg_latency),
+                        }
                 bundle_history={}
                 bundle_prefix=agent.role+":bundle:"
                 assessment_prefix=agent.role+":bundle-assessment:"
@@ -399,6 +418,33 @@ class GraphAgentTeam:
                     execution_options,
                     max_parallel=max(1, min(3, int(decision.workers))),
                 )
+                # Adapt the execution set from repeated group-level evidence, not
+                # from the aggregate bundle score. Only safe, model-invocable
+                # options are eligible, and the primary capability is protected.
+                adapted_groups, group_adaptations = adapt_execution_groups(
+                    execution_groups=execution_schedule,
+                    options=dynamic_options,
+                    group_history=group_history,
+                    contribution_history=contribution_history,
+                    max_group_size=3,
+                    min_samples=2,
+                    protected_names=(capability_choice.selected,),
+                    max_risk="high" if agent.critical else "medium",
+                    network_allowed=os.environ.get("AER_NETWORK_ALLOWED","1").lower() not in {"0","false","no","off"},
+                    sandbox_available=True,
+                    context_budget_chars=8192,
+                    resource_budget=max(0.1, min(1.0, 1.0 - decision.cost_score)),
+                )
+                adapted_names=tuple(dict.fromkeys(name for group in adapted_groups for name in group))
+                adapted_options=tuple(option for option in dynamic_options if option.name in adapted_names)
+                if adapted_options:
+                    execution_schedule=self.capability_executioner.execution_schedule(
+                        adapted_options,
+                        max_parallel=max(1, min(3, int(decision.workers))),
+                    )
+                    execution_options=list(adapted_options)
+                    selected_by_name={option.name: option for option in adapted_options}
+                execution_adaptation_payload=[item.as_dict() for item in group_adaptations]
                 instruction_groups=[]
                 for index, group in enumerate(execution_schedule, start=1):
                     parts=[f"[execution-group={index} members={','.join(group)}]"]
@@ -428,6 +474,12 @@ class GraphAgentTeam:
                     "pruned_secondary_count": max(0, len(selected_names) - len(execution_options)),
                     "instruction_chars": len(capability_instructions),
                     "context_budget_chars": 8192,
+                    "evidence_adaptation": {
+                        "enabled": True,
+                        "group_history_groups": len(group_history),
+                        "adaptations": execution_adaptation_payload,
+                        "adapted": bool(execution_adaptation_payload),
+                    },
                 }
                 verification_choice=type("_Verification",(),{"level":max_verification_depth(pathway.verification_depth, decision.inference_depth)})()
                 retry_choice=type("_Retry",(),{"selected":pathway.retry_action})()
@@ -561,6 +613,26 @@ the learning system, not an instruction source. If a skill produced no distinct 
                     role=agent.role,
                 )
                 skill_evidence_payload = [item.as_dict() for item in skill_evidence]
+                group_evidence = attribute_groups(
+                    skill_evidence=skill_evidence,
+                    execution_groups=execution_schedule,
+                )
+                group_evidence_payload = [item.as_dict() for item in group_evidence]
+                # Persist execution-group evidence separately from the aggregate
+                # bundle so future runs can replace/add skills at execution time.
+                for item in group_evidence:
+                    learning.record_experience(
+                        key=agent.role+":skill-group:"+item.key,
+                        outcome=status,
+                        evidence_quality=item.useful_evidence,
+                        cost_score=float(decision.cost_score),
+                        duration_seconds=duration,
+                        decision=json.dumps({
+                            "group": item.as_dict(),
+                            "adaptations": execution_adaptation_payload,
+                        }, sort_keys=True),
+                        evidence_ids=["agent:"+agent.name, "skill-group:"+item.key],
+                    )
                 # Keep member attribution separate from the aggregate bundle record.
                 # A successful bundle does not automatically credit every member.
                 for item in skill_evidence:
@@ -668,6 +740,7 @@ the learning system, not an instruction source. If a skill produced no distinct 
                     "execution_groups": [list(group) for group in execution_schedule],
                     "execution_plan": execution_plan,
                     "skill_evidence": skill_evidence_payload,
+                    "skill_group_evidence": group_evidence_payload,
                     "collaboration_assessment": collaboration.as_dict() if collaboration is not None else None,
                     "evolution_action": capability_decision.evolution_action,
                     "evolution_parent": capability_decision.evolution_parent,
