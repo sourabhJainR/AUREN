@@ -1002,6 +1002,16 @@ class CapabilityExecutioner:
                 bundle_success = max(0.0, min(1.0, float(prior.get("success_rate", 0.5))))
                 bundle_evidence = max(0.0, min(1.0, float(prior.get("evidence_quality", evidence))))
                 bundle_confidence = max(0.0, min(1.0, float(prior.get("confidence", confidence))))
+                singleton_evidence = sum(
+                    max(0.0, min(1.0, float(singleton_history.get(member.name, {}).get("evidence_quality", evidence))))
+                    for member in members
+                ) / max(1, len(members))
+                singleton_success = sum(
+                    max(0.0, min(1.0, float(singleton_history.get(member.name, {}).get("success_rate", 0.5))))
+                    for member in members
+                ) / max(1, len(members))
+                counterfactual_delta = bundle_evidence - singleton_evidence
+                bundle_success = max(bundle_success, singleton_success + max(0.0, counterfactual_delta) * 0.25)
                 cost = min(1.0, sum(max(0.0, min(1.0, float(history.get(o.name, {}).get("avg_cost", o.estimated_cost)))) for o in members))
                 latency = sum(max(0.0, float(history.get(o.name, {}).get("avg_latency", o.estimated_latency_ms / 1000.0))) for o in members)
                 member_contribution = sum(
