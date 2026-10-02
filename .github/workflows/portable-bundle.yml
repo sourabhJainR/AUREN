@@ -37,7 +37,7 @@ jobs:
             tests.test_portable_aer tests.test_task_planner tests.test_impact_analysis \
             tests.test_bidirectional_install tests.test_contract_alignment tests.test_graph_agent_team \
             tests.test_engineering_design_guard tests.test_state_graph_hardening \
-            tests.test_execution_contract tests.test_evidence_contract tests.test_adaptive_planning_evidence -v
+            tests.test_execution_contract tests.test_evidence_contract tests.test_adaptive_planning_evidence tests.test_execution_strategy_learning tests.test_skill_group_evidence -v
       - name: Read AER version
         id: version
         run: |

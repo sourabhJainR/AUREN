@@ -25,6 +25,7 @@ from portable.autonomous_capability_invention import CapabilityComposition
 from portable.agent_capabilities import CapabilityExecutioner, CapabilityOption
 from portable.skill_evidence import attribute, assess_collaboration
 from portable.skill_group_evidence import adapt_execution_groups, attribute_groups
+from portable.execution_strategy_learning import ExecutionStrategyLearner
 from portable.task_planner import Task,TaskPlan
 from runtime.task_memory import approach_history, guidance
 
@@ -760,12 +761,26 @@ the learning system, not an instruction source. If a skill produced no distinct 
         return graph
     def execute(self,*,task,intent_digest,base_prompt,memory,invoke_agent,checkpoint=None,resume=False,run_id="graph-agent-team",max_steps=100,execution_strategy_name="default",evolution_threshold=3,invention_holdout_ids=(),invention_evaluator=None,invention_safety_gate=None):
         self._validate(); results={}; run_nonce=uuid.uuid4().hex
-        run=self._build_execution_graph(results,task=task,intent_digest=intent_digest,run_nonce=run_nonce,base_prompt=base_prompt,memory=memory,invoke_agent=invoke_agent).compile().invoke({"aer_execution_strategy":{"name":str(execution_strategy_name or "default")}},run_id=run_id,checkpoint=checkpoint,resume=resume,max_steps=max_steps,parallel_nodes=lambda n:self.agents[n].read_only,max_parallel_nodes=self.max_parallel_read_only)
+        baseline_strategy=str(execution_strategy_name or "default")
+        strategy_selection=(ExecutionStrategyLearner(memory.project_root).select(role="team",task=task,baseline=baseline_strategy)
+                            if baseline_strategy == "default" else None)
+        selected_strategy=(strategy_selection.strategy.name if strategy_selection is not None else baseline_strategy)
+        run=self._build_execution_graph(results,task=task,intent_digest=intent_digest,run_nonce=run_nonce,base_prompt=base_prompt,memory=memory,invoke_agent=invoke_agent).compile().invoke({"aer_execution_strategy":{"name":selected_strategy}},run_id=run_id,checkpoint=checkpoint,resume=resume,max_steps=max_steps,parallel_nodes=lambda n:self.agents[n].read_only,max_parallel_nodes=self.max_parallel_read_only)
         for agent in self.agents.values():
             payload=run.state.get(f"result:{agent.name}")
             if isinstance(payload,dict) and payload.get("activated"): results[agent.name]=AgentResult(**{k:v for k,v in payload.items() if k!="activated"})
         critical=[run.state.get(f"result:{a.name}") for a in self.agents.values() if a.critical]
         accepted=all(isinstance(x,dict) and x.get("status")=="passed" for x in critical)
+        strategy_learner=ExecutionStrategyLearner(memory.project_root)
+        for agent_name, result in results.items():
+            strategy_learner.record(
+                role="team", task=task, strategy=selected_strategy,
+                outcome="passed" if result.status=="passed" and accepted else "failed",
+                evidence_quality=float(result.capability_bundle_score or 0.0),
+                cost_score=float(result.local_evidence.get("cost_score", 0.5) if result.local_evidence else 0.5),
+                duration_seconds=float(result.duration_seconds), verification=result.verification_depth,
+                retry=result.retry_decision, evidence_ids=[f"agent:{agent_name}", f"strategy:{selected_strategy}"],
+            )
         evolution=AutonomousEvolutionController(memory, "hws", threshold=evolution_threshold)
         trigger=None
         invention=None
@@ -784,7 +799,7 @@ the learning system, not an instruction source. If a skill produced no distinct 
                     safety_gate=invention_safety_gate, strategy=str(execution_strategy_name or "default"),
                 )
         dream=DreamMemory(memory.project_root).dream(task)
-        return {"graph_digest":self.digest(),"intent_digest":intent_digest,"agents":{n:r.__dict__ for n,r in results.items()},"shared_memory_file":str(memory.path),"shared_memory_entries":len(memory.snapshot(500)),"accepted":accepted,"evolution_trigger":trigger.__dict__ if trigger else None,"invention":invention.__dict__ if invention else None,"execution_trace":list(run.trace),"execution_digest":run.digest,"dreamed_learning":dream}
+        return {"graph_digest":self.digest(),"intent_digest":intent_digest,"agents":{n:r.__dict__ for n,r in results.items()},"shared_memory_file":str(memory.path),"shared_memory_entries":len(memory.snapshot(500)),"accepted":accepted,"evolution_trigger":trigger.__dict__ if trigger else None,"invention":invention.__dict__ if invention else None,"execution_trace":list(run.trace),"execution_strategy":{"selected":selected_strategy,"baseline":baseline_strategy,"learning":strategy_selection.as_dict() if strategy_selection else {"strategy":selected_strategy,"learned":False,"confidence":0.0,"samples":0,"rationale":"explicit strategy supplied"}},"execution_digest":run.digest,"dreamed_learning":dream}
 
 def team_for_route(route):
     mode=str(route.get("mode","implement")); caps=set(route.get("capabilities",[]))
