@@ -9,7 +9,7 @@ retrieval without bypassing explicit risk, security, or repository rules.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable
+from typing import Iterable, Sequence
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,6 +42,17 @@ class ContextPlan:
     max_items: int
     require_fresh_verification: bool
     policy_strategy: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class RetrievalRecovery:
+    """Bounded recovery decision for a failed context acquisition attempt."""
+
+    action: str
+    mode: str | None
+    reason: str
+    changed_strategy: bool
+    terminal: bool = False
 
 
 def plan_context(*, phase: str, risk: str = "medium", uncertainty: str = "medium",
@@ -82,6 +93,42 @@ def plan_context(*, phase: str, risk: str = "medium", uncertainty: str = "medium
         max_items=24 if risk in {"high", "critical"} else 18,
         require_fresh_verification=risk in {"high", "critical"} or phase == "verify",
         policy_strategy=policy_strategy,
+    )
+
+
+def choose_retrieval_recovery(
+    *,
+    failed_modes: Sequence[str],
+    available_modes: Sequence[str],
+    working_modes: Sequence[str] = (),
+) -> RetrievalRecovery:
+    """Choose a different retrieval path after a failed attempt.
+
+    The ordering is deliberately deterministic. Historical working modes get
+    first consideration, then the caller's available order. A failed mode can
+    never be selected again during the same bounded acquisition. If no
+    untried mode remains, the correct action is to stop rather than thrash.
+    """
+    failed = {str(mode).strip().lower() for mode in failed_modes if str(mode).strip()}
+    available = tuple(dict.fromkeys(str(mode).strip().lower() for mode in available_modes if str(mode).strip()))
+    preferred = tuple(dict.fromkeys(str(mode).strip().lower() for mode in working_modes if str(mode).strip()))
+    candidates = tuple(dict.fromkeys((*preferred, *available)))
+
+    for mode in candidates:
+        if mode not in failed:
+            return RetrievalRecovery(
+                action="pivot",
+                mode=mode,
+                reason=f"retrieval path '{mode}' has not failed in this acquisition",
+                changed_strategy=True,
+            )
+
+    return RetrievalRecovery(
+        action="stop",
+        mode=None,
+        reason="all bounded retrieval paths have failed; no new evidence justifies another retry",
+        changed_strategy=False,
+        terminal=True,
     )
 
 
