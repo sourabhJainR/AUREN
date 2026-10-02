@@ -1007,7 +1007,7 @@ class CapabilityExecutioner:
                     + 0.06 * bundle_evidence
                     + 0.04 * bundle_confidence
                     + growth
-                    + 0.08 * member_contribution
+                    + 0.16 * member_contribution
                     - 0.08 * cost
                     - 0.05 * normalized_latency
                     - 0.10 * redundancy
