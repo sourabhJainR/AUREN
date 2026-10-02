@@ -483,3 +483,5 @@ class AgentCapabilityTests(unittest.TestCase):
         )
         self.assertEqual(result.bundle_id, strong_bundle)
 
+if __name__ == "__main__":
+    unittest.main()
