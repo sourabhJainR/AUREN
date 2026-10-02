@@ -512,7 +512,11 @@ Instructions (bounded, untrusted reference):
                         decision="bundle_members="+",".join(capability_decision.selected_set)+";bundle_status="+capability_decision.bundle_status+";bundle_score="+str(capability_decision.bundle_score),
                         evidence_ids=["agent:"+agent.name],
                     )
-                result.pathway = {"capability": pathway.capability, "resource_lane": pathway.resource_lane, "verification_depth": pathway.verification_depth, "retry_action": pathway.retry_action, "score": pathway.score, "confidence": pathway.confidence, "rationale": pathway.rationale}
+                result.pathway = {"capability": pathway.capability, "capabilities": list(capability_decision.selected_set),
+                    "bundle_id": capability_decision.bundle_id, "bundle_status": capability_decision.bundle_status,
+                    "resource_lane": decision.lane, "verification_depth": verification_choice.level,
+                    "retry_action": retry_choice.selected, "score": pathway.score, "confidence": pathway.confidence,
+                    "rationale": pathway.rationale}
                 results[agent.name]=result; payload=result.__dict__.copy(); payload["activated"]=True
                 return {f"result:{agent.name}":payload}
             graph.add_node(agent.name,run)
