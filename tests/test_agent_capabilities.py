@@ -336,7 +336,7 @@ class AgentCapabilityTests(unittest.TestCase):
             options=(planner, reviewer),
             bundle_history={bundle_id: {
                 "samples": 8, "success_rate": 0.95, "failure_rate": 0.05,
-                "evidence_quality": 0.95, "confidence": 1.0,
+                "evidence_quality": 0.95, "confidence": 1.0, "collaboration_delta": 0.10,
             }},
             max_skills=2,
         )
