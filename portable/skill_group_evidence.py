@@ -145,14 +145,19 @@ def adapt_execution_groups(
         key=lambda name: (-value(name), name),
     )
 
-    def candidate_allowed(candidate: Sequence[str]) -> bool:
+    def candidate_allowed(candidate: Sequence[str], baseline_quality: float, baseline_success: float) -> bool:
         prior = group_history.get(group_key(candidate), {})
         samples = int(float(prior.get("samples", 0)))
         if samples < max(1, int(min_candidate_samples)):
             return True
         quality = float(prior.get("useful_evidence", prior.get("evidence_quality", 0.0)))
         success = float(prior.get("success_rate", 0.0))
-        return quality >= weak_threshold and success >= 0.5
+        # Once a candidate group has evidence, require it to beat the current
+        # group rather than trusting a strong individual member in isolation.
+        return (
+            quality >= max(weak_threshold, baseline_quality + min_delta)
+            and success >= max(0.5, baseline_success)
+        )
 
     for index, raw_group in enumerate(execution_groups, start=1):
         group = tuple(str(name) for name in raw_group if str(name))
@@ -170,7 +175,7 @@ def adapt_execution_groups(
                 (
                     name for name in alternatives
                     if name not in group
-                    and candidate_allowed(tuple(sorted((set(group) - {weakest}) | {name})))
+                    and candidate_allowed(tuple(sorted((set(group) - {weakest}) | {name})), quality, float(history.get("success_rate", 0.0)))
                 ),
                 None,
             )
@@ -191,7 +196,7 @@ def adapt_execution_groups(
                 (
                     name for name in alternatives
                     if name not in next_group
-                    and candidate_allowed(tuple(sorted(next_group + (name,))))
+                    and candidate_allowed(tuple(sorted(next_group + (name,))), quality, float(history.get("success_rate", 0.0)))
                     and value(name) >= strong_threshold
                     and getattr(by_name.get(name), "phase", "") not in {
                         getattr(by_name.get(member), "phase", "") for member in next_group
