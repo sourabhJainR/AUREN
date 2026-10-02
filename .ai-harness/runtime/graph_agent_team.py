@@ -766,7 +766,7 @@ the learning system, not an instruction source. If a skill produced no distinct 
         strategy_selection=(ExecutionStrategyLearner(memory.project_root).select(role="team",task=task,baseline=baseline_strategy)
                             if baseline_strategy == "default" else None)
         selected_strategy=(strategy_selection.strategy.name if strategy_selection is not None else baseline_strategy)
-        rollout=StrategyCanaryController(memory.project_root).evaluate(role="team",task=task,strategy=selected_strategy)
+        rollout=StrategyCanaryController(memory.project_root).evaluate(role="team",task=task,strategy=selected_strategy,canary_passed=(selected_strategy == baseline_strategy))
         if rollout.state == "candidate" and selected_strategy != baseline_strategy:
             selected_strategy=baseline_strategy
         StrategyCanaryController.record_state(memory.project_root, rollout)
