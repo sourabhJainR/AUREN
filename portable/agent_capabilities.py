@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, Sequence
+from .skill_set_evolution import AdaptiveSkillSetEvolver
 
 CAPABILITIES = (
     "web_search", "x_search", "terminal", "browser", "file", "vision",
@@ -411,6 +412,10 @@ class CapabilityDecision:
     bundle_cost: float = 0.0
     bundle_latency_ms: float = 0.0
     execution_groups: tuple[tuple[str, ...], ...] = ()
+    evolution_action: str = "baseline"
+    evolution_parent: str = ""
+    evolution_expected_delta: float = 0.0
+    evolution_candidates: tuple[str, ...] = ()
 
 
 class CapabilityExecutioner:
@@ -980,6 +985,14 @@ class CapabilityExecutioner:
         pool_names.update(option.name for option in eligible[:11])
         pool = tuple(option for option in eligible if option.name in pool_names)
         by_name = {option.name: option for option in pool}
+        mutations = AdaptiveSkillSetEvolver().propose(
+            options=pool,
+            bundle_history=bundle_history,
+            history=history,
+            contribution_history=contribution_history,
+            failed=failed,
+        )
+        mutation_by_members = {mutation.members: mutation for mutation in mutations}
         candidates: list[tuple[float, tuple[CapabilityOption, ...], float, float, float, float, str, float]] = []
         for size in range(1, limit + 1):
             for names in itertools.combinations(sorted(by_name), size):
@@ -1020,6 +1033,8 @@ class CapabilityExecutioner:
                 ) / max(1, len(members))
                 normalized_latency = min(1.0, latency / 5.0)
                 growth = 0.04 if size > 1 and phase_diversity > 0.5 else 0.0
+                mutation = mutation_by_members.get(tuple(names))
+                mutation_bonus = min(0.06, max(0.0, mutation.expected_delta) * 0.25) if mutation else 0.0
                 score = (
                     0.34 * coverage
                     + 0.10 * phase_diversity
@@ -1030,6 +1045,7 @@ class CapabilityExecutioner:
                     + 0.06 * bundle_evidence
                     + 0.04 * bundle_confidence
                     + growth
+                    + mutation_bonus
                     + 0.16 * member_contribution
                     - 0.08 * cost
                     - 0.05 * normalized_latency
@@ -1043,10 +1059,16 @@ class CapabilityExecutioner:
         selected = next((o for o in members if o.name == primary.selected), members[0])
         bundle_id = self.bundle_id(members)
         member_names = tuple(o.name for o in members)
+        evolution = mutation_by_members.get(member_names)
+        mutation_labels = tuple(
+            f"{mutation.action}:{mutation.parent_id}->{mutation.fingerprint}"
+            for mutation in mutations[:4]
+        )
         rationale = (
             primary.rationale
             + f"; bundle={bundle_id}; members={','.join(member_names)}; "
             + f"bundle_score={best_score:.3f}; bundle_status={status}; redundancy={redundancy:.3f}"
+            + (f"; evolution={evolution.action}; parent={evolution.parent_id}; expected_delta={evolution.expected_delta:.3f}" if evolution else "")
         )
         return CapabilityDecision(
             selected=selected.name,
@@ -1064,6 +1086,10 @@ class CapabilityExecutioner:
             bundle_cost=cost,
             bundle_latency_ms=latency * 1000.0,
             execution_groups=self._execution_groups(members),
+            evolution_action=evolution.action if evolution else "baseline",
+            evolution_parent=evolution.parent_id if evolution else "",
+            evolution_expected_delta=min(1.0, max(0.0, evolution.expected_delta)) if evolution else 0.0,
+            evolution_candidates=mutation_labels,
         )
 
     @staticmethod
