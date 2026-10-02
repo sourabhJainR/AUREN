@@ -125,3 +125,32 @@ The intended integration shape is:
 bounded context state -> typed decision -> deterministic policy -> retrieval -> evidence -> verification
 
 Keep questions atomic and let ordinary HWS code own policy and action. Model judgment may guide a decision, but repository instructions, security controls, evidence requirements, and execution authority remain deterministic.
+
+
+## Adaptive allocation
+
+Context acquisition now adapts its budget before each retrieval attempt. The
+allocation uses uncertainty, risk, recent retrieval failure rate, active broker
+pressure, and known working/failed retrieval modes.
+
+This intentionally does not mean "use more context when uncertain". High
+uncertainty can receive more evidence budget, while repeated failures or high
+context pressure narrow the acquisition and preserve a reserve for fresh
+evidence and recovery.
+
+The resulting control loop is:
+
+```text
+task signals
+  -> bounded allocation
+  -> targeted retrieval
+  -> failure?
+       yes -> shrink/reframe + pivot
+       no  -> score/deduplicate
+  -> reserve + pack
+  -> release
+  -> outcome becomes future evidence
+```
+
+No model call is required for allocation, and the allocator cannot override
+security, authorization, retrieval recovery, or verification policy.
