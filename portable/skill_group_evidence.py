@@ -111,6 +111,7 @@ def adapt_execution_groups(
     max_risk: str = "high",
     network_allowed: bool = True,
     sandbox_available: bool = True,
+    min_candidate_samples: int = 2,
 ) -> tuple[tuple[tuple[str, ...], ...], tuple[SkillGroupAdaptation, ...]]:
     """Replace/add skills using group-level evidence, with bounded changes.
 
@@ -144,6 +145,15 @@ def adapt_execution_groups(
         key=lambda name: (-value(name), name),
     )
 
+    def candidate_allowed(candidate: Sequence[str]) -> bool:
+        prior = group_history.get(group_key(candidate), {})
+        samples = int(float(prior.get("samples", 0)))
+        if samples < max(1, int(min_candidate_samples)):
+            return True
+        quality = float(prior.get("useful_evidence", prior.get("evidence_quality", 0.0)))
+        success = float(prior.get("success_rate", 0.0))
+        return quality >= weak_threshold and success >= 0.5
+
     for index, raw_group in enumerate(execution_groups, start=1):
         group = tuple(str(name) for name in raw_group if str(name))
         history = group_history.get(group_key(group), {})
@@ -156,7 +166,14 @@ def adapt_execution_groups(
                 adapted.append(group)
                 continue
             weakest = min(removable, key=lambda name: (value(name), name))
-            replacement = next((name for name in alternatives if name not in group), None)
+            replacement = next(
+                (
+                    name for name in alternatives
+                    if name not in group
+                    and candidate_allowed(tuple(sorted((set(group) - {weakest}) | {name})))
+                ),
+                None,
+            )
             if replacement is not None and value(replacement) - value(weakest) >= min_delta:
                 candidate = tuple(sorted((set(group) - {weakest}) | {replacement}))
                 chars = sum(len(str(getattr(by_name.get(name), "instructions", ""))) for name in candidate)
@@ -174,6 +191,7 @@ def adapt_execution_groups(
                 (
                     name for name in alternatives
                     if name not in next_group
+                    and candidate_allowed(tuple(sorted(next_group + (name,))))
                     and value(name) >= strong_threshold
                     and getattr(by_name.get(name), "phase", "") not in {
                         getattr(by_name.get(member), "phase", "") for member in next_group
