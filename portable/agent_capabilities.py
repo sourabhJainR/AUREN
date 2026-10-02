@@ -1032,7 +1032,7 @@ class CapabilityExecutioner:
                     for o in members
                 ) / max(1, len(members))
                 normalized_latency = min(1.0, latency / 5.0)
-                growth = 0.04 if size > 1 and phase_diversity > 0.5 else 0.0
+                growth = 0.08 if size > 1 and coverage > 0.5 and redundancy < 0.5 else (0.04 if size > 1 and phase_diversity > 0.5 else 0.0)
                 mutation = mutation_by_members.get(tuple(names))
                 mutation_bonus = min(0.06, max(0.0, mutation.expected_delta) * 0.25) if mutation else 0.0
                 score = (
