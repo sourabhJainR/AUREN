@@ -39,7 +39,7 @@ class LearningSteward:
         # Capability records must be attributable to the exact selected option.
         # Do not use relevance ranking here: unrelated failures can crowd the
         # target record out before filtering, and prefix matches can mix options.
-        if ":capability:" in key or ":bundle:" in key:
+        if ":capability:" in key or ":bundle:" in key or ":execution-strategy:" in key:
             return approach_history(Path(root), key, limit=bounded_limit, exact=True)
         rows = relevant(Path(root), key, limit=bounded_limit * 3)
         return [
