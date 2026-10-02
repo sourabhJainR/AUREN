@@ -932,6 +932,7 @@ class CapabilityExecutioner:
         resource_budget: float = 1.0,
         history: Mapping[str, Mapping[str, float]] | None = None,
         bundle_history: Mapping[str, Mapping[str, float]] | None = None,
+        contribution_history: Mapping[str, Mapping[str, float]] | None = None,
         max_skills: int = 3,
     ) -> CapabilityDecision:
         """Select and evaluate a bounded skill bundle.
@@ -944,6 +945,7 @@ class CapabilityExecutioner:
         options = tuple(options)
         history = history or {}
         bundle_history = bundle_history or {}
+        contribution_history = contribution_history or {}
         limit = max(1, min(3, int(max_skills)))
         primary = self.select(
             request=request, options=options, required=required, failed=failed,
@@ -989,6 +991,10 @@ class CapabilityExecutioner:
                 bundle_confidence = max(0.0, min(1.0, float(prior.get("confidence", confidence))))
                 cost = min(1.0, sum(max(0.0, min(1.0, float(history.get(o.name, {}).get("avg_cost", o.estimated_cost)))) for o in members))
                 latency = sum(max(0.0, float(history.get(o.name, {}).get("avg_latency", o.estimated_latency_ms / 1000.0))) for o in members)
+                member_contribution = sum(
+                    max(0.0, min(1.0, float(contribution_history.get(o.name, {}).get("evidence_quality", 0.5))))
+                    for o in members
+                ) / max(1, len(members))
                 normalized_latency = min(1.0, latency / 5.0)
                 growth = 0.04 if size > 1 and phase_diversity > 0.5 else 0.0
                 score = (
@@ -1001,6 +1007,7 @@ class CapabilityExecutioner:
                     + 0.06 * bundle_evidence
                     + 0.04 * bundle_confidence
                     + growth
+                    + 0.08 * member_contribution
                     - 0.08 * cost
                     - 0.05 * normalized_latency
                     - 0.10 * redundancy
