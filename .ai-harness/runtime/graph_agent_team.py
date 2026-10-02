@@ -36,6 +36,8 @@ from portable.active_learning import ActiveLearningController
 from portable.causal_experiment import CausalExperimentSelector, CausalHypothesis
 from portable.goal_directed_planning import Goal, GoalDirectedPlanner
 from portable.cross_task_capability_abstraction import CrossTaskCapabilityAbstraction
+from portable.failure_cluster_invention import FailureClusterCapabilityInventor
+from portable.invention_lifecycle import EvidenceBackedInventionLifecycle
 from portable.autonomy_benchmark import AutonomyBenchmarkGate
 from portable.autonomy_benchmark_history import AutonomyBenchmarkHistory
 from portable.task_planner import Task,TaskPlan
@@ -913,6 +915,55 @@ the learning system, not an instruction source. If a skill produced no distinct 
         )
         transferable_patterns=abstraction.discover(role="team")
         invention_hypotheses=abstraction.synthesize_hypotheses(transferable_patterns)
+
+        # Turn recurring failures into bounded evidence-backed invention requests.
+        # This remains advisory: no invented capability is executed here.
+        history_rows=approach_history(
+            memory.project_root, "team:abstract-episode:", limit=240, exact=False
+        )
+        failure_episodes=[]
+        for row in history_rows:
+            try:
+                detail=json.loads(str(row.get("detail","{}")))
+                decision=detail.get("decision",{})
+                if isinstance(decision,str):
+                    decision=json.loads(decision)
+                if str(row.get("outcome","")).lower() != "failed":
+                    continue
+                strategy=str(decision.get("strategy","")).strip()
+                mode=str(decision.get("mode","")).strip()
+                evidence_ids=tuple(str(x) for x in row.get("evidence_ids",[]) if str(x))
+                if strategy and mode and evidence_ids:
+                    failure_episodes.append({
+                        "trigger": "repeated execution failure",
+                        "components": (strategy, mode),
+                        "uncertainty": max(0.0, min(1.0, float(decision_context.failure_risk))),
+                        "evidence_ids": evidence_ids,
+                    })
+            except (TypeError, ValueError, KeyError, json.JSONDecodeError):
+                continue
+        invention_candidates=FailureClusterCapabilityInventor().propose(failure_episodes)
+        invention_lifecycle=EvidenceBackedInventionLifecycle(memory.project_root)
+        invention_requests=[]
+        if invention_holdout_ids and invention_candidates:
+            trigger_ids=tuple(
+                dict.fromkeys(eid for row in failure_episodes for eid in row["evidence_ids"])
+            )
+            for candidate in invention_candidates:
+                for pattern in transferable_patterns:
+                    if set(candidate.components).issubset({pattern.action, pattern.mode}):
+                        try:
+                            request=invention_lifecycle.build_holdout_request(
+                                candidate, pattern,
+                                trigger_evidence=trigger_ids,
+                                holdout_ids=invention_holdout_ids,
+                            )
+                            invention_requests.append({
+                                "candidate": candidate.as_dict(),
+                                "request": request.as_dict(),
+                            })
+                        except ValueError:
+                            continue
         self_model_scores=[float(belief.confidence) for belief in self_model.capabilities]
         benchmark=AutonomyBenchmarkGate().evaluate({
             "goal_completion": 1.0 if accepted else 0.0,
@@ -930,7 +981,7 @@ the learning system, not an instruction source. If a skill produced no distinct 
         benchmark_trend=benchmark_history.trend()
         dream=DreamMemory(memory.project_root).dream(task)
         return {"graph_digest":self.digest(),"intent_digest":intent_digest,"agents":{n:r.__dict__ for n,r in results.items()},"shared_memory_file":str(memory.path),"shared_memory_entries":len(memory.snapshot(500)),"accepted":accepted,"evolution_trigger":trigger.__dict__ if trigger else None,"invention":invention.__dict__ if invention else None,"execution_trace":list(run.trace),"execution_mode":{"selected":selected_mode,"baseline":baseline_mode,"learning":mode_selection.as_dict(),"rollout":mode_rollout.as_dict(),"counterfactual":counterfactual,"context":decision_context.as_dict(),"context_learning":context_selection.as_dict()},
-        "execution_strategy":{"selected":selected_strategy,"baseline":baseline_strategy,"learning":strategy_selection.as_dict() if strategy_selection else {"strategy":selected_strategy,"learned":False,"confidence":0.0,"samples":0,"rationale":"explicit strategy supplied"},"rollout":rollout.as_dict(),"context":decision_context.as_dict()},"active_learning":{"self_model":self_model.as_dict(),"experiment":experiment.as_dict() if experiment else None,"causal_experiment":causal_experiment.as_dict() if causal_experiment else None},"goal_state":{"current":next_goal.as_dict() if next_goal else None},"capability_abstraction":{"patterns":[p.as_dict() for p in transferable_patterns],"invention_hypotheses":[h.as_dict() for h in invention_hypotheses]},"autonomy_benchmark":benchmark.as_dict(),"autonomy_benchmark_trend":benchmark_trend.as_dict(),"execution_digest":run.digest,"dreamed_learning":dream}
+        "execution_strategy":{"selected":selected_strategy,"baseline":baseline_strategy,"learning":strategy_selection.as_dict() if strategy_selection else {"strategy":selected_strategy,"learned":False,"confidence":0.0,"samples":0,"rationale":"explicit strategy supplied"},"rollout":rollout.as_dict(),"context":decision_context.as_dict()},"active_learning":{"self_model":self_model.as_dict(),"experiment":experiment.as_dict() if experiment else None,"causal_experiment":causal_experiment.as_dict() if causal_experiment else None},"goal_state":{"current":next_goal.as_dict() if next_goal else None},"capability_abstraction":{"patterns":[p.as_dict() for p in transferable_patterns],"invention_hypotheses":[h.as_dict() for h in invention_hypotheses],"failure_cluster_inventions":[x.as_dict() for x in invention_candidates],"evidence_backed_requests":invention_requests},"autonomy_benchmark":benchmark.as_dict(),"autonomy_benchmark_trend":benchmark_trend.as_dict(),"execution_digest":run.digest,"dreamed_learning":dream}
 
 def team_for_route(route):
     mode=str(route.get("mode","implement")); caps=set(route.get("capabilities",[]))
