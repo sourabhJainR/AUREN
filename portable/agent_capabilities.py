@@ -992,6 +992,8 @@ class CapabilityExecutioner:
             history=history,
             contribution_history=contribution_history,
             failed=failed,
+            resource_budget=resource_budget,
+            context_budget_chars=8192,
         )
         mutation_by_members = {mutation.members: mutation for mutation in mutations}
         candidates: list[tuple[float, tuple[CapabilityOption, ...], float, float, float, float, str, float]] = []

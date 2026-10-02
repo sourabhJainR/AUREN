@@ -33,6 +33,26 @@ class AdaptiveSkillSetEvolutionTests(unittest.TestCase):
         self.assertTrue(any(m.action == "swap" and "implementer" in m.members for m in mutations))
         self.assertLessEqual(len(mutations), 8)
 
+
+    def test_mutation_respects_resource_budget(self):
+        options = (
+            CapabilityOption("planner", tags=frozenset({"plan"}), estimated_cost=0.3),
+            CapabilityOption("reviewer", tags=frozenset({"review"}), estimated_cost=0.3),
+            CapabilityOption("implementer", tags=frozenset({"implementation"}), estimated_cost=0.4),
+        )
+        mutations = AdaptiveSkillSetEvolver(min_expected_delta=0.0).propose(
+            options=options,
+            bundle_history={"parent": {"members": ("planner",), "samples": 4, "collaboration_delta": 0.1}},
+            history={
+                "planner": {"evidence_quality": 0.5, "success_rate": 0.5, "avg_cost": 0.3},
+                "reviewer": {"evidence_quality": 0.9, "success_rate": 0.9, "avg_cost": 0.3},
+                "implementer": {"evidence_quality": 0.9, "success_rate": 0.9, "avg_cost": 0.4},
+            },
+            contribution_history={},
+            resource_budget=0.5,
+        )
+        self.assertFalse(any(mutation.action == "add" and "implementer" in mutation.members for mutation in mutations))
+
     def test_negative_parent_is_not_evolved(self):
         option = CapabilityOption("planner", tags=frozenset({"plan"}))
         mutations = AdaptiveSkillSetEvolver().propose(
