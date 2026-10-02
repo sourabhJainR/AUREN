@@ -344,6 +344,35 @@ class AgentCapabilityTests(unittest.TestCase):
         self.assertEqual(result.selected_set, ("planner", "reviewer"))
         self.assertEqual(result.bundle_status, "proven")
 
+    def test_bundle_execution_groups_follow_phase_order(self):
+        from portable.agent_capabilities import CapabilityExecutioner, CapabilityOption
+        selector = CapabilityExecutioner(min_exploration=0.0)
+        planner = CapabilityOption("planner", tags=frozenset({"plan"}), phase="planning")
+        researcher = CapabilityOption("researcher", tags=frozenset({"research"}), phase="research")
+        reviewer = CapabilityOption(
+            "reviewer", tags=frozenset({"review"}), phase="review",
+            requires=frozenset({"plan"}),
+        )
+        groups = selector._execution_groups((planner, researcher, reviewer))
+        self.assertTrue(groups)
+        self.assertIn("researcher", groups[0])
+        self.assertIn("planner", groups[1])
+        self.assertIn("reviewer", groups[-1])
+
+    def test_bundle_execution_dependency_is_respected_within_phase(self):
+        from portable.agent_capabilities import CapabilityExecutioner, CapabilityOption
+        selector = CapabilityExecutioner(min_exploration=0.0)
+        planner = CapabilityOption(
+            "planner", tags=frozenset({"plan"}), phase="planning",
+            provides=frozenset({"plan"}),
+        )
+        reviewer = CapabilityOption(
+            "reviewer", tags=frozenset({"review"}), phase="planning",
+            requires=frozenset({"plan"}),
+        )
+        groups = selector._execution_groups((planner, reviewer))
+        self.assertLess(groups.index(("planner",)), groups.index(("reviewer",)))
+
     def test_retired_bundle_is_not_selected(self):
         from portable.agent_capabilities import CapabilityExecutioner, CapabilityOption
         selector = CapabilityExecutioner(min_exploration=0.0)
