@@ -320,6 +320,20 @@ class GraphAgentTeam:
                         }
                 bundle_history={}
                 bundle_prefix=agent.role+":bundle:"
+                assessment_prefix=agent.role+":bundle-assessment:"
+                collaboration_deltas={}
+                for row in approach_history(memory.project_root,assessment_prefix,limit=80,exact=False):
+                    key=str(row.get("approach",""))
+                    if not key.startswith(assessment_prefix):
+                        continue
+                    try:
+                        detail=json.loads(str(row.get("detail","{}")))
+                        assessment=detail.get("assessment",{})
+                        bundle_id=key[len(assessment_prefix):]
+                        if bundle_id and isinstance(assessment,dict) and "collaboration_delta" in assessment:
+                            collaboration_deltas[bundle_id]=float(assessment["collaboration_delta"])
+                    except (TypeError, ValueError, json.JSONDecodeError):
+                        continue
                 seen_bundles=set()
                 for row in approach_history(memory.project_root,bundle_prefix,limit=80,exact=False):
                     key=str(row.get("approach",""))
@@ -337,6 +351,7 @@ class GraphAgentTeam:
                             "avg_latency": float(summary.avg_latency),
                             "failure_rate": float(summary.failure_rate),
                             "samples": float(summary.samples),
+                            "collaboration_delta": collaboration_deltas.get(bundle_id),
                         }
                 capability_decision=self.capability_executioner.select_collaborative(
                     request=f"{agent.role} {agent.focus} {task[:160]}",
