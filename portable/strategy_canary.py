@@ -28,7 +28,7 @@ class StrategyCanaryController:
             f"{role}:{task[:96]}:execution-strategy:{strategy}")
         if s is None:
             return StrategyRollout(strategy,"candidate",0,0.0,0.0,"no observed evidence")
-        if not canary_passed and (s.samples < self.minimum_samples or s.confidence < self.min_confidence):
+        if not canary_passed and s.samples < self.minimum_samples:
             return StrategyRollout(strategy,"candidate",s.samples,s.confidence,s.evidence_quality,"insufficient evidence for canary")
         if not canary_passed:
             return StrategyRollout(strategy,"canary",s.samples,s.confidence,s.evidence_quality,"eligible for bounded canary")
