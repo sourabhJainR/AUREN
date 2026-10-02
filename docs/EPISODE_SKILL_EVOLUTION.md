@@ -92,4 +92,4 @@ A positive bundle result alone is never enough to claim that every member or
 group was useful.
 ## Execution-strategy learning
 
-The runtime records strategy-level outcomes alongside capability and group telemetry. Reuse requires repeated evidence, a confidence floor, and a bounded improvement over the baseline when baseline history exists. Cold-start and ambiguous cases retain the baseline. Strategy learning is advisory; explicit caller choices and safety, resource and verification policy remain authoritative.
+The runtime records strategy-level outcomes alongside capability and group telemetry. Strategy quality is attributed to the observed execution-group evidence first, with bundle score used only as a cold-path fallback when group telemetry is unavailable. Reuse requires repeated evidence, a confidence floor, and a bounded improvement over the baseline when baseline history exists. Cold-start and ambiguous cases retain the baseline. Strategy learning is advisory; explicit caller choices and safety, resource and verification policy remain authoritative.

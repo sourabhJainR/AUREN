@@ -88,6 +88,23 @@ class ExecutionStrategyLearner:
             f"repeated strategy evidence selected {name} with bounded score {best_score:.3f}",
         )
 
+
+    @staticmethod
+    def observed_evidence_quality(result: object) -> float:
+        """Derive strategy evidence from actual executed-group telemetry."""
+        pathway = getattr(result, "pathway", {})
+        rows = pathway.get("skill_group_evidence", ()) if isinstance(pathway, dict) else ()
+        values = []
+        for row in rows:
+            if isinstance(row, dict):
+                try:
+                    values.append(float(row.get("useful_evidence", row.get("evidence_quality", 0.0))))
+                except (TypeError, ValueError):
+                    continue
+        if values:
+            return max(0.0, min(1.0, sum(values) / len(values)))
+        return max(0.0, min(1.0, float(getattr(result, "capability_bundle_score", 0.0) or 0.0)))
+
     def record(self, *, role: str, task: str, strategy: str, outcome: str,
                evidence_quality: float, cost_score: float, duration_seconds: float,
                verification: str, retry: str, evidence_ids: Sequence[str]) -> None:
