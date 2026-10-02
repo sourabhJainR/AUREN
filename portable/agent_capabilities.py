@@ -632,40 +632,41 @@ class CapabilityExecutioner:
         request: str = "",
         max_candidates: int = 32,
     ) -> tuple[CapabilityOption, ...]:
-        """Bound discovery for selection without arbitrarily dropping one source.
-
-        Core capabilities stay represented, while optional skills/MCP/plugins are
-        admitted by request fit, evidence, confidence, and source diversity.
-        """
+        """Bound discovery while preserving safe fallback and source diversity."""
         limit = max(1, min(int(max_candidates), 64))
         candidates = list({option.name: option for option in options if option.available}.values())
         if len(candidates) <= limit:
             return tuple(sorted(candidates, key=lambda item: (item.source, item.name)))
         tokens = set(re.findall(r"[a-z0-9]+", request.lower()))
+
         def fit(option: CapabilityOption) -> tuple[float, float, float, float, str]:
-            words = set(re.findall(r"[a-z0-9]+", (option.name + " " + option.description + " " + " ".join(option.tags)).lower()))
+            words = set(re.findall(
+                r"[a-z0-9]+",
+                (option.name + " " + option.description + " " + " ".join(option.tags)).lower(),
+            ))
             overlap = len(tokens & words)
             quality = max(0.0, min(1.0, option.evidence_quality))
             confidence = max(0.0, min(1.0, option.confidence))
             cost = max(0.0, min(1.0, option.estimated_cost))
             return (float(overlap), quality, confidence, -cost, option.name)
-        selected: list[CapabilityOption] = []
-        # Preserve the core catalog first so optional discovery cannot erase
-        # safe built-in fallback paths.
-        core = sorted((o for o in candidates if o.source == "core"), key=fit, reverse=True)
-        selected.extend(core[:min(len(core), limit)])
-        remaining = [o for o in candidates if o not in selected]
-        source_quota = max(1, (limit - len(selected)) // max(1, len({o.source for o in remaining})))
+
         by_source: dict[str, list[CapabilityOption]] = {}
-        for option in remaining:
+        for option in candidates:
             by_source.setdefault(option.source, []).append(option)
-        for source in sorted(by_source):
-            selected.extend(sorted(by_source[source], key=fit, reverse=True)[:source_quota])
-        remaining_slots = limit - len(selected)
-        if remaining_slots > 0:
-            pool = [o for o in remaining if o not in selected]
-            selected.extend(sorted(pool, key=fit, reverse=True)[:remaining_slots])
+        sources = sorted(by_source)
+        selected: list[CapabilityOption] = []
+        # Reserve one representative per discovered source whenever the budget
+        # permits. This prevents a large optional ecosystem from hiding another.
+        if len(sources) <= limit:
+            for source in sources:
+                selected.append(max(by_source[source], key=fit))
+        # Prefer remaining core options, then fill the residual budget by the
+        # same evidence-aware fit. Selection is deterministic.
+        remaining = [o for o in candidates if o not in selected]
+        remaining.sort(key=lambda option: (option.source != "core",) + tuple(-value for value in fit(option)[:4]) + (option.name,))
+        selected.extend(remaining[:max(0, limit - len(selected))])
         return tuple(sorted(selected[:limit], key=lambda item: (item.source, item.name)))
+
 
     def select(
         self,
