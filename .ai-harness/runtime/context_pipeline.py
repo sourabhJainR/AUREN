@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 import hashlib
 import json
+import re
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -128,8 +129,24 @@ class ContextAcquisitionPipeline:
         available = [mode for mode in plan.retrieval_modes if mode in self._RETRIEVAL_MODES]
         if "semantic" not in available:
             available.insert(0, "semantic")
-        if pack and "pack" not in available:
-            available.append("pack")
+        # pack=True is an explicit supplemental-context request. Preserve the
+        # historical behavior by executing it once in addition to targeted
+        # retrieval; it is not a fallback candidate that early success can skip.
+        if pack:
+            try:
+                pack_result = self._retrieve("pack", query, plan.budget, plan.max_items)
+                if pack_result["evidence"]:
+                    candidates.extend(pack_result["evidence"])
+                else:
+                    retrieval_unknowns.append("requested pack produced no usable evidence")
+                    self._record_retrieval(task_id, "pack", "failed", "no usable evidence")
+            except Exception as exc:
+                safe_error = self._safe_text(f"{type(exc).__name__}: {exc}")
+                retrieval_unknowns.append(f"requested pack failed: {safe_error}")
+                self._record_retrieval(task_id, "pack", "failed", safe_error)
+
+        # Pack is supplemental, not a recovery mode.
+        available = [mode for mode in available if mode != "pack"]
         working_modes = tuple(mode for mode in self._working_modes(query) if mode in available)
 
         while True:
@@ -223,7 +240,8 @@ class ContextAcquisitionPipeline:
         selected_paths = tuple(retrieved.get("paths", ())) if retrieved else ()
         graph_paths = tuple(retrieved.get("graph_paths", ())) if retrieved else ()
         symbol_refs = tuple(self._resolve_symbols(SymbolLocator(self.repository.index), query))
-        unknowns = tuple(dict.fromkeys((*retrieval_unknowns, *self._historical_unknowns(query))))
+        provider_unknowns = tuple(retrieved.get("unknowns", ())) if retrieved else ()
+        unknowns = tuple(dict.fromkeys((*retrieval_unknowns, *provider_unknowns, *self._historical_unknowns(query))))
 
         plan_digest = _digest(
             {
@@ -290,8 +308,9 @@ class ContextAcquisitionPipeline:
                 "snapshot": self.repository.digest(),
                 "paths": (),
                 "graph_paths": (),
+                "unknowns": tuple(result.omitted) + tuple(result.security_exclusions),
             }
-
+)
         if mode == "pack":
             result = self.repository.pack(
                 token_budget=max(1, min(budget // 4, 4000)),
@@ -353,7 +372,7 @@ class ContextAcquisitionPipeline:
             EvidenceCandidate(
                 f"code:{chunk.path}:{chunk.start_line}:{chunk.end_line}:{mode}",
                 "semantic" if mode == "semantic" else "structural",
-                chunk.text,
+                self._safe_text(chunk.text),
                 max(0.0, min(1.0, chunk.score / 10.0)),
                 0.9,
                 1.0,
@@ -380,8 +399,9 @@ class ContextAcquisitionPipeline:
             "snapshot": result.snapshot_digest,
             "paths": result.relevant_paths,
             "graph_paths": result.graph_trace.expanded_paths,
+            "unknowns": tuple(result.unknowns),
         }
-
+)
     def _failure_memory(self, query: str) -> list[EvidenceCandidate]:
         rows = relevant_task_memory(self.root, query, limit=20)
         candidates: list[EvidenceCandidate] = []
@@ -411,7 +431,7 @@ class ContextAcquisitionPipeline:
                 f"Historical {str(row.get('outcome', 'unknown')).upper()} retrieval/engineering observation.",
                 f"Task: {row.get('task', '')}",
                 f"Approach: {row.get('approach', '')}",
-                f"Detail: {row.get('detail', '')}",
+                f"Detail: {self._safe_text(str(row.get('detail', '')))}",
                 f"Evidence: {', '.join(row.get('evidence_ids', []))}",
             )
             if part.strip()
@@ -472,6 +492,17 @@ class ContextAcquisitionPipeline:
         )
 
     @staticmethod
+    def _safe_text(text: str) -> str:
+        """Redact credential-like values before context crosses the evidence boundary."""
+        value = str(text)
+        for pattern in _SENSITIVE_PATTERNS:
+            value = pattern.sub(
+                lambda match: f"{match.group(1)}=[REDACTED]" if match.lastindex else "[REDACTED]",
+                value,
+            )
+        return value
+
+    @staticmethod
     def _resolve_symbols(locator: SymbolLocator, query: str) -> list[str]:
         refs: list[str] = []
         for token in (x.strip(".,:()[]{}") for x in query.split()):
@@ -479,6 +510,13 @@ class ContextAcquisitionPipeline:
                 refs.extend(address.ref for address in locator.find(token))
         return sorted(set(refs))[:16]
 
+
+_SENSITIVE_PATTERNS = (
+    re.compile(r"(?is)(api[_-]?key|access[_-]?key|secret|password|passwd|pwd|token)\s*[:=]\s*['"]?[^\s'"]{8,}"),
+    re.compile(r"(?is)(authorization)\s*[:=]\s*['"]?bearer\s+[^\s'"]+"),
+    re.compile(r"(?i)\b(?:gh[pousr]_[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{16})\b"),
+    re.compile(r"(?i)-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----.*?-----END (?:RSA |EC |OPENSSH )?PRIVATE KEY-----"),
+)
 
 def _digest(value: object) -> str:
     return hashlib.sha256(
