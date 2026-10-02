@@ -179,3 +179,10 @@ The design borrows the useful parts of Matt Pocock's workflow model: explicit
 phase boundaries, composable skills, dependency-aware execution and feedback
 from tests/review. AER keeps those concepts as data and policy inputs rather
 than making the external skill framework a runtime dependency.
+
+
+AER also honors the Codex skill sidecar at
+`<skill>/agents/openai.yaml` when it declares
+`policy.allow_implicit_invocation: false`. This keeps the autonomous boundary
+consistent across Claude-style front matter and Codex metadata, while explicit
+host invocation can still remain available outside the autonomous selector.
