@@ -120,7 +120,6 @@ class ContextAcquisitionPipeline:
         candidates: list[EvidenceCandidate] = list(extra_evidence)
         candidates.extend(self._failure_memory(query))
 
-        working_modes = self._working_modes(query)
         failed_modes: list[str] = []
         retrieval_unknowns: list[str] = []
         retrieved = None
@@ -131,6 +130,7 @@ class ContextAcquisitionPipeline:
             available.insert(0, "semantic")
         if pack and "pack" not in available:
             available.append("pack")
+        working_modes = tuple(mode for mode in self._working_modes(query) if mode in available)
 
         while True:
             recovery = choose_retrieval_recovery(
