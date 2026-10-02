@@ -410,6 +410,7 @@ class CapabilityDecision:
     bundle_status: str = "experimental"
     bundle_cost: float = 0.0
     bundle_latency_ms: float = 0.0
+    execution_groups: tuple[tuple[str, ...], ...] = ()
 
 
 class CapabilityExecutioner:
@@ -728,6 +729,49 @@ class CapabilityExecutioner:
         return hashlib.sha256("|".join(members).encode()).hexdigest()[:16]
 
     @staticmethod
+    def _execution_groups(members: Sequence[CapabilityOption]) -> tuple[tuple[str, ...], ...]:
+        """Build deterministic phase/dependency groups for a selected bundle."""
+        by_name = {option.name: option for option in members}
+        rank = {
+            "research": 10, "discovery": 10, "planning": 20, "plan": 20,
+            "implementation": 30, "implementation-review": 40,
+            "verification": 50, "review": 50, "testing": 50,
+            "synthesis": 60, "handoff": 70, "general": 25,
+        }
+        edges: dict[str, set[str]] = {name: set() for name in by_name}
+        for option in members:
+            for requirement in option.requires:
+                providers = [
+                    candidate.name for candidate in members
+                    if candidate.name != option.name and (
+                        requirement in candidate.provides
+                        or requirement in candidate.tags
+                        or requirement == candidate.name
+                    )
+                ]
+                for provider in providers:
+                    edges[option.name].add(provider)
+        remaining = set(by_name)
+        groups: list[tuple[str, ...]] = []
+        while remaining:
+            ready = [
+                name for name in remaining
+                if not (edges[name] & remaining)
+            ]
+            if not ready:
+                # Cyclic metadata must never deadlock execution. Fall back to
+                # deterministic phase/name order and keep the cycle visible.
+                ready = [min(remaining, key=lambda name: (rank.get(by_name[name].phase, 25), name))]
+            phase = min(rank.get(by_name[name].phase, 25) for name in ready)
+            current = tuple(sorted(
+                name for name in ready
+                if rank.get(by_name[name].phase, 25) == phase
+            ))
+            groups.append(current)
+            remaining.difference_update(current)
+        return tuple(groups)
+
+    @staticmethod
     def _bundle_status(prior: Mapping[str, float]) -> str:
         samples = int(float(prior.get("samples", 0)))
         success = float(prior.get("success_rate", 0.5))
@@ -910,6 +954,7 @@ class CapabilityExecutioner:
             bundle_status=status,
             bundle_cost=cost,
             bundle_latency_ms=latency * 1000.0,
+            execution_groups=self._execution_groups(members),
         )
 
     @staticmethod
