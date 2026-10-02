@@ -97,3 +97,23 @@ The runtime records strategy-level outcomes alongside capability and group telem
 ## Strategy canary and promotion
 
 Learned strategies now have an explicit rollout state: candidate -> canary -> promoted, with rollback when the promotion evidence gate fails. Candidate strategies do not replace the baseline. Rollout state is persisted as auditable JSONL telemetry and exposed in the execution plan.
+
+
+## Continuous execution decision fabric
+
+Execution-mode learning now sits above the existing strategy/group/resource signals. Each mode is a bounded policy covering:
+
+- serial vs. parallel execution;
+- verification depth;
+- retry/escalation posture;
+- resource fraction and parallelism cap.
+
+Mode history is keyed to the exact team/task/mode and requires repeated, confident evidence before selection. A learned mode is observed without changing the current graph on discovery; only a later run can consume a learned mode. Unknown, cold-start and ambiguous cases retain the deterministic baseline.
+
+Mode outcomes are attributed from completed agents' observed evidence, duration and cost, then persisted through `LearningSteward`. The selected mode is exposed in the execution result so the decision is auditable and can feed future counterfactual analysis.
+
+The resulting hierarchy is:
+
+`group evidence -> strategy evidence -> execution-mode evidence -> bounded runtime choice`
+
+No learned mode can exceed the caller's configured agent/resource limits or override explicit strategy choices, dependency constraints, isolation requirements, or verification safety policy.
