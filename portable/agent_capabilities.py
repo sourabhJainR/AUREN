@@ -984,7 +984,7 @@ class CapabilityExecutioner:
         for size in range(1, limit + 1):
             for names in itertools.combinations(sorted(by_name), size):
                 members = tuple(by_name[name] for name in names)
-                 metrics = self._bundle_metrics(request, members, history)
+                metrics = self._bundle_metrics(request, members, history)
                 coverage, phase_diversity, source_diversity, evidence, confidence, redundancy, reason = metrics
                 if coverage < 0 or reason:
                     continue
