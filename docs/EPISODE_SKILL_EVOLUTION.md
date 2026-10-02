@@ -117,3 +117,5 @@ The resulting hierarchy is:
 `group evidence -> strategy evidence -> execution-mode evidence -> bounded runtime choice`
 
 No learned mode can exceed the caller's configured agent/resource limits or override explicit strategy choices, dependency constraints, isolation requirements, or verification safety policy.
+
+Learned modes use the same rollout discipline as learned strategies: candidate -> canary -> promoted or rollback. The canary is a real bounded execution using the learned mode, while promotion is evaluated only on a subsequent run from the persisted canary outcome. This prevents same-run self-promotion.
