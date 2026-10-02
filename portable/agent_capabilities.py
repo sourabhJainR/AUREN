@@ -668,7 +668,7 @@ class CapabilityExecutioner:
             -fit(option)[0],
             -fit(option)[1],
             -fit(option)[2],
-            -fit(option)[3],
+            fit(option)[3],
             option.name,
         ))
         selected.extend(remaining[:max(0, limit - len(selected))])
