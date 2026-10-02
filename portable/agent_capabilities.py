@@ -949,6 +949,11 @@ class CapabilityExecutioner:
         bundle_history = bundle_history or {}
         contribution_history = contribution_history or {}
         limit = max(1, min(3, int(max_skills)))
+        singleton_history = {
+            name: history.get(name, {})
+            for name in {option.name for option in options}
+            if history.get(name)
+        }
         primary = self.select(
             request=request, options=options, required=required, failed=failed,
             network_allowed=network_allowed, sandbox_available=sandbox_available,
