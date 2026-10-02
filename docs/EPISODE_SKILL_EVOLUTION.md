@@ -119,3 +119,16 @@ The resulting hierarchy is:
 No learned mode can exceed the caller's configured agent/resource limits or override explicit strategy choices, dependency constraints, isolation requirements, or verification safety policy.
 
 Learned modes use the same rollout discipline as learned strategies: candidate -> canary -> promoted or rollback. The canary is a real bounded execution using the learned mode, while promotion is evaluated only on a subsequent run from the persisted canary outcome. This prevents same-run self-promotion.
+
+
+## Counterfactual decision composition
+
+The decision fabric now evaluates a bounded Cartesian set of independently learned strategy and execution-mode evidence. It estimates whether a composed policy clears a minimum improvement margin over the deterministic baseline while avoiding unsupported claims of pairwise historical evidence.
+
+Counterfactual composition remains advisory: a changed strategy or mode must still pass its own evidence/canary gates before it can affect execution. The selected candidate, baseline, score margin and candidate count are emitted in the execution result for auditability and future attribution.
+
+This creates a controlled loop:
+
+`observe -> score -> counterfactual compose -> individual canary gates -> execute -> observe`
+
+The search space is intentionally bounded to the built-in strategy and mode profiles; explicit caller choices and safety/resource limits remain authoritative.
