@@ -244,7 +244,7 @@ class ContextAcquisitionPipeline:
             ContextCandidate(
                 item.evidence_id,
                 item.kind,
-                f"selected:{item.source}",
+                f"selected:{self._safe_text(item.source)}",
                 lambda text=item.text: text,
                 relevance=item.relevance,
                 confidence=item.confidence,
@@ -265,7 +265,7 @@ class ContextAcquisitionPipeline:
             ContextEvidenceItem(
                 lease.context_id,
                 lease.kind,
-                by_id[lease.context_id].source,
+                self._safe_text(by_id[lease.context_id].source),
                 lease.text,
                 round(lease.score, 6),
                 by_id[lease.context_id].confidence,
