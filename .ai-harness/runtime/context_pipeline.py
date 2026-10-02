@@ -618,7 +618,7 @@ class ContextAcquisitionPipeline:
     def _historical_unknowns(self, query: str) -> tuple[str, ...]:
         rows = relevant_task_memory(self.root, query, limit=20)
         return tuple(
-            f"prior {row.get('outcome', 'unknown')} approach: {row.get('approach', '')}"
+            f"prior {self._safe_text(str(row.get('outcome', 'unknown')))} approach: {self._safe_text(str(row.get('approach', '')))}"
             for row in rows
             if row.get("outcome") in {"failed", "regressed"}
         )[:8]
