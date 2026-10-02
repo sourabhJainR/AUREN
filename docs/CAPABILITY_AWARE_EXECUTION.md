@@ -186,3 +186,16 @@ AER also honors the Codex skill sidecar at
 `policy.allow_implicit_invocation: false`. This keeps the autonomous boundary
 consistent across Claude-style front matter and Codex metadata, while explicit
 host invocation can still remain available outside the autonomous selector.
+
+
+## Phase-aware bundle execution
+
+A selected bundle now carries deterministic execution groups. Phase metadata
+orders broad stages such as research, planning, implementation, verification
+and review. Within a phase, skills can be combined; explicit dependency
+metadata can force an edge.
+
+The groups are advisory execution structure, not new authority. AER still
+controls permissions, resource budgets, verification and stopping. Cyclic or
+malformed dependency metadata falls back to a deterministic safe order rather
+than blocking the task.
