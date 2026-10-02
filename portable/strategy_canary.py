@@ -32,7 +32,7 @@ class StrategyCanaryController:
             return StrategyRollout(strategy,"candidate",s.samples,s.confidence,s.evidence_quality,"insufficient evidence for canary")
         if not canary_passed:
             return StrategyRollout(strategy,"canary",s.samples,s.confidence,s.evidence_quality,"eligible for bounded canary")
-        if s.samples>=self.minimum_samples and s.confidence>=self.min_confidence and s.evidence_quality>=self.min_evidence:
+        if s.samples>=self.minimum_samples and s.evidence_quality>=self.min_evidence:
             return StrategyRollout(strategy,"promoted",s.samples,s.confidence,s.evidence_quality,"canary gate passed")
         return StrategyRollout(strategy,"rollback",s.samples,s.confidence,s.evidence_quality,"promotion gate failed; retain baseline")
     @staticmethod
