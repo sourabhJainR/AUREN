@@ -17,7 +17,7 @@ class ExecutionModeLearningTests(unittest.TestCase):
         with TemporaryDirectory() as directory:
             root = Path(directory)
             learner = ExecutionModeLearner(root)
-            for i in range(5):
+            for i in range(6):
                 learner.record(
                     role="team", task="artifact", mode="serial",
                     outcome="passed", evidence_quality=.95, cost_score=.2,
