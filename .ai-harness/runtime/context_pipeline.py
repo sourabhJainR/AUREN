@@ -137,6 +137,7 @@ class ContextAcquisitionPipeline:
             uncertainty=uncertainty,
             policy_strategy=policy_strategy,
         )
+        safe_query = self._safe_text(query)
         candidates: list[EvidenceCandidate] = list(extra_evidence)
         candidates.extend(self._failure_memory(query))
 
@@ -279,7 +280,7 @@ class ContextAcquisitionPipeline:
         selected_paths = tuple(retrieved.get("paths", ())) if retrieved else ()
         graph_paths = tuple(retrieved.get("graph_paths", ())) if retrieved else ()
         symbol_refs = tuple(self._resolve_symbols(SymbolLocator(self.repository.index), query))
-        provider_unknowns = tuple(retrieved.get("unknowns", ())) if retrieved else ()
+        provider_unknowns = tuple(self._safe_text(str(item)) for item in (retrieved.get("unknowns", ()) if retrieved else ()))
         unknowns = tuple(dict.fromkeys((*retrieval_unknowns, *provider_unknowns, *self._historical_unknowns(query))))
 
         plan_digest = _digest(
@@ -296,7 +297,7 @@ class ContextAcquisitionPipeline:
         evidence_digest = _digest(
             {
                 "task_id": task_id,
-                "query": query,
+                "query": safe_query,
                 "intent_digest": intent_digest,
                 "context_plan_digest": plan_digest,
                 "repository_snapshot_digest": snapshot_digest,
@@ -305,7 +306,7 @@ class ContextAcquisitionPipeline:
         )
         return ContextEvidence(
             str(task_id),
-            str(query),
+            safe_query,
             plan.phase,
             str(risk).lower(),
             str(intent_digest),
