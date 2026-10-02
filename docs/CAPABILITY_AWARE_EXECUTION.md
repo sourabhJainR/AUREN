@@ -1,0 +1,93 @@
+# Capability-aware execution
+
+AER treats skills, MCP tools, plugins, providers, local workers and built-in
+capabilities as optional execution resources. The runtime discovers what is
+available, scores candidates for the current task, and keeps AER policy as the
+authority for risk, network access, sandboxing, resource budgets, verification
+and stopping.
+
+## Runtime flow
+
+```text
+task
+  -> declared capabilities
+  -> installed/host-advertised discovery
+  -> bounded capability selection
+  -> historical pathway + resource arbitration
+  -> execution
+  -> evidence / verification
+  -> learning
+```
+
+The selector is implemented by `portable.agent_capabilities.CapabilityExecutioner`.
+It has no dependency on an MCP SDK, plugin SDK, external model, or provider.
+
+## Optional discovery
+
+Local skills are discovered from:
+
+- `.claude/skills/<name>/SKILL.md`
+- `.ai-harness/skills/<name>/SKILL.md`
+- `skills/<name>/SKILL.md`
+- paths listed in `AER_SKILLS_PATH`
+
+MCP and plugin hosts can advertise bounded capability metadata through
+`AER_MCP_CAPABILITIES` and `AER_PLUGIN_CAPABILITIES`. Each variable contains
+a JSON array of descriptors. The runtime ignores malformed or unavailable
+sources and continues with built-in capabilities.
+
+Example:
+
+```json
+[
+  {
+    "name": "mcp:repo-search",
+    "description": "repository semantic search",
+    "tags": ["repository", "search"],
+    "risk": "low",
+    "estimated_latency_ms": 300,
+    "estimated_cost": 0.2,
+    "evidence_quality": 0.8,
+    "confidence": 0.7
+  }
+]
+```
+
+Discovery only describes capabilities. It never grants permissions.
+
+## Selection rules
+
+Selection considers task fit, observed success, evidence quality, confidence,
+latency, cost and resource demand. Historical outcomes are bounded so a
+successful optional provider does not become a hard dependency.
+
+Failed capabilities are excluded from the current acquisition. If an optional
+path disappears or fails, the runtime falls back to remaining safe candidates.
+
+Risk, network and sandbox gates always apply, including to explicitly requested
+capabilities.
+
+## Integration contract
+
+Graph-agent execution creates the executioner once and supplies optional
+discoverers when an integration has richer live metadata. Discoverers should
+return `CapabilityOption` values and may fail safely. AER remains runnable when
+all external discoverers are absent.
+
+This is intentionally an adapter seam rather than a plugin framework. Existing
+`CapabilityFabric`, `SkillRegistry`, `PathwayOptimizer`,
+`HistoricalResourceRouter`, `LocalOffloadBroker`, memory and evidence
+owners remain authoritative for their existing responsibilities.
+
+## Verification
+
+The capability selector is covered by `tests/test_agent_capabilities.py`,
+including:
+
+- deterministic selection with alternatives;
+- failed optional-path fallback;
+- risk/network/resource policy enforcement;
+- bounded installed-skill discovery;
+- graceful optional-discovery failure;
+- required capability policy enforcement.
+
