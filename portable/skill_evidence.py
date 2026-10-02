@@ -76,20 +76,22 @@ def _signals(output: str) -> tuple[int, int]:
     lines = [line.strip() for line in str(output).splitlines() if line.strip()]
     findings = sum(1 for line in lines if _FINDING.search(line))
     evidence = sum(1 for line in lines if _EVIDENCE.search(line))
-    return min(20, findings), min(20, evidence)
+    return min(20, findings), min(20, evidence), scoped
 
 
-def _member_signals(output: str, skill: str) -> tuple[int, int]:
+def _member_signals(output: str, skill: str) -> tuple[int, int, bool]:
     """Read explicit skill-scoped evidence sections when an agent emits them."""
     lines = str(output).splitlines()
     target = skill.replace("_", " ").strip().lower()
     active = False
+    scoped = False
     findings = evidence = 0
     for line in lines:
         clean = line.strip()
         lower = clean.lower()
         if lower.startswith("## skill evidence:"):
             active = lower.split(":", 1)[1].strip() == target
+            scoped = scoped or active
             continue
         if active and clean.startswith("## "):
             break
@@ -129,10 +131,10 @@ def attribute(
         phase = str(member.get("phase", "general"))
         source = str(member.get("source", "unknown"))
         name_hits = len(re.findall(rf"(?i)\b{re.escape(name.replace('_', ' '))}\b", str(output)))
-        scoped_findings, scoped_evidence = _member_signals(output, name)
+        scoped_findings, scoped_evidence, has_scoped_evidence = _member_signals(output, name)
         role_bonus = 0.12 if role in {"verifier", "correctness reviewer", "security reviewer", "architecture reviewer"} and findings else 0.0
-        observed_findings = scoped_findings if scoped_findings else (findings if name_hits else 0)
-        observed_evidence = scoped_evidence if scoped_evidence else (evidence if name_hits else 0)
+        observed_findings = scoped_findings if has_scoped_evidence else (findings if name_hits else 0)
+        observed_evidence = scoped_evidence if has_scoped_evidence else (evidence if name_hits else 0)
         signal_share = min(1.0, 0.25 * name_hits + 0.10 * observed_evidence + 0.12 * observed_findings + role_bonus)
         contribution = _clamp(0.45 * signal_share + 0.35 * _clamp(evidence_quality) + 0.20 * (1.0 if status == "passed" else 0.0))
         rows.append(SkillExecutionEvidence(
