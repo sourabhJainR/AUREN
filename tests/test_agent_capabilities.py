@@ -181,6 +181,37 @@ class AgentCapabilityTests(unittest.TestCase):
             else:
                 os.environ["AER_PLUGIN_CAPABILITIES"] = previous
 
+    def test_under_observed_capability_receives_bounded_exploration_bonus(self):
+        from portable.agent_capabilities import CapabilityExecutioner, CapabilityOption
+        selector = CapabilityExecutioner(min_exploration=0.15)
+        result = selector.select(
+            request="repository search",
+            options=(
+                CapabilityOption("proven-search", tags=frozenset({"repository", "search"}), historical_success=0.5, confidence=0.5),
+                CapabilityOption("under-observed-search", tags=frozenset({"repository", "search"}), historical_success=0.5, confidence=0.5),
+            ),
+            history={
+                "proven-search": {"samples": 8, "confidence": 0.9, "success_rate": 0.9},
+                "under-observed-search": {"samples": 1, "confidence": 0.125, "success_rate": 0.5},
+            },
+        )
+        self.assertEqual(result.selected, "under-observed-search")
+
+    def test_proven_capability_is_not_displaced_by_exploration_when_materially_better(self):
+        from portable.agent_capabilities import CapabilityExecutioner, CapabilityOption
+        selector = CapabilityExecutioner(min_exploration=0.15)
+        result = selector.select(
+            request="repository search",
+            options=(
+                CapabilityOption("proven-search", tags=frozenset({"repository", "search"}), historical_success=0.99, evidence_quality=0.99, confidence=0.95),
+                CapabilityOption("under-observed-search", tags=frozenset({"repository", "search"}), historical_success=0.5, confidence=0.25),
+            ),
+            history={
+                "proven-search": {"samples": 8, "confidence": 1.0, "success_rate": 0.99, "evidence_quality": 0.99, "avg_cost": 0.1, "avg_latency": 0.1, "failure_rate": 0.01},
+            },
+        )
+        self.assertEqual(result.selected, "proven-search")
+
     def test_safe_unobserved_capability_can_be_explored(self):
         from portable.agent_capabilities import CapabilityExecutioner, CapabilityOption
         selector = CapabilityExecutioner(min_exploration=0.15)
