@@ -42,6 +42,25 @@ class SkillEvidenceTests(unittest.TestCase):
         self.assertEqual(by_name["reviewer"].unique_findings, 1)
         self.assertEqual(by_name["reviewer"].evidence_signals, 1)
 
+    def test_empty_skill_section_does_not_inherit_other_skill_findings(self):
+        rows = attribute(
+            members=(
+                {"name": "planner", "source": "skill", "phase": "planning"},
+                {"name": "reviewer", "source": "skill", "phase": "review"},
+            ),
+            execution_groups=(("planner",), ("reviewer",)),
+            output="""## Skill Evidence: planner
+- no distinct evidence
+## Findings
+- reviewer found a defect
+""",
+            status="passed",
+            evidence_quality=0.8,
+            role="correctness reviewer",
+        )
+        by_name = {row.skill: row for row in rows}
+        self.assertEqual(by_name["planner"].unique_findings, 0)
+
     def test_redundant_member_is_not_credited_as_equal_contributor(self):
         rows = attribute(
             members=(
