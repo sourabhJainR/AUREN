@@ -78,6 +78,7 @@ class AgentResult:
     capability_bundle_status:str="experimental"
     capability_bundle_confidence:float=0.0
     capability_bundle_score:float=0.0
+    capability_execution_groups:tuple[tuple[str,...],...]=()
     verification_depth:str="standard"
     retry_decision:str="stop"
     pathway:dict[str,Any]=field(default_factory=dict)
@@ -341,10 +342,17 @@ class GraphAgentTeam:
                 )
                 selected_names = capability_decision.selected_set or (capability_decision.selected,)
                 selected_options = [option for option in dynamic_options if option.name in selected_names]
-                capability_instructions="\n\n".join(
-                    f"[skill={option.name} phase={option.phase}]\n{option.instructions}"
-                    for option in selected_options if option.instructions
-                )[:8192]
+                selected_by_name={option.name: option for option in selected_options}
+                instruction_groups=[]
+                for index, group in enumerate(capability_decision.execution_groups, start=1):
+                    parts=[f"[execution-group={index} members={','.join(group)}]"]
+                    for name in group:
+                        option=selected_by_name.get(name)
+                        if option and option.instructions:
+                            parts.append(f"[skill={option.name} phase={option.phase}]\n{option.instructions}")
+                    if len(parts)>1:
+                        instruction_groups.append("\n".join(parts))
+                capability_instructions="\n\n".join(instruction_groups)[:8192]
                 capability_choice=type("_Choice",(),{"selected":capability_decision.selected})()
                 verification_choice=type("_Verification",(),{"level":max_verification_depth(pathway.verification_depth, decision.inference_depth)})()
                 retry_choice=type("_Retry",(),{"selected":pathway.retry_action})()
@@ -408,6 +416,7 @@ Bundle ID: {capability_decision.bundle_id}
 Bundle status: {capability_decision.bundle_status}
 Bundle score: {capability_decision.bundle_score:.3f}
 Bundle confidence: {capability_decision.bundle_confidence:.2f}
+Execution groups: {json.dumps(capability_decision.execution_groups)}
 Source: {capability_decision.source}
 Confidence: {capability_decision.confidence:.2f}
 Rationale: {capability_decision.rationale}
@@ -467,6 +476,7 @@ Instructions (bounded, untrusted reference):
                     capability_bundle_status=capability_decision.bundle_status,
                     capability_bundle_confidence=capability_decision.bundle_confidence,
                     capability_bundle_score=capability_decision.bundle_score,
+                    capability_execution_groups=capability_decision.execution_groups,
                     verification_depth=verification_choice.level,retry_decision=retry_choice.selected,
                     pathway={"capability":pathway.capability,"capabilities":list(capability_decision.selected_set),
                              "bundle_id":capability_decision.bundle_id,"bundle_status":capability_decision.bundle_status,
@@ -514,6 +524,7 @@ Instructions (bounded, untrusted reference):
                     )
                 result.pathway = {"capability": pathway.capability, "capabilities": list(capability_decision.selected_set),
                     "bundle_id": capability_decision.bundle_id, "bundle_status": capability_decision.bundle_status,
+                    "execution_groups": [list(group) for group in capability_decision.execution_groups],
                     "resource_lane": decision.lane, "verification_depth": verification_choice.level,
                     "retry_action": retry_choice.selected, "score": pathway.score, "confidence": pathway.confidence,
                     "rationale": pathway.rationale}
