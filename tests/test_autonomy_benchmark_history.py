@@ -1,7 +1,7 @@
-import json
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+
 from portable.autonomy_benchmark import AutonomyBenchmarkGate
 from portable.autonomy_benchmark_history import AutonomyBenchmarkHistory
 
@@ -15,12 +15,13 @@ class BenchmarkHistoryTests(unittest.TestCase):
     def test_history_records_and_trends(self):
         with TemporaryDirectory() as td:
             history=AutonomyBenchmarkHistory(Path(td))
-            for value in (.9,.9,.7):
-                history.record(self._benchmark(value), task=f"task-{value}",
-                               evidence_ids=[str(value)])
+            for i, value in enumerate((.9, .89, .7)):
+                history.record(self._benchmark(value), task=f"task-{i}",
+                               evidence_ids=[f"evidence:{i}"])
             trend=history.trend()
-            self.assertEqual(trend.samples,3)
-            self.assertLess(trend.delta,0)
+            self.assertEqual(trend.samples, 3)
+            self.assertLess(trend.delta, 0)
+            self.assertTrue(trend.regressed)
 
     def test_empty_history_is_safe(self):
         with TemporaryDirectory() as td:
