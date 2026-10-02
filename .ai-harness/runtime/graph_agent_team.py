@@ -23,6 +23,7 @@ from portable.execution_strategy import PathwayOptimizer, execution_strategy, ma
 from portable.autonomous_evolution_controller import AutonomousEvolutionController
 from portable.autonomous_capability_invention import CapabilityComposition
 from portable.agent_capabilities import CapabilityExecutioner, CapabilityOption
+from portable.skill_evidence import attribute, assess_collaboration
 from portable.task_planner import Task,TaskPlan
 from runtime.task_memory import approach_history, guidance
 
@@ -340,6 +341,7 @@ class GraphAgentTeam:
                     evidence_quality=evidence_quality,
                     resource_lanes=("agent","local") if agent.local_command else ("agent",),
                 )
+                capability_choice=type("_Choice",(),{"selected":capability_decision.selected})()
                 selected_names = capability_decision.selected_set or (capability_decision.selected,)
                 selected_options = [option for option in dynamic_options if option.name in selected_names]
                 selected_by_name={option.name: option for option in selected_options}
@@ -369,7 +371,6 @@ class GraphAgentTeam:
                     if len(parts)>1:
                         instruction_groups.append("\n".join(parts))
                 capability_instructions="\n\n".join(instruction_groups)[:8192]
-                capability_choice=type("_Choice",(),{"selected":capability_decision.selected})()
                 verification_choice=type("_Verification",(),{"level":max_verification_depth(pathway.verification_depth, decision.inference_depth)})()
                 retry_choice=type("_Retry",(),{"selected":pathway.retry_action})()
                 world_state = self._record_world_state(agent=agent, task=task, intent_digest=intent_digest, run_nonce=run_nonce, decision=decision,
@@ -483,6 +484,38 @@ Instructions (bounded, untrusted reference):
                 status="passed" if code==0 else "failed"
                 if local is not None and local.status not in {"passed"} and agent.role=="verifier":
                     status="failed"
+                skill_members = [
+                    {"name": option.name, "source": option.source, "phase": option.phase}
+                    for option in execution_options
+                ]
+                skill_evidence = attribute(
+                    members=skill_members, execution_groups=execution_schedule,
+                    output=output, status=status,
+                    evidence_quality=evidence_quality if status == "passed" else 0.1,
+                    role=agent.role,
+                )
+                skill_evidence_payload = [item.as_dict() for item in skill_evidence]
+                # Keep member attribution separate from the aggregate bundle record.
+                # A successful bundle does not automatically credit every member.
+                for item in skill_evidence:
+                    learning.record_experience(
+                        key=agent.role+":skill-contribution:"+item.skill,
+                        outcome=status,
+                        evidence_quality=item.contribution,
+                        cost_score=float(decision.cost_score),
+                        duration_seconds=duration,
+                        decision=json.dumps({"bundle_id": capability_decision.bundle_id, "contribution": item.as_dict()}, sort_keys=True),
+                        evidence_ids=["agent:"+agent.name, "skill:"+item.skill],
+                    )
+                singleton_history = {name: history for name, history in capability_history.items() if name in selected_names}
+                collaboration = assess_collaboration(
+                    bundle_id=capability_decision.bundle_id,
+                    bundle_quality=evidence_quality if status == "passed" else 0.1,
+                    singleton_history=singleton_history,
+                    members=selected_names,
+                    bundle_cost=float(capability_decision.bundle_cost),
+                    bundle_latency_seconds=duration,
+                ) if capability_decision.bundle_id else None
                 result=AgentResult(
                     agent.name,agent.role,status,attempts=attempts,exit_code=code,duration_seconds=duration,
                     output=output,resource_lane=decision.lane,local_evidence=local_payload,
@@ -528,6 +561,16 @@ Instructions (bounded, untrusted reference):
                     decision="selected_capability="+capability_choice.selected+";source="+capability_decision.source+";verification="+verification_choice.level+";retry="+retry_choice.selected,
                     evidence_ids=["agent:"+agent.name],
                 )
+                if collaboration is not None:
+                    learning.record_experience(
+                        key=agent.role+":bundle-assessment:"+capability_decision.bundle_id,
+                        outcome=("passed" if collaboration.promotable else "partial"),
+                        evidence_quality=collaboration.bundle_quality,
+                        cost_score=float(decision.cost_score),
+                        duration_seconds=duration,
+                        decision=json.dumps({"assessment": collaboration.as_dict(), "skill_evidence": skill_evidence_payload}, sort_keys=True),
+                        evidence_ids=["agent:"+agent.name, "bundle:"+capability_decision.bundle_id],
+                    )
                 if capability_decision.bundle_id:
                     learning.record_experience(
                         key=agent.role+":bundle:"+capability_decision.bundle_id,
@@ -541,6 +584,8 @@ Instructions (bounded, untrusted reference):
                 result.pathway = {"capability": pathway.capability, "capabilities": list(capability_decision.selected_set),
                     "bundle_id": capability_decision.bundle_id, "bundle_status": capability_decision.bundle_status,
                     "execution_groups": [list(group) for group in execution_schedule],
+                    "skill_evidence": skill_evidence_payload,
+                    "collaboration_assessment": collaboration.as_dict() if collaboration is not None else None,
                     "resource_lane": decision.lane, "verification_depth": verification_choice.level,
                     "retry_action": retry_choice.selected, "score": pathway.score, "confidence": pathway.confidence,
                     "rationale": pathway.rationale}
