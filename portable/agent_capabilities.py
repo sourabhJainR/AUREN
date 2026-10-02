@@ -579,18 +579,23 @@ class CapabilityExecutioner:
             and option.available
             and self._allowed(option, network_allowed, sandbox_available, max_risk)
         ]
-        # Bounded deterministic exploration: inspect one unseen low-risk option
-        # when available, without overriding required policy or failure history.
-        unexplored = [option for option in eligible if option.name not in history]
-        exploration = min(
-            unexplored,
+        # Bounded exploration is driven by evidence scarcity, not only whether
+        # a capability has ever been observed. This lets under-observed safe paths
+        # receive a small trial bonus while proven paths naturally move into
+        # exploitation as confidence and sample count rise.
+        exploration_candidates = [
+            option for option in eligible
+            if self._exploration_need(history.get(option.name, {})) > 0.0
+        ]
+        exploration = max(
+            exploration_candidates,
             key=lambda option: (
-                _RISK_ORDER.get(option.risk, 99),
-                option.estimated_cost,
-                option.estimated_latency_ms,
+                self._exploration_need(history.get(option.name, {})),
+                -_RISK_ORDER.get(option.risk, 99),
+                -option.evidence_quality,
                 option.name,
             ),
-        ) if unexplored and self.min_exploration > 0 else None
+        ) if exploration_candidates and self.min_exploration > 0 else None
         candidates: list[tuple[CapabilityOption, float]] = []
         for option in options:
             if option.name in failed_set or not option.available:
@@ -626,9 +631,11 @@ class CapabilityExecutioner:
         if not candidates:
             raise LookupError("no safe capability available for request")
         if exploration is not None:
+            exploration_need = self._exploration_need(history.get(exploration.name, {}))
+            exploration_bonus = min(0.03, self.min_exploration * exploration_need)
             for index, (option, score) in enumerate(candidates):
                 if option.name == exploration.name:
-                    candidates[index] = (option, score + self.min_exploration * 0.10)
+                    candidates[index] = (option, score + exploration_bonus)
                     break
         candidates.sort(key=lambda item: (-item[1], item[0].name))
         selected, score = candidates[0]
@@ -644,6 +651,16 @@ class CapabilityExecutioner:
             f"fallback remains available={bool(alternatives)}"
         )
         return CapabilityDecision(selected.name, selected.source, score, confidence, rationale, alternatives, degraded)
+
+    @staticmethod
+    def _exploration_need(prior: Mapping[str, float]) -> float:
+        """Return a bounded exploration need from sample scarcity and confidence."""
+        samples = max(0, int(float(prior.get("samples", 0))))
+        confidence = max(0.0, min(1.0, float(prior.get("confidence", 0.25))))
+        if samples >= 8 and confidence >= 0.75:
+            return 0.0
+        scarcity = 1.0 / (samples + 1.0) ** 0.5
+        return max(0.0, min(1.0, (1.0 - confidence) * scarcity))
 
     @staticmethod
     def _allowed(option: CapabilityOption, network_allowed: bool, sandbox_available: bool, max_risk: str) -> bool:

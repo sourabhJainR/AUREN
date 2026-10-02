@@ -294,6 +294,7 @@ class GraphAgentTeam:
                             "avg_cost": float(summary.avg_cost),
                             "avg_latency": float(summary.avg_latency),
                             "failure_rate": float(summary.failure_rate),
+                            "samples": float(summary.samples),
                         }
                 capability_decision=self.capability_executioner.select(
                     request=f"{agent.role} {agent.focus} {task[:160]}",
