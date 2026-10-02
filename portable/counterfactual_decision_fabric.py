@@ -96,7 +96,8 @@ class CounterfactualDecisionFabric:
                     execution_strategy(strategy_name), execution_mode(mode_name),
                     score, evidence, confidence,
                     min(strategy_summary.samples, mode_summary.samples),
-                    ("counterfactual composition of independently observed strategy and mode evidence"\n                     + (" with bounded workload-context adaptation" if context else "")),
+                    ("counterfactual composition of independently observed strategy and mode evidence"
+                     + (" with bounded workload-context adaptation" if context else "")),
                 ))
         baseline = next(
             (x for x in candidates if x.strategy.name == baseline_strategy and x.mode.name == baseline_mode),
