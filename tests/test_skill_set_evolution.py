@@ -29,7 +29,7 @@ class AdaptiveSkillSetEvolutionTests(unittest.TestCase):
             contribution_history=contribution,
         )
         self.assertTrue(mutations)
-        self.assertTrue(any(m.action == "remove" and m.members == ("planner",) for m in mutations))
+        self.assertTrue(any(m.action == "remove" and m.members == ("reviewer",) for m in mutations))
         self.assertTrue(any(m.action == "swap" and "implementer" in m.members for m in mutations))
         self.assertLessEqual(len(mutations), 8)
 
