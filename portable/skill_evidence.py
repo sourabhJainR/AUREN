@@ -96,8 +96,9 @@ def _member_signals(output: str, skill: str) -> tuple[int, int, bool]:
         if active and clean.startswith("## "):
             break
         if active:
-            findings += bool(_FINDING.search(clean))
-            evidence += bool(_EVIDENCE.search(clean))
+            has_evidence = bool(_EVIDENCE.search(clean))
+            findings += bool(_FINDING.search(clean)) and not has_evidence
+            evidence += has_evidence
     return min(20, findings), min(20, evidence), scoped
 
 
@@ -135,7 +136,7 @@ def attribute(
         observed_evidence = scoped_evidence if has_scoped_evidence else (evidence if name_hits else 0)
         role_bonus = 0.12 if role in {"verifier", "correctness reviewer", "security reviewer", "architecture reviewer"} and observed_findings else 0.0
         signal_share = min(1.0, 0.25 * name_hits + 0.10 * observed_evidence + 0.12 * observed_findings + role_bonus)
-        contribution = _clamp(0.45 * signal_share + 0.35 * _clamp(evidence_quality) + 0.20 * (1.0 if status == "passed" else 0.0))
+        contribution = _clamp(0.70 * signal_share + 0.20 * _clamp(evidence_quality) + 0.10 * (1.0 if status == "passed" else 0.0))
         rows.append(SkillExecutionEvidence(
             skill=name, source=source, phase=phase, group=group_by_name.get(name, 0),
             status=status, evidence_quality=_clamp(evidence_quality),
