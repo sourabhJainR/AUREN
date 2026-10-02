@@ -16,6 +16,7 @@ try:
         choose_retrieval_recovery,
         plan_context,
         select_evidence,
+        allocate_context,
     )
     from .task_memory import record as record_task_observation, relevant as relevant_task_memory
     from portable.repository_intelligence import RepositoryIntelligence
@@ -27,6 +28,7 @@ except ImportError:
         choose_retrieval_recovery,
         plan_context,
         select_evidence,
+        allocate_context,
     )
     from task_memory import record as record_task_observation, relevant as relevant_task_memory
     from portable.repository_intelligence import RepositoryIntelligence
@@ -168,8 +170,33 @@ class ContextAcquisitionPipeline:
         # Pack is supplemental, not a recovery mode.
         available = [mode for mode in available if mode != "pack"]
         working_modes = tuple(mode for mode in self._working_modes(query) if mode in available)
+        allocation = allocate_context(
+            base_budget=plan.budget,
+            base_items=plan.max_items,
+            risk=risk,
+            uncertainty=uncertainty,
+            failure_rate=0.0,
+            context_pressure=min(1.0, len(self._broker.active()) / max(1, self._broker.max_items)),
+            working_modes=working_modes,
+        )
+        # Prefer learned working modes, but retain the planner's safe modes as
+        # fallbacks. Allocation controls size; recovery controls strategy.
+        retrieval_budget = allocation.budget
+        retrieval_items = allocation.max_items
 
         while True:
+            allocation = allocate_context(
+                base_budget=plan.budget,
+                base_items=plan.max_items,
+                risk=risk,
+                uncertainty=uncertainty,
+                failure_rate=len(failed_modes) / max(1, len(available)),
+                context_pressure=min(1.0, len(self._broker.active()) / max(1, self._broker.max_items)),
+                working_modes=working_modes,
+                failed_modes=failed_modes,
+            )
+            retrieval_budget = allocation.budget
+            retrieval_items = allocation.max_items
             recovery = self._choose_recovery(
                 task_id=task_id,
                 query=query,
@@ -186,7 +213,7 @@ class ContextAcquisitionPipeline:
 
             mode = str(recovery.mode)
             try:
-                result = self._retrieve(mode, query, plan.budget, plan.max_items)
+                result = self._retrieve(mode, query, retrieval_budget, retrieval_items)
             except Exception as exc:  # retrieval is an evidence boundary; do not hide the failure
                 failed_modes.append(mode)
                 safe_error = self._safe_text(f"{type(exc).__name__}: {exc}")
@@ -239,7 +266,10 @@ class ContextAcquisitionPipeline:
             )
             for item in candidates
         ]
-        selected = select_evidence(candidates, budget=plan.budget, max_items=plan.max_items)
+        # Keep the reserve out of the final context so it remains available for
+        # fresh evidence/recovery rather than being consumed by the first pass.
+        context_budget = max(1000, retrieval_budget - allocation.reserve)
+        selected = select_evidence(candidates, budget=context_budget, max_items=retrieval_items)
         self._broker.register_many(
             ContextCandidate(
                 item.evidence_id,
@@ -257,8 +287,8 @@ class ContextAcquisitionPipeline:
         leases = self._broker.discover(
             query,
             phase=phase,
-            budget_chars=plan.budget,
-            max_items=plan.max_items,
+            budget_chars=context_budget,
+            max_items=retrieval_items,
         )
         by_id = {item.evidence_id: item for item in selected}
         items = tuple(
@@ -289,6 +319,10 @@ class ContextAcquisitionPipeline:
                 "modes": plan.retrieval_modes,
                 "budget": plan.budget,
                 "max_items": plan.max_items,
+                "allocation_budget": retrieval_budget,
+                "allocation_items": retrieval_items,
+                "allocation_reserve": allocation.reserve,
+                "allocation_rationale": allocation.rationale,
                 "fresh": plan.require_fresh_verification,
                 "strategy": plan.policy_strategy,
                 "selected_mode": selected_mode,

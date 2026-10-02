@@ -96,6 +96,34 @@ def plan_context(*, phase: str, risk: str = "medium", uncertainty: str = "medium
     )
 
 
+@dataclass(frozen=True, slots=True)
+class ContextAllocation:
+    budget: int
+    max_items: int
+    modes: tuple[str, ...]
+    reserve: int
+    rationale: tuple[str, ...] = ()
+
+
+def allocate_context(*, base_budget: int, base_items: int, risk: str = "medium",
+                     uncertainty: str = "medium", failure_rate: float = 0.0,
+                     context_pressure: float = 0.0, working_modes: Sequence[str] = (),
+                     failed_modes: Sequence[str] = ()) -> ContextAllocation:
+    """Adapt context size and reserve without blindly expanding the window."""
+    budget=max(1000,int(base_budget)); items=max(1,int(base_items)); reasons=[]
+    u=str(uncertainty).lower().strip(); r=str(risk).lower().strip()
+    failure=max(0.0,min(1.0,float(failure_rate))); pressure=max(0.0,min(1.0,float(context_pressure)))
+    if u in {"high","unknown"}: budget=min(32000,int(budget*1.20)); items=min(32,items+4); reasons.append("uncertainty increased evidence allowance")
+    elif u=="low": budget=max(6000,int(budget*.80)); items=max(8,items-2); reasons.append("low uncertainty reduced redundant context")
+    if r in {"high","critical"}: budget=min(36000,int(budget*1.10)); reasons.append("risk reserved verification context")
+    if failure>=.40: budget=max(5000,int(budget*.85)); items=max(8,items-2); reasons.append("retrieval failures narrowed acquisition")
+    if pressure>=.70: budget=max(4000,int(budget*.75)); items=max(6,items-3); reasons.append("context pressure triggered compaction")
+    failed={str(x).strip().lower() for x in failed_modes if str(x).strip()}
+    modes=tuple(dict.fromkeys(str(x).strip().lower() for x in working_modes if str(x).strip() and str(x).strip().lower() not in failed))
+    reserve=max(500,int(budget*(.25 if pressure>=.70 else .15)))
+    return ContextAllocation(budget,max(1,items),modes,min(reserve,max(250,budget//2)),tuple(reasons) or ("default bounded context allocation",))
+
+
 def choose_retrieval_recovery(
     *,
     failed_modes: Sequence[str],
@@ -158,3 +186,6 @@ def select_evidence(candidates: Iterable[EvidenceCandidate], *, budget: int, max
         if len(selected) >= max(1, int(max_items)):
             break
     return selected
+
+
+__all__ = ["EvidenceCandidate", "ContextPlan", "ContextAllocation", "RetrievalRecovery", "plan_context", "allocate_context", "choose_retrieval_recovery", "select_evidence"]

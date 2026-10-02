@@ -58,6 +58,38 @@ class ContextPlannerTests(unittest.TestCase):
         self.assertEqual([item.evidence_id for item in selected], ["best", "low"])
         self.assertLessEqual(sum(item.cost for item in selected), 250)
 
+    def test_pipeline_fallback_import_exposes_allocator(self):
+        import context_pipeline
+        self.assertIs(context_pipeline.allocate_context, __import__("context_planner").allocate_context)
+
+    def test_context_allocation_reserve_reduces_final_context_budget(self):
+        from context_planner import allocate_context
+        allocation = allocate_context(base_budget=20000, base_items=20, uncertainty="medium")
+        effective_budget = allocation.budget - allocation.reserve
+        self.assertEqual(effective_budget, 17000)
+        self.assertGreater(allocation.reserve, 0)
+
+    def test_context_allocation_expands_for_uncertainty(self):
+        from context_planner import allocate_context
+        allocation = allocate_context(
+            base_budget=10000, base_items=10, uncertainty="high", working_modes=("semantic", "history")
+        )
+        self.assertEqual(allocation.budget, 12000)
+        self.assertGreaterEqual(allocation.max_items, 14)
+        self.assertEqual(allocation.modes, ("semantic", "history"))
+        self.assertGreater(allocation.reserve, 0)
+
+    def test_context_allocation_compacts_under_pressure_and_failure(self):
+        from context_planner import allocate_context
+        allocation = allocate_context(
+            base_budget=20000, base_items=20, failure_rate=0.6, context_pressure=0.9,
+            working_modes=("semantic", "structural"), failed_modes=("semantic",)
+        )
+        self.assertLess(allocation.budget, 20000)
+        self.assertLess(allocation.max_items, 20)
+        self.assertEqual(allocation.modes, ("structural",))
+        self.assertTrue(allocation.reserve < allocation.budget)
+
 
 if __name__ == "__main__":
     unittest.main()
