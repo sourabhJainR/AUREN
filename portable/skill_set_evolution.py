@@ -74,6 +74,17 @@ class AdaptiveSkillSetEvolver:
             return tuple(str(x) for x in raw if str(x))
         return ()
 
+    @staticmethod
+    def _resource_cost(members: Sequence[str], options: Mapping[str, Any], history: Mapping[str, Mapping[str, Any]]) -> float:
+        return sum(
+            max(0.0, min(1.0, float(history.get(name, {}).get("avg_cost", getattr(options[name], "estimated_cost", 0.5)))))
+            for name in members
+        )
+
+    @staticmethod
+    def _context_cost(members: Sequence[str], options: Mapping[str, Any]) -> int:
+        return sum(len(str(getattr(options[name], "instructions", ""))) for name in members)
+
     def propose(
         self,
         *,
@@ -82,13 +93,19 @@ class AdaptiveSkillSetEvolver:
         history: Mapping[str, Mapping[str, Any]],
         contribution_history: Mapping[str, Mapping[str, Any]],
         failed: Iterable[str] = (),
+        resource_budget: float = 1.0,
+        context_budget_chars: int = 8192,
     ) -> tuple[SkillSetMutation, ...]:
         blocked = set(failed)
+        resource_budget = max(0.05, min(1.0, float(resource_budget)))
+        context_budget_chars = max(512, min(32768, int(context_budget_chars)))
         available = {str(option.name): option for option in options if str(option.name) not in blocked and getattr(option, "available", True)}
         mutations: list[SkillSetMutation] = []
         for parent_id, prior in sorted(bundle_history.items()):
             parent = self._parent_members(prior)
             if not parent or any(name not in available for name in parent):
+                continue
+            if self._resource_cost(parent, available, history) > resource_budget or self._context_cost(parent, available) > context_budget_chars:
                 continue
             if int(float(prior.get("samples", 0))) >= 3 and float(prior.get("collaboration_delta", 0.0) or 0.0) < 0:
                 continue
@@ -103,7 +120,7 @@ class AdaptiveSkillSetEvolver:
                 for removed in sorted(parent):
                     candidate = tuple(name for name in parent if name != removed)
                     delta = self._bundle_value(candidate, history, contribution_history) - base
-                    if delta >= self.min_expected_delta:
+                    if delta >= self.min_expected_delta and self._resource_cost(candidate, available, history) <= resource_budget and self._context_cost(candidate, available) <= context_budget_chars:
                         mutations.append(SkillSetMutation(
                             "remove", parent_id, parent, candidate, delta,
                             f"remove low-value member {removed}",
