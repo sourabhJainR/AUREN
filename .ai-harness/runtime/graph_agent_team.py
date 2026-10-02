@@ -343,7 +343,10 @@ class GraphAgentTeam:
                 selected_names = capability_decision.selected_set or (capability_decision.selected,)
                 selected_options = [option for option in dynamic_options if option.name in selected_names]
                 selected_by_name={option.name: option for option in selected_options}
-                execution_schedule=self.capability_executioner.execution_schedule(selected_options)
+                execution_schedule=self.capability_executioner.execution_schedule(
+                    selected_options,
+                    max_parallel=max(1, min(3, int(decision.workers))),
+                )
                 instruction_groups=[]
                 for index, group in enumerate(execution_schedule, start=1):
                     parts=[f"[execution-group={index} members={','.join(group)}]"]
