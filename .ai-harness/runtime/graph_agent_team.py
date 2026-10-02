@@ -433,6 +433,7 @@ class GraphAgentTeam:
                     network_allowed=os.environ.get("AER_NETWORK_ALLOWED","1").lower() not in {"0","false","no","off"},
                     sandbox_available=True,
                     context_budget_chars=8192,
+                    resource_budget=max(0.1, min(1.0, 1.0 - decision.cost_score)),
                 )
                 adapted_names=tuple(dict.fromkeys(name for group in adapted_groups for name in group))
                 adapted_options=tuple(option for option in dynamic_options if option.name in adapted_names)
