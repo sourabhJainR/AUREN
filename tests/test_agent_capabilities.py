@@ -212,6 +212,35 @@ class AgentCapabilityTests(unittest.TestCase):
         )
         self.assertEqual(result.selected, "proven-search")
 
+    def test_collaborative_selection_combines_complementary_skills(self):
+        from portable.agent_capabilities import CapabilityExecutioner, CapabilityOption
+        selector = CapabilityExecutioner(min_exploration=0.0)
+        result = selector.select_collaborative(
+            request="plan repository changes",
+            options=(
+                CapabilityOption("superpower-plan", source="skill", description="planning and decomposition", tags=frozenset({"plan", "decomposition"})),
+                CapabilityOption("pony-plan", source="skill", description="planning and risk analysis", tags=frozenset({"plan", "risk"})),
+                CapabilityOption("caveman-review", source="skill", description="repository review and validation", tags=frozenset({"review", "validation"})),
+            ),
+            max_skills=3,
+        )
+        self.assertLessEqual(len(result.selected_set), 3)
+        self.assertIn(result.selected, result.selected_set)
+        self.assertGreaterEqual(len(result.selected_set), 2)
+
+    def test_collaboration_respects_policy_for_every_skill(self):
+        from portable.agent_capabilities import CapabilityExecutioner, CapabilityOption
+        selector = CapabilityExecutioner(min_exploration=0.0)
+        result = selector.select_collaborative(
+            request="search and review",
+            options=(
+                CapabilityOption("safe-review", source="skill", tags=frozenset({"review"})),
+                CapabilityOption("blocked-network", source="skill", tags=frozenset({"search"}), requires_network=True),
+            ),
+            network_allowed=False,
+        )
+        self.assertNotIn("blocked-network", result.selected_set)
+
     def test_safe_unobserved_capability_can_be_explored(self):
         from portable.agent_capabilities import CapabilityExecutioner, CapabilityOption
         selector = CapabilityExecutioner(min_exploration=0.15)
