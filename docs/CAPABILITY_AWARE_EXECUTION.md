@@ -168,7 +168,7 @@ Bundle states are intentionally conservative:
 
 - experimental: insufficient evidence
 - proven: repeated successful outcomes with adequate confidence
-- degraded: repeated failures or weak success evidence
+- degraded: repeated failures or weak success evidence, strongly penalized
 - retired: repeated severe failure, excluded from autonomous selection
 
 This gives AER the missing feedback loop: a combination can graduate when it
