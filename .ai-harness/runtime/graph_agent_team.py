@@ -22,6 +22,7 @@ from portable.experience_router import ExperienceRouter
 from portable.execution_strategy import PathwayOptimizer, execution_strategy, max_verification_depth
 from portable.autonomous_evolution_controller import AutonomousEvolutionController
 from portable.autonomous_capability_invention import CapabilityComposition
+from portable.agent_capabilities import CapabilityExecutioner, CapabilityOption
 from portable.task_planner import Task,TaskPlan
 from runtime.task_memory import guidance
 
@@ -145,12 +146,13 @@ class GraphAgentTeam:
     progression. LocalOffloadBroker only executes deterministic, bounded work
     and returns evidence to the existing agent/reviewer path.
     """
-    def __init__(self,agents:list[AgentSpec],*,max_parallel_read_only=4,max_agents=12,context_policy=None,resource_budget:ResourceBudget|None=None):
+    def __init__(self,agents:list[AgentSpec],*,max_parallel_read_only=4,max_agents=12,context_policy=None,resource_budget:ResourceBudget|None=None,capability_discoverers=()):
         self.agents={a.name:a for a in agents}
         if not self.agents: raise ValueError("graph agent team requires at least one agent")
         if len(self.agents)>max_agents: raise ValueError("graph agent team exceeds agent budget")
         self.max_parallel_read_only=max(1,int(max_parallel_read_only)); self.context_policy=context_policy or ContextPolicy()
         self.resource_budget=(resource_budget or ResourceBudget(max_workers=self.max_parallel_read_only)).normalized()
+        self.capability_executioner=CapabilityExecutioner(discoverers=tuple(capability_discoverers))
         self._plan=self._build_task_plan()
     def _build_task_plan(self):
         return TaskPlan([Task(id=a.name,title=a.role,description=a.focus,dependencies=list(a.depends_on),tags=["graph-agent"],acceptance=["agent execution completes successfully"],metadata={"read_only":a.read_only,"critical":a.critical,"local_offload":bool(a.local_command)}) for a in self.agents.values()])
@@ -272,18 +274,32 @@ class GraphAgentTeam:
                 strategy_name=str(state.get("aer_execution_strategy",{}).get("name","default"))
                 decision=self._resource_decision(agent,broker,strategy_name)
                 experience=ExperienceRouter(memory.project_root)
-                capability_candidates=agent.capabilities or (("local_offload",) if agent.local_command else ("delegate_task",))
+                declared_capabilities=agent.capabilities or (("local_offload",) if agent.local_command else ("delegate_task",))
+                installed=self.capability_executioner.discover_installed(memory.project_root)
+                dynamic_options=installed + tuple(
+                    CapabilityOption(name=name, source="core", tags=frozenset(str(token).lower() for token in name.replace("_"," ").split()))
+                    for name in declared_capabilities
+                    if not any(option.name == name for option in installed)
+                )
                 profile=execution_strategy(strategy_name)
                 evidence_quality=float(decision.historical.get("evidence_yield", agent.evidence_value))
+                capability_decision=self.capability_executioner.select(
+                    request=f"{agent.role} {agent.focus} {task[:160]}",
+                    options=dynamic_options,
+                    network_allowed=os.environ.get("AER_NETWORK_ALLOWED","1").lower() not in {"0","false","no","off"},
+                    sandbox_available=True,
+                    max_risk="high" if agent.critical else "medium",
+                    resource_budget=max(0.1, min(1.0, 1.0 - decision.cost_score)),
+                )
                 pathway=PathwayOptimizer(experience).discover(
-                    capabilities=capability_candidates,
+                    capabilities=(capability_decision.selected,),
                     key_prefix=agent.role+":"+task[:96],
                     strategy=profile,
                     risk=1.0 if agent.critical else 0.25,
                     evidence_quality=evidence_quality,
                     resource_lanes=("agent","local") if agent.local_command else ("agent",),
                 )
-                capability_choice=type("_Choice",(),{"selected":pathway.capability})()
+                capability_choice=type("_Choice",(),{"selected":capability_decision.selected})()
                 verification_choice=type("_Verification",(),{"level":max_verification_depth(pathway.verification_depth, decision.inference_depth)})()
                 retry_choice=type("_Retry",(),{"selected":pathway.retry_action})()
                 world_state = self._record_world_state(agent=agent, task=task, intent_digest=intent_digest, run_nonce=run_nonce, decision=decision,
