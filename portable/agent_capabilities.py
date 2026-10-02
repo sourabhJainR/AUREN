@@ -416,6 +416,7 @@ class CapabilityDecision:
     evolution_parent: str = ""
     evolution_expected_delta: float = 0.0
     evolution_candidates: tuple[str, ...] = ()
+    evolution_stage: str = "none"
 
 
 class CapabilityExecutioner:
@@ -1034,7 +1035,18 @@ class CapabilityExecutioner:
                 normalized_latency = min(1.0, latency / 5.0)
                 growth = 0.08 if size > 1 and coverage > 0.5 and redundancy < 0.5 else (0.04 if size > 1 and phase_diversity > 0.5 else 0.0)
                 mutation = mutation_by_members.get(tuple(names))
-                mutation_bonus = min(0.06, max(0.0, mutation.expected_delta) * 0.25) if mutation else 0.0
+                mutation_stage = "none"
+                if mutation:
+                    candidate_id = self.bundle_id(members)
+                    candidate_prior = bundle_history.get(candidate_id, {})
+                    candidate_samples = int(float(candidate_prior.get("samples", 0)))
+                    candidate_delta = candidate_prior.get("collaboration_delta")
+                    if candidate_samples >= 3 and candidate_delta is not None and float(candidate_delta) >= 0.05:
+                        mutation_stage = "promoted"
+                    else:
+                        mutation_stage = "canary"
+                mutation_bonus_factor = 0.25 if mutation_stage == "promoted" else 0.125
+                mutation_bonus = min(0.06, max(0.0, mutation.expected_delta) * mutation_bonus_factor) if mutation else 0.0
                 score = (
                     0.34 * coverage
                     + 0.10 * phase_diversity
@@ -1060,6 +1072,12 @@ class CapabilityExecutioner:
         bundle_id = self.bundle_id(members)
         member_names = tuple(o.name for o in members)
         evolution = mutation_by_members.get(member_names)
+        evolution_stage = "none"
+        if evolution:
+            prior = bundle_history.get(bundle_id, {})
+            samples = int(float(prior.get("samples", 0)))
+            delta = prior.get("collaboration_delta")
+            evolution_stage = "promoted" if samples >= 3 and delta is not None and float(delta) >= 0.05 else "canary"
         mutation_labels = tuple(
             f"{mutation.action}:{mutation.parent_id}->{mutation.fingerprint}"
             for mutation in mutations[:4]
@@ -1068,7 +1086,7 @@ class CapabilityExecutioner:
             primary.rationale
             + f"; bundle={bundle_id}; members={','.join(member_names)}; "
             + f"bundle_score={best_score:.3f}; bundle_status={status}; redundancy={redundancy:.3f}"
-            + (f"; evolution={evolution.action}; parent={evolution.parent_id}; expected_delta={evolution.expected_delta:.3f}" if evolution else "")
+            + (f"; evolution={evolution.action}; stage={evolution_stage}; parent={evolution.parent_id}; expected_delta={evolution.expected_delta:.3f}" if evolution else "")
         )
         return CapabilityDecision(
             selected=selected.name,
@@ -1090,6 +1108,7 @@ class CapabilityExecutioner:
             evolution_parent=evolution.parent_id if evolution else "",
             evolution_expected_delta=min(1.0, max(0.0, evolution.expected_delta)) if evolution else 0.0,
             evolution_candidates=mutation_labels,
+            evolution_stage=evolution_stage,
         )
 
     @staticmethod
