@@ -16,6 +16,7 @@ try:
         choose_retrieval_recovery,
         plan_context,
         select_evidence,
+        allocate_context,
     )
     from .task_memory import record as record_task_observation, relevant as relevant_task_memory
     from portable.repository_intelligence import RepositoryIntelligence
@@ -168,6 +169,19 @@ class ContextAcquisitionPipeline:
         # Pack is supplemental, not a recovery mode.
         available = [mode for mode in available if mode != "pack"]
         working_modes = tuple(mode for mode in self._working_modes(query) if mode in available)
+        allocation = allocate_context(
+            base_budget=plan.budget,
+            base_items=plan.max_items,
+            risk=risk,
+            uncertainty=uncertainty,
+            failure_rate=0.0,
+            context_pressure=min(1.0, len(self._broker.active()) / max(1, self._broker.max_items)),
+            working_modes=working_modes,
+        )
+        # Prefer learned working modes, but retain the planner's safe modes as
+        # fallbacks. Allocation controls size; recovery controls strategy.
+        retrieval_budget = allocation.budget
+        retrieval_items = allocation.max_items
 
         while True:
             recovery = self._choose_recovery(
@@ -186,7 +200,7 @@ class ContextAcquisitionPipeline:
 
             mode = str(recovery.mode)
             try:
-                result = self._retrieve(mode, query, plan.budget, plan.max_items)
+                result = self._retrieve(mode, query, retrieval_budget, retrieval_items)
             except Exception as exc:  # retrieval is an evidence boundary; do not hide the failure
                 failed_modes.append(mode)
                 safe_error = self._safe_text(f"{type(exc).__name__}: {exc}")
@@ -239,7 +253,7 @@ class ContextAcquisitionPipeline:
             )
             for item in candidates
         ]
-        selected = select_evidence(candidates, budget=plan.budget, max_items=plan.max_items)
+        selected = select_evidence(candidates, budget=retrieval_budget, max_items=retrieval_items)
         self._broker.register_many(
             ContextCandidate(
                 item.evidence_id,
