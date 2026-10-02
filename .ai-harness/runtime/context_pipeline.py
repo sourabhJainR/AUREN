@@ -418,17 +418,36 @@ class ContextAcquisitionPipeline:
         )
 
     def _working_modes(self, query: str) -> tuple[str, ...]:
-        # The caller intentionally supplies a stable order from the durable
-        # ledger. Current failures still take precedence and are never retried.
-        rows = relevant_task_memory(self.root, "context retrieval", limit=60)
-        modes: list[str] = []
+        # Learned preference is advisory only. Require repeated evidence and
+        # a healthy observed success ratio so one lucky run cannot steer the
+        # retrieval policy (history-overfit guard).
+        rows = relevant_task_memory(self.root, "context retrieval", limit=100)
+        stats: dict[str, list[int]] = {}
         for row in rows:
-            if row.get("outcome") not in {"worked", "passed", "success"}:
-                continue
             approach = str(row.get("approach", ""))
-            if approach.startswith("context-retrieval:"):
-                modes.append(approach.split(":", 1)[1])
-        return tuple(dict.fromkeys(modes))
+            if not approach.startswith("context-retrieval:"):
+                continue
+            mode = approach.split(":", 1)[1]
+            bucket = stats.setdefault(mode, [0, 0])
+            if row.get("outcome") in {"worked", "passed", "success"}:
+                bucket[0] += 1
+            elif row.get("outcome") in {"failed", "regressed"}:
+                bucket[1] += 1
+
+        ranked = [
+            (
+                mode,
+                successes,
+                failures,
+                successes / float(successes + failures),
+            )
+            for mode, (successes, failures) in stats.items()
+            if successes >= 3
+            and successes + failures >= 3
+            and successes / float(successes + failures) >= 0.75
+        ]
+        ranked.sort(key=lambda item: (-item[3], -item[1], item[0]))
+        return tuple(mode for mode, _successes, _failures, _ratio in ranked)
 
     def _historical_unknowns(self, query: str) -> tuple[str, ...]:
         rows = relevant_task_memory(self.root, query, limit=20)
