@@ -126,3 +126,8 @@ Exploration is intentionally small and deterministic. It does not override a
 required capability, a known failed capability, or the existing verification
 and stopping policy. Once an outcome is recorded, subsequent selection can use
 that evidence.
+
+
+## Confidence-aware exploration
+
+Capability selection now balances exploration and exploitation from observed sample count and confidence. Safe under-observed options receive a small bounded trial bonus; well-observed high-confidence options stop receiving that bonus. The exploration bonus is capped and cannot bypass risk, network, sandbox, required-capability, failure, or stopping policy.
