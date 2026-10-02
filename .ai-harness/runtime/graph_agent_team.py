@@ -308,6 +308,16 @@ class GraphAgentTeam:
                             "failure_rate": float(summary.failure_rate),
                             "samples": float(summary.samples),
                         }
+                contribution_history={}
+                for option in dynamic_options:
+                    summary=experience.summarize(agent.role+":skill-contribution:"+option.name)
+                    if summary:
+                        contribution_history[option.name]={
+                            "evidence_quality": float(summary.evidence_quality),
+                            "confidence": float(summary.confidence),
+                            "success_rate": float(summary.success_rate),
+                            "samples": float(summary.samples),
+                        }
                 bundle_history={}
                 bundle_prefix=agent.role+":bundle:"
                 seen_bundles=set()
@@ -337,6 +347,7 @@ class GraphAgentTeam:
                     resource_budget=max(0.1, min(1.0, 1.0 - decision.cost_score)),
                     history=capability_history,
                     bundle_history=bundle_history,
+                    contribution_history=contribution_history,
                 )
                 pathway=PathwayOptimizer(experience).discover(
                     capabilities=(capability_decision.selected,),
