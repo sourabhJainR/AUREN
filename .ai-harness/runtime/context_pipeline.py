@@ -580,7 +580,12 @@ class ContextAcquisitionPipeline:
         # Learned preference is advisory only. Require repeated evidence and
         # a healthy observed success ratio so one lucky run cannot steer the
         # retrieval policy (history-overfit guard).
-        rows = relevant_task_memory(self.root, "context retrieval", limit=100)
+        scoped_rows = relevant_task_memory(self.root, query, limit=100)
+        fallback_rows = relevant_task_memory(self.root, "context retrieval", limit=100)
+        rows_by_id: dict[str, dict[str, Any]] = {}
+        for row in (*fallback_rows, *scoped_rows):
+            rows_by_id[str(row.get("id", ""))] = row
+        rows = list(rows_by_id.values())
         stats: dict[str, list[int]] = {}
         for row in rows:
             approach = str(row.get("approach", ""))
