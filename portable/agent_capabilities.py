@@ -544,6 +544,6 @@ class OutputQualityGate:
 __all__ = [
     "CAPABILITIES", "Capability", "CapabilityFabric", "ProviderAdapter", "ProviderAdapterRegistry",
     "MemoryRecord", "PersistentMemory", "DelegationReceipt", "DelegationPool", "Schedule",
-    "AutomationScheduler", "Skill", "SkillRegistry", "QualityResult", "OutputQualityGate",
+    "AutomationScheduler", "Skill", "SkillRegistry", "CapabilityOption", "CapabilityDecision", "CapabilityExecutioner", "QualityResult", "OutputQualityGate",
     "redact", "sanitize_untrusted",
 ]
