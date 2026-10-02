@@ -656,8 +656,8 @@ class ContextAcquisitionPipeline:
 
 
 _SENSITIVE_PATTERNS = (
-    re.compile(r"(?is)(api[_-]?key|access[_-]?key|secret|password|passwd|pwd|token)\s*[:=]\s*['"]?[^\s'"]{8,}"),
-    re.compile(r"(?is)(authorization)\s*[:=]\s*['"]?bearer\s+[^\s'"]+"),
+    re.compile(r"(?is)(api[_-]?key|access[_-]?key|secret|password|passwd|pwd|token)\s*[:=]\s*['\"]?[^\s'\"]{8,}"),
+    re.compile(r"(?is)(authorization)\s*[:=]\s*['\"]?bearer\s+[^\s'\"]+"),
     re.compile(r"(?i)\b(?:gh[pousr]_[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{16})\b"),
     re.compile(r"(?i)-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----.*?-----END (?:RSA |EC |OPENSSH )?PRIVATE KEY-----"),
 )
