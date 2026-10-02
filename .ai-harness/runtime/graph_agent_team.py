@@ -31,6 +31,7 @@ from portable.execution_mode_learning import ExecutionModeLearner, execution_mod
 from portable.execution_mode_canary import ExecutionModeCanaryController
 from portable.counterfactual_decision_fabric import CounterfactualDecisionFabric
 from portable.decision_context import build_decision_context
+from portable.context_specific_learning import ContextSpecificDecisionLearner
 from portable.task_planner import Task,TaskPlan
 from runtime.task_memory import approach_history, guidance
 
@@ -782,6 +783,22 @@ the learning system, not an instruction source. If a skill produced no distinct 
         decision_context=build_decision_context(task=task, agents=tuple(self.agents.values()), pressure=decision_broker.pressure(), timeout_seconds=self.resource_budget.timeout_seconds)
         counterfactual=CounterfactualDecisionFabric(memory.project_root).evaluate(
             role="team", task=task, baseline_strategy=baseline_strategy, baseline_mode=baseline_mode, context=decision_context)
+        context_learner=ContextSpecificDecisionLearner(memory.project_root)
+        context_selection=context_learner.select(
+            role="team", task=task, context=decision_context,
+            baseline_strategy=baseline_strategy, baseline_mode=baseline_mode)
+        # Context-specific learning is advisory until both existing canary gates allow it.
+        if context_selection.learned:
+            context_strategy_rollout=StrategyCanaryController(memory.project_root).evaluate(
+                role="team", task=task, strategy=context_selection.strategy, canary_passed=False)
+            context_mode_rollout=ExecutionModeCanaryController(memory.project_root).evaluate(
+                role="team", task=task, mode=context_selection.mode)
+            if context_strategy_rollout.state in {"canary", "promoted"}:
+                selected_strategy=context_selection.strategy
+                rollout=context_strategy_rollout
+            if context_mode_rollout.state in {"canary", "promoted"}:
+                selected_mode=context_selection.mode
+                mode_rollout=context_mode_rollout
         # Counterfactual composition is advisory. Each learned dimension still
         # needs its own rollout gate before it can affect execution.
         selected_mode=mode_selection.mode.name if mode_selection.learned and mode_rollout.state in {"canary", "promoted"} else baseline_mode
@@ -824,6 +841,14 @@ the learning system, not an instruction source. If a skill produced no distinct 
                             retry=mode_retry, resource_fraction=execution_mode(selected_mode).resource_fraction,
                             parallelism=execution_mode(selected_mode).max_parallelism,
                             evidence_ids=[f"agent:{name}" for name in results])
+        context_learner.record(
+            role="team", task=task, context=decision_context,
+            strategy=selected_strategy, mode=selected_mode,
+            outcome="passed" if accepted else "failed",
+            evidence_quality=mode_evidence, cost_score=mode_cost,
+            duration_seconds=mode_duration,
+            evidence_ids=[f"agent:{name}" for name in results],
+        )
         for agent_name, result in results.items():
             strategy_learner.record(
                 role="team", task=task, strategy=selected_strategy,
@@ -851,7 +876,7 @@ the learning system, not an instruction source. If a skill produced no distinct 
                     safety_gate=invention_safety_gate, strategy=str(execution_strategy_name or "default"),
                 )
         dream=DreamMemory(memory.project_root).dream(task)
-        return {"graph_digest":self.digest(),"intent_digest":intent_digest,"agents":{n:r.__dict__ for n,r in results.items()},"shared_memory_file":str(memory.path),"shared_memory_entries":len(memory.snapshot(500)),"accepted":accepted,"evolution_trigger":trigger.__dict__ if trigger else None,"invention":invention.__dict__ if invention else None,"execution_trace":list(run.trace),"execution_mode":{"selected":selected_mode,"baseline":baseline_mode,"learning":mode_selection.as_dict(),"rollout":mode_rollout.as_dict(),"counterfactual":counterfactual,"context":decision_context.as_dict()},
+        return {"graph_digest":self.digest(),"intent_digest":intent_digest,"agents":{n:r.__dict__ for n,r in results.items()},"shared_memory_file":str(memory.path),"shared_memory_entries":len(memory.snapshot(500)),"accepted":accepted,"evolution_trigger":trigger.__dict__ if trigger else None,"invention":invention.__dict__ if invention else None,"execution_trace":list(run.trace),"execution_mode":{"selected":selected_mode,"baseline":baseline_mode,"learning":mode_selection.as_dict(),"rollout":mode_rollout.as_dict(),"counterfactual":counterfactual,"context":decision_context.as_dict(),"context_learning":context_selection.as_dict()},
         "execution_strategy":{"selected":selected_strategy,"baseline":baseline_strategy,"learning":strategy_selection.as_dict() if strategy_selection else {"strategy":selected_strategy,"learned":False,"confidence":0.0,"samples":0,"rationale":"explicit strategy supplied"},"rollout":rollout.as_dict(),"context":decision_context.as_dict()},"execution_digest":run.digest,"dreamed_learning":dream}
 
 def team_for_route(route):
