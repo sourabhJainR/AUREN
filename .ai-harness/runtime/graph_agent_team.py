@@ -283,6 +283,15 @@ class GraphAgentTeam:
                 )
                 profile=execution_strategy(strategy_name)
                 evidence_quality=float(decision.historical.get("evidence_yield", agent.evidence_value))
+                capability_history={}
+                for option in dynamic_options[:24]:
+                    summary=experience.summarize(agent.role+":"+task[:96]+":capability:"+option.name)
+                    if summary:
+                        capability_history[option.name]={
+                            "success_rate": float(summary.success_rate),
+                            "evidence_quality": float(summary.evidence_quality),
+                            "confidence": float(summary.confidence),
+                        }
                 capability_decision=self.capability_executioner.select(
                     request=f"{agent.role} {agent.focus} {task[:160]}",
                     options=dynamic_options,
@@ -290,6 +299,7 @@ class GraphAgentTeam:
                     sandbox_available=True,
                     max_risk="high" if agent.critical else "medium",
                     resource_budget=max(0.1, min(1.0, 1.0 - decision.cost_score)),
+                    history=capability_history,
                 )
                 pathway=PathwayOptimizer(experience).discover(
                     capabilities=(capability_decision.selected,),
