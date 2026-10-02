@@ -28,6 +28,7 @@ except ImportError:
         choose_retrieval_recovery,
         plan_context,
         select_evidence,
+        allocate_context,
     )
     from task_memory import record as record_task_observation, relevant as relevant_task_memory
     from portable.repository_intelligence import RepositoryIntelligence
