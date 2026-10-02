@@ -96,7 +96,7 @@ class CounterfactualDecisionFabric:
                     execution_strategy(strategy_name), execution_mode(mode_name),
                     score, evidence, confidence,
                     min(strategy_summary.samples, mode_summary.samples),
-                    "counterfactual composition of independently observed strategy and mode evidence",
+                    ("counterfactual composition of independently observed strategy and mode evidence"\n                     + (" with bounded workload-context adaptation" if context else "")),
                 ))
         baseline = next(
             (x for x in candidates if x.strategy.name == baseline_strategy and x.mode.name == baseline_mode),
@@ -107,7 +107,8 @@ class CounterfactualDecisionFabric:
                 execution_strategy(baseline_strategy), execution_mode(baseline_mode),
                 0.0, 0.0, 0.0, 0, "no composed policy has sufficient evidence",
             )
-            return {"selected": baseline.as_dict(), "changed": False, "candidates": 0,\n                    "context": context.as_dict() if context else None}
+            return {"selected": baseline.as_dict(), "changed": False, "candidates": 0,
+                    "context": context.as_dict() if context else None}
         candidates.sort(key=lambda x: (-x.score, -x.confidence, x.strategy.name, x.mode.name))
         best = candidates[0]
         if baseline is None:
@@ -124,7 +125,8 @@ class CounterfactualDecisionFabric:
             "baseline": baseline.as_dict(),
             "changed": changed,
             "candidates": len(candidates),
-            "margin": round(best.score - baseline.score, 3),\n            "context": context.as_dict() if context else None,
+            "margin": round(best.score - baseline.score, 3),
+            "context": context.as_dict() if context else None,
         }
 
 
