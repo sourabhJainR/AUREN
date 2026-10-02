@@ -890,7 +890,7 @@ class CapabilityExecutioner:
             phases.add(option.phase)
             sources.add(option.source)
             option_tokens = set(re.findall(r"[a-z0-9]+", (option.name + " " + option.description).lower())) | set(option.tags)
-            covered.update(option_tokens)
+            covered.update(option_tokens & tokens)
             provided.update(option_tokens | set(option.provides))
             prior = history.get(option.name, {})
             evidence.append(max(0.0, min(1.0, float(prior.get("evidence_quality", option.evidence_quality)))))
