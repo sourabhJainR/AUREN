@@ -186,3 +186,6 @@ def select_evidence(candidates: Iterable[EvidenceCandidate], *, budget: int, max
         if len(selected) >= max(1, int(max_items)):
             break
     return selected
+
+
+__all__ = ["EvidenceCandidate", "ContextPlan", "ContextAllocation", "RetrievalRecovery", "plan_context", "allocate_context", "choose_retrieval_recovery", "select_evidence"]
