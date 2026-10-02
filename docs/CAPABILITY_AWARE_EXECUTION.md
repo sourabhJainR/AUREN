@@ -91,3 +91,24 @@ including:
 - graceful optional-discovery failure;
 - required capability policy enforcement.
 
+
+
+## Outcome calibration
+
+Each graph-agent execution now records two learning indexes:
+
+- the existing role/task outcome;
+- an exact role/task/capability outcome.
+
+The second index is consumed by future capability selection. This lets AER
+learn that a particular skill, MCP tool, plugin or core capability worked or
+failed for a task pattern without replacing the broader engineering history.
+
+The capability-specific record includes outcome, evidence quality, cost,
+duration and the selected capability. Failed observations remain usable as
+negative evidence for the current bounded selection cycle, while promotion and
+long-term learning continue through the existing learning steward and
+verification paths.
+
+This keeps capability learning evidence-backed and avoids turning a single
+successful execution into a permanent preference.
