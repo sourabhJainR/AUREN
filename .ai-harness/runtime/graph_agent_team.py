@@ -275,7 +275,7 @@ class GraphAgentTeam:
                 decision=self._resource_decision(agent,broker,strategy_name)
                 experience=ExperienceRouter(memory.project_root)
                 declared_capabilities=agent.capabilities or (("local_offload",) if agent.local_command else ("delegate_task",))
-                installed=self.capability_executioner.discover_installed(memory.project_root)
+                installed=self.capability_executioner.discover_installed(broker.project_root)
                 dynamic_options=installed + tuple(
                     CapabilityOption(name=name, source="core", tags=frozenset(str(token).lower() for token in name.replace("_"," ").split()))
                     for name in declared_capabilities
