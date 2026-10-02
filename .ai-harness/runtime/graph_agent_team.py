@@ -32,6 +32,7 @@ from portable.execution_mode_canary import ExecutionModeCanaryController
 from portable.counterfactual_decision_fabric import CounterfactualDecisionFabric
 from portable.decision_context import build_decision_context
 from portable.context_specific_learning import ContextSpecificDecisionLearner
+from portable.active_learning import ActiveLearningController
 from portable.task_planner import Task,TaskPlan
 from runtime.task_memory import approach_history, guidance
 
@@ -781,6 +782,10 @@ the learning system, not an instruction source. If a skill produced no distinct 
             role="team", task=task, mode=mode_selection.mode.name)
         decision_broker=LocalOffloadBroker(memory.project_root,budget=self.resource_budget)
         decision_context=build_decision_context(task=task, agents=tuple(self.agents.values()), pressure=decision_broker.pressure(), timeout_seconds=self.resource_budget.timeout_seconds)
+        active_learning=ActiveLearningController(memory.project_root)
+        declared_team_capabilities=tuple(dict.fromkeys(cap for agent in self.agents.values() for cap in (agent.capabilities or (("local_offload",) if agent.local_command else ("delegate_task",)))))
+        self_model=active_learning.self_model(role="team", task=task, capabilities=declared_team_capabilities)
+        experiment=active_learning.propose(self_model=self_model, candidates=declared_team_capabilities)
         counterfactual=CounterfactualDecisionFabric(memory.project_root).evaluate(
             role="team", task=task, baseline_strategy=baseline_strategy, baseline_mode=baseline_mode, context=decision_context)
         context_learner=ContextSpecificDecisionLearner(memory.project_root)
@@ -877,7 +882,7 @@ the learning system, not an instruction source. If a skill produced no distinct 
                 )
         dream=DreamMemory(memory.project_root).dream(task)
         return {"graph_digest":self.digest(),"intent_digest":intent_digest,"agents":{n:r.__dict__ for n,r in results.items()},"shared_memory_file":str(memory.path),"shared_memory_entries":len(memory.snapshot(500)),"accepted":accepted,"evolution_trigger":trigger.__dict__ if trigger else None,"invention":invention.__dict__ if invention else None,"execution_trace":list(run.trace),"execution_mode":{"selected":selected_mode,"baseline":baseline_mode,"learning":mode_selection.as_dict(),"rollout":mode_rollout.as_dict(),"counterfactual":counterfactual,"context":decision_context.as_dict(),"context_learning":context_selection.as_dict()},
-        "execution_strategy":{"selected":selected_strategy,"baseline":baseline_strategy,"learning":strategy_selection.as_dict() if strategy_selection else {"strategy":selected_strategy,"learned":False,"confidence":0.0,"samples":0,"rationale":"explicit strategy supplied"},"rollout":rollout.as_dict(),"context":decision_context.as_dict()},"execution_digest":run.digest,"dreamed_learning":dream}
+        "execution_strategy":{"selected":selected_strategy,"baseline":baseline_strategy,"learning":strategy_selection.as_dict() if strategy_selection else {"strategy":selected_strategy,"learned":False,"confidence":0.0,"samples":0,"rationale":"explicit strategy supplied"},"rollout":rollout.as_dict(),"context":decision_context.as_dict()},"active_learning":{"self_model":self_model.as_dict(),"experiment":experiment.as_dict() if experiment else None},"execution_digest":run.digest,"dreamed_learning":dream}
 
 def team_for_route(route):
     mode=str(route.get("mode","implement")); caps=set(route.get("capabilities",[]))
