@@ -106,6 +106,7 @@ def adapt_execution_groups(
     strong_threshold: float = 0.65,
     min_delta: float = 0.05,
     context_budget_chars: int = 8192,
+    resource_budget: float = 1.0,
     protected_names: Iterable[str] = (),
     max_risk: str = "high",
     network_allowed: bool = True,
@@ -120,6 +121,7 @@ def adapt_execution_groups(
     """
     risk_order = {"low": 0, "medium": 1, "high": 2}
     risk_limit = risk_order.get(str(max_risk), -1)
+    resource_budget = max(0.05, min(1.0, float(resource_budget)))
     by_name = {
         str(option.name): option
         for option in options
@@ -158,7 +160,8 @@ def adapt_execution_groups(
             if replacement is not None and value(replacement) - value(weakest) >= min_delta:
                 candidate = tuple(sorted((set(group) - {weakest}) | {replacement}))
                 chars = sum(len(str(getattr(by_name.get(name), "instructions", ""))) for name in candidate)
-                if chars <= max(512, min(32768, int(context_budget_chars))):
+                cost = sum(max(0.0, min(1.0, float(getattr(by_name.get(name), "estimated_cost", 0.5)))) for name in candidate)
+                if chars <= max(512, min(32768, int(context_budget_chars))) and cost <= resource_budget:
                     next_group = candidate
                     changes.append(SkillGroupAdaptation(
                         "replace", index, group, candidate,
@@ -181,7 +184,8 @@ def adapt_execution_groups(
             if addition is not None:
                 candidate = tuple(sorted(next_group + (addition,)))
                 chars = sum(len(str(getattr(by_name.get(name), "instructions", ""))) for name in candidate)
-                if chars <= max(512, min(32768, int(context_budget_chars))):
+                cost = sum(max(0.0, min(1.0, float(getattr(by_name.get(name), "estimated_cost", 0.5)))) for name in candidate)
+                if chars <= max(512, min(32768, int(context_budget_chars))) and cost <= resource_budget:
                     next_group = candidate
                     changes.append(SkillGroupAdaptation(
                         "add", index, group, candidate,
