@@ -55,6 +55,22 @@ class InventionLifecycleTests(unittest.TestCase):
             self.assertEqual(result.rollout.passing_cohorts, 2)
             self.assertGreater(result.benchmark_delta, 0)
 
+    def test_benchmark_regression_blocks_promotion(self):
+        with TemporaryDirectory() as td:
+            lifecycle = EvidenceBackedInventionLifecycle(Path(td))
+            result = lifecycle.evaluate(
+                _invention(), _pattern(),
+                [_validation("holdout-a"), _validation("holdout-b")],
+                trigger_evidence=("trigger-a",),
+                holdout_ids=("holdout-a", "holdout-b"),
+                graduation=CapabilityGraduationController(minimum_cohorts=2),
+                benchmark_before=0.90,
+                benchmark_after=0.91,
+            )
+            self.assertEqual(result.rollout.state, "promoted")
+            self.assertEqual(result.state, "candidate")
+            self.assertIn("benchmark improvement gate not met", result.reason)
+
     def test_regression_retires_invention_path(self):
         with TemporaryDirectory() as td:
             lifecycle = EvidenceBackedInventionLifecycle(Path(td))
