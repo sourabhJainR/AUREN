@@ -131,7 +131,7 @@ def attribute(
         source = str(member.get("source", "unknown"))
         name_hits = len(re.findall(rf"(?i)\b{re.escape(name.replace('_', ' '))}\b", str(output)))
         scoped_findings, scoped_evidence, has_scoped_evidence = _member_signals(output, name)
-        role_bonus = 0.12 if role in {"verifier", "correctness reviewer", "security reviewer", "architecture reviewer"} and findings else 0.0
+        role_bonus = 0.12 if role in {"verifier", "correctness reviewer", "security reviewer", "architecture reviewer"} and observed_findings else 0.0
         observed_findings = scoped_findings if has_scoped_evidence else (findings if name_hits else 0)
         observed_evidence = scoped_evidence if has_scoped_evidence else (evidence if name_hits else 0)
         signal_share = min(1.0, 0.25 * name_hits + 0.10 * observed_evidence + 0.12 * observed_findings + role_bonus)
