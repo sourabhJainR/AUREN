@@ -76,7 +76,7 @@ def _signals(output: str) -> tuple[int, int]:
     lines = [line.strip() for line in str(output).splitlines() if line.strip()]
     findings = sum(1 for line in lines if _FINDING.search(line))
     evidence = sum(1 for line in lines if _EVIDENCE.search(line))
-    return min(20, findings), min(20, evidence), scoped
+    return min(20, findings), min(20, evidence)
 
 
 def _member_signals(output: str, skill: str) -> tuple[int, int, bool]:
@@ -98,7 +98,7 @@ def _member_signals(output: str, skill: str) -> tuple[int, int, bool]:
         if active:
             findings += bool(_FINDING.search(clean))
             evidence += bool(_EVIDENCE.search(clean))
-    return min(20, findings), min(20, evidence)
+    return min(20, findings), min(20, evidence), scoped
 
 
 def attribute(
@@ -117,7 +117,6 @@ def attribute(
     every skill equally.
     """
     findings, evidence = _signals(output)
-    names = [str(m.get("name", "")) for m in members if str(m.get("name", ""))]
     group_by_name = {
         str(name): index
         for index, group in enumerate(execution_groups, start=1)
