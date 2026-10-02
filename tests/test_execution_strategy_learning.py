@@ -27,6 +27,18 @@ class ExecutionStrategyLearningTests(unittest.TestCase):
             self.assertEqual(choice.strategy.name, "evidence-first")
             self.assertTrue(choice.learned)
 
+    def test_strategy_evidence_uses_executed_group_telemetry(self):
+        result = type("Result", (), {
+            "pathway": {"skill_group_evidence": [
+                {"useful_evidence": 0.8},
+                {"useful_evidence": 0.6},
+            ]},
+            "capability_bundle_score": 0.1,
+        })()
+        self.assertAlmostEqual(
+            ExecutionStrategyLearner.observed_evidence_quality(result), 0.7
+        )
+
     def test_unknown_strategy_falls_back_safely(self):
         self.assertEqual(execution_strategy("not-real").name, "default")
 
