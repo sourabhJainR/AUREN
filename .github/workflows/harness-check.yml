@@ -60,6 +60,9 @@ jobs:
           mkdir -p ci-artifacts
           cp aer_cli.py ci-artifacts/aer_cli.py
           printf 'Repository: %s\nCommit: %s\nRun: %s\n' "$GITHUB_REPOSITORY" "$GITHUB_SHA" "$GITHUB_RUN_ID" > ci-artifacts/run-metadata.txt
+          cat > ci-artifacts/evidence-artifact-manifest.json <<'EOF'
+          {"schema_version":"1.0","artifacts":["aer_cli.py","run-metadata.txt","targeted-learning-tests.txt","aer-portable.zip"]}
+          EOF
           cat > ci-artifacts/AER_CLI.md <<EOF
           # AER CLI
 
@@ -69,6 +72,10 @@ jobs:
           EOF
       - name: Validate Python harness
         run: python -m unittest discover -s tests -v
+      - name: Capture adaptive learning verification evidence
+        run: |
+          set -o pipefail
+          python -m unittest tests.test_skill_group_evidence tests.test_execution_strategy tests.test_execution_strategy_learning -v 2>&1 | tee ci-artifacts/targeted-learning-tests.txt
       - name: Validate reference applications
         run: |
           python -m unittest discover -s examples/habit-tracker/tests -v
