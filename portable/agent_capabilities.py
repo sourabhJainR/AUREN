@@ -498,7 +498,7 @@ class CapabilityExecutioner:
                     directory.name,
                 ))[:512]
                 name = "skill:" + directory.name
-                tags = metadata.get("tags", ())
+                tags = metadata.get("tags") or re.findall(r"[a-z0-9]+", (directory.name + " " + description).lower())
                 provides = metadata.get("provides", ())
                 requires = metadata.get("requires", ())
                 options.append(CapabilityOption(
@@ -548,8 +548,11 @@ class CapabilityExecutioner:
                     metadata[key] = [item.strip().strip("'\\"") for item in value[1:-1].split(",") if item.strip()]
                 elif value:
                     metadata[key] = [item.strip() for item in value.split(",") if item.strip()]
-            elif key in {"model_invocable", "requires_network", "requires_sandbox"}:
-                metadata[key] = value.lower() not in {"false", "0", "no", "off"}
+            elif key in {"model_invocable", "disable_model_invocation", "requires_network", "requires_sandbox"}:
+                parsed = value.lower() not in {"false", "0", "no", "off"}
+                metadata["model_invocable" if key == "model_invocable" else key] = parsed
+                if key == "disable_model_invocation":
+                    metadata["model_invocable"] = not parsed
             elif key in {"description", "phase", "risk"}:
                 metadata[key] = value.strip("'\\"")
         return metadata, "\n".join(lines[end + 1:])
