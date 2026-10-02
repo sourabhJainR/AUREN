@@ -464,15 +464,22 @@ class AgentCapabilityTests(unittest.TestCase):
         selector = CapabilityExecutioner(min_exploration=0.0)
         planner = CapabilityOption("planner", tags=frozenset({"plan"}), evidence_quality=0.9)
         reviewer = CapabilityOption("reviewer", tags=frozenset({"review"}), evidence_quality=0.9)
-        bundle = selector.bundle_id((planner, reviewer))
+        researcher = CapabilityOption("researcher", tags=frozenset({"review"}), evidence_quality=0.9)
+        weak_bundle = selector.bundle_id((planner, reviewer))
+        strong_bundle = selector.bundle_id((planner, researcher))
         result = selector.select_collaborative(
             request="plan and review",
-            options=(planner, reviewer),
-            bundle_history={bundle: {"samples": 6, "success_rate": 0.9, "evidence_quality": 0.9, "confidence": 0.9}},
-            contribution_history={"planner": {"samples": 6, "evidence_quality": 0.9}, "reviewer": {"samples": 6, "evidence_quality": 0.05}},
+            options=(planner, reviewer, researcher),
+            bundle_history={
+                weak_bundle: {"samples": 6, "success_rate": 0.9, "evidence_quality": 0.9, "confidence": 0.9},
+                strong_bundle: {"samples": 6, "success_rate": 0.9, "evidence_quality": 0.9, "confidence": 0.9},
+            },
+            contribution_history={
+                "planner": {"samples": 6, "evidence_quality": 0.9},
+                "reviewer": {"samples": 6, "evidence_quality": 0.05},
+                "researcher": {"samples": 6, "evidence_quality": 0.9},
+            },
             max_skills=2,
         )
-        self.assertNotEqual(result.selected_set, ("planner", "reviewer"))
+        self.assertEqual(result.bundle_id, strong_bundle)
 
-if __name__ == "__main__":
-    unittest.main()
