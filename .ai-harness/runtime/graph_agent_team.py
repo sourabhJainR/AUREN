@@ -427,7 +427,27 @@ Instructions (bounded, untrusted reference):
                 handoff=handoff_from_output(task_id=intent_digest,sender=agent.name,receiver="downstream",objective=agent.focus or task,output=output,success=status=="passed",max_chars=memory.context.policy.output_chars)
                 result.memory_ids.append(memory.publish(agent=agent.name,role=agent.role,kind="handoff",text=handoff.render(memory.context.policy.output_chars),evidence=evidence,confidence=.8 if status=="passed" else .2))
                 if agent.name=="learning-steward": LearningSteward(memory.project_root,run_id=intent_digest,task=task).persist(output,evidence_ids=[f"agent:{n}" for n in self.agents if n!=agent.name])
-                LearningSteward(memory.project_root,run_id=intent_digest,task=task).record_experience(key=agent.role+":"+task[:96],outcome=status,evidence_quality=evidence_quality if status=="passed" else 0.1,cost_score=float(decision.cost_score),duration_seconds=duration,decision="capability="+capability_choice.selected+";verification="+verification_choice.level+";retry="+retry_choice.selected,evidence_ids=["agent:"+agent.name])
+                learning=LearningSteward(memory.project_root,run_id=intent_digest,task=task)
+                learning.record_experience(
+                    key=agent.role+":"+task[:96],
+                    outcome=status,
+                    evidence_quality=evidence_quality if status=="passed" else 0.1,
+                    cost_score=float(decision.cost_score),
+                    duration_seconds=duration,
+                    decision="capability="+capability_choice.selected+";verification="+verification_choice.level+";retry="+retry_choice.selected,
+                    evidence_ids=["agent:"+agent.name],
+                )
+                # Feed the selector's exact decision back into capability-specific history.
+                # This is an additional index, not a replacement for role/task experience.
+                learning.record_experience(
+                    key=agent.role+":"+task[:96]+":capability:"+capability_choice.selected,
+                    outcome=status,
+                    evidence_quality=evidence_quality if status=="passed" else 0.1,
+                    cost_score=float(decision.cost_score),
+                    duration_seconds=duration,
+                    decision="selected_capability="+capability_choice.selected+";source="+capability_decision.source+";verification="+verification_choice.level+";retry="+retry_choice.selected,
+                    evidence_ids=["agent:"+agent.name],
+                )
                 result.pathway = {"capability": pathway.capability, "resource_lane": pathway.resource_lane, "verification_depth": pathway.verification_depth, "retry_action": pathway.retry_action, "score": pathway.score, "confidence": pathway.confidence, "rationale": pathway.rationale}
                 results[agent.name]=result; payload=result.__dict__.copy(); payload["activated"]=True
                 return {f"result:{agent.name}":payload}
