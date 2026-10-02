@@ -353,12 +353,7 @@ class AgentCapabilityTests(unittest.TestCase):
             "reviewer", tags=frozenset({"review"}), phase="review",
             requires=frozenset({"plan"}),
         )
-        result = selector.select_collaborative(
-            request="research plan and review repository",
-            options=(planner, researcher, reviewer),
-            max_skills=3,
-        )
-        groups = result.execution_groups
+        groups = selector._execution_groups((planner, researcher, reviewer))
         self.assertTrue(groups)
         self.assertIn("researcher", groups[0])
         self.assertIn("planner", groups[1])
@@ -375,11 +370,7 @@ class AgentCapabilityTests(unittest.TestCase):
             "reviewer", tags=frozenset({"review"}), phase="planning",
             requires=frozenset({"plan"}),
         )
-        groups = selector.select_collaborative(
-            request="plan and review",
-            options=(planner, reviewer),
-            max_skills=2,
-        ).execution_groups
+        groups = selector._execution_groups((planner, reviewer))
         self.assertLess(groups.index(("planner",)), groups.index(("reviewer",)))
 
     def test_retired_bundle_is_not_selected(self):
