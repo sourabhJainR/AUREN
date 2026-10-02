@@ -369,16 +369,16 @@ class SkillRegistry:
 
 @dataclass(frozen=True)
 class CapabilityOption:
-    """Runtime-discovered execution option.
-
-    Discovery is deliberately data-only: adapters may describe skills, MCP tools,
-    plugins, providers or local resources without importing any of them into AER.
-    """
+    """Runtime-discovered execution option with optional skill metadata."""
     name: str
     source: str = "core"
     description: str = ""
     instructions: str = ""
     tags: frozenset[str] = frozenset()
+    phase: str = "general"
+    provides: frozenset[str] = frozenset()
+    requires: frozenset[str] = frozenset()
+    model_invocable: bool = True
     available: bool = True
     risk: str = "low"
     requires_network: bool = False
@@ -492,14 +492,28 @@ class CapabilityExecutioner:
                     raw = skill_file.read_text(encoding="utf-8", errors="replace")[:4096]
                 except OSError:
                     continue
-                description = next((line.lstrip("# ").strip() for line in raw.splitlines() if line.strip() and not line.startswith("---")), directory.name)
+                metadata, body = self._skill_metadata(raw)
+                description = str(metadata.get("description") or next(
+                    (line.lstrip("# ").strip() for line in body.splitlines() if line.strip() and not line.startswith("---")),
+                    directory.name,
+                ))[:512]
                 name = "skill:" + directory.name
+                tags = metadata.get("tags", ())
+                provides = metadata.get("provides", ())
+                requires = metadata.get("requires", ())
                 options.append(CapabilityOption(
                     name=name,
                     source="skill",
                     description=description,
                     instructions=sanitize_capability_reference(raw),
-                    tags=frozenset(re.findall(r"[a-z0-9]+", (directory.name + " " + description).lower())),
+                    tags=frozenset(str(item).lower() for item in tags if str(item).strip()),
+                    phase=str(metadata.get("phase") or "general").strip().lower(),
+                    provides=frozenset(str(item).lower() for item in provides if str(item).strip()),
+                    requires=frozenset(str(item).lower() for item in requires if str(item).strip()),
+                    model_invocable=bool(metadata.get("model_invocable", True)),
+                    risk=str(metadata.get("risk", "low")).strip().lower(),
+                    requires_network=bool(metadata.get("requires_network", False)),
+                    requires_sandbox=bool(metadata.get("requires_sandbox", False)),
                 ))
                 seen.add(directory.name)
         for source, payload in (
@@ -511,6 +525,34 @@ class CapabilityExecutioner:
             except (TypeError, ValueError, OverflowError):
                 continue
         return tuple(sorted({item.name: item for item in options}.values(), key=lambda item: (item.source, item.name)))
+
+    @staticmethod
+    def _skill_metadata(raw: str) -> tuple[dict[str, Any], str]:
+        """Parse bounded skill front matter without adding a YAML dependency."""
+        lines = raw.splitlines()
+        if not lines or lines[0].strip() != "---":
+            return {}, raw
+        end = next((i for i in range(1, min(len(lines), 80)) if lines[i].strip() == "---"), None)
+        if end is None:
+            return {}, raw
+        metadata: dict[str, Any] = {}
+        list_keys = {"tags", "provides", "requires"}
+        for line in lines[1:end]:
+            if not line.strip() or ":" not in line:
+                continue
+            key, value = line.split(":", 1)
+            key = key.strip().lower().replace("-", "_")
+            value = value.strip()
+            if key in list_keys:
+                if value.startswith("[") and value.endswith("]"):
+                    metadata[key] = [item.strip().strip("'\\"") for item in value[1:-1].split(",") if item.strip()]
+                elif value:
+                    metadata[key] = [item.strip() for item in value.split(",") if item.strip()]
+            elif key in {"model_invocable", "requires_network", "requires_sandbox"}:
+                metadata[key] = value.lower() not in {"false", "0", "no", "off"}
+            elif key in {"description", "phase", "risk"}:
+                metadata[key] = value.strip("'\\"")
+        return metadata, "\n".join(lines[end + 1:])
 
     @staticmethod
     def _host_options(source: str, payload: str) -> tuple[CapabilityOption, ...]:
@@ -538,6 +580,10 @@ class CapabilityExecutioner:
                     description=str(row.get("description", ""))[:512],
                     instructions=sanitize_capability_reference(row.get("instructions", "")),
                     tags=tags,
+                    phase=str(row.get("phase", "general")).strip().lower(),
+                    provides=frozenset(str(item).lower() for item in row.get("provides", ()) if str(item).strip()) if isinstance(row.get("provides", ()), (list, tuple, set)) else frozenset(),
+                    requires=frozenset(str(item).lower() for item in row.get("requires", ()) if str(item).strip()) if isinstance(row.get("requires", ()), (list, tuple, set)) else frozenset(),
+                    model_invocable=bool(row.get("model_invocable", True)),
                     risk=str(row.get("risk", "low")),
                     requires_network=bool(row.get("requires_network", False)),
                     requires_sandbox=bool(row.get("requires_sandbox", False)),
@@ -733,7 +779,8 @@ class CapabilityExecutioner:
     @staticmethod
     def _allowed(option: CapabilityOption, network_allowed: bool, sandbox_available: bool, max_risk: str) -> bool:
         return (
-            _RISK_ORDER.get(option.risk, 99) <= _RISK_ORDER[max_risk]
+            option.model_invocable
+            and _RISK_ORDER.get(option.risk, 99) <= _RISK_ORDER[max_risk]
             and (network_allowed or not option.requires_network)
             and (sandbox_available or not option.requires_sandbox)
         )
