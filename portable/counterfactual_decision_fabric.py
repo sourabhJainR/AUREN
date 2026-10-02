@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from .execution_mode_learning import ExecutionMode, execution_mode
 from .execution_strategy import ExecutionStrategy, execution_strategy
 from .experience_router import ExperienceRouter
+from .decision_context import DecisionContext, context_adjustment
 
 
 @dataclass(frozen=True)
@@ -63,7 +64,7 @@ class CounterfactualDecisionFabric:
 
     def evaluate(self, *, role: str, task: str,
                  baseline_strategy: str = "default",
-                 baseline_mode: str = "balanced") -> dict[str, object]:
+                 baseline_mode: str = "balanced", context: DecisionContext | None = None) -> dict[str, object]:
         router = ExperienceRouter(self.root, minimum_samples=self.minimum_samples)
         strategy_rows = {
             name: router.summarize(self._key(role, task, "execution-strategy", name))
@@ -84,7 +85,8 @@ class CounterfactualDecisionFabric:
                     continue
                 evidence = (strategy_summary.evidence_quality + mode_summary.evidence_quality) / 2.0
                 confidence = min(strategy_summary.confidence, mode_summary.confidence)
-                score = (self._score(strategy_summary) + self._score(mode_summary)) / 2.0
+                historical_score = (self._score(strategy_summary) + self._score(mode_summary)) / 2.0
+                score = historical_score + (context_adjustment(strategy_name, mode_name, context) if context else 0.0)
                 # Prefer compatible policies without pretending to have pairwise evidence.
                 if strategy_name == "fast-path" and mode_name in {"serial", "verify-heavy"}:
                     score -= 0.03
@@ -94,7 +96,8 @@ class CounterfactualDecisionFabric:
                     execution_strategy(strategy_name), execution_mode(mode_name),
                     score, evidence, confidence,
                     min(strategy_summary.samples, mode_summary.samples),
-                    "counterfactual composition of independently observed strategy and mode evidence",
+                    ("counterfactual composition of independently observed strategy and mode evidence"
+                     + (" with bounded workload-context adaptation" if context else "")),
                 ))
         baseline = next(
             (x for x in candidates if x.strategy.name == baseline_strategy and x.mode.name == baseline_mode),
@@ -105,7 +108,8 @@ class CounterfactualDecisionFabric:
                 execution_strategy(baseline_strategy), execution_mode(baseline_mode),
                 0.0, 0.0, 0.0, 0, "no composed policy has sufficient evidence",
             )
-            return {"selected": baseline.as_dict(), "changed": False, "candidates": 0}
+            return {"selected": baseline.as_dict(), "changed": False, "candidates": 0,
+                    "context": context.as_dict() if context else None}
         candidates.sort(key=lambda x: (-x.score, -x.confidence, x.strategy.name, x.mode.name))
         best = candidates[0]
         if baseline is None:
@@ -123,6 +127,7 @@ class CounterfactualDecisionFabric:
             "changed": changed,
             "candidates": len(candidates),
             "margin": round(best.score - baseline.score, 3),
+            "context": context.as_dict() if context else None,
         }
 
 
