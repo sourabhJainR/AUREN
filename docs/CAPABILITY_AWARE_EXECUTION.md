@@ -131,3 +131,8 @@ that evidence.
 ## Confidence-aware exploration
 
 Capability selection now balances exploration and exploitation from observed sample count and confidence. Safe under-observed options receive a small bounded trial bonus; well-observed high-confidence options stop receiving that bonus. The exploration bonus is capped and cannot bypass risk, network, sandbox, required-capability, failure, or stopping policy.
+
+
+## Collaborative skill selection
+
+AER can evaluate multiple discovered skills as a bounded set instead of forcing a single winner. It starts from the strongest individual capability, then adds complementary skills when their marginal task coverage and evidence justify the bounded cost. This supports overlapping skills from different sources without requiring the user to name or coordinate them. Every member is independently subject to the existing risk, network, sandbox and failure policy.
