@@ -111,6 +111,37 @@ class AgentCapabilityTests(unittest.TestCase):
         options = executioner.discover(core=(CapabilityOption("core"),))
         self.assertEqual([item.name for item in options], ["core"])
 
+    def test_installed_skill_discovery_is_bounded_and_optional(self):
+        import tempfile
+        from portable.agent_capabilities import CapabilityExecutioner
+        with tempfile.TemporaryDirectory() as tmp:
+            from pathlib import Path
+            skill = Path(tmp) / "skills" / "repo-review"
+            skill.mkdir(parents=True)
+            (skill / "SKILL.md").write_text("# Repository review\nUse repository evidence.\n", encoding="utf-8")
+            import os
+            previous = os.environ.get("AER_SKILLS_PATH")
+            os.environ["AER_SKILLS_PATH"] = str(Path(tmp) / "skills")
+            try:
+                options = CapabilityExecutioner().discover_installed(tmp)
+                self.assertEqual([item.name for item in options], ["skill:repo-review"])
+                self.assertLessEqual(len(options), 64)
+            finally:
+                if previous is None:
+                    os.environ.pop("AER_SKILLS_PATH", None)
+                else:
+                    os.environ["AER_SKILLS_PATH"] = previous
+
+    def test_required_capability_still_respects_policy(self):
+        from portable.agent_capabilities import CapabilityExecutioner, CapabilityOption
+        with self.assertRaises(LookupError):
+            CapabilityExecutioner().select(
+                request="network search",
+                options=(CapabilityOption("search", requires_network=True),),
+                required={"search"},
+                network_allowed=False,
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
