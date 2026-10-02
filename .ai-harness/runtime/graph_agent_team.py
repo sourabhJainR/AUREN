@@ -343,8 +343,20 @@ class GraphAgentTeam:
                 selected_names = capability_decision.selected_set or (capability_decision.selected,)
                 selected_options = [option for option in dynamic_options if option.name in selected_names]
                 selected_by_name={option.name: option for option in selected_options}
+                execution_candidates=[]
+                for option in selected_options:
+                    value=self.capability_executioner.evidence_value(
+                        option, history=capability_history
+                    )
+                    execution_candidates.append((option, value))
+                # Keep the primary skill even when evidence is sparse; drop only
+                # secondary skills whose expected evidence value is negligible.
+                execution_options=[
+                    option for option, value in execution_candidates
+                    if option.name == capability_choice.selected or value >= 0.20
+                ]
                 execution_schedule=self.capability_executioner.execution_schedule(
-                    selected_options,
+                    execution_options,
                     max_parallel=max(1, min(3, int(decision.workers))),
                 )
                 instruction_groups=[]
