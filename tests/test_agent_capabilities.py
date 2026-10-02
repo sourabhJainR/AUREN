@@ -459,6 +459,28 @@ class AgentCapabilityTests(unittest.TestCase):
         self.assertEqual(len(portfolio), 4)
         self.assertEqual({option.source for option in portfolio}, {"core", "skill", "mcp", "plugin"})
 
+    def test_bundle_scoring_uses_singleton_evidence_baseline(self):
+        from portable.agent_capabilities import CapabilityExecutioner, CapabilityOption
+        selector = CapabilityExecutioner(min_exploration=0.0)
+        planner = CapabilityOption("planner", tags=frozenset({"plan"}), evidence_quality=0.8)
+        reviewer = CapabilityOption("reviewer", tags=frozenset({"review"}), evidence_quality=0.8)
+        bundle_id = selector.bundle_id((planner, reviewer))
+        result = selector.select_collaborative(
+            request="plan and review",
+            options=(planner, reviewer),
+            history={
+                "planner": {"success_rate": 0.7, "evidence_quality": 0.4},
+                "reviewer": {"success_rate": 0.7, "evidence_quality": 0.4},
+            },
+            bundle_history={bundle_id: {
+                "samples": 6, "success_rate": 0.8, "failure_rate": 0.1,
+                "evidence_quality": 0.8, "confidence": 0.9,
+                "collaboration_delta": 0.4,
+            }},
+            max_skills=2,
+        )
+        self.assertEqual(result.bundle_id, bundle_id)
+
     def test_repeated_negative_collaboration_bundle_is_rejected(self):
         from portable.agent_capabilities import CapabilityExecutioner, CapabilityOption
         selector = CapabilityExecutioner(min_exploration=0.0)
