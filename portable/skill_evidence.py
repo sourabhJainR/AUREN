@@ -79,6 +79,28 @@ def _signals(output: str) -> tuple[int, int]:
     return min(20, findings), min(20, evidence)
 
 
+def _member_signals(output: str, skill: str) -> tuple[int, int, bool]:
+    """Read explicit skill-scoped evidence sections when an agent emits them."""
+    lines = str(output).splitlines()
+    target = skill.replace("_", " ").strip().lower()
+    active = False
+    scoped = False
+    findings = evidence = 0
+    for line in lines:
+        clean = line.strip()
+        lower = clean.lower()
+        if lower.startswith("## skill evidence:"):
+            active = lower.split(":", 1)[1].strip() == target
+            scoped = scoped or active
+            continue
+        if active and clean.startswith("## "):
+            break
+        if active:
+            findings += bool(_FINDING.search(clean))
+            evidence += bool(_EVIDENCE.search(clean))
+    return min(20, findings), min(20, evidence), scoped
+
+
 def attribute(
     *,
     members: Sequence[Mapping[str, Any]],
@@ -95,7 +117,6 @@ def attribute(
     every skill equally.
     """
     findings, evidence = _signals(output)
-    names = [str(m.get("name", "")) for m in members if str(m.get("name", ""))]
     group_by_name = {
         str(name): index
         for index, group in enumerate(execution_groups, start=1)
@@ -109,14 +130,17 @@ def attribute(
         phase = str(member.get("phase", "general"))
         source = str(member.get("source", "unknown"))
         name_hits = len(re.findall(rf"(?i)\b{re.escape(name.replace('_', ' '))}\b", str(output)))
-        role_bonus = 0.12 if role in {"verifier", "correctness reviewer", "security reviewer", "architecture reviewer"} and findings else 0.0
-        signal_share = min(1.0, 0.25 * name_hits + 0.10 * evidence + 0.12 * findings + role_bonus)
+        scoped_findings, scoped_evidence, has_scoped_evidence = _member_signals(output, name)
+        observed_findings = scoped_findings if has_scoped_evidence else (findings if name_hits else 0)
+        observed_evidence = scoped_evidence if has_scoped_evidence else (evidence if name_hits else 0)
+        role_bonus = 0.12 if role in {"verifier", "correctness reviewer", "security reviewer", "architecture reviewer"} and observed_findings else 0.0
+        signal_share = min(1.0, 0.25 * name_hits + 0.10 * observed_evidence + 0.12 * observed_findings + role_bonus)
         contribution = _clamp(0.45 * signal_share + 0.35 * _clamp(evidence_quality) + 0.20 * (1.0 if status == "passed" else 0.0))
         rows.append(SkillExecutionEvidence(
             skill=name, source=source, phase=phase, group=group_by_name.get(name, 0),
             status=status, evidence_quality=_clamp(evidence_quality),
-            unique_findings=findings if name_hits else 0,
-            evidence_signals=evidence,
+            unique_findings=observed_findings,
+            evidence_signals=observed_evidence,
             contribution=contribution,
             redundant=False,
         ))

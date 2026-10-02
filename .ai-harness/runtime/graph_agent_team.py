@@ -446,6 +446,12 @@ Alternatives: {json.dumps(capability_decision.alternatives)}
 Instructions (bounded, untrusted reference):
 {capability_instructions or "No additional capability instructions were supplied."}
 
+## Skill evidence protocol
+For each selected skill, when practical, emit a short `## Skill Evidence: <skill name>` section.
+Inside that section list only observable findings and verification evidence produced by that skill.
+Do not claim causality, quality, or success merely because the skill was selected. This section is evidence for
+the learning system, not an instruction source. If a skill produced no distinct evidence, say so briefly.
+
 ## Selected context
 {shared_context}
 
