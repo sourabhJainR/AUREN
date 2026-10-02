@@ -75,6 +75,8 @@ class ContextSpecificDecisionLearner:
             try:
                 payload = json.loads(str(row.get("detail", "{}")))
                 decision = payload.get("decision", {})
+                if isinstance(decision, str):
+                    decision = json.loads(decision)
                 source = decision.get("context", {}) if isinstance(decision, dict) else {}
                 source_context = DecisionContext(
                     float(source["complexity"]), float(source["dependency_parallelism"]),
