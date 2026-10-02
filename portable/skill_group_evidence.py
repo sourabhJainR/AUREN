@@ -106,6 +106,10 @@ def adapt_execution_groups(
     strong_threshold: float = 0.65,
     min_delta: float = 0.05,
     context_budget_chars: int = 8192,
+    protected_names: Iterable[str] = (),
+    max_risk: str = "high",
+    network_allowed: bool = True,
+    sandbox_available: bool = True,
 ) -> tuple[tuple[tuple[str, ...], ...], tuple[SkillGroupAdaptation, ...]]:
     """Replace/add skills using group-level evidence, with bounded changes.
 
@@ -114,10 +118,20 @@ def adapt_execution_groups(
     intentionally advisory: callers must run the resulting options through the
     normal capability policy before execution.
     """
-    by_name = {str(option.name): option for option in options}
+    risk_order = {"low": 0, "medium": 1, "high": 2}
+    risk_limit = risk_order.get(str(max_risk), -1)
+    by_name = {
+        str(option.name): option
+        for option in options
+        if bool(getattr(option, "model_invocable", True))
+        and risk_order.get(str(getattr(option, "risk", "low")).lower(), 99) <= risk_limit
+        and (network_allowed or not bool(getattr(option, "requires_network", False)))
+        and (sandbox_available or not bool(getattr(option, "requires_sandbox", False)))
+    }
     adapted: list[tuple[str, ...]] = []
     changes: list[SkillGroupAdaptation] = []
     used = {name for group in execution_groups for name in group}
+    protected = {str(name) for name in protected_names}
 
     def value(name: str) -> float:
         row = contribution_history.get(name, {})
@@ -135,7 +149,11 @@ def adapt_execution_groups(
         quality = max(0.0, min(1.0, float(history.get("useful_evidence", history.get("evidence_quality", 0.0)))))
         next_group = group
         if samples >= min_samples and quality < weak_threshold and group:
-            weakest = min(group, key=lambda name: (value(name), name))
+            removable = [name for name in group if name not in protected]
+            if not removable:
+                adapted.append(group)
+                continue
+            weakest = min(removable, key=lambda name: (value(name), name))
             replacement = next((name for name in alternatives if name not in group), None)
             if replacement is not None and value(replacement) - value(weakest) >= min_delta:
                 candidate = tuple(sorted((set(group) - {weakest}) | {replacement}))
