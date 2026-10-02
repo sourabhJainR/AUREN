@@ -405,8 +405,7 @@ class ContextAcquisitionPipeline:
 
     @staticmethod
     def _history_text(row: dict[str, Any]) -> str:
-        return "
-".join(
+        return "\n".join(
             part
             for part in (
                 f"Historical {str(row.get('outcome', 'unknown')).upper()} retrieval/engineering observation.",
