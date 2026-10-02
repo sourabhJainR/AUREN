@@ -265,7 +265,10 @@ class ContextAcquisitionPipeline:
             )
             for item in candidates
         ]
-        selected = select_evidence(candidates, budget=retrieval_budget, max_items=retrieval_items)
+        # Keep the reserve out of the final context so it remains available for
+        # fresh evidence/recovery rather than being consumed by the first pass.
+        context_budget = max(1000, retrieval_budget - allocation.reserve)
+        selected = select_evidence(candidates, budget=context_budget, max_items=retrieval_items)
         self._broker.register_many(
             ContextCandidate(
                 item.evidence_id,
@@ -283,8 +286,8 @@ class ContextAcquisitionPipeline:
         leases = self._broker.discover(
             query,
             phase=phase,
-            budget_chars=plan.budget,
-            max_items=plan.max_items,
+            budget_chars=context_budget,
+            max_items=retrieval_items,
         )
         by_id = {item.evidence_id: item for item in selected}
         items = tuple(
@@ -315,6 +318,10 @@ class ContextAcquisitionPipeline:
                 "modes": plan.retrieval_modes,
                 "budget": plan.budget,
                 "max_items": plan.max_items,
+                "allocation_budget": retrieval_budget,
+                "allocation_items": retrieval_items,
+                "allocation_reserve": allocation.reserve,
+                "allocation_rationale": allocation.rationale,
                 "fresh": plan.require_fresh_verification,
                 "strategy": plan.policy_strategy,
                 "selected_mode": selected_mode,

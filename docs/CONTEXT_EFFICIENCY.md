@@ -131,7 +131,9 @@ Keep questions atomic and let ordinary HWS code own policy and action. Model jud
 
 Context acquisition now adapts its budget before each retrieval attempt. The
 allocation uses uncertainty, risk, recent retrieval failure rate, active broker
-pressure, and known working/failed retrieval modes.
+pressure, and known working/failed retrieval modes. The allocation reserve is
+excluded from the final context budget so fresh evidence and recovery retain
+capacity instead of being crowded out by the initial selection.
 
 This intentionally does not mean "use more context when uncertain". High
 uncertainty can receive more evidence budget, while repeated failures or high
