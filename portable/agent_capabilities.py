@@ -444,6 +444,88 @@ class CapabilityExecutioner:
                 continue
         return tuple(sorted(options.values(), key=lambda item: (item.source, item.name)))
 
+
+    def discover_installed(self, project_root: Path | str | None = None) -> tuple[CapabilityOption, ...]:
+        """Discover optional skills and host-advertised integrations without imports.
+
+        Skills are discovered from conventional directories and only their
+        front matter/first bounded description is read. MCP/plugin capability
+        descriptors may be supplied as JSON through AER_MCP_CAPABILITIES and
+        AER_PLUGIN_CAPABILITIES. Invalid or missing sources are ignored.
+        """
+        root = Path(project_root or ".").expanduser().resolve()
+        options: list[CapabilityOption] = []
+        skill_roots = [
+            root / ".claude" / "skills",
+            root / ".ai-harness" / "skills",
+            root / "skills",
+        ]
+        configured = os.environ.get("AER_SKILLS_PATH", "")
+        if configured:
+            skill_roots.extend(Path(item).expanduser() for item in configured.split(os.pathsep) if item.strip())
+        seen: set[str] = set()
+        for skill_root in skill_roots:
+            if not skill_root.is_dir():
+                continue
+            try:
+                entries = sorted(skill_root.iterdir(), key=lambda item: item.name)
+            except OSError:
+                continue
+            for directory in entries:
+                if not directory.is_dir() or directory.name in seen:
+                    continue
+                skill_file = directory / "SKILL.md"
+                if not skill_file.is_file():
+                    continue
+                try:
+                    raw = skill_file.read_text(encoding="utf-8", errors="replace")[:4096]
+                except OSError:
+                    continue
+                description = next((line.lstrip("# ").strip() for line in raw.splitlines() if line.strip() and not line.startswith("---")), directory.name)
+                name = "skill:" + directory.name
+                options.append(CapabilityOption(
+                    name=name,
+                    source="skill",
+                    description=description,
+                    tags=frozenset(re.findall(r"[a-z0-9]+", (directory.name + " " + description).lower())),
+                ))
+                seen.add(directory.name)
+        options.extend(self._host_options("mcp", os.environ.get("AER_MCP_CAPABILITIES", "")))
+        options.extend(self._host_options("plugin", os.environ.get("AER_PLUGIN_CAPABILITIES", "")))
+        return tuple(sorted({item.name: item for item in options}.values(), key=lambda item: (item.source, item.name)))
+
+    @staticmethod
+    def _host_options(source: str, payload: str) -> tuple[CapabilityOption, ...]:
+        if not payload.strip():
+            return ()
+        try:
+            rows = json.loads(payload)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return ()
+        if not isinstance(rows, list):
+            return ()
+        options: list[CapabilityOption] = []
+        for row in rows[:64]:
+            if not isinstance(row, Mapping) or not str(row.get("name", "")).strip():
+                continue
+            options.append(CapabilityOption(
+                name=str(row["name"]).strip(),
+                source=source,
+                description=str(row.get("description", ""))[:512],
+                tags=frozenset(str(item).lower() for item in row.get("tags", ()) if str(item).strip()) if isinstance(row.get("tags", ()), (list, tuple, set)) else frozenset(),
+                risk=str(row.get("risk", "low")),
+                requires_network=bool(row.get("requires_network", False)),
+                requires_sandbox=bool(row.get("requires_sandbox", False)),
+                estimated_latency_ms=max(0.0, float(row.get("estimated_latency_ms", 250.0))),
+                estimated_cost=max(0.0, min(1.0, float(row.get("estimated_cost", 0.5)))),
+                evidence_quality=max(0.0, min(1.0, float(row.get("evidence_quality", 0.5)))),
+                historical_success=max(0.0, min(1.0, float(row.get("historical_success", 0.5)))),
+                confidence=max(0.0, min(1.0, float(row.get("confidence", 0.25)))),
+                resource_demand=max(0.0, min(1.0, float(row.get("resource_demand", 0.25)))),
+                fallback=str(row.get("fallback")) if row.get("fallback") else None,
+            ))
+        return tuple(options)
+
     def select(
         self,
         *,
