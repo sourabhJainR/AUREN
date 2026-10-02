@@ -470,7 +470,7 @@ Bundle ID: {capability_decision.bundle_id}
 Bundle status: {capability_decision.bundle_status}
 Bundle score: {capability_decision.bundle_score:.3f}
 Bundle confidence: {capability_decision.bundle_confidence:.2f}
-Evolution: {capability_decision.evolution_action} parent={capability_decision.evolution_parent or "none"} expected_delta={capability_decision.evolution_expected_delta:.3f}
+Evolution: {capability_decision.evolution_action} stage={capability_decision.evolution_stage} parent={capability_decision.evolution_parent or "none"} expected_delta={capability_decision.evolution_expected_delta:.3f}
 Execution groups: {json.dumps(execution_schedule)}
 Source: {capability_decision.source}
 Confidence: {capability_decision.confidence:.2f}
@@ -627,6 +627,7 @@ the learning system, not an instruction source. If a skill produced no distinct 
                                 "action": capability_decision.evolution_action,
                                 "parent": capability_decision.evolution_parent,
                                 "expected_delta": capability_decision.evolution_expected_delta,
+                                "stage": capability_decision.evolution_stage,
                                 "members": list(capability_decision.selected_set),
                             }, sort_keys=True),
                             evidence_ids=["agent:"+agent.name, "bundle:"+capability_decision.bundle_id],
@@ -637,7 +638,7 @@ the learning system, not an instruction source. If a skill produced no distinct 
                         evidence_quality=evidence_quality if status=="passed" else 0.1,
                         cost_score=float(capability_decision.bundle_cost),
                         duration_seconds=duration,
-                        decision="bundle_members="+",".join(capability_decision.selected_set)+";bundle_status="+capability_decision.bundle_status+";bundle_score="+str(capability_decision.bundle_score)+";evolution_action="+capability_decision.evolution_action+";evolution_parent="+capability_decision.evolution_parent+";evolution_delta="+str(capability_decision.evolution_expected_delta),
+                        decision="bundle_members="+",".join(capability_decision.selected_set)+";bundle_status="+capability_decision.bundle_status+";bundle_score="+str(capability_decision.bundle_score)+";evolution_action="+capability_decision.evolution_action+";evolution_parent="+capability_decision.evolution_parent+";evolution_delta="+str(capability_decision.evolution_expected_delta)+";evolution_stage="+capability_decision.evolution_stage,
                         evidence_ids=["agent:"+agent.name],
                     )
                 result.pathway = {"capability": pathway.capability, "capabilities": list(capability_decision.selected_set),
@@ -648,6 +649,7 @@ the learning system, not an instruction source. If a skill produced no distinct 
                     "evolution_action": capability_decision.evolution_action,
                     "evolution_parent": capability_decision.evolution_parent,
                     "evolution_expected_delta": capability_decision.evolution_expected_delta,
+                    "evolution_stage": capability_decision.evolution_stage,
                     "evolution_candidates": list(capability_decision.evolution_candidates),
                     "resource_lane": decision.lane, "verification_depth": verification_choice.level,
                     "retry_action": retry_choice.selected, "score": pathway.score, "confidence": pathway.confidence,
