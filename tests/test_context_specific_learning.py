@@ -21,7 +21,7 @@ class ContextSpecificDecisionLearnerTests(unittest.TestCase):
             learner = ContextSpecificDecisionLearner(Path(d), minimum_samples=3)
             context = DecisionContext(.8, .8, .1, .2, .9, .8)
             other = DecisionContext(.1, .1, .9, .8, .2, .1)
-            for i in range(4):
+            for i in range(6):
                 learner.record(
                     role="team", task="task", context=context,
                     strategy="deep-verify", mode="serial", outcome="passed",
