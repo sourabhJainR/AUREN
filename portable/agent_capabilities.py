@@ -729,6 +729,20 @@ class CapabilityExecutioner:
         return hashlib.sha256("|".join(members).encode()).hexdigest()[:16]
 
     @staticmethod
+    def evidence_value(
+        option: CapabilityOption,
+        *,
+        history: Mapping[str, Mapping[str, float]] | None = None,
+    ) -> float:
+        """Estimate whether a selected skill is worth its execution overhead."""
+        observed = (history or {}).get(option.name, {})
+        evidence = float(observed.get("evidence_quality", 0.5))
+        confidence = float(observed.get("confidence", 0.0))
+        success = float(observed.get("success_rate", 0.5))
+        failure = float(observed.get("failure_rate", 0.5))
+        return max(0.0, min(1.0, 0.45 * evidence + 0.25 * confidence + 0.20 * success - 0.10 * failure))
+
+    @staticmethod
     def execution_schedule(
         members: Sequence[CapabilityOption],
         *,
