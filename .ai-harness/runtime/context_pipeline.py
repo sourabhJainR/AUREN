@@ -422,12 +422,13 @@ class ContextAcquisitionPipeline:
                 "snapshot": result.snapshot_digest,
                 "paths": tuple(file.path for file in result.files),
                 "graph_paths": (),
+                "unknowns": tuple(result.omitted) + tuple(result.security_exclusions),
             }
 
         symbols = self._resolve_symbols(SymbolLocator(self.repository.index), query)
-        if mode in {"history", "memory"}:
+        if mode == "memory":
             rows = relevant_task_memory(self.root, query, limit=min(12, max_items))
-            kind = "memory" if mode == "memory" else "history"
+            kind = "memory"
             evidence = [
                 EvidenceCandidate(
                     f"{kind}:{row['id']}",
