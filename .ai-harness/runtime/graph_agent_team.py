@@ -39,6 +39,7 @@ from portable.cross_task_capability_abstraction import CrossTaskCapabilityAbstra
 from portable.failure_cluster_invention import FailureClusterCapabilityInventor
 from portable.invention_lifecycle import EvidenceBackedInventionLifecycle
 from portable.autonomy_benchmark import AutonomyBenchmarkGate
+from portable.evidence_backed_autonomy_benchmark import EpisodeEvidence, EvidenceBackedAutonomyBenchmark
 from portable.autonomy_benchmark_history import AutonomyBenchmarkHistory
 from portable.autonomy_curriculum import AutonomyCurriculumController
 from portable.curriculum_experiment import CurriculumExperimentController
@@ -966,15 +967,38 @@ the learning system, not an instruction source. If a skill produced no distinct 
                             })
                         except ValueError:
                             continue
-        self_model_scores=[float(belief.confidence) for belief in self_model.capabilities]
-        benchmark=AutonomyBenchmarkGate().evaluate({
-            "goal_completion": 1.0 if accepted else 0.0,
-            "cross_task_transfer": 1.0 if any(p.state == "promoted" for p in transferable_patterns) else (0.5 if transferable_patterns else 0.0),
-            "self_model_calibration": sum(self_model_scores) / max(1, len(self_model_scores)),
-            "causal_learning": 1.0 if causal_experiment is not None and causal_experiment.information_gain > 0 else 0.0,
-            "safe_autonomy": 1.0 if accepted else 0.5,
-            "resource_efficiency": max(0.0, min(1.0, 1.0 - mode_cost)),
-        })
+        observed_goal_success = bool(accepted)
+        critical_agents = tuple(a for a in self.agents.values() if a.critical)
+        critical_total = len(critical_agents)
+        critical_successes = sum(1 for a in critical_agents if results.get(a.name) and results[a.name].status == "passed")
+        observed_success = critical_successes / max(1, critical_total)
+        calibration_errors = [
+            abs(float(belief.success_rate) - observed_success)
+            for belief in self_model.capabilities
+        ]
+        calibration_error = sum(calibration_errors) / max(1, len(calibration_errors))
+        prior_causal_rows = approach_history(
+            memory.project_root, "team:curriculum-experiment:", limit=40, exact=False
+        )
+        prior_causal_learning = any(
+            str(row.get("outcome", "")).lower() == "passed"
+            and row.get("evidence_ids")
+            for row in prior_causal_rows
+        )
+        benchmark_evidence = EpisodeEvidence(
+            task_id=intent_digest,
+            goal_success=observed_goal_success,
+            critical_successes=critical_successes,
+            critical_total=critical_total,
+            transfer_passed=any(p.state == "promoted" for p in transferable_patterns),
+            calibration_error=calibration_error,
+            causal_learning=prior_causal_learning,
+            policy_violation=False,
+            resource_efficiency=max(0.0, min(1.0, 1.0 - mode_cost)),
+        )
+        benchmark=EvidenceBackedAutonomyBenchmark(AutonomyBenchmarkGate()).evaluate(
+            (benchmark_evidence,)
+        )
         curriculum=AutonomyCurriculumController().propose(benchmark.scores)
         curriculum_experiment = None
         if curriculum:
