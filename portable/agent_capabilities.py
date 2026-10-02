@@ -599,9 +599,12 @@ class CapabilityExecutioner:
                 overlap = len(tokens & set(option.tags | frozenset(re.findall(r"[a-z0-9]+", option.description.lower()))))
                 fit = min(1.0, overlap / max(1, min(5, len(tokens)))) if tokens else 0.25
                 prior = history.get(option.name, {}) if history else {}
-                success = float(prior.get("success_rate", option.historical_success))
-                evidence = float(prior.get("evidence_quality", option.evidence_quality))
-                confidence = float(prior.get("confidence", option.confidence))
+                success = max(0.0, min(1.0, float(prior.get("success_rate", option.historical_success))))
+                evidence = max(0.0, min(1.0, float(prior.get("evidence_quality", option.evidence_quality))))
+                confidence = max(0.0, min(1.0, float(prior.get("confidence", option.confidence))))
+                learned_cost = max(0.0, min(1.0, float(prior.get("avg_cost", option.estimated_cost))))
+                learned_latency = max(0.0, float(prior.get("avg_latency", option.estimated_latency_ms / 1000.0)))
+                failure = max(0.0, min(1.0, float(prior.get("failure_rate", 1.0 - success))))
                 # Keep history influential but bounded; no single historical win
                 # can turn an optional provider into a mandatory dependency.
                 history_weight = min(0.45, max(0.0, confidence) * 0.45)
@@ -614,9 +617,10 @@ class CapabilityExecutioner:
                     + 0.18 * max(0.0, min(1.0, evidence))
                     + 0.10 * max(0.0, min(1.0, option.confidence))
                     + 0.10 * max(0.0, min(1.0, option.confidence + self.min_exploration))
-                    - 0.04 * max(0.0, min(1.0, option.estimated_latency_ms / 5000.0))
-                    - 0.08 * max(0.0, min(1.0, option.estimated_cost))
+                    - 0.04 * max(0.0, min(1.0, learned_latency / 5.0))
+                    - 0.08 * learned_cost
                     - 0.10 * pressure
+                    - 0.08 * failure
                 )
                 candidates.append((option, score))
         if not candidates:
