@@ -370,6 +370,7 @@ class CapabilityOption:
     name: str
     source: str = "core"
     description: str = ""
+    instructions: str = ""
     tags: frozenset[str] = frozenset()
     available: bool = True
     risk: str = "low"
@@ -489,6 +490,7 @@ class CapabilityExecutioner:
                     name=name,
                     source="skill",
                     description=description,
+                    instructions=raw[:4096],
                     tags=frozenset(re.findall(r"[a-z0-9]+", (directory.name + " " + description).lower())),
                 ))
                 seen.add(directory.name)
@@ -514,6 +516,7 @@ class CapabilityExecutioner:
                 name=str(row["name"]).strip(),
                 source=source,
                 description=str(row.get("description", ""))[:512],
+                instructions=str(row.get("instructions", ""))[:4096],
                 tags=frozenset(str(item).lower() for item in row.get("tags", ()) if str(item).strip()) if isinstance(row.get("tags", ()), (list, tuple, set)) else frozenset(),
                 risk=str(row.get("risk", "low")),
                 requires_network=bool(row.get("requires_network", False)),
@@ -578,7 +581,7 @@ class CapabilityExecutioner:
             raise LookupError("no safe capability available for request")
         candidates.sort(key=lambda item: (-item[1], item[0].name))
         selected, score = candidates[0]
-        degraded = selected.source != "core" and len(candidates) > 1
+        degraded = selected.source != "core" and not any(option.source == "core" for option, _ in candidates)
         if required_set and not required_set.issubset({selected.name}):
             missing = sorted(required_set - {selected.name})
             raise PermissionError(f"required capabilities not selected: {missing}")
