@@ -373,6 +373,17 @@ class AgentCapabilityTests(unittest.TestCase):
         groups = selector._execution_groups((planner, reviewer))
         self.assertLess(groups.index(("planner",)), groups.index(("reviewer",)))
 
+    def test_execution_schedule_is_bounded_and_deterministic(self):
+        from portable.agent_capabilities import CapabilityExecutioner, CapabilityOption
+        selector = CapabilityExecutioner()
+        members = tuple(
+            CapabilityOption(f"skill-{i}", phase="research", tags=frozenset({"research"}))
+            for i in range(5)
+        )
+        schedule = selector.execution_schedule(members, max_parallel=2)
+        self.assertEqual(schedule, (("skill-0", "skill-1"), ("skill-2", "skill-3"), ("skill-4",)))
+        self.assertLessEqual(max(len(group) for group in schedule), 2)
+
     def test_retired_bundle_is_not_selected(self):
         from portable.agent_capabilities import CapabilityExecutioner, CapabilityOption
         selector = CapabilityExecutioner(min_exploration=0.0)
