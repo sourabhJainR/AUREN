@@ -231,3 +231,34 @@ def test_retrieved_context_redacts_credential_like_values() -> None:
 
         assert secret_value not in "\n".join(item.text for item in evidence.items)
         assert "[REDACTED]" in "\n".join(item.text for item in evidence.items)
+
+
+def test_recovery_is_bounded_when_all_paths_fail() -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        (root / "app.py").write_text("def working_path():\n    return 'ok'\n", encoding="utf-8")
+        pipeline = ContextAcquisitionPipeline(root, budget_chars=5000, max_items=8)
+        calls: list[str] = []
+
+        def fake_retrieve(mode: str, query: str, budget: int, max_items: int):
+            calls.append(mode)
+            return {
+                "evidence": [],
+                "snapshot": pipeline.repository.digest(),
+                "paths": (),
+                "graph_paths": (),
+                "unknowns": (),
+            }
+
+        pipeline._retrieve = fake_retrieve  # type: ignore[method-assign]
+        evidence = pipeline.acquire(
+            task_id="bounded-test",
+            query="missing_target",
+            phase="investigate",
+            intent_digest="intent-1",
+            uncertainty="high",
+        )
+
+        assert len(calls) <= 5
+        assert len(calls) == len(set(calls))
+        assert any("all bounded retrieval paths have failed" in item for item in evidence.unknowns)
