@@ -5,6 +5,8 @@ the authority for policy, sandboxing, verification and promotion.
 """
 from __future__ import annotations
 
+import json
+import os
 import re
 import sqlite3
 import threading
@@ -39,6 +41,13 @@ def sanitize_untrusted(text: str) -> str:
     if _INJECTION.search(text):
         raise ValueError("untrusted content rejected: prompt-injection pattern")
     return redact(text)
+
+
+def sanitize_capability_reference(text: str, limit: int = 4096) -> str:
+    """Keep optional capability instructions as bounded reference data."""
+    clean = redact(str(text))
+    clean = _INJECTION.sub("[blocked untrusted instruction]", clean)
+    return clean[:max(1, int(limit))]
 
 
 @dataclass(frozen=True)
@@ -359,6 +368,265 @@ class SkillRegistry:
 
 
 @dataclass(frozen=True)
+class CapabilityOption:
+    """Runtime-discovered execution option.
+
+    Discovery is deliberately data-only: adapters may describe skills, MCP tools,
+    plugins, providers or local resources without importing any of them into AER.
+    """
+    name: str
+    source: str = "core"
+    description: str = ""
+    instructions: str = ""
+    tags: frozenset[str] = frozenset()
+    available: bool = True
+    risk: str = "low"
+    requires_network: bool = False
+    requires_sandbox: bool = False
+    estimated_latency_ms: float = 250.0
+    estimated_cost: float = 0.5
+    evidence_quality: float = 0.5
+    historical_success: float = 0.5
+    confidence: float = 0.25
+    resource_demand: float = 0.25
+    fallback: str | None = None
+
+
+@dataclass(frozen=True)
+class CapabilityDecision:
+    selected: str
+    source: str
+    score: float
+    confidence: float
+    rationale: str
+    alternatives: tuple[str, ...] = ()
+    degraded: bool = False
+
+
+class CapabilityExecutioner:
+    """Select the smallest safe capability set for the current execution.
+
+    External skills/plugins/MCP/providers are optional discovery inputs. They
+    cannot bypass AER's risk, sandbox, network, failure and stopping policy.
+    The selector is deterministic when history is absent and bounded when
+    history is present, preventing one successful path from becoming a hard
+    dependency.
+    """
+
+    def __init__(
+        self,
+        *,
+        discoverers: Iterable[Callable[[], Iterable[CapabilityOption]]] = (),
+        min_exploration: float = 0.15,
+    ) -> None:
+        self._discoverers = tuple(discoverers)
+        self.min_exploration = max(0.0, min(0.5, float(min_exploration)))
+
+    def discover(
+        self,
+        *,
+        core: Iterable[CapabilityOption] = (),
+        skills: SkillRegistry | None = None,
+        query: str = "",
+    ) -> tuple[CapabilityOption, ...]:
+        options: dict[str, CapabilityOption] = {}
+        for option in core:
+            if option.available:
+                options[option.name] = option
+        if skills is not None:
+            for skill in skills.discover(query):
+                options.setdefault(
+                    "skill:" + skill.name,
+                    CapabilityOption(
+                        name="skill:" + skill.name,
+                        source="skill",
+                        description=skill.description,
+                        tags=frozenset(re.findall(r"[a-z0-9]+", (skill.name + " " + skill.description).lower())),
+                    ),
+                )
+        for discoverer in self._discoverers:
+            try:
+                for option in discoverer() or ():
+                    if isinstance(option, CapabilityOption) and option.available:
+                        options.setdefault(option.name, option)
+            except (OSError, RuntimeError, ValueError, TypeError):
+                # Optional integrations must degrade to the core catalog.
+                continue
+        return tuple(sorted(options.values(), key=lambda item: (item.source, item.name)))
+
+
+    def discover_installed(self, project_root: Path | str | None = None) -> tuple[CapabilityOption, ...]:
+        """Discover optional skills and host-advertised integrations without imports.
+
+        Skills are discovered from conventional directories and only their
+        front matter/first bounded description is read. MCP/plugin capability
+        descriptors may be supplied as JSON through AER_MCP_CAPABILITIES and
+        AER_PLUGIN_CAPABILITIES. Invalid or missing sources are ignored.
+        """
+        root = Path(project_root or ".").expanduser().resolve()
+        options: list[CapabilityOption] = []
+        skill_roots = [
+            root / ".claude" / "skills",
+            root / ".ai-harness" / "skills",
+            root / "skills",
+        ]
+        configured = os.environ.get("AER_SKILLS_PATH", "")
+        if configured:
+            skill_roots.extend(Path(item).expanduser() for item in configured.split(os.pathsep) if item.strip())
+        seen: set[str] = set()
+        for skill_root in skill_roots:
+            if not skill_root.is_dir():
+                continue
+            try:
+                entries = sorted(skill_root.iterdir(), key=lambda item: item.name)
+            except OSError:
+                continue
+            for directory in entries:
+                if not directory.is_dir() or directory.name in seen:
+                    continue
+                skill_file = directory / "SKILL.md"
+                if not skill_file.is_file():
+                    continue
+                try:
+                    raw = skill_file.read_text(encoding="utf-8", errors="replace")[:4096]
+                except OSError:
+                    continue
+                description = next((line.lstrip("# ").strip() for line in raw.splitlines() if line.strip() and not line.startswith("---")), directory.name)
+                name = "skill:" + directory.name
+                options.append(CapabilityOption(
+                    name=name,
+                    source="skill",
+                    description=description,
+                    instructions=sanitize_capability_reference(raw),
+                    tags=frozenset(re.findall(r"[a-z0-9]+", (directory.name + " " + description).lower())),
+                ))
+                seen.add(directory.name)
+        for source, payload in (
+            ("mcp", os.environ.get("AER_MCP_CAPABILITIES", "")),
+            ("plugin", os.environ.get("AER_PLUGIN_CAPABILITIES", "")),
+        ):
+            try:
+                options.extend(self._host_options(source, payload))
+            except (TypeError, ValueError, OverflowError):
+                continue
+        return tuple(sorted({item.name: item for item in options}.values(), key=lambda item: (item.source, item.name)))
+
+    @staticmethod
+    def _host_options(source: str, payload: str) -> tuple[CapabilityOption, ...]:
+        if not payload.strip():
+            return ()
+        try:
+            rows = json.loads(payload)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return ()
+        if not isinstance(rows, list):
+            return ()
+        options: list[CapabilityOption] = []
+        for row in rows[:64]:
+            if not isinstance(row, Mapping) or not str(row.get("name", "")).strip():
+                continue
+            try:
+                tags = (
+                    frozenset(str(item).lower() for item in row.get("tags", ()) if str(item).strip())
+                    if isinstance(row.get("tags", ()), (list, tuple, set))
+                    else frozenset()
+                )
+                options.append(CapabilityOption(
+                    name=str(row["name"]).strip(),
+                    source=source,
+                    description=str(row.get("description", ""))[:512],
+                    instructions=sanitize_capability_reference(row.get("instructions", "")),
+                    tags=tags,
+                    risk=str(row.get("risk", "low")),
+                    requires_network=bool(row.get("requires_network", False)),
+                    requires_sandbox=bool(row.get("requires_sandbox", False)),
+                    estimated_latency_ms=max(0.0, float(row.get("estimated_latency_ms", 250.0))),
+                    estimated_cost=max(0.0, min(1.0, float(row.get("estimated_cost", 0.5)))),
+                    evidence_quality=max(0.0, min(1.0, float(row.get("evidence_quality", 0.5)))),
+                    historical_success=max(0.0, min(1.0, float(row.get("historical_success", 0.5)))),
+                    confidence=max(0.0, min(1.0, float(row.get("confidence", 0.25)))),
+                    resource_demand=max(0.0, min(1.0, float(row.get("resource_demand", 0.25)))),
+                    fallback=str(row.get("fallback")) if row.get("fallback") else None,
+                ))
+            except (TypeError, ValueError, OverflowError):
+                # One bad optional descriptor must not hide valid siblings.
+                continue
+        return tuple(options)
+
+
+    def select(
+        self,
+        *,
+        request: str,
+        options: Iterable[CapabilityOption],
+        required: Iterable[str] = (),
+        failed: Iterable[str] = (),
+        network_allowed: bool = True,
+        sandbox_available: bool = True,
+        max_risk: str = "high",
+        resource_budget: float = 1.0,
+        history: Mapping[str, Mapping[str, float]] | None = None,
+    ) -> CapabilityDecision:
+        if max_risk not in _RISK_ORDER:
+            raise ValueError("invalid max_risk")
+        failed_set = set(failed)
+        required_set = set(required)
+        tokens = set(re.findall(r"[a-z0-9]+", request.lower()))
+        candidates: list[tuple[CapabilityOption, float]] = []
+        for option in options:
+            if option.name in failed_set or not option.available:
+                continue
+            if self._allowed(option, network_allowed, sandbox_available, max_risk):
+                overlap = len(tokens & set(option.tags | frozenset(re.findall(r"[a-z0-9]+", option.description.lower()))))
+                fit = min(1.0, overlap / max(1, min(5, len(tokens)))) if tokens else 0.25
+                prior = history.get(option.name, {}) if history else {}
+                success = float(prior.get("success_rate", option.historical_success))
+                evidence = float(prior.get("evidence_quality", option.evidence_quality))
+                confidence = float(prior.get("confidence", option.confidence))
+                # Keep history influential but bounded; no single historical win
+                # can turn an optional provider into a mandatory dependency.
+                history_weight = min(0.45, max(0.0, confidence) * 0.45)
+                learned = (1.0 - history_weight) * option.historical_success + history_weight * success
+                resource = max(0.0, min(1.0, resource_budget))
+                pressure = max(0.0, min(1.0, option.resource_demand / max(resource, 0.01)))
+                score = (
+                    0.30 * fit
+                    + 0.25 * learned
+                    + 0.18 * max(0.0, min(1.0, evidence))
+                    + 0.10 * max(0.0, min(1.0, option.confidence))
+                    + 0.10 * max(0.0, min(1.0, option.confidence + self.min_exploration))
+                    - 0.04 * max(0.0, min(1.0, option.estimated_latency_ms / 5000.0))
+                    - 0.08 * max(0.0, min(1.0, option.estimated_cost))
+                    - 0.10 * pressure
+                )
+                candidates.append((option, score))
+        if not candidates:
+            raise LookupError("no safe capability available for request")
+        candidates.sort(key=lambda item: (-item[1], item[0].name))
+        selected, score = candidates[0]
+        degraded = selected.source != "core" and not any(option.source == "core" for option, _ in candidates)
+        if required_set and not required_set.issubset({selected.name}):
+            missing = sorted(required_set - {selected.name})
+            raise PermissionError(f"required capabilities not selected: {missing}")
+        alternatives = tuple(item.name for item, _ in candidates[1:4])
+        confidence = max(0.0, min(1.0, 0.45 + 0.45 * selected.confidence + 0.10 * selected.historical_success))
+        rationale = (
+            f"selected {selected.name} from {selected.source}; "
+            f"score={score:.3f}; candidates={len(candidates)}; "
+            f"fallback remains available={bool(alternatives)}"
+        )
+        return CapabilityDecision(selected.name, selected.source, score, confidence, rationale, alternatives, degraded)
+
+    @staticmethod
+    def _allowed(option: CapabilityOption, network_allowed: bool, sandbox_available: bool, max_risk: str) -> bool:
+        return (
+            _RISK_ORDER.get(option.risk, 99) <= _RISK_ORDER[max_risk]
+            and (network_allowed or not option.requires_network)
+            and (sandbox_available or not option.requires_sandbox)
+        )
+
+
+@dataclass(frozen=True)
 class QualityResult:
     status: str
     score: int
@@ -386,6 +654,6 @@ class OutputQualityGate:
 __all__ = [
     "CAPABILITIES", "Capability", "CapabilityFabric", "ProviderAdapter", "ProviderAdapterRegistry",
     "MemoryRecord", "PersistentMemory", "DelegationReceipt", "DelegationPool", "Schedule",
-    "AutomationScheduler", "Skill", "SkillRegistry", "QualityResult", "OutputQualityGate",
-    "redact", "sanitize_untrusted",
+    "AutomationScheduler", "Skill", "SkillRegistry", "CapabilityOption", "CapabilityDecision", "CapabilityExecutioner", "QualityResult", "OutputQualityGate",
+    "redact", "sanitize_untrusted", "sanitize_capability_reference",
 ]
