@@ -151,3 +151,31 @@ only.
 
 Malformed or missing metadata falls back to safe defaults, and external skill
 providers remain optional.
+
+
+## Skill bundle evaluation and graduation
+
+Collaborative selection now evaluates bounded singleton, pair and triple bundles
+instead of greedily appending skills. The candidate portfolio is capped, every
+member is policy-checked, dependencies must be satisfiable, and redundant
+skills are penalized.
+
+Each bundle has an order-independent fingerprint. AER records bundle outcomes
+separately from individual capability outcomes and reuses exact bundle history
+for later selection.
+
+Bundle states are intentionally conservative:
+
+- experimental: insufficient evidence
+- proven: repeated successful outcomes with adequate confidence
+- degraded: repeated failures or weak success evidence
+- retired: repeated severe failure, excluded from autonomous selection
+
+This gives AER the missing feedback loop: a combination can graduate when it
+repeatedly adds value, while a combination that costs more without delivering
+better evidence can fall out of the working set.
+
+The design borrows the useful parts of Matt Pocock's workflow model: explicit
+phase boundaries, composable skills, dependency-aware execution and feedback
+from tests/review. AER keeps those concepts as data and policy inputs rather
+than making the external skill framework a runtime dependency.
