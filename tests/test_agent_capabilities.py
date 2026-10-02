@@ -445,5 +445,19 @@ class AgentCapabilityTests(unittest.TestCase):
         self.assertTrue(any(option.source == "mcp" for option in portfolio))
         self.assertIn("skill-0", {option.name for option in portfolio})
 
+    def test_candidate_portfolio_keeps_each_source_when_budget_is_tight(self):
+        from portable.agent_capabilities import CapabilityExecutioner, CapabilityOption
+        selector = CapabilityExecutioner()
+        options = tuple(
+            [CapabilityOption("core", source="core")]
+            + [CapabilityOption("skill-a", source="skill", evidence_quality=0.9)]
+            + [CapabilityOption("mcp-a", source="mcp", evidence_quality=0.9)]
+            + [CapabilityOption("plugin-a", source="plugin", evidence_quality=0.9)]
+            + [CapabilityOption(f"extra-{i}", source="skill") for i in range(10)]
+        )
+        portfolio = selector.candidate_portfolio(options, request="general", max_candidates=4)
+        self.assertEqual(len(portfolio), 4)
+        self.assertEqual({option.source for option in portfolio}, {"core", "skill", "mcp", "plugin"})
+
 if __name__ == "__main__":
     unittest.main()
