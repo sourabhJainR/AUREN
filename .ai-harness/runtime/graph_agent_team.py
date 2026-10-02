@@ -80,6 +80,7 @@ class AgentResult:
     capability_bundle_confidence:float=0.0
     capability_bundle_score:float=0.0
     capability_execution_groups:tuple[tuple[str,...],...]=()
+    capability_execution_plan:dict[str,Any]=field(default_factory=dict)
     verification_depth:str="standard"
     retry_decision:str="stop"
     pathway:dict[str,Any]=field(default_factory=dict)
@@ -408,6 +409,26 @@ class GraphAgentTeam:
                     if len(parts)>1:
                         instruction_groups.append("\n".join(parts))
                 capability_instructions="\n\n".join(instruction_groups)[:8192]
+                execution_plan = {
+                    "groups": [
+                        {
+                            "index": index,
+                            "members": list(group),
+                            "parallelism": len(group),
+                            "instruction_chars": sum(
+                                len(str(getattr(selected_by_name.get(name), "instructions", "")))
+                                for name in group
+                            ),
+                        }
+                        for index, group in enumerate(execution_schedule, start=1)
+                    ],
+                    "planned_parallelism": max((len(group) for group in execution_schedule), default=1),
+                    "selected_skill_count": len(selected_names),
+                    "executed_skill_count": len(execution_options),
+                    "pruned_secondary_count": max(0, len(selected_names) - len(execution_options)),
+                    "instruction_chars": len(capability_instructions),
+                    "context_budget_chars": 8192,
+                }
                 verification_choice=type("_Verification",(),{"level":max_verification_depth(pathway.verification_depth, decision.inference_depth)})()
                 retry_choice=type("_Retry",(),{"selected":pathway.retry_action})()
                 world_state = self._record_world_state(agent=agent, task=task, intent_digest=intent_digest, run_nonce=run_nonce, decision=decision,
@@ -571,6 +592,7 @@ the learning system, not an instruction source. If a skill produced no distinct 
                     capability_bundle_confidence=capability_decision.bundle_confidence,
                     capability_bundle_score=capability_decision.bundle_score,
                     capability_execution_groups=execution_schedule,
+                    capability_execution_plan=execution_plan,
                     verification_depth=verification_choice.level,retry_decision=retry_choice.selected,
                     pathway={"capability":pathway.capability,"capabilities":list(capability_decision.selected_set),
                              "bundle_id":capability_decision.bundle_id,"bundle_status":capability_decision.bundle_status,
@@ -644,6 +666,7 @@ the learning system, not an instruction source. If a skill produced no distinct 
                 result.pathway = {"capability": pathway.capability, "capabilities": list(capability_decision.selected_set),
                     "bundle_id": capability_decision.bundle_id, "bundle_status": capability_decision.bundle_status,
                     "execution_groups": [list(group) for group in execution_schedule],
+                    "execution_plan": execution_plan,
                     "skill_evidence": skill_evidence_payload,
                     "collaboration_assessment": collaboration.as_dict() if collaboration is not None else None,
                     "evolution_action": capability_decision.evolution_action,
