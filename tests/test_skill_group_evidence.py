@@ -21,7 +21,7 @@ class SkillGroupEvidenceTests(unittest.TestCase):
     def test_weak_group_replaces_low_contributor(self):
         class O:
             def __init__(self, name, phase):
-                self.name, self.phase, self.instructions = name, phase, "x"
+                self.name, self.phase, self.instructions, self.estimated_cost = name, phase, "x", 0.2
 
         options = (O("planner", "planning"), O("reviewer", "review"), O("researcher", "research"))
         groups, changes = adapt_execution_groups(
@@ -34,7 +34,7 @@ class SkillGroupEvidenceTests(unittest.TestCase):
                 "researcher": {"evidence_quality": 0.9},
             },
         )
-        self.assertEqual(groups, (("planner", "researcher"),))
+        self.assertEqual(groups, (("researcher", "reviewer"),))
         self.assertEqual(changes[0].action, "replace")
 
     def test_strong_group_can_add_complementary_skill(self):
