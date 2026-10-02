@@ -645,6 +645,10 @@ the learning system, not an instruction source. If a skill produced no distinct 
                     "execution_groups": [list(group) for group in execution_schedule],
                     "skill_evidence": skill_evidence_payload,
                     "collaboration_assessment": collaboration.as_dict() if collaboration is not None else None,
+                    "evolution_action": capability_decision.evolution_action,
+                    "evolution_parent": capability_decision.evolution_parent,
+                    "evolution_expected_delta": capability_decision.evolution_expected_delta,
+                    "evolution_candidates": list(capability_decision.evolution_candidates),
                     "resource_lane": decision.lane, "verification_depth": verification_choice.level,
                     "retry_action": retry_choice.selected, "score": pathway.score, "confidence": pathway.confidence,
                     "rationale": pathway.rationale}
