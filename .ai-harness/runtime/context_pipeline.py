@@ -224,6 +224,20 @@ class ContextAcquisitionPipeline:
                 selected_mode = "history"
                 candidates.extend(history_evidence)
 
+        # Sanitize every candidate at the final evidence boundary as a defense in depth.
+        candidates = [
+            EvidenceCandidate(
+                item.evidence_id,
+                item.kind,
+                self._safe_text(item.text),
+                item.relevance,
+                item.confidence,
+                item.freshness,
+                item.cost,
+                item.source,
+            )
+            for item in candidates
+        ]
         selected = select_evidence(candidates, budget=plan.budget, max_items=plan.max_items)
         self._broker.register_many(
             ContextCandidate(
