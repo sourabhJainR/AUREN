@@ -83,6 +83,26 @@ class AgentCapabilityTests(unittest.TestCase):
         self.assertIn(decision.selected, {"core-file", "optional-mcp"})
         self.assertTrue(decision.alternatives)
 
+    def test_capability_executioner_uses_learned_cost_latency_and_failure(self):
+        from portable.agent_capabilities import CapabilityExecutioner, CapabilityOption
+        executioner = CapabilityExecutioner()
+        options = (
+            CapabilityOption("fast-expensive", tags=frozenset({"search"}), estimated_cost=0.2, estimated_latency_ms=100),
+            CapabilityOption("slow-cheap", tags=frozenset({"search"}), estimated_cost=0.2, estimated_latency_ms=100),
+        )
+        history = {
+            "fast-expensive": {
+                "success_rate": 0.9, "evidence_quality": 0.9, "confidence": 1.0,
+                "avg_cost": 1.0, "avg_latency": 4.5, "failure_rate": 0.1,
+            },
+            "slow-cheap": {
+                "success_rate": 0.9, "evidence_quality": 0.9, "confidence": 1.0,
+                "avg_cost": 0.1, "avg_latency": 0.1, "failure_rate": 0.1,
+            },
+        }
+        decision = executioner.select(request="search", options=options, history=history)
+        self.assertEqual(decision.selected, "slow-cheap")
+
     def test_capability_executioner_fails_over_after_failed_optional_path(self):
         from portable.agent_capabilities import CapabilityExecutioner, CapabilityOption
         executioner = CapabilityExecutioner()
