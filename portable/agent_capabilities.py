@@ -625,6 +625,56 @@ class CapabilityExecutioner:
         return tuple(options)
 
 
+    @staticmethod
+    def candidate_portfolio(
+        options: Iterable[CapabilityOption],
+        *,
+        request: str = "",
+        max_candidates: int = 32,
+    ) -> tuple[CapabilityOption, ...]:
+        """Bound discovery while preserving safe fallback and source diversity."""
+        limit = max(1, min(int(max_candidates), 64))
+        candidates = list({option.name: option for option in options if option.available}.values())
+        if len(candidates) <= limit:
+            return tuple(sorted(candidates, key=lambda item: (item.source, item.name)))
+        tokens = set(re.findall(r"[a-z0-9]+", request.lower()))
+
+        def fit(option: CapabilityOption) -> tuple[float, float, float, float, str]:
+            words = set(re.findall(
+                r"[a-z0-9]+",
+                (option.name + " " + option.description + " " + " ".join(option.tags)).lower(),
+            ))
+            overlap = len(tokens & words)
+            quality = max(0.0, min(1.0, option.evidence_quality))
+            confidence = max(0.0, min(1.0, option.confidence))
+            cost = max(0.0, min(1.0, option.estimated_cost))
+            return (float(overlap), quality, confidence, -cost, option.name)
+
+        by_source: dict[str, list[CapabilityOption]] = {}
+        for option in candidates:
+            by_source.setdefault(option.source, []).append(option)
+        sources = sorted(by_source)
+        selected: list[CapabilityOption] = []
+        # Reserve one representative per discovered source whenever the budget
+        # permits. This prevents a large optional ecosystem from hiding another.
+        if len(sources) <= limit:
+            for source in sources:
+                selected.append(max(by_source[source], key=fit))
+        # Prefer remaining core options, then fill the residual budget by the
+        # same evidence-aware fit. Selection is deterministic.
+        remaining = [o for o in candidates if o not in selected]
+        remaining.sort(key=lambda option: (
+            option.source != "core",
+            -fit(option)[0],
+            -fit(option)[1],
+            -fit(option)[2],
+            fit(option)[3],
+            option.name,
+        ))
+        selected.extend(remaining[:max(0, limit - len(selected))])
+        return tuple(sorted(selected[:limit], key=lambda item: (item.source, item.name)))
+
+
     def select(
         self,
         *,

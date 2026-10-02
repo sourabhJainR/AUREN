@@ -430,5 +430,34 @@ class AgentCapabilityTests(unittest.TestCase):
         self.assertIn("skill-search", result.alternatives + (result.selected,))
 
 
+    def test_candidate_portfolio_preserves_core_and_source_diversity(self):
+        from portable.agent_capabilities import CapabilityExecutioner, CapabilityOption
+        selector = CapabilityExecutioner()
+        options = tuple(
+            [CapabilityOption(f"core-{i}", source="core", tags=frozenset({"fallback"})) for i in range(8)]
+            + [CapabilityOption(f"skill-{i}", source="skill", tags=frozenset({"search" if i == 0 else "other"}), evidence_quality=0.9 if i == 0 else 0.2) for i in range(20)]
+            + [CapabilityOption(f"mcp-{i}", source="mcp", tags=frozenset({"search"})) for i in range(20)]
+        )
+        portfolio = selector.candidate_portfolio(options, request="search", max_candidates=12)
+        self.assertEqual(len(portfolio), 12)
+        self.assertGreaterEqual(sum(option.source == "core" for option in portfolio), 8)
+        self.assertTrue(any(option.source == "skill" for option in portfolio))
+        self.assertTrue(any(option.source == "mcp" for option in portfolio))
+        self.assertIn("skill-0", {option.name for option in portfolio})
+
+    def test_candidate_portfolio_keeps_each_source_when_budget_is_tight(self):
+        from portable.agent_capabilities import CapabilityExecutioner, CapabilityOption
+        selector = CapabilityExecutioner()
+        options = tuple(
+            [CapabilityOption("core", source="core")]
+            + [CapabilityOption("skill-a", source="skill", evidence_quality=0.9)]
+            + [CapabilityOption("mcp-a", source="mcp", evidence_quality=0.9)]
+            + [CapabilityOption("plugin-a", source="plugin", evidence_quality=0.9)]
+            + [CapabilityOption(f"extra-{i}", source="skill") for i in range(10)]
+        )
+        portfolio = selector.candidate_portfolio(options, request="general", max_candidates=4)
+        self.assertEqual(len(portfolio), 4)
+        self.assertEqual({option.source for option in portfolio}, {"core", "skill", "mcp", "plugin"})
+
 if __name__ == "__main__":
     unittest.main()

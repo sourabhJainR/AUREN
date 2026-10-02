@@ -288,10 +288,15 @@ class GraphAgentTeam:
                     for name in declared_capabilities
                     if not any(option.name == name for option in installed)
                 )
+                dynamic_options = self.capability_executioner.candidate_portfolio(
+                    dynamic_options,
+                    request=f"{agent.role} {agent.focus} {task[:160]}",
+                    max_candidates=32,
+                )
                 profile=execution_strategy(strategy_name)
                 evidence_quality=float(decision.historical.get("evidence_yield", agent.evidence_value))
                 capability_history={}
-                for option in dynamic_options[:24]:
+                for option in dynamic_options:
                     summary=experience.summarize(agent.role+":"+task[:96]+":capability:"+option.name)
                     if summary:
                         capability_history[option.name]={
