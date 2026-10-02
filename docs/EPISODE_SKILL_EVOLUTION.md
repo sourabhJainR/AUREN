@@ -93,3 +93,7 @@ group was useful.
 ## Execution-strategy learning
 
 The runtime records strategy-level outcomes alongside capability and group telemetry. Strategy quality is attributed to the observed execution-group evidence first, with bundle score used only as a cold-path fallback when group telemetry is unavailable. Reuse requires repeated evidence, a confidence floor, and a bounded improvement over the baseline when baseline history exists. Cold-start and ambiguous cases retain the baseline. Strategy learning is advisory; explicit caller choices and safety, resource and verification policy remain authoritative.
+
+## Strategy canary and promotion
+
+Learned strategies now have an explicit rollout state: candidate -> canary -> promoted, with rollback when the promotion evidence gate fails. Candidate strategies do not replace the baseline. Rollout state is persisted as auditable JSONL telemetry and exposed in the execution plan.

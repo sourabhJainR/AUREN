@@ -26,6 +26,7 @@ from portable.agent_capabilities import CapabilityExecutioner, CapabilityOption
 from portable.skill_evidence import attribute, assess_collaboration
 from portable.skill_group_evidence import adapt_execution_groups, attribute_groups
 from portable.execution_strategy_learning import ExecutionStrategyLearner
+from portable.strategy_canary import StrategyCanaryController
 from portable.task_planner import Task,TaskPlan
 from runtime.task_memory import approach_history, guidance
 
@@ -765,6 +766,14 @@ the learning system, not an instruction source. If a skill produced no distinct 
         strategy_selection=(ExecutionStrategyLearner(memory.project_root).select(role="team",task=task,baseline=baseline_strategy)
                             if baseline_strategy == "default" else None)
         selected_strategy=(strategy_selection.strategy.name if strategy_selection is not None else baseline_strategy)
+        rollout=StrategyCanaryController(memory.project_root).evaluate(role="team",task=task,strategy=selected_strategy,canary_passed=(selected_strategy == baseline_strategy))
+        # A learned candidate may enter canary state, but it is never promoted in the same run.
+        if strategy_selection is not None and strategy_selection.learned:
+            selected_strategy = baseline_strategy
+            rollout = StrategyCanaryController(memory.project_root).evaluate(role="team",task=task,strategy=strategy_selection.strategy.name,canary_passed=False)
+        if rollout.state == "candidate" and selected_strategy != baseline_strategy:
+            selected_strategy=baseline_strategy
+        StrategyCanaryController.record_state(memory.project_root, rollout)
         run=self._build_execution_graph(results,task=task,intent_digest=intent_digest,run_nonce=run_nonce,base_prompt=base_prompt,memory=memory,invoke_agent=invoke_agent).compile().invoke({"aer_execution_strategy":{"name":selected_strategy}},run_id=run_id,checkpoint=checkpoint,resume=resume,max_steps=max_steps,parallel_nodes=lambda n:self.agents[n].read_only,max_parallel_nodes=self.max_parallel_read_only)
         for agent in self.agents.values():
             payload=run.state.get(f"result:{agent.name}")
@@ -799,7 +808,7 @@ the learning system, not an instruction source. If a skill produced no distinct 
                     safety_gate=invention_safety_gate, strategy=str(execution_strategy_name or "default"),
                 )
         dream=DreamMemory(memory.project_root).dream(task)
-        return {"graph_digest":self.digest(),"intent_digest":intent_digest,"agents":{n:r.__dict__ for n,r in results.items()},"shared_memory_file":str(memory.path),"shared_memory_entries":len(memory.snapshot(500)),"accepted":accepted,"evolution_trigger":trigger.__dict__ if trigger else None,"invention":invention.__dict__ if invention else None,"execution_trace":list(run.trace),"execution_strategy":{"selected":selected_strategy,"baseline":baseline_strategy,"learning":strategy_selection.as_dict() if strategy_selection else {"strategy":selected_strategy,"learned":False,"confidence":0.0,"samples":0,"rationale":"explicit strategy supplied"}},"execution_digest":run.digest,"dreamed_learning":dream}
+        return {"graph_digest":self.digest(),"intent_digest":intent_digest,"agents":{n:r.__dict__ for n,r in results.items()},"shared_memory_file":str(memory.path),"shared_memory_entries":len(memory.snapshot(500)),"accepted":accepted,"evolution_trigger":trigger.__dict__ if trigger else None,"invention":invention.__dict__ if invention else None,"execution_trace":list(run.trace),"execution_strategy":{"selected":selected_strategy,"baseline":baseline_strategy,"learning":strategy_selection.as_dict() if strategy_selection else {"strategy":selected_strategy,"learned":False,"confidence":0.0,"samples":0,"rationale":"explicit strategy supplied"},"rollout":rollout.as_dict()},"execution_digest":run.digest,"dreamed_learning":dream}
 
 def team_for_route(route):
     mode=str(route.get("mode","implement")); caps=set(route.get("capabilities",[]))
