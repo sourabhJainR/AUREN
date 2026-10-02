@@ -22,8 +22,8 @@ def test_pipeline_pivots_after_a_failed_retrieval_path() -> None:
 
         def fake_retrieve(mode: str, query: str, budget: int, max_items: int):
             calls.append(mode)
-            if mode == "semantic":
-                raise RuntimeError("simulated fetch failure")
+            if mode in {"semantic", "lexical"}:
+                raise RuntimeError(f"simulated {mode} fetch failure")
             if mode == "structural":
                 return {
                     "evidence": [
@@ -51,9 +51,10 @@ def test_pipeline_pivots_after_a_failed_retrieval_path() -> None:
             phase="investigate",
             intent_digest="intent-1",
             uncertainty="high",
+            policy_strategy="semantic_first",
         )
 
-        assert calls == ["semantic", "structural"]
+        assert calls == ["semantic", "lexical", "structural"]
         assert len(evidence.items) == 1
         assert "semantic retrieval failed" in "\n".join(evidence.unknowns)
 
@@ -97,6 +98,7 @@ def test_requested_pack_is_preserved_as_supplemental_context() -> None:
             phase="investigate",
             intent_digest="intent-1",
             uncertainty="high",
+            policy_strategy="semantic_first",
             pack=True,
         )
 
