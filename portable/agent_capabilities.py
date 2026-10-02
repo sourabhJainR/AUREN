@@ -988,6 +988,12 @@ class CapabilityExecutioner:
                 status = self._bundle_status(prior)
                 if status == "retired":
                     continue
+                # A repeatedly measured negative collaboration delta is a
+                # counterfactual rejection signal: do not keep paying to rediscover
+                # a bundle that underperforms its singleton baseline.
+                if int(float(prior.get("samples", 0))) >= 3 and prior.get("collaboration_delta") is not None:
+                    if float(prior.get("collaboration_delta", 0.0)) < 0.0:
+                        continue
                 bundle_success = max(0.0, min(1.0, float(prior.get("success_rate", 0.5))))
                 bundle_evidence = max(0.0, min(1.0, float(prior.get("evidence_quality", evidence))))
                 bundle_confidence = max(0.0, min(1.0, float(prior.get("confidence", confidence))))
