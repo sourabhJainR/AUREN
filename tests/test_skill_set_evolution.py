@@ -51,7 +51,7 @@ class AdaptiveSkillSetEvolutionTests(unittest.TestCase):
             contribution_history={},
             resource_budget=0.5,
         )
-        self.assertFalse(any("reviewer" in mutation.members or "implementer" in mutation.members for mutation in mutations))
+        self.assertFalse(any("implementer" in mutation.members or len(mutation.members) > 1 for mutation in mutations))
 
     def test_negative_parent_is_not_evolved(self):
         option = CapabilityOption("planner", tags=frozenset({"plan"}))
