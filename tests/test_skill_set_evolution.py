@@ -73,6 +73,7 @@ class AdaptiveSkillSetEvolutionTests(unittest.TestCase):
         )
         self.assertIn(result.evolution_action, {"baseline", "remove", "add", "swap"})
         self.assertTrue(result.evolution_candidates)
+        self.assertIn(result.evolution_stage, {"none", "canary", "promoted"})
 
 
 if __name__ == "__main__":
