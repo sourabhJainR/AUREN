@@ -543,7 +543,7 @@ class CapabilityExecutioner:
             raw = sidecar.read_text(encoding="utf-8", errors="replace")[:2048]
         except OSError:
             return True
-        match = re.search(r"(?mi)^\\s*allow_implicit_invocation\\s*:\\s*(true|false)\\s*$", raw)
+        match = re.search(r"(?mi)^\s*allow_implicit_invocation\s*:\s*(true|false)\s*$", raw)
         return not (match and match.group(1).lower() == "false")
 
     @staticmethod
@@ -852,9 +852,7 @@ class CapabilityExecutioner:
         for size in range(1, limit + 1):
             for names in itertools.combinations(sorted(by_name), size):
                 members = tuple(by_name[name] for name in names)
-                if primary.selected not in names and size > 1:
-                    continue
-                metrics = self._bundle_metrics(request, members, history)
+                 metrics = self._bundle_metrics(request, members, history)
                 coverage, phase_diversity, source_diversity, evidence, confidence, redundancy, reason = metrics
                 if coverage < 0 or reason:
                     continue
