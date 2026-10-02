@@ -130,7 +130,7 @@ class AdaptiveSkillSetEvolver:
                 for added in outsiders[:3]:
                     candidate = tuple(sorted(parent + (added,)))
                     delta = self._bundle_value(candidate, history, contribution_history) - base
-                    if delta >= self.min_expected_delta:
+                    if delta >= self.min_expected_delta and self._resource_cost(candidate, available, history) <= resource_budget and self._context_cost(candidate, available) <= context_budget_chars:
                         mutations.append(SkillSetMutation(
                             "add", parent_id, parent, candidate, delta,
                             f"add complementary member {added}",
@@ -140,7 +140,7 @@ class AdaptiveSkillSetEvolver:
                 for added in outsiders[:3]:
                     candidate = tuple(sorted([name for name in parent if name != removed] + [added]))
                     delta = self._bundle_value(candidate, history, contribution_history) - base
-                    if delta >= self.min_expected_delta:
+                    if delta >= self.min_expected_delta and self._resource_cost(candidate, available, history) <= resource_budget and self._context_cost(candidate, available) <= context_budget_chars:
                         mutations.append(SkillSetMutation(
                             "swap", parent_id, parent, candidate, delta,
                             f"replace {removed} with {added}",
