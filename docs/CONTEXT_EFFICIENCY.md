@@ -101,3 +101,27 @@ Primary objective:
 `quality first -> reliability -> token efficiency -> latency -> cost`
 
 A token-saving optimization that reduces verified task success must be rejected.
+## 11. Evidence-driven retrieval recovery
+
+A retrieval failure is a state transition, not permission to repeat the same fetch. The context pipeline records the failed retrieval mode in the existing task-memory ledger, preserves the failure as negative evidence, and selects a different bounded retrieval mode. Previously successful retrieval modes may be preferred, but current failures always take precedence.
+
+Recovery is bounded:
+
+`attempt -> observe -> classify -> pivot -> verify`
+
+If every permitted retrieval mode fails, the pipeline stops and carries the failure and unknowns in the evidence envelope. It does not broaden scope, silently change permissions, or loop indefinitely.
+
+This is the transferable Colibri principle: cache and reuse useful locality, use measured history to guide the next access, instrument misses, and fall back to a valid alternate path. HWS applies that principle to repository/context retrieval rather than copying Colibri's model-serving implementation.
+
+
+## Typed decision advisor seam
+
+The context pipeline accepts an optional typed decision_advisor callback for retrieval-mode selection. This is intentionally provider-neutral: a JEV adapter can supply a bounded Choice decision over the retrieval modes plus confidence, while the pipeline enforces the allowlist, failed-mode exclusion, confidence threshold, evidence collection, and terminal stop policy.
+
+JEV is therefore a decision input, not an execution authority. If the advisor is unavailable, malformed, below threshold, or recommends a failed/unavailable mode, HWS falls back to the deterministic retrieval planner. No JEV SDK or network dependency is required by the core runtime.
+
+The intended integration shape is:
+
+bounded context state -> typed decision -> deterministic policy -> retrieval -> evidence -> verification
+
+Keep questions atomic and let ordinary HWS code own policy and action. Model judgment may guide a decision, but repository instructions, security controls, evidence requirements, and execution authority remain deterministic.

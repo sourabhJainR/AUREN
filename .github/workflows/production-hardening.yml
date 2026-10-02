@@ -37,11 +37,11 @@ jobs:
           mkdir -p dist/aer-portable
       - name: Compile AER components
         run: |
-          python -m py_compile aer_cli.py portable/aer_runtime.py portable/orchestration.py .ai-harness/security_gate.py .ai-harness/safe_provider.py .ai-harness/state_validator.py .ai-harness/verification_gate.py .ai-harness/run.py .ai-harness/provider.py .ai-harness/p1_lifecycle.py .ai-harness/runtime/artifact_chain.py .ai-harness/runtime/work_report.py .ai-harness/runtime/regression_memory.py .ai-harness/runtime/regression_selector.py .ai-harness/runtime/learning_controller.py .ai-harness/runtime/work_report_traceability.py .ai-harness/runtime/requirement_traceability.py
+          python -m py_compile aer_cli.py portable/aer_runtime.py portable/orchestration.py .ai-harness/security_gate.py .ai-harness/safe_provider.py .ai-harness/state_validator.py .ai-harness/verification_gate.py .ai-harness/run.py .ai-harness/provider.py .ai-harness/p1_lifecycle.py .ai-harness/runtime/artifact_chain.py .ai-harness/runtime/work_report.py .ai-harness/runtime/regression_memory.py .ai-harness/runtime/regression_selector.py .ai-harness/runtime/learning_controller.py .ai-harness/runtime/work_report_traceability.py .ai-harness/runtime/requirement_traceability.py .ai-harness/runtime/context_pipeline.py .ai-harness/runtime/context_planner.py
       - name: Run focused hardening tests
         run: |
           set -euo pipefail
-          tests=(tests.test_security_gate tests.test_state_validator tests.test_provider tests.test_execution_controls tests.test_verification_gate tests.test_artifact_chain tests.test_orchestration tests.test_work_report tests.test_regression_memory tests.test_work_report_traceability tests.test_requirement_traceability)
+          tests=(tests.test_security_gate tests.test_state_validator tests.test_provider tests.test_execution_controls tests.test_verification_gate tests.test_artifact_chain tests.test_orchestration tests.test_work_report tests.test_regression_memory tests.test_work_report_traceability tests.test_requirement_traceability tests.test_context_pipeline_recovery)
           for test_module in "${tests[@]}"; do
             echo "===== RUNNING ${test_module} ====="
             python -m unittest "${test_module}" -v 2>&1 | tee "ci-artifacts/${test_module##*.}.log"
