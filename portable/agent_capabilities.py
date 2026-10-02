@@ -861,7 +861,7 @@ class CapabilityExecutioner:
             return "degraded"
         if samples >= 4 and success >= 0.78 and float(prior.get("confidence", 0.0)) >= 0.5:
             delta = prior.get("collaboration_delta")
-            if delta is None or float(delta) >= 0.05:
+            if delta is not None and float(delta) >= 0.05:
                 return "proven"
         return "experimental"
 
