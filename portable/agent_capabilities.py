@@ -545,7 +545,7 @@ class CapabilityExecutioner:
             value = value.strip()
             if key in list_keys:
                 if value.startswith("[") and value.endswith("]"):
-                    metadata[key] = [item.strip().strip("'\\"") for item in value[1:-1].split(",") if item.strip()]
+                    metadata[key] = [item.strip().strip("'").strip('"') for item in value[1:-1].split(",") if item.strip()]
                 elif value:
                     metadata[key] = [item.strip() for item in value.split(",") if item.strip()]
             elif key in {"model_invocable", "disable_model_invocation", "requires_network", "requires_sandbox"}:
@@ -554,7 +554,7 @@ class CapabilityExecutioner:
                 if key == "disable_model_invocation":
                     metadata["model_invocable"] = not parsed
             elif key in {"description", "phase", "risk"}:
-                metadata[key] = value.strip("'\\"")
+                metadata[key] = value.strip("'").strip('"')
         return metadata, "\n".join(lines[end + 1:])
 
     @staticmethod
