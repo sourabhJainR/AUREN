@@ -459,6 +459,23 @@ class AgentCapabilityTests(unittest.TestCase):
         self.assertEqual(len(portfolio), 4)
         self.assertEqual({option.source for option in portfolio}, {"core", "skill", "mcp", "plugin"})
 
+    def test_bundle_graduation_requires_positive_collaboration_delta(self):
+        from portable.agent_capabilities import CapabilityExecutioner
+        self.assertEqual(
+            CapabilityExecutioner._bundle_status({
+                "samples": 6, "success_rate": 0.9, "confidence": 0.9,
+                "collaboration_delta": 0.01,
+            }),
+            "experimental",
+        )
+        self.assertEqual(
+            CapabilityExecutioner._bundle_status({
+                "samples": 6, "success_rate": 0.9, "confidence": 0.9,
+                "collaboration_delta": 0.10,
+            }),
+            "proven",
+        )
+
     def test_low_contribution_member_is_penalized_in_bundle_selection(self):
         from portable.agent_capabilities import CapabilityExecutioner, CapabilityOption
         selector = CapabilityExecutioner(min_exploration=0.0)
