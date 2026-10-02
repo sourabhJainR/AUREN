@@ -138,7 +138,17 @@ class AgentCapabilityTests(unittest.TestCase):
             from pathlib import Path
             skill = Path(tmp) / "skills" / "repo-review"
             skill.mkdir(parents=True)
-            (skill / "SKILL.md").write_text("# Repository review\nUse repository evidence.\n", encoding="utf-8")
+            (skill / "SKILL.md").write_text(
+                "---\n"
+                "description: Repository review\n"
+                "phase: review\n"
+                "tags: [review, validation]\n"
+                "provides: [review]\n"
+                "requires: [repository]\n"
+                "---\n"
+                "Use repository evidence.\n",
+                encoding="utf-8",
+            )
             import os
             previous = os.environ.get("AER_SKILLS_PATH")
             os.environ["AER_SKILLS_PATH"] = str(Path(tmp) / "skills")
@@ -146,6 +156,10 @@ class AgentCapabilityTests(unittest.TestCase):
                 options = CapabilityExecutioner().discover_installed(tmp)
                 self.assertEqual([item.name for item in options], ["skill:repo-review"])
                 self.assertLessEqual(len(options), 64)
+                self.assertEqual(options[0].phase, "review")
+                self.assertIn("review", options[0].provides)
+                self.assertIn("repository", options[0].requires)
+                self.assertTrue(options[0].model_invocable)
             finally:
                 if previous is None:
                     os.environ.pop("AER_SKILLS_PATH", None)
@@ -211,6 +225,40 @@ class AgentCapabilityTests(unittest.TestCase):
             },
         )
         self.assertEqual(result.selected, "proven-search")
+
+    def test_user_invoked_skill_is_not_selected_autonomously(self):
+        from portable.agent_capabilities import CapabilityExecutioner, CapabilityOption
+        result = CapabilityExecutioner().select_collaborative(
+            request="plan repository changes",
+            options=(
+                CapabilityOption("model-plan", source="skill", tags=frozenset({"plan"}), phase="plan"),
+                CapabilityOption("human-only-plan", source="skill", tags=frozenset({"plan", "human"}), phase="plan", model_invocable=False),
+            ),
+        )
+        self.assertNotIn("human-only-plan", result.selected_set)
+
+    def test_skill_front_matter_parses_model_invocation_policy(self):
+        import os, tempfile
+        from portable.agent_capabilities import CapabilityExecutioner
+        previous = os.environ.get("AER_SKILLS_PATH")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "skills"
+            skill = root / "manual-only"
+            skill.mkdir(parents=True)
+            (skill / "SKILL.md").write_text(
+                "---\ndisable-model-invocation: true\nphase: planning\ntags: [plan]\n---\nOnly a human should invoke this.\n",
+                encoding="utf-8",
+            )
+            os.environ["AER_SKILLS_PATH"] = str(root)
+            try:
+                option = next(item for item in CapabilityExecutioner().discover_installed(tmp) if item.name == "skill:manual-only")
+                self.assertFalse(option.model_invocable)
+                self.assertEqual(option.phase, "planning")
+            finally:
+                if previous is None:
+                    os.environ.pop("AER_SKILLS_PATH", None)
+                else:
+                    os.environ["AER_SKILLS_PATH"] = previous
 
     def test_collaborative_selection_combines_complementary_skills(self):
         from portable.agent_capabilities import CapabilityExecutioner, CapabilityOption

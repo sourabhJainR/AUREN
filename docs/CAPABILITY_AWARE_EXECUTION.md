@@ -136,3 +136,18 @@ Capability selection now balances exploration and exploitation from observed sam
 ## Collaborative skill selection
 
 AER can evaluate multiple discovered skills as a bounded set instead of forcing a single winner. It starts from the strongest individual capability, then adds complementary skills when their marginal task coverage and evidence justify the bounded cost. This supports overlapping skills from different sources without requiring the user to name or coordinate them. Every member is independently subject to the existing risk, network, sandbox and failure policy.
+
+
+## Invocation-aware skill discovery
+
+AER reads a bounded provider-neutral subset of skill front matter: phase, tags,
+provides, requires, model-invocable, risk and resource requirements.
+
+This adapts the useful invocation boundary from Matt Pocock's skills. A skill
+marked as human-only is retained as an available resource but is not selected by
+the autonomous executioner. AER does not grant execution authority from skill
+metadata. Dependencies and phases are inputs to selection and orchestration
+only.
+
+Malformed or missing metadata falls back to safe defaults, and external skill
+providers remain optional.
