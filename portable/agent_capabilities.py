@@ -501,6 +501,7 @@ class CapabilityExecutioner:
                 except OSError:
                     continue
                 metadata, body = self._skill_metadata(raw)
+                codex_model_invocable = self._codex_model_invocable(directory)
                 description = str(metadata.get("description") or next(
                     (line.lstrip("# ").strip() for line in body.splitlines() if line.strip() and not line.startswith("---")),
                     directory.name,
@@ -518,7 +519,7 @@ class CapabilityExecutioner:
                     phase=str(metadata.get("phase") or "general").strip().lower(),
                     provides=frozenset(str(item).lower() for item in provides if str(item).strip()),
                     requires=frozenset(str(item).lower() for item in requires if str(item).strip()),
-                    model_invocable=bool(metadata.get("model_invocable", True)),
+                    model_invocable=bool(metadata.get("model_invocable", True)) and codex_model_invocable,
                     risk=str(metadata.get("risk", "low")).strip().lower(),
                     requires_network=bool(metadata.get("requires_network", False)),
                     requires_sandbox=bool(metadata.get("requires_sandbox", False)),
@@ -533,6 +534,17 @@ class CapabilityExecutioner:
             except (TypeError, ValueError, OverflowError):
                 continue
         return tuple(sorted({item.name: item for item in options}.values(), key=lambda item: (item.source, item.name)))
+
+    @staticmethod
+    def _codex_model_invocable(skill_root: Path) -> bool:
+        """Honor the Codex sidecar when a skill declares implicit invocation policy."""
+        sidecar = skill_root / "agents" / "openai.yaml"
+        try:
+            raw = sidecar.read_text(encoding="utf-8", errors="replace")[:2048]
+        except OSError:
+            return True
+        match = re.search(r"(?mi)^\\s*allow_implicit_invocation\\s*:\\s*(true|false)\\s*$", raw)
+        return not (match and match.group(1).lower() == "false")
 
     @staticmethod
     def _skill_metadata(raw: str) -> tuple[dict[str, Any], str]:
