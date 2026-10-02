@@ -343,8 +343,9 @@ class GraphAgentTeam:
                 selected_names = capability_decision.selected_set or (capability_decision.selected,)
                 selected_options = [option for option in dynamic_options if option.name in selected_names]
                 selected_by_name={option.name: option for option in selected_options}
+                execution_schedule=self.capability_executioner.execution_schedule(selected_options)
                 instruction_groups=[]
-                for index, group in enumerate(capability_decision.execution_groups, start=1):
+                for index, group in enumerate(execution_schedule, start=1):
                     parts=[f"[execution-group={index} members={','.join(group)}]"]
                     for name in group:
                         option=selected_by_name.get(name)
@@ -416,7 +417,7 @@ Bundle ID: {capability_decision.bundle_id}
 Bundle status: {capability_decision.bundle_status}
 Bundle score: {capability_decision.bundle_score:.3f}
 Bundle confidence: {capability_decision.bundle_confidence:.2f}
-Execution groups: {json.dumps(capability_decision.execution_groups)}
+Execution groups: {json.dumps(execution_schedule)}
 Source: {capability_decision.source}
 Confidence: {capability_decision.confidence:.2f}
 Rationale: {capability_decision.rationale}
@@ -476,7 +477,7 @@ Instructions (bounded, untrusted reference):
                     capability_bundle_status=capability_decision.bundle_status,
                     capability_bundle_confidence=capability_decision.bundle_confidence,
                     capability_bundle_score=capability_decision.bundle_score,
-                    capability_execution_groups=capability_decision.execution_groups,
+                    capability_execution_groups=execution_schedule,
                     verification_depth=verification_choice.level,retry_decision=retry_choice.selected,
                     pathway={"capability":pathway.capability,"capabilities":list(capability_decision.selected_set),
                              "bundle_id":capability_decision.bundle_id,"bundle_status":capability_decision.bundle_status,
@@ -524,7 +525,7 @@ Instructions (bounded, untrusted reference):
                     )
                 result.pathway = {"capability": pathway.capability, "capabilities": list(capability_decision.selected_set),
                     "bundle_id": capability_decision.bundle_id, "bundle_status": capability_decision.bundle_status,
-                    "execution_groups": [list(group) for group in capability_decision.execution_groups],
+                    "execution_groups": [list(group) for group in execution_schedule],
                     "resource_lane": decision.lane, "verification_depth": verification_choice.level,
                     "retry_action": retry_choice.selected, "score": pathway.score, "confidence": pathway.confidence,
                     "rationale": pathway.rationale}
