@@ -101,3 +101,14 @@ Primary objective:
 `quality first -> reliability -> token efficiency -> latency -> cost`
 
 A token-saving optimization that reduces verified task success must be rejected.
+## 11. Evidence-driven retrieval recovery
+
+A retrieval failure is a state transition, not permission to repeat the same fetch. The context pipeline records the failed retrieval mode in the existing task-memory ledger, preserves the failure as negative evidence, and selects a different bounded retrieval mode. Previously successful retrieval modes may be preferred, but current failures always take precedence.
+
+Recovery is bounded:
+
+`attempt -> observe -> classify -> pivot -> verify`
+
+If every permitted retrieval mode fails, the pipeline stops and carries the failure and unknowns in the evidence envelope. It does not broaden scope, silently change permissions, or loop indefinitely.
+
+This is the transferable Colibri principle: cache and reuse useful locality, use measured history to guide the next access, instrument misses, and fall back to a valid alternate path. HWS applies that principle to repository/context retrieval rather than copying Colibri's model-serving implementation.
