@@ -184,6 +184,18 @@ class ContextAcquisitionPipeline:
         retrieval_items = allocation.max_items
 
         while True:
+            allocation = allocate_context(
+                base_budget=plan.budget,
+                base_items=plan.max_items,
+                risk=risk,
+                uncertainty=uncertainty,
+                failure_rate=len(failed_modes) / max(1, len(available)),
+                context_pressure=min(1.0, len(self._broker.active()) / max(1, self._broker.max_items)),
+                working_modes=working_modes,
+                failed_modes=failed_modes,
+            )
+            retrieval_budget = allocation.budget
+            retrieval_items = allocation.max_items
             recovery = self._choose_recovery(
                 task_id=task_id,
                 query=query,
