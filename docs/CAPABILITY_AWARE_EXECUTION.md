@@ -112,3 +112,17 @@ verification paths.
 
 This keeps capability learning evidence-backed and avoids turning a single
 successful execution into a permanent preference.
+
+
+## Bounded exploration
+
+Capability history is used for exploitation, but AER also performs bounded
+exploration. When a safe capability has no historical observation, the selector
+may give one deterministic low-risk candidate a small exploration adjustment.
+The candidate must still satisfy risk, network, sandbox, availability and
+resource constraints.
+
+Exploration is intentionally small and deterministic. It does not override a
+required capability, a known failed capability, or the existing verification
+and stopping policy. Once an outcome is recorded, subsequent selection can use
+that evidence.

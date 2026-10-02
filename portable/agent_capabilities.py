@@ -572,6 +572,25 @@ class CapabilityExecutioner:
         failed_set = set(failed)
         required_set = set(required)
         tokens = set(re.findall(r"[a-z0-9]+", request.lower()))
+        history = history or {}
+        eligible = [
+            option for option in options
+            if option.name not in failed_set
+            and option.available
+            and self._allowed(option, network_allowed, sandbox_available, max_risk)
+        ]
+        # Bounded deterministic exploration: inspect one unseen low-risk option
+        # when available, without overriding required policy or failure history.
+        unexplored = [option for option in eligible if option.name not in history]
+        exploration = min(
+            unexplored,
+            key=lambda option: (
+                _RISK_ORDER.get(option.risk, 99),
+                option.estimated_cost,
+                option.estimated_latency_ms,
+                option.name,
+            ),
+        ) if unexplored and self.min_exploration > 0 else None
         candidates: list[tuple[CapabilityOption, float]] = []
         for option in options:
             if option.name in failed_set or not option.available:
@@ -602,6 +621,11 @@ class CapabilityExecutioner:
                 candidates.append((option, score))
         if not candidates:
             raise LookupError("no safe capability available for request")
+        if exploration is not None:
+            for index, (option, score) in enumerate(candidates):
+                if option.name == exploration.name:
+                    candidates[index] = (option, score + self.min_exploration * 0.10)
+                    break
         candidates.sort(key=lambda item: (-item[1], item[0].name))
         selected, score = candidates[0]
         degraded = selected.source != "core" and not any(option.source == "core" for option, _ in candidates)
