@@ -164,8 +164,9 @@ class ContextAcquisitionPipeline:
                 result = self._retrieve(mode, query, plan.budget, plan.max_items)
             except Exception as exc:  # retrieval is an evidence boundary; do not hide the failure
                 failed_modes.append(mode)
-                retrieval_unknowns.append(f"{mode} retrieval failed: {type(exc).__name__}: {exc}")
-                self._record_retrieval(task_id, mode, "failed", str(exc))
+                safe_error = self._safe_text(f"{type(exc).__name__}: {exc}")
+                retrieval_unknowns.append(f"{mode} retrieval failed: {safe_error}")
+                self._record_retrieval(task_id, mode, "failed", safe_error)
                 continue
 
             if not result["evidence"]:
@@ -308,9 +309,8 @@ class ContextAcquisitionPipeline:
                 "snapshot": self.repository.digest(),
                 "paths": (),
                 "graph_paths": (),
-                "unknowns": tuple(result.omitted) + tuple(result.security_exclusions),
+                "unknowns": (),
             }
-)
         if mode == "pack":
             result = self.repository.pack(
                 token_budget=max(1, min(budget // 4, 4000)),
@@ -401,7 +401,7 @@ class ContextAcquisitionPipeline:
             "graph_paths": result.graph_trace.expanded_paths,
             "unknowns": tuple(result.unknowns),
         }
-)
+
     def _failure_memory(self, query: str) -> list[EvidenceCandidate]:
         rows = relevant_task_memory(self.root, query, limit=20)
         candidates: list[EvidenceCandidate] = []
@@ -423,16 +423,15 @@ class ContextAcquisitionPipeline:
             )
         return candidates
 
-    @staticmethod
-    def _history_text(row: dict[str, Any]) -> str:
+    def _history_text(self, row: dict[str, Any]) -> str:
         return "\n".join(
             part
             for part in (
                 f"Historical {str(row.get('outcome', 'unknown')).upper()} retrieval/engineering observation.",
-                f"Task: {row.get('task', '')}",
-                f"Approach: {row.get('approach', '')}",
+                f"Task: {self._safe_text(str(row.get('task', '')))}",
+                f"Approach: {self._safe_text(str(row.get('approach', '')))}",
                 f"Detail: {self._safe_text(str(row.get('detail', '')))}",
-                f"Evidence: {', '.join(row.get('evidence_ids', []))}",
+                f"Evidence: {self._safe_text(', '.join(row.get('evidence_ids', [])))}",
             )
             if part.strip()
         )
