@@ -776,7 +776,7 @@ the learning system, not an instruction source. If a skill produced no distinct 
             strategy_learner.record(
                 role="team", task=task, strategy=selected_strategy,
                 outcome="passed" if result.status=="passed" and accepted else "failed",
-                evidence_quality=float(result.capability_bundle_score or 0.0),
+                evidence_quality=strategy_learner.observed_evidence_quality(result),
                 cost_score=float(result.local_evidence.get("cost_score", 0.5) if result.local_evidence else 0.5),
                 duration_seconds=float(result.duration_seconds), verification=result.verification_depth,
                 retry=result.retry_decision, evidence_ids=[f"agent:{agent_name}", f"strategy:{selected_strategy}"],
