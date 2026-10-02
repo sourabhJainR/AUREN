@@ -550,7 +550,7 @@ class CapabilityExecutioner:
         for option in options:
             if option.name in failed_set or not option.available:
                 continue
-            if option.name in required_set or self._allowed(option, network_allowed, sandbox_available, max_risk):
+            if self._allowed(option, network_allowed, sandbox_available, max_risk):
                 overlap = len(tokens & set(option.tags | frozenset(re.findall(r"[a-z0-9]+", option.description.lower()))))
                 fit = min(1.0, overlap / max(1, min(5, len(tokens)))) if tokens else 0.25
                 prior = history.get(option.name, {}) if history else {}
