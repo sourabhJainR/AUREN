@@ -81,6 +81,41 @@ class AdaptiveSkillSetEvolver:
             for name in members
         )
 
+    @classmethod
+    def _mutation_delta(
+        cls,
+        parent: Sequence[str],
+        candidate: Sequence[str],
+        options: Mapping[str, Any],
+        history: Mapping[str, Mapping[str, Any]],
+        contribution_history: Mapping[str, Mapping[str, Any]],
+    ) -> float:
+        """Estimate incremental value while charging for added cost and latency."""
+        parent_value = cls._bundle_value(parent, history, contribution_history)
+        candidate_value = cls._bundle_value(candidate, history, contribution_history)
+        parent_cost = cls._resource_cost(parent, options, history)
+        candidate_cost = cls._resource_cost(candidate, options, history)
+        parent_latency = sum(
+            max(0.0, float(history.get(name, {}).get(
+                "avg_latency", getattr(options[name], "estimated_latency_ms", 500) / 1000.0
+            )))
+            for name in parent
+        )
+        candidate_latency = sum(
+            max(0.0, float(history.get(name, {}).get(
+                "avg_latency", getattr(options[name], "estimated_latency_ms", 500) / 1000.0
+            )))
+            for name in candidate
+        )
+        parent_phases = {str(getattr(options[name], "phase", "general")) for name in parent}
+        candidate_phases = {str(getattr(options[name], "phase", "general")) for name in candidate}
+        phase_gain = min(0.06, 0.02 * len(candidate_phases - parent_phases))
+        cost_penalty = 0.08 * max(0.0, candidate_cost - parent_cost)
+        latency_penalty = 0.05 * min(
+            1.0, max(0.0, candidate_latency - parent_latency) / 5.0
+        )
+        return candidate_value - parent_value + phase_gain - cost_penalty - latency_penalty
+
     @staticmethod
     def _context_cost(members: Sequence[str], options: Mapping[str, Any]) -> int:
         return sum(len(str(getattr(options[name], "instructions", ""))) for name in members)
@@ -119,7 +154,7 @@ class AdaptiveSkillSetEvolver:
             if len(parent) > 1:
                 for removed in sorted(parent):
                     candidate = tuple(name for name in parent if name != removed)
-                    delta = self._bundle_value(candidate, history, contribution_history) - base
+                    delta = self._mutation_delta(parent, candidate, available, history, contribution_history)
                     if delta >= self.min_expected_delta and self._resource_cost(candidate, available, history) <= resource_budget and self._context_cost(candidate, available) <= context_budget_chars:
                         mutations.append(SkillSetMutation(
                             "remove", parent_id, parent, candidate, delta,
