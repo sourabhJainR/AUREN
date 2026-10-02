@@ -7,7 +7,7 @@ import hashlib
 import json
 import re
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 try:
     from .context_broker import ContextBroker, ContextCandidate
@@ -91,9 +91,19 @@ class ContextAcquisitionPipeline:
 
     _RETRIEVAL_MODES = ("semantic", "structural", "lexical", "history", "pack")
 
-    def __init__(self, root: str | Path, *, budget_chars: int | None = None, max_items: int | None = None) -> None:
+    def __init__(
+        self,
+        root: str | Path,
+        *,
+        budget_chars: int | None = None,
+        max_items: int | None = None,
+        decision_advisor: Callable[[dict[str, Any]], tuple[str, float] | None] | None = None,
+        decision_confidence_threshold: float = 0.75,
+    ) -> None:
         self.root = Path(root).resolve()
         self.repository = RepositoryIntelligence(self.root)
+        self.decision_advisor = decision_advisor
+        self.decision_confidence_threshold = max(0.0, min(1.0, decision_confidence_threshold))
         self._broker = ContextBroker(
             budget_chars=budget_chars if budget_chars is not None else 14000,
             max_items=max_items if max_items is not None else 18,
@@ -150,7 +160,12 @@ class ContextAcquisitionPipeline:
         working_modes = tuple(mode for mode in self._working_modes(query) if mode in available)
 
         while True:
-            recovery = choose_retrieval_recovery(
+            recovery = self._choose_recovery(
+                task_id=task_id,
+                query=query,
+                phase=phase,
+                risk=risk,
+                uncertainty=uncertainty,
                 failed_modes=failed_modes,
                 available_modes=available,
                 working_modes=working_modes,
@@ -287,6 +302,57 @@ class ContextAcquisitionPipeline:
 
     def refresh(self) -> None:
         self.repository.refresh()
+
+    def _choose_recovery(
+        self,
+        *,
+        task_id: str,
+        query: str,
+        phase: str,
+        risk: str,
+        uncertainty: str,
+        failed_modes: list[str],
+        available_modes: list[str],
+        working_modes: tuple[str, ...],
+    ):
+        """Use an optional typed decision advisor, then enforce deterministic policy."""
+        if self.decision_advisor is not None:
+            state = {
+                "task_id": str(task_id),
+                "query": self._safe_text(query),
+                "phase": str(phase),
+                "risk": str(risk).lower(),
+                "uncertainty": str(uncertainty).lower(),
+                "failed_modes": tuple(failed_modes),
+                "available_modes": tuple(available_modes),
+                "working_modes": tuple(working_modes),
+            }
+            try:
+                advised = self.decision_advisor(state)
+                if advised is not None:
+                    mode, confidence = advised
+                    mode = str(mode).strip().lower()
+                    confidence = float(confidence)
+                    if (
+                        mode in available_modes
+                        and mode not in failed_modes
+                        and confidence >= self.decision_confidence_threshold
+                    ):
+                        return choose_retrieval_recovery(
+                            failed_modes=failed_modes,
+                            available_modes=(mode, *available_modes),
+                            working_modes=(),
+                        )
+            except (TypeError, ValueError, RuntimeError):
+                # A decision advisor is advisory. Provider failure or malformed
+                # output must never break deterministic context acquisition.
+                pass
+
+        return choose_retrieval_recovery(
+            failed_modes=failed_modes,
+            available_modes=available_modes,
+            working_modes=working_modes,
+        )
 
     def _retrieve(self, mode: str, query: str, budget: int, max_items: int) -> dict[str, Any]:
         if mode == "history":
