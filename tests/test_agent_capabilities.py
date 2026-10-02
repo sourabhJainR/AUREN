@@ -72,6 +72,45 @@ class AgentCapabilityTests(unittest.TestCase):
         ready = gate.evaluate(acceptance_met=True, verification_passed=True, evidence_count=2, diff_clean=True, scope_clean=True)
         self.assertEqual(ready.status, "ready")
 
+    def test_capability_executioner_prefers_fit_without_hard_dependency(self):
+        from portable.agent_capabilities import CapabilityExecutioner, CapabilityOption
+        executioner = CapabilityExecutioner()
+        options = (
+            CapabilityOption("core-file", description="repository file inspection", tags=frozenset({"repository", "file"}), evidence_quality=0.9),
+            CapabilityOption("optional-mcp", source="mcp", description="repository file inspection", tags=frozenset({"repository", "file"}), evidence_quality=0.95),
+        )
+        decision = executioner.select(request="inspect repository files", options=options)
+        self.assertIn(decision.selected, {"core-file", "optional-mcp"})
+        self.assertTrue(decision.alternatives)
+
+    def test_capability_executioner_fails_over_after_failed_optional_path(self):
+        from portable.agent_capabilities import CapabilityExecutioner, CapabilityOption
+        executioner = CapabilityExecutioner()
+        options = (
+            CapabilityOption("mcp-search", source="mcp", tags=frozenset({"search"})),
+            CapabilityOption("core-search", source="core", tags=frozenset({"search"})),
+        )
+        decision = executioner.select(request="search repository", options=options, failed={"mcp-search"})
+        self.assertEqual(decision.selected, "core-search")
+
+    def test_capability_executioner_never_bypasses_resource_policy(self):
+        from portable.agent_capabilities import CapabilityExecutioner, CapabilityOption
+        executioner = CapabilityExecutioner()
+        options = (
+            CapabilityOption("unsafe-network", source="plugin", risk="high", requires_network=True),
+            CapabilityOption("safe-local", source="core", tags=frozenset({"local"})),
+        )
+        decision = executioner.select(request="local work", options=options, network_allowed=False, max_risk="medium")
+        self.assertEqual(decision.selected, "safe-local")
+
+    def test_optional_discovery_failure_degrades_to_core(self):
+        from portable.agent_capabilities import CapabilityExecutioner, CapabilityOption
+        def broken():
+            raise RuntimeError("optional provider unavailable")
+        executioner = CapabilityExecutioner(discoverers=(broken,))
+        options = executioner.discover(core=(CapabilityOption("core"),))
+        self.assertEqual([item.name for item in options], ["core"])
+
 
 if __name__ == "__main__":
     unittest.main()
