@@ -17,7 +17,7 @@ class ExecutionStrategyLearningTests(unittest.TestCase):
     def test_repeated_evidence_can_select_strategy(self):
         with TemporaryDirectory() as directory:
             learner = ExecutionStrategyLearner(Path(directory))
-            for _ in range(3):
+            for _ in range(5):
                 learner.record(
                     role="team", task="check artifact", strategy="evidence-first",
                     outcome="passed", evidence_quality=0.95, cost_score=0.2,
