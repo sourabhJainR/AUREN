@@ -24,7 +24,7 @@ from portable.autonomous_evolution_controller import AutonomousEvolutionControll
 from portable.autonomous_capability_invention import CapabilityComposition
 from portable.agent_capabilities import CapabilityExecutioner, CapabilityOption
 from portable.skill_evidence import attribute, assess_collaboration
-from portable.skill_group_evidence import adapt_execution_groups, attribute_groups, group_key
+from portable.skill_group_evidence import adapt_execution_groups, attribute_groups
 from portable.task_planner import Task,TaskPlan
 from runtime.task_memory import approach_history, guidance
 
