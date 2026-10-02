@@ -787,6 +787,18 @@ the learning system, not an instruction source. If a skill produced no distinct 
         context_selection=context_learner.select(
             role="team", task=task, context=decision_context,
             baseline_strategy=baseline_strategy, baseline_mode=baseline_mode)
+        # Context-specific learning is advisory until both existing canary gates allow it.
+        if context_selection.learned:
+            context_strategy_rollout=StrategyCanaryController(memory.project_root).evaluate(
+                role="team", task=task, strategy=context_selection.strategy, canary_passed=False)
+            context_mode_rollout=ExecutionModeCanaryController(memory.project_root).evaluate(
+                role="team", task=task, mode=context_selection.mode)
+            if context_strategy_rollout.state in {"canary", "promoted"}:
+                selected_strategy=context_selection.strategy
+                rollout=context_strategy_rollout
+            if context_mode_rollout.state in {"canary", "promoted"}:
+                selected_mode=context_selection.mode
+                mode_rollout=context_mode_rollout
         # Counterfactual composition is advisory. Each learned dimension still
         # needs its own rollout gate before it can affect execution.
         selected_mode=mode_selection.mode.name if mode_selection.learned and mode_rollout.state in {"canary", "promoted"} else baseline_mode
