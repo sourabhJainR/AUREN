@@ -237,6 +237,27 @@ class AgentCapabilityTests(unittest.TestCase):
         )
         self.assertNotIn("human-only-plan", result.selected_set)
 
+    def test_codex_sidecar_can_disable_implicit_skill_invocation(self):
+        import os, tempfile
+        from portable.agent_capabilities import CapabilityExecutioner
+        previous = os.environ.get("AER_SKILLS_PATH")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "skills"
+            skill = root / "manual-only"
+            (skill / "agents").mkdir(parents=True)
+            (skill / "SKILL.md").write_text("---\nname: manual-only\n---\nHuman-only skill.\n", encoding="utf-8")
+            (skill / "agents" / "openai.yaml").write_text(
+                "policy:\n  allow_implicit_invocation: false\n",
+                encoding="utf-8",
+            )
+            os.environ["AER_SKILLS_PATH"] = str(root)
+            try:
+                option = next(item for item in CapabilityExecutioner().discover_installed(tmp) if item.name == "skill:manual-only")
+                self.assertFalse(option.model_invocable)
+            finally:
+                if previous is None: os.environ.pop("AER_SKILLS_PATH", None)
+                else: os.environ["AER_SKILLS_PATH"] = previous
+
     def test_skill_front_matter_parses_model_invocation_policy(self):
         import os, tempfile
         from portable.agent_capabilities import CapabilityExecutioner
