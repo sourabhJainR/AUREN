@@ -48,6 +48,8 @@ class InventionLifecycleTests(unittest.TestCase):
                 trigger_evidence=("trigger-a",),
                 holdout_ids=("holdout-a", "holdout-b"),
                 graduation=CapabilityGraduationController(minimum_cohorts=2),
+                benchmark_before=0.80,
+                benchmark_after=0.86,
             )
             self.assertEqual(result.state, "promoted")
             self.assertEqual(result.rollout.passing_cohorts, 2)
