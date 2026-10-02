@@ -217,6 +217,32 @@ def _row_to_dict(raw: tuple | None) -> dict[str, Any]:
     }
 
 
+def approach_history(root: Path, approach: str, limit: int = 20, *, exact: bool = True) -> list[dict[str, Any]]:
+    """Return preserved observations for an approach without relevance truncation.
+
+    Exact mode is used for capability attribution so similarly named options
+    cannot contaminate one another. Prefix mode is available for broader
+    approach-family history.
+    """
+    dbp = _db_path(Path(root))
+    value = _clean(approach, 1600)
+    with _process_lock(dbp.with_name("task-memory.lock")):
+        with _connect(Path(root)) as db:
+            if exact:
+                rows = db.execute(
+                    "SELECT * FROM observations WHERE promotion!='rejected' AND approach=? "
+                    "ORDER BY recorded_at DESC, revision DESC LIMIT ?",
+                    (value, max(1, min(100, int(limit)))),
+                ).fetchall()
+            else:
+                rows = db.execute(
+                    "SELECT * FROM observations WHERE promotion!='rejected' AND approach LIKE ? "
+                    "ORDER BY recorded_at DESC, revision DESC LIMIT ?",
+                    (value + "%", max(1, min(100, int(limit)))),
+                ).fetchall()
+    return [_row_to_dict(row) for row in rows]
+
+
 def relevant(root: Path, task: str, limit: int = 20) -> list[dict[str, Any]]:
     dbp = _db_path(Path(root))
     terms = {x.lower() for x in str(task).split() if len(x) > 2}
@@ -267,4 +293,4 @@ def history(root: Path, learning_key: str, limit: int = 20) -> list[dict[str, An
     return [_row_to_dict(row) for row in rows]
 
 
-__all__ = ["SCHEMA_VERSION", "LEARNING_VERSION", "record", "revise", "relevant", "guidance", "history"]
+__all__ = ["SCHEMA_VERSION", "LEARNING_VERSION", "record", "revise", "relevant", "guidance", "history", "approach_history"]
