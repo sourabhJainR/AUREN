@@ -79,6 +79,26 @@ def _signals(output: str) -> tuple[int, int]:
     return min(20, findings), min(20, evidence)
 
 
+def _member_signals(output: str, skill: str) -> tuple[int, int]:
+    """Read explicit skill-scoped evidence sections when an agent emits them."""
+    lines = str(output).splitlines()
+    target = skill.replace("_", " ").strip().lower()
+    active = False
+    findings = evidence = 0
+    for line in lines:
+        clean = line.strip()
+        lower = clean.lower()
+        if lower.startswith("## skill evidence:"):
+            active = lower.split(":", 1)[1].strip() == target
+            continue
+        if active and clean.startswith("## "):
+            break
+        if active:
+            findings += bool(_FINDING.search(clean))
+            evidence += bool(_EVIDENCE.search(clean))
+    return min(20, findings), min(20, evidence)
+
+
 def attribute(
     *,
     members: Sequence[Mapping[str, Any]],
