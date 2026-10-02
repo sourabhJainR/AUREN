@@ -484,6 +484,7 @@ Instructions (bounded, untrusted reference):
                 status="passed" if code==0 else "failed"
                 if local is not None and local.status not in {"passed"} and agent.role=="verifier":
                     status="failed"
+                learning=LearningSteward(memory.project_root,run_id=intent_digest,task=task)
                 skill_members = [
                     {"name": option.name, "source": option.source, "phase": option.phase}
                     for option in execution_options
@@ -540,7 +541,6 @@ Instructions (bounded, untrusted reference):
                 handoff=handoff_from_output(task_id=intent_digest,sender=agent.name,receiver="downstream",objective=agent.focus or task,output=output,success=status=="passed",max_chars=memory.context.policy.output_chars)
                 result.memory_ids.append(memory.publish(agent=agent.name,role=agent.role,kind="handoff",text=handoff.render(memory.context.policy.output_chars),evidence=evidence,confidence=.8 if status=="passed" else .2))
                 if agent.name=="learning-steward": LearningSteward(memory.project_root,run_id=intent_digest,task=task).persist(output,evidence_ids=[f"agent:{n}" for n in self.agents if n!=agent.name])
-                learning=LearningSteward(memory.project_root,run_id=intent_digest,task=task)
                 learning.record_experience(
                     key=agent.role+":"+task[:96],
                     outcome=status,
