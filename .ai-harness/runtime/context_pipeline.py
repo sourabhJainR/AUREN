@@ -418,11 +418,10 @@ class ContextAcquisitionPipeline:
             if part.strip()
         )
 
-    @staticmethod
-    def _working_modes(query: str) -> tuple[str, ...]:
+    def _working_modes(self, query: str) -> tuple[str, ...]:
         # The caller intentionally supplies a stable order from the durable
         # ledger. Current failures still take precedence and are never retried.
-        rows = relevant_task_memory(Path.cwd(), query, limit=30)
+        rows = relevant_task_memory(self.root, query, limit=30)
         modes: list[str] = []
         for row in rows:
             if row.get("outcome") not in {"worked", "passed", "success"}:
