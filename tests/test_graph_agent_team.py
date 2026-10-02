@@ -152,5 +152,30 @@ class GraphAgentTeamTests(unittest.TestCase):
             ])
 
 
+
+    def test_skill_execution_plan_telemetry_is_bounded_and_consistent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            memory = SharedTaskMemory(Path(tmp) / "memory.jsonl", "intent-a")
+
+            def invoke(agent, prompt):
+                return 0, agent.name, 0.01
+
+            team = GraphAgentTeam([
+                AgentSpec("planner", "planner", capabilities=("delegate_task",)),
+            ])
+            result = team.execute(
+                task="plan X",
+                intent_digest="intent-a",
+                base_prompt="base",
+                memory=memory,
+                invoke_agent=invoke,
+            )
+            plan = result["agents"]["planner"]["capability_execution_plan"]
+            self.assertEqual(plan["selected_skill_count"], plan["executed_skill_count"])
+            self.assertEqual(plan["pruned_secondary_count"], 0)
+            self.assertLessEqual(plan["instruction_chars"], plan["context_budget_chars"])
+            self.assertEqual(plan["planned_parallelism"], 1)
+            self.assertEqual(len(plan["groups"]), 1)
+
 if __name__ == "__main__":
     unittest.main()
