@@ -6,7 +6,7 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / ".ai-harness" / "runtime"))
 
-from context_planner import EvidenceCandidate, plan_context, select_evidence
+from context_planner import EvidenceCandidate, choose_retrieval_recovery, plan_context, select_evidence
 
 
 class ContextPlannerTests(unittest.TestCase):
@@ -26,6 +26,26 @@ class ContextPlannerTests(unittest.TestCase):
         self.assertEqual(plan.policy_strategy, "targeted_context")
         self.assertEqual(plan.retrieval_modes[:3], ("instructions", "task_contract", "structural"))
         self.assertIn("security", plan.retrieval_modes)
+
+    def test_recovery_pivots_to_working_mode_without_repeating_failed_mode(self):
+        decision = choose_retrieval_recovery(
+            failed_modes=("semantic",),
+            available_modes=("semantic", "structural", "lexical"),
+            working_modes=("structural", "semantic"),
+        )
+        self.assertEqual(decision.action, "pivot")
+        self.assertEqual(decision.mode, "structural")
+        self.assertTrue(decision.changed_strategy)
+        self.assertFalse(decision.terminal)
+
+    def test_recovery_stops_when_every_mode_has_failed(self):
+        decision = choose_retrieval_recovery(
+            failed_modes=("semantic", "structural", "lexical"),
+            available_modes=("semantic", "structural", "lexical"),
+        )
+        self.assertEqual(decision.action, "stop")
+        self.assertTrue(decision.terminal)
+        self.assertIsNone(decision.mode)
 
     def test_selection_is_ranked_deduplicated_and_bounded(self):
         candidates = [
