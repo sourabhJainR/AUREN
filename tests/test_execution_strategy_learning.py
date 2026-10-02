@@ -22,7 +22,7 @@ class ExecutionStrategyLearningTests(unittest.TestCase):
                     role="team", task="check artifact", strategy="evidence-first",
                     outcome="passed", evidence_quality=0.95, cost_score=0.2,
                     duration_seconds=10, verification="deep", retry="stop",
-                    evidence_ids=["test:evidence"])
+                    evidence_ids=[f"test:evidence:{_}"])
             choice = learner.select(role="team", task="check artifact", baseline="default")
             self.assertEqual(choice.strategy.name, "evidence-first")
             self.assertTrue(choice.learned)
