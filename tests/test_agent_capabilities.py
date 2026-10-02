@@ -161,6 +161,20 @@ class AgentCapabilityTests(unittest.TestCase):
             else:
                 os.environ["AER_PLUGIN_CAPABILITIES"] = previous
 
+    def test_safe_unobserved_capability_can_be_explored(self):
+        from portable.agent_capabilities import CapabilityExecutioner, CapabilityOption
+        selector = CapabilityExecutioner(min_exploration=0.15)
+        result = selector.select(
+            request="repository search",
+            options=(
+                CapabilityOption("core-search", tags=frozenset({"repository", "search"}), historical_success=0.9),
+                CapabilityOption("skill-search", source="skill", tags=frozenset({"search"}), historical_success=0.5),
+            ),
+            history={"core-search": {"success_rate": 0.9, "confidence": 0.9}},
+        )
+        self.assertIn(result.selected, {"core-search", "skill-search"})
+        self.assertIn("skill-search", result.alternatives + (result.selected,))
+
 
 if __name__ == "__main__":
     unittest.main()
