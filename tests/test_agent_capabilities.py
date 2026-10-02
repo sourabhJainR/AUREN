@@ -584,10 +584,15 @@ class AgentCapabilityTests(unittest.TestCase):
             options=options,
             bundle_history={"parent": {"members": ("planner", "reviewer"), "samples": 1}},
             history={
-                name: {"evidence_quality": 0.7, "success_rate": 0.7, "confidence": 0.7, "avg_cost": 0.2, "avg_latency": 0.1}
-                for name in ("planner", "reviewer", "verifier")
+                "planner": {"evidence_quality": 0.7, "success_rate": 0.7, "confidence": 0.7, "avg_cost": 0.2, "avg_latency": 0.1},
+                "reviewer": {"evidence_quality": 0.7, "success_rate": 0.7, "confidence": 0.7, "avg_cost": 0.2, "avg_latency": 0.1},
+                "verifier": {"evidence_quality": 0.95, "success_rate": 0.95, "confidence": 0.95, "avg_cost": 0.2, "avg_latency": 0.1},
             },
-            contribution_history={name: {"evidence_quality": 0.7} for name in ("planner", "reviewer", "verifier")},
+            contribution_history={
+                "planner": {"evidence_quality": 0.7},
+                "reviewer": {"evidence_quality": 0.7},
+                "verifier": {"evidence_quality": 0.95},
+            },
             resource_budget=0.7,
         )
         self.assertTrue(any(m.action == "add" and "verifier" in m.members for m in mutations))
