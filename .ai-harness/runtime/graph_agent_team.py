@@ -296,7 +296,7 @@ class GraphAgentTeam:
                             "failure_rate": float(summary.failure_rate),
                             "samples": float(summary.samples),
                         }
-                capability_decision=self.capability_executioner.select(
+                capability_decision=self.capability_executioner.select_collaborative(
                     request=f"{agent.role} {agent.focus} {task[:160]}",
                     options=dynamic_options,
                     network_allowed=os.environ.get("AER_NETWORK_ALLOWED","1").lower() not in {"0","false","no","off"},
@@ -313,8 +313,9 @@ class GraphAgentTeam:
                     evidence_quality=evidence_quality,
                     resource_lanes=("agent","local") if agent.local_command else ("agent",),
                 )
-                selected_option=next((option for option in dynamic_options if option.name == capability_decision.selected), None)
-                capability_instructions=(selected_option.instructions if selected_option else "")[:4096]
+                selected_names = capability_decision.selected_set or (capability_decision.selected,)
+                selected_options = [option for option in dynamic_options if option.name in selected_names]
+                capability_instructions="\n\n".join(option.instructions for option in selected_options if option.instructions)[:8192]
                 capability_choice=type("_Choice",(),{"selected":capability_decision.selected})()
                 verification_choice=type("_Verification",(),{"level":max_verification_depth(pathway.verification_depth, decision.inference_depth)})()
                 retry_choice=type("_Retry",(),{"selected":pathway.retry_action})()

@@ -401,6 +401,7 @@ class CapabilityDecision:
     rationale: str
     alternatives: tuple[str, ...] = ()
     degraded: bool = False
+    selected_set: tuple[str, ...] = ()
 
 
 class CapabilityExecutioner:
@@ -651,6 +652,73 @@ class CapabilityExecutioner:
             f"fallback remains available={bool(alternatives)}"
         )
         return CapabilityDecision(selected.name, selected.source, score, confidence, rationale, alternatives, degraded)
+
+    def select_collaborative(
+        self,
+        *,
+        request: str,
+        options: Iterable[CapabilityOption],
+        required: Iterable[str] = (),
+        failed: Iterable[str] = (),
+        network_allowed: bool = True,
+        sandbox_available: bool = True,
+        max_risk: str = "high",
+        resource_budget: float = 1.0,
+        history: Mapping[str, Mapping[str, float]] | None = None,
+        max_skills: int = 3,
+    ) -> CapabilityDecision:
+        """Select a bounded complementary skill set without user choreography.
+
+        Start with the single-capability selector, then add only capabilities
+        whose marginal task coverage/evidence justifies their bounded cost.
+        Policy eligibility is rechecked for every member; collaboration never
+        grants authority that an individual option does not have.
+        """
+        options = tuple(options)
+        history = history or {}
+        limit = max(1, min(3, int(max_skills)))
+        primary = self.select(
+            request=request, options=options, required=required, failed=failed,
+            network_allowed=network_allowed, sandbox_available=sandbox_available,
+            max_risk=max_risk, resource_budget=resource_budget, history=history,
+        )
+        by_name = {option.name: option for option in options}
+        selected_names = [primary.selected]
+        covered = set(re.findall(r"[a-z0-9]+", request.lower()))
+        primary_option = by_name.get(primary.selected)
+        if primary_option:
+            covered.update(primary_option.tags)
+        while len(selected_names) < limit:
+            best: tuple[float, CapabilityOption] | None = None
+            for option in options:
+                if option.name in selected_names or option.name in set(failed):
+                    continue
+                if not option.available or not self._allowed(option, network_allowed, sandbox_available, max_risk):
+                    continue
+                tokens = set(re.findall(r"[a-z0-9]+", (option.name + " " + option.description).lower())) | set(option.tags)
+                marginal = len(tokens - covered) / max(1, len(covered))
+                prior = history.get(option.name, {})
+                evidence = max(0.0, min(1.0, float(prior.get("evidence_quality", option.evidence_quality))))
+                confidence = max(0.0, min(1.0, float(prior.get("confidence", option.confidence))))
+                cost = max(0.0, min(1.0, float(prior.get("avg_cost", option.estimated_cost))))
+                collaboration = 0.02 if option.source != (primary_option.source if primary_option else option.source) else 0.0
+                score = 0.60 * marginal + 0.20 * evidence + 0.10 * confidence + collaboration - 0.08 * cost
+                if marginal <= 0.0 or score < 0.08:
+                    continue
+                candidate = (score, option)
+                if best is None or (candidate[0], -_RISK_ORDER.get(candidate[1].risk, 99), candidate[1].name) > (best[0], -_RISK_ORDER.get(best[1].risk, 99), best[1].name):
+                    best = candidate
+            if best is None:
+                break
+            selected_names.append(best[1].name)
+            covered.update(set(best[1].tags) | set(re.findall(r"[a-z0-9]+", best[1].description.lower())))
+        rationale = primary.rationale + f"; collaborative_set={','.join(selected_names)}"
+        return CapabilityDecision(
+            selected=primary.selected, source=primary.source, score=primary.score,
+            confidence=primary.confidence, rationale=rationale,
+            alternatives=primary.alternatives, degraded=primary.degraded,
+            selected_set=tuple(selected_names),
+        )
 
     @staticmethod
     def _exploration_need(prior: Mapping[str, float]) -> float:
