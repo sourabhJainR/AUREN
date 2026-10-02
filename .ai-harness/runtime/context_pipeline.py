@@ -421,7 +421,7 @@ class ContextAcquisitionPipeline:
     def _working_modes(self, query: str) -> tuple[str, ...]:
         # The caller intentionally supplies a stable order from the durable
         # ledger. Current failures still take precedence and are never retried.
-        rows = relevant_task_memory(self.root, query, limit=30)
+        rows = relevant_task_memory(self.root, "context retrieval", limit=60)
         modes: list[str] = []
         for row in rows:
             if row.get("outcome") not in {"worked", "passed", "success"}:
