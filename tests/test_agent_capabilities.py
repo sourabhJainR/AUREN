@@ -540,5 +540,57 @@ class AgentCapabilityTests(unittest.TestCase):
         )
         self.assertEqual(result.bundle_id, strong_bundle)
 
+
+    def test_skill_evolution_charges_incremental_cost_and_latency(self):
+        from portable.agent_capabilities import CapabilityOption
+        from portable.skill_set_evolution import AdaptiveSkillSetEvolver
+
+        parent = (
+            CapabilityOption("planner", phase="planning", estimated_cost=0.1, estimated_latency_ms=100),
+            CapabilityOption("expensive-review", phase="review", estimated_cost=0.9, estimated_latency_ms=4500),
+        )
+        options = parent + (
+            CapabilityOption("cheap-review", phase="review", estimated_cost=0.1, estimated_latency_ms=100),
+        )
+        evolver = AdaptiveSkillSetEvolver(min_expected_delta=0.01)
+        mutations = evolver.propose(
+            options=options,
+            bundle_history={"parent": {"members": ("planner", "expensive-review"), "samples": 1}},
+            history={
+                "planner": {"evidence_quality": 0.8, "success_rate": 0.8, "confidence": 0.8, "avg_cost": 0.1, "avg_latency": 0.1},
+                "expensive-review": {"evidence_quality": 0.2, "success_rate": 0.2, "confidence": 0.2, "avg_cost": 0.9, "avg_latency": 4.5},
+                "cheap-review": {"evidence_quality": 0.8, "success_rate": 0.8, "confidence": 0.8, "avg_cost": 0.1, "avg_latency": 0.1},
+            },
+            contribution_history={
+                "planner": {"evidence_quality": 0.8},
+                "expensive-review": {"evidence_quality": 0.1},
+                "cheap-review": {"evidence_quality": 0.8},
+            },
+        )
+        self.assertTrue(any(m.action == "remove" and m.members == ("planner",) for m in mutations))
+        self.assertTrue(any(m.action == "swap" and m.members == ("cheap-review", "planner") for m in mutations))
+
+    def test_skill_evolution_rewards_a_new_phase_without_exceeding_budget(self):
+        from portable.agent_capabilities import CapabilityOption
+        from portable.skill_set_evolution import AdaptiveSkillSetEvolver
+
+        options = (
+            CapabilityOption("planner", phase="planning", estimated_cost=0.2, estimated_latency_ms=100),
+            CapabilityOption("reviewer", phase="review", estimated_cost=0.2, estimated_latency_ms=100),
+            CapabilityOption("verifier", phase="verification", estimated_cost=0.2, estimated_latency_ms=100),
+        )
+        evolver = AdaptiveSkillSetEvolver(min_expected_delta=0.01)
+        mutations = evolver.propose(
+            options=options,
+            bundle_history={"parent": {"members": ("planner", "reviewer"), "samples": 1}},
+            history={
+                name: {"evidence_quality": 0.7, "success_rate": 0.7, "confidence": 0.7, "avg_cost": 0.2, "avg_latency": 0.1}
+                for name in ("planner", "reviewer", "verifier")
+            },
+            contribution_history={name: {"evidence_quality": 0.7} for name in ("planner", "reviewer", "verifier")},
+            resource_budget=0.7,
+        )
+        self.assertTrue(any(m.action == "add" and "verifier" in m.members for m in mutations))
+
 if __name__ == "__main__":
     unittest.main()
