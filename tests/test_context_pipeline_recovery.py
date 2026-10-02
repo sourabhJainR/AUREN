@@ -186,7 +186,7 @@ def test_typed_decision_advisor_can_select_a_mode_without_overriding_policy() ->
         pipeline.acquire(
             task_id="advisor-test",
             query="working_path",
-            phase="investigate",
+            phase="implement",
             intent_digest="intent-1",
             uncertainty="high",
         )
