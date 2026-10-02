@@ -373,6 +373,20 @@ class AgentCapabilityTests(unittest.TestCase):
         groups = selector._execution_groups((planner, reviewer))
         self.assertLess(groups.index(("planner",)), groups.index(("reviewer",)))
 
+    def test_evidence_value_uses_observed_history(self):
+        from portable.agent_capabilities import CapabilityExecutioner, CapabilityOption
+        selector = CapabilityExecutioner()
+        option = CapabilityOption("reviewer")
+        high = selector.evidence_value(option, history={
+            "reviewer": {"evidence_quality": 0.95, "confidence": 0.9, "success_rate": 0.95, "failure_rate": 0.05}
+        })
+        low = selector.evidence_value(option, history={
+            "reviewer": {"evidence_quality": 0.1, "confidence": 0.1, "success_rate": 0.1, "failure_rate": 0.9}
+        })
+        self.assertGreater(high, low)
+        self.assertGreaterEqual(low, 0.0)
+        self.assertLessEqual(high, 1.0)
+
     def test_execution_schedule_is_bounded_and_deterministic(self):
         from portable.agent_capabilities import CapabilityExecutioner, CapabilityOption
         selector = CapabilityExecutioner()
