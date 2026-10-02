@@ -43,6 +43,13 @@ def sanitize_untrusted(text: str) -> str:
     return redact(text)
 
 
+def sanitize_capability_reference(text: str, limit: int = 4096) -> str:
+    """Keep optional capability instructions as bounded reference data."""
+    clean = redact(str(text))
+    clean = _INJECTION.sub("[blocked untrusted instruction]", clean)
+    return clean[:max(1, int(limit))]
+
+
 @dataclass(frozen=True)
 class Capability:
     name: str
@@ -490,12 +497,18 @@ class CapabilityExecutioner:
                     name=name,
                     source="skill",
                     description=description,
-                    instructions=raw[:4096],
+                    instructions=sanitize_capability_reference(raw),
                     tags=frozenset(re.findall(r"[a-z0-9]+", (directory.name + " " + description).lower())),
                 ))
                 seen.add(directory.name)
-        options.extend(self._host_options("mcp", os.environ.get("AER_MCP_CAPABILITIES", "")))
-        options.extend(self._host_options("plugin", os.environ.get("AER_PLUGIN_CAPABILITIES", "")))
+        for source, payload in (
+            ("mcp", os.environ.get("AER_MCP_CAPABILITIES", "")),
+            ("plugin", os.environ.get("AER_PLUGIN_CAPABILITIES", "")),
+        ):
+            try:
+                options.extend(self._host_options(source, payload))
+            except (TypeError, ValueError, OverflowError):
+                continue
         return tuple(sorted({item.name: item for item in options}.values(), key=lambda item: (item.source, item.name)))
 
     @staticmethod
@@ -516,7 +529,7 @@ class CapabilityExecutioner:
                 name=str(row["name"]).strip(),
                 source=source,
                 description=str(row.get("description", ""))[:512],
-                instructions=str(row.get("instructions", ""))[:4096],
+                instructions=sanitize_capability_reference(row.get("instructions", "")),
                 tags=frozenset(str(item).lower() for item in row.get("tags", ()) if str(item).strip()) if isinstance(row.get("tags", ()), (list, tuple, set)) else frozenset(),
                 risk=str(row.get("risk", "low")),
                 requires_network=bool(row.get("requires_network", False)),
@@ -632,5 +645,5 @@ __all__ = [
     "CAPABILITIES", "Capability", "CapabilityFabric", "ProviderAdapter", "ProviderAdapterRegistry",
     "MemoryRecord", "PersistentMemory", "DelegationReceipt", "DelegationPool", "Schedule",
     "AutomationScheduler", "Skill", "SkillRegistry", "CapabilityOption", "CapabilityDecision", "CapabilityExecutioner", "QualityResult", "OutputQualityGate",
-    "redact", "sanitize_untrusted",
+    "redact", "sanitize_untrusted", "sanitize_capability_reference",
 ]
