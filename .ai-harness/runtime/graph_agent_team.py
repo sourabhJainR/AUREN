@@ -344,11 +344,11 @@ class GraphAgentTeam:
                     if summary:
                         bundle_id=key[len(bundle_prefix):]
                         members = ()
-                    detail_text = str(row.get("detail", ""))
-                    if "bundle_members=" in detail_text:
-                        raw_members = detail_text.split("bundle_members=", 1)[1].split(";", 1)[0]
-                        members = tuple(name for name in raw_members.split(",") if name)
-                    bundle_history[bundle_id]={
+                        detail_text = str(row.get("detail", ""))
+                        if "bundle_members=" in detail_text:
+                            raw_members = detail_text.split("bundle_members=", 1)[1].split(";", 1)[0]
+                            members = tuple(name for name in raw_members.split(",") if name)
+                        bundle_history[bundle_id]={
                             "members": members,
                             "success_rate": float(summary.success_rate),
                             "evidence_quality": float(summary.evidence_quality),
