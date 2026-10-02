@@ -246,7 +246,7 @@ class AgentCapabilityTests(unittest.TestCase):
             skill = root / "manual-only"
             skill.mkdir(parents=True)
             (skill / "SKILL.md").write_text(
-                "---\nmodel-invocable: false\nphase: planning\ntags: [plan]\n---\nOnly a human should invoke this.\n",
+                "---\ndisable-model-invocation: true\nphase: planning\ntags: [plan]\n---\nOnly a human should invoke this.\n",
                 encoding="utf-8",
             )
             os.environ["AER_SKILLS_PATH"] = str(root)
