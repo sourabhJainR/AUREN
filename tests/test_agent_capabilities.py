@@ -597,5 +597,30 @@ class AgentCapabilityTests(unittest.TestCase):
         )
         self.assertTrue(any(m.action == "add" and "verifier" in m.members for m in mutations))
 
+
+    def test_mutation_promotion_requires_parent_improvement(self):
+        from portable.agent_capabilities import CapabilityExecutioner
+        from portable.skill_set_evolution import SkillSetMutation
+
+        mutation = SkillSetMutation(
+            "swap", "parent-bundle", ("planner", "reviewer"),
+            ("planner", "verifier"), 0.08, "replace redundant reviewer",
+        )
+        selector = CapabilityExecutioner()
+        self.assertEqual(
+            selector._mutation_stage(mutation, {
+                "parent-bundle": {"collaboration_delta": 0.10, "samples": 8},
+                mutation.fingerprint: {"collaboration_delta": 0.11, "samples": 4},
+            }),
+            "canary",
+        )
+        self.assertEqual(
+            selector._mutation_stage(mutation, {
+                "parent-bundle": {"collaboration_delta": 0.10, "samples": 8},
+                mutation.fingerprint: {"collaboration_delta": 0.13, "samples": 4},
+            }),
+            "promoted",
+        )
+
 if __name__ == "__main__":
     unittest.main()

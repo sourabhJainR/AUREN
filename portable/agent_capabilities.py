@@ -857,6 +857,18 @@ class CapabilityExecutioner:
         return tuple(groups)
 
     @staticmethod
+    def _mutation_stage(mutation: Any, bundle_history: Mapping[str, Mapping[str, float]]) -> str:
+        """Promote a mutation only when it beats its parent as well as its baseline."""
+        prior = bundle_history.get(mutation.fingerprint, {})
+        samples = int(float(prior.get("samples", 0)))
+        candidate_delta = prior.get("collaboration_delta")
+        parent_delta = bundle_history.get(mutation.parent_id, {}).get("collaboration_delta")
+        if samples >= 3 and candidate_delta is not None and float(candidate_delta) >= 0.05:
+            if parent_delta is None or float(candidate_delta) >= float(parent_delta) + 0.02:
+                return "promoted"
+        return "canary"
+
+    @staticmethod
     def _bundle_status(prior: Mapping[str, float]) -> str:
         samples = int(float(prior.get("samples", 0)))
         success = float(prior.get("success_rate", 0.5))
@@ -1039,14 +1051,7 @@ class CapabilityExecutioner:
                 mutation = mutation_by_members.get(tuple(names))
                 mutation_stage = "none"
                 if mutation:
-                    candidate_id = self.bundle_id(members)
-                    candidate_prior = bundle_history.get(candidate_id, {})
-                    candidate_samples = int(float(candidate_prior.get("samples", 0)))
-                    candidate_delta = candidate_prior.get("collaboration_delta")
-                    if candidate_samples >= 3 and candidate_delta is not None and float(candidate_delta) >= 0.05:
-                        mutation_stage = "promoted"
-                    else:
-                        mutation_stage = "canary"
+                    mutation_stage = self._mutation_stage(mutation, bundle_history)
                 mutation_bonus_factor = 0.25 if mutation_stage == "promoted" else 0.125
                 mutation_bonus = min(0.06, max(0.0, mutation.expected_delta) * mutation_bonus_factor) if mutation else 0.0
                 score = (
@@ -1076,10 +1081,7 @@ class CapabilityExecutioner:
         evolution = mutation_by_members.get(member_names)
         evolution_stage = "none"
         if evolution:
-            prior = bundle_history.get(bundle_id, {})
-            samples = int(float(prior.get("samples", 0)))
-            delta = prior.get("collaboration_delta")
-            evolution_stage = "promoted" if samples >= 3 and delta is not None and float(delta) >= 0.05 else "canary"
+            evolution_stage = self._mutation_stage(evolution, bundle_history)
         mutation_labels = tuple(
             f"{mutation.action}:{mutation.parent_id}->{mutation.fingerprint}"
             for mutation in mutations[:4]
