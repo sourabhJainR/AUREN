@@ -459,5 +459,20 @@ class AgentCapabilityTests(unittest.TestCase):
         self.assertEqual(len(portfolio), 4)
         self.assertEqual({option.source for option in portfolio}, {"core", "skill", "mcp", "plugin"})
 
+    def test_low_contribution_member_is_penalized_in_bundle_selection(self):
+        from portable.agent_capabilities import CapabilityExecutioner, CapabilityOption
+        selector = CapabilityExecutioner(min_exploration=0.0)
+        planner = CapabilityOption("planner", tags=frozenset({"plan"}), evidence_quality=0.9)
+        reviewer = CapabilityOption("reviewer", tags=frozenset({"review"}), evidence_quality=0.9)
+        bundle = selector.bundle_id((planner, reviewer))
+        result = selector.select_collaborative(
+            request="plan and review",
+            options=(planner, reviewer),
+            bundle_history={bundle: {"samples": 6, "success_rate": 0.9, "evidence_quality": 0.9, "confidence": 0.9}},
+            contribution_history={"planner": {"samples": 6, "evidence_quality": 0.9}, "reviewer": {"samples": 6, "evidence_quality": 0.05}},
+            max_skills=2,
+        )
+        self.assertNotEqual(result.selected_set, ("planner", "reviewer"))
+
 if __name__ == "__main__":
     unittest.main()
