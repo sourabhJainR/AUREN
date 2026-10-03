@@ -3,7 +3,7 @@
 The guard does not attempt to judge code with heuristics or reproduce any book.
 It checks whether a task has declared the design facts that matter for its risk:
 ownership, boundaries, data semantics, failure behavior, compatibility, and
-verification. It produces a compact receipt that can be attached to AER evidence.
+verification. It produces a compact receipt that can be attached to AUREN evidence.
 """
 from __future__ import annotations
 
