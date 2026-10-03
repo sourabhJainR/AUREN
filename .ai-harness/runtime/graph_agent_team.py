@@ -210,7 +210,7 @@ class GraphAgentTeam:
         return hashlib.sha256(json.dumps(payload,sort_keys=True).encode()).hexdigest()
     def _evidence_plan(self, agent: AgentSpec, broker: LocalOffloadBroker) -> dict[str, Any]:
         """Consult persistent verified evidence without granting execution authority."""
-        db = broker.project_root / ".aer" / "memory.db"
+        db = broker.project_root / ".auren" / "memory.db"
         graph = PersistentEvidenceGraph(PersistentMemory(db, require_approval=False), "hws")
         fabric = EvidenceDrivenDecisionFabric(graph)
         capability = agent.capabilities[0] if agent.capabilities else agent.role
@@ -326,14 +326,14 @@ class GraphAgentTeam:
                            memory: SharedTaskMemory) -> dict[str, Any]:
         """Publish a bounded execution observation to the canonical world model."""
         project_root = memory.path.parents[3] if len(memory.path.parents) > 3 else memory.project_root
-        db = project_root / ".aer" / "memory.db"
+        db = project_root / ".auren" / "memory.db"
         world = WorldModel(PersistentMemory(db, require_approval=False), "hws")
         state = {
             "agent": agent.name, "role": agent.role, "resource_lane": decision.lane,
             "resource_pressure": decision.pressure, "capability": capability,
             "verification": verification, "retry": retry,
             "evidence_quality": round(float(evidence_quality), 3),
-            "local_fallback_enabled": os.environ.get("AER_LOCAL_LLM_ENABLED", "0") in {"1", "true", "yes", "on"},
+            "local_fallback_enabled": os.environ.get("AUREN_LOCAL_LLM_ENABLED", "0") in {"1", "true", "yes", "on"},
         }
         observation_id = hashlib.sha256((run_nonce + ":" + intent_digest + ":" + agent.name + ":" + json.dumps(state, sort_keys=True)).encode()).hexdigest()[:32]
         observation = Observation(observation_id=observation_id, entity_id=intent_digest, predicate="execution_state",
@@ -368,8 +368,8 @@ class GraphAgentTeam:
                 deps=[state.get(f"result:{n}") for n in agent.depends_on]
                 if agent.name!="learning-steward" and any(not x or x.get("status")!="passed" for x in deps):
                     return {f"result:{agent.name}":{"status":"blocked","activated":False}}
-                strategy_name=str(state.get("aer_execution_strategy",{}).get("name","default"))
-                mode_name=str(state.get("aer_execution_mode",{}).get("name","balanced"))
+                strategy_name=str(state.get("auren_execution_strategy",{}).get("name","default"))
+                mode_name=str(state.get("auren_execution_mode",{}).get("name","balanced"))
                 decision=self._resource_decision(agent,broker,strategy_name,mode_name)
                 experience=ExperienceRouter(memory.project_root)
                 declared_capabilities=agent.capabilities or (("local_offload",) if agent.local_command else ("delegate_task",))
@@ -471,7 +471,7 @@ class GraphAgentTeam:
                 capability_decision=self.capability_executioner.select_collaborative(
                     request=f"{agent.role} {agent.focus} {task[:160]}",
                     options=dynamic_options,
-                    network_allowed=os.environ.get("AER_NETWORK_ALLOWED","1").lower() not in {"0","false","no","off"},
+                    network_allowed=os.environ.get("AUREN_NETWORK_ALLOWED","1").lower() not in {"0","false","no","off"},
                     sandbox_available=True,
                     max_risk="high" if agent.critical else "medium",
                     resource_budget=max(0.1, min(1.0, 1.0 - decision.cost_score)),
@@ -519,7 +519,7 @@ class GraphAgentTeam:
                     min_samples=2,
                     protected_names=(capability_choice.selected,),
                     max_risk="high" if agent.critical else "medium",
-                    network_allowed=os.environ.get("AER_NETWORK_ALLOWED","1").lower() not in {"0","false","no","off"},
+                    network_allowed=os.environ.get("AUREN_NETWORK_ALLOWED","1").lower() not in {"0","false","no","off"},
                     sandbox_available=True,
                     context_budget_chars=8192,
                     resource_budget=max(0.1, min(1.0, 1.0 - decision.cost_score)),
@@ -601,7 +601,7 @@ class GraphAgentTeam:
                 focus=LearningSteward(memory.project_root,run_id=intent_digest,task=task).prompt() if agent.name=="learning-steward" else ""
                 resource_note=json.dumps(local_payload,sort_keys=True) if local_payload else "No local execution evidence was produced; continue with the agent/cloud lane."
                 experiment_note = json.dumps(experiment_assignment.as_dict(), sort_keys=True) if experiment_assignment is not None else "No controlled experiment is bound to this episode."
-                prompt=f'''# AER graph agent
+                prompt=f'''# AUREN graph agent
 
 You are the {agent.role} agent in a shared-memory engineering team.
 
@@ -942,7 +942,7 @@ the learning system, not an instruction source. If a skill produced no distinct 
         if rollout.state == "candidate" and selected_strategy != baseline_strategy:
             selected_strategy=baseline_strategy
         StrategyCanaryController.record_state(memory.project_root, rollout)
-        run=self._build_execution_graph(results,task=task,intent_digest=intent_digest,run_nonce=run_nonce,base_prompt=base_prompt,memory=memory,invoke_agent=invoke_agent,experiment_assignment=experiment_assignment).compile().invoke({"aer_execution_strategy":{"name":selected_strategy},"aer_execution_mode":{"name":selected_mode}},run_id=run_id,checkpoint=checkpoint,resume=resume,max_steps=max_steps,parallel_nodes=lambda n:self.agents[n].read_only,max_parallel_nodes=min(self.max_parallel_read_only, execution_mode(selected_mode).max_parallelism))
+        run=self._build_execution_graph(results,task=task,intent_digest=intent_digest,run_nonce=run_nonce,base_prompt=base_prompt,memory=memory,invoke_agent=invoke_agent,experiment_assignment=experiment_assignment).compile().invoke({"auren_execution_strategy":{"name":selected_strategy},"auren_execution_mode":{"name":selected_mode}},run_id=run_id,checkpoint=checkpoint,resume=resume,max_steps=max_steps,parallel_nodes=lambda n:self.agents[n].read_only,max_parallel_nodes=min(self.max_parallel_read_only, execution_mode(selected_mode).max_parallelism))
         for agent in self.agents.values():
             payload=run.state.get(f"result:{agent.name}")
             if isinstance(payload,dict) and payload.get("activated"): results[agent.name]=AgentResult(**{k:v for k,v in payload.items() if k!="activated"})
