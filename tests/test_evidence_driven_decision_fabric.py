@@ -1,6 +1,16 @@
 from pathlib import Path
 
-import pytest
+from contextlib import contextmanager
+
+@contextmanager
+def raises(exc, match=None):
+    try:
+        yield
+    except exc as error:
+        if match is not None and match not in str(error):
+            raise AssertionError(f"expected {match!r} in {error!s}")
+    else:
+        raise AssertionError(f"expected {exc.__name__} to be raised")
 
 from portable.persistent_memory import PersistentMemory
 from portable.persistent_evidence_graph import PersistentEvidenceGraph
@@ -111,5 +121,5 @@ def test_budget_rejects_strategy_that_cannot_fit(tmp_path):
     for i in range(8):
         add_observation(graph, "planner", f"slow-{i}", provider="cloud", tool_path="deep",
                         duration="4000")
-    with pytest.raises(ValueError, match="duration budget"):
+    with raises(ValueError, match="duration budget"):
         fabric.plan("engineering", "planner", candidates(), duration_budget=1000)
