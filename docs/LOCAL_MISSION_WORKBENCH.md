@@ -1,10 +1,10 @@
 # Local Mission Workbench
 
-The Local Mission Workbench is an additive layer above the existing AER execution path. It applies the useful parts of the referenced agent-team pattern without introducing a second orchestrator.
+The Local Mission Workbench is an additive layer above the existing AUREN execution path. It applies the useful parts of the referenced agent-team pattern without introducing a second orchestrator.
 
 ## Why it exists
 
-AER already has durable missions, graph execution, repository intelligence, learning, verification, and an end-user console. The missing piece was a small local dispatch surface that can hand independent work to local workers while keeping mutations controlled.
+AUREN already has durable missions, graph execution, repository intelligence, learning, verification, and an end-user console. The missing piece was a small local dispatch surface that can hand independent work to local workers while keeping mutations controlled.
 
 The model is:
 
@@ -69,9 +69,9 @@ The CLI is deliberately one packet at a time. Multi-packet orchestration belongs
 - every command has a timeout.
 - credentials are not injected by the workbench.
 - the workbench cannot push, merge, publish, or change policy by itself.
-- verification and acceptance remain owned by the existing AER control plane.
+- verification and acceptance remain owned by the existing AUREN control plane.
 
-## Relationship to existing AER
+## Relationship to existing AUREN
 
 | Existing concern | Remains owner |
 |---|---|
