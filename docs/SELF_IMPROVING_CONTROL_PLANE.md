@@ -1,11 +1,11 @@
-# AER as a Self-Improving Coding Control Plane
+# AUREN as a Self-Improving Coding Control Plane
 
-AER should improve the way it engineers software from observed outcomes, without becoming an uncontrolled self-editing agent.
+AUREN should improve the way it engineers software from observed outcomes, without becoming an uncontrolled self-editing agent.
 
 ## Architecture
 
 ```text
-                         AER CONTROL PLANE
+                         AUREN CONTROL PLANE
 
  Intent -> Contract -> Risk
               |
@@ -89,7 +89,7 @@ The runtime implementation in `.ai-harness/runtime/self_improvement.py` generate
 
 ## Safe self-improvement
 
-AER can autonomously **observe and suggest**. Promotion is gated.
+AUREN can autonomously **observe and suggest**. Promotion is gated.
 
 Never auto-learn:
 
@@ -117,4 +117,4 @@ This keeps the system adaptive without allowing a bad outcome to become a perman
 
 The key invariant is simple:
 
-> AER may learn from engineering outcomes, but evidence must earn the right to change behavior.
+> AUREN may learn from engineering outcomes, but evidence must earn the right to change behavior.
