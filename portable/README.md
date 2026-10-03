@@ -1,6 +1,6 @@
 # AER Portable Distribution
 
-AER is a **machine-scoped, repository-isolated, version-pinned engineering control plane**. Installing, updating, or rolling back AER never vendors its implementation into the repository being worked on.
+AUREN is a **machine-scoped, repository-isolated, version-pinned engineering control plane**. Installing, updating, or rolling back AER never vendors its implementation into the repository being worked on.
 
 ## Distribution unit
 
@@ -11,10 +11,10 @@ Mutable machine/session state is excluded from the bundle: execution journals, t
 ## Install
 
 ```bash
-python aer_cli.py install aer-portable.zip
+python auren_cli.py install auren-portable.zip
 ```
 
-AER is installed under `~/.aer/versions/v<version>/` and selected through `~/.aer/current`. The exact semantic version, source Git commit, bundle SHA-256 and installation time are recorded in `install.json` and `active.json`.
+AUREN is installed under `~/.auren/versions/v<version>/` and selected through `~/.auren/current`. The exact semantic version, source Git commit, bundle SHA-256 and installation time are recorded in `install.json` and `active.json`.
 
 The Agent Skill is installed only in user-level locations. The installer accepts no target-repository path.
 
@@ -58,10 +58,10 @@ AER coding task
 Observability is disabled by default. To enable local traces:
 
 ```bash
-export AER_OBSERVABILITY=1
+export AUREN_OBSERVABILITY=1
 ```
 
-Traces are written to the machine-scoped location `~/.aer/observability/traces.jsonl`, never to the target repository. Inputs and outputs are bounded and common secret fields are redacted before persistence.
+Traces are written to the machine-scoped location `~/.auren/observability/traces.jsonl`, never to the target repository. Inputs and outputs are bounded and common secret fields are redacted before persistence.
 
 ### Versioned prompts
 
@@ -163,7 +163,7 @@ decision = fabric.route(CapabilityRequest("subagent", ("claude", "codex", "gemin
 print(decision)
 ```
 
-Provider manifests may be stored under `~/.aer/providers/<provider>.json` to advertise capabilities that cannot be inferred from a CLI binary. Discovery is advisory; security, verification and promotion policy remain authoritative.
+Provider manifests may be stored under `~/.auren/providers/<provider>.json` to advertise capabilities that cannot be inferred from a CLI binary. Discovery is advisory; security, verification and promotion policy remain authoritative.
 
 Supported capability names include `agent`, `subagent`, `hooks`, `session_resume`, `structured_output`, `tool_interception`, `mcp`, and `background_execution`.
 
@@ -181,7 +181,7 @@ Hooks can annotate or veto work. Hook failures are fail-closed. Hooks cannot wea
 
 ## Cross-session recovery
 
-Long-running work can persist a digest-sealed checkpoint under `~/.aer/sessions/`. A checkpoint contains the project key, task, current stage, completed and remaining batches, active provider, attempt number and last error.
+Long-running work can persist a digest-sealed checkpoint under `~/.auren/sessions/`. A checkpoint contains the project key, task, current stage, completed and remaining batches, active provider, attempt number and last error.
 
 A new session can therefore resume from durable state instead of relying on conversation history. Recovery increments the attempt counter and records the new stage atomically.
 
@@ -190,13 +190,13 @@ A new session can therefore resume from durable state instead of relying on conv
 Check the configured update channel:
 
 ```bash
-python ~/.aer/current/aer_cli.py check-update
+python ~/.auren/current/auren_cli.py check-update
 ```
 
 Update only when the channel exposes a newer semantic version:
 
 ```bash
-python ~/.aer/current/aer_cli.py update
+python ~/.auren/current/auren_cli.py update
 ```
 
 The updater resolves the remote commit first, reads the version from that exact commit, downloads that exact commit, rebuilds and integrity-verifies the bundle, installs the new pinned version, and then switches the `current` pointer. A commit change without a semantic version bump is rejected.
@@ -204,8 +204,8 @@ The updater resolves the remote commit first, reads the version from that exact 
 The default channel is the AER repository `main` branch. Controlled environments can use another stable branch or tag as the channel:
 
 ```bash
-python ~/.aer/current/aer_cli.py check-update --ref release
-python ~/.aer/current/aer_cli.py update --ref release
+python ~/.auren/current/auren_cli.py check-update --ref release
+python ~/.auren/current/auren_cli.py update --ref release
 ```
 
 ## Version pinning
@@ -223,16 +223,16 @@ The `current` pointer is the active selection. Previous pinned versions remain a
 Rollback to the most recently installed different version:
 
 ```bash
-python ~/.aer/current/aer_cli.py rollback
+python ~/.auren/current/auren_cli.py rollback
 ```
 
 Or select an exact version:
 
 ```bash
-python ~/.aer/current/aer_cli.py rollback --version 20.1.0
+python ~/.auren/current/auren_cli.py rollback --version 20.1.0
 ```
 
-Rollback affects only AER's user-scoped installation and already-selected user-level Agent Skill surfaces.
+Rollback affects only AUREN's user-scoped installation and already-selected user-level Agent Skill surfaces.
 
 ## Repository isolation contract
 
@@ -244,9 +244,9 @@ The installer, updater and rollback commands:
 - never modify project source, tests, manifests, or configuration merely to install AER;
 - never silently modify MCP configuration, credentials, permissions, production access, or merge authority.
 
-A clean target repository therefore stays unchanged when AER is installed, updated, or rolled back.
+A clean target repository therefore stays unchanged when AUREN is installed, updated, or rolled back.
 
-When AER performs an actual user-requested engineering task, changes to project files are the requested engineering changes—not AER distribution artifacts.
+When AUREN performs an actual user-requested engineering task, changes to project files are the requested engineering changes—not AUREN distribution artifacts.
 
 ## Lifecycle
 

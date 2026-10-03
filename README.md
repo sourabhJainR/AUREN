@@ -1,8 +1,8 @@
-# Adaptive AI Coding Orchestrator
+# AUREN — Autonomous Unified Reasoning & Engineering Network
 
-A provider-neutral AI software-engineering control plane for Claude Code and compatible coding agents. **AER (Adaptive Engineering Runtime)** turns a task, bug, review, research question, Jira issue, or proof of concept into a repository-aware workflow with bounded context, capability routing, verification, review, durable evidence, graph orchestration, regression replay, and evidence-backed learning.
+A provider-neutral AI software-engineering control plane for Claude Code and compatible coding agents. **AUREN (Autonomous Unified Reasoning & Engineering Network)** turns a task, bug, review, research question, Jira issue, or proof of concept into a repository-aware workflow with bounded context, capability routing, verification, review, durable evidence, graph orchestration, regression replay, and evidence-backed learning.
 
-## What AER is today
+## What AUREN is today
 
 The repository now has one coherent execution path from task intake through verification, learning, memory consolidation, empirical tuning, and controlled improvement.
 
@@ -62,7 +62,7 @@ See [`docs/CAPABILITY_AWARE_EXECUTION.md`](docs/CAPABILITY_AWARE_EXECUTION.md) f
 
 ## Deterministic repository intelligence
 
-AER builds one deterministic repository snapshot and reuses it for multiple structural questions.
+AUREN builds one deterministic repository snapshot and reuses it for multiple structural questions.
 
 ```bash
 python -m portable.repo_intelligence . --for="Fix the authentication timeout regression" --token-budget=4000
@@ -79,7 +79,7 @@ Repository intelligence accelerates context discovery; verification, policy, rev
 
 ## Graph orchestration and agent teams
 
-AER includes a dependency-free `StateGraph` runtime inspired by durable agent-graph patterns without taking a LangGraph runtime dependency. It provides state snapshots, reducers, conditional routing, bounded retries, checkpoints, interrupts, deterministic traces, bounded supersteps, and explicit parallel-safety controls.
+AUREN includes a dependency-free `StateGraph` runtime inspired by durable agent-graph patterns without taking a LangGraph runtime dependency. It provides state snapshots, reducers, conditional routing, bounded retries, checkpoints, interrupts, deterministic traces, bounded supersteps, and explicit parallel-safety controls.
 
 `GraphAgentTeam` uses that graph runtime while retaining `TaskPlan` as the canonical dependency contract:
 
@@ -100,7 +100,7 @@ SharedTaskMemory
 Verification / review / synthesis
 ```
 
-Dependency failures are fail-closed. Read-only roles receive an explicit `patch_allowed: false` guard. The graph path is the default; `AER_GRAPH_TEAM=0` remains available for diagnostics and compatibility.
+Dependency failures are fail-closed. Read-only roles receive an explicit `patch_allowed: false` guard. The graph path is the default; `AUREN_GRAPH_TEAM=0` remains available for diagnostics and compatibility.
 
 ### Local resource offload
 
@@ -202,13 +202,13 @@ python -m portable.maintenance_service --project-root /path/to/repo run-once
 ### Environment configuration
 
 ```bash
-export AER_PROJECT_ROOT=/path/to/repo
-export AER_MAINTENANCE_TIME=02:00
-export AER_MAINTENANCE_TIMEZONE=Asia/Kolkata
-export AER_MAINTENANCE_POLL_SECONDS=60
-export AER_MAINTENANCE_BUDGET=20
-export AER_MAINTENANCE_ENABLED=1
-export AER_SERVICE_SCOPE=user
+export AUREN_PROJECT_ROOT=/path/to/repo
+export AUREN_MAINTENANCE_TIME=02:00
+export AUREN_MAINTENANCE_TIMEZONE=Asia/Kolkata
+export AUREN_MAINTENANCE_POLL_SECONDS=60
+export AUREN_MAINTENANCE_BUDGET=20
+export AUREN_MAINTENANCE_ENABLED=1
+export AUREN_SERVICE_SCOPE=user
 ```
 
 The scheduler itself stores the calendar policy in its durable task record, so service restarts do not reset the monthly schedule.
@@ -236,7 +236,7 @@ python -m portable.maintenance_service --scope user stop
 python -m portable.maintenance_service --scope user uninstall
 ```
 
-The generated unit runs the existing Python maintenance host, restarts on failure, and keeps the calendar decision in AER's durable scheduler.
+The generated unit runs the existing Python maintenance host, restarts on failure, and keeps the calendar decision in AUREN's durable scheduler.
 
 ### macOS: launchd
 
@@ -285,22 +285,22 @@ The service starts automatically and waits efficiently for the durable monthly s
 
 The service only owns lifecycle and execution of the already-gated maintenance lane. It does not change credentials, permissions, merge authority, security policy, or active task policy. A failed maintenance cycle remains retryable through the scheduler's claim/run ledger instead of being silently discarded.
 
-## AER Engineering Console
+## AUREN Engineering Console
 
-AER includes a lightweight local web UI for observing engineering execution, learning, evidence, regression protection, repository/code-graph state, quality signals, benchmarks, research activity, and test growth.
+AUREN includes a lightweight local web UI for observing engineering execution, learning, evidence, regression protection, repository/code-graph state, quality signals, benchmarks, research activity, and test growth.
 
-The console is observation-only and reuses AER's existing state owners. It is bundled into portable AER installations; no Node.js or separate UI installation is required.
+The console is observation-only and reuses AUREN's existing state owners. It is bundled into portable AUREN installations; no Node.js or separate UI installation is required.
 
-After AER is installed, start it against the repository you want to inspect:
+After AUREN is installed, start it against the repository you want to inspect:
 
 ~~~bash
-python ~/.aer/current/aer_cli.py dashboard --project-root /path/to/your/repository
+python ~/.auren/current/auren_cli.py dashboard --project-root /path/to/your/repository
 ~~~
 
 Windows PowerShell:
 
 ~~~powershell
-python "$HOME\\.aer\\current\\aer_cli.py" dashboard --project-root "C:\\path\\to\\your\\repository"
+python "$HOME\\.aer\\current\\auren_cli.py" dashboard --project-root "C:\\path\\to\\your\\repository"
 ~~~
 
 Then open http://127.0.0.1:8765.
@@ -308,33 +308,33 @@ Then open http://127.0.0.1:8765.
 If the default port is busy:
 
 ~~~bash
-python ~/.aer/current/aer_cli.py dashboard --project-root /path/to/your/repository --port 8876
+python ~/.auren/current/auren_cli.py dashboard --project-root /path/to/your/repository --port 8876
 ~~~
 
 The dashboard uses the selected project root for repository intelligence and existing AER state. It does not expose source contents, prompts, credentials, or provide write/execution APIs.
 
 See [dashboard/README.md](dashboard/README.md) for installation-path details, Windows/Linux/macOS commands, remote access through SSH tunneling, health checks, troubleshooting, and the direct module invocation.
 
-## AER CLI and portable distribution
+## AUREN CLI and portable distribution
 
-The GitHub Actions `aer-portable` artifact is self-contained and includes both the outer `aer_cli.py` launcher and `aer-portable.zip`.
+The GitHub Actions `auren-portable` artifact is self-contained and includes both the outer `auren_cli.py` launcher and `auren-portable.zip`.
 
 ```bash
-python aer_cli.py aer-portable.zip
+python auren_cli.py auren-portable.zip
 ```
 
-On success, AER is installed under user-scoped `~/.aer` storage.
+On success, AUREN is installed under user-scoped `~/.auren` storage.
 
 Build and verify a bundle locally:
 
 ```bash
-git clone https://github.com/sourabhJainR/Hello_world_With_Structure.git
-cd Hello_world_With_Structure
-python aer_cli.py build --output aer-portable.zip
-python aer_cli.py verify aer-portable.zip
+git clone https://github.com/sourabhJainR/AUREN.git
+cd AUREN
+python auren_cli.py build --output auren-portable.zip
+python auren_cli.py verify auren-portable.zip
 ```
 
-AER records a provenance chain:
+AUREN records a provenance chain:
 
 ```text
 semantic version -> exact source Git commit -> bundle SHA-256
@@ -343,12 +343,12 @@ semantic version -> exact source Git commit -> bundle SHA-256
 The installed machine state is kept under:
 
 ```text
-~/.aer/versions/v<version>/
-~/.aer/current
-~/.aer/current/install.json
-~/.aer/active.json
-~/.aer/automation/automation.db
-~/.aer/memory/memory.db
+~/.auren/versions/v<version>/
+~/.auren/current
+~/.auren/current/install.json
+~/.auren/active.json
+~/.auren/automation/automation.db
+~/.auren/memory/memory.db
 ```
 
 Execution journals, telemetry, caches, worktrees, and Python caches remain outside the portable distribution.
@@ -357,13 +357,13 @@ Execution journals, telemetry, caches, worktrees, and Python caches remain outsi
 
 Installing, updating, or rolling back AER does not:
 
-- add AER distribution files to the target repository;
+- add AUREN distribution files to the target repository;
 - modify project source, tests, manifests, or configuration merely to install AER;
 - modify Git remotes, hooks, branches, or ignore rules;
 - silently modify MCP configuration, credentials, permissions, production access, or merge authority;
 - allow learned behavior to weaken immutable safety or security controls.
 
-When AER performs a user-requested engineering task, project changes are the requested engineering changes, not AER distribution artifacts.
+When AUREN performs a user-requested engineering task, project changes are the requested engineering changes, not AUREN distribution artifacts.
 
 ## Capability roles
 
@@ -384,7 +384,7 @@ Independent read-only work can be parallelized. Mutating agents are serialized b
 ## Repository map
 
 ```text
-Hello_world_With_Structure/
+AUREN/
 ├── .ai-harness/                 # adaptive harness, policies, runtime and lifecycle
 ├── portable/                    # dependency-light distributable AER runtime
 ├── agency/                      # upstream agency assets and provenance
