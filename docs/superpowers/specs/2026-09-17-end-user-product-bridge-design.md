@@ -2,21 +2,21 @@
 
 ## Goal
 
-Turn AER's existing engineering control plane into an immediately understandable end-user experience without creating parallel runtime, memory, evidence, scheduling, or policy ownership.
+Turn AUREN's existing engineering control plane into an immediately understandable end-user experience without creating parallel runtime, memory, evidence, scheduling, or policy ownership.
 
 ## Problem
 
-AER already provides repository intelligence, capability routing, durable memory, observability, bounded feedback loops, durable triggers, learning, maintenance, verification, rollback, and provider integrations. Those capabilities are exposed mainly through documentation, Python modules, provider-specific installation steps, and low-level commands. A new user still has to discover how to tell whether AER is installed, whether their host is ready, what is active, what happened recently, and how to validate the installation safely.
+AUREN already provides repository intelligence, capability routing, durable memory, observability, bounded feedback loops, durable triggers, learning, maintenance, verification, rollback, and provider integrations. Those capabilities are exposed mainly through documentation, Python modules, provider-specific installation steps, and low-level commands. A new user still has to discover how to tell whether AUREN is installed, whether their host is ready, what is active, what happened recently, and how to validate the installation safely.
 
 ## Proposed solution
 
-Add a dependency-free user-experience layer exposed through the existing `aer_cli.py` entry point:
+Add a dependency-free user-experience layer exposed through the existing `auren_cli.py` entry point:
 
 ```text
-python aer_cli.py
-python aer_cli.py doctor
-python aer_cli.py status
-python aer_cli.py demo [PROJECT_ROOT]
+python auren_cli.py
+python auren_cli.py doctor
+python auren_cli.py status
+python auren_cli.py demo [PROJECT_ROOT]
 ```
 
 The layer is informational by default. It must not mutate a target repository, grant permissions, change provider configuration, or bypass existing policy gates.
@@ -25,7 +25,7 @@ The layer is informational by default. It must not mutate a target repository, g
 
 #### Default invocation
 
-With no command, show a compact AER welcome/status screen with:
+With no command, show a compact AUREN welcome/status screen with:
 
 - installed version and pinned source commit when installed;
 - available commands;
@@ -41,7 +41,7 @@ Run deterministic readiness checks and return a structured result. Human output 
 Checks:
 
 - Python runtime is supported by the repository's current CI baseline (3.11+);
-- current AER installation metadata is readable when an install exists;
+- current AUREN installation metadata is readable when an install exists;
 - active installation contains the runtime, launcher, and canonical skill;
 - installed skill destinations are readable;
 - Git is available;
@@ -49,7 +49,7 @@ Checks:
 - optional Claude/Gemini/Codex skill locations are detected when present;
 - the supplied project root exists and is readable;
 - project source control is detected when present;
-- project-local AER artifacts are reported as informational only, never required;
+- project-local AUREN artifacts are reported as informational only, never required;
 - optional extensions are reported when discoverable, but never treated as required.
 
 Exit codes:
@@ -62,13 +62,13 @@ Exit codes:
 
 Show the durable state that an end user cares about, using existing files/databases as sources of truth:
 
-- active AER version, exact commit, build hash, install time;
+- active AUREN version, exact commit, build hash, install time;
 - installed immutable versions available for rollback;
 - skill installation state for Agent Skills, Claude, and Gemini locations;
 - maintenance schedule and last known maintenance runs when scheduler state exists;
 - recent maintenance outcomes;
 - enabled local observability state;
-- recent AER CLI engineering reports when present;
+- recent AUREN CLI engineering reports when present;
 - no more than the last five relevant events in human output;
 - `--json` emits the same information as stable JSON fields.
 
@@ -83,7 +83,7 @@ Provide a safe, read-only end-to-end demonstration against a project root:
 3. print the resulting repository snapshot digest, selected evidence paths, estimated token count, parse/skip counts, and explicit unknowns;
 4. explain which later stages would normally execute for an implementation request, without executing or modifying project code.
 
-The demo must work without an LLM, MCP provider, third-party extension, or network connection. It demonstrates the AER evidence-first context path rather than pretending to complete an engineering task.
+The demo must work without an LLM, MCP provider, third-party extension, or network connection. It demonstrates the AUREN evidence-first context path rather than pretending to complete an engineering task.
 
 ## Architecture
 
@@ -94,7 +94,7 @@ Create one focused module:
 Responsibilities:
 
 - immutable dataclasses for status/check results;
-- installation discovery from `~/.aer`;
+- installation discovery from `~/.auren`;
 - provider/host discovery using `shutil.which` and filesystem checks;
 - scheduler and maintenance inspection through existing SQLite schemas without creating a second store;
 - report discovery from the existing report location;
@@ -102,13 +102,13 @@ Responsibilities:
 - human and JSON rendering;
 - deterministic exit-code calculation.
 
-`aer_cli.py` remains the stable entry point and only delegates user-experience commands to `portable.user_experience`. Existing build/verify/install/update/check-update/rollback behavior remains unchanged.
+`auren_cli.py` remains the stable entry point and only delegates user-experience commands to `portable.user_experience`. Existing build/verify/install/update/check-update/rollback behavior remains unchanged.
 
 ## Data ownership rules
 
-- AER installation state remains owned by `~/.aer/active.json`, `history.jsonl`, and immutable version directories.
-- Automation state remains owned by `~/.aer/automation/automation.db`.
-- Observability remains owned by `~/.aer/observability`.
+- AUREN installation state remains owned by `~/.auren/active.json`, `history.jsonl`, and immutable version directories.
+- Automation state remains owned by `~/.auren/automation/automation.db`.
+- Observability remains owned by `~/.auren/observability`.
 - Engineering reports remain owned by `.ai-harness/reports` in the existing report subsystem.
 - Repository intelligence remains owned by `portable.repo_intelligence` / existing deterministic retrieval components.
 - The new module reads these sources and never writes replacements.
