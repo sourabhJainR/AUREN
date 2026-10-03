@@ -50,20 +50,25 @@ class AutonomyCampaignCurriculum:
         covered = set(campaign.domains)
         holdouts = set(campaign.holdout_domains)
         rows = []
+        # Phase 1: once breadth exists, close missing holdout coverage first.
+        if len(holdouts) < self.minimum_holdout_domains:
+            for domain in sorted(covered - holdouts):
+                rows.append(CampaignObjective(
+                    domain, True, 1.0,
+                    "covered domain lacks an independent holdout cohort",
+                ))
+            if rows:
+                return tuple(rows[:self.max_objectives])
+        # Phase 2: expand into unseen domains until breadth is established.
         for domain in self.domains:
             if domain not in covered:
                 rows.append(CampaignObjective(
-                    domain, True,
-                    1.0 if len(covered) < self.minimum_domains else 0.8,
+                    domain, True, 1.0 if len(covered) < self.minimum_domains else 0.8,
                     "unseen domain is required for breadth and is proposed as a holdout",
                 ))
-            elif domain not in holdouts and len(holdouts) < self.minimum_holdout_domains:
-                rows.append(CampaignObjective(
-                    domain, True, 1.0,
-                    "domain is covered but lacks an independent holdout cohort",
-                ))
-        rows.sort(key=lambda x: (-x.priority, x.domain, not x.holdout))
+        rows.sort(key=lambda x: (-x.priority, x.domain))
         return tuple(rows[:self.max_objectives])
+
 
 
 __all__ = ["AutonomyCampaignCurriculum", "CampaignObjective", "DEFAULT_DOMAINS"]
