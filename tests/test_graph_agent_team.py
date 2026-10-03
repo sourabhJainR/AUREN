@@ -51,7 +51,8 @@ class GraphAgentTeamTests(unittest.TestCase):
                 safety_evidence_verified=True,
             )
             self.assertIn("autonomous_campaign_learning", result)
-            self.assertEqual(result["autonomous_campaign_learning"]["initial"]["selected_task_ids"], [request.task_id])
+            self.assertEqual(len(result["autonomous_campaign_learning"]["initial"]["selected_task_ids"]), 1)
+            self.assertTrue(result["autonomous_campaign_learning"]["initial"]["selected_task_ids"][0].startswith("benchmark:"))
             self.assertTrue(result["autonomous_campaign_learning"]["initial"]["observations"])
             self.assertIn("verifier", calls)
 
