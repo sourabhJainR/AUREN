@@ -1,4 +1,4 @@
-"""Dependency-free tracing, scoring, datasets, prompts and experiments for AER.
+"""Dependency-free tracing, scoring, datasets, prompts and experiments for AUREN.
 
 The design is intentionally compatible with Opik-style concepts without making
 Opik a runtime dependency: traces contain nested spans, spans can carry scores,
@@ -121,8 +121,8 @@ class LocalExporter:
     """Append traces to a machine-scoped JSONL file; never writes to a target repo."""
 
     def __init__(self, path: Path | None = None, enabled: bool | None = None) -> None:
-        self.enabled = (os.getenv("AER_OBSERVABILITY", "0") == "1") if enabled is None else enabled
-        self.path = (path or Path.home() / ".aer" / "observability" / "traces.jsonl").expanduser()
+        self.enabled = (os.getenv("AUREN_OBSERVABILITY", "0") == "1") if enabled is None else enabled
+        self.path = (path or Path.home() / ".auren" / "observability" / "traces.jsonl").expanduser()
 
     def export(self, trace: Trace) -> None:
         if not self.enabled:
