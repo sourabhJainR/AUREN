@@ -1,4 +1,4 @@
-"""Zero-dependency local AER engineering dashboard server."""
+"""Zero-dependency local AUREN engineering dashboard server."""
 from __future__ import annotations
 import argparse
 import json
@@ -48,15 +48,15 @@ class _Handler(BaseHTTPRequestHandler):
 
 def serve(project_root=".", host="127.0.0.1", port=8765):
     dashboard = EngineeringDashboard(project_root)
-    handler = type("AERDashboardHandler", (_Handler,), {"dashboard": dashboard, "ui_root": UI_ROOT})
+    handler = type("AURENDashboardHandler", (_Handler,), {"dashboard": dashboard, "ui_root": UI_ROOT})
     server = ThreadingHTTPServer((host, port), handler)
-    print(f"AER Engineering Console: http://{host}:{port}")
+    print(f"AUREN Engineering Console: http://{host}:{port}")
     try: server.serve_forever()
     except KeyboardInterrupt: pass
     finally: server.server_close()
 
 def main():
-    parser = argparse.ArgumentParser(description="Run the local AER engineering dashboard.")
+    parser = argparse.ArgumentParser(description="Run the local AUREN engineering dashboard.")
     parser.add_argument("--project-root", default=".")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8765)
