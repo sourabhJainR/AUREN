@@ -1,4 +1,14 @@
-import pytest
+from contextlib import contextmanager
+
+@contextmanager
+def raises(exc, match=None):
+    try:
+        yield
+    except exc as error:
+        if match is not None and match not in str(error):
+            raise AssertionError(f"expected {match!r} in {error!s}")
+    else:
+        raise AssertionError(f"expected {exc.__name__} to be raised")
 from dataclasses import dataclass
 from portable.autonomous_curriculum_evolution import AutonomousCurriculumEvolution
 from portable.open_ended_task_environment_discovery import DiscoverySignal, OpenEndedTaskEnvironmentDiscovery
@@ -44,5 +54,5 @@ def test_rejects_schedule_for_other_curriculum():
     orch=ExternalCurriculumCampaignOrchestrator(Generator(),CapabilityInventionValidationRunner(Executor(),Oracle()))
     ex=ScheduledCurriculumCampaignExecutor(ResourceAwareCurriculumScheduler(),orch)
     schedule=ex.scheduler.build(c)
-    with pytest.raises(ValueError,match="does not belong"):
+    with raises(ValueError,match="does not belong"):
         ex.run(curriculum(),schedule=schedule)
