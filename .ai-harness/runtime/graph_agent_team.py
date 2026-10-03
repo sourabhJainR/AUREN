@@ -792,7 +792,7 @@ the learning system, not an instruction source. If a skill produced no distinct 
             for dep in agent.depends_on: graph.add_edge(dep,agent.name)
         for name in [a.name for a in self.agents.values() if not any(a.name in x.depends_on for x in self.agents.values())]: graph.add_edge(name,StateGraph.END)
         return graph
-    def execute(self,*,task,intent_digest,base_prompt,memory,invoke_agent,checkpoint=None,resume=False,run_id="graph-agent-team",max_steps=100,execution_strategy_name="default",evolution_threshold=3,invention_holdout_ids=(),invention_evaluator=None,invention_safety_gate=None,curriculum_experiment_after=None,curriculum_experiment_evidence_ids=(),safety_evidence_verified=False,curriculum_experiment=None,curriculum_experiment_cohort=None,benchmark_domain="unspecified",benchmark_holdout=False,benchmark_execution_task_id=None,benchmark_execution_evidence_ids=(),benchmark_execution_evidence_kinds=(),benchmark_execution_success=None,benchmark_execution_verified=False):
+    def execute(self,*,task,intent_digest,base_prompt,memory,invoke_agent,checkpoint=None,resume=False,run_id="graph-agent-team",max_steps=100,execution_strategy_name="default",evolution_threshold=3,invention_holdout_ids=(),invention_evaluator=None,invention_safety_gate=None,curriculum_experiment_after=None,curriculum_experiment_evidence_ids=(),safety_evidence_verified=False,curriculum_experiment=None,curriculum_experiment_cohort=None,benchmark_domain="unspecified",benchmark_holdout=False,benchmark_execution_task_id=None,benchmark_execution_evidence_ids=(),benchmark_execution_evidence_kinds=(),benchmark_execution_success=None,benchmark_execution_verified=False,benchmark_execution_request=None):
         self._validate(); results={}; run_nonce=uuid.uuid4().hex
         baseline_strategy=str(execution_strategy_name or "default")
         strategy_selection=(ExecutionStrategyLearner(memory.project_root).select(role="team",task=task,baseline=baseline_strategy)
@@ -1041,6 +1041,17 @@ the learning system, not an instruction source. If a skill produced no distinct 
             for x in benchmark_campaign_curriculum
         )
         benchmark_execution_requests = tuple(BenchmarkTaskDispatcher().dispatch_request(x) for x in benchmark_task_contracts)
+        if benchmark_execution_request is not None:
+            if not isinstance(benchmark_execution_request, BenchmarkExecutionRequest):
+                raise TypeError("benchmark_execution_request must be a BenchmarkExecutionRequest")
+            if benchmark_execution_request.authority != "existing-runtime-only":
+                raise ValueError("benchmark execution request has unsupported authority")
+            if str(benchmark_execution_request.domain) != str(benchmark_domain) or bool(benchmark_execution_request.holdout) != bool(benchmark_holdout):
+                raise ValueError("benchmark execution request domain/holdout mismatch")
+            benchmark_execution_requests = (benchmark_execution_request,) + tuple(
+                request for request in benchmark_execution_requests
+                if request.task_id != benchmark_execution_request.task_id
+            )
         # Completion evidence is bound to the exact executable request. With multiple
         # curriculum requests, callers must name the task explicitly; no implicit
         # cross-task attribution is allowed.
@@ -1142,7 +1153,26 @@ the learning system, not an instruction source. If a skill produced no distinct 
         kwargs["benchmark_domain"] = request.domain
         kwargs["benchmark_holdout"] = request.holdout
         kwargs["benchmark_execution_task_id"] = request.task_id
+        kwargs["benchmark_execution_request"] = request
         return self.execute(task=task, **kwargs)
+
+    def execute_benchmark_campaign(self, requests, *, max_tasks=1, **kwargs):
+        """Execute a bounded set of benchmark contracts through the existing runtime."""
+        requests = tuple(requests)
+        if not 1 <= int(max_tasks) <= 8:
+            raise ValueError("max_tasks must be within [1,8]")
+        if len(requests) > int(max_tasks):
+            raise ValueError("benchmark campaign exceeds max_tasks")
+        seen = set()
+        outputs = []
+        for request in requests:
+            if not isinstance(request, BenchmarkExecutionRequest):
+                raise TypeError("campaign entries must be BenchmarkExecutionRequest")
+            if request.task_id in seen:
+                raise ValueError("benchmark campaign contains duplicate task ids")
+            seen.add(request.task_id)
+            outputs.append(self.execute_benchmark_request(request, **dict(kwargs)))
+        return tuple(outputs)
 
 def team_for_route(route):
     mode=str(route.get("mode","implement")); caps=set(route.get("capabilities",[]))

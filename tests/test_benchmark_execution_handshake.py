@@ -60,6 +60,22 @@ class BenchmarkExecutionHandshakeTests(unittest.TestCase):
         self.assertNotEqual(r.task_id, other_request.task_id)
         self.assertTrue(r.accepted)
 
+    def test_campaign_execution_is_bounded_and_delegates_exact_requests(self):
+        from runtime.graph_agent_team import GraphAgentTeam
+
+        class RecordingTeam(GraphAgentTeam):
+            def execute_benchmark_request(self, request, **kwargs):
+                return request.task_id
+
+        team = object.__new__(RecordingTeam)
+        other = BenchmarkTaskDispatcher().dispatch_request(
+            BenchmarkTaskContractFactory().create(domain="research", holdout=True, rationale="another gap")
+        )
+        out = team.execute_benchmark_campaign([self.request, other], max_tasks=2)
+        self.assertEqual(out, (self.request.task_id, other.task_id))
+        with self.assertRaises(ValueError):
+            team.execute_benchmark_campaign([self.request, other], max_tasks=1)
+
     def test_runtime_evidence_derivation_requires_existing_verifier_and_safety(self):
         class Result:
             def __init__(self, status):
