@@ -1,6 +1,6 @@
-# AER local offload layer
+# AUREN local offload layer
 
-AER already has the planner, graph runtime, capability routing, memory and verification boundaries. The local offload layer adds a small execution pool underneath those boundaries.
+AUREN already has the planner, graph runtime, capability routing, memory and verification boundaries. The local offload layer adds a small execution pool underneath those boundaries.
 
 It is intended for work that does not need to occupy the coordinator's context:
 
@@ -12,7 +12,7 @@ It is intended for work that does not need to occupy the coordinator's context:
 
 ## Architecture
 
-    AER task / graph
+    AUREN task / graph
             |
       capability route
             |
@@ -44,7 +44,7 @@ The broker does not invoke a shell. Secret-like environment variables are remove
 
 Use isolate=True when a job may write temporary files or run code that should not share the main workspace. A temporary project copy is created for the job and removed after completion.
 
-The isolated copy is not a security sandbox. It is workspace isolation. High-risk operations should still go through AER's existing policy and sandbox gates.
+The isolated copy is not a security sandbox. It is workspace isolation. High-risk operations should still go through AUREN's existing policy and sandbox gates.
 
 ## CLI
 
@@ -71,9 +71,9 @@ Run two independent checks in parallel:
 
 This keeps bulky command output outside the main agent context. Only the bounded result is handed back to the caller.
 
-## Relationship to AER
+## Relationship to AUREN
 
-This layer preserves AER's existing ownership:
+This layer preserves AUREN's existing ownership:
 
 - TaskPlan still owns dependency planning.
 - StateGraph still owns graph execution.
