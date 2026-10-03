@@ -1,4 +1,4 @@
-"""Bounded, provenance-aware context graph backed by AER PersistentMemory storage.
+"""Bounded, provenance-aware context graph backed by AUREN PersistentMemory storage.
 
 This module deliberately does not create a second memory store. It adds two
 small relationship tables to the same SQLite database used by
@@ -90,7 +90,7 @@ class ContextEdge:
 
 
 class ContextGraph:
-    """Deterministic relationship graph over the canonical AER memory DB."""
+    """Deterministic relationship graph over the canonical AUREN memory DB."""
 
     def __init__(self, memory: PersistentMemory, project: str, *, max_nodes: int = 50_000, max_edges: int = 200_000) -> None:
         if not isinstance(memory, PersistentMemory):
