@@ -1,8 +1,8 @@
 # Capability-aware execution
 
-AER treats skills, MCP tools, plugins, providers, local workers and built-in
+AUREN treats skills, MCP tools, plugins, providers, local workers and built-in
 capabilities as optional execution resources. The runtime discovers what is
-available, scores candidates for the current task, and keeps AER policy as the
+available, scores candidates for the current task, and keeps AUREN policy as the
 authority for risk, network access, sandboxing, resource budgets, verification
 and stopping.
 
@@ -29,10 +29,10 @@ Local skills are discovered from:
 - `.claude/skills/<name>/SKILL.md`
 - `.ai-harness/skills/<name>/SKILL.md`
 - `skills/<name>/SKILL.md`
-- paths listed in `AER_SKILLS_PATH`
+- paths listed in `AUREN_SKILLS_PATH`
 
 MCP and plugin hosts can advertise bounded capability metadata through
-`AER_MCP_CAPABILITIES` and `AER_PLUGIN_CAPABILITIES`. Each variable contains
+`AUREN_MCP_CAPABILITIES` and `AUREN_PLUGIN_CAPABILITIES`. Each variable contains
 a JSON array of descriptors. The runtime ignores malformed or unavailable
 sources and continues with built-in capabilities.
 
@@ -71,7 +71,7 @@ capabilities.
 
 Graph-agent execution creates the executioner once and supplies optional
 discoverers when an integration has richer live metadata. Discoverers should
-return `CapabilityOption` values and may fail safely. AER remains runnable when
+return `CapabilityOption` values and may fail safely. AUREN remains runnable when
 all external discoverers are absent.
 
 This is intentionally an adapter seam rather than a plugin framework. Existing
@@ -100,7 +100,7 @@ Each graph-agent execution now records two learning indexes:
 - the existing role/task outcome;
 - an exact role/task/capability outcome.
 
-The second index is consumed by future capability selection. This lets AER
+The second index is consumed by future capability selection. This lets AUREN
 learn that a particular skill, MCP tool, plugin or core capability worked or
 failed for a task pattern without replacing the broader engineering history.
 
@@ -116,7 +116,7 @@ successful execution into a permanent preference.
 
 ## Bounded exploration
 
-Capability history is used for exploitation, but AER also performs bounded
+Capability history is used for exploitation, but AUREN also performs bounded
 exploration. When a safe capability has no historical observation, the selector
 may give one deterministic low-risk candidate a small exploration adjustment.
 The candidate must still satisfy risk, network, sandbox, availability and
@@ -135,17 +135,17 @@ Capability selection now balances exploration and exploitation from observed sam
 
 ## Collaborative skill selection
 
-AER can evaluate multiple discovered skills as a bounded set instead of forcing a single winner. It starts from the strongest individual capability, then adds complementary skills when their marginal task coverage and evidence justify the bounded cost. This supports overlapping skills from different sources without requiring the user to name or coordinate them. Every member is independently subject to the existing risk, network, sandbox and failure policy.
+AUREN can evaluate multiple discovered skills as a bounded set instead of forcing a single winner. It starts from the strongest individual capability, then adds complementary skills when their marginal task coverage and evidence justify the bounded cost. This supports overlapping skills from different sources without requiring the user to name or coordinate them. Every member is independently subject to the existing risk, network, sandbox and failure policy.
 
 
 ## Invocation-aware skill discovery
 
-AER reads a bounded provider-neutral subset of skill front matter: phase, tags,
+AUREN reads a bounded provider-neutral subset of skill front matter: phase, tags,
 provides, requires, model-invocable, risk and resource requirements.
 
 This adapts the useful invocation boundary from Matt Pocock's skills. A skill
 marked as human-only is retained as an available resource but is not selected by
-the autonomous executioner. AER does not grant execution authority from skill
+the autonomous executioner. AUREN does not grant execution authority from skill
 metadata. Dependencies and phases are inputs to selection and orchestration
 only.
 
@@ -160,7 +160,7 @@ instead of greedily appending skills. The candidate portfolio is capped, every
 member is policy-checked, dependencies must be satisfiable, and redundant
 skills are penalized.
 
-Each bundle has an order-independent fingerprint. AER records bundle outcomes
+Each bundle has an order-independent fingerprint. AUREN records bundle outcomes
 separately from individual capability outcomes and reuses exact bundle history
 for later selection.
 
@@ -171,17 +171,17 @@ Bundle states are intentionally conservative:
 - degraded: repeated failures or weak success evidence, strongly penalized
 - retired: repeated severe failure, excluded from autonomous selection
 
-This gives AER the missing feedback loop: a combination can graduate when it
+This gives AUREN the missing feedback loop: a combination can graduate when it
 repeatedly adds value, while a combination that costs more without delivering
 better evidence can fall out of the working set.
 
 The design borrows the useful parts of Matt Pocock's workflow model: explicit
 phase boundaries, composable skills, dependency-aware execution and feedback
-from tests/review. AER keeps those concepts as data and policy inputs rather
+from tests/review. AUREN keeps those concepts as data and policy inputs rather
 than making the external skill framework a runtime dependency.
 
 
-AER also honors the Codex skill sidecar at
+AUREN also honors the Codex skill sidecar at
 `<skill>/agents/openai.yaml` when it declares
 `policy.allow_implicit_invocation: false`. This keeps the autonomous boundary
 consistent across Claude-style front matter and Codex metadata, while explicit
@@ -195,7 +195,7 @@ orders broad stages such as research, planning, implementation, verification
 and review. Within a phase, skills can be combined; explicit dependency
 metadata can force an edge.
 
-The groups are advisory execution structure, not new authority. AER still
+The groups are advisory execution structure, not new authority. AUREN still
 controls permissions, resource budgets, verification and stopping. Cyclic or
 malformed dependency metadata falls back to a deterministic safe order rather
 than blocking the task.
@@ -203,11 +203,11 @@ than blocking the task.
 
 ## Bounded collaborative execution
 
-After bundle selection, AER converts phase/dependency groups into an execution
+After bundle selection, AUREN converts phase/dependency groups into an execution
 schedule. Independent members may share a group and are bounded by the
 available parallelism. The schedule is deterministic and capped so adding
 skills cannot create an unbounded worker fan-out.
 
-The schedule is still subordinate to AER's resource, policy and verification
+The schedule is still subordinate to AUREN's resource, policy and verification
 controls. It describes what can run together; it does not grant execution
 authority.
