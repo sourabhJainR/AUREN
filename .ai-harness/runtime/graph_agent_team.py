@@ -307,7 +307,7 @@ class GraphAgentTeam:
                 min(self.resource_budget.max_workers, mode.max_parallelism),
                 resource_cost, pressure, historical_payload,
                 max_verification_depth(inference.depth, evidence_plan["verification_depth"]),
-                strategy.name, evidence_plan,
+                strategy.name, evidence_plan=evidence_plan,
             )
         if not cf.abstained and cf.selected=="local":
             reason=f"counterfactual selected local; cost={resource_cost:.2f}; evidence={predicted_evidence:.2f}; failure={failure_probability:.2f}"
