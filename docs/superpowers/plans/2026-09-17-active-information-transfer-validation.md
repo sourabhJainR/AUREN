@@ -1,6 +1,6 @@
 # Active Information and Transfer Validation Plan
 
-**Goal:** Close the remaining depth gaps where AER can select information actions and structural transfer candidates but cannot execute bounded validation and learn from the observed result.
+**Goal:** Close the remaining depth gaps where AUREN can select information actions and structural transfer candidates but cannot execute bounded validation and learn from the observed result.
 
 ## Constraints
 - Caller-owned actions only; this layer never grants permissions or bypasses capability policy.
