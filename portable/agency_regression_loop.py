@@ -1,4 +1,4 @@
-"""Automatic trace-driven regression execution and release decision loop for AER v14."""
+"""Automatic trace-driven regression execution and release decision loop for AUREN v14."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -14,7 +14,7 @@ RegressionJudge = Callable[[Any, Any, Any], Mapping[str, float]]
 
 @dataclass(frozen=True)
 class RegressionPlan:
-    """Versioned regression contract executed by AER after an engineering trace."""
+    """Versioned regression contract executed by AUREN after an engineering trace."""
 
     dataset: Dataset
     execute_case: RegressionFn
@@ -31,7 +31,7 @@ class RegressionPlan:
 
 @dataclass(frozen=True)
 class RegressionRun:
-    """AER-owned regression run identity plus its immutable evaluation result."""
+    """AUREN-owned regression run identity plus its immutable evaluation result."""
 
     regression_id: str
     trace_id: str
@@ -129,7 +129,7 @@ def run_trace_regression_loop(
     policy: PromotionPolicy = PromotionPolicy(),
     regression_id: str | None = None,
 ) -> tuple[RegressionRun, PromotionDecision]:
-    """Close the AER loop: trace -> regression -> decision."""
+    """Close the AUREN loop: trace -> regression -> decision."""
     run = execute_regression(trace, plan, regression_id=regression_id)
     decision = decide_promotion(quality=quality, hard_gates=hard_gates, regression=run, policy=policy)
     return run, decision
