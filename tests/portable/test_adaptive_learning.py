@@ -61,7 +61,7 @@ class AdaptiveLearningTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / "repo"
             root.mkdir()
-            memory = PersistentMemory(root / ".aer" / "memory.db", require_approval=False)
+            memory = PersistentMemory(root / ".auren" / "memory.db", require_approval=False)
             store = AdaptiveLearningStore(memory, "project-x", dream_root=root)
             store.record_outcome(task_id="t1", intent="fix", status="accepted", quality=1.0, iterations=1, context="concise")
             with patch("portable.adaptive_learning.DreamMemory") as dream:
