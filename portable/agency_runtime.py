@@ -149,7 +149,7 @@ def execute(
 ) -> ExecutionResult:
     """Execute a task and optionally close trace -> regression -> release.
 
-    With ``release_store`` and ``release_artifact`` supplied, AER materializes
+    With ``release_store`` and ``release_artifact`` supplied, AUREN materializes
     the decision as a real immutable artifact/channel transition. Shadow and
     canary stage an artifact without replacing ``current``; promote atomically
     advances ``current``; rollback selects the prior promoted immutable build.
@@ -161,7 +161,7 @@ def execute(
     if release_artifact and not release_store:
         raise ValueError("release_store is required when release_artifact is supplied")
     tracer = tracer or Tracer()
-    trace = tracer.start("aer.coding_task", {"task_id": task.task_id, "risk": task.risk, "mutation_mode": task.mutation_mode})
+    trace = tracer.start("auren.coding_task", {"task_id": task.task_id, "risk": task.risk, "mutation_mode": task.mutation_mode})
     try:
         plan_span = trace.span("planning", "planner", {"request": task.request, "artifact_type": task.artifact_type})
         assignments = plan_task(task, registry=registry, support_limit=support_limit)
@@ -195,9 +195,9 @@ def execute(
         result.ledger.append(LedgerEntry("verified", "; ".join(result.verification)))
         result.receipt = evaluate(result.dimensions, result.hard_gates, result.findings, [e.claim for e in result.evidence], rubric=rubric)
         score = _receipt_score(result.receipt)
-        verify_span.score("quality", score, "normalized quality receipt", "aer")
+        verify_span.score("quality", score, "normalized quality receipt", "auren")
         verify_span.finish({"passed": bool(getattr(result.receipt, "passed", False)), "quality": score})
-        trace.score("task_quality", score, "quality receipt", "aer")
+        trace.score("task_quality", score, "quality receipt", "auren")
 
         if regression_plan is not None:
             regression_span = trace.span("regression", "evaluation", {"dataset": regression_plan.dataset.name, "dataset_version": regression_plan.dataset.version})
@@ -213,7 +213,7 @@ def execute(
             result.regression_link = correlate_trace_with_regression(trace, regression_run.regression_id, regression_run.result)
             apply_regression_score(trace, result.regression_link)
             result.promotion_decision = decision
-            regression_span.score("regression_pass", 1.0 if regression_run.passed else 0.0, "AER-owned regression outcome", "regression")
+            regression_span.score("regression_pass", 1.0 if regression_run.passed else 0.0, "AUREN-owned regression outcome", "regression")
             regression_span.finish({"regression_id": regression_run.regression_id, "passed": regression_run.passed, "dataset_digest": regression_run.result.dataset_digest, "failures": regression_run.result.failures, "promotion": decision.action})
             trace.metadata["promotion"] = decision.as_dict()
             result.ledger.append(LedgerEntry("regression", f"{regression_run.regression_id}: {'passed' if regression_run.passed else 'failed'}"))
@@ -227,7 +227,7 @@ def execute(
                     artifact_ref = release_store.stage(release_artifact, release_artifact_id or task.task_id)
                 result.release_state = apply_promotion_decision(release_store, decision, artifact_ref)
                 trace.metadata["release"] = result.release_state.as_dict()
-                trace.score("release_applied", 1.0, "release state transition completed", "aer")
+                trace.score("release_applied", 1.0, "release state transition completed", "auren")
                 result.ledger.append(LedgerEntry("release", f"{result.release_state.action}: {result.release_state.artifact_id or 'previous'}"))
         elif regression_result is not None and regression_id:
             regression_span = trace.span("regression", "evaluation", {"regression_id": regression_id})
