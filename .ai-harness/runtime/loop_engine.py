@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Planning helpers for AER loop execution.
+"""Planning helpers for AUREN loop execution.
 
 Bounded execution is owned by ``portable.feedback_loop.BoundedLoop``. This module
 keeps the older planning/scoring helpers for compatibility, but does not define
