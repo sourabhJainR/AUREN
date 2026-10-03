@@ -1,7 +1,7 @@
 import unittest
 from portable.benchmark_task_contract import BenchmarkTaskContractFactory
 from portable.benchmark_task_dispatch import BenchmarkTaskDispatcher
-from portable.benchmark_execution_handshake import BenchmarkExecutionHandshake
+from portable.benchmark_execution_handshake import BenchmarkExecutionHandshake, derive_runtime_evidence
 from portable.benchmark_task_dispatch import BenchmarkExecutionRequest
 from pathlib import Path
 
@@ -59,6 +59,30 @@ class BenchmarkExecutionHandshakeTests(unittest.TestCase):
         r = BenchmarkExecutionHandshake().complete(self.request, evidence_ids=["e2","e3","e4"], evidence_kinds=["canonical execution evidence","independent verification evidence","resource and safety evidence"], success=True, verified=True)
         self.assertNotEqual(r.task_id, other_request.task_id)
         self.assertTrue(r.accepted)
+
+    def test_runtime_evidence_derivation_requires_existing_verifier_and_safety(self):
+        class Result:
+            def __init__(self, status):
+                self.status = status
+        ids, kinds, verified = derive_runtime_evidence(
+            task_id="benchmark:demo",
+            intent_digest="run-1",
+            results={"builder": Result("passed"), "verifier": Result("passed")},
+            safety_evidence_verified=True,
+        )
+        self.assertTrue(ids)
+        self.assertIn("canonical execution evidence", kinds)
+        self.assertIn("independent verification evidence", kinds)
+        self.assertIn("resource and safety evidence", kinds)
+        self.assertTrue(verified)
+
+        _, _, verified = derive_runtime_evidence(
+            task_id="benchmark:demo",
+            intent_digest="run-2",
+            results={"verifier": Result("passed")},
+            safety_evidence_verified=False,
+        )
+        self.assertFalse(verified)
 
     def test_incomplete_evidence_coverage_fails_closed(self):
         r = BenchmarkExecutionHandshake().complete(
