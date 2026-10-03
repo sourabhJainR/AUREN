@@ -1030,12 +1030,18 @@ the learning system, not an instruction source. If a skill produced no distinct 
             )
             experiment_queue.mark_observed(curriculum_experiment.experiment_id, experiment_observation.as_dict())
             experiment_attribution = experiment_queue.attribute(curriculum_experiment.experiment_id)
+        curriculum_experiment_outcome = None
+        if experiment_attribution is not None and experiment_attribution.reproducible and curriculum_experiment is not None:
+            curriculum_experiment_outcome = CurriculumExperimentController(memory.project_root).close(
+                curriculum_experiment,
+                benchmark_after=experiment_attribution.treatment_mean,
+                evidence_ids=experiment_attribution.evidence_ids,
+            )
         curriculum=AutonomyCurriculumController().propose(benchmark.scores)
         curriculum_experiment = None
         if curriculum:
             curriculum_experiment = CurriculumExperimentController(memory.project_root).plan(curriculum[0])
             AutonomousExperimentQueue(memory.project_root).enqueue(curriculum_experiment)
-        curriculum_experiment_outcome = None
         if curriculum_experiment is not None and curriculum_experiment_after is not None:
             curriculum_experiment_outcome = CurriculumExperimentController(memory.project_root).close(
                 curriculum_experiment,
