@@ -59,7 +59,7 @@ class AutonomyCampaignCurriculum:
                 ))
             elif domain not in holdouts and len(holdouts) < self.minimum_holdout_domains:
                 rows.append(CampaignObjective(
-                    domain, True, 0.7,
+                    domain, True, 1.0,
                     "domain is covered but lacks an independent holdout cohort",
                 ))
         rows.sort(key=lambda x: (-x.priority, x.domain, not x.holdout))
