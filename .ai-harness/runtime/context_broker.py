@@ -28,7 +28,7 @@ class ContextBroker:
         self.budget_chars=int(budget_chars); self.max_items=max(1,int(max_items)); self._candidates={}; self._active={}; self._events=[]
     def _emit(self,event:dict[str,Any])->None:
         self._events.append(event)
-        target=os.environ.get("AER_CONTEXT_BROKER_TELEMETRY")
+        target=os.environ.get("AUREN_CONTEXT_BROKER_TELEMETRY")
         if target:
             try:
                 p=__import__("pathlib").Path(target); p.parent.mkdir(parents=True,exist_ok=True)
