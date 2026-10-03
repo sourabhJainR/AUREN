@@ -219,14 +219,14 @@ class AutonomousCampaignController:
         )
 
     @staticmethod
-    def learned_domain_prediction(
+    def learned_domain_score(
         root: Path,
         domain: str,
         *,
         fallback: float = 0.75,
         limit: int = 24,
-    ) -> CampaignPrediction:
-        """Return a bounded prediction prior learned from verified campaign outcomes."""
+    ) -> float:
+        """Return a bounded prediction score learned from verified campaign outcomes."""
         from runtime.task_memory import relevant
 
         target = str(domain).strip()
@@ -249,10 +249,7 @@ class AutonomousCampaignController:
                 continue
         if not observations:
             score = max(0.0, min(1.0, float(fallback)))
-            return CampaignPrediction(
-                f"prior:{target}", score >= 0.75, score,
-                "conservative fallback; no verified campaign history for domain",
-            )
+            return score
         observations = observations[-max(1, int(limit)):]
         # Recent, low-error observations carry more weight. Shrink toward the
         # conservative fallback so a tiny sample cannot overfit future routing.
@@ -261,10 +258,7 @@ class AutonomousCampaignController:
         sample_weight = min(1.0, len(observations) / 6.0)
         score = (weighted * sample_weight) + (float(fallback) * (1.0 - sample_weight))
         score = max(0.0, min(1.0, score))
-        return CampaignPrediction(
-            f"prior:{target}", score >= 0.75, score,
-            f"learned from {len(observations)} verified campaign observations",
-        )
+        return score
 
     def learn(self, campaign_id: str, observations: Sequence[CampaignAttribution]) -> None:
         steward = LearningSteward(self.root, run_id=campaign_id, task="autonomous benchmark campaign")
