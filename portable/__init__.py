@@ -150,3 +150,5 @@ from .external_generalization_runner import ExternalEnvironmentAdapter, Independ
 from .campaign_intervention_loop import CampaignInterventionPlanner, FailurePattern
 
 from .adaptive_experiment_controller import ExperimentAssignment, ExperimentObservation, ExperimentReplication, AdaptiveExperimentResult, ExperimentController
+
+from .experiment_learning_bridge import CurriculumLearningSignal, ExperimentLearningBridge
