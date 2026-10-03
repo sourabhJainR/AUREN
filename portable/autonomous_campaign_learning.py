@@ -240,13 +240,16 @@ class AutonomousCampaignController:
         for row in rows:
             try:
                 payload = json.loads(str(row.get("detail", "")))
-                task_id = str(payload.get("task_id", ""))
+                decision = payload.get("decision", payload)
+                if isinstance(decision, str):
+                    decision = json.loads(decision)
+                task_id = str(decision.get("task_id", ""))
                 parts = task_id.split(":")
                 if len(parts) < 3 or parts[1] != target:
                     continue
-                score = float(payload.get("realized_score", fallback))
-                predicted = float(payload.get("predicted_score", fallback))
-                error = float(payload.get("score_error", abs(score - predicted)))
+                score = float(decision.get("realized_score", fallback))
+                predicted = float(decision.get("predicted_score", fallback))
+                error = float(decision.get("score_error", abs(score - predicted)))
                 observations.append((score, error))
             except (TypeError, ValueError, json.JSONDecodeError):
                 continue
