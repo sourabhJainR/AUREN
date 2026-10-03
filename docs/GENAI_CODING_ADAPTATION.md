@@ -1,24 +1,24 @@
 # GenAI Coding Adaptation
 
-AER reviewed the current `awesome-generative-ai-guide` and selected only ideas that improve an AI coding system. The source emphasizes that modern agent systems are built from a model plus a harness containing memory, tools and planning; that context engineering is a core discipline; that retrieval has moved toward hybrid and agentic approaches; and that evaluation must cover the whole system rather than only the model.
+AUREN reviewed the current `awesome-generative-ai-guide` and selected only ideas that improve an AI coding system. The source emphasizes that modern agent systems are built from a model plus a harness containing memory, tools and planning; that context engineering is a core discipline; that retrieval has moved toward hybrid and agentic approaches; and that evaluation must cover the whole system rather than only the model.
 
-## What AER adopts
+## What AUREN adopts
 
 ### Context engineering
 
-AER already has context-budget and evidence-oriented design. This adaptation makes context selection an explicit stage for every meaningful model call. The system should retrieve the minimum evidence needed for the current stage and attach provenance, freshness, confidence and cost.
+AUREN already has context-budget and evidence-oriented design. This adaptation makes context selection an explicit stage for every meaningful model call. The system should retrieve the minimum evidence needed for the current stage and attach provenance, freshness, confidence and cost.
 
 ### Hybrid retrieval
 
-AER should not force every repository question through embeddings. Exact identifiers and errors benefit from lexical search, relationships benefit from AST/graph evidence, and conceptual questions can benefit from semantic retrieval. These sources should be merged, reranked and deduplicated before prompt construction.
+AUREN should not force every repository question through embeddings. Exact identifiers and errors benefit from lexical search, relationships benefit from AST/graph evidence, and conceptual questions can benefit from semantic retrieval. These sources should be merged, reranked and deduplicated before prompt construction.
 
 ### Planning as a control function
 
-Planning is not a mandatory ceremony. AER should infer when decomposition is needed from task size, uncertainty, risk and expected context pressure. Each complex slice should have its own acceptance criteria and verification path.
+Planning is not a mandatory ceremony. AUREN should infer when decomposition is needed from task size, uncertainty, risk and expected context pressure. Each complex slice should have its own acceptance criteria and verification path.
 
 ### Evaluation of the harness
 
-AER's existing deterministic/regression/provider evaluation model is extended with utility, robustness, safety, efficiency, maintainability, review quality and outcome measures. This keeps evaluation focused on accepted engineering results rather than model claims.
+AUREN's existing deterministic/regression/provider evaluation model is extended with utility, robustness, safety, efficiency, maintainability, review quality and outcome measures. This keeps evaluation focused on accepted engineering results rather than model claims.
 
 ### Independent verification
 
@@ -32,9 +32,9 @@ Multi-agent execution is supported as a future capability, but it is not the def
 
 Provider-backed runs should retain operational measurements such as model/tool calls, latency, context reuse, failures, verification findings and user outcome. These measurements form the evidence base for future routing and provider selection.
 
-## What AER deliberately does not copy
+## What AUREN deliberately does not copy
 
-AER does not turn into a course/resource catalogue, require a particular model provider, require a vector database, force fine-tuning, or introduce multi-agent orchestration for ordinary coding tasks. Those would increase complexity without improving the core control plane.
+AUREN does not turn into a course/resource catalogue, require a particular model provider, require a vector database, force fine-tuning, or introduce multi-agent orchestration for ordinary coding tasks. Those would increase complexity without improving the core control plane.
 
 ## Resulting architecture
 
