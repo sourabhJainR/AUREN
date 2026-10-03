@@ -52,7 +52,7 @@ def test_active_tool_discovery_and_policy():
     registry = ToolRegistry([ToolSpec("search", "search repository files", "perception", handler=lambda q: q)])
     tool = registry.discover("repository search")[0]
     assert tool.name == "search"
-    assert registry.execute("search", {"q": "AER"}, AllowlistedToolPolicy()) == "AER"
+    assert registry.execute("search", {"q": "AUREN"}, AllowlistedToolPolicy()) == "AUREN"
 
 
 def test_event_runtime_supports_cancellation():
