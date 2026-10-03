@@ -1,10 +1,10 @@
 # Agency layer
 
-This directory defines AER's specialist-agent layer.
+This directory defines AUREN's specialist-agent layer.
 
 ## Source
 
-The upstream source is `msitarzewski/agency-agents`, pinned in `source-manifest.json`. AER does not copy upstream execution semantics into the control plane. The source supplies specialist personas and domain workflows; AER supplies routing, security, evidence, verification, review and promotion.
+The upstream source is `msitarzewski/agency-agents`, pinned in `source-manifest.json`. AUREN does not copy upstream execution semantics into the control plane. The source supplies specialist personas and domain workflows; AUREN supplies routing, security, evidence, verification, review and promotion.
 
 ## Sync the full specialist library
 
@@ -17,7 +17,7 @@ Use a commit SHA for reproducible builds. The sync command writes the complete s
 
 ## Use it
 
-The AER orchestrator may use `portable.agency_registry.rank(task)` to obtain candidate specialists. Routing is advisory; the task contract, repository rules, security policy and verification gates remain authoritative.
+The AUREN orchestrator may use `portable.agency_registry.rank(task)` to obtain candidate specialists. Routing is advisory; the task contract, repository rules, security policy and verification gates remain authoritative.
 
 ## Design principle
 
