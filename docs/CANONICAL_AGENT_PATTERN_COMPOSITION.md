@@ -1,6 +1,6 @@
 # Canonical agent-pattern composition
 
-AER uses the following composition rule for agentic work:
+AUREN uses the following composition rule for agentic work:
 
 ```text
 Intent / Contract
@@ -69,4 +69,4 @@ Scope checking is advisory. Dependency and CI/configuration changes are surfaced
 
 ## Why this composition
 
-The source patterns that inspired this layer are useful because they improve decomposition, parallelism, specialization, synthesis and iterative quality. AER adapts those ideas as small deterministic contracts instead of introducing another agent framework. This keeps the existing state graph, capability fabric, evidence lineage, verification gates and release controls as the single execution and safety backbone.
+The source patterns that inspired this layer are useful because they improve decomposition, parallelism, specialization, synthesis and iterative quality. AUREN adapts those ideas as small deterministic contracts instead of introducing another agent framework. This keeps the existing state graph, capability fabric, evidence lineage, verification gates and release controls as the single execution and safety backbone.
