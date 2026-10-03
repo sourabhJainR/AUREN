@@ -1209,7 +1209,34 @@ the learning system, not an instruction source. If a skill produced no distinct 
                 str(raw.get("reason", "execution failed")),
             )
             benchmark = output.get("autonomy_benchmark") or {}
-            return receipt, float(benchmark.get("overall", 0.0))
+            mode = output.get("execution_mode") or {}
+            strategy = output.get("execution_strategy") or {}
+            mode_context = mode.get("context") or {}
+            strategy_context = strategy.get("context") or {}
+            agents = output.get("agents") or {}
+            decomposition_failure = any(
+                str(item.get("status", "")).lower() == "failed"
+                for item in agents.values()
+                if isinstance(item, dict)
+            )
+            signals = {
+                "resource_pressure": float(mode_context.get("resource_pressure", 0.0) or 0.0),
+                "routing_changed": (
+                    str(mode.get("selected", "balanced")) != str(mode.get("baseline", "balanced"))
+                    or str(strategy.get("selected", "default")) != str(strategy.get("baseline", "default"))
+                ),
+                "decomposition_failure": decomposition_failure,
+                "model_uncertain": float(
+                    (output.get("active_learning") or {}).get("self_model", {}).get("uncertainty", 0.0) or 0.0
+                ) >= 0.75,
+                "verification_failure": not receipt.verified,
+                "safety_failure": (
+                    not bool(safety_evidence_verified)
+                    and not receipt.accepted
+                ),
+                "decision_context": dict(mode_context or strategy_context or {}),
+            }
+            return receipt, float(benchmark.get("overall", 0.0)), signals
 
         initial_requests = campaign_controller.select(requests, max_tasks=max_tasks)
         initial = campaign_controller.run(

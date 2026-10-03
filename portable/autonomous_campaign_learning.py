@@ -56,6 +56,7 @@ class CampaignAttribution:
     confidence: float
     evidence_ids: tuple[str, ...]
     reason: str
+    runtime_signals: Mapping[str, object] = None
 
     def __post_init__(self) -> None:
         if self.failure_class not in FAILURE_CLASSES:
@@ -73,6 +74,7 @@ class CampaignAttribution:
             "confidence": round(self.confidence, 3),
             "evidence_ids": list(self.evidence_ids),
             "reason": self.reason,
+            "runtime_signals": dict(self.runtime_signals or {}),
         }
 
 
@@ -147,29 +149,42 @@ class AutonomousCampaignController:
         receipt: BenchmarkExecutionReceipt,
         *,
         realized_score: float,
+        runtime_signals: Mapping[str, object] | None = None,
     ) -> CampaignAttribution:
         score = max(0.0, min(1.0, float(realized_score)))
         error = abs(score - prediction.predicted_score)
-        if receipt.accepted and prediction.predicted_success:
+        signals = dict(runtime_signals or {})
+        reason_text = (receipt.reason or "").lower()
+        if receipt.accepted and prediction.predicted_success and error < 0.10:
             failure = "unknown"
             reason = "prediction and verified execution agree"
             confidence = max(0.5, 1.0 - error)
         elif not receipt.accepted:
-            reason_text = (receipt.reason or "").lower()
-            if "verification" in reason_text:
-                failure = "verification"
-            elif "safety" in reason_text:
+            if "safety" in reason_text or bool(signals.get("safety_failure")):
                 failure = "safety"
-            elif "resource" in reason_text:
+                reason = "safety evidence blocked the outcome"
+            elif "verification" in reason_text or bool(signals.get("verification_failure")):
+                failure = "verification"
+                reason = "independent verification blocked the outcome"
+            elif bool(signals.get("decomposition_failure")):
+                failure = "decomposition"
+                reason = "runtime evidence indicates the execution plan/decomposition failed"
+            elif float(signals.get("resource_pressure", 0.0) or 0.0) >= 0.75:
                 failure = "resource"
+                reason = "runtime resource pressure was materially elevated"
+            elif bool(signals.get("routing_changed")):
+                failure = "routing"
+                reason = "a learned routing/mode/pathway change coincided with the failed outcome"
+            elif bool(signals.get("model_uncertain")):
+                failure = "model"
+                reason = "model uncertainty was high for the failed outcome"
             elif "evidence" in reason_text:
                 failure = "capability"
-            elif prediction.predicted_success:
-                failure = "capability"
+                reason = "required execution evidence was not produced"
             else:
                 failure = "unknown"
-            reason = "verified execution did not meet the predicted outcome: " + receipt.reason
-            confidence = max(0.5, min(1.0, 0.5 + min(0.5, error)))
+                reason = "failed outcome lacks sufficient causal runtime evidence"
+            confidence = 0.75 if failure != "unknown" else 0.50
         elif not prediction.predicted_success:
             failure = "model"
             reason = "execution exceeded the negative prediction; recalibrate outcome model"
@@ -181,7 +196,7 @@ class AutonomousCampaignController:
         return CampaignAttribution(
             request.task_id, prediction.predicted_success, receipt.accepted,
             prediction.predicted_score, score, error, failure, confidence,
-            tuple(receipt.evidence_ids), reason,
+            tuple(receipt.evidence_ids), reason, signals,
         )
 
     @staticmethod
@@ -286,7 +301,7 @@ class AutonomousCampaignController:
         campaign_id: str,
         requests: Iterable[BenchmarkExecutionRequest],
         *,
-        execute: Callable[[BenchmarkExecutionRequest], tuple[BenchmarkExecutionReceipt, float]],
+        execute: Callable[[BenchmarkExecutionRequest], tuple],
         predictions: Mapping[str, CampaignPrediction],
         capability_id: str | None = None,
         baseline_score: float | None = None,
@@ -298,8 +313,15 @@ class AutonomousCampaignController:
             prediction = predictions.get(request.task_id)
             if prediction is None:
                 raise ValueError(f"missing prediction for {request.task_id}")
-            receipt, realized_score = execute(request)
-            observation = self.attribute(request, prediction, receipt, realized_score=realized_score)
+            execution = execute(request)
+            if not isinstance(execution, tuple) or len(execution) not in {2, 3}:
+                raise TypeError("campaign executor must return (receipt, score) or (receipt, score, signals)")
+            receipt, realized_score = execution[:2]
+            runtime_signals = execution[2] if len(execution) == 3 else {}
+            observation = self.attribute(
+                request, prediction, receipt, realized_score=realized_score,
+                runtime_signals=runtime_signals,
+            )
             observations.append(observation)
             proposed = self.intervention(observation)
             if proposed:
