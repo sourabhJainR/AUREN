@@ -1,7 +1,7 @@
-"""Small MCP-compatible JSON-RPC tool contract for AER.
+"""Small MCP-compatible JSON-RPC tool contract for AUREN.
 
 This module intentionally stops at the protocol boundary: transport remains the
-host application's responsibility. It gives AER deterministic tool listing,
+host application's responsibility. It gives AUREN deterministic tool listing,
 argument validation and policy enforcement without adding an SDK dependency.
 """
 from __future__ import annotations
