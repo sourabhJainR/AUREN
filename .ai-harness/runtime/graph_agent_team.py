@@ -1157,7 +1157,15 @@ the learning system, not an instruction source. If a skill produced no distinct 
                 return result
 
             def _execute_benchmark_request(request):
-                output = self.execute_benchmark_request(request, safety_evidence_verified=bool(safety_evidence_verified))
+                output = self.execute_benchmark_request(
+                    request,
+                    task=request.objective,
+                    intent_digest=intent_digest,
+                    base_prompt=base_prompt,
+                    memory=memory,
+                    invoke_agent=invoke_agent,
+                    safety_evidence_verified=bool(safety_evidence_verified),
+                )
                 raw = output.get("benchmark_execution_receipt") or {}
                 receipt = BenchmarkExecutionReceipt(
                     str(raw.get("task_id", request.task_id)),
