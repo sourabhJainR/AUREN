@@ -1,5 +1,15 @@
 from pathlib import Path
-import pytest
+from contextlib import contextmanager
+
+@contextmanager
+def raises(exc, match=None):
+    try:
+        yield
+    except exc as error:
+        if match is not None and match not in str(error):
+            raise AssertionError(f"expected {match!r} in {error!s}")
+    else:
+        raise AssertionError(f"expected {exc.__name__} to be raised")
 from portable.persistent_memory import PersistentMemory
 from portable.persistent_evidence_graph import PersistentEvidenceGraph
 
@@ -18,11 +28,11 @@ def test_rejects_unregistered_node(tmp_path):
     g=graph(tmp_path)
     a=g.add_node("campaign","abc")
     b=type(a)("fake","failure","def")
-    with pytest.raises(ValueError,match="unregistered"):
+    with raises(ValueError,match="unregistered"):
         g.add_edge(a,"produced",b)
 
 def test_lineage_direction_and_budget(tmp_path):
     g=graph(tmp_path)
     a=g.add_node("a","1"); b=g.add_node("b","2"); g.add_edge(a,"next",b)
     assert len(g.lineage(b.node_id,direction="in"))==1
-    with pytest.raises(ValueError): g.lineage(a.node_id,max_edges=0)
+    with raises(ValueError): g.lineage(a.node_id,max_edges=0)
