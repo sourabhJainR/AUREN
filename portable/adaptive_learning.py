@@ -312,7 +312,7 @@ class AdaptiveLearningStore:
 
         This is intentionally a maintenance-lane operation. The active worker
         remains unchanged until the caller takes the accepted artifact through
-        AER's normal regression, shadow, canary and promotion gates.
+        AUREN's normal regression, shadow, canary and promotion gates.
         """
         optimizer = SkillOptimizer(self.memory, self.project)
         return optimizer.epoch(
