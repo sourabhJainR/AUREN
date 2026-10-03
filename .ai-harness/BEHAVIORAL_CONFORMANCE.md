@@ -1,4 +1,4 @@
-# AER Behavioral Conformance Suite
+# AUREN Behavioral Conformance Suite
 
 The Behavioral Conformance Suite measures engineering behavior, not prompt-answer quality.
 
@@ -22,7 +22,7 @@ The benchmark evidence pipeline is:
 4. **AST/static invariants** — structural requirements are checked independently of runtime behavior, including required symbols and security-sensitive source invariants.
 5. **Deterministic failure injection** — BC-06 injects a one-shot verification failure through the benchmark trace boundary, without asking the provider to manufacture a failure.
 6. **Exact recovery ordering** — a recovery pass requires an observed failure followed later by a successful verification event; success alone is insufficient.
-7. **Context Broker telemetry** — the broker can emit lease/discover/release events to an isolated JSONL sink via `AER_CONTEXT_BROKER_TELEMETRY`. Missing telemetry is reported as missing observability, never converted into behavioral credit.
+7. **Context Broker telemetry** — the broker can emit lease/discover/release events to an isolated JSONL sink via `AUREN_CONTEXT_BROKER_TELEMETRY`. Missing telemetry is reported as missing observability, never converted into behavioral credit.
 8. **Separate scores** — `behavior_score`, `oracle_coverage` and `observability_score` are independent. A provider can behave correctly while having incomplete telemetry, and that distinction is preserved.
 
 Provider JSON remains diagnostic only and cannot override an oracle failure.
@@ -56,4 +56,4 @@ Behavioral release readiness is live-only: every requested provider must complet
 
 ## Safety
 
-Execution uses a disposable checkout. Reports are written only with `--write-report`. Secret material must never be printed. Benchmark evidence is not permission to activate AER self-modification; normal regression, safety, shadow/canary, promotion and rollback gates remain authoritative.
+Execution uses a disposable checkout. Reports are written only with `--write-report`. Secret material must never be printed. Benchmark evidence is not permission to activate AUREN self-modification; normal regression, safety, shadow/canary, promotion and rollback gates remain authoritative.
