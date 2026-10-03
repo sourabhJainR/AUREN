@@ -86,6 +86,22 @@ class AutonomousCampaignLearningTests(unittest.TestCase):
             self.assertEqual(len(result.observations), 3)
             self.assertEqual(result.rollout.state, "promoted")
 
+    def test_learned_domain_score_calibrates_from_persisted_observations(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            controller = AutonomousCampaignController(root, max_tasks=3)
+            request = _request("benchmark:research:observed", "research")
+            prediction = CampaignPrediction(request.task_id, True, .9)
+            controller.run(
+                "calibration-campaign",
+                (request,),
+                execute=lambda r: (_receipt(r), .4),
+                predictions={request.task_id: prediction},
+            )
+            score = controller.learned_domain_score(root, "research", fallback=.75)
+            self.assertLess(score, .75)
+            self.assertGreaterEqual(score, 0.0)
+
     def test_regressed_holdout_rolls_back(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
