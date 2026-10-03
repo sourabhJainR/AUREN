@@ -6,6 +6,7 @@ from pathlib import Path
 
 from portable.agency_state_graph import InMemoryCheckpointStore
 from portable.task_planner import TaskPlan
+from portable.benchmark_task_dispatch import BenchmarkExecutionRequest
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -16,6 +17,47 @@ from runtime.graph_agent_team import AgentSpec, GraphAgentTeam, SharedTaskMemory
 
 
 class GraphAgentTeamTests(unittest.TestCase):
+    def test_autonomous_campaign_learning_is_runtime_bound_and_bounded(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            memory = SharedTaskMemory(Path(tmp) / "memory.jsonl", "intent-a")
+            request = BenchmarkExecutionRequest(
+                task_id="benchmark:coding:1", domain="coding", holdout=True,
+                objective="test coding", risk_budget=.2, resource_budget=.5,
+                required_evidence=("canonical execution evidence",),
+            )
+            team = GraphAgentTeam([AgentSpec("planner", "planner")])
+
+            def fake_execute(request, **kwargs):
+                return {
+                    "benchmark_execution_receipt": {
+                        "task_id": request.task_id,
+                        "domain": request.domain,
+                        "holdout": request.holdout,
+                        "evidence_ids": ("run:evidence",),
+                        "evidence_kinds": ("canonical execution evidence",),
+                        "required_evidence": request.required_evidence,
+                        "success": True,
+                        "verified": True,
+                        "reason": "accepted",
+                    },
+                    "autonomy_benchmark": {"overall": .9},
+                }
+
+            team.execute_benchmark_request = fake_execute
+            result = team.execute_autonomous_benchmark_learning_campaign(
+                requests=(request,),
+                max_tasks=1,
+                retest_max_tasks=1,
+                intent_digest="intent-a",
+                base_prompt="base",
+                memory=memory,
+                invoke_agent=lambda agent, prompt: (0, agent.name, 0.01),
+                safety_evidence_verified=True,
+            )
+            self.assertEqual(result["initial"]["selected_task_ids"], [request.task_id])
+            self.assertEqual(result["initial"]["observations"][0]["realized_score"], .9)
+            self.assertTrue(result["initial"]["observations"][0]["realized_success"])
+
     def test_shared_memory_is_scoped_to_intent(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "memory.jsonl"

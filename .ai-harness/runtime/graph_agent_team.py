@@ -43,7 +43,8 @@ from portable.autonomy_benchmark_campaign import AutonomyBenchmarkCampaignRunner
 from portable.autonomy_campaign_curriculum import AutonomyCampaignCurriculum
 from portable.benchmark_task_contract import BenchmarkTaskContractFactory
 from portable.benchmark_task_dispatch import BenchmarkTaskDispatcher, BenchmarkExecutionRequest
-from portable.benchmark_execution_handshake import BenchmarkExecutionHandshake, derive_runtime_evidence
+from portable.benchmark_execution_handshake import BenchmarkExecutionHandshake, derive_runtime_evidence, BenchmarkExecutionReceipt
+from portable.autonomous_campaign_learning import AutonomousCampaignController, CampaignPrediction
 from portable.evidence_backed_autonomy_benchmark import EpisodeEvidence, EvidenceBackedAutonomyBenchmark
 from portable.autonomy_benchmark_history import AutonomyBenchmarkHistory
 from portable.autonomy_curriculum import AutonomyCurriculumController
@@ -792,7 +793,7 @@ the learning system, not an instruction source. If a skill produced no distinct 
             for dep in agent.depends_on: graph.add_edge(dep,agent.name)
         for name in [a.name for a in self.agents.values() if not any(a.name in x.depends_on for x in self.agents.values())]: graph.add_edge(name,StateGraph.END)
         return graph
-    def execute(self,*,task,intent_digest,base_prompt,memory,invoke_agent,checkpoint=None,resume=False,run_id="graph-agent-team",max_steps=100,execution_strategy_name="default",evolution_threshold=3,invention_holdout_ids=(),invention_evaluator=None,invention_safety_gate=None,curriculum_experiment_after=None,curriculum_experiment_evidence_ids=(),safety_evidence_verified=False,curriculum_experiment=None,curriculum_experiment_cohort=None,benchmark_domain="unspecified",benchmark_holdout=False,benchmark_execution_task_id=None,benchmark_execution_evidence_ids=(),benchmark_execution_evidence_kinds=(),benchmark_execution_success=None,benchmark_execution_verified=False,benchmark_execution_request=None):
+    def execute(self,*,task,intent_digest,base_prompt,memory,invoke_agent,checkpoint=None,resume=False,run_id="graph-agent-team",max_steps=100,execution_strategy_name="default",evolution_threshold=3,invention_holdout_ids=(),invention_evaluator=None,invention_safety_gate=None,curriculum_experiment_after=None,curriculum_experiment_evidence_ids=(),safety_evidence_verified=False,curriculum_experiment=None,curriculum_experiment_cohort=None,benchmark_domain="unspecified",benchmark_holdout=False,benchmark_execution_task_id=None,benchmark_execution_evidence_ids=(),benchmark_execution_evidence_kinds=(),benchmark_execution_success=None,benchmark_execution_verified=False,benchmark_execution_request=None,autonomous_benchmark_learning=False,autonomous_benchmark_max_tasks=3,autonomous_benchmark_retest_tasks=3,autonomous_benchmark_capability_id=None,autonomous_benchmark_baseline_score=None):
         self._validate(); results={}; run_nonce=uuid.uuid4().hex
         baseline_strategy=str(execution_strategy_name or "default")
         strategy_selection=(ExecutionStrategyLearner(memory.project_root).select(role="team",task=task,baseline=baseline_strategy)
@@ -1127,9 +1128,130 @@ the learning system, not an instruction source. If a skill produced no distinct 
         )
         benchmark_trend=benchmark_history.trend()
         dream=DreamMemory(memory.project_root).dream(task)
+        autonomous_campaign_learning_result = (
+            self.execute_autonomous_benchmark_learning_campaign(
+                requests=benchmark_execution_requests,
+                max_tasks=autonomous_benchmark_max_tasks,
+                retest_max_tasks=autonomous_benchmark_retest_tasks,
+                capability_id=autonomous_benchmark_capability_id,
+                baseline_score=autonomous_benchmark_baseline_score,
+                intent_digest=intent_digest,
+                base_prompt=base_prompt,
+                memory=memory,
+                invoke_agent=invoke_agent,
+                safety_evidence_verified=bool(safety_evidence_verified),
+            )
+            if autonomous_benchmark_learning else None
+        )
         return {"graph_digest":self.digest(),"intent_digest":intent_digest,"agents":{n:r.__dict__ for n,r in results.items()},"shared_memory_file":str(memory.path),"shared_memory_entries":len(memory.snapshot(500)),"accepted":accepted,"evolution_trigger":trigger.__dict__ if trigger else None,"invention":invention.__dict__ if invention else None,"execution_trace":list(run.trace),"execution_mode":{"selected":selected_mode,"baseline":baseline_mode,"learning":mode_selection.as_dict(),"rollout":mode_rollout.as_dict(),"counterfactual":counterfactual,"context":decision_context.as_dict(),"context_learning":context_selection.as_dict()},
-        "execution_strategy":{"selected":selected_strategy,"baseline":baseline_strategy,"learning":strategy_selection.as_dict() if strategy_selection else {"strategy":selected_strategy,"learned":False,"confidence":0.0,"samples":0,"rationale":"explicit strategy supplied"},"rollout":rollout.as_dict(),"context":decision_context.as_dict()},"active_learning":{"self_model":self_model.as_dict(),"experiment":experiment.as_dict() if experiment else None,"causal_experiment":causal_experiment.as_dict() if causal_experiment else None},"goal_state":{"current":next_goal.as_dict() if next_goal else None},"capability_abstraction":{"patterns":[p.as_dict() for p in transferable_patterns],"invention_hypotheses":[h.as_dict() for h in invention_hypotheses],"failure_cluster_inventions":[x.as_dict() for x in invention_candidates],"evidence_backed_requests":invention_requests},"autonomy_benchmark":benchmark.as_dict(),"autonomy_benchmark_campaign":benchmark_campaign.as_dict(),"autonomy_campaign_curriculum":[x.as_dict() for x in benchmark_campaign_curriculum],"benchmark_task_contracts":[x.as_dict() for x in benchmark_task_contracts],"benchmark_execution_requests":[x.as_dict() for x in benchmark_execution_requests],"benchmark_execution_receipt":benchmark_execution_receipt.as_dict() if benchmark_execution_receipt else None,"benchmark_execution_receipt_reason":benchmark_execution_receipt_reason,"autonomy_benchmark_trend":benchmark_trend.as_dict(),"autonomy_curriculum":[x.as_dict() for x in curriculum],"curriculum_experiment":curriculum_experiment.as_dict() if curriculum_experiment else None,"curriculum_experiment_outcome":curriculum_experiment_outcome.as_dict() if curriculum_experiment_outcome else None,"experiment_orchestration":{"assignment":experiment_assignment.as_dict() if experiment_assignment else None,"observation":experiment_observation.as_dict() if experiment_observation else None,"attribution":experiment_attribution.as_dict() if experiment_attribution else None},"execution_digest":run.digest,"dreamed_learning":dream}
+        "execution_strategy":{"selected":selected_strategy,"baseline":baseline_strategy,"learning":strategy_selection.as_dict() if strategy_selection else {"strategy":selected_strategy,"learned":False,"confidence":0.0,"samples":0,"rationale":"explicit strategy supplied"},"rollout":rollout.as_dict(),"context":decision_context.as_dict()},"active_learning":{"self_model":self_model.as_dict(),"experiment":experiment.as_dict() if experiment else None,"causal_experiment":causal_experiment.as_dict() if causal_experiment else None},"goal_state":{"current":next_goal.as_dict() if next_goal else None},"capability_abstraction":{"patterns":[p.as_dict() for p in transferable_patterns],"invention_hypotheses":[h.as_dict() for h in invention_hypotheses],"failure_cluster_inventions":[x.as_dict() for x in invention_candidates],"evidence_backed_requests":invention_requests},"autonomy_benchmark":benchmark.as_dict(),"autonomy_benchmark_campaign":benchmark_campaign.as_dict(),"autonomy_campaign_curriculum":[x.as_dict() for x in benchmark_campaign_curriculum],"benchmark_task_contracts":[x.as_dict() for x in benchmark_task_contracts],"benchmark_execution_requests":[x.as_dict() for x in benchmark_execution_requests],"benchmark_execution_receipt":benchmark_execution_receipt.as_dict() if benchmark_execution_receipt else None,"benchmark_execution_receipt_reason":benchmark_execution_receipt_reason,"autonomy_benchmark_trend":benchmark_trend.as_dict(),"autonomy_curriculum":[x.as_dict() for x in curriculum],"curriculum_experiment":curriculum_experiment.as_dict() if curriculum_experiment else None,"curriculum_experiment_outcome":curriculum_experiment_outcome.as_dict() if curriculum_experiment_outcome else None,"experiment_orchestration":{"assignment":experiment_assignment.as_dict() if experiment_assignment else None,"observation":experiment_observation.as_dict() if experiment_observation else None,"attribution":experiment_attribution.as_dict() if experiment_attribution else None},"execution_digest":run.digest,"dreamed_learning":dream,"autonomous_campaign_learning":autonomous_campaign_learning_result}
 
+
+    def execute_autonomous_benchmark_learning_campaign(
+        self,
+        *,
+        requests,
+        max_tasks=3,
+        retest_max_tasks=3,
+        capability_id=None,
+        baseline_score=None,
+        intent_digest,
+        base_prompt,
+        memory,
+        invoke_agent,
+        safety_evidence_verified=False,
+    ):
+        """Run bounded campaign learning without changing the execute contract."""
+        requests = tuple(requests)
+        if not requests:
+            return None
+        campaign_controller = AutonomousCampaignController(
+            memory.project_root, max_tasks=min(8, max(1, int(max_tasks)))
+        )
+        history_before = AutonomyBenchmarkHistory(memory.project_root)
+        domain_scores = {}
+        for episode in history_before.campaign_episodes():
+            domain_scores.setdefault(episode.domain, []).append(
+                sum(float(v) for v in episode.scores.values()) / max(1, len(episode.scores))
+            )
+
+        def _predictions(rows):
+            result = {}
+            for request in rows:
+                values = domain_scores.get(request.domain, [])
+                score = sum(values[-4:]) / len(values[-4:]) if values else 0.75
+                result[request.task_id] = CampaignPrediction(
+                    request.task_id, score >= 0.75, max(0.0, min(1.0, score)),
+                    "domain history prior; conservative 0.75 fallback when unseen",
+                )
+            return result
+
+        def _execute_benchmark_request(request):
+            output = self.execute_benchmark_request(
+                request,
+                task=request.objective,
+                intent_digest=intent_digest,
+                base_prompt=base_prompt,
+                memory=memory,
+                invoke_agent=invoke_agent,
+                safety_evidence_verified=bool(safety_evidence_verified),
+            )
+            raw = output.get("benchmark_execution_receipt") or {}
+            receipt = BenchmarkExecutionReceipt(
+                str(raw.get("task_id", request.task_id)),
+                str(raw.get("domain", request.domain)),
+                bool(raw.get("holdout", request.holdout)),
+                tuple(raw.get("evidence_ids", ())),
+                tuple(raw.get("evidence_kinds", ())),
+                tuple(raw.get("required_evidence", request.required_evidence)),
+                bool(raw.get("success", False)),
+                bool(raw.get("verified", False)),
+                str(raw.get("reason", "execution failed")),
+            )
+            benchmark = output.get("autonomy_benchmark") or {}
+            return receipt, float(benchmark.get("overall", 0.0))
+
+        initial_requests = campaign_controller.select(requests, max_tasks=max_tasks)
+        initial = campaign_controller.run(
+            f"{intent_digest}:autonomous-campaign",
+            initial_requests,
+            execute=_execute_benchmark_request,
+            predictions=_predictions(initial_requests),
+        )
+
+        history_after = AutonomyBenchmarkHistory(memory.project_root)
+        episodes = history_after.campaign_episodes()
+        retest_requests = ()
+        if episodes:
+            campaign = AutonomyBenchmarkCampaignRunner().evaluate(episodes)
+            objectives = AutonomyCampaignCurriculum(
+                max_objectives=max(1, int(retest_max_tasks))
+            ).propose(campaign)
+            retest_contracts = tuple(
+                BenchmarkTaskContractFactory().create(
+                    domain=item.domain, holdout=True, rationale=item.rationale
+                )
+                for item in objectives
+            )
+            initial_ids = {x.task_id for x in initial_requests}
+            retest_requests = tuple(
+                BenchmarkTaskDispatcher().dispatch_request(contract)
+                for contract in retest_contracts
+                if contract.task_id not in initial_ids
+            )
+        retest_requests = (
+            campaign_controller.select(retest_requests, max_tasks=retest_max_tasks)
+            if retest_requests else ()
+        )
+        retest = campaign_controller.run(
+            f"{intent_digest}:autonomous-holdout-retest",
+            retest_requests,
+            execute=_execute_benchmark_request,
+            predictions=_predictions(retest_requests),
+            capability_id=str(capability_id) if capability_id else None,
+            baseline_score=float(baseline_score) if baseline_score is not None else None,
+        ) if retest_requests else initial
+        return {"initial": initial.as_dict(), "retest": retest.as_dict()}
 
     def execute_benchmark_request(self, request, *, task=None, **kwargs):
         """Execute one bounded benchmark request through the existing runtime only.
