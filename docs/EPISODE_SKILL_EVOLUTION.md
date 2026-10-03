@@ -1,6 +1,6 @@
 # Episode-driven Skill Evolution
 
-AER now connects the canonical `EngineeringEpisode` to the SkillOpt-style maintenance lane.
+AUREN now connects the canonical `EngineeringEpisode` to the SkillOpt-style maintenance lane.
 
 ## Closed loop
 
@@ -45,7 +45,7 @@ ACTIVE planning skill
 - Only promoted skills are exposed to future planning.
 - Rejected candidates remain in the existing SkillOpt rejected-edit buffer and cannot become active.
 
-The replay evaluator is injected because AER must not assume that a model score is an authoritative engineering result. Callers should use the real task verifier, test runner, benchmark, or other independent evidence-producing evaluator.
+The replay evaluator is injected because AUREN must not assume that a model score is an authoritative engineering result. Callers should use the real task verifier, test runner, benchmark, or other independent evidence-producing evaluator.
 
 ## Failure learning
 
