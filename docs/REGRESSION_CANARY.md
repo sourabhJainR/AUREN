@@ -1,6 +1,6 @@
-# AER Regression Corpus and Shadow/Canary Evaluation
+# AUREN Regression Corpus and Shadow/Canary Evaluation
 
-AER now treats learned policy changes as experiments before activation:
+AUREN now treats learned policy changes as experiments before activation:
 
 `observe -> learn -> corpus -> shadow -> canary -> promote -> monitor -> rollback`
 
