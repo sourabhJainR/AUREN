@@ -9,7 +9,7 @@ graduation, benchmarking and local inference.
 1. Canonical Engineering Evidence Envelope — immutable content-addressed lifecycle lineage.
 2. End-to-end Evidence Graph — envelope, intent, repository, evidence and lifecycle stages become graph relationships.
 3. Predictive WorldModel feedback loop — predictions are scored against observations and confidence is adjusted.
-4. AER-aware context/evidence compaction — deterministic bounded key/value evidence representation.
+4. AUREN-aware context/evidence compaction — deterministic bounded key/value evidence representation.
 5. Repository change impact prediction — dependency-aware impact analysis before execution/review.
 6. Failure-pattern prediction before execution — persistent remediation history predicts risk and recommends controls.
 7. Autonomous task decomposition using historical outcomes — unresolved historical findings become dependency-safe tasks.
