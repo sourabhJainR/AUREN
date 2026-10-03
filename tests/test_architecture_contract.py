@@ -16,7 +16,7 @@ def load_contract() -> dict[str, object]:
 
 class ArchitectureContractTests(unittest.TestCase):
     def test_contract_is_valid(self) -> None:
-        namespace: dict[str, object] = {"__file__": str(VALIDATOR), "__name__": "aer_architecture_validator_test"}
+        namespace: dict[str, object] = {"__file__": str(VALIDATOR), "__name__": "auren_architecture_validator_test"}
         source = VALIDATOR.read_text(encoding="utf-8")
         exec(compile(source, str(VALIDATOR), "exec"), namespace)
         validate = namespace["validate"]
@@ -24,7 +24,7 @@ class ArchitectureContractTests(unittest.TestCase):
         self.assertIsNone(validate())
 
     def test_contract_is_yaml_compatible_json(self) -> None:
-        self.assertEqual(load_contract()["architecture"]["short_name"], "AER")
+        self.assertEqual(load_contract()["architecture"]["short_name"], "AUREN")
 
     def test_enforcement_points_exist(self) -> None:
         contract = load_contract()
