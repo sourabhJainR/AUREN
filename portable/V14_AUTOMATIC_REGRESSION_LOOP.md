@@ -1,6 +1,6 @@
-# AER v14: Automatic Trace Regression Loop
+# AUREN v14: Automatic Trace Regression Loop
 
-AER v14 closes the engineering feedback loop without making an external observability or evaluation service mandatory.
+AUREN v14 closes the engineering feedback loop without making an external observability or evaluation service mandatory.
 
 ## Closed loop
 
@@ -12,7 +12,7 @@ execution trace
    |
    +--> deterministic quality receipt
    |
-   +--> AER creates regression run
+   +--> AUREN creates regression run
    |       |
    |       +--> versioned dataset
    |       +--> dataset digest
@@ -32,7 +32,7 @@ promotion policy
 
 ## API
 
-`RegressionPlan` defines the versioned regression corpus and the deterministic functions AER must run. `execute_regression()` creates an AER-owned run ID and executes the complete dataset. The result retains the dataset content digest from `Dataset.digest`.
+`RegressionPlan` defines the versioned regression corpus and the deterministic functions AUREN must run. `execute_regression()` creates an AUREN-owned run ID and executes the complete dataset. The result retains the dataset content digest from `Dataset.digest`.
 
 ```python
 from portable.agency_observability import Dataset, DatasetItem
@@ -89,4 +89,4 @@ The regression run is correlated to the parent trace with the existing v13 `Regr
 
 The existing `regression_result` argument remains supported for callers that already own a regression engine. `regression_plan` is the new automatic path. The two modes are mutually exclusive.
 
-The implementation is dependency-free and offline-capable. Regression execution is deterministic only to the extent that the supplied `execute_case` and `judge` functions are deterministic; AER records their resulting evidence but does not claim external reproducibility.
+The implementation is dependency-free and offline-capable. Regression execution is deterministic only to the extent that the supplied `execute_case` and `judge` functions are deterministic; AUREN records their resulting evidence but does not claim external reproducibility.
