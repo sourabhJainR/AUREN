@@ -2,6 +2,8 @@ import unittest
 from portable.benchmark_task_contract import BenchmarkTaskContractFactory
 from portable.benchmark_task_dispatch import BenchmarkTaskDispatcher
 from portable.benchmark_execution_handshake import BenchmarkExecutionHandshake
+from portable.benchmark_task_dispatch import BenchmarkExecutionRequest
+from pathlib import Path
 
 
 class BenchmarkExecutionHandshakeTests(unittest.TestCase):
@@ -16,6 +18,39 @@ class BenchmarkExecutionHandshakeTests(unittest.TestCase):
     def test_unverified_evidence_fails_closed(self):
         r = BenchmarkExecutionHandshake().complete(self.request, evidence_ids=["e1"], success=True, verified=False)
         self.assertFalse(r.accepted)
+
+
+    def test_runtime_adapter_preserves_exact_contract_binding(self):
+        from runtime.graph_agent_team import GraphAgentTeam
+
+        class RecordingTeam(GraphAgentTeam):
+            def execute(self, **kwargs):
+                return kwargs
+
+        team = object.__new__(RecordingTeam)
+        result = team.execute_benchmark_request(
+            self.request,
+            task="bounded benchmark execution",
+            memory=Path("."),
+            invoke_agent=lambda *args, **kwargs: None,
+        )
+        self.assertEqual(result["benchmark_domain"], self.request.domain)
+        self.assertEqual(result["benchmark_holdout"], self.request.holdout)
+        self.assertEqual(result["benchmark_execution_task_id"], self.request.task_id)
+
+    def test_runtime_adapter_rejects_binding_mismatch(self):
+        from runtime.graph_agent_team import GraphAgentTeam
+
+        class RecordingTeam(GraphAgentTeam):
+            def execute(self, **kwargs):
+                return kwargs
+
+        team = object.__new__(RecordingTeam)
+        with self.assertRaises(ValueError):
+            team.execute_benchmark_request(
+                self.request,
+                benchmark_domain="different-domain",
+            )
 
     def test_mismatched_execution_request_is_not_implicitly_accepted(self):
         other = BenchmarkTaskContractFactory().create(domain="coding", holdout=True, rationale="other gap")
