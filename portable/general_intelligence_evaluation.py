@@ -26,10 +26,10 @@ class ExecutionCase:
     runner: Callable[[], Any]
     oracle: Callable[[Any], bool]
     evidence_factory: Callable[[Any], Iterable[str]]
+    metadata: Mapping[str, Any] | None = None
     manifest: BenchmarkManifest | None = None
     oracle_id: str = ""
     manifest_digest: str = ""
-    metadata: Mapping[str, Any] | None = None
 
     def __post_init__(self) -> None:
         if not self.case_id.strip() or not self.domain.strip():
