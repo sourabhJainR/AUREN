@@ -17,9 +17,19 @@ class BenchmarkExecutionHandshakeTests(unittest.TestCase):
         r = BenchmarkExecutionHandshake().complete(self.request, evidence_ids=["e1"], success=True, verified=False)
         self.assertFalse(r.accepted)
 
+    def test_mismatched_execution_request_is_not_implicitly_accepted(self):
+        other = BenchmarkTaskContractFactory().create(domain="coding", holdout=True, rationale="other gap")
+        other_request = BenchmarkTaskDispatcher().dispatch_request(other)
+        self.assertNotEqual(other_request.task_id, self.request.task_id)
+        r = BenchmarkExecutionHandshake().complete(self.request, evidence_ids=["e2"], success=True, verified=True)
+        self.assertNotEqual(r.task_id, other_request.task_id)
+        self.assertTrue(r.accepted)
+
     def test_verified_success_is_accepted(self):
         r = BenchmarkExecutionHandshake().complete(self.request, evidence_ids=["e1"], success=True, verified=True)
         self.assertTrue(r.accepted)
+        self.assertEqual(r.task_id, self.request.task_id)
+        self.assertEqual(r.evidence_ids, ("e1",))
 
 if __name__ == "__main__":
     unittest.main()
