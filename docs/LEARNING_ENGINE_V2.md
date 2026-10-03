@@ -36,6 +36,6 @@ The production-oriented defaults are intentionally conservative: minimum observa
 
 ## Evidence model
 
-The confidence calculation uses a Wilson lower bound for a binomial success proportion. This is an uncertainty-aware guard against promoting a policy on a small lucky sample. AER should treat this as one gate among several, not as a guarantee of correctness.
+The confidence calculation uses a Wilson lower bound for a binomial success proportion. This is an uncertainty-aware guard against promoting a policy on a small lucky sample. AUREN should treat this as one gate among several, not as a guarantee of correctness.
 
 The design also follows continual-learning and long-horizon maintenance principles: preserve history, evaluate by task family, replay known failures, and monitor behavior after promotion.
