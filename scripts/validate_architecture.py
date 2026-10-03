@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate AER architecture contracts without third-party dependencies."""
+"""Validate AUREN architecture contracts without third-party dependencies."""
 from __future__ import annotations
 
 import ast
@@ -70,7 +70,7 @@ def validate_contract(contract: dict[str, Any]) -> None:
     if contract.get("contract_version") != 1:
         raise AssertionError("unsupported architecture contract version")
     architecture = _require(contract, "architecture", "architecture")
-    if architecture.get("short_name") != "AER" or architecture.get("target_line") != "23.x":
+    if architecture.get("short_name") != "AUREN" or architecture.get("target_line") != "23.x":
         raise AssertionError("architecture identity or target line drifted")
     principles = set(_require(contract, "principles", "architecture contract"))
     missing = REQUIRED_PRINCIPLES - principles
