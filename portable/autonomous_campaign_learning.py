@@ -216,6 +216,71 @@ class AutonomousCampaignController:
                 evidence_ids=row.evidence_ids,
             )
 
+    def run_with_holdout_retest(
+        self,
+        campaign_id: str,
+        requests: Iterable[BenchmarkExecutionRequest],
+        *,
+        retest_requests: Iterable[BenchmarkExecutionRequest] = (),
+        execute: Callable[[BenchmarkExecutionRequest], tuple[BenchmarkExecutionReceipt, float]],
+        predictions: Mapping[str, CampaignPrediction],
+        retest_predictions: Mapping[str, CampaignPrediction] | None = None,
+        capability_id: str | None = None,
+        baseline_score: float | None = None,
+    ) -> CampaignLearning:
+        """Learn from an initial campaign, then retest on fresh holdout requests.
+
+        Initial observations are persisted before the retest so existing runtime
+        routing/strategy learners can consume verified failures. Promotion is
+        evaluated only after the retest cohort is observed.
+        """
+        initial = self.select(requests)
+        retests = self.select(retest_requests)
+        if any(not request.holdout for request in retests):
+            raise ValueError("holdout retest requests must be marked holdout")
+        overlap = {x.task_id for x in initial} & {x.task_id for x in retests}
+        if overlap:
+            raise ValueError("holdout retest must use fresh task ids")
+        if len(initial) + len(retests) > self.max_tasks:
+            raise ValueError("campaign plus retest exceeds bounded task budget")
+        if retests and not retest_predictions:
+            raise ValueError("retest predictions are required")
+        first = self.run(
+            campaign_id,
+            initial,
+            execute=execute,
+            predictions=predictions,
+            capability_id=None,
+            baseline_score=None,
+        )
+        if not retests:
+            if capability_id and baseline_score is not None:
+                return self.run(
+                    campaign_id + ":rollout",
+                    (),
+                    execute=execute,
+                    predictions={},
+                    capability_id=capability_id,
+                    baseline_score=baseline_score,
+                )
+            return first
+        second = self.run(
+            campaign_id + ":holdout-retest",
+            retests,
+            execute=execute,
+            predictions=retest_predictions or {},
+            capability_id=capability_id,
+            baseline_score=baseline_score,
+        )
+        return CampaignLearning(
+            campaign_id,
+            first.observations + second.observations,
+            first.interventions + second.interventions,
+            first.selected_task_ids + second.selected_task_ids,
+            first.holdout_task_ids + second.holdout_task_ids,
+            second.rollout,
+        )
+
     def run(
         self,
         campaign_id: str,
