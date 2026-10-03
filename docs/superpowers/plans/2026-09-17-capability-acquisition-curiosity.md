@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Turn AER capability acquisition into an evidence-gated practice/evaluation/graduation loop, and add a deterministic planner for selecting the next useful learning target.
+**Goal:** Turn AUREN capability acquisition into an evidence-gated practice/evaluation/graduation loop, and add a deterministic planner for selecting the next useful learning target.
 
 **Architecture:** `CapabilityAcquirer` remains permission-neutral. Practice uses a caller-owned bounded runner and persists its result. Graduation accepts only persisted successful attempts plus independent evidence and records a validated skill in `SkillGraph`. `CuriosityEngine` ranks needs but never executes them.
 
