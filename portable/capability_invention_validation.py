@@ -30,7 +30,7 @@ class CapabilityValidationPlan:
 
     @property
     def plan_digest(self) -> str:
-        payload={"proposal_digest":self.proposal_digest,"probes":[p.__dict__ for p in self.probes],
+        payload={"proposal_digest":self.proposal_digest,"probes":[(p.probe_id,p.dimension,p.task_family,p.holdout,p.oracle_required) for p in self.probes],
                  "independent":self.independent,"fresh_holdout_required":self.fresh_holdout_required,
                  "minimum_pass_rate":self.minimum_pass_rate,"rollback_threshold":self.rollback_threshold}
         return hashlib.sha256(json.dumps(payload,sort_keys=True,separators=(",",":")).encode()).hexdigest()
