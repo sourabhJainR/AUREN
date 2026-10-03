@@ -9,12 +9,14 @@ silently averaged into a decision.
 from __future__ import annotations
 
 from dataclasses import dataclass, asdict
+from datetime import datetime, timezone
 import hashlib
 import json
 from statistics import mean
 from typing import Any, Mapping, Sequence
 
 from .persistent_evidence_graph import EvidenceNode, PersistentEvidenceGraph
+from .evidence_freshness_policy import EvidenceFreshnessPolicy
 from .continuous_engineering_decision_fabric import (
     ContinuousEngineeringDecisionFabric,
     Decision,
@@ -85,8 +87,12 @@ class EvidenceDrivenDecisionFabric:
         candidates: Sequence[Mapping[str, Any]],
         *,
         task_family: str = "",
+        freshness_policy: EvidenceFreshnessPolicy | None = None,
+        now: datetime | None = None,
         max_edges: int = 200,
     ) -> tuple[EvidenceDecisionSignal, ...]:
+        freshness = freshness_policy or EvidenceFreshnessPolicy()
+        current = now or datetime.now(timezone.utc)
         root = self.graph.add_node("capability", capability)
         edges = self.graph.lineage(root.node_id, direction="both", max_edges=max_edges)
         node_ids = {
@@ -112,6 +118,8 @@ class EvidenceDrivenDecisionFabric:
             if md.get("contaminated", "false").lower() == "true":
                 continue
             if md.get("verified", "false").lower() != "true":
+                continue
+            if freshness.weight(md.get("observed_at"), now=current) <= 0:
                 continue
             key = (md.get("provider", ""), md.get("tool_path", ""))
             if key not in candidate_keys:
@@ -168,6 +176,8 @@ class EvidenceDrivenDecisionFabric:
         max_retries: int = 2,
         repository: RepositoryContext | None = None,
         min_confidence: float = 0.3,
+        freshness_policy: EvidenceFreshnessPolicy | None = None,
+        now: datetime | None = None,
     ) -> EvidenceDecisionPlan:
         if not task_family.strip() or not capability.strip():
             raise ValueError("task_family and capability are required")
@@ -178,7 +188,7 @@ class EvidenceDrivenDecisionFabric:
         if not 0 <= min_confidence <= 1:
             raise ValueError("min_confidence must be between 0 and 1")
 
-        signals = self._signals(capability, candidates, task_family=task_family)
+        signals = self._signals(capability, candidates, task_family=task_family, freshness_policy=freshness_policy, now=now)
         by_strategy = {s.strategy: s for s in signals}
         decision: Decision | None = None
         if self.decision_fabric is not None:
