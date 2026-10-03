@@ -1,5 +1,15 @@
 from dataclasses import dataclass
-import pytest
+from contextlib import contextmanager
+
+@contextmanager
+def raises(exc, match=None):
+    try:
+        yield
+    except exc as error:
+        if match is not None and match not in str(error):
+            raise AssertionError(f"expected {match!r} in {error!s}")
+    else:
+        raise AssertionError(f"expected {exc.__name__} to be raised")
 from portable.autonomous_curriculum_evolution import AutonomousCurriculumEvolution
 from portable.capability_invention_validation import CapabilityValidationPlan, ValidationProbe
 from portable.capability_invention_validation_runner import CapabilityInventionValidationRunner
@@ -45,7 +55,7 @@ def test_runs_multi_domain_curriculum_and_binds_plan():
     assert all(c[1] == result.curriculum_plan_digest for c in g.calls)
 
 def test_rejects_plan_mismatch():
-    with pytest.raises(ValueError, match="digest mismatch"):
+    with raises(ValueError, match="digest mismatch"):
         ExternalCurriculumCampaignOrchestrator(Generator(), CapabilityInventionValidationRunner(Executor(), Oracle())).run(curriculum(), expected_plan_digest="wrong")
 
 def test_recovery_records_failed_target_without_claiming_trust():
@@ -63,5 +73,5 @@ def test_recovery_records_failed_target_without_claiming_trust():
 def test_rejects_untrusted_curriculum():
     plan = curriculum()
     bad = type(plan)(plan.plan_id, plan.entries, plan.max_targets, "")
-    with pytest.raises(ValueError, match="trustworthy"):
+    with raises(ValueError, match="trustworthy"):
         ExternalCurriculumCampaignOrchestrator(Generator(), CapabilityInventionValidationRunner(Executor(), Oracle())).run(bad)

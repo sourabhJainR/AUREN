@@ -1,4 +1,14 @@
-import pytest
+from contextlib import contextmanager
+
+@contextmanager
+def raises(exc, match=None):
+    try:
+        yield
+    except exc as error:
+        if match is not None and match not in str(error):
+            raise AssertionError(f"expected {match!r} in {error!s}")
+    else:
+        raise AssertionError(f"expected {exc.__name__} to be raised")
 from portable.autonomous_curriculum_evolution import AutonomousCurriculumEvolution
 from portable.open_ended_task_environment_discovery import DiscoverySignal, OpenEndedTaskEnvironmentDiscovery
 from portable.resource_aware_curriculum_scheduler import ResourceAwareCurriculumScheduler
@@ -26,5 +36,5 @@ def test_uses_historical_resource_lane():
     assert all(x.lane == "local" for x in s.targets)
 
 def test_rejects_budget_overrun():
-    with pytest.raises(ValueError, match="duration budget"):
+    with raises(ValueError, match="duration budget"):
         ResourceAwareCurriculumScheduler().build(plan(), duration_budget=1)

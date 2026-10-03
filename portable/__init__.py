@@ -171,3 +171,5 @@ from .resource_aware_curriculum_scheduler import ScheduledTarget, CurriculumSche
 from .scheduled_curriculum_campaign_executor import ScheduledCampaignResult, ScheduledCurriculumCampaignExecutor
 
 from .persistent_evidence_graph import EvidenceNode, EvidenceEdge, PersistentEvidenceGraph
+
+from .evidence_driven_decision_fabric import EvidenceDecisionSignal, EvidenceDecisionPlan, EvidenceDrivenDecisionFabric
