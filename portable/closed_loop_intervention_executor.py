@@ -29,7 +29,7 @@ class InterventionAuthorization:
 
 
 @dataclass(frozen=True, slots=True)
-class InterventionExecutionReceipt:
+class InterventionVerification:\n    """Independent post-change verification evidence supplied by the evaluator."""\n    passed: bool\n    fresh_holdout: bool\n    independent_oracle: bool\n    contaminated: bool = False\n    evidence_ids: tuple[str, ...] = ()\n\n    @property\n    trustworthy(self) -> bool:\n        return self.passed and self.fresh_holdout and self.independent_oracle and not self.contaminated and bool(self.evidence_ids)\n\n\n@dataclass(frozen=True, slots=True)\nclass InterventionExecutionReceipt:
     execution_id: str
     decision_digest: str
     intervention_digest: str
@@ -54,7 +54,7 @@ class ClosedLoopInterventionExecutor:
         self,
         *,
         apply: Callable[[Any], Any],
-        verify: Callable[[Any], tuple[bool, tuple[str, ...]]],
+        verify: Callable[[Any], InterventionVerification],
         rollback: Callable[[Any], Any],
     ) -> None:
         self.apply, self.verify, self.rollback = apply, verify, rollback
@@ -132,4 +132,4 @@ class ClosedLoopInterventionExecutor:
         )
 
 
-__all__ = ["InterventionAuthorization", "InterventionExecutionReceipt", "ClosedLoopInterventionExecutor"]
+__all__ = ["InterventionAuthorization", "InterventionVerification", "InterventionExecutionReceipt", "ClosedLoopInterventionExecutor"]
