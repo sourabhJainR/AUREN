@@ -227,12 +227,15 @@ class AutonomousCampaignController:
         limit: int = 24,
     ) -> float:
         """Return a bounded prediction score learned from verified campaign outcomes."""
-        from runtime.task_memory import relevant
-
         target = str(domain).strip()
         if not target:
             raise ValueError("domain is required")
-        rows = relevant(Path(root), "team:autonomous-campaign", limit=max(1, int(limit)) * 4)
+        rows = []
+        for failure_class in FAILURE_CLASSES:
+            rows.extend(LearningSteward.experience_history(
+                Path(root), f"team:autonomous-campaign:{failure_class}", limit=max(1, int(limit))
+            ))
+        rows.sort(key=lambda row: str(row.get("recorded_at", "")), reverse=True)
         observations = []
         for row in rows:
             try:
