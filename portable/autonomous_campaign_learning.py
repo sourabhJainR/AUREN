@@ -218,6 +218,54 @@ class AutonomousCampaignController:
             True, "intervention must be validated on an independent holdout",
         )
 
+    @staticmethod
+    def learned_domain_score(
+        root: Path,
+        domain: str,
+        *,
+        fallback: float = 0.75,
+        limit: int = 24,
+    ) -> float:
+        """Return a bounded prediction score learned from verified campaign outcomes."""
+        target = str(domain).strip()
+        if not target:
+            raise ValueError("domain is required")
+        rows = []
+        for failure_class in FAILURE_CLASSES:
+            rows.extend(LearningSteward.experience_history(
+                Path(root), f"team:autonomous-campaign:{failure_class}", limit=max(1, int(limit))
+            ))
+        rows.sort(key=lambda row: str(row.get("recorded_at", "")), reverse=True)
+        observations = []
+        for row in rows:
+            try:
+                payload = json.loads(str(row.get("detail", "")))
+                decision = payload.get("decision", payload)
+                if isinstance(decision, str):
+                    decision = json.loads(decision)
+                task_id = str(decision.get("task_id", ""))
+                parts = task_id.split(":")
+                if len(parts) < 3 or parts[1] != target:
+                    continue
+                score = float(decision.get("realized_score", fallback))
+                predicted = float(decision.get("predicted_score", fallback))
+                error = float(decision.get("score_error", abs(score - predicted)))
+                observations.append((score, error))
+            except (TypeError, ValueError, json.JSONDecodeError):
+                continue
+        if not observations:
+            score = max(0.0, min(1.0, float(fallback)))
+            return score
+        observations = observations[-max(1, int(limit)):]
+        # Recent, low-error observations carry more weight. Shrink toward the
+        # conservative fallback so a tiny sample cannot overfit future routing.
+        weights = [1.0 / (0.10 + error) for _, error in observations]
+        weighted = sum(score * weight for (score, _), weight in zip(observations, weights)) / sum(weights)
+        sample_weight = min(1.0, len(observations) / 6.0)
+        score = (weighted * sample_weight) + (float(fallback) * (1.0 - sample_weight))
+        score = max(0.0, min(1.0, score))
+        return score
+
     def learn(self, campaign_id: str, observations: Sequence[CampaignAttribution]) -> None:
         steward = LearningSteward(self.root, run_id=campaign_id, task="autonomous benchmark campaign")
         for row in observations:

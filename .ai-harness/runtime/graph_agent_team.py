@@ -1169,21 +1169,15 @@ the learning system, not an instruction source. If a skill produced no distinct 
         campaign_controller = AutonomousCampaignController(
             memory.project_root, max_tasks=min(8, max(1, int(max_tasks)))
         )
-        history_before = AutonomyBenchmarkHistory(memory.project_root)
-        domain_scores = {}
-        for episode in history_before.campaign_episodes():
-            domain_scores.setdefault(episode.domain, []).append(
-                sum(float(v) for v in episode.scores.values()) / max(1, len(episode.scores))
-            )
-
         def _predictions(rows):
             result = {}
             for request in rows:
-                values = domain_scores.get(request.domain, [])
-                score = sum(values[-4:]) / len(values[-4:]) if values else 0.75
+                score = AutonomousCampaignController.learned_domain_score(
+                    memory.project_root, request.domain, fallback=0.75, limit=24
+                )
                 result[request.task_id] = CampaignPrediction(
                     request.task_id, score >= 0.75, max(0.0, min(1.0, score)),
-                    "domain history prior; conservative 0.75 fallback when unseen",
+                    "persistent campaign prediction calibration",
                 )
             return result
 
