@@ -50,6 +50,8 @@ class ExternalGeneralizationCampaignRunner:
     ) -> GeneralizationCampaignResult:
         if campaign.contamination_detected:
             raise ValueError("contaminated campaign cannot run")
+        if not campaign.trustworthy:
+            raise ValueError("external campaign requires attestation and lineage digests")
         if contract.contract_digest != campaign.corpus_digest:
             raise ValueError("environment contract must match campaign corpus digest")
 
