@@ -215,19 +215,20 @@ class GraphAgentTeam:
         fabric = EvidenceDrivenDecisionFabric(graph)
         capability = agent.capabilities[0] if agent.capabilities else agent.role
         local_tool = ":".join(agent.local_command) if agent.local_command else "local"
+        duration_budget = float(self.resource_budget.timeout_seconds)
         candidates = (
             {"provider": "local", "tool_path": local_tool, "parallel": bool(agent.local_command),
              "verification_depth": "standard",
-             "expected": {"duration": agent.estimated_duration_seconds, "cost": 0.5,
+             "expected": {"duration": min(duration_budget, agent.estimated_duration_seconds), "cost": 0.5,
                           "quality": agent.evidence_value, "failure": 0.35}},
             {"provider": "agent", "tool_path": "agent", "parallel": False,
              "verification_depth": "deep",
-             "expected": {"duration": max(60.0, agent.estimated_duration_seconds * 1.5),
+             "expected": {"duration": min(duration_budget, max(60.0, agent.estimated_duration_seconds * 1.5)),
                           "cost": 1.0, "quality": max(.6, agent.evidence_value), "failure": 0.25}},
         )
         plan = fabric.plan(
             agent.role, capability, candidates,
-            duration_budget=float(self.resource_budget.timeout_seconds),
+            duration_budget=duration_budget,
             memory_budget_mb=max(256, int(agent.estimated_memory_mb)),
             max_retries=2,
         )
