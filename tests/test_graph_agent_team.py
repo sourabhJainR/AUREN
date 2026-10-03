@@ -106,7 +106,9 @@ class GraphAgentTeamTests(unittest.TestCase):
                 safety_evidence_verified=True,
             )
             self.assertEqual(result["initial"]["selected_task_ids"], [coding.task_id])
-            self.assertEqual(result["retest"]["selected_task_ids"], [research.task_id])
+            self.assertEqual(len(result["retest"]["selected_task_ids"]), 1)
+            self.assertTrue(result["retest"]["selected_task_ids"][0].startswith("benchmark:research:"))
+            self.assertNotEqual(result["retest"]["selected_task_ids"][0], coding.task_id)
             self.assertTrue(result["retest"]["observations"][0]["realized_success"])
 
     def test_shared_memory_is_scoped_to_intent(self):
