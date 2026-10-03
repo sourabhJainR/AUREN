@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Vendor the pinned agency-agents specialist library into AER.
+"""Vendor the pinned agency-agents specialist library into AUREN.
 
 The sync is deterministic: the source ref is explicit, paths are restricted to
 known division directories, files are UTF-8, and a registry with SHA-256 hashes
@@ -17,7 +17,7 @@ REQUIRED = ["Identity & Memory", "Core Mission", "Critical Rules", "Technical De
 
 
 def fetch(url: str) -> bytes:
-    req = urllib.request.Request(url, headers={"Accept":"application/vnd.github+json", "User-Agent":"AER-agency-sync/1.0"})
+    req = urllib.request.Request(url, headers={"Accept":"application/vnd.github+json", "User-Agent":"AUREN-agency-sync/1.0"})
     with urllib.request.urlopen(req, timeout=30) as r:
         return r.read()
 
