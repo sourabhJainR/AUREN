@@ -16,7 +16,7 @@ class ExtensionRegistryTests(unittest.TestCase):
         result = extension_registry.detect_extensions()
         self.assertIn("graphify", result)
         self.assertIn("code_memory", result)
-        self.assertNotIn("aer", result)
+        self.assertNotIn("auren", result)
         self.assertIn("superpowers", result)
         self.assertIn("ponytail", result)
         self.assertIn("caveman", result)
@@ -26,10 +26,10 @@ class ExtensionRegistryTests(unittest.TestCase):
             self.assertIn("capabilities", value)
             self.assertIn("policy", value)
 
-    def test_aer_is_not_a_core_extension(self):
+    def test_auren_is_not_a_core_extension(self):
         entry = extension_registry.REGISTRY.read_text(encoding="utf-8")
-        self.assertNotIn("[extensions.aer]", entry)
-        self.assertNotIn("github.com/sourabhJainR/AER", entry)
+        self.assertNotIn("[extensions.auren]", entry)
+        self.assertNotIn("github.com/sourabhJainR/AUREN", entry)
 
     def test_skill_discovery_is_read_only(self):
         skills = extension_registry.discover_skills()
