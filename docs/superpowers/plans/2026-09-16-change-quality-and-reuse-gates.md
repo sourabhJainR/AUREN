@@ -2,11 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Extend the existing AER engineering-design gate so future repository work explicitly reuses maintained implementations, preserves usage patterns, controls data-access and performance cost, follows local logging/error conventions, and verifies regressions without adding a competing workflow.
+**Goal:** Extend the existing AUREN engineering-design gate so future repository work explicitly reuses maintained implementations, preserves usage patterns, controls data-access and performance cost, follows local logging/error conventions, and verifies regressions without adding a competing workflow.
 
 **Architecture:** Extend `portable.engineering_design_guard.EngineeringDesignGuard` as the single deterministic quality/design gate. Update the canonical policy and deployable orchestration instructions so these evidence fields are part of normal implementation planning, while keeping all existing APIs and workflow sequencing unchanged.
 
-**Tech Stack:** Python standard library, existing AER guard/tests, Markdown policy/skill documents, GitHub Actions already used by the repository.
+**Tech Stack:** Python standard library, existing AUREN guard/tests, Markdown policy/skill documents, GitHub Actions already used by the repository.
 
 **Spec:** `docs/superpowers/specs/2026-09-16-change-quality-and-reuse-design.md`
 
