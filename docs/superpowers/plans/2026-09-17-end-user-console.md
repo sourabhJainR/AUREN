@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Give AER a single local, read-only console and CLI status surface that exposes existing execution, learning, observability, installation, and recovery state without creating a second runtime or state store.
+**Goal:** Give AUREN a single local, read-only console and CLI status surface that exposes existing execution, learning, observability, installation, and recovery state without creating a second runtime or state store.
 
-**Architecture:** Add a small standard-library module, `portable.aer_console`, responsible only for collecting existing machine-scoped state and rendering a responsive HTML dashboard or JSON status document. Wire it into the existing `portable.aer_runtime` CLI as `status` and `console`; keep the HTTP server loopback-only and read-only. Reuse existing state files and parsers where available, and degrade individual sections to explicit `unknown`/`unavailable` states when data is absent or malformed.
+**Architecture:** Add a small standard-library module, `portable.auren_console`, responsible only for collecting existing machine-scoped state and rendering a responsive HTML dashboard or JSON status document. Wire it into the existing `portable.auren_runtime` CLI as `status` and `console`; keep the HTTP server loopback-only and read-only. Reuse existing state files and parsers where available, and degrade individual sections to explicit `unknown`/`unavailable` states when data is absent or malformed.
 
 **Tech Stack:** Python 3 standard library, `http.server`, `urllib.parse`, HTML/CSS/JS embedded in a single response, JSONL/SQLite read-only access, unittest.
 
@@ -25,12 +25,12 @@
 ### Task 1: Build the state snapshot API
 
 **Files:**
-- Create: `portable/aer_console.py`
-- Test: `tests/test_aer_console.py`
+- Create: `portable/auren_console.py`
+- Test: `tests/test_auren_console.py`
 
 **Interfaces:**
-- Consumes: `~/.aer/active.json`, `history.jsonl`, `observability/traces.jsonl`, `sessions/`, `automation/automation.db`, `memory/memory.db`.
-- Produces: `ConsoleSnapshot` dataclass and `collect_snapshot(aer_home: Path) -> ConsoleSnapshot`.
+- Consumes: `~/.auren/active.json`, `history.jsonl`, `observability/traces.jsonl`, `sessions/`, `automation/automation.db`, `memory/memory.db`.
+- Produces: `ConsoleSnapshot` dataclass and `collect_snapshot(auren_home: Path) -> ConsoleSnapshot`.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -65,10 +65,10 @@ class TestConsoleSnapshot(unittest.TestCase):
 Run:
 
 ```bash
-python -m unittest tests.test_aer_console -v
+python -m unittest tests.test_auren_console -v
 ```
 
-Expected: import/attribute failures because `portable.aer_console` does not yet exist.
+Expected: import/attribute failures because `portable.auren_console` does not yet exist.
 
 - [ ] **Step 3: Implement the minimal snapshot model**
 
@@ -96,7 +96,7 @@ For SQLite, open with read-only URI mode where supported and query schema defens
 Run:
 
 ```bash
-python -m unittest tests.test_aer_console -v
+python -m unittest tests.test_auren_console -v
 ```
 
 Expected: PASS.
@@ -104,7 +104,7 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add portable/aer_console.py tests/test_aer_console.py
+git add portable/auren_console.py tests/test_auren_console.py
 git commit -m "feat: add end-user console state snapshot"
 ```
 
@@ -113,12 +113,12 @@ git commit -m "feat: add end-user console state snapshot"
 ### Task 2: Add status rendering and console HTTP server
 
 **Files:**
-- Modify: `portable/aer_console.py`
-- Test: `tests/test_aer_console.py`
+- Modify: `portable/auren_console.py`
+- Test: `tests/test_auren_console.py`
 
 **Interfaces:**
 - Consumes: `ConsoleSnapshot` and `collect_snapshot` from Task 1.
-- Produces: `render_status(snapshot, as_json=False) -> str`, `render_dashboard(snapshot) -> str`, and `serve_console(aer_home, host="127.0.0.1", port=0, open_browser=False) -> str`.
+- Produces: `render_status(snapshot, as_json=False) -> str`, `render_dashboard(snapshot) -> str`, and `serve_console(auren_home, host="127.0.0.1", port=0, open_browser=False) -> str`.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -133,7 +133,7 @@ class TestConsoleRendering(unittest.TestCase):
 
     def test_dashboard_contains_human_facing_sections(self):
         html = render_dashboard(collect_snapshot(self.home))
-        self.assertIn("AER Console", html)
+        self.assertIn("AUREN Console", html)
         self.assertIn("Overview", html)
         self.assertIn("Runs", html)
         self.assertIn("Learning", html)
@@ -148,7 +148,7 @@ class TestConsoleRendering(unittest.TestCase):
 Run:
 
 ```bash
-python -m unittest tests.test_aer_console.TestConsoleRendering -v
+python -m unittest tests.test_auren_console.TestConsoleRendering -v
 ```
 
 Expected: missing rendering/HTTP helpers.
@@ -173,7 +173,7 @@ The dashboard should use system fonts, compact cards, status chips, responsive l
 Run:
 
 ```bash
-python -m unittest tests.test_aer_console -v
+python -m unittest tests.test_auren_console -v
 ```
 
 Expected: PASS.
@@ -181,8 +181,8 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add portable/aer_console.py tests/test_aer_console.py
-git commit -m "feat: add read-only local AER console"
+git add portable/auren_console.py tests/test_auren_console.py
+git commit -m "feat: add read-only local AUREN console"
 ```
 
 ---
@@ -190,9 +190,9 @@ git commit -m "feat: add read-only local AER console"
 ### Task 3: Wire CLI commands and exports
 
 **Files:**
-- Modify: `portable/aer_runtime.py`
+- Modify: `portable/auren_runtime.py`
 - Modify: `portable/__init__.py`
-- Test: `tests/test_aer_runtime.py`
+- Test: `tests/test_auren_runtime.py`
 
 **Interfaces:**
 - Consumes: `collect_snapshot`, `render_status`, and `serve_console`.
@@ -219,25 +219,25 @@ def test_console_defaults_to_loopback_and_ephemeral_port(self):
 Run:
 
 ```bash
-python -m unittest tests.test_aer_runtime -v
+python -m unittest tests.test_auren_runtime -v
 ```
 
 Expected: parser rejects the new subcommands.
 
 - [ ] **Step 3: Add parser wiring and dispatch**
 
-In `portable.aer_runtime.parser()` add:
+In `portable.auren_runtime.parser()` add:
 
 ```python
 status_parser = sub.add_parser("status")
 status_parser.add_argument("--json", action="store_true")
-status_parser.add_argument("--aer-home", type=Path, default=None)
+status_parser.add_argument("--auren-home", type=Path, default=None)
 
 console_parser = sub.add_parser("console")
 console_parser.add_argument("--host", default="127.0.0.1")
 console_parser.add_argument("--port", type=int, default=0)
 console_parser.add_argument("--open", dest="open_browser", action="store_true")
-console_parser.add_argument("--aer-home", type=Path, default=None)
+console_parser.add_argument("--auren-home", type=Path, default=None)
 ```
 
 Dispatch status through `render_status(collect_snapshot(...), args.json)`. Dispatch console through `serve_console(...)`.
@@ -251,7 +251,7 @@ Export `ConsoleSnapshot`, `collect_snapshot`, `render_status`, `render_dashboard
 Run:
 
 ```bash
-python -m unittest tests.test_aer_runtime tests.test_aer_console -v
+python -m unittest tests.test_auren_runtime tests.test_auren_console -v
 python -m unittest discover -s tests -v
 ```
 
@@ -260,8 +260,8 @@ Expected: all relevant tests PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add portable/aer_runtime.py portable/__init__.py tests/test_aer_runtime.py
- git commit -m "feat: expose AER console and status commands"
+git add portable/auren_runtime.py portable/__init__.py tests/test_auren_runtime.py
+ git commit -m "feat: expose AUREN console and status commands"
 ```
 
 ---
@@ -282,9 +282,9 @@ git add portable/aer_runtime.py portable/__init__.py tests/test_aer_runtime.py
 Add a short path:
 
 ```text
-python aer_cli.py aer-portable.zip
-python -m portable.aer_runtime status
-python -m portable.aer_runtime console --open
+python auren_cli.py auren-portable.zip
+python -m portable.auren_runtime status
+python -m portable.auren_runtime console --open
 ```
 
 Explain that the console is local/read-only and is the easiest place to inspect health, recent work, learning, and recovery state.
@@ -302,7 +302,7 @@ Add the console to the normal golden path immediately after installation and bef
 Run:
 
 ```bash
-grep -R "aer_runtime.*console\|aer_runtime.*status" README.md portable/README.md docs/USAGE_AND_PLATFORM_INTEGRATION.md
+grep -R "auren_runtime.*console\|auren_runtime.*status" README.md portable/README.md docs/USAGE_AND_PLATFORM_INTEGRATION.md
 ```
 
 Expected: each document contains the new commands.
@@ -311,7 +311,7 @@ Expected: each document contains the new commands.
 
 ```bash
 git add README.md portable/README.md docs/USAGE_AND_PLATFORM_INTEGRATION.md
-git commit -m "docs: document AER end-user console"
+git commit -m "docs: document AUREN end-user console"
 ```
 
 ---
@@ -319,8 +319,8 @@ git commit -m "docs: document AER end-user console"
 ### Task 5: Full regression and release readiness
 
 **Files:**
-- Test: `tests/test_aer_console.py`
-- Test: `tests/test_aer_runtime.py`
+- Test: `tests/test_auren_console.py`
+- Test: `tests/test_auren_runtime.py`
 
 **Interfaces:**
 - Consumes: all previous tasks.
@@ -343,9 +343,9 @@ Expected: PASS or an existing, explicitly identified baseline failure unrelated 
 Run:
 
 ```bash
-python -m portable.aer_runtime status
-python -m portable.aer_runtime status --json
-python -m portable.aer_runtime console --port 0
+python -m portable.auren_runtime status
+python -m portable.auren_runtime status --json
+python -m portable.auren_runtime console --port 0
 ```
 
 Expected: status prints without traceback; JSON parses; console prints a loopback URL and serves the dashboard.
@@ -361,6 +361,6 @@ Capture command names and pass/fail outcomes in the PR body. Mention that the se
 - [ ] **Step 5: Commit any final test-only adjustments**
 
 ```bash
-git add tests/test_aer_console.py tests/test_aer_runtime.py
+git add tests/test_auren_console.py tests/test_auren_runtime.py
  git commit -m "test: verify end-user console integration"
 ```
