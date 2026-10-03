@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Extend AER from exact-match learning transfer to reusable abstractions, structural analogy, negative-transfer guards, and a durable skill dependency graph.
+**Goal:** Extend AUREN from exact-match learning transfer to reusable abstractions, structural analogy, negative-transfer guards, and a durable skill dependency graph.
 
 **Architecture:** Keep `LearningTransfer.transfer()` as the evidence-gated exact-match baseline. Add a `GeneralizationEngine` that stores normalized structural abstractions and computes deterministic similarity/analogy candidates, and a `SkillGraph` that persists skills, prerequisites, evidence and failure modes. Generalized candidates remain recommendations until evidence gates validate them; no new permissions are granted by generalization.
 
