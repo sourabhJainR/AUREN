@@ -64,7 +64,7 @@ def continuation_prompt(original: str, previous_output: str, attempt: int) -> st
     tail = previous_output[-24000:]
     return (
         original
-        + "\n\n# AER RESPONSE RECOVERY\n"
+        + "\n\n# AUREN RESPONSE RECOVERY\n"
         + f"Attempt {attempt} is continuing a response that was interrupted before completion.\n"
         + "Do not restart completed work. Continue from the last confirmed state, "
           "preserve all correct conclusions and finish the requested response.\n"
@@ -77,7 +77,7 @@ def continuation_prompt(original: str, previous_output: str, attempt: int) -> st
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Resilient AER provider launcher")
+    parser = argparse.ArgumentParser(description="Resilient AUREN provider launcher")
     parser.add_argument("--prompt-file", required=True)
     parser.add_argument("--max-retries", type=int, default=int(os.environ.get("HARNESS_PROVIDER_MAX_RETRIES", "4")))
     parser.add_argument("--retry-delay", type=float, default=float(os.environ.get("HARNESS_PROVIDER_RETRY_DELAY", "1.0")))
@@ -135,13 +135,13 @@ def main() -> int:
                 return code
 
             print(
-                f"AER provider response interrupted; continuing attempt {attempt + 2}/{max_retries + 1}",
+                f"AUREN provider response interrupted; continuing attempt {attempt + 2}/{max_retries + 1}",
                 file=sys.stderr,
             )
             if delay:
                 time.sleep(min(30.0, delay * (2 ** attempt)))
         except OSError as exc:
-            print(f"AER resilient provider error: {exc}", file=sys.stderr)
+            print(f"AUREN resilient provider error: {exc}", file=sys.stderr)
             if attempt >= max_retries:
                 return 127
             if delay:
