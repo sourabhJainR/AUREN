@@ -2,11 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** Add a durable, provenance-aware context graph using the existing AER memory database so future context can accumulate relationships without creating a second orchestration or memory owner.
+**Goal:** Add a durable, provenance-aware context graph using the existing AUREN memory database so future context can accumulate relationships without creating a second orchestration or memory owner.
 
 **Architecture:** Add a small `ContextGraph` facade over the SQLite database already owned by `PersistentMemory`. `StateGraph`, `TaskPlan`, `CapabilityFabric`, and existing context packing remain unchanged. The graph is a bounded projection of durable context, not an execution engine.
 
-**Tech Stack:** Python standard library, SQLite/WAL, pytest, existing AER portable runtime.
+**Tech Stack:** Python standard library, SQLite/WAL, pytest, existing AUREN portable runtime.
 
 **Spec:** `docs/ROWBOAT_ADAPTATION_SPEC.md`
 
@@ -60,7 +60,7 @@
 
 ### Task 4: Trigger / Background Run Contract (next slice)
 
-- Generalize existing scheduler/event primitives into a durable trigger contract with event identity, deduplication, concurrency claims, bounded retries, and a handoff into the normal AER execution lifecycle.
+- Generalize existing scheduler/event primitives into a durable trigger contract with event identity, deduplication, concurrency claims, bounded retries, and a handoff into the normal AUREN execution lifecycle.
 
 ### Task 5: Run Journal to Context Graph (next slice)
 
