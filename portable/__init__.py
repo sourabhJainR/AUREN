@@ -152,3 +152,5 @@ from .campaign_intervention_loop import CampaignInterventionPlanner, FailurePatt
 from .adaptive_experiment_controller import ExperimentAssignment, ExperimentObservation, ExperimentReplication, AdaptiveExperimentResult, ExperimentController
 
 from .experiment_learning_bridge import CurriculumLearningSignal, ExperimentLearningBridge
+
+from .open_ended_capability_discovery import CapabilityGap, CapabilityInventionProposal, OpenEndedCapabilityDiscovery
