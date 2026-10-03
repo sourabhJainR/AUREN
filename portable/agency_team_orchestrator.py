@@ -1,6 +1,6 @@
 """Provider-neutral team orchestration with early verification and review gates.
 
-The host supplies the real agent spawner. AER owns decomposition, dependency
+The host supplies the real agent spawner. AUREN owns decomposition, dependency
 ordering, bounded parallelism, evidence lineage, early gates, and fail-closed
 handoffs. No model or command execution is hidden in this module.
 """
