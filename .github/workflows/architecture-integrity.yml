@@ -16,6 +16,8 @@ jobs:
           python-version: '3.12'
       - name: Validate architecture constitution
         run: python scripts/validate_architecture.py
+      - name: Validate unified AUREN nomenclature
+        run: python scripts/validate_auren_nomenclature.py
       - name: Run architecture contract regression tests
         run: python -m unittest tests.test_architecture_contract -v
       - name: Compile dependency-free portable runtime
