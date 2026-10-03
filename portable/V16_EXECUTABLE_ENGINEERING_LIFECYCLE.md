@@ -1,6 +1,6 @@
 # V16 — executable engineering lifecycle
 
-AER treats review as a first-class evidence-bound gate and provides a provider-neutral team coordinator for splitting substantial work into independently complete units.
+AUREN treats review as a first-class evidence-bound gate and provides a provider-neutral team coordinator for splitting substantial work into independently complete units.
 
 ## Complete lifecycle
 
@@ -18,7 +18,7 @@ research
 
 ## Loop-to-release evidence continuity
 
-A bounded repair, research, or test loop is not an isolated mini-runtime. It uses the same `ProvenanceLedger` as the rest of AER.
+A bounded repair, research, or test loop is not an isolated mini-runtime. It uses the same `ProvenanceLedger` as the rest of AUREN.
 
 When a `BoundedLoop` receives `provenance`, `run_id`, `context_evidence_digest`, and artifact IDs, it appends:
 
