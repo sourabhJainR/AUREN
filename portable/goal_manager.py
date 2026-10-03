@@ -1,4 +1,4 @@
-"""Durable mission and goal state for long-horizon AER work."""
+"""Durable mission and goal state for long-horizon AUREN work."""
 from __future__ import annotations
 
 from dataclasses import dataclass
