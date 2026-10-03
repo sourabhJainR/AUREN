@@ -252,6 +252,7 @@ class GraphAgentTeam:
         mode=execution_mode(mode_name)
         historical=HistoricalResourceRouter(broker.project_root).estimate(agent)
         historical_payload=historical.as_dict() if historical else {}
+        evidence_plan=self._evidence_plan(agent,broker)
         failure_probability=float(historical.failure_probability) if historical else 0.0
         evidence_quality=float(historical.evidence_yield) if historical else float(agent.evidence_value)
         risk=1.0 if agent.isolation_required else (0.55 if agent.critical and agent.role=="verifier" else 0.35)
@@ -291,6 +292,23 @@ class GraphAgentTeam:
                             cloud_cost,0.20,0.60,0.50,pressure["queue_pressure"],"bounded agent/cloud fallback"),
         ]
         cf=cf_engine.evaluate({"agent":agent.name,"role":agent.role,"pressure":pressure,"historical":historical_payload},cf_branches)
+        if not evidence_plan["fallback"] and evidence_plan["confidence"] >= .3 and evidence_plan["resource_lane"] == "agent":
+            return ResourceDecision(
+                "agent", "persistent verified evidence overrode local counterfactual",
+                workers=1, cost_score=cloud_cost, pressure=pressure,
+                historical=historical_payload,
+                inference_depth=max_verification_depth(inference.depth, evidence_plan["verification_depth"]),
+                strategy=strategy.name, evidence_plan=evidence_plan,
+            )
+        if not evidence_plan["fallback"] and evidence_plan["confidence"] >= .3 and evidence_plan["resource_lane"] == "local":
+            reason=f"persistent verified evidence selected local; confidence={evidence_plan['confidence']:.2f}"
+            return ResourceDecision(
+                "local", reason, agent.local_command,
+                min(self.resource_budget.max_workers, mode.max_parallelism),
+                resource_cost, pressure, historical_payload,
+                max_verification_depth(inference.depth, evidence_plan["verification_depth"]),
+                strategy.name, evidence_plan,
+            )
         if not cf.abstained and cf.selected=="local":
             reason=f"counterfactual selected local; cost={resource_cost:.2f}; evidence={predicted_evidence:.2f}; failure={failure_probability:.2f}"
             return ResourceDecision("local",reason,agent.local_command,min(self.resource_budget.max_workers, mode.max_parallelism),resource_cost,pressure,historical_payload,max_verification_depth(inference.depth, mode.verification_depth),strategy.name)
