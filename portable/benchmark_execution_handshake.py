@@ -68,4 +68,33 @@ class BenchmarkExecutionHandshake:
         )
 
 
-__all__ = ["BenchmarkExecutionHandshake", "BenchmarkExecutionReceipt"]
+
+def derive_runtime_evidence(*, task_id: str, intent_digest: str, results: dict[str, object],
+                             safety_evidence_verified: bool) -> tuple[tuple[str, ...], tuple[str, ...], bool]:
+    """Derive bounded evidence from the existing runtime's executed agents.
+
+    This is attribution only: it never creates verification. Verification is true
+    only when the existing verifier agent passed and the runtime safety evidence
+    was explicitly verified.
+    """
+    evidence_ids = tuple(
+        f"{intent_digest}:benchmark:{task_id}:{name}"
+        for name in sorted(results)
+    )
+    kinds: list[str] = []
+    if evidence_ids:
+        kinds.append("canonical execution evidence")
+    verifier = results.get("verifier")
+    verifier_status = getattr(verifier, "status", None)
+    if isinstance(verifier, dict):
+        verifier_status = verifier.get("status")
+    verified = verifier_status == "passed" and bool(safety_evidence_verified)
+    if verified:
+        kinds.append("independent verification evidence")
+    if evidence_ids and safety_evidence_verified:
+        kinds.append("resource and safety evidence")
+    # Classification is contract-level, not one-to-one with agent IDs.
+    return evidence_ids, tuple(kinds), verified
+
+
+__all__ = ["BenchmarkExecutionHandshake", "BenchmarkExecutionReceipt", "derive_runtime_evidence"]
