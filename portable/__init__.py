@@ -165,3 +165,5 @@ from .capability_invention_validation_runner import ValidationExecutor, Validati
 from .external_curriculum_campaign_orchestrator import CurriculumTargetGenerator, CurriculumCampaignRecovery, CurriculumTargetResult, ExternalCurriculumCampaignResult, ExternalCurriculumCampaignOrchestrator
 
 from .autonomous_curriculum_feedback_cycle import CurriculumFeedbackResult, AutonomousCurriculumFeedbackCycle
+
+from .resource_aware_curriculum_scheduler import ScheduledTarget, CurriculumSchedule, ResourceAwareCurriculumScheduler
