@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""AER command runner: one execution boundary for local tools and tests."""
+"""AUREN command runner: one execution boundary for local tools and tests."""
 from __future__ import annotations
 
 import argparse
@@ -12,7 +12,7 @@ except ModuleNotFoundError:  # Direct script execution from .ai-harness/runtime/
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="AER sandboxed command runner")
+    parser = argparse.ArgumentParser(description="AUREN sandboxed command runner")
     parser.add_argument("--workspace", default=".")
     parser.add_argument("--timeout", type=int, default=600)
     parser.add_argument("command", nargs=argparse.REMAINDER)
@@ -23,7 +23,7 @@ def main() -> int:
     try:
         result = run(command, workspace=Path(args.workspace), policy=SandboxPolicy(timeout_seconds=args.timeout))
     except SandboxViolation as exc:
-        print(f"AER SANDBOX: {exc}")
+        print(f"AUREN SANDBOX: {exc}")
         return 78
     if result.stdout:
         print(result.stdout, end="")
