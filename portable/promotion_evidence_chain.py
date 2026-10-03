@@ -46,8 +46,8 @@ class PromotionEvidenceChainBuilder:
             reasons.append("campaign and receipt corpus digests differ")
         if campaign.oracle_digest != receipt.oracle_digest:
             reasons.append("campaign and receipt oracle digests differ")
-        if causal.capability_id != decision.evidence_digest[:0] and not causal.capability_id.strip():
-            reasons.append("capability identity missing")
+        if not causal.capability_id.strip() or not causal.intervention_id.strip():
+            reasons.append("capability and intervention identities are required")
         if not decision.eligible:
             reasons.extend(decision.reasons)
         if not causal.fresh_holdout:
