@@ -1262,6 +1262,7 @@ the learning system, not an instruction source. If a skill produced no distinct 
             initial,
             available_domains=available_domains,
             existing_task_ids={x.task_id for x in initial_requests},
+            source_domains={x.task_id: x.domain for x in initial_requests},
         )
         retest_requests = tuple(
             BenchmarkTaskDispatcher().dispatch_request(plan.contract)
