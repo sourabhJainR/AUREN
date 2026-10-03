@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Cross-platform host for AER's durable adaptive-learning maintenance lane."""
+"""Cross-platform host for AUREN's durable adaptive-learning maintenance lane."""
 from __future__ import annotations
 
 import argparse
@@ -19,8 +19,8 @@ from .adaptive_runtime import AdaptiveRuntime
 from .automation_scheduler import AutomationScheduler
 from .orchestration import Graph
 
-DEFAULT_SERVICE_NAME = "AERMaintenance"
-DEFAULT_DISPLAY_NAME = "AER Adaptive Learning Maintenance"
+DEFAULT_SERVICE_NAME = "AURENMaintenance"
+DEFAULT_DISPLAY_NAME = "AUREN Adaptive Learning Maintenance"
 DEFAULT_RUN_TIME = "02:00"
 DEFAULT_TIMEZONE = "local"
 DEFAULT_POLL_SECONDS = 60
@@ -42,30 +42,30 @@ class MaintenanceServiceConfig:
 
     @classmethod
     def from_env(cls, project_root: Path | None = None) -> "MaintenanceServiceConfig":
-        root = project_root or Path(os.environ.get("AER_PROJECT_ROOT", Path.cwd())).expanduser().resolve()
-        at_time = os.environ.get("AER_MAINTENANCE_TIME", DEFAULT_RUN_TIME)
-        timezone_name = os.environ.get("AER_MAINTENANCE_TIMEZONE", DEFAULT_TIMEZONE)
-        poll_seconds = int(os.environ.get("AER_MAINTENANCE_POLL_SECONDS", str(DEFAULT_POLL_SECONDS)))
-        budget = int(os.environ.get("AER_MAINTENANCE_BUDGET", str(DEFAULT_MAINTENANCE_BUDGET)))
-        enabled = os.environ.get("AER_MAINTENANCE_ENABLED", "1").strip().lower() not in {"0", "false", "no", "off"}
-        scope = os.environ.get("AER_SERVICE_SCOPE", DEFAULT_SCOPE).strip().lower()
+        root = project_root or Path(os.environ.get("AUREN_PROJECT_ROOT", Path.cwd())).expanduser().resolve()
+        at_time = os.environ.get("AUREN_MAINTENANCE_TIME", DEFAULT_RUN_TIME)
+        timezone_name = os.environ.get("AUREN_MAINTENANCE_TIMEZONE", DEFAULT_TIMEZONE)
+        poll_seconds = int(os.environ.get("AUREN_MAINTENANCE_POLL_SECONDS", str(DEFAULT_POLL_SECONDS)))
+        budget = int(os.environ.get("AUREN_MAINTENANCE_BUDGET", str(DEFAULT_MAINTENANCE_BUDGET)))
+        enabled = os.environ.get("AUREN_MAINTENANCE_ENABLED", "1").strip().lower() not in {"0", "false", "no", "off"}
+        scope = os.environ.get("AUREN_SERVICE_SCOPE", DEFAULT_SCOPE).strip().lower()
         if poll_seconds < 1:
-            raise ValueError("AER_MAINTENANCE_POLL_SECONDS must be positive")
+            raise ValueError("AUREN_MAINTENANCE_POLL_SECONDS must be positive")
         if budget < 1:
-            raise ValueError("AER_MAINTENANCE_BUDGET must be positive")
+            raise ValueError("AUREN_MAINTENANCE_BUDGET must be positive")
         if scope not in {"user", "system"}:
-            raise ValueError("AER_SERVICE_SCOPE must be user or system")
+            raise ValueError("AUREN_SERVICE_SCOPE must be user or system")
         AutomationScheduler.last_day_datetime(at_time=at_time, timezone_name=timezone_name)
         return cls(root, at_time, timezone_name, poll_seconds, budget, enabled, DEFAULT_SERVICE_NAME, DEFAULT_DISPLAY_NAME, scope)
 
     def environment(self) -> dict[str, str]:
         return {
-            "AER_PROJECT_ROOT": str(self.project_root),
-            "AER_MAINTENANCE_TIME": self.at_time,
-            "AER_MAINTENANCE_TIMEZONE": self.timezone,
-            "AER_MAINTENANCE_POLL_SECONDS": str(self.poll_seconds),
-            "AER_MAINTENANCE_BUDGET": str(self.maintenance_budget),
-            "AER_MAINTENANCE_ENABLED": "1" if self.enabled else "0",
+            "AUREN_PROJECT_ROOT": str(self.project_root),
+            "AUREN_MAINTENANCE_TIME": self.at_time,
+            "AUREN_MAINTENANCE_TIMEZONE": self.timezone,
+            "AUREN_MAINTENANCE_POLL_SECONDS": str(self.poll_seconds),
+            "AUREN_MAINTENANCE_BUDGET": str(self.maintenance_budget),
+            "AUREN_MAINTENANCE_ENABLED": "1" if self.enabled else "0",
         }
 
 
@@ -94,7 +94,7 @@ class MaintenanceService:
                 if receipt is not None:
                     print(json.dumps(receipt.__dict__, sort_keys=True), flush=True)
             except Exception as exc:
-                print(f"AER maintenance error: {type(exc).__name__}: {exc}", file=sys.stderr, flush=True)
+                print(f"AUREN maintenance error: {type(exc).__name__}: {exc}", file=sys.stderr, flush=True)
             for _ in range(self.config.poll_seconds):
                 if self._stop:
                     break
@@ -124,7 +124,7 @@ def _windows_service_args(config: MaintenanceServiceConfig) -> str:
 
 
 def _service_home() -> Path:
-    return Path.home() / ".aer" / "service"
+    return Path.home() / ".auren" / "service"
 
 
 def _service_state_path(config: MaintenanceServiceConfig) -> Path:
@@ -159,7 +159,7 @@ def _linux_unit(config: MaintenanceServiceConfig) -> str:
         "",
         "[Service]",
         "Type=simple",
-        f"WorkingDirectory={_shell_quote(str(Path.home() / '.aer' / 'current'))}",
+        f"WorkingDirectory={_shell_quote(str(Path.home() / '.auren' / 'current'))}",
         f"ExecStart={command}",
         "Restart=on-failure",
         "RestartSec=30",
@@ -215,7 +215,7 @@ def _uninstall_linux(config: MaintenanceServiceConfig) -> int:
 
 
 def _launchd_label(config: MaintenanceServiceConfig) -> str:
-    return f"com.aer.{config.service_name}"
+    return f"com.auren.{config.service_name}"
 
 
 def _launchd_plist(config: MaintenanceServiceConfig) -> str:
@@ -230,7 +230,7 @@ def _launchd_plist(config: MaintenanceServiceConfig) -> str:
             <key>ProgramArguments</key><array>
 {args}
             </array>
-            <key>WorkingDirectory</key><string>{_xml_escape(str(Path.home() / '.aer' / 'current'))}</string>
+            <key>WorkingDirectory</key><string>{_xml_escape(str(Path.home() / '.auren' / 'current'))}</string>
             <key>EnvironmentVariables</key><dict>
 {env}
             </dict>
@@ -308,7 +308,7 @@ if win32serviceutil is not None:  # pragma: no cover - Windows integration
     class _WindowsMaintenanceService(win32serviceutil.ServiceFramework):
         _svc_name_ = DEFAULT_SERVICE_NAME
         _svc_display_name_ = DEFAULT_DISPLAY_NAME
-        _svc_description_ = "AER durable adaptive-learning maintenance lane"
+        _svc_description_ = "AUREN durable adaptive-learning maintenance lane"
 
         def __init__(self, args):
             super().__init__(args)
@@ -429,12 +429,12 @@ def run_once(config: MaintenanceServiceConfig) -> int:
     if receipt is not None:
         print(json.dumps(receipt.__dict__, indent=2, sort_keys=True))
     else:
-        print("AER maintenance: not due or disabled")
+        print("AUREN maintenance: not due or disabled")
     return 0
 
 
 def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="AER adaptive-learning maintenance service")
+    parser = argparse.ArgumentParser(description="AUREN adaptive-learning maintenance service")
     parser.add_argument("--project-root", type=Path, default=None)
     parser.add_argument("--time", default=DEFAULT_RUN_TIME)
     parser.add_argument("--timezone", default=DEFAULT_TIMEZONE)
@@ -449,9 +449,9 @@ def _parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(list(argv) if argv is not None else None)
-    scope = args.scope or os.environ.get("AER_SERVICE_SCOPE", DEFAULT_SCOPE)
+    scope = args.scope or os.environ.get("AUREN_SERVICE_SCOPE", DEFAULT_SCOPE)
     config = MaintenanceServiceConfig(
-        project_root=(args.project_root or Path(os.environ.get("AER_PROJECT_ROOT", Path.cwd()))).expanduser().resolve(),
+        project_root=(args.project_root or Path(os.environ.get("AUREN_PROJECT_ROOT", Path.cwd()))).expanduser().resolve(),
         at_time=args.time,
         timezone=args.timezone,
         poll_seconds=args.poll_seconds,
