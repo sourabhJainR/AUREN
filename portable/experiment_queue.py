@@ -92,7 +92,11 @@ class AutonomousExperimentQueue:
         return tuple(states)
 
     def _observation_counts(self, experiment_id: str) -> tuple[int, int]:
-        rows = approach_history(self.root, self.ORCHESTRATION_PREFIX + experiment_id + ":", limit=400, exact=False)
+        # Queue revisions are the canonical lifecycle ledger. Reading them
+        # directly avoids a second key family that can drift from queue state.
+        rows = approach_history(
+            self.root, self.PREFIX + experiment_id, limit=100, exact=True
+        )
         counts = {"control": set(), "treatment": set()}
         for row in rows:
             try:
@@ -101,8 +105,6 @@ class AutonomousExperimentQueue:
                 if isinstance(decision, str):
                     decision = json.loads(decision)
                 if decision.get("status") != "observed":
-                    continue
-                if not bool(decision.get("attributable", False)):
                     continue
                 cohort = str(decision.get("cohort", ""))
                 episode = str(decision.get("episode_id", ""))
