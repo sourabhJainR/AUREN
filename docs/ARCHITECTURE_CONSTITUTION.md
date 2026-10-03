@@ -1,4 +1,4 @@
-# AER Architecture Constitution
+# AUREN Architecture Constitution
 
 ## Purpose
 
