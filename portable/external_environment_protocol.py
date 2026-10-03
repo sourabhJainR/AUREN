@@ -26,6 +26,7 @@ class EnvironmentContract:
     reset_between_cases: bool = True
     hidden_state: bool = True
     external_tools: tuple[str, ...] = ()
+    unfamiliar_tools: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.environment_id.strip() or not self.version.strip():
@@ -54,6 +55,7 @@ class EnvironmentContract:
             "reset_between_cases": self.reset_between_cases,
             "hidden_state": self.hidden_state,
             "external_tools": self.external_tools,
+            "unfamiliar_tools": self.unfamiliar_tools,
         }
         return hashlib.sha256(
             json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
@@ -128,11 +130,14 @@ class ExternalEnvironmentEvaluator:
         if contract.reset_between_cases and len({row.episode_id for row in rows}) != len(rows):
             raise ValueError("episode ids must be unique when reset is required")
         tool_success = bool(contract.external_tools) and any(row.tool_calls for row in rows)
+        unfamiliar_tool_success = bool(contract.unfamiliar_tools) and any(
+            set(row.tool_calls) & set(contract.unfamiliar_tools) for row in rows
+        )
         multimodal_success = len(contract.observation_modalities) > 1 and any(row.success for row in rows)
         long_horizon_success = any(row.success and row.steps >= min(contract.max_steps, 10) for row in rows)
         return EnvironmentEvaluation(
             contract.contract_digest, rows, long_horizon_success,
-            multimodal_success, tool_success,
+            multimodal_success, unfamiliar_tool_success,
         )
 
 
