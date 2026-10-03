@@ -50,6 +50,21 @@ class AutonomousCampaignLearningTests(unittest.TestCase):
         self.assertEqual(attribution.failure_class, "verification")
         self.assertGreater(attribution.score_error, .6)
 
+    def test_attribution_prefers_runtime_resource_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            controller = AutonomousCampaignController(Path(tmp))
+            request = _request("resource", "coding")
+            prediction = CampaignPrediction("resource", True, .9)
+            attribution = controller.attribute(
+                request,
+                prediction,
+                _receipt(request, False, "execution failed"),
+                realized_score=.2,
+                runtime_signals={"resource_pressure": .9},
+            )
+            self.assertEqual(attribution.failure_class, "resource")
+            self.assertEqual(attribution.runtime_signals["resource_pressure"], .9)
+
     def test_closed_loop_persists_learning_and_promotes_after_holdout_canaries(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
