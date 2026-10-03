@@ -1,5 +1,15 @@
 from dataclasses import dataclass
-import pytest
+from contextlib import contextmanager
+
+@contextmanager
+def raises(exc, match=None):
+    try:
+        yield
+    except exc as error:
+        if match is not None and match not in str(error):
+            raise AssertionError(f"expected {match!r} in {error!s}")
+    else:
+        raise AssertionError(f"expected {exc.__name__} to be raised")
 from portable.autonomous_curriculum_feedback_cycle import AutonomousCurriculumFeedbackCycle
 from portable.autonomous_curriculum_evolution import AutonomousCurriculumEvolution
 from portable.capability_invention_validation import CapabilityValidationPlan, ValidationProbe
@@ -53,5 +63,5 @@ def test_rejects_wrong_lineage():
         Generator(), CapabilityInventionValidationRunner(Executor(), Oracle())
     ).run(prior)
     other = curriculum()
-    with pytest.raises(ValueError, match="does not belong"):
+    with raises(ValueError, match="does not belong"):
         AutonomousCurriculumFeedbackCycle().derive(other, campaign)
