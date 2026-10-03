@@ -19,7 +19,7 @@ class ExecutionBackedEvaluatorTests(unittest.TestCase):
     def test_runs_real_cases_and_requires_breadth_and_holdouts(self):
         kinds = tuple(KINDS)[:6]
         cases = [
-            self._case(i, domain=f"d{i % 4}", kind=kinds[i], holdout=i % 2 == 0)
+            self._case(i, domain=f"d{i % 4}", kind=kinds[i % len(kinds)], holdout=i % 2 == 0)
             for i in range(8)
         ]
         report = ExecutionBackedEvaluator().evaluate(cases)
