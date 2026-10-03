@@ -14,6 +14,7 @@ from pathlib import Path
 from runtime.task_memory import approach_history
 from .curriculum_experiment import CurriculumExperiment
 from .learning_steward import LearningSteward
+from .controlled_experiment import ControlledExperimentAttributor, ExperimentAttribution, ExperimentObservation
 
 
 @dataclass(frozen=True)
@@ -113,6 +114,59 @@ class AutonomousExperimentQueue:
             except (TypeError, ValueError, KeyError, json.JSONDecodeError):
                 continue
         return len(counts["control"]), len(counts["treatment"])
+
+    def observations(self, experiment_id: str) -> tuple[ExperimentObservation, ...]:
+        rows = approach_history(self.root, self.PREFIX + experiment_id, limit=100, exact=True)
+        observations = []
+        seen = set()
+        for row in rows:
+            try:
+                detail = json.loads(str(row.get("detail", "{}")))
+                decision = detail.get("decision", {})
+                if isinstance(decision, str):
+                    decision = json.loads(decision)
+                if decision.get("status") != "observed" or not decision.get("attributable"):
+                    continue
+                episode = str(decision.get("episode_id", ""))
+                if not episode or episode in seen:
+                    continue
+                seen.add(episode)
+                observations.append(ExperimentObservation(
+                    experiment_id,
+                    episode,
+                    str(decision.get("cohort", "")),
+                    float(decision.get("metric", 0.0)),
+                    tuple(str(x) for x in decision.get("evidence_ids", ()) if str(x)),
+                    bool(decision.get("holdout", False)),
+                ))
+            except (TypeError, ValueError, KeyError, json.JSONDecodeError):
+                continue
+        return tuple(observations)
+
+    def attribute(self, experiment_id: str) -> ExperimentAttribution | None:
+        state = next((x for x in self._states() if x.experiment.experiment_id == experiment_id), None)
+        if state is None or not state.completed:
+            return None
+        attribution = ControlledExperimentAttributor(
+            minimum_samples=self.minimum_samples_per_cohort
+        ).evaluate(experiment_id, self.observations(experiment_id))
+        if attribution.reproducible:
+            LearningSteward(
+                self.root, run_id="experiment-attribution", task=experiment_id
+            ).record_experience(
+                key=self.PREFIX + experiment_id,
+                outcome="worked",
+                evidence_quality=attribution.treatment_mean,
+                cost_score=state.experiment.resource_budget,
+                duration_seconds=0.0,
+                decision=json.dumps({
+                    "status": "attributed",
+                    "experiment": state.experiment.as_dict(),
+                    "attribution": attribution.as_dict(),
+                }, sort_keys=True),
+                evidence_ids=attribution.evidence_ids,
+            )
+        return attribution
 
     def next(self) -> ExperimentQueueState | None:
         candidates = [state for state in self._states() if not state.completed]
