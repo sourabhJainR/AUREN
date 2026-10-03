@@ -43,6 +43,25 @@ class ExperimentQueueTests(unittest.TestCase):
             self.assertEqual(rows[0].control_samples, 2)
             self.assertEqual(rows[0].treatment_samples, 2)
 
+    def test_automatic_attribution_requires_and_uses_both_cohorts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            exp = self.make_experiment(root)
+            q = AutonomousExperimentQueue(root, minimum_samples_per_cohort=2)
+            q.enqueue(exp)
+            for episode, cohort, metric in (
+                ("c1", "control", .60), ("c2", "control", .62),
+                ("t1", "treatment", .70), ("t2", "treatment", .72),
+            ):
+                q.mark_observed(exp.experiment_id, {
+                    "episode_id": episode, "cohort": cohort, "metric": metric,
+                    "evidence_ids": [episode], "holdout": True, "attributable": True,
+                })
+            attribution = q.attribute(exp.experiment_id)
+            self.assertIsNotNone(attribution)
+            self.assertTrue(attribution.reproducible)
+            self.assertAlmostEqual(attribution.lift, .10)
+
     def test_non_attributable_observation_does_not_count(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
