@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate AER interactive HTML documentation invariants."""
+"""Validate AUREN interactive HTML documentation invariants."""
 from __future__ import annotations
 
 from pathlib import Path
