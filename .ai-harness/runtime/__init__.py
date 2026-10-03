@@ -1,6 +1,6 @@
 """Runtime package bootstrap.
 
-The graph-team integration is enabled by default. Set AER_GRAPH_TEAM=0 to
+The graph-team integration is enabled by default. Set AUREN_GRAPH_TEAM=0 to
 fall back to the legacy single-provider phase execution for diagnostics.
 
 Every provider-driven lifecycle phase gets a phase-appropriate dependency DAG.
@@ -82,7 +82,7 @@ def _phase_team(route: dict[str, Any], phase: str, graph_types):
 
 
 def _install_graph_team_bridge() -> None:
-    if os.environ.get("AER_GRAPH_TEAM", "1").strip().lower() in {"0", "false", "off", "no"}:
+    if os.environ.get("AUREN_GRAPH_TEAM", "1").strip().lower() in {"0", "false", "off", "no"}:
         return
     try:
         import engine
@@ -90,7 +90,7 @@ def _install_graph_team_bridge() -> None:
     except Exception:
         return
 
-    if not getattr(GraphAgentTeam.execute, "_aer_guarded", False):
+    if not getattr(GraphAgentTeam.execute, "_auren_guarded", False):
         original_execute = GraphAgentTeam.execute
 
         def guarded_execute(self, *, task, intent_digest, base_prompt, memory, invoke_agent,
@@ -104,7 +104,7 @@ def _install_graph_team_bridge() -> None:
                                     memory=memory, invoke_agent=guarded_invoke, checkpoint=checkpoint,
                                     resume=resume, run_id=run_id, max_steps=max_steps)
 
-        guarded_execute._aer_guarded = True
+        guarded_execute._auren_guarded = True
         GraphAgentTeam.execute = guarded_execute
 
     original_invoke = engine.invoke
