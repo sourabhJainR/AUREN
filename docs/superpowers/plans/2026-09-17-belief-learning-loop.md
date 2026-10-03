@@ -24,7 +24,7 @@
 - [ ] Add `BeliefContext`, `LearningSignal`, and `CognitiveLearningLoop`.
 - [ ] Normalize belief statements/confidence and rank by uncertainty.
 - [ ] Persist learning signals with bounded evidence text and deterministic digests.
-- [ ] Extend `CognitiveController.plan/enrich_context` with optional belief contexts and include them in `aer_cognitive_plan`.
+- [ ] Extend `CognitiveController.plan/enrich_context` with optional belief contexts and include them in `auren_cognitive_plan`.
 - [ ] Commit: `feat: add belief-aware cognitive learning adapter`
 
 ### Task 2: Post-execution learning feedback
