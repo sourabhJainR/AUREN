@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Canonical provider-neutral bounded feedback loop for AER.
+"""Canonical provider-neutral bounded feedback loop for AUREN.
 
 This module adapts the strongest implementation concepts from Forward Future's
 Loopy project: fresh observation, one bounded action, explicit verification,
@@ -8,7 +8,7 @@ receipts, and explicit terminal states. It does not import or depend on Loopy.
 
 When a :class:`ProvenanceLedger` is supplied, every loop start, bounded pass,
 and terminal outcome is appended to the same append-only execution chain used
-by the wider AER lifecycle. The loop never grants permissions or performs
+by the wider AUREN lifecycle. The loop never grants permissions or performs
 external side effects on its own.
 """
 from __future__ import annotations
@@ -258,7 +258,7 @@ class BoundedLoop:
         context_evidence_digest: str = "",
         artifact_ids: Sequence[str] = (),
     ) -> LoopRunReceipt:
-        """Execute bounded passes and append the complete run to AER provenance."""
+        """Execute bounded passes and append the complete run to AUREN provenance."""
         if provenance is not None and not str(run_id or "").strip():
             raise ValueError("run_id is required when provenance is supplied")
         effective_run_id = str(run_id or self.definition.name)
