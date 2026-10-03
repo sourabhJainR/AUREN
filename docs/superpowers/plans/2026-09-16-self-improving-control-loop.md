@@ -2,11 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Strengthen AER's existing context, decision, verification, graph, and learning spine into a deterministic self-improving control loop without introducing competing authorities.
+**Goal:** Strengthen AUREN's existing context, decision, verification, graph, and learning spine into a deterministic self-improving control loop without introducing competing authorities.
 
 **Architecture:** Extend `CodebaseIndex`, `TaskPlan`, the canonical engineering-state decision records, `StateGraph`, verification, and `agency_adaptive_planning`. Context stays derived from repository truth; decisions stay inside the canonical engineering-state ledger; learning remains advisory.
 
-**Tech Stack:** Python 3, JSON Schema, pytest, existing AER portable runtime and GitHub Actions harness.
+**Tech Stack:** Python 3, JSON Schema, pytest, existing AUREN portable runtime and GitHub Actions harness.
 
 **Spec:** `docs/superpowers/specs/2026-09-16-self-improving-control-loop-design.md`
 
