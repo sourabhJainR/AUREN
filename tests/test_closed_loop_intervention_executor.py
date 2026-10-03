@@ -55,12 +55,26 @@ class ClosedLoopExecutionTests(unittest.TestCase):
 
     def test_mismatched_authorization_fails_closed(self):
         d=decision()
-        e=ClosedLoopInterventionExecutor(apply=lambda x:x,verify=lambda x: InterventionVerification(True, True, True, False, ("e",)),rollback=lambda x:None)
+        e=ClosedLoopInterventionExecutor(
+            apply=lambda x:x,
+            verify=lambda x: InterventionVerification(True, True, True, False, ("e",)),
+            rollback=lambda x:None,
+        )
         auth=InterventionAuthorization("wrong",d.intervention.intervention_digest,"a","reviewer")
         with self.assertRaises(ValueError):
             e.run(d,auth,execution_id="run-3")
 
+    def test_untrusted_retest_evidence_rolls_back(self):
+        d=decision(); rolled=[]
+        e=ClosedLoopInterventionExecutor(
+            apply=lambda x: {"candidate": x.intervention_id},
+            verify=lambda x: InterventionVerification(True, False, True, False, ("not-fresh",)),
+            rollback=lambda x: rolled.append(x),
+        )
+        auth=InterventionAuthorization(d.decision_digest,d.intervention.intervention_digest,"a","reviewer")
+        r=e.run(d,auth,execution_id="run-4")
+        self.assertFalse(r.verified); self.assertTrue(r.rolled_back); self.assertTrue(r.safe_terminal)
+
 
 if __name__=="__main__":
     unittest.main()
-\n    def test_untrusted_retest_evidence_rolls_back(self):\n        d=decision(); rolled=[]\n        e=ClosedLoopInterventionExecutor(\n            apply=lambda x: {"candidate": x.intervention_id},\n            verify=lambda x: InterventionVerification(True, False, True, False, ("not-fresh",)),\n            rollback=lambda x: rolled.append(x),\n        )\n        auth=InterventionAuthorization(d.decision_digest,d.intervention.intervention_digest,"a","reviewer")\n        r=e.run(d,auth,execution_id="run-4")\n        self.assertFalse(r.verified); self.assertTrue(r.rolled_back); self.assertTrue(r.safe_terminal)\n
