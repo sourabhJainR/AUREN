@@ -1,4 +1,4 @@
-"""Provider-neutral trace export and trace-to-regression correlation for AER v13."""
+"""Provider-neutral trace export and trace-to-regression correlation for AUREN v13."""
 from __future__ import annotations
 
 import json
