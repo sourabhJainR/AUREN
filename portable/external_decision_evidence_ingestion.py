@@ -7,6 +7,7 @@ non-contaminated observations can become decision-steering evidence.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 import hashlib
 import json
 
@@ -120,6 +121,7 @@ class ExternalDecisionEvidenceIngestor:
                 "verified": "true",
                 "contaminated": "false",
                 "oracle_independent": "true",
+                "observed_at": datetime.now(timezone.utc).isoformat(),
             },
         )
         chain_node = self.graph.add_node(
