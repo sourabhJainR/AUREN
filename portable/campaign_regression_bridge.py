@@ -110,6 +110,28 @@ class CampaignRegressionBridge:
             evidence_ids=evidence_ids,
         )
 
+    def retire_if_validated_replacement(
+        self,
+        *,
+        old_case_id: str,
+        replacement_case_id: str,
+        holdout_evidence_ids: Iterable[str],
+    ) -> RegressionCase:
+        """Retire only when the replacement is already active and evidence is fresh."""
+        evidence = tuple(dict.fromkeys(str(x).strip() for x in holdout_evidence_ids if str(x).strip()))
+        if not evidence:
+            raise ValueError("successful holdout evidence is required")
+        replacement = self.corpus.get(replacement_case_id)
+        if replacement.status != "active":
+            raise ValueError("replacement regression must be active before retirement")
+        if set(evidence) & set(replacement.evidence_ids):
+            raise ValueError("retirement evidence must be fresh holdout evidence")
+        return self.corpus.retire(
+            old_case_id,
+            replacement_case_id=replacement_case_id,
+            evidence_ids=evidence,
+        )
+
     def apply(
         self,
         learning: CampaignLearning,
