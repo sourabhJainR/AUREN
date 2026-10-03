@@ -104,7 +104,7 @@ class AutonomousExperimentQueue:
                 decision = detail.get("decision", {})
                 if isinstance(decision, str):
                     decision = json.loads(decision)
-                if decision.get("status") != "observed":
+                if decision.get("status") != "observed" or not bool(decision.get("attributable", False)):
                     continue
                 cohort = str(decision.get("cohort", ""))
                 episode = str(decision.get("episode_id", ""))
