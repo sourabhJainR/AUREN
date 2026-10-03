@@ -1,10 +1,10 @@
 # Engineering Design Policy
 
-This policy distills the engineering intent of the 14 rule sets in `mattpocock/agent-rules-books` into one repository-native operating model. It is guidance for the AER system, not copied book text and not a substitute for the books.
+This policy distills the engineering intent of the 14 rule sets in `mattpocock/agent-rules-books` into one repository-native operating model. It is guidance for the AUREN system, not copied book text and not a substitute for the books.
 
 ## Source coverage
 
-| Source | Constructive contribution to AER |
+| Source | Constructive contribution to AUREN |
 | --- | --- |
 | A Philosophy of Software Design | Minimize cognitive load; prefer deep modules, information hiding, precise interfaces, localized complexity, and meaningful names. |
 | Clean Architecture | Keep policy independent from frameworks and details; enforce inward dependencies and humble adapters. |
@@ -23,7 +23,7 @@ This policy distills the engineering intent of the 14 rule sets in `mattpocock/a
 
 ## One integrated model
 
-AER should not load all 14 sources as equal instructions on every task. They are capability lenses selected by task shape. The default integrated model is:
+AUREN should not load all 14 sources as equal instructions on every task. They are capability lenses selected by task shape. The default integrated model is:
 
 ```text
 INTENT
