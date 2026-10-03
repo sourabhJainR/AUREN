@@ -71,8 +71,8 @@ def _limited_env(policy: SandboxPolicy) -> dict[str, str]:
     env = {key: value for key, value in os.environ.items() if key in policy.env_allowlist}
     env.update(policy.extra_env)
     if not policy.allow_network:
-        env["AER_SANDBOX_NETWORK"] = "disabled"
-    env["AER_SANDBOX"] = "enforced"
+        env["AUREN_SANDBOX_NETWORK"] = "disabled"
+    env["AUREN_SANDBOX"] = "enforced"
     return env
 
 
