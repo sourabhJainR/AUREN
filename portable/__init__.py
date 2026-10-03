@@ -148,3 +148,5 @@ from .external_environment_protocol import EnvironmentContract, EpisodeTrace, En
 from .promotion_evidence_chain import PromotionEvidenceChain, PromotionEvidenceChainBuilder
 from .external_generalization_runner import ExternalEnvironmentAdapter, IndependentOracle, GeneralizationCampaignResult, ExternalGeneralizationCampaignRunner
 from .campaign_intervention_loop import CampaignInterventionPlanner, FailurePattern
+
+from .adaptive_experiment_controller import ExperimentAssignment, ExperimentObservation, ExperimentReplication, AdaptiveExperimentResult, ExperimentController
