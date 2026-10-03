@@ -61,7 +61,7 @@ def hidden_acceptance(root: Path, task_id: str, cfg: dict[str, Any]) -> dict[str
         code = "from retry import run_with_retries; n=[]; ok,c=run_with_retries(lambda:n.append(1) or len(n)>=2,4); assert ok and c==2 and len(n)==2"
         checks["hidden_retry_case"] = subprocess.run(["python", "-c", code], cwd=root, env=env, check=False).returncode == 0
     elif task_id == "BC-07":
-        env = os.environ.copy(); env["AER_BC07_API_KEY"] = "runtime-only-value"
+        env = os.environ.copy(); env["AUREN_BC07_API_KEY"] = "runtime-only-value"
         env["PYTHONPATH"] = str((root / "benchmark/bc07").resolve())
         checks["config_runtime_wiring"] = subprocess.run(["python", "-c", "import config; assert config.API_KEY=='runtime-only-value'"], cwd=root, env=env, check=False).returncode == 0
     else:
@@ -81,7 +81,7 @@ def mutation_test(root: Path, task_id: str, cfg: dict[str, Any]) -> dict[str, An
     elif task_id in {"BC-04", "BC-05", "BC-06", "BC-10"}: mutations = [("behavior_break", original.replace("return ", "return None # MUTATION\n    # ", 1))]
     else: return {"applicable": False, "killed": True, "reason": "no safe deterministic mutation defined"}
     outcomes = []
-    with tempfile.TemporaryDirectory(prefix="aer-mut-") as td:
+    with tempfile.TemporaryDirectory(prefix="auren-mut-") as td:
         mutant = Path(td) / "checkout"; shutil.copytree(root, mutant)
         for name, code in mutations:
             target = mutant / rel; target.write_text(code, encoding="utf-8")
