@@ -139,8 +139,9 @@ class ExperimentController:
         minimum_holdout_lift: float = 0.02,
         maximum_regression: float = 0.02,
         minimum_consistency: float = 2 / 3,
+        minimum_domains: int = 2,
     ) -> None:
-        if minimum_replications < 1 or minimum_observations < 1:
+        if minimum_replications < 1 or minimum_observations < 1 or minimum_domains < 1:
             raise ValueError("minimum sample requirements must be positive")
         if not 0 <= minimum_consistency <= 1:
             raise ValueError("minimum_consistency must be between 0 and 1")
@@ -152,6 +153,7 @@ class ExperimentController:
         self.minimum_holdout_lift = minimum_holdout_lift
         self.maximum_regression = maximum_regression
         self.minimum_consistency = minimum_consistency
+        self.minimum_domains = minimum_domains
 
     def assign(self, *, experiment_id: str, intervention: LearningIntervention,
                unit_id: str, campaign_digest: str, treatment: bool) -> ExperimentAssignment:
@@ -202,6 +204,7 @@ class ExperimentController:
         observations = sum(len(r.control_scores) + len(r.treatment_scores) + len(r.holdout_scores) for r in replications)
         sufficient = (
             len(replications) >= self.minimum_replications
+            and len({r.domain for r in replications}) >= self.minimum_domains
             and observations >= self.minimum_observations
             and consistent >= self.minimum_consistency
             and treatment >= self.minimum_lift
@@ -211,6 +214,8 @@ class ExperimentController:
         reasons = []
         if len(replications) < self.minimum_replications:
             reasons.append("insufficient independent replications")
+        if len({r.domain for r in replications}) < self.minimum_domains:
+            reasons.append("insufficient cross-domain replication")
         if observations < self.minimum_observations:
             reasons.append("insufficient observations")
         if consistent < self.minimum_consistency:
