@@ -1,6 +1,6 @@
 # Independent Generalization Arena
 
-The arena is the next evidence boundary for AER. It evaluates behavior against a
+The arena is the next evidence boundary for AUREN. It evaluates behavior against a
 sealed corpus that is owned outside the adaptive runtime.
 
 ## Boundary
