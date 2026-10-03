@@ -1,6 +1,6 @@
 """Integrated twelve-phase engineering evolution control plane.
 
-This module composes the existing AER primitives rather than replacing them.
+This module composes the existing AUREN primitives rather than replacing them.
 It adds durable coordination for evidence graphs, predictive feedback,
 compaction, impact/failure prediction, historical decomposition, provider
 calibration, cross-project transfer validation, autonomy graduation, benchmark
@@ -31,7 +31,7 @@ PHASES = (
     "canonical_engineering_evidence_envelope",
     "end_to_end_evidence_graph",
     "predictive_world_model_feedback",
-    "aer_aware_context_compaction",
+    "auren_aware_context_compaction",
     "repository_change_impact_prediction",
     "failure_pattern_prediction",
     "historical_task_decomposition",
@@ -259,7 +259,7 @@ class EngineeringEvolutionControlPlane:
                              str(getattr(error, "error_digest", "")), adjusted,
                              round(accuracy, 4), samples, evidence_ids)
 
-    # Phase 4: compact evidence using AER-like stable key/value rows.
+    # Phase 4: compact evidence using AUREN-like stable key/value rows.
     def compact_context(self, items: Sequence[Mapping[str, Any]], *, budget: int = 12000) -> CompactionResult:
         if budget < 128:
             raise ValueError("budget must be at least 128")
@@ -467,7 +467,7 @@ class EngineeringEvolutionControlPlane:
             return LocalExecutionReadiness(True, "embedded", cfg.model_path, True, ())
         reasons.append("embedded llama.cpp backend unavailable")
         if not cfg.model_path:
-            reasons.append("AER_LOCAL_LLM_MODEL_PATH is not configured")
+            reasons.append("AUREN_LOCAL_LLM_MODEL_PATH is not configured")
         return LocalExecutionReadiness(False, "ollama", cfg.model_path, False, tuple(reasons))
 
     def status(self) -> dict[str, Any]:
