@@ -61,6 +61,34 @@ class PersistentEvidenceGraph:
                        (self.project,edge.source_id,edge.relation,edge.target_id,edge.edge_digest))
         return edge
 
+    def get_node(self, node_id: str) -> EvidenceNode | None:
+        with self.memory._lock, self.memory._connect() as db:
+            row = db.execute(
+                "SELECT node_id,kind,digest,metadata_json FROM evidence_nodes WHERE project=? AND node_id=?",
+                (self.project, node_id),
+            ).fetchone()
+        if row is None:
+            return None
+        return EvidenceNode(row[0], row[1], row[2], tuple(sorted(json.loads(row[3]).items())))
+
+    def nodes(self, *, kind: str | None = None, max_nodes: int = 1000) -> tuple[EvidenceNode, ...]:
+        if max_nodes < 1:
+            raise ValueError("max_nodes must be positive")
+        with self.memory._lock, self.memory._connect() as db:
+            if kind is None:
+                rows = db.execute(
+                    "SELECT node_id,kind,digest,metadata_json FROM evidence_nodes "
+                    "WHERE project=? ORDER BY node_id LIMIT ?",
+                    (self.project, max_nodes),
+                ).fetchall()
+            else:
+                rows = db.execute(
+                    "SELECT node_id,kind,digest,metadata_json FROM evidence_nodes "
+                    "WHERE project=? AND kind=? ORDER BY node_id LIMIT ?",
+                    (self.project, kind, max_nodes),
+                ).fetchall()
+        return tuple(EvidenceNode(r[0], r[1], r[2], tuple(sorted(json.loads(r[3]).items()))) for r in rows)
+
     def lineage(self, node_id: str, *, direction: str = "both", max_edges: int = 100) -> tuple[EvidenceEdge,...]:
         if direction not in {"in","out","both"}: raise ValueError("unsupported lineage direction")
         if max_edges < 1: raise ValueError("max_edges must be positive")
