@@ -1,6 +1,7 @@
 import unittest
 
 from portable.agi_evaluation import KINDS
+from portable.benchmark_manifest import BenchmarkManifest
 from portable.general_intelligence_evaluation import ExecutionBackedEvaluator, ExecutionCase
 
 
@@ -56,6 +57,30 @@ class ExecutionBackedEvaluatorTests(unittest.TestCase):
         report = ExecutionBackedEvaluator().evaluate(cases)
         self.assertFalse(report.breadth_passed)
         self.assertFalse(report.gate_passed)
+
+    def test_manifest_mismatch_fails_closed_before_execution(self):
+        manifest = BenchmarkManifest.seal(
+            "agi-engineering", "1",
+            train_domains=("coding", "research"),
+            holdout_domains=("planning", "reasoning"),
+            oracle_ids=("oracle-v1",),
+        )
+        calls = []
+        case = ExecutionCase(
+            "manifest-case", "reasoning", "reasoning", True,
+            runner=lambda: calls.append("ran") or True,
+            oracle=lambda value: True,
+            evidence_factory=lambda value: ("evidence-manifest",),
+            manifest=manifest,
+            oracle_id="oracle-v2",
+            manifest_digest=manifest.digest,
+        )
+        report = ExecutionBackedEvaluator(
+            minimum_domains=1, minimum_holdout_domains=1, minimum_kinds=1
+        ).evaluate([case])
+        self.assertFalse(report.results[0].verified)
+        self.assertEqual(calls, [])
+        self.assertIn("oracle is not registered", report.results[0].error)
 
     def test_oracle_failure_is_recorded(self):
         case = self._case(1, domain="reasoning", kind="reasoning", ok=False)
