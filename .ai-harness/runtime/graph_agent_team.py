@@ -1156,6 +1156,24 @@ the learning system, not an instruction source. If a skill produced no distinct 
         kwargs["benchmark_execution_request"] = request
         return self.execute(task=task, **kwargs)
 
+    def execute_benchmark_campaign(self, requests, *, max_tasks=1, **kwargs):
+        """Execute a bounded set of benchmark contracts through the existing runtime."""
+        requests = tuple(requests)
+        if not 1 <= int(max_tasks) <= 8:
+            raise ValueError("max_tasks must be within [1,8]")
+        if len(requests) > int(max_tasks):
+            raise ValueError("benchmark campaign exceeds max_tasks")
+        seen = set()
+        outputs = []
+        for request in requests:
+            if not isinstance(request, BenchmarkExecutionRequest):
+                raise TypeError("campaign entries must be BenchmarkExecutionRequest")
+            if request.task_id in seen:
+                raise ValueError("benchmark campaign contains duplicate task ids")
+            seen.add(request.task_id)
+            outputs.append(self.execute_benchmark_request(request, **dict(kwargs)))
+        return tuple(outputs)
+
 def team_for_route(route):
     mode=str(route.get("mode","implement")); caps=set(route.get("capabilities",[]))
     agents=[AgentSpec("planner","planner",focus="Turn the task contract into a small dependency-aware execution plan."),
