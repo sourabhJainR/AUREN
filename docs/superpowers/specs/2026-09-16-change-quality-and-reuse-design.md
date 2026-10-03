@@ -2,7 +2,7 @@
 
 ## Goal
 
-Make every AER-assisted repository change deliberately curated: reuse existing implementations where practical, preserve usage patterns, implement the complete requested behavior, minimize data-access cost, protect performance, follow local observability/error conventions, and verify against regressions before completion.
+Make every AUREN-assisted repository change deliberately curated: reuse existing implementations where practical, preserve usage patterns, implement the complete requested behavior, minimize data-access cost, protect performance, follow local observability/error conventions, and verify against regressions before completion.
 
 ## Approved implementation
 
