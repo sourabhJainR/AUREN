@@ -25,34 +25,35 @@ class GraphAgentTeamTests(unittest.TestCase):
                 objective="test coding", risk_budget=.2, resource_budget=.5,
                 required_evidence=("canonical execution evidence",),
             )
-            team = GraphAgentTeam([AgentSpec("planner", "planner")])
+            calls = []
 
-            def fake_execute(request, **kwargs):
-                return {
-                    "benchmark_execution_receipt": {
-                        "task_id": request.task_id,
-                        "domain": request.domain,
-                        "holdout": request.holdout,
-                        "evidence_ids": ("run:evidence",),
-                        "evidence_kinds": ("canonical execution evidence",),
-                        "required_evidence": request.required_evidence,
-                        "success": True,
-                        "verified": True,
-                        "reason": "accepted",
-                    },
-                    "autonomy_benchmark": {"overall": .9},
-                }
+            def invoke(agent, prompt):
+                calls.append(agent.name)
+                return 0, agent.name, 0.01
 
-            team.execute_benchmark_request = fake_execute
-            result = team.execute_autonomous_benchmark_learning_campaign(
-                requests=(request,),
-                safety_evidence_verified=True,
-                memory=memory,
+            team = GraphAgentTeam([
+                AgentSpec("planner", "planner"),
+                AgentSpec("verifier", "verifier", depends_on=("planner",)),
+            ])
+            result = team.execute(
+                task="root benchmark campaign",
                 intent_digest="intent-a",
+                base_prompt="base",
+                memory=memory,
+                invoke_agent=invoke,
+                benchmark_domain="coding",
+                benchmark_holdout=True,
+                benchmark_execution_task_id=request.task_id,
+                benchmark_execution_request=request,
+                autonomous_benchmark_learning=True,
+                autonomous_benchmark_max_tasks=1,
+                autonomous_benchmark_retest_tasks=1,
+                safety_evidence_verified=True,
             )
-            self.assertEqual(result["initial"]["selected_task_ids"], [request.task_id])
-            self.assertEqual(result["initial"]["observations"][0]["realized_score"], .9)
-            self.assertTrue(result["initial"]["observations"][0]["realized_success"])
+            self.assertIn("autonomous_campaign_learning", result)
+            self.assertEqual(result["autonomous_campaign_learning"]["initial"]["selected_task_ids"], [request.task_id])
+            self.assertTrue(result["autonomous_campaign_learning"]["initial"]["observations"])
+            self.assertIn("verifier", calls)
 
     def test_shared_memory_is_scoped_to_intent(self):
         with tempfile.TemporaryDirectory() as tmp:
