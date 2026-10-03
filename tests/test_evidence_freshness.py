@@ -45,7 +45,7 @@ class EvidenceFreshnessTests(unittest.TestCase):
                 ingestor.ingest(
                     chain, outcome,
                     ExternalDecisionEvidence("verifier", "planner", "agent", "agent",
-                                             .95, .95, 30, 1, "c",),
+                                             .95, .95, 30, 1, "c", evidence_id=f"fresh-{i}"),
                 )
             plan = EvidenceDrivenDecisionFabric(g).plan(
                 "verifier", "planner",
