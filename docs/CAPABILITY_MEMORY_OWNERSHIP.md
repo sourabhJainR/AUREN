@@ -1,6 +1,6 @@
 # Canonical Capability and Memory Ownership
 
-AER has one owner for capability semantics and one owner for durable memory semantics.
+AUREN has one owner for capability semantics and one owner for durable memory semantics.
 
 ## Ownership
 
@@ -32,7 +32,7 @@ Repository intelligence is layered:
 2. text retrieval for non-code and free-form questions;
 3. bounded packing for tasks that need broader repository context.
 
-The semantic layer follows Serena's useful pattern of stable symbol/relationship addressing and project-scoped indexing. The packer follows Repomix's useful pattern of git-aware exclusion, secret filtering, deterministic packing, token accounting and structural compression. Neither dependency is required by the AER core.
+The semantic layer follows Serena's useful pattern of stable symbol/relationship addressing and project-scoped indexing. The packer follows Repomix's useful pattern of git-aware exclusion, secret filtering, deterministic packing, token accounting and structural compression. Neither dependency is required by the AUREN core.
 
 For small edits, normal text/patch tools remain preferred. Semantic tooling is most useful for symbol discovery, references, hierarchy, cross-file refactoring and bounded structural context.
 
