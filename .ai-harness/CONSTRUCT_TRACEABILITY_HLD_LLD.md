@@ -209,4 +209,4 @@ Run-level artifacts may reference the construct IDs and paths in prompts, output
 
 ## 13. Scope
 
-This capability is part of `Hello_world_With_Structure` only. It is not an AER integration and must not introduce AER dependencies, terminology, identifiers, or artifacts.
+This capability is part of `Hello_world_With_Structure` only. It is not an AUREN integration and must not introduce AUREN dependencies, terminology, identifiers, or artifacts.
