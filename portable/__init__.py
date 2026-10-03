@@ -142,3 +142,4 @@ from .production_readiness import ProductionReadiness
 from .generalization_arena import ArenaCase, ArenaCorpus, IndependentGeneralizationArena
 
 from .arena_run_receipt import ArenaRunReceipt, oracle_registry_digest
+from .external_evaluation_campaign import CampaignOutcome, CampaignRetestContract, ExternalEvaluationCampaign, LearningIntervention
