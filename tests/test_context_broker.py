@@ -12,7 +12,7 @@ MODULE = ROOT / ".ai-harness" / "runtime" / "context_broker.py"
 class ContextBrokerTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        module_name = "aer_context_broker_test"
+        module_name = "auren_context_broker_test"
         spec = importlib.util.spec_from_file_location(module_name, MODULE)
         cls.module = importlib.util.module_from_spec(spec)
         assert spec and spec.loader
@@ -23,7 +23,7 @@ class ContextBrokerTests(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        sys.modules.pop("aer_context_broker_test", None)
+        sys.modules.pop("auren_context_broker_test", None)
 
     def test_selects_only_relevant_context_under_budget(self):
         loaded = []
