@@ -189,3 +189,5 @@ from .evidence_guided_composition import CompositionProposal, EvidenceGuidedComp
 from .world_state_consistency import StateHypothesis, WorldStateAssessment, WorldStateConsistencyGuard
 
 from .long_horizon_campaign_manager import CampaignStep, CampaignCheckpoint, LongHorizonCampaignResult, LongHorizonCampaignManager
+
+from .independent_evaluation_attestation import EvaluationAttestation, AttestedEvaluation, IndependentEvaluationAttestor
