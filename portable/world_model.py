@@ -1,6 +1,6 @@
-"""Durable, provenance-aware predictive world-model primitives for AER.
+"""Durable, provenance-aware predictive world-model primitives for AUREN.
 
-The world model stores observations in the canonical AER memory database. In
+The world model stores observations in the canonical AUREN memory database. In
 addition to deterministic current-state queries, it learns bounded empirical
 state transitions conditioned on actions and can score predictions against
 later observations.
