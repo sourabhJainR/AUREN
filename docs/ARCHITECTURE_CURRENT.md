@@ -1,6 +1,6 @@
 # Current Architecture
 
-This document describes the current AER 23.x architecture. Historical version notes remain provenance records and do not redefine runtime ownership.
+This document describes the current AUREN 23.x architecture. Historical version notes remain provenance records and do not redefine runtime ownership.
 
 ## Engineering spine
 
