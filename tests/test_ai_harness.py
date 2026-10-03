@@ -42,7 +42,7 @@ class AdaptiveHarnessTests(unittest.TestCase):
     def test_explicit_workflow_is_honored(self) -> None:
         result = self.run_cli("run", "--workflow", "research", "--task", "Compare two approaches", "--dry-run")
         self.assertEqual(result.returncode, 0, result.stderr)
-        run_dirs = [path for path in (ROOT / ".ai-harness" / "runs").glob("*") if path.is_dir()]
+        run_dirs = [path for path in (ROOT / ".ai-harness" / "runs").glob("*") if path.is_dir() and (path / "manifest.json").is_file()]
         run_dir = max(run_dirs, key=lambda path: path.stat().st_mtime)
         manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
         self.assertEqual(manifest["workflow"], "research")
