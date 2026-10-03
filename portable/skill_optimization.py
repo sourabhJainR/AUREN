@@ -1,4 +1,4 @@
-"""SkillOpt-inspired governed skill evolution for AER.
+"""SkillOpt-inspired governed skill evolution for AUREN.
 
 This additive layer trains a skill artifact from verified experience. It does not
 own execution, permissions, evidence authority, or final promotion policy.
@@ -78,7 +78,7 @@ class SkillOptimizationResult:
 
 
 class SkillOptimizer:
-    """One offline SkillOpt-style epoch under AER gates.
+    """One offline SkillOpt-style epoch under AUREN gates.
 
     score(skill, task_ids) must return a deterministic SkillScore. This class
     never executes production work and never changes host policy.
