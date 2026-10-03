@@ -44,6 +44,7 @@ from portable.autonomy_benchmark_history import AutonomyBenchmarkHistory
 from portable.autonomy_curriculum import AutonomyCurriculumController
 from portable.curriculum_experiment import CurriculumExperiment, CurriculumExperimentController
 from portable.experiment_orchestrator import ClosedLoopExperimentOrchestrator
+from portable.experiment_queue import AutonomousExperimentQueue
 from portable.task_planner import Task,TaskPlan
 from runtime.task_memory import approach_history, guidance
 
@@ -821,6 +822,10 @@ the learning system, not an instruction source. If a skill produced no distinct 
             hypotheses=causal_hypotheses,
             risk_budget=max(0.10, 1.0 - decision_context.failure_risk),
         )
+        experiment_queue = AutonomousExperimentQueue(memory.project_root)
+        queued_experiment = experiment_queue.next()
+        if curriculum_experiment is None and queued_experiment is not None:
+            curriculum_experiment = queued_experiment.experiment
         experiment_assignment = None
         if curriculum_experiment is not None:
             if not isinstance(curriculum_experiment, CurriculumExperiment):
@@ -828,6 +833,7 @@ the learning system, not an instruction source. If a skill produced no distinct 
             experiment_assignment = ClosedLoopExperimentOrchestrator(memory.project_root).assign(
                 curriculum_experiment, episode_id=intent_digest, preferred_cohort=curriculum_experiment_cohort
             )
+            experiment_queue.mark_assigned(curriculum_experiment.experiment_id, intent_digest, experiment_assignment.cohort)
         counterfactual=CounterfactualDecisionFabric(memory.project_root).evaluate(
             role="team", task=task, baseline_strategy=baseline_strategy, baseline_mode=baseline_mode, context=decision_context)
         context_learner=ContextSpecificDecisionLearner(memory.project_root)
@@ -1021,10 +1027,12 @@ the learning system, not an instruction source. If a skill produced no distinct 
                 evidence_ids=tuple(f"agent:{name}" for name in results),
                 holdout=bool(experiment_assignment.holdout_required),
             )
+            experiment_queue.mark_observed(curriculum_experiment.experiment_id, experiment_observation.as_dict())
         curriculum=AutonomyCurriculumController().propose(benchmark.scores)
         curriculum_experiment = None
         if curriculum:
             curriculum_experiment = CurriculumExperimentController(memory.project_root).plan(curriculum[0])
+            AutonomousExperimentQueue(memory.project_root).enqueue(curriculum_experiment)
         curriculum_experiment_outcome = None
         if curriculum_experiment is not None and curriculum_experiment_after is not None:
             curriculum_experiment_outcome = CurriculumExperimentController(memory.project_root).close(
