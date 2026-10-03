@@ -1,4 +1,4 @@
-"""Compatibility exports for the canonical AER bounded loop runtime.
+"""Compatibility exports for the canonical AUREN bounded loop runtime.
 
 The implementation now lives in ``portable.feedback_loop`` so the portable
 bundle has one ownership model. Existing callers importing this legacy path
