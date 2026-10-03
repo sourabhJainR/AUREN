@@ -1,6 +1,6 @@
 # Context Engineering Policy
 
-AER uses **progressive disclosure at runtime**, not context bolting.
+AUREN uses **progressive disclosure at runtime**, not context bolting.
 
 ## Context Broker contract
 
