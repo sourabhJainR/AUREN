@@ -156,3 +156,4 @@ from .experiment_learning_bridge import CurriculumLearningSignal, ExperimentLear
 from .open_ended_capability_discovery import CapabilityGap, CapabilityInventionProposal, OpenEndedCapabilityDiscovery
 
 from .capability_invention_validation import ValidationProbe, CapabilityValidationPlan, CapabilityInventionValidator
+from .capability_invention_validation_runner import ValidationExecutor, ValidationOracle, ValidationEvidence, CapabilityValidationResult, CapabilityInventionValidationRunner
