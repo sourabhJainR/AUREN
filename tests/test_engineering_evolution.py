@@ -57,7 +57,7 @@ class EngineeringEvolutionTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.cp.record_world_feedback(Model(), prediction, "ok")
 
-    def test_aer_compaction_is_deterministic_and_bounded(self):
+    def test_auren_compaction_is_deterministic_and_bounded(self):
         items = [
             {"evidence_id": "e2", "confidence": 0.4, "value": "secondary"},
             {"evidence_id": "e1", "confidence": 0.9, "value": "primary"},
