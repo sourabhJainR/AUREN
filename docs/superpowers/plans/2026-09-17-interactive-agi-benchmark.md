@@ -6,7 +6,7 @@
 
 **Architecture:** `InteractiveBenchmark` runs a caller-provided policy against deterministic sandbox environments. Each environment exposes only an observation and a finite action set; the policy must choose actions, receives resulting observations, and may fail/recover within bounded steps. Benchmark suites support visible training tasks and hidden evaluation tasks generated from the same family with held-out parameters, and report transfer/generalization separately from training performance.
 
-**Tech Stack:** Python standard library and existing AER deterministic evaluation primitives.
+**Tech Stack:** Python standard library and existing AUREN deterministic evaluation primitives.
 
 **Spec:** Approved backlog increment: executable AGI benchmark environments with hidden interactive tasks and generalization measurement.
 
