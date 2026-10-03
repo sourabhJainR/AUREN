@@ -1,4 +1,4 @@
-"""AER engineering observability snapshot and local dashboard data service."""
+"""AUREN engineering observability snapshot and local dashboard data service."""
 from __future__ import annotations
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
@@ -43,11 +43,11 @@ class DashboardSnapshot:
         return _json(asdict(self))
 
 class EngineeringDashboard:
-    """Observation-only dashboard over existing AER state."""
+    """Observation-only dashboard over existing AUREN state."""
     def __init__(self, project_root: str | Path, *, project: str | None = None) -> None:
         self.root = Path(project_root).resolve()
         self.project = project or self.root.name
-        self.state_dir = self.root / ".aer" / "dashboard"
+        self.state_dir = self.root / ".auren" / "dashboard"
         self.event_path = self.state_dir / "events.jsonl"
         self._repo_cache = None
         self._cache_seconds = 5.0
@@ -95,12 +95,12 @@ class EngineeringDashboard:
     def _repository(self):
         now = time.monotonic()
         if self._repo_cache is None or now - self._repo_cache[0] >= self._cache_seconds:
-            self._repo_cache = (now, RepositoryIntelligence.build(self.root, ignores={".aer", "state"}))
+            self._repo_cache = (now, RepositoryIntelligence.build(self.root, ignores={".auren", "state"}))
         return self._repo_cache[1]
 
     def _sqlite_files(self) -> tuple[Path, ...]:
         candidates = []
-        for base in (self.root / ".aer", self.root / "state", self.root / ".ai-harness", self.root):
+        for base in (self.root / ".auren", self.root / "state", self.root / ".ai-harness", self.root):
             if not base.exists():
                 continue
             try:
