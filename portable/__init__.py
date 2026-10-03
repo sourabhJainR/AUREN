@@ -138,3 +138,5 @@ from .resource_calibration import ResourceCalibrator, ResourceObservation
 from .adversarial_benchmark import AdversarialBenchmark, AdversarialCase, AdversarialResult
 from .engineering_console import ConsoleCommand, ConsoleSnapshot, EngineeringConsole
 from .production_readiness import ProductionReadiness
+
+from .generalization_arena import ArenaCase, ArenaCorpus, IndependentGeneralizationArena
