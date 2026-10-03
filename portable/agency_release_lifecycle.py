@@ -1,4 +1,4 @@
-"""Executable, content-addressed artifact lifecycle for AER release decisions."""
+"""Executable, content-addressed artifact lifecycle for AUREN release decisions."""
 from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
