@@ -1,6 +1,6 @@
-# AER v13: Trace Export and Regression Correlation
+# AUREN v13: Trace Export and Regression Correlation
 
-AER v13 connects an engineering execution trace to the exact regression evaluation used to validate it.
+AUREN v13 connects an engineering execution trace to the exact regression evaluation used to validate it.
 
 ## Exporter contract
 
@@ -13,7 +13,7 @@ class TraceExporter(Protocol):
 
 `CompositeTraceExporter` can send the same trace to multiple destinations. `JsonlTraceExporter` is a small reference implementation for local or test use. Existing `LocalExporter` remains compatible because the contract is structural.
 
-Exporters are observational. An exporter failure must not turn a successful coding task into a failed task or bypass AER policy gates.
+Exporters are observational. An exporter failure must not turn a successful coding task into a failed task or bypass AUREN policy gates.
 
 ## Trace-to-regression correlation
 
@@ -69,7 +69,7 @@ Correlation does not override hard gates. A passing regression is evidence; it i
 
 ## Extending exporters
 
-A future Opik, OpenTelemetry, database, or enterprise exporter only needs to implement `export(trace)`. The AER runtime does not need to know where telemetry is stored.
+A future Opik, OpenTelemetry, database, or enterprise exporter only needs to implement `export(trace)`. The AUREN runtime does not need to know where telemetry is stored.
 
 For example:
 
