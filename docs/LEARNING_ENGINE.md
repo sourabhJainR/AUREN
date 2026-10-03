@@ -1,6 +1,6 @@
-# AER Learning Engine
+# AUREN Learning Engine
 
-AER now has the core closed-loop machinery for self-improvement:
+AUREN now has the core closed-loop machinery for self-improvement:
 
 ```text
 observe -> learn -> candidate -> replay -> safety gate -> promote -> monitor -> rollback
