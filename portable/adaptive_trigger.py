@@ -19,7 +19,7 @@ from .adaptive_runtime import AdaptiveRuntime
 from .trigger_runtime import TriggerEvent, TriggerRuntime, TriggerStatus
 
 
-_BACKGROUND_EXECUTOR = ThreadPoolExecutor(max_workers=4, thread_name_prefix="aer-adaptive-trigger")
+_BACKGROUND_EXECUTOR = ThreadPoolExecutor(max_workers=4, thread_name_prefix="auren-adaptive-trigger")
 register(_BACKGROUND_EXECUTOR.shutdown, wait=False, cancel_futures=False)
 
 _PRIORITY = {"high": 0, "normal": 1, "low": 2}
