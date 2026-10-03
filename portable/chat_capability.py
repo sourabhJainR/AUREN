@@ -99,8 +99,8 @@ def invoke(runtime: AdaptiveRuntime, arguments: Mapping[str, Any]):
 
 
 def _default_runtime() -> AdaptiveRuntime:
-    """Build a process-local runtime using the canonical AER automation store."""
-    state = Path(os.environ.get("AER_HOME", Path.home() / ".aer")).expanduser()
+    """Build a process-local runtime using the canonical AUREN automation store."""
+    state = Path(os.environ.get("AUREN_HOME", Path.home() / ".auren")).expanduser()
     scheduler = AutomationScheduler(state / "automation" / "automation.db")
     return AdaptiveRuntime(Graph([]), automation_scheduler=scheduler)
 
@@ -139,7 +139,7 @@ def serve_mcp(runtime: AdaptiveRuntime | None = None) -> int:
                     {
                         "protocolVersion": str(params.get("protocolVersion") or "2024-11-05"),
                         "capabilities": {"tools": {"listChanged": False}},
-                        "serverInfo": {"name": "aer-adaptive-runtime", "version": "1.0.0"},
+                        "serverInfo": {"name": "auren-adaptive-runtime", "version": "1.0.0"},
                     },
                 )
             elif method == "notifications/initialized":
