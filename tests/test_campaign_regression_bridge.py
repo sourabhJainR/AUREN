@@ -37,6 +37,30 @@ class CampaignRegressionBridgeTests(unittest.TestCase):
             result = CampaignRegressionBridge(Path(tmp)).apply(learning)
             self.assertEqual(len(result.candidate_case_ids), 1)
 
+    def test_retirement_requires_active_replacement_and_fresh_holdout(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            bridge = CampaignRegressionBridge(Path(tmp))
+            first = bridge.apply(self._learning())
+            old_id = first.candidate_case_ids[0]
+            second = bridge.apply(self._learning(success=True, error=.25))
+            replacement_id = second.candidate_case_ids[0]
+            bridge.validate(
+                self._learning(),
+                case_ids=(replacement_id,),
+                evidence_by_case={replacement_id: ("h1",)},
+            )
+            bridge.validate(
+                self._learning(),
+                case_ids=(replacement_id,),
+                evidence_by_case={replacement_id: ("h2",)},
+            )
+            retired = bridge.retire_if_validated_replacement(
+                old_case_id=old_id,
+                replacement_case_id=replacement_id,
+                holdout_evidence_ids=("fresh-holdout",),
+            )
+            self.assertEqual(retired.status, "superseded")
+
     def test_verified_independent_holdout_can_activate_case(self):
         with tempfile.TemporaryDirectory() as tmp:
             bridge = CampaignRegressionBridge(Path(tmp))
