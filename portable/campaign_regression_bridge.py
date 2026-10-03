@@ -57,7 +57,10 @@ class CampaignRegressionBridge:
         episode.failure_class = row.failure_class
         episode.task_id = row.task_id
         episode.intent_digest = f"{campaign_id}:{row.task_id}"
-        episode.episode_id = f"{campaign_id}:{row.task_id}"
+        episode.episode_id = (
+            f"{campaign_id}:{row.task_id}:{row.failure_class}:"
+            f"{row.predicted_success}:{row.realized_success}:{row.score_error:.6f}"
+        )
         episode.dont_rules = ()
         return episode
 
