@@ -175,3 +175,5 @@ from .persistent_evidence_graph import EvidenceNode, EvidenceEdge, PersistentEvi
 from .evidence_driven_decision_fabric import EvidenceDecisionSignal, EvidenceDecisionPlan, EvidenceDrivenDecisionFabric
 
 from .external_decision_evidence_ingestion import ExternalDecisionEvidence, EvidenceIngestionResult, ExternalDecisionEvidenceIngestor
+
+from .evidence_freshness_policy import EvidenceFreshnessPolicy
