@@ -75,7 +75,7 @@ def serve(root: Path) -> None:
         request_id = message.get("id")
         params = message.get("params") or {}
         if method == "initialize":
-            _send({"jsonrpc": "2.0", "id": request_id, "result": {"capabilities": {"documentSymbolProvider": True, "definitionProvider": True, "referencesProvider": True}, "serverInfo": {"name": "aer-lsp", "version": "1.0"}}})
+            _send({"jsonrpc": "2.0", "id": request_id, "result": {"capabilities": {"documentSymbolProvider": True, "definitionProvider": True, "referencesProvider": True}, "serverInfo": {"name": "auren-lsp", "version": "1.0"}}})
         elif method == "shutdown":
             _send({"jsonrpc": "2.0", "id": request_id, "result": None})
             return
@@ -94,7 +94,7 @@ def serve(root: Path) -> None:
             target = names[0] if names else ""
             matches = []
             for candidate in root.rglob("*"):
-                if not candidate.is_file() or any(part in {".git", ".aer", "node_modules", "__pycache__"} for part in candidate.parts):
+                if not candidate.is_file() or any(part in {".git", ".auren", "node_modules", "__pycache__"} for part in candidate.parts):
                     continue
                 try:
                     for index, content in enumerate(candidate.read_text(encoding="utf-8", errors="replace").splitlines()):
