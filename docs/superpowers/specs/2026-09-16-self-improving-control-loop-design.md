@@ -1,7 +1,7 @@
 # Self-Improving Control Loop Design
 
 ## Goal
-Strengthen AER's existing engineering spine with explicit context control, typed probabilistic decisions, workflow evaluation, compound learning, and graph-level autonomy without introducing a second planner, graph, evidence store, memory authority, capability catalog, or workflow engine.
+Strengthen AUREN's existing engineering spine with explicit context control, typed probabilistic decisions, workflow evaluation, compound learning, and graph-level autonomy without introducing a second planner, graph, evidence store, memory authority, capability catalog, or workflow engine.
 
 ## Architecture
 The canonical path remains:
