@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Integrate the existing AER cognitive primitives with `AdaptiveRuntime.run()` so each execution produces a bounded cognitive episode, persists compact observations, and exposes evaluation evidence without replacing execution authority.
+**Goal:** Integrate the existing AUREN cognitive primitives with `AdaptiveRuntime.run()` so each execution produces a bounded cognitive episode, persists compact observations, and exposes evaluation evidence without replacing execution authority.
 
 **Architecture:** `AdaptiveRuntime` remains the execution facade and `Orchestrator` remains authoritative for task execution. A per-execution `CognitiveLoop` wraps the lifecycle and uses the project-scoped `CognitiveRuntime` plus canonical `PersistentMemory`. Cognitive persistence is best-effort: persistence failures are captured in the receipt and never change orchestration success/failure semantics.
 
