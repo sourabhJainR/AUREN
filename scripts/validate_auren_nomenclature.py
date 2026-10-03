@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Reject legacy AER branding in the current AUREN source tree.
+"""Reject legacy AUREN branding in the current AUREN source tree.
 
 The old acronym is intentionally constructed below so this validator does not
 become a permanent occurrence of the legacy branding it is enforcing away.
