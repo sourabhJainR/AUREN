@@ -60,12 +60,15 @@ class LongitudinalTransferEvaluator:
         transfer_gap = max(0.0, holdout_rate - novel_rate) if novel else 1.0
         payload = {
             "capability": capability,
-            "observations": [o.__dict__ if hasattr(o, "__dict__") else {
-                "campaign_digest": o.campaign_digest, "task_family": o.task_family,
-                "domain": o.domain, "split": o.split, "pass_rate": o.pass_rate,
-                "verification_rate": o.verification_rate,
-                "oracle_independent": o.oracle_independent, "contaminated": o.contaminated
-            } for o in trusted],
+            "observations": [
+                {
+                    "campaign_digest": o.campaign_digest, "task_family": o.task_family,
+                    "domain": o.domain, "split": o.split, "pass_rate": o.pass_rate,
+                    "verification_rate": o.verification_rate,
+                    "oracle_independent": o.oracle_independent, "contaminated": o.contaminated,
+                }
+                for o in trusted
+            ],
             "independent_domains": len(domains),
             "novel_domain_pass_rate": round(novel_rate, 4),
             "holdout_pass_rate": round(holdout_rate, 4),
