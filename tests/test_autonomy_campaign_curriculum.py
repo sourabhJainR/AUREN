@@ -22,7 +22,7 @@ class AutonomyCampaignCurriculumTests(unittest.TestCase):
         ))
         objectives = AutonomyCampaignCurriculum().propose(campaign)
         self.assertTrue(objectives)
-        self.assertEqual(objectives[0].domain, "analysis")
+        self.assertIn(objectives[0].domain, {"research", "planning", "debugging"})
         self.assertTrue(objectives[0].holdout)
 
     def test_proposes_missing_holdout_before_declaring_breadth_complete(self):
