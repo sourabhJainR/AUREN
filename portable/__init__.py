@@ -1,10 +1,10 @@
-"""Portable AER runtime package."""
+"""Portable AUREN runtime package."""
 
 from .adaptive_runtime import AdaptiveRuntime
 from .adaptive_learning import AdaptiveLearningStore, DeferredLearningJob, WorkStyleProfile
 from .adaptive_tuning import AdaptivePolicy, AdaptiveTuner, ExperienceRecord, MaintenanceReceipt, TuningDecision
 from .empirical_improvement import EmpiricalImprovement, ImprovementObservation, ImprovementReport
-from .aer_runtime import main
+from .auren_runtime import main
 from .impact_analysis import ImpactRecord, ImpactReport, analyze
 from .lifecycle_hooks import HookBus, HookDecision, HookEvent, HookPhase, HookedExecution
 from .provider_fabric import CapabilityRequest, ProviderCapability, ProviderFabric, RoutingDecision
