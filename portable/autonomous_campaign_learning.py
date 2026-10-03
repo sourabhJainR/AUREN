@@ -251,18 +251,31 @@ class AutonomousCampaignController:
                 lifecycle.begin(capability_id, baseline_score=float(baseline_score))
             except ValueError:
                 pass
-            holdout_scores = [
-                x.realized_score for x in observations
-                if x.realized_success and x.realized_score >= self.minimum_holdout_score
-            ]
-            for index, score in enumerate(holdout_scores):
+            # Feed every holdout result into the lifecycle. A weak or unsafe
+            # holdout must be visible to rollback; only passing holdouts count
+            # toward promotion.
+            holdout_ids = {r.task_id for r in selected if r.holdout}
+            for index, observation in enumerate(
+                x for x in observations if x.task_id in holdout_ids
+            ):
                 rollout = lifecycle.record_canary(
-                    capability_id, score=score,
+                    capability_id, score=observation.realized_score,
                     evidence_id=f"{campaign_id}:holdout:{index}",
-                    safe=all(x.failure_class != "safety" for x in observations),
-                    metadata={"campaign_id": campaign_id},
+                    safe=(
+                        observation.failure_class != "safety"
+                        and observation.realized_success
+                    ),
+                    metadata={
+                        "campaign_id": campaign_id,
+                        "holdout_score_gate": self.minimum_holdout_score,
+                    },
                 )
-                if rollout.state == "rolled_back" or rollout.state == "promoted":
+                if rollout.state == "rolled_back":
+                    break
+                if (
+                    rollout.state == "promoted"
+                    and observation.realized_score >= self.minimum_holdout_score
+                ):
                     break
             if rollout is None:
                 rollout = lifecycle.status(capability_id)
