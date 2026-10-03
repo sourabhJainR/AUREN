@@ -143,3 +143,4 @@ from .generalization_arena import ArenaCase, ArenaCorpus, IndependentGeneralizat
 
 from .arena_run_receipt import ArenaRunReceipt, oracle_registry_digest
 from .external_evaluation_campaign import CampaignOutcome, CampaignRetestContract, ExternalEvaluationCampaign, LearningIntervention
+from .causal_capability_promotion import CausalCapabilityPromotionGate, CausalPromotionDecision, CausalPromotionEvidence
