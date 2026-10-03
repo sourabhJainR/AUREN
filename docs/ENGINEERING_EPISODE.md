@@ -1,6 +1,6 @@
 # Engineering Episode
 
-EngineeringEpisode is the canonical closed-loop record for substantial AER
+EngineeringEpisode is the canonical closed-loop record for substantial AUREN
 engineering work. It connects the existing planner, evidence ledger, graph
 runtime, verification, review, remediation, learning, resource routing and
 release systems without replacing any of their ownership.
