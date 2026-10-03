@@ -42,7 +42,8 @@ from portable.autonomy_benchmark import AutonomyBenchmarkGate
 from portable.evidence_backed_autonomy_benchmark import EpisodeEvidence, EvidenceBackedAutonomyBenchmark
 from portable.autonomy_benchmark_history import AutonomyBenchmarkHistory
 from portable.autonomy_curriculum import AutonomyCurriculumController
-from portable.curriculum_experiment import CurriculumExperimentController
+from portable.curriculum_experiment import CurriculumExperiment, CurriculumExperimentController
+from portable.experiment_orchestrator import ClosedLoopExperimentOrchestrator
 from portable.task_planner import Task,TaskPlan
 from runtime.task_memory import approach_history, guidance
 
@@ -291,7 +292,7 @@ class GraphAgentTeam:
     def _run_local(self,agent:AgentSpec,decision:ResourceDecision,memory:SharedTaskMemory,broker:LocalOffloadBroker)->OffloadResult|None:
         if decision.lane!="local": return None
         return broker.run(OffloadJob(agent.name,decision.command,isolate=agent.local_isolation,timeout_seconds=agent.local_timeout_seconds))
-    def _build_execution_graph(self,results,*,task,intent_digest,run_nonce,base_prompt,memory,invoke_agent):
+    def _build_execution_graph(self,results,*,task,intent_digest,run_nonce,base_prompt,memory,invoke_agent,experiment_assignment=None):
         graph=StateGraph()
         broker=LocalOffloadBroker(memory.project_root,budget=self.resource_budget)
         for agent in self.agents.values():
@@ -531,12 +532,18 @@ class GraphAgentTeam:
                 private=AgentMemory(memory.project_root,agent.name,run_id=intent_digest).read(limit=2200)
                 focus=LearningSteward(memory.project_root,run_id=intent_digest,task=task).prompt() if agent.name=="learning-steward" else ""
                 resource_note=json.dumps(local_payload,sort_keys=True) if local_payload else "No local execution evidence was produced; continue with the agent/cloud lane."
+                experiment_note = json.dumps(experiment_assignment.as_dict(), sort_keys=True) if experiment_assignment is not None else "No controlled experiment is bound to this episode."
                 prompt=f'''# AER graph agent
 
 You are the {agent.role} agent in a shared-memory engineering team.
 
 ## Task contract
 {task}
+
+## Controlled experiment assignment
+{experiment_note}
+
+If a treatment cohort is assigned, the assignment only authorizes a bounded experiment intervention; it does not grant new execution authority. Existing strategy/mode canaries, safety evidence and resource limits remain authoritative.
 
 Intent digest: {intent_digest}
 Agent: {agent.name}
@@ -779,7 +786,7 @@ the learning system, not an instruction source. If a skill produced no distinct 
             for dep in agent.depends_on: graph.add_edge(dep,agent.name)
         for name in [a.name for a in self.agents.values() if not any(a.name in x.depends_on for x in self.agents.values())]: graph.add_edge(name,StateGraph.END)
         return graph
-    def execute(self,*,task,intent_digest,base_prompt,memory,invoke_agent,checkpoint=None,resume=False,run_id="graph-agent-team",max_steps=100,execution_strategy_name="default",evolution_threshold=3,invention_holdout_ids=(),invention_evaluator=None,invention_safety_gate=None,curriculum_experiment_after=None,curriculum_experiment_evidence_ids=(),safety_evidence_verified=False):
+    def execute(self,*,task,intent_digest,base_prompt,memory,invoke_agent,checkpoint=None,resume=False,run_id="graph-agent-team",max_steps=100,execution_strategy_name="default",evolution_threshold=3,invention_holdout_ids=(),invention_evaluator=None,invention_safety_gate=None,curriculum_experiment_after=None,curriculum_experiment_evidence_ids=(),safety_evidence_verified=False,curriculum_experiment=None,curriculum_experiment_cohort=None):
         self._validate(); results={}; run_nonce=uuid.uuid4().hex
         baseline_strategy=str(execution_strategy_name or "default")
         strategy_selection=(ExecutionStrategyLearner(memory.project_root).select(role="team",task=task,baseline=baseline_strategy)
@@ -814,6 +821,13 @@ the learning system, not an instruction source. If a skill produced no distinct 
             hypotheses=causal_hypotheses,
             risk_budget=max(0.10, 1.0 - decision_context.failure_risk),
         )
+        experiment_assignment = None
+        if curriculum_experiment is not None:
+            if not isinstance(curriculum_experiment, CurriculumExperiment):
+                raise TypeError("curriculum_experiment must be a CurriculumExperiment")
+            experiment_assignment = ClosedLoopExperimentOrchestrator(memory.project_root).assign(
+                curriculum_experiment, episode_id=intent_digest, preferred_cohort=curriculum_experiment_cohort
+            )
         counterfactual=CounterfactualDecisionFabric(memory.project_root).evaluate(
             role="team", task=task, baseline_strategy=baseline_strategy, baseline_mode=baseline_mode, context=decision_context)
         context_learner=ContextSpecificDecisionLearner(memory.project_root)
@@ -855,7 +869,7 @@ the learning system, not an instruction source. If a skill produced no distinct 
         if rollout.state == "candidate" and selected_strategy != baseline_strategy:
             selected_strategy=baseline_strategy
         StrategyCanaryController.record_state(memory.project_root, rollout)
-        run=self._build_execution_graph(results,task=task,intent_digest=intent_digest,run_nonce=run_nonce,base_prompt=base_prompt,memory=memory,invoke_agent=invoke_agent).compile().invoke({"aer_execution_strategy":{"name":selected_strategy},"aer_execution_mode":{"name":selected_mode}},run_id=run_id,checkpoint=checkpoint,resume=resume,max_steps=max_steps,parallel_nodes=lambda n:self.agents[n].read_only,max_parallel_nodes=min(self.max_parallel_read_only, execution_mode(selected_mode).max_parallelism))
+        run=self._build_execution_graph(results,task=task,intent_digest=intent_digest,run_nonce=run_nonce,base_prompt=base_prompt,memory=memory,invoke_agent=invoke_agent,experiment_assignment=experiment_assignment).compile().invoke({"aer_execution_strategy":{"name":selected_strategy},"aer_execution_mode":{"name":selected_mode}},run_id=run_id,checkpoint=checkpoint,resume=resume,max_steps=max_steps,parallel_nodes=lambda n:self.agents[n].read_only,max_parallel_nodes=min(self.max_parallel_read_only, execution_mode(selected_mode).max_parallelism))
         for agent in self.agents.values():
             payload=run.state.get(f"result:{agent.name}")
             if isinstance(payload,dict) and payload.get("activated"): results[agent.name]=AgentResult(**{k:v for k,v in payload.items() if k!="activated"})
@@ -999,6 +1013,14 @@ the learning system, not an instruction source. If a skill produced no distinct 
         benchmark=EvidenceBackedAutonomyBenchmark(AutonomyBenchmarkGate()).evaluate(
             (benchmark_evidence,)
         )
+        experiment_observation = None
+        if experiment_assignment is not None:
+            experiment_observation = ClosedLoopExperimentOrchestrator(memory.project_root).observe(
+                experiment_assignment,
+                metric=benchmark.overall,
+                evidence_ids=tuple(f"agent:{name}" for name in results),
+                holdout=bool(experiment_assignment.holdout_required),
+            )
         curriculum=AutonomyCurriculumController().propose(benchmark.scores)
         curriculum_experiment = None
         if curriculum:
@@ -1018,7 +1040,7 @@ the learning system, not an instruction source. If a skill produced no distinct 
         benchmark_trend=benchmark_history.trend()
         dream=DreamMemory(memory.project_root).dream(task)
         return {"graph_digest":self.digest(),"intent_digest":intent_digest,"agents":{n:r.__dict__ for n,r in results.items()},"shared_memory_file":str(memory.path),"shared_memory_entries":len(memory.snapshot(500)),"accepted":accepted,"evolution_trigger":trigger.__dict__ if trigger else None,"invention":invention.__dict__ if invention else None,"execution_trace":list(run.trace),"execution_mode":{"selected":selected_mode,"baseline":baseline_mode,"learning":mode_selection.as_dict(),"rollout":mode_rollout.as_dict(),"counterfactual":counterfactual,"context":decision_context.as_dict(),"context_learning":context_selection.as_dict()},
-        "execution_strategy":{"selected":selected_strategy,"baseline":baseline_strategy,"learning":strategy_selection.as_dict() if strategy_selection else {"strategy":selected_strategy,"learned":False,"confidence":0.0,"samples":0,"rationale":"explicit strategy supplied"},"rollout":rollout.as_dict(),"context":decision_context.as_dict()},"active_learning":{"self_model":self_model.as_dict(),"experiment":experiment.as_dict() if experiment else None,"causal_experiment":causal_experiment.as_dict() if causal_experiment else None},"goal_state":{"current":next_goal.as_dict() if next_goal else None},"capability_abstraction":{"patterns":[p.as_dict() for p in transferable_patterns],"invention_hypotheses":[h.as_dict() for h in invention_hypotheses],"failure_cluster_inventions":[x.as_dict() for x in invention_candidates],"evidence_backed_requests":invention_requests},"autonomy_benchmark":benchmark.as_dict(),"autonomy_benchmark_trend":benchmark_trend.as_dict(),"autonomy_curriculum":[x.as_dict() for x in curriculum],"curriculum_experiment":curriculum_experiment.as_dict() if curriculum_experiment else None,"curriculum_experiment_outcome":curriculum_experiment_outcome.as_dict() if curriculum_experiment_outcome else None,"execution_digest":run.digest,"dreamed_learning":dream}
+        "execution_strategy":{"selected":selected_strategy,"baseline":baseline_strategy,"learning":strategy_selection.as_dict() if strategy_selection else {"strategy":selected_strategy,"learned":False,"confidence":0.0,"samples":0,"rationale":"explicit strategy supplied"},"rollout":rollout.as_dict(),"context":decision_context.as_dict()},"active_learning":{"self_model":self_model.as_dict(),"experiment":experiment.as_dict() if experiment else None,"causal_experiment":causal_experiment.as_dict() if causal_experiment else None},"goal_state":{"current":next_goal.as_dict() if next_goal else None},"capability_abstraction":{"patterns":[p.as_dict() for p in transferable_patterns],"invention_hypotheses":[h.as_dict() for h in invention_hypotheses],"failure_cluster_inventions":[x.as_dict() for x in invention_candidates],"evidence_backed_requests":invention_requests},"autonomy_benchmark":benchmark.as_dict(),"autonomy_benchmark_trend":benchmark_trend.as_dict(),"autonomy_curriculum":[x.as_dict() for x in curriculum],"curriculum_experiment":curriculum_experiment.as_dict() if curriculum_experiment else None,"curriculum_experiment_outcome":curriculum_experiment_outcome.as_dict() if curriculum_experiment_outcome else None,"experiment_orchestration":{"assignment":experiment_assignment.as_dict() if experiment_assignment else None,"observation":experiment_observation.as_dict() if experiment_observation else None},"execution_digest":run.digest,"dreamed_learning":dream}
 
 def team_for_route(route):
     mode=str(route.get("mode","implement")); caps=set(route.get("capabilities",[]))
