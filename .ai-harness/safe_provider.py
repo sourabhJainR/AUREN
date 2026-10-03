@@ -43,15 +43,15 @@ def _local_fallback(prompt: str, output: str, return_code: int) -> int | None:
     try:
         recovered = local_llm_generate(
             prompt
-            + "\n\n# AER LOCAL FALLBACK\n"
+            + "\n\n# AUREN LOCAL FALLBACK\n"
             + "The primary provider was unavailable or exhausted its budget. "
               "Answer only with evidence-backed, read-only findings. Do not edit files, "
               "run tools, commit, merge, or invent repository facts."
         )
     except LocalLLMError as exc:
-        print(f"AER local LLM fallback unavailable: {exc}", file=sys.stderr)
+        print(f"AUREN local LLM fallback unavailable: {exc}", file=sys.stderr)
         return None
-    print("AER_LOCAL_LLM_FALLBACK=1", file=sys.stderr)
+    print("AUREN_LOCAL_LLM_FALLBACK=1", file=sys.stderr)
     print(recovered)
     return 0
 
@@ -60,7 +60,7 @@ def _continuation_prompt(original: str, previous: str, attempt: int) -> str:
     tail = previous[-24000:]
     return (
         original
-        + "\n\n# AER RESPONSE RECOVERY\n"
+        + "\n\n# AUREN RESPONSE RECOVERY\n"
         + f"Attempt {attempt} continues a response interrupted before completion.\n"
         + "Do not restart completed work. Continue from the last confirmed state and finish the requested response. Preserve correct prior conclusions.\n"
         + "Previous partial provider output:\n---\n"
@@ -71,7 +71,7 @@ def _continuation_prompt(original: str, previous: str, attempt: int) -> str:
 
 
 def _prepare_prompt(prompt: str, run_dir: Path) -> tuple[str, dict]:
-    budget = int(os.environ.get("AER_CONTEXT_BUDGET_CHARS", "12000"))
+    budget = int(os.environ.get("AUREN_CONTEXT_BUDGET_CHARS", "12000"))
     result = compact(prompt, budget_chars=budget)
     metadata = {
         "compacted": result.compacted,
@@ -81,7 +81,7 @@ def _prepare_prompt(prompt: str, run_dir: Path) -> tuple[str, dict]:
         "digest": result.digest,
     }
     if result.compacted:
-        print(f"AER context compaction: {result.original_chars} -> {result.compacted_chars} chars", file=sys.stderr)
+        print(f"AUREN context compaction: {result.original_chars} -> {result.compacted_chars} chars", file=sys.stderr)
     return compose(result.text), metadata
 
 
@@ -89,8 +89,8 @@ def _run_resilient(command: list[str], prompt: str, run_dir: Path, feedback: Fee
     max_retries = max(0, min(8, int(os.environ.get("HARNESS_PROVIDER_MAX_RETRIES", "4"))))
     delay = max(0.0, min(30.0, float(os.environ.get("HARNESS_PROVIDER_RETRY_DELAY", "1.0"))))
     transcript = ""
-    strategy = os.environ.get("AER_STRATEGY", "provider-default")
-    task_id = os.environ.get("AER_TASK_ID", f"provider-{int(time.time())}")
+    strategy = os.environ.get("AUREN_STRATEGY", "provider-default")
+    task_id = os.environ.get("AUREN_TASK_ID", f"provider-{int(time.time())}")
 
     for attempt in range(max_retries + 1):
         effective = prompt if attempt == 0 else _continuation_prompt(prompt, transcript, attempt)
@@ -107,8 +107,8 @@ def _run_resilient(command: list[str], prompt: str, run_dir: Path, feedback: Fee
                 "HARNESS_PROMPT_ROOT": str(run_dir),
                 "HARNESS_CANONICAL_PROMPT": str(Path(os.environ.get("HARNESS_CANONICAL_PROMPT", effective_path)).resolve()),
                 "HARNESS_LIVE_MIN_PROGRESS_GAIN": "-1",
-                "AER_SANDBOX": "enforced-for-local-execution",
-                "AER_COMPACTION_DIGEST": compaction_meta["digest"],
+                "AUREN_SANDBOX": "enforced-for-local-execution",
+                "AUREN_COMPACTION_DIGEST": compaction_meta["digest"],
             })
             process = subprocess.Popen(
                 [sys.executable, str(Path(__file__).resolve().with_name("provider.py")), "--prompt-file", str(effective_path), "--", *command],
@@ -139,7 +139,7 @@ def _run_resilient(command: list[str], prompt: str, run_dir: Path, feedback: Fee
                 feedback.observe(task_id=task_id, outcome="failure", verified=False, strategy=strategy, evidence=[compaction_meta["digest"]])
                 return code
             feedback.observe(task_id=task_id, outcome="transient_failure", verified=False, strategy=strategy, evidence=[compaction_meta["digest"]])
-            print(f"AER provider response interrupted; continuing attempt {attempt + 2}/{max_retries + 1}", file=sys.stderr)
+            print(f"AUREN provider response interrupted; continuing attempt {attempt + 2}/{max_retries + 1}", file=sys.stderr)
             if delay:
                 time.sleep(min(30.0, delay * (2 ** attempt)))
         finally:
