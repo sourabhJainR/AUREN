@@ -38,6 +38,7 @@ class EvidenceDecisionSignal:
     duration: float
     cost: float
     confidence: float
+    conflicted: bool = False
     evidence_ids: tuple[str, ...] = ()
 
 
@@ -83,6 +84,7 @@ class EvidenceDrivenDecisionFabric:
         capability: str,
         candidates: Sequence[Mapping[str, Any]],
         *,
+        task_family: str = "",
         max_edges: int = 200,
     ) -> tuple[EvidenceDecisionSignal, ...]:
         root = self.graph.add_node("capability", capability)
@@ -104,6 +106,8 @@ class EvidenceDrivenDecisionFabric:
             if md.get("kind") != "decision-observation":
                 continue
             if md.get("capability") != capability:
+                continue
+            if md.get("task_family") and md.get("task_family") != task_family:
                 continue
             if md.get("contaminated", "false").lower() == "true":
                 continue
@@ -134,6 +138,10 @@ class EvidenceDrivenDecisionFabric:
             duration = mean(v[2] for v in values)
             cost = mean(v[3] for v in values)
             confidence = min(1.0, len(values) / 10.0)
+            conflicted = len(values) >= 2 and (
+                max(v[0] for v in values) - min(v[0] for v in values) > .5
+                or max(v[1] for v in values) - min(v[1] for v in values) > .5
+            )
             signals.append(
                 EvidenceDecisionSignal(
                     f"{strategies[0]}|{strategies[1]}",
@@ -143,6 +151,7 @@ class EvidenceDrivenDecisionFabric:
                     round(duration, 4),
                     round(cost, 4),
                     round(confidence, 4),
+                    conflicted,
                     tuple(v[4] for v in values),
                 )
             )
@@ -169,7 +178,7 @@ class EvidenceDrivenDecisionFabric:
         if not 0 <= min_confidence <= 1:
             raise ValueError("min_confidence must be between 0 and 1")
 
-        signals = self._signals(capability, candidates)
+        signals = self._signals(capability, candidates, task_family=task_family)
         by_strategy = {s.strategy: s for s in signals}
         decision: Decision | None = None
         if self.decision_fabric is not None:
@@ -215,7 +224,7 @@ class EvidenceDrivenDecisionFabric:
                     ("persistent verified evidence selected the route",),
                 )
 
-        fallback = selected is None or selected_signal is None or selected_signal.confidence < min_confidence
+        fallback = selected is None or selected_signal is None or selected_signal.confidence < min_confidence or selected_signal.conflicted
         if fallback:
             raw = candidates[0]
             selected = DecisionCandidate(
