@@ -2,7 +2,7 @@
 
 Load only when provider-specific execution or projection is required.
 
-AER owns intent, routing, context selection, budgets, safety, verification and learning. Providers supply inference/native tools and must not redefine AER semantics.
+AUREN owns intent, routing, context selection, budgets, safety, verification and learning. Providers supply inference/native tools and must not redefine AUREN semantics.
 
 Claude Code: `CLAUDE.md`, skills, hooks/MCP.
 Codex: `AGENTS.md`, skills/MCP/plugins.
