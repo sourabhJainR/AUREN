@@ -191,3 +191,5 @@ from .world_state_consistency import StateHypothesis, WorldStateAssessment, Worl
 from .long_horizon_campaign_manager import CampaignStep, CampaignCheckpoint, LongHorizonCampaignResult, LongHorizonCampaignManager
 
 from .independent_evaluation_attestation import EvaluationAttestation, AttestedEvaluation, IndependentEvaluationAttestor
+
+from .attested_cross_project_transfer import ProjectTransferObservation, CrossProjectTransferAssessment, AttestedCrossProjectTransferEvaluator
