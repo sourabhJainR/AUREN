@@ -157,4 +157,5 @@ from .open_ended_capability_discovery import CapabilityGap, CapabilityInventionP
 
 from .capability_invention_validation import ValidationProbe, CapabilityValidationPlan, CapabilityInventionValidator
 from .validation_experiment_bridge import ValidationExperimentProposal, ValidationExperimentBridge
+from .evidence_bound_lifecycle_gate import LifecyclePromotionDecision, EvidenceBoundLifecycleGate
 from .capability_invention_validation_runner import ValidationExecutor, ValidationOracle, ValidationEvidence, CapabilityValidationResult, CapabilityInventionValidationRunner
