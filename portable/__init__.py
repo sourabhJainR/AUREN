@@ -173,3 +173,5 @@ from .scheduled_curriculum_campaign_executor import ScheduledCampaignResult, Sch
 from .persistent_evidence_graph import EvidenceNode, EvidenceEdge, PersistentEvidenceGraph
 
 from .evidence_driven_decision_fabric import EvidenceDecisionSignal, EvidenceDecisionPlan, EvidenceDrivenDecisionFabric
+
+from .external_decision_evidence_ingestion import ExternalDecisionEvidence, EvidenceIngestionResult, ExternalDecisionEvidenceIngestor
