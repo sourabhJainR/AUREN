@@ -187,3 +187,5 @@ from .closed_loop_intervention_executor import InterventionAuthorization, Interv
 from .evidence_guided_composition import CompositionProposal, EvidenceGuidedCompositionPlanner
 
 from .world_state_consistency import StateHypothesis, WorldStateAssessment, WorldStateConsistencyGuard
+
+from .long_horizon_campaign_manager import CampaignStep, CampaignCheckpoint, LongHorizonCampaignResult, LongHorizonCampaignManager
