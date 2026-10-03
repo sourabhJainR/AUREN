@@ -77,3 +77,17 @@ def test_runner_does_not_allow_missing_holdout_execution():
         assert "wrong case" in str(exc)
     else:
         raise AssertionError("expected case-boundary rejection")
+
+
+def test_runner_fails_closed_without_external_attestation():
+    c,campaign=make()
+    unattested=ExternalEvaluationCampaign(
+        "campaign2","1","1",c.contract_digest,"generator","oracle","eval","runtime",
+        ("a",),("a",),external_attestation=""
+    )
+    try:
+        ExternalGeneralizationCampaignRunner(Env(c.contract_digest),Oracle()).run(unattested,c)
+    except ValueError as exc:
+        assert "attestation" in str(exc)
+    else:
+        raise AssertionError("expected attestation requirement")
