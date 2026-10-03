@@ -1,4 +1,4 @@
-"""Small, provider-neutral context engineering primitives for AER.
+"""Small, provider-neutral context engineering primitives for AUREN.
 
 The rule is simple: agents do not pass their whole conversation to the next
 agent. They pass a bounded handoff containing only task-relevant information.
