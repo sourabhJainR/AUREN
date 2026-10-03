@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make the integrated AER runtime empirically improve output quality over time while keeping execution workers focused and moving auxiliary learning, memory consolidation, compaction, and benchmarking off the active task path.
+**Goal:** Make the integrated AUREN runtime empirically improve output quality over time while keeping execution workers focused and moving auxiliary learning, memory consolidation, compaction, and benchmarking off the active task path.
 
 **Architecture:** Keep `DreamMemory` as the post-run consolidation boundary. Add a durable workstyle/quality profile, a deferred maintenance queue, and an empirical improvement harness that compares baseline versus candidate strategy outcomes using replayable benchmark cases. The worker retrieves existing guidance and records compact outcomes; it does not perform consolidation or compaction. Promotion remains evidence- and regression-gated.
 
