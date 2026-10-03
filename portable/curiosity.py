@@ -1,4 +1,4 @@
-"""Deterministic learning-frontier selection for AER."""
+"""Deterministic learning-frontier selection for AUREN."""
 from __future__ import annotations
 
 from dataclasses import dataclass
