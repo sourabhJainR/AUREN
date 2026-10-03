@@ -793,7 +793,7 @@ the learning system, not an instruction source. If a skill produced no distinct 
             for dep in agent.depends_on: graph.add_edge(dep,agent.name)
         for name in [a.name for a in self.agents.values() if not any(a.name in x.depends_on for x in self.agents.values())]: graph.add_edge(name,StateGraph.END)
         return graph
-    def execute(self,*,task,intent_digest,base_prompt,memory,invoke_agent,checkpoint=None,resume=False,run_id="graph-agent-team",max_steps=100,execution_strategy_name="default",evolution_threshold=3,invention_holdout_ids=(),invention_evaluator=None,invention_safety_gate=None,curriculum_experiment_after=None,curriculum_experiment_evidence_ids=(),safety_evidence_verified=False,curriculum_experiment=None,curriculum_experiment_cohort=None,benchmark_domain="unspecified",benchmark_holdout=False,benchmark_execution_task_id=None,benchmark_execution_evidence_ids=(),benchmark_execution_evidence_kinds=(),benchmark_execution_success=None,benchmark_execution_verified=False,benchmark_execution_request=None,autonomous_benchmark_learning=False,autonomous_benchmark_max_tasks=3,autonomous_benchmark_retest_tasks=3):
+    def execute(self,*,task,intent_digest,base_prompt,memory,invoke_agent,checkpoint=None,resume=False,run_id="graph-agent-team",max_steps=100,execution_strategy_name="default",evolution_threshold=3,invention_holdout_ids=(),invention_evaluator=None,invention_safety_gate=None,curriculum_experiment_after=None,curriculum_experiment_evidence_ids=(),safety_evidence_verified=False,curriculum_experiment=None,curriculum_experiment_cohort=None,benchmark_domain="unspecified",benchmark_holdout=False,benchmark_execution_task_id=None,benchmark_execution_evidence_ids=(),benchmark_execution_evidence_kinds=(),benchmark_execution_success=None,benchmark_execution_verified=False,benchmark_execution_request=None,autonomous_benchmark_learning=False,autonomous_benchmark_max_tasks=3,autonomous_benchmark_retest_tasks=3,autonomous_benchmark_capability_id=None,autonomous_benchmark_baseline_score=None):
         self._validate(); results={}; run_nonce=uuid.uuid4().hex
         baseline_strategy=str(execution_strategy_name or "default")
         strategy_selection=(ExecutionStrategyLearner(memory.project_root).select(role="team",task=task,baseline=baseline_strategy)
@@ -1157,7 +1157,7 @@ the learning system, not an instruction source. If a skill produced no distinct 
                 return result
 
             def _execute_benchmark_request(request):
-                output = self.execute_benchmark_request(request, **kwargs)
+                output = self.execute_benchmark_request(request, safety_evidence_verified=bool(safety_evidence_verified))
                 raw = output.get("benchmark_execution_receipt") or {}
                 receipt = BenchmarkExecutionReceipt(
                     str(raw.get("task_id", request.task_id)),
@@ -1217,13 +1217,11 @@ the learning system, not an instruction source. If a skill produced no distinct 
                 predictions=_predictions(retest_requests),
                 capability_id=(
                     str(autonomous_benchmark_capability_id)
-                    if 'autonomous_benchmark_capability_id' in locals()
-                    and autonomous_benchmark_capability_id else None
+                    if autonomous_benchmark_capability_id else None
                 ),
                 baseline_score=(
                     float(autonomous_benchmark_baseline_score)
-                    if 'autonomous_benchmark_baseline_score' in locals()
-                    and autonomous_benchmark_baseline_score is not None else None
+                    if autonomous_benchmark_baseline_score is not None else None
                 ),
             ) if retest_requests else initial
 
