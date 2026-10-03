@@ -92,7 +92,7 @@ memory_write_approval_required = true
 memory_max_chars = 100000
 require_explicit_external_adapters = true
 skills_progressive_disclosure = true
-scheduled_work_reenters_aer = true
+scheduled_work_reenters_auren = true
 quality_gate_required_before_complete = true
 
 [sandbox]
