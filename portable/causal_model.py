@@ -1,4 +1,4 @@
-"""Causal reasoning primitives backed by AER's existing ContextGraph.
+"""Causal reasoning primitives backed by AUREN's existing ContextGraph.
 
 Causal links are explicit, confidence-bounded and evidence-referenced. The
 model distinguishes a recorded relationship from a proven causal claim and
