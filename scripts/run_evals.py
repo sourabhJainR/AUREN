@@ -73,7 +73,7 @@ def policy_checks():
         else:
             expected = {
                 "contract_version": 2,
-                "artifact_type": "aer-portable",
+                "artifact_type": "auren-portable",
                 "upgrade_mode": "side-by-side",
                 "state_policy": "preserve",
                 "activation": "atomic",
