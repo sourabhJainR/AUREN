@@ -185,3 +185,5 @@ from .counterfactual_outcome_attribution import CounterfactualObservation, Count
 from .closed_loop_intervention_executor import InterventionAuthorization, InterventionExecutionReceipt, ClosedLoopInterventionExecutor
 
 from .evidence_guided_composition import CompositionProposal, EvidenceGuidedCompositionPlanner
+
+from .world_state_consistency import StateHypothesis, WorldStateAssessment, WorldStateConsistencyGuard
