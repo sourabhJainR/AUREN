@@ -1,4 +1,4 @@
-"""Reusable facade that composes AER orchestration and agent capabilities."""
+"""Reusable facade that composes AUREN orchestration and agent capabilities."""
 from __future__ import annotations
 
 import json
@@ -31,7 +31,7 @@ from .world_mega_model import WorldMegaModel
 
 
 class AdaptiveRuntime:
-    """Single AER composition point for provider, capability and durable state."""
+    """Single AUREN composition point for provider, capability and durable state."""
 
     def __init__(
         self,
@@ -58,9 +58,9 @@ class AdaptiveRuntime:
         self.provider_fabric = provider_fabric or ProviderFabric()
         self.hooks = hooks or HookBus()
         self.capability_fabric = capability_fabric or CapabilityFabric()
-        aer_state = Path.home() / ".aer"
-        self.persistent_memory = persistent_memory or PersistentMemory(aer_state / "memory" / "memory.db")
-        self.automation_scheduler = automation_scheduler or AutomationScheduler(aer_state / "automation" / "automation.db")
+        auren_state = Path.home() / ".auren"
+        self.persistent_memory = persistent_memory or PersistentMemory(auren_state / "memory" / "memory.db")
+        self.automation_scheduler = automation_scheduler or AutomationScheduler(auren_state / "automation" / "automation.db")
         self.output_quality = output_quality or OutputQualityGate()
         self.provider_adapters = provider_adapters or ProviderAdapterRegistry()
         self.trigger_runtime = TriggerRuntime(self.automation_scheduler)
@@ -214,7 +214,7 @@ class AdaptiveRuntime:
         learning_confidence: float = 0.5,
     ) -> OrchestrationRun:
         project_key = self.session_store.project_key(project_root)
-        provider_name = provider or "aer"
+        provider_name = provider or "auren"
         execution = HookedExecution(self.hooks, session_id, provider_name)
         start = execution.gate(HookPhase.SESSION_START, task_id=task_id, payload={"project_key": project_key})
         if not start.allow:
@@ -244,15 +244,15 @@ class AdaptiveRuntime:
                 raise RuntimeError(f"before_agent vetoed: {before.reason}")
             cognitive_loop.observe(episode, {"event": "before_agent", "status": "running", "policy_version": policy.version})
             effective_context = dict(context or {})
-            effective_context["aer_workstyle_guidance"] = learning_store.guidance()
+            effective_context["auren_workstyle_guidance"] = learning_store.guidance()
             selected_strategy = execution_strategy(policy.strategy)
-            effective_context["aer_adaptive_policy"] = {
+            effective_context["auren_adaptive_policy"] = {
                 "version": policy.version,
                 "strategy": policy.strategy,
                 "confidence_adjustment": policy.confidence_adjustment,
                 "iteration_target": policy.iteration_target,
             }
-            effective_context["aer_execution_strategy"] = {
+            effective_context["auren_execution_strategy"] = {
                 "name": selected_strategy.name,
                 "known": selected_strategy.known,
                 "verification_depth": selected_strategy.verification_depth,
@@ -263,9 +263,9 @@ class AdaptiveRuntime:
             if enrich_context:
                 resolution = self.resolve_context(project_root, intent, node_id=context_node_id,
                                                   workspace_id=workspace_id, required=required_context)
-                effective_context["aer_context_pack"] = resolution.pack
-                effective_context["aer_context_digest"] = resolution.digest
-                effective_context["aer_context_omitted"] = list(resolution.omitted)
+                effective_context["auren_context_pack"] = resolution.pack
+                effective_context["auren_context_digest"] = resolution.digest
+                effective_context["auren_context_omitted"] = list(resolution.omitted)
                 cognitive_loop.observe(episode, {"event": "context_resolved", "digest": resolution.digest})
             cognitive_plan_payload: dict[str, object] | None = None
             if enrich_cognition:
@@ -277,7 +277,7 @@ class AdaptiveRuntime:
                         current_value=cognitive_current_value, beliefs=cognitive_beliefs,
                         belief_limit=cognitive_belief_limit, context=effective_context,
                     )
-                    cognitive_plan_payload = dict(effective_context["aer_cognitive_plan"])  # type: ignore[arg-type]
+                    cognitive_plan_payload = dict(effective_context["auren_cognitive_plan"])  # type: ignore[arg-type]
                     self.last_cognitive_plan = dict(cognitive_plan_payload)
                     cognitive_loop.observe(episode, {
                         "event": "cognitive_plan_created",
