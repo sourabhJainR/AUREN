@@ -1,6 +1,6 @@
-# Second Brain for AER
+# Second Brain for AUREN
 
-AER now includes an optional second-brain capability inspired by the idea of a local system that learns how a person or team works over time and helps prepare work proactively.
+AUREN now includes an optional second-brain capability inspired by the idea of a local system that learns how a person or team works over time and helps prepare work proactively.
 
 ## What it adds
 
@@ -10,9 +10,9 @@ AER now includes an optional second-brain capability inspired by the idea of a l
 4. **Heartbeat**: an opt-in periodic read-only check that turns local state into explainable suggestions.
 5. **Proactive artifacts**: support for preparing engineering updates, issue triage, review summaries, release notes, customer responses, proposals, meeting preparation, and similar digital work.
 
-This extends the existing AER control plane rather than creating a separate autonomous agent.
+This extends the existing AUREN control plane rather than creating a separate autonomous agent.
 
-## Why this belongs in AER
+## Why this belongs in AUREN
 
 The useful pattern is not “put everything about a person into one giant prompt.” It is:
 
