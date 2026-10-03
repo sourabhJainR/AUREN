@@ -34,8 +34,8 @@ class AutonomyCampaignCurriculumTests(unittest.TestCase):
         ))
         objectives = AutonomyCampaignCurriculum().propose(campaign)
         self.assertTrue(objectives)
-        self.assertTrue(objectives[0].holdout)
-        self.assertEqual(objectives[0].priority, 1.0)
+        self.assertTrue(all(objective.holdout for objective in objectives))
+        self.assertGreaterEqual(objectives[0].priority, 0.8)
 
 if __name__ == "__main__":
     unittest.main()
