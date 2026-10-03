@@ -1,6 +1,6 @@
-"""Provider-neutral orchestration primitives for AER.
+"""Provider-neutral orchestration primitives for AUREN.
 
-AER models Agent -> bounded Loop -> Graph -> Orchestration and can learn changes
+AUREN models Agent -> bounded Loop -> Graph -> Orchestration and can learn changes
 to its own executable orchestration. Self-modification is candidate-based: a
 candidate is statically validated, evaluated in isolation, regression and
 safety gates must both pass, and only then is the executable overlay promoted.
@@ -171,7 +171,7 @@ class SelfModificationEngine:
     _FORBIDDEN_CALLS = {"eval", "exec", "compile", "__import__", "system", "popen"}
 
     def __init__(self, active_dir: Path | str | None = None) -> None:
-        self.active_dir = Path(active_dir or (Path.home() / ".aer" / "orchestration"))
+        self.active_dir = Path(active_dir or (Path.home() / ".auren" / "orchestration"))
         self.active_file = self.active_dir / "active.py"
         self.previous_file = self.active_dir / "previous.py"
         self.journal_file = self.active_dir / "promotion.jsonl"
@@ -180,7 +180,7 @@ class SelfModificationEngine:
     def _validate_candidate(cls, source: str) -> None:
         if not source.strip():
             raise ValueError("self-modification candidate is empty")
-        tree = ast.parse(source, filename="aer_candidate.py")
+        tree = ast.parse(source, filename="auren_candidate.py")
         functions = {node.name for node in ast.walk(tree) if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))}
         if "build_graph" not in functions:
             raise ValueError("candidate must expose callable build_graph()")
@@ -360,8 +360,8 @@ class Orchestrator:
         adaptive_policy = self._read_adaptive_policy(state)
         if adaptive_policy is not None:
             strategy_profile = execution_strategy(adaptive_policy["strategy"])
-            state["aer_applied_adaptive_policy"] = adaptive_policy
-            state["aer_execution_strategy"] = {
+            state["auren_applied_adaptive_policy"] = adaptive_policy
+            state["auren_execution_strategy"] = {
                 "name": strategy_profile.name,
                 "known": strategy_profile.known,
                 "attempt_multiplier": strategy_profile.attempt_multiplier,
@@ -472,7 +472,7 @@ class Orchestrator:
 
     @staticmethod
     def _read_adaptive_policy(state: Mapping[str, Any]) -> dict[str, Any] | None:
-        raw = state.get("aer_adaptive_policy")
+        raw = state.get("auren_adaptive_policy")
         if not isinstance(raw, Mapping):
             return None
         version = str(raw.get("version", "")).strip()
