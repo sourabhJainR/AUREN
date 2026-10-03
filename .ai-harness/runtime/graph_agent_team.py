@@ -52,6 +52,8 @@ from portable.autonomy_curriculum import AutonomyCurriculumController
 from portable.curriculum_experiment import CurriculumExperiment, CurriculumExperimentController
 from portable.experiment_orchestrator import ClosedLoopExperimentOrchestrator
 from portable.experiment_queue import AutonomousExperimentQueue
+from portable.evidence_driven_decision_fabric import EvidenceDrivenDecisionFabric
+from portable.persistent_evidence_graph import PersistentEvidenceGraph
 from portable.task_planner import Task,TaskPlan
 from runtime.task_memory import approach_history, guidance
 
@@ -125,6 +127,7 @@ class ResourceDecision:
     inference_depth:str="standard"
     strategy:str="default"
     pathway:dict[str,Any]=field(default_factory=dict)
+    evidence_plan:dict[str,Any]=field(default_factory=dict)
 
 class SharedTaskMemory:
     """Run-scoped working memory with hard entry/size limits and cross-process writes."""
@@ -205,12 +208,52 @@ class GraphAgentTeam:
     def digest(self):
         payload=[{"name":a.name,"role":a.role,"depends_on":list(a.depends_on),"read_only":a.read_only,"critical":a.critical,"focus":a.focus,"local_command":list(a.local_command)} for level in self.levels() for a in level]
         return hashlib.sha256(json.dumps(payload,sort_keys=True).encode()).hexdigest()
+    def _evidence_plan(self, agent: AgentSpec, broker: LocalOffloadBroker) -> dict[str, Any]:
+        """Consult persistent verified evidence without granting execution authority."""
+        db = broker.project_root / ".aer" / "memory.db"
+        graph = PersistentEvidenceGraph(PersistentMemory(db, require_approval=False), "hws")
+        fabric = EvidenceDrivenDecisionFabric(graph)
+        capability = agent.capabilities[0] if agent.capabilities else agent.role
+        local_tool = ":".join(agent.local_command) if agent.local_command else "local"
+        duration_budget = float(self.resource_budget.timeout_seconds)
+        candidates = (
+            {"provider": "local", "tool_path": local_tool, "parallel": bool(agent.local_command),
+             "verification_depth": "standard",
+             "expected": {"duration": min(duration_budget, agent.estimated_duration_seconds), "cost": 0.5,
+                          "quality": agent.evidence_value, "failure": 0.35}},
+            {"provider": "agent", "tool_path": "agent", "parallel": False,
+             "verification_depth": "deep",
+             "expected": {"duration": min(duration_budget, max(60.0, agent.estimated_duration_seconds * 1.5)),
+                          "cost": 1.0, "quality": max(.6, agent.evidence_value), "failure": 0.25}},
+        )
+        plan = fabric.plan(
+            agent.role, capability, candidates,
+            duration_budget=duration_budget,
+            memory_budget_mb=max(256, int(agent.estimated_memory_mb)),
+            max_retries=2,
+        )
+        return {
+            "selected_provider": plan.selected.provider,
+            "selected_tool": plan.selected.tool_path,
+            "verification_depth": plan.verification_depth,
+            "retry_budget": plan.retry_budget,
+            "escalation": plan.escalation,
+            "parallel": plan.parallel,
+            "resource_lane": plan.resource_lane,
+            "confidence": plan.confidence,
+            "fallback": plan.fallback,
+            "evidence_ids": list(plan.evidence_ids),
+            "decision_digest": plan.decision_digest,
+            "rationale": list(plan.rationale),
+        }
+
     def _resource_decision(self,agent:AgentSpec,broker:LocalOffloadBroker,strategy_name:str="default",mode_name:str="balanced")->ResourceDecision:
         pressure=broker.pressure()
         strategy=execution_strategy(strategy_name)
         mode=execution_mode(mode_name)
         historical=HistoricalResourceRouter(broker.project_root).estimate(agent)
         historical_payload=historical.as_dict() if historical else {}
+        evidence_plan=self._evidence_plan(agent,broker)
         failure_probability=float(historical.failure_probability) if historical else 0.0
         evidence_quality=float(historical.evidence_yield) if historical else float(agent.evidence_value)
         risk=1.0 if agent.isolation_required else (0.55 if agent.critical and agent.role=="verifier" else 0.35)
@@ -250,6 +293,23 @@ class GraphAgentTeam:
                             cloud_cost,0.20,0.60,0.50,pressure["queue_pressure"],"bounded agent/cloud fallback"),
         ]
         cf=cf_engine.evaluate({"agent":agent.name,"role":agent.role,"pressure":pressure,"historical":historical_payload},cf_branches)
+        if not evidence_plan["fallback"] and evidence_plan["confidence"] >= .3 and evidence_plan["resource_lane"] == "agent":
+            return ResourceDecision(
+                "agent", "persistent verified evidence overrode local counterfactual",
+                workers=1, cost_score=cloud_cost, pressure=pressure,
+                historical=historical_payload,
+                inference_depth=max_verification_depth(inference.depth, evidence_plan["verification_depth"]),
+                strategy=strategy.name, evidence_plan=evidence_plan,
+            )
+        if not evidence_plan["fallback"] and evidence_plan["confidence"] >= .3 and evidence_plan["resource_lane"] == "local":
+            reason=f"persistent verified evidence selected local; confidence={evidence_plan['confidence']:.2f}"
+            return ResourceDecision(
+                "local", reason, agent.local_command,
+                min(self.resource_budget.max_workers, mode.max_parallelism),
+                resource_cost, pressure, historical_payload,
+                max_verification_depth(inference.depth, evidence_plan["verification_depth"]),
+                strategy.name, evidence_plan=evidence_plan,
+            )
         if not cf.abstained and cf.selected=="local":
             reason=f"counterfactual selected local; cost={resource_cost:.2f}; evidence={predicted_evidence:.2f}; failure={failure_probability:.2f}"
             return ResourceDecision("local",reason,agent.local_command,min(self.resource_budget.max_workers, mode.max_parallelism),resource_cost,pressure,historical_payload,max_verification_depth(inference.depth, mode.verification_depth),strategy.name)

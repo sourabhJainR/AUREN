@@ -253,7 +253,7 @@ class EvidenceDrivenDecisionFabric:
             "alternate-provider" if selected.expected_failure >= .2 else "none"
         )
         parallel = bool(selected.parallel) and not fallback
-        lane = "local" if selected.expected_duration <= min(duration_budget, 900.0) and selected.expected_cost <= 1.0 else "cloud"
+        lane = "local" if selected.provider == "local" else "agent"
         if selected.expected_duration > duration_budget:
             raise ValueError("selected strategy exceeds duration budget")
         if int(memory_budget_mb) < 256:
