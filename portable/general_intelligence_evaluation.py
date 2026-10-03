@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Iterable, Mapping
 
 from .agi_evaluation import KINDS
+from .benchmark_manifest import BenchmarkManifest
 
 MINIMUM_DOMAINS = 4
 MINIMUM_HOLDOUT_DOMAINS = 2
@@ -26,6 +27,9 @@ class ExecutionCase:
     oracle: Callable[[Any], bool]
     evidence_factory: Callable[[Any], Iterable[str]]
     metadata: Mapping[str, Any] | None = None
+    manifest: BenchmarkManifest | None = None
+    oracle_id: str = ""
+    manifest_digest: str = ""
 
     def __post_init__(self) -> None:
         if not self.case_id.strip() or not self.domain.strip():
@@ -102,6 +106,15 @@ class ExecutionBackedEvaluator:
         results: list[ExecutionResult] = []
         for case in rows:
             try:
+                if case.manifest is not None:
+                    manifest_ok, manifest_reason = case.manifest.validate(
+                        domain=case.domain,
+                        holdout=case.holdout,
+                        oracle_id=case.oracle_id,
+                        manifest_digest=case.manifest_digest,
+                    )
+                    if not manifest_ok:
+                        raise ValueError(manifest_reason)
                 observed = case.runner()
                 passed = bool(case.oracle(observed))
                 evidence = tuple(
