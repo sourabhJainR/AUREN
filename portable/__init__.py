@@ -177,3 +177,5 @@ from .evidence_driven_decision_fabric import EvidenceDecisionSignal, EvidenceDec
 from .external_decision_evidence_ingestion import ExternalDecisionEvidence, EvidenceIngestionResult, ExternalDecisionEvidenceIngestor
 
 from .evidence_freshness_policy import EvidenceFreshnessPolicy
+
+from .longitudinal_transfer_evaluator import TransferObservation, LongitudinalTransferProfile, LongitudinalTransferEvaluator
