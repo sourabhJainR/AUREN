@@ -39,7 +39,7 @@ class ProviderConformanceTests(unittest.TestCase):
         source = SCRIPT.read_text(encoding="utf-8")
         self.assertIn("--live", source)
         self.assertIn("read-only", source)
-        self.assertIn("AER_CONFORMANCE_OK", source)
+        self.assertIn("AUREN_CONFORMANCE_OK", source)
 
 
 if __name__ == "__main__":
