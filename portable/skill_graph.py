@@ -1,4 +1,4 @@
-"""Persistent, cycle-safe skill dependency graph for AER."""
+"""Persistent, cycle-safe skill dependency graph for AUREN."""
 from __future__ import annotations
 
 import json
