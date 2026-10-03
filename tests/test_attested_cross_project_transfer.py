@@ -25,8 +25,8 @@ class CrossProjectTransferTests(unittest.TestCase):
 
     def test_unattested_observations_are_excluded(self):
         a=self.att()
-        r=AttestedCrossProjectTransferEvaluator().evaluate(self.rows("unknown"),[a])
-        self.assertRaises(ValueError, lambda: r)
+        with self.assertRaises(ValueError):
+            AttestedCrossProjectTransferEvaluator().evaluate(self.rows("unknown"),[a])
 
 if __name__=="__main__":
     unittest.main()
