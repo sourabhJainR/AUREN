@@ -179,3 +179,5 @@ from .external_decision_evidence_ingestion import ExternalDecisionEvidence, Evid
 from .evidence_freshness_policy import EvidenceFreshnessPolicy
 
 from .longitudinal_transfer_evaluator import TransferObservation, LongitudinalTransferProfile, LongitudinalTransferEvaluator
+
+from .counterfactual_outcome_attribution import CounterfactualObservation, CounterfactualAttribution, CounterfactualOutcomeAttributor
