@@ -1,4 +1,4 @@
-"""Composition facade for AER's cognitive primitives.
+"""Composition facade for AUREN's cognitive primitives.
 
 This facade centralizes the semantic subsystems around one project key while
 keeping StateGraph/Orchestrator as the execution authority.
@@ -21,7 +21,7 @@ from .world_model import WorldModel
 
 @dataclass(frozen=True)
 class CognitiveRuntime:
-    """Project-scoped access to AER cognitive state and evaluation."""
+    """Project-scoped access to AUREN cognitive state and evaluation."""
 
     project: str
     memory: PersistentMemory
