@@ -182,3 +182,4 @@ from .longitudinal_transfer_evaluator import TransferObservation, LongitudinalTr
 
 from .counterfactual_outcome_attribution import CounterfactualObservation, CounterfactualAttribution, CounterfactualOutcomeAttributor
 \nfrom .evidence_to_learning_intervention import LearningInterventionDecision, EvidenceToLearningInterventionController\n
+from .closed_loop_intervention_executor import InterventionAuthorization, InterventionExecutionReceipt, ClosedLoopInterventionExecutor
