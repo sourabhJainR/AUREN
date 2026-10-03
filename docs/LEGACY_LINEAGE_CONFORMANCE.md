@@ -8,7 +8,7 @@ This document records runtime contracts inherited from superseded implementation
 | #30 | Hermes control-plane integration | capability fabric, persistent memory, scheduler, provider routing |
 | #31 | Hermes-inspired capabilities | `portable/agent_capabilities.py`, skills/memory/delegation |
 | #65 | Agency Runtime v8 | `portable/ai_coding_agency_bridge.py`, Agency runtime modules |
-| #84 | AER 22.0.0 portable distribution | current portable bundle/release lifecycle; versioned beyond 22.0.0 |
+| #84 | AUREN 22.0.0 portable distribution | current portable bundle/release lifecycle; versioned beyond 22.0.0 |
 | #129 | LLM adaptive runtime trigger | `portable/adaptive_trigger.py`, `portable/trigger_runtime.py` |
 
 ## Contract
