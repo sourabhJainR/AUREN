@@ -72,7 +72,7 @@
 - `AdaptiveRuntime.run(..., learning_strategy='default', learning_confidence=0.5)`
 
 - [x] Snapshot the active policy before orchestration.
-- [x] Expose that snapshot to the task as `aer_adaptive_policy`.
+- [x] Expose that snapshot to the task as `auren_adaptive_policy`.
 - [x] Persist immutable adaptive experience after both accepted and failed rounds.
 - [x] Preserve the existing deferred cognitive-learning lane.
 - [x] Keep policy adaptation outside the active execution path.
