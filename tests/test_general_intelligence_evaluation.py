@@ -32,7 +32,7 @@ class ExecutionBackedEvaluatorTests(unittest.TestCase):
     def test_missing_evidence_fails_closed(self):
         kinds = tuple(KINDS)[:6]
         cases = [
-            self._case(i, domain=f"d{i % 4}", kind=kinds[i], evidence=i != 0)
+            self._case(i, domain=f"d{i % 4}", kind=kinds[i % len(kinds)], evidence=i != 0)
             for i in range(8)
         ]
         report = ExecutionBackedEvaluator().evaluate(cases)
@@ -44,7 +44,7 @@ class ExecutionBackedEvaluatorTests(unittest.TestCase):
         cases = [
             ExecutionCase(
                 case_id=f"case-{i}",
-                kind=kinds[i],
+                kind=kinds[i % len(kinds)],
                 domain=f"d{i % 4}",
                 holdout=True,
                 runner=lambda: True,
