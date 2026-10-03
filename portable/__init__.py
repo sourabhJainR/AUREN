@@ -154,3 +154,5 @@ from .adaptive_experiment_controller import ExperimentAssignment, ExperimentObse
 from .experiment_learning_bridge import CurriculumLearningSignal, ExperimentLearningBridge
 
 from .open_ended_capability_discovery import CapabilityGap, CapabilityInventionProposal, OpenEndedCapabilityDiscovery
+
+from .capability_invention_validation import ValidationProbe, CapabilityValidationPlan, CapabilityInventionValidator
