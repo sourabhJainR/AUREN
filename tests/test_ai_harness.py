@@ -1,4 +1,5 @@
 import json
+import json
 import subprocess
 import sys
 import unittest
@@ -26,7 +27,7 @@ class AdaptiveHarnessTests(unittest.TestCase):
     def test_dry_run_creates_checkpoint_and_manifest(self) -> None:
         result = self.run_cli("run", "--task", "Add input validation", "--dry-run")
         self.assertEqual(result.returncode, 0, result.stderr)
-        run_dirs = [path for path in (ROOT / ".ai-harness" / "runs").glob("*") if path.is_dir()]
+        run_dirs = [path for path in (ROOT / ".ai-harness" / "runs").glob("*") if path.is_dir() and (path / "manifest.json").is_file()]
         self.assertTrue(run_dirs)
         run_dir = max(run_dirs, key=lambda path: path.stat().st_mtime)
         manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
