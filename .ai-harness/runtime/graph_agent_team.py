@@ -1020,13 +1020,17 @@ the learning system, not an instruction source. If a skill produced no distinct 
         benchmark=EvidenceBackedAutonomyBenchmark(AutonomyBenchmarkGate()).evaluate(
             (benchmark_evidence,)
         )
-        benchmark_campaign = AutonomyBenchmarkCampaignRunner().evaluate((CampaignEpisode(
+        benchmark_history = AutonomyBenchmarkHistory(memory.project_root)
+        current_campaign_episode = CampaignEpisode(
             episode_id=intent_digest,
             domain=str(benchmark_domain or "unspecified"),
             holdout=bool(benchmark_holdout),
             scores=benchmark.scores,
-            evidence_ids=tuple(f"agent:{name}" for name in results),
-        ),))
+            evidence_ids=tuple(f"{intent_digest}:agent:{name}" for name in results),
+        )
+        benchmark_campaign = AutonomyBenchmarkCampaignRunner().evaluate(
+            benchmark_history.campaign_episodes() + (current_campaign_episode,)
+        )
         experiment_observation = None
         experiment_attribution = None
         if experiment_assignment is not None:
@@ -1056,10 +1060,12 @@ the learning system, not an instruction source. If a skill produced no distinct 
                 benchmark_after=float(curriculum_experiment_after),
                 evidence_ids=curriculum_experiment_evidence_ids,
             )
-        benchmark_history=AutonomyBenchmarkHistory(memory.project_root)
         benchmark_history.record(
             benchmark, task=task,
-            evidence_ids=[f"agent:{name}" for name in results],
+            evidence_ids=[f"{intent_digest}:agent:{name}" for name in results],
+            domain=str(benchmark_domain or "unspecified"),
+            holdout=bool(benchmark_holdout),
+            episode_id=intent_digest,
         )
         benchmark_trend=benchmark_history.trend()
         dream=DreamMemory(memory.project_root).dream(task)
