@@ -163,3 +163,5 @@ from .autonomous_curriculum_evolution import CurriculumEntry, CurriculumPlan, Au
 from .capability_invention_validation_runner import ValidationExecutor, ValidationOracle, ValidationEvidence, CapabilityValidationResult, CapabilityInventionValidationRunner
 
 from .external_curriculum_campaign_orchestrator import CurriculumTargetGenerator, CurriculumCampaignRecovery, CurriculumTargetResult, ExternalCurriculumCampaignResult, ExternalCurriculumCampaignOrchestrator
+
+from .autonomous_curriculum_feedback_cycle import CurriculumFeedbackResult, AutonomousCurriculumFeedbackCycle
