@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "principle": "AER owns orchestration semantics; providers supply inference and native capabilities",
+  "principle": "AUREN owns orchestration semantics; providers supply inference and native capabilities",
   "providers": {
     "claude": {
       "surfaces": ["claude-code-cli", "claude-code-ide", "claude-code-desktop", "claude-code-web"],
