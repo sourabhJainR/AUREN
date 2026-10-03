@@ -35,7 +35,7 @@ INFERENCE_DEPTH_RECIPE = DecisionRecipe(
         claim="Choose the minimum safe inference depth for this execution decision.",
     ),),
     thresholds={"provider_confidence": 0.75},
-    source="AER typed decision contract",
+    source="AUREN typed decision contract",
 )
 
 
