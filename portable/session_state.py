@@ -1,4 +1,4 @@
-"""Durable, project-neutral AER session checkpoints and recovery."""
+"""Durable, project-neutral AUREN session checkpoints and recovery."""
 from __future__ import annotations
 
 import hashlib
@@ -38,7 +38,7 @@ class SessionStore:
     """Atomic JSON checkpoints shared by sessions and projects."""
 
     def __init__(self, root: Path | str | None = None) -> None:
-        self.root = Path(root or (Path.home() / ".aer" / "sessions")).expanduser()
+        self.root = Path(root or (Path.home() / ".auren" / "sessions")).expanduser()
 
     @staticmethod
     def project_key(project_root: Path | str) -> str:
