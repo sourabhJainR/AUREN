@@ -1,6 +1,6 @@
 # Rust migration boundary
 
-AER uses a staged Python-to-Rust migration.
+AUREN uses a staged Python-to-Rust migration.
 
 ## Eligible for Rust
 
@@ -27,7 +27,7 @@ These components coordinate side effects or encode policy. Moving them first wou
 
 ## Compatibility rule
 
-The Python implementation is always available. The optional native worker is selected only when an aer-core executable is present and returns a valid response. A native failure falls back to Python and never bypasses a gate.
+The Python implementation is always available. The optional native worker is selected only when an auren-core executable is present and returns a valid response. A native failure falls back to Python and never bypasses a gate.
 
 The JSON-lines boundary is intentional: it permits the next step to become an in-process PyO3 binding, a packaged native executable, or another host without changing the Python contract.
 
