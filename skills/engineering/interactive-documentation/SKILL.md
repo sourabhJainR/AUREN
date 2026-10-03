@@ -6,7 +6,7 @@ disable-model-invocation: true
 
 # Interactive Documentation
 
-Create an evidence-backed, browser-native visual document from the canonical AER repository and context model. This is an authoring and presentation surface, not a second repository intelligence system.
+Create an evidence-backed, browser-native visual document from the canonical AUREN repository and context model. This is an authoring and presentation surface, not a second repository intelligence system.
 
 ## Authoring flow
 
@@ -48,7 +48,7 @@ Unknowns and omitted areas must be visible in the document rather than silently 
 
 ## Architecture integration
 
-Use the canonical ownership already present in AER:
+Use the canonical ownership already present in AUREN:
 
 - repository intelligence: `RepositoryMap` / `CodebaseIndex`;
 - context: `ContextEvidence`;
