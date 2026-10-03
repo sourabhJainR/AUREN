@@ -13,6 +13,7 @@ def contract(**overrides):
         action_types=("read", "tool_call"),
         max_steps=20,
         external_tools=("search",),
+        unfamiliar_tools=("search",),
     )
     values.update(overrides)
     return EnvironmentContract(**values)
