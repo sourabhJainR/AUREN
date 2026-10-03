@@ -2,7 +2,7 @@
 
 ## Goal
 
-Adapt useful Rowboat constructs into AER without creating a second orchestration engine, second memory owner, or privileged execution path.
+Adapt useful Rowboat constructs into AUREN without creating a second orchestration engine, second memory owner, or privileged execution path.
 
 ## Architecture rules
 
@@ -29,7 +29,7 @@ Resolve task, workspace, memory, evidence, repository relationships, and prior r
 
 ### Slice 3 — Trigger / Background Run Contract
 
-Generalize the existing scheduler/event primitives into a durable trigger contract with event identity, deduplication, concurrency claims, bounded retries, and a handoff into the normal AER execution lifecycle.
+Generalize the existing scheduler/event primitives into a durable trigger contract with event identity, deduplication, concurrency claims, bounded retries, and a handoff into the normal AUREN execution lifecycle.
 
 ### Slice 4 — Run Journal to Context Graph
 
@@ -41,7 +41,7 @@ Add a bounded workspace scope over shared task context and graph relationships. 
 
 ## Explicit non-adoptions
 
-AER will not import Rowboat's desktop UI, Harbor server, hosted authentication, browser client, voice stack, commercial integrations, or provider-specific execution paths. These are product-surface concerns rather than orchestration primitives.
+AUREN will not import Rowboat's desktop UI, Harbor server, hosted authentication, browser client, voice stack, commercial integrations, or provider-specific execution paths. These are product-surface concerns rather than orchestration primitives.
 
 ## Acceptance criteria
 
