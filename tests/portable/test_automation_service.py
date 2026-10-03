@@ -55,5 +55,5 @@ def test_native_service_definitions_use_foreground_host(tmp_path) -> None:
     plist = _launchd_plist(config)
     assert "portable.maintenance_service" in linux
     assert "last_day_of_month" not in linux  # calendar truth lives in the durable scheduler
-    assert "com.aer.AERMaintenance" in plist
-    assert "AER_MAINTENANCE_TIME" in plist
+    assert "com.auren.AURENMaintenance" in plist
+    assert "AUREN_MAINTENANCE_TIME" in plist
