@@ -43,7 +43,7 @@ from portable.autonomy_benchmark_campaign import AutonomyBenchmarkCampaignRunner
 from portable.autonomy_campaign_curriculum import AutonomyCampaignCurriculum
 from portable.benchmark_task_contract import BenchmarkTaskContractFactory
 from portable.benchmark_task_dispatch import BenchmarkTaskDispatcher, BenchmarkExecutionRequest
-from portable.benchmark_execution_handshake import BenchmarkExecutionHandshake
+from portable.benchmark_execution_handshake import BenchmarkExecutionHandshake, derive_runtime_evidence
 from portable.evidence_backed_autonomy_benchmark import EpisodeEvidence, EvidenceBackedAutonomyBenchmark
 from portable.autonomy_benchmark_history import AutonomyBenchmarkHistory
 from portable.autonomy_curriculum import AutonomyCurriculumController
@@ -1061,13 +1061,22 @@ the learning system, not an instruction source. If a skill produced no distinct 
             else:
                 benchmark_execution_receipt_reason = "explicit benchmark execution task id required for multiple requests"
             if selected_request is not None:
+                derived_ids, derived_kinds, derived_verified = derive_runtime_evidence(
+                    task_id=selected_request.task_id,
+                    intent_digest=intent_digest,
+                    results=results,
+                    safety_evidence_verified=bool(safety_evidence_verified),
+                )
+                receipt_ids = tuple(benchmark_execution_evidence_ids) or derived_ids
+                receipt_kinds = tuple(benchmark_execution_evidence_kinds) or derived_kinds
                 success_value = accepted if benchmark_execution_success is None else bool(benchmark_execution_success)
+                verified_value = bool(benchmark_execution_verified) or derived_verified
                 benchmark_execution_receipt = BenchmarkExecutionHandshake().complete(
                     selected_request,
-                    evidence_ids=benchmark_execution_evidence_ids,
-                    evidence_kinds=benchmark_execution_evidence_kinds,
+                    evidence_ids=receipt_ids,
+                    evidence_kinds=receipt_kinds,
                     success=success_value,
-                    verified=bool(benchmark_execution_verified),
+                    verified=verified_value,
                 )
         experiment_observation = None
         experiment_attribution = None
