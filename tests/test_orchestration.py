@@ -53,7 +53,7 @@ class OrchestrationTests(unittest.TestCase):
             "adaptive-task",
             "fix repeated regression",
             context={
-                "aer_adaptive_policy": {
+                "auren_adaptive_policy": {
                     "version": "v42",
                     "strategy": "evidence-first",
                     "iteration_target": 2.0,
@@ -91,7 +91,7 @@ class OrchestrationTests(unittest.TestCase):
         ])
         run = Orchestrator(graph).run(
             "strategy-task", "apply learned strategy", context={
-                "aer_adaptive_policy": {
+                "auren_adaptive_policy": {
                     "version": "v-strategy", "strategy": "deep-verify", "iteration_target": 2.0,
                 }
             }
@@ -118,7 +118,7 @@ class OrchestrationTests(unittest.TestCase):
             "adaptive-task-2",
             "preserve safety budget",
             context={
-                "aer_adaptive_policy": {
+                "auren_adaptive_policy": {
                     "version": "v43",
                     "strategy": "default",
                     "iteration_target": 32.0,
@@ -141,7 +141,7 @@ class OrchestrationTests(unittest.TestCase):
         run = Orchestrator(graph).run(
             "adaptive-task-3",
             "ignore invalid policy",
-            context={"aer_adaptive_policy": {"version": "broken", "strategy": "x", "iteration_target": 0}},
+            context={"auren_adaptive_policy": {"version": "broken", "strategy": "x", "iteration_target": 0}},
         )
         self.assertEqual(run.results["agent"].attempts, 3)
 
