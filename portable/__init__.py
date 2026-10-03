@@ -146,3 +146,4 @@ from .external_evaluation_campaign import CampaignOutcome, CampaignRetestContrac
 from .causal_capability_promotion import CausalCapabilityPromotionGate, CausalPromotionDecision, CausalPromotionEvidence
 from .external_environment_protocol import EnvironmentContract, EpisodeTrace, EnvironmentEvaluation, ExternalEnvironmentEvaluator
 from .promotion_evidence_chain import PromotionEvidenceChain, PromotionEvidenceChainBuilder
+from .external_generalization_runner import ExternalEnvironmentAdapter, IndependentOracle, GeneralizationCampaignResult, ExternalGeneralizationCampaignRunner
