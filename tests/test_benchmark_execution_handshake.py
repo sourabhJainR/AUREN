@@ -16,7 +16,7 @@ class BenchmarkExecutionHandshakeTests(unittest.TestCase):
         self.assertFalse(r.accepted)
 
     def test_unverified_evidence_fails_closed(self):
-        r = BenchmarkExecutionHandshake().complete(self.request, evidence_ids=["e1"], success=True, verified=False)
+        r = BenchmarkExecutionHandshake().complete(self.request, evidence_ids=["e1"], evidence_kinds=["independent verification evidence"], success=True, verified=False)
         self.assertFalse(r.accepted)
 
 
@@ -60,11 +60,22 @@ class BenchmarkExecutionHandshakeTests(unittest.TestCase):
         self.assertNotEqual(r.task_id, other_request.task_id)
         self.assertTrue(r.accepted)
 
+    def test_incomplete_evidence_coverage_fails_closed(self):
+        r = BenchmarkExecutionHandshake().complete(
+            self.request,
+            evidence_ids=["e1", "e2"],
+            evidence_kinds=["canonical execution evidence", "independent verification evidence"],
+            success=True,
+            verified=True,
+        )
+        self.assertFalse(r.accepted)
+        self.assertIn("required evidence incomplete", r.reason)
+
     def test_verified_success_is_accepted(self):
-        r = BenchmarkExecutionHandshake().complete(self.request, evidence_ids=["e1"], success=True, verified=True)
+        r = BenchmarkExecutionHandshake().complete(self.request, evidence_ids=["e1","e2","e3"], evidence_kinds=["canonical execution evidence","independent verification evidence","resource and safety evidence"], success=True, verified=True)
         self.assertTrue(r.accepted)
         self.assertEqual(r.task_id, self.request.task_id)
-        self.assertEqual(r.evidence_ids, ("e1",))
+        self.assertEqual(r.evidence_ids, ("e1","e2","e3"))
 
 if __name__ == "__main__":
     unittest.main()
