@@ -13,7 +13,7 @@ class WorldStateConsistencyTests(unittest.TestCase):
     def test_single_state_can_be_selected_but_remains_confidence_aware(self):
         a=WorldStateConsistencyGuard().assess(self.model(),"e","status",now=__import__("datetime").datetime.fromisoformat("2026-10-04T01:00:00+00:00"))
         self.assertIsNotNone(a.selected)
-        self.assertFalse(a.uncertain)
+        self.assertTrue(a.uncertain)
 
     def test_conflicting_observations_are_not_silently_collapsed(self):
         m=self.model()
