@@ -1,4 +1,4 @@
-"""Deterministic, evidence-gated structural generalization for AER."""
+"""Deterministic, evidence-gated structural generalization for AUREN."""
 from __future__ import annotations
 
 import json
