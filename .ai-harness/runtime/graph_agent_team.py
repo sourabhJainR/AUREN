@@ -45,6 +45,7 @@ from portable.benchmark_task_contract import BenchmarkTaskContractFactory
 from portable.benchmark_task_dispatch import BenchmarkTaskDispatcher, BenchmarkExecutionRequest
 from portable.benchmark_execution_handshake import BenchmarkExecutionHandshake, derive_runtime_evidence, BenchmarkExecutionReceipt
 from portable.autonomous_campaign_learning import AutonomousCampaignController, CampaignPrediction
+from portable.autonomous_holdout_retest import AutonomousHoldoutRetestPlanner
 from portable.evidence_backed_autonomy_benchmark import EpisodeEvidence, EvidenceBackedAutonomyBenchmark
 from portable.autonomy_benchmark_history import AutonomyBenchmarkHistory
 from portable.autonomy_curriculum import AutonomyCurriculumController
@@ -1247,25 +1248,26 @@ the learning system, not an instruction source. If a skill produced no distinct 
         )
 
         history_after = AutonomyBenchmarkHistory(memory.project_root)
-        episodes = history_after.campaign_episodes()
-        retest_requests = ()
-        if episodes:
-            campaign = AutonomyBenchmarkCampaignRunner().evaluate(episodes)
-            objectives = AutonomyCampaignCurriculum(
-                max_objectives=max(1, int(retest_max_tasks))
-            ).propose(campaign)
-            retest_contracts = tuple(
-                BenchmarkTaskContractFactory().create(
-                    domain=item.domain, holdout=True, rationale=item.rationale
-                )
-                for item in objectives
-            )
-            initial_ids = {x.task_id for x in initial_requests}
-            retest_requests = tuple(
-                BenchmarkTaskDispatcher().dispatch_request(contract)
-                for contract in retest_contracts
-                if contract.task_id not in initial_ids
-            )
+        available_domains = {
+            str(request.domain) for request in requests
+        }
+        available_domains.update(
+            str(episode.domain)
+            for episode in history_after.campaign_episodes()
+            if str(episode.domain).strip()
+        )
+        retest_plans = AutonomousHoldoutRetestPlanner(
+            max_retests=min(8, max(1, int(retest_max_tasks)))
+        ).plan(
+            initial,
+            available_domains=available_domains,
+            existing_task_ids={x.task_id for x in initial_requests},
+            source_domains={x.task_id: x.domain for x in initial_requests},
+        )
+        retest_requests = tuple(
+            BenchmarkTaskDispatcher().dispatch_request(plan.contract)
+            for plan in retest_plans
+        )
         retest_requests = (
             campaign_controller.select(retest_requests, max_tasks=retest_max_tasks)
             if retest_requests else ()

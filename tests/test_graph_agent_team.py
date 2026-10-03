@@ -58,6 +58,59 @@ class GraphAgentTeamTests(unittest.TestCase):
             self.assertEqual(result["initial"]["observations"][0]["realized_score"], .9)
             self.assertTrue(result["initial"]["observations"][0]["realized_success"])
 
+    def test_campaign_intervention_drives_cross_domain_holdout_retest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            memory = SharedTaskMemory(Path(tmp) / "memory.jsonl", "intent-a")
+            coding = BenchmarkExecutionRequest(
+                task_id="benchmark:coding:1", domain="coding", holdout=True,
+                objective="test coding", risk_budget=.2, resource_budget=.5,
+                required_evidence=("canonical execution evidence",),
+            )
+            research = BenchmarkExecutionRequest(
+                task_id="benchmark:research:1", domain="research", holdout=True,
+                objective="test research", risk_budget=.2, resource_budget=.5,
+                required_evidence=("canonical execution evidence",),
+            )
+            team = GraphAgentTeam([AgentSpec("planner", "planner")])
+
+            def fake_execute(request, **kwargs):
+                failed = request.task_id == coding.task_id
+                return {
+                    "benchmark_execution_receipt": {
+                        "task_id": request.task_id,
+                        "domain": request.domain,
+                        "holdout": request.holdout,
+                        "evidence_ids": ("run:evidence",),
+                        "evidence_kinds": ("canonical execution evidence",),
+                        "required_evidence": request.required_evidence,
+                        "success": not failed,
+                        "verified": not failed,
+                        "reason": "verification failed" if failed else "accepted",
+                    },
+                    "autonomy_benchmark": {"overall": .2 if failed else .9},
+                    "active_learning": {"self_model": {"uncertainty": .1}},
+                    "execution_mode": {"selected": "balanced", "baseline": "balanced"},
+                    "execution_strategy": {"selected": "default", "baseline": "default"},
+                    "agents": {},
+                }
+
+            team.execute_benchmark_request = fake_execute
+            result = team.execute_autonomous_benchmark_learning_campaign(
+                requests=(coding, research),
+                max_tasks=1,
+                retest_max_tasks=1,
+                intent_digest="intent-a",
+                base_prompt="base",
+                memory=memory,
+                invoke_agent=lambda agent, prompt: (0, agent.name, 0.01),
+                safety_evidence_verified=True,
+            )
+            self.assertEqual(result["initial"]["selected_task_ids"], [coding.task_id])
+            self.assertEqual(len(result["retest"]["selected_task_ids"]), 1)
+            self.assertTrue(result["retest"]["selected_task_ids"][0].startswith("benchmark:research:"))
+            self.assertNotEqual(result["retest"]["selected_task_ids"][0], coding.task_id)
+            self.assertEqual(result["retest"]["observations"][0]["task_id"], result["retest"]["selected_task_ids"][0])
+
     def test_shared_memory_is_scoped_to_intent(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "memory.jsonl"
