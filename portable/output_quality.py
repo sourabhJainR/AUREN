@@ -1,4 +1,4 @@
-"""Public facade for the AER final-output quality gate."""
+"""Public facade for the AUREN final-output quality gate."""
 from typing import Any
 
 from .agent_capabilities import OutputQualityGate as _OutputQualityGate, QualityResult
