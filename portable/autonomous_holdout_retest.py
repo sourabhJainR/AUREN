@@ -7,7 +7,7 @@ prefer a different domain when the campaign contains a known failure.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable, Sequence
+from typing import Iterable, Mapping
 
 from .autonomous_campaign_learning import CampaignIntervention, CampaignLearning
 from .benchmark_task_contract import BenchmarkTaskContract, BenchmarkTaskContractFactory
