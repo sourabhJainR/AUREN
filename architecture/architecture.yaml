@@ -1,6 +1,6 @@
 {
   "contract_version": 1,
-  "architecture": {"name": "Adaptive Engineering Runtime", "short_name": "AER", "target_line": "23.x", "mode": "consolidation", "authority": "This contract defines canonical ownership and dependency rules. Documentation, adapters, views and historical compatibility surfaces must not redefine them."},
+  "architecture": {"name": "Adaptive Engineering Runtime", "short_name": "AUREN", "target_line": "23.x", "mode": "consolidation", "authority": "This contract defines canonical ownership and dependency rules. Documentation, adapters, views and historical compatibility surfaces must not redefine them."},
   "principles": ["one_owner_per_concern", "portable_is_dependency_free", "learning_cannot_authorize", "release_requires_verification", "stale_evidence_requires_refresh", "adapters_and_views_are_not_authority", "execution_state_is_canonical_and_serializable", "probabilities_are_not_facts", "context_is_snapshot_bound", "reuse_before_new_implementation", "usage_compatibility_by_default", "minimal_data_access", "performance_parity"],
   "domains": {
     "repository_model": {"canonical_owner": "portable.agency_codebase_context.CodebaseIndex", "role": "repository structural and semantic truth", "compatibility_surfaces": ["portable.repo_intelligence.RepositoryMap", "portable.repository_intelligence.RepositoryIntelligence"], "rule": "Compatibility and packing APIs consume repository truth and may not create a competing canonical index."},
