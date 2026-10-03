@@ -1,4 +1,4 @@
-"""Goal-directed cognitive state for AER.
+"""Goal-directed cognitive state for AUREN.
 
 Provides a small persistent goal decomposition primitive so planning can be
 conditioned on desired outcomes, blockers, and evidence gaps rather than only
