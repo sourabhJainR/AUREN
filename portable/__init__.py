@@ -145,3 +145,4 @@ from .arena_run_receipt import ArenaRunReceipt, oracle_registry_digest
 from .external_evaluation_campaign import CampaignOutcome, CampaignRetestContract, ExternalEvaluationCampaign, LearningIntervention
 from .causal_capability_promotion import CausalCapabilityPromotionGate, CausalPromotionDecision, CausalPromotionEvidence
 from .external_environment_protocol import EnvironmentContract, EpisodeTrace, EnvironmentEvaluation, ExternalEnvironmentEvaluator
+from .promotion_evidence_chain import PromotionEvidenceChain, PromotionEvidenceChainBuilder
