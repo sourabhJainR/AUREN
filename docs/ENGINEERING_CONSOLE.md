@@ -1,21 +1,21 @@
-# AER Engineering Console
+# AUREN Engineering Console
 
-The Engineering Console is a read-only observability surface over AER's existing runtime state. It does not become a second orchestrator, policy engine, memory store, or execution authority.
+The Engineering Console is a read-only observability surface over AUREN's existing runtime state. It does not become a second orchestrator, policy engine, memory store, or execution authority.
 
-## Run from an installed AER
+## Run from an installed AUREN
 
-The portable installation keeps the active build under ~/.aer/current on Linux/macOS and %USERPROFILE%\\.aer\\current on Windows.
+The portable installation keeps the active build under ~/.auren/current on Linux/macOS and %USERPROFILE%\\.auren\\current on Windows.
 
 Start the console against the repository you want to inspect:
 
 ~~~bash
-python ~/.aer/current/aer_cli.py dashboard --project-root /path/to/repository
+python ~/.auren/current/auren_cli.py dashboard --project-root /path/to/repository
 ~~~
 
 Windows PowerShell:
 
 ~~~powershell
-python "$HOME\\.aer\\current\\aer_cli.py" dashboard --project-root "C:\\path\\to\\repository"
+python "$HOME\\.auren\\current\\auren_cli.py" dashboard --project-root "C:\\path\\to\\repository"
 ~~~
 
 The server prints http://127.0.0.1:8765. Open that address in a browser.
@@ -36,7 +36,7 @@ The server uses only the Python standard library and is loopback-only by default
 - Task/run counts and observed duration information.
 - Durable learning, maintenance, regression and SkillOpt activity when those SQLite stores exist.
 - Findings, failures and verified do-not rules where existing stores expose them.
-- Repository size, tests, symbols, dependency edges and the canonical AER code graph.
+- Repository size, tests, symbols, dependency edges and the canonical AUREN code graph.
 - Repository quality signals and recorded verification/evidence counts without inventing a synthetic quality score.
 - Benchmark and regression activity.
 - Research/capability experiment records where present.
