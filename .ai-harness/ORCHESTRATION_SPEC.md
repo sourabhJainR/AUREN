@@ -4,7 +4,7 @@ This harness is a control plane for coding agents. The provider is replaceable; 
 
 ## Execution model
 
-AER follows the useful progression from a single agent to a bounded loop, then to a graph, and finally to an orchestration control plane:
+AUREN follows the useful progression from a single agent to a bounded loop, then to a graph, and finally to an orchestration control plane:
 
 ```text
 AGENT
@@ -76,7 +76,7 @@ Verification outranks model confidence. Acceptance requires explicit acceptance 
 
 ## Self-improvement boundary
 
-AER may observe outcomes and produce improvement candidates. It must not directly rewrite its executable orchestration, permissions, security policy, approval rules, or production authority from model output.
+AUREN may observe outcomes and produce improvement candidates. It must not directly rewrite its executable orchestration, permissions, security policy, approval rules, or production authority from model output.
 
 Promotion follows:
 
