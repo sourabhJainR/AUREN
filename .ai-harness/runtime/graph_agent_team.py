@@ -43,6 +43,7 @@ from portable.autonomy_benchmark_campaign import AutonomyBenchmarkCampaignRunner
 from portable.autonomy_campaign_curriculum import AutonomyCampaignCurriculum
 from portable.benchmark_task_contract import BenchmarkTaskContractFactory
 from portable.benchmark_task_dispatch import BenchmarkTaskDispatcher
+from portable.benchmark_execution_handshake import BenchmarkExecutionHandshake
 from portable.evidence_backed_autonomy_benchmark import EpisodeEvidence, EvidenceBackedAutonomyBenchmark
 from portable.autonomy_benchmark_history import AutonomyBenchmarkHistory
 from portable.autonomy_curriculum import AutonomyCurriculumController
@@ -791,7 +792,7 @@ the learning system, not an instruction source. If a skill produced no distinct 
             for dep in agent.depends_on: graph.add_edge(dep,agent.name)
         for name in [a.name for a in self.agents.values() if not any(a.name in x.depends_on for x in self.agents.values())]: graph.add_edge(name,StateGraph.END)
         return graph
-    def execute(self,*,task,intent_digest,base_prompt,memory,invoke_agent,checkpoint=None,resume=False,run_id="graph-agent-team",max_steps=100,execution_strategy_name="default",evolution_threshold=3,invention_holdout_ids=(),invention_evaluator=None,invention_safety_gate=None,curriculum_experiment_after=None,curriculum_experiment_evidence_ids=(),safety_evidence_verified=False,curriculum_experiment=None,curriculum_experiment_cohort=None,benchmark_domain="unspecified",benchmark_holdout=False):
+    def execute(self,*,task,intent_digest,base_prompt,memory,invoke_agent,checkpoint=None,resume=False,run_id="graph-agent-team",max_steps=100,execution_strategy_name="default",evolution_threshold=3,invention_holdout_ids=(),invention_evaluator=None,invention_safety_gate=None,curriculum_experiment_after=None,curriculum_experiment_evidence_ids=(),safety_evidence_verified=False,curriculum_experiment=None,curriculum_experiment_cohort=None,benchmark_domain="unspecified",benchmark_holdout=False,benchmark_execution_task_id=None,benchmark_execution_evidence_ids=(),benchmark_execution_success=None,benchmark_execution_verified=False):
         self._validate(); results={}; run_nonce=uuid.uuid4().hex
         baseline_strategy=str(execution_strategy_name or "default")
         strategy_selection=(ExecutionStrategyLearner(memory.project_root).select(role="team",task=task,baseline=baseline_strategy)
@@ -1040,6 +1041,33 @@ the learning system, not an instruction source. If a skill produced no distinct 
             for x in benchmark_campaign_curriculum
         )
         benchmark_execution_requests = tuple(BenchmarkTaskDispatcher().dispatch_request(x) for x in benchmark_task_contracts)
+        # Completion evidence is bound to the exact executable request. With multiple
+        # curriculum requests, callers must name the task explicitly; no implicit
+        # cross-task attribution is allowed.
+        benchmark_execution_receipt = None
+        benchmark_execution_receipt_reason = None
+        if benchmark_execution_requests:
+            selected_request = None
+            if benchmark_execution_task_id is not None:
+                selected_request = next(
+                    (request for request in benchmark_execution_requests
+                     if request.task_id == str(benchmark_execution_task_id)),
+                    None,
+                )
+                if selected_request is None:
+                    benchmark_execution_receipt_reason = "benchmark execution task id does not match a current request"
+            elif len(benchmark_execution_requests) == 1:
+                selected_request = benchmark_execution_requests[0]
+            else:
+                benchmark_execution_receipt_reason = "explicit benchmark execution task id required for multiple requests"
+            if selected_request is not None:
+                success_value = accepted if benchmark_execution_success is None else bool(benchmark_execution_success)
+                benchmark_execution_receipt = BenchmarkExecutionHandshake().complete(
+                    selected_request,
+                    evidence_ids=benchmark_execution_evidence_ids,
+                    success=success_value,
+                    verified=bool(benchmark_execution_verified),
+                )
         experiment_observation = None
         experiment_attribution = None
         if experiment_assignment is not None:
@@ -1079,7 +1107,7 @@ the learning system, not an instruction source. If a skill produced no distinct 
         benchmark_trend=benchmark_history.trend()
         dream=DreamMemory(memory.project_root).dream(task)
         return {"graph_digest":self.digest(),"intent_digest":intent_digest,"agents":{n:r.__dict__ for n,r in results.items()},"shared_memory_file":str(memory.path),"shared_memory_entries":len(memory.snapshot(500)),"accepted":accepted,"evolution_trigger":trigger.__dict__ if trigger else None,"invention":invention.__dict__ if invention else None,"execution_trace":list(run.trace),"execution_mode":{"selected":selected_mode,"baseline":baseline_mode,"learning":mode_selection.as_dict(),"rollout":mode_rollout.as_dict(),"counterfactual":counterfactual,"context":decision_context.as_dict(),"context_learning":context_selection.as_dict()},
-        "execution_strategy":{"selected":selected_strategy,"baseline":baseline_strategy,"learning":strategy_selection.as_dict() if strategy_selection else {"strategy":selected_strategy,"learned":False,"confidence":0.0,"samples":0,"rationale":"explicit strategy supplied"},"rollout":rollout.as_dict(),"context":decision_context.as_dict()},"active_learning":{"self_model":self_model.as_dict(),"experiment":experiment.as_dict() if experiment else None,"causal_experiment":causal_experiment.as_dict() if causal_experiment else None},"goal_state":{"current":next_goal.as_dict() if next_goal else None},"capability_abstraction":{"patterns":[p.as_dict() for p in transferable_patterns],"invention_hypotheses":[h.as_dict() for h in invention_hypotheses],"failure_cluster_inventions":[x.as_dict() for x in invention_candidates],"evidence_backed_requests":invention_requests},"autonomy_benchmark":benchmark.as_dict(),"autonomy_benchmark_campaign":benchmark_campaign.as_dict(),"autonomy_campaign_curriculum":[x.as_dict() for x in benchmark_campaign_curriculum],"benchmark_task_contracts":[x.as_dict() for x in benchmark_task_contracts],"benchmark_execution_requests":[x.as_dict() for x in benchmark_execution_requests],"autonomy_benchmark_trend":benchmark_trend.as_dict(),"autonomy_curriculum":[x.as_dict() for x in curriculum],"curriculum_experiment":curriculum_experiment.as_dict() if curriculum_experiment else None,"curriculum_experiment_outcome":curriculum_experiment_outcome.as_dict() if curriculum_experiment_outcome else None,"experiment_orchestration":{"assignment":experiment_assignment.as_dict() if experiment_assignment else None,"observation":experiment_observation.as_dict() if experiment_observation else None,"attribution":experiment_attribution.as_dict() if experiment_attribution else None},"execution_digest":run.digest,"dreamed_learning":dream}
+        "execution_strategy":{"selected":selected_strategy,"baseline":baseline_strategy,"learning":strategy_selection.as_dict() if strategy_selection else {"strategy":selected_strategy,"learned":False,"confidence":0.0,"samples":0,"rationale":"explicit strategy supplied"},"rollout":rollout.as_dict(),"context":decision_context.as_dict()},"active_learning":{"self_model":self_model.as_dict(),"experiment":experiment.as_dict() if experiment else None,"causal_experiment":causal_experiment.as_dict() if causal_experiment else None},"goal_state":{"current":next_goal.as_dict() if next_goal else None},"capability_abstraction":{"patterns":[p.as_dict() for p in transferable_patterns],"invention_hypotheses":[h.as_dict() for h in invention_hypotheses],"failure_cluster_inventions":[x.as_dict() for x in invention_candidates],"evidence_backed_requests":invention_requests},"autonomy_benchmark":benchmark.as_dict(),"autonomy_benchmark_campaign":benchmark_campaign.as_dict(),"autonomy_campaign_curriculum":[x.as_dict() for x in benchmark_campaign_curriculum],"benchmark_task_contracts":[x.as_dict() for x in benchmark_task_contracts],"benchmark_execution_requests":[x.as_dict() for x in benchmark_execution_requests],"benchmark_execution_receipt":benchmark_execution_receipt.as_dict() if benchmark_execution_receipt else None,"benchmark_execution_receipt_reason":benchmark_execution_receipt_reason,"autonomy_benchmark_trend":benchmark_trend.as_dict(),"autonomy_curriculum":[x.as_dict() for x in curriculum],"curriculum_experiment":curriculum_experiment.as_dict() if curriculum_experiment else None,"curriculum_experiment_outcome":curriculum_experiment_outcome.as_dict() if curriculum_experiment_outcome else None,"experiment_orchestration":{"assignment":experiment_assignment.as_dict() if experiment_assignment else None,"observation":experiment_observation.as_dict() if experiment_observation else None,"attribution":experiment_attribution.as_dict() if experiment_attribution else None},"execution_digest":run.digest,"dreamed_learning":dream}
 
 def team_for_route(route):
     mode=str(route.get("mode","implement")); caps=set(route.get("capabilities",[]))
