@@ -4,7 +4,7 @@ description: Build a small disposable experiment to answer a concrete engineerin
 disable-model-invocation: true
 ---
 
-# AER Prototype
+# AUREN Prototype
 
 Use this skill when uncertainty is best resolved by a runnable experiment rather than more discussion or production implementation.
 
