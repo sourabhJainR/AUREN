@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Provider-neutral agent runtime primitives inspired by modern autonomous agents.
 
-This module deliberately keeps orchestration semantics in AER. It provides small,
+This module deliberately keeps orchestration semantics in AUREN. It provides small,
 stdlib-only building blocks for provider routing, profiles, durable sessions,
 skills, memory, delegation, tool registration, approvals and scheduled jobs.
 External providers and messaging platforms are adapters, not core dependencies.
@@ -252,7 +252,7 @@ class DelegationCoordinator:
     def __init__(self, max_workers: int = 4) -> None:
         from concurrent.futures import ThreadPoolExecutor
         self.max_workers = max(1, max_workers)
-        self._executor = ThreadPoolExecutor(max_workers=self.max_workers, thread_name_prefix="aer-agent")
+        self._executor = ThreadPoolExecutor(max_workers=self.max_workers, thread_name_prefix="auren-agent")
 
     def run(self, tasks: Iterable[Callable[[], Any]]) -> list[Any]:
         futures = [self._executor.submit(task) for task in tasks]
@@ -277,6 +277,6 @@ def capability_matrix() -> dict[str, str]:
         "resumable_sessions": "SessionState + DurableStore",
         "mcp_and_gateway": "adapter boundary; provider/platform specific",
         "multimodal": "adapter boundary; model/provider specific",
-        "terminal_backends": "AER sandbox/environment adapters",
-        "verification_learning": "AER harness policies remain authoritative",
+        "terminal_backends": "AUREN sandbox/environment adapters",
+        "verification_learning": "AUREN harness policies remain authoritative",
     }
