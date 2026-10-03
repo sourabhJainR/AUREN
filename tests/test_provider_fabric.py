@@ -18,10 +18,10 @@ def test_provider_fabric_prefers_native_capability(tmp_path: Path):
     assert decision.native is True
 
 
-def test_provider_fabric_falls_back_to_aer(tmp_path: Path):
+def test_provider_fabric_falls_back_to_auren(tmp_path: Path):
     fabric = ProviderFabric(tmp_path)
     decision = fabric.route(CapabilityRequest("background_execution", ("codex",)))
-    assert decision.provider == "aer"
+    assert decision.provider == "auren"
     assert decision.native is False
 
 
