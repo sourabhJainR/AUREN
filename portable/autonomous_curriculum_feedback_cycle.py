@@ -72,21 +72,13 @@ class AutonomousCurriculumFeedbackCycle:
             for result in campaign.target_results
             if result.successful
         )
+        if not discovered:
+            raise ValueError("campaign produced no new failure-driven curriculum targets")
         next_plan = self.evolution.build(
             discovered,
             completed_target_ids=completed,
             max_targets=self.max_next_targets,
-        ) if discovered else self.evolution.build(
-            (
-                # No synthetic target is created on a clean campaign. An empty
-                # curriculum is represented explicitly rather than pretending
-                # there is a novel task to execute.
-            ),
-            completed_target_ids=(),
-            max_targets=self.max_next_targets,
-        ) if False else None
-        if next_plan is None:
-            raise ValueError("campaign produced no new failure-driven curriculum targets")
+        )
         payload = {
             "prior_campaign_digest": campaign.campaign_digest,
             "source_evidence_ids": tuple(sorted(set(evidence_ids))),
