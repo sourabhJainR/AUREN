@@ -56,7 +56,7 @@ class BenchmarkExecutionHandshakeTests(unittest.TestCase):
         other = BenchmarkTaskContractFactory().create(domain="coding", holdout=True, rationale="other gap")
         other_request = BenchmarkTaskDispatcher().dispatch_request(other)
         self.assertNotEqual(other_request.task_id, self.request.task_id)
-        r = BenchmarkExecutionHandshake().complete(self.request, evidence_ids=["e2"], success=True, verified=True)
+        r = BenchmarkExecutionHandshake().complete(self.request, evidence_ids=["e2","e3","e4"], evidence_kinds=["canonical execution evidence","independent verification evidence","resource and safety evidence"], success=True, verified=True)
         self.assertNotEqual(r.task_id, other_request.task_id)
         self.assertTrue(r.accepted)
 
