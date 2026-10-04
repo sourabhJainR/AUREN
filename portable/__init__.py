@@ -207,3 +207,6 @@ __all__ += ["export_campaign_request", "import_campaign_request", "export_outcom
 from .external_evaluator_gateway import ExternalEvaluatorCommand, ExternalEvaluatorGateway
 
 __all__ += ["ExternalEvaluatorCommand", "ExternalEvaluatorGateway"]
+
+from .attestation_key_separation import AttestationTrustPolicy, SeparationAwareAttestor
+__all__ += ["AttestationTrustPolicy", "SeparationAwareAttestor"]
