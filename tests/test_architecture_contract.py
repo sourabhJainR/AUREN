@@ -16,7 +16,7 @@ def load_contract() -> dict[str, object]:
 
 class ArchitectureContractTests(unittest.TestCase):
     def test_contract_is_valid(self) -> None:
-        namespace: dict[str, object] = {"__file__": str(VALIDATOR), "__name__": "aer_architecture_validator_test"}
+        namespace: dict[str, object] = {"__file__": str(VALIDATOR), "__name__": "auren_architecture_validator_test"}
         source = VALIDATOR.read_text(encoding="utf-8")
         exec(compile(source, str(VALIDATOR), "exec"), namespace)
         validate = namespace["validate"]
