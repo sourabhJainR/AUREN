@@ -91,8 +91,6 @@ class SealedCrossDomainRunner:
         self.gateway = gateway
 
     def run(self, campaign: CrossDomainCampaign, command: ExternalEvaluatorCommand) -> SealedArenaEvidence:
-        if campaign.campaign_digest != campaign.campaign_digest:
-            raise AssertionError("unreachable digest guard")
         return self.gateway.evaluate(campaign.request, command)
 
 
