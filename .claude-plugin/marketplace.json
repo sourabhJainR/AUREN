@@ -11,7 +11,7 @@
     {
       "name": "adaptive-ai-coding-orchestrator",
       "source": "./",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "description": "Adaptive coding orchestration for implementation, debugging, research, POCs, visual documentation, Jira tasks, safe repository changes, and evidence-backed learning.",
       "author": {
         "name": "AUREN Engineering",
