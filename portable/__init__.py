@@ -210,3 +210,6 @@ __all__ += ["ExternalEvaluatorCommand", "ExternalEvaluatorGateway"]
 
 from .attestation_key_separation import AttestationTrustPolicy, SeparationAwareAttestor
 __all__ += ["AttestationTrustPolicy", "SeparationAwareAttestor"]
+
+from .attestation_freshness import FreshEvaluationAttestation, AttestationFreshnessPolicy, AttestationReplayRegistry, FreshnessAwareAttestor
+__all__ += ["FreshEvaluationAttestation", "AttestationFreshnessPolicy", "AttestationReplayRegistry", "FreshnessAwareAttestor"]
