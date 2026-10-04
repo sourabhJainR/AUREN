@@ -153,7 +153,7 @@ class CrossDomainTransferMeasurer:
         })
         if len(target_domains) < minimum_target_domains:
             raise ValueError("insufficient independent target domains")
-        source = [score for domain, cohort, _s, score, _r in outcomes
+        source = [score for domain, cohort, _s, score, _r, holdout in outcomes
                   if domain == source_domain and cohort == "control" and not holdout]
         target_control = [score for domain, cohort, _s, score, _r in outcomes
                           if domain != source_domain and cohort == "control" and holdout]
