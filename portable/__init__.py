@@ -219,3 +219,6 @@ __all__ += ["SealedDomain", "CrossDomainCampaign", "SealedCrossDomainRunner"]
 
 from .attested_domain_transfer_evidence import DomainTransferEvidence, AttestedDomainTransferEvidenceBuilder
 __all__ += ["DomainTransferEvidence", "AttestedDomainTransferEvidenceBuilder"]
+
+from .external_transfer_evidence_coordinator import ExternalTransferEvidence, ExternalTransferEvidenceCoordinator
+__all__ += ["ExternalTransferEvidence", "ExternalTransferEvidenceCoordinator"]
