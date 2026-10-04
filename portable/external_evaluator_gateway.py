@@ -7,6 +7,7 @@ benchmark, inspect oracle answers, or grant lifecycle authority.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
 import subprocess
 from typing import Sequence
 
@@ -19,6 +20,7 @@ class ExternalEvaluatorCommand:
     argv: tuple[str, ...]
     timeout_seconds: float = 30.0
     max_output_bytes: int = 1_048_576
+    environment: tuple[tuple[str, str], ...] = ()
 
     def __post_init__(self) -> None:
         if not self.argv or any(not str(part).strip() for part in self.argv):
@@ -27,6 +29,8 @@ class ExternalEvaluatorCommand:
             raise ValueError("timeout_seconds must be positive")
         if self.max_output_bytes <= 0:
             raise ValueError("max_output_bytes must be positive")
+        if any(not key.strip() for key, _value in self.environment):
+            raise ValueError("environment keys must be non-empty")
 
 
 class ExternalEvaluatorGateway:
@@ -44,6 +48,7 @@ class ExternalEvaluatorGateway:
             shell=False,
             timeout=command.timeout_seconds,
             check=False,
+            env={"PATH": os.environ.get("PATH", ""), **dict(command.environment)},
         )
         if completed.returncode != 0:
             raise RuntimeError(f"external evaluator failed with exit code {completed.returncode}")
