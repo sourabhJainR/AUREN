@@ -399,7 +399,7 @@ curl -fsSL https://raw.githubusercontent.com/sourabhJainR/AUREN/main/install.sh 
 Install a specific release:
 
 ```bash
-AUREN_VERSION=v1.0.3 curl -fsSL https://raw.githubusercontent.com/sourabhJainR/AUREN/main/install.sh | bash
+AUREN_VERSION=v1.0.4 curl -fsSL https://raw.githubusercontent.com/sourabhJainR/AUREN/main/install.sh | bash
 ```
 
 Windows PowerShell:
