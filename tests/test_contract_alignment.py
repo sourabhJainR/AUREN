@@ -93,7 +93,7 @@ class ContractAlignmentTests(unittest.TestCase):
         canonical = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
         plugin = json.loads((ROOT / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
         marketplace = json.loads((ROOT / ".claude-plugin" / "marketplace.json").read_text(encoding="utf-8"))
-        self.assertEqual(canonical, "1.0.3")
+        self.assertEqual(canonical, "1.0.4")
         self.assertEqual(plugin["version"], canonical)
         self.assertEqual(marketplace["version"], canonical)
         self.assertEqual(marketplace["plugins"][0]["version"], canonical)
