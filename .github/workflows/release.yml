@@ -3,9 +3,14 @@ name: AUREN v1 Release
 on:
   push:
     branches:
+      - main
       - release/v1.0-packaging
     tags:
       - 'v*.*.*'
+    paths:
+      - VERSION
+      - '.claude-plugin/**'
+      - '.github/workflows/release.yml'
   workflow_dispatch:
     inputs:
       tag:
@@ -37,7 +42,7 @@ jobs:
           elif [[ -n "${INPUT_TAG}" ]]; then
             TAG="${INPUT_TAG}"
           else
-            TAG="v1.0.3"
+            TAG="v$(cat VERSION)"
           fi
           if [[ ! "${TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "Invalid release tag: ${TAG}"
