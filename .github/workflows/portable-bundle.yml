@@ -41,7 +41,8 @@ jobs:
       - name: Read AUREN version
         id: version
         run: |
-          VERSION=$(python -c "import json; print(json.load(open('.claude-plugin/plugin.json', encoding='utf-8'))['version'])")
+          VERSION=$(cat VERSION)
+          test -n "$VERSION"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
       - name: Build canonical portable bundle
         run: python auren_cli.py build --output auren-portable.zip
@@ -61,8 +62,10 @@ jobs:
                   raise SystemExit('missing canonical AUREN payload: ' + ', '.join(missing))
               expected = os.environ['EXPECTED_VERSION']
               plugin = json.loads(z.read('payload/.claude-plugin/plugin.json'))
+              marketplace = json.loads(z.read('payload/.claude-plugin/marketplace.json'))
               manifest = json.loads(z.read('auren-bundle.json'))
-              if plugin.get('version') != expected or manifest.get('version') != expected:
+              marketplace_version = marketplace['plugins'][0]['version']
+              if plugin.get('version') != expected or marketplace_version != expected or manifest.get('version') != expected:
                   raise SystemExit(f'version mismatch: plugin={plugin.get("version")} manifest={manifest.get("version")} expected={expected}')
               recorded = {item['path'] for item in manifest['files']}
               for path in ('auren_cli.py','.claude-plugin/plugin.json','.ai-harness/ARTIFACT_UPGRADE_CONTRACT.json'):

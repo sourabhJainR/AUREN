@@ -52,11 +52,13 @@ jobs:
         run: |
           python - <<'PY'
           import json, os
-          version = json.load(open('.claude-plugin/plugin.json', encoding='utf-8'))['version']
           expected = os.environ['EXPECTED_VERSION']
-          if version != expected:
-              raise SystemExit(f'plugin version {version} does not match release version {expected}')
-          print(f'AUREN release version verified: {version}')
+          canonical = open('VERSION', encoding='utf-8').read().strip()
+          plugin = json.load(open('.claude-plugin/plugin.json', encoding='utf-8'))['version']
+          marketplace = json.load(open('.claude-plugin/marketplace.json', encoding='utf-8'))['plugins'][0]['version']
+          if canonical != expected or plugin != expected or marketplace != expected:
+              raise SystemExit(f'version mismatch: VERSION={canonical} plugin={plugin} marketplace={marketplace} release={expected}')
+          print(f'AUREN release version verified: {expected}')
           PY
       - name: Run release validation
         run: |

@@ -90,10 +90,13 @@ class ContractAlignmentTests(unittest.TestCase):
         self.assertNotIn("https://", html.lower())
 
     def test_plugin_versions_are_aligned(self) -> None:
+        canonical = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
         plugin = json.loads((ROOT / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
         marketplace = json.loads((ROOT / ".claude-plugin" / "marketplace.json").read_text(encoding="utf-8"))
-        self.assertEqual(plugin["version"], "1.0.3")
-        self.assertEqual(marketplace["plugins"][0]["version"], plugin["version"])
+        self.assertEqual(canonical, "1.0.3")
+        self.assertEqual(plugin["version"], canonical)
+        self.assertEqual(marketplace["version"], canonical)
+        self.assertEqual(marketplace["plugins"][0]["version"], canonical)
 
     def test_artifact_contract_matches_explicit_install_semantics(self) -> None:
         contract = json.loads((ROOT / ".ai-harness" / "ARTIFACT_UPGRADE_CONTRACT.json").read_text(encoding="utf-8"))
