@@ -213,3 +213,6 @@ __all__ += ["AttestationTrustPolicy", "SeparationAwareAttestor"]
 
 from .attestation_freshness import FreshEvaluationAttestation, AttestationFreshnessPolicy, AttestationReplayRegistry, FreshnessAwareAttestor
 __all__ += ["FreshEvaluationAttestation", "AttestationFreshnessPolicy", "AttestationReplayRegistry", "FreshnessAwareAttestor"]
+
+from .sealed_cross_domain_arena import SealedDomain, CrossDomainCampaign, SealedCrossDomainRunner
+__all__ += ["SealedDomain", "CrossDomainCampaign", "SealedCrossDomainRunner"]
