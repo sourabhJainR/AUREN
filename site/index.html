@@ -109,10 +109,10 @@ python ~/.auren/current/auren_cli.py rollback</code></pre>
 <p>Before deleting <code>~/.auren</code>, uninstall any AUREN maintenance service using the matching <code>user</code> or <code>system</code> scope.</p>
 <pre><code>python ~/.auren/current/portable/maintenance_service.py --scope user uninstall
 rm -rf ~/.auren</code></pre>
-<h3>2. Start the engineering console</h3>
+<h3>4. Start the engineering console</h3>
 <pre><code>python ~/.auren/current/auren_cli.py dashboard \
   --project-root /path/to/your/repository</code></pre>
-<h3>4. Deploy this documentation site</h3>
+<h3>5. Deploy this documentation site</h3>
 <p>GitHub Pages can publish a repository directly or through a GitHub Actions workflow. This site uses the Actions path so the static <code>site/</code> directory is deployed on every push to <code>main</code>.</p>
 <pre><code>Repository Settings
   → Pages
