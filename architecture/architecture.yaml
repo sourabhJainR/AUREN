@@ -1,23 +1,138 @@
 {
   "contract_version": 1,
-  "architecture": {"name": "Adaptive Engineering Runtime", "short_name": "AER", "target_line": "23.x", "mode": "consolidation", "authority": "This contract defines canonical ownership and dependency rules. Documentation, adapters, views and historical compatibility surfaces must not redefine them."},
-  "principles": ["one_owner_per_concern", "portable_is_dependency_free", "learning_cannot_authorize", "release_requires_verification", "stale_evidence_requires_refresh", "adapters_and_views_are_not_authority", "execution_state_is_canonical_and_serializable", "probabilities_are_not_facts", "context_is_snapshot_bound", "reuse_before_new_implementation", "usage_compatibility_by_default", "minimal_data_access", "performance_parity"],
-  "domains": {
-    "repository_model": {"canonical_owner": "portable.agency_codebase_context.CodebaseIndex", "role": "repository structural and semantic truth", "compatibility_surfaces": ["portable.repo_intelligence.RepositoryMap", "portable.repository_intelligence.RepositoryIntelligence"], "rule": "Compatibility and packing APIs consume repository truth and may not create a competing canonical index."},
-    "context_evidence": {"canonical_owner": "state/engineering-state.schema.json:evidence", "role": "evidence identity, claim, source, confidence, freshness and provenance contract", "compatibility_surfaces": ["portable.evidence_contract.EvidenceSpine"], "rule": "EvidenceSpine validates canonical records only; it is not a second evidence store or schema."},
-    "planning": {"canonical_owner": "portable.task_planner.TaskPlan", "role": "dependency-aware task decomposition and readiness", "compatibility_surfaces": ["portable.agency_execution_plan.ExecutionPlan"], "rule": "Execution-plan adapters must not become a second dependency-planning authority."},
-    "execution_contract": {"canonical_owner": "portable.execution_contract.ExecutionEnvelope", "role": "cross-phase identity and evidence-carrying execution contract", "compatibility_surfaces": [], "rule": "The envelope binds intent, canonical repository identity, plan identity, evidence and lifecycle receipt references without becoming a second state store."},
-    "execution": {"canonical_owner": "portable.agency_state_graph.StateGraph", "role": "bounded workflow execution, routing, retries, checkpoints, interrupts and trace", "compatibility_surfaces": [".ai-harness/runtime/graph_agent_team.py"], "rule": "Agent teams are execution strategies on top of the state graph, not a competing workflow engine. State is canonical JSON-compatible data and checkpoint integrity is verified."},
-    "decision_execution": {"canonical_owner": "portable.decision_fabric.DecisionFabric", "role": "provider-neutral typed decision evaluation", "compatibility_surfaces": [], "rule": "DecisionFabric produces typed model decisions; persisted decisions remain records in the canonical engineering-state ledger and policy gates remain deterministic."},
-    "capabilities": {"canonical_owner": "portable.agent_capabilities.CapabilityFabric", "role": "capability semantics, risk, sandbox/network requirements, fallback and provider selection", "compatibility_surfaces": ["portable.capability_fabric"], "rule": "Provider adapters transport execution and do not redefine capability semantics or policy."},
-    "verification": {"canonical_owner": "state/engineering-state.schema.json:verification", "role": "verification outcomes plus provider-neutral workflow evaluation and calibration metrics", "compatibility_surfaces": ["portable.workflow_evaluation.WorkflowEvaluation"], "rule": "Evaluation can measure model decisions but cannot promote probability to fact, change verification status, or authorize release."},
-    "release": {"canonical_owner": "docs/REGRESSION_CANARY.md", "role": "release-gate contract for regression, shadow, canary, promotion and rollback", "compatibility_surfaces": [], "rule": "Promotion requires the verification and review gates already defined by the release contract."},
-    "learning": {"canonical_owner": "portable.agency_adaptive_planning", "role": "observations, reusable engineering lessons, recurrence evidence and advisory execution-strategy recommendations", "compatibility_surfaces": [], "rule": "Learning uses repeated comparable observations and verified outcomes; it can recommend strategy or prevention rules only and cannot grant permissions, bypass verification, alter release gates or become a source of truth."},
-    "architecture_views": {"canonical_owner": "skills/engineering/interactive-documentation", "role": "evidence-backed architecture visualization", "compatibility_surfaces": [], "rule": "Views consume repository/evidence contracts and never define runtime ownership."}
+  "architecture": {
+    "name": "Autonomous Unified Reasoning & Engineering Network",
+    "short_name": "AUREN",
+    "target_line": "AUREN",
+    "mode": "unified",
+    "authority": "Canonical product architecture and ownership contract for the AUREN system."
   },
-  "lifecycle": ["intent", "contract", "repo_facts", "decisions", "evidence", "plan", "execute", "verify", "review", "regression", "release", "outcome", "learn"],
-  "dependency_direction": {"portable": ["stdlib", "declared_python_dependencies"], "skills": ["portable", "repository_contracts", "host_capabilities"], "harness": ["portable", "skills", "host_capabilities", "policy"], "adapters": ["canonical_domains"], "views": ["canonical_domains", "evidence"]},
-  "forbidden_patterns": ["second_repository_index", "second_capability_catalog", "second_durable_memory_store", "second_evidence_store", "parallel_workflow_engine", "second_decision_engine", "learning_as_authority", "evaluation_as_authority", "release_without_verification", "portable_imports_host_surfaces", "docs_as_runtime_authority", "probability_as_verification", "duplicate_existing_implementation_without_reuse_review", "n_plus_one_or_redundant_data_access", "usage_pattern_break_without_explicit_requirement"],
-  "compatibility_policy": {"required_metadata": ["status", "canonical_owner", "replacement", "removal_condition"], "statuses": ["canonical", "adapter", "strategy", "view", "deprecated", "historical"], "rule": "A compatibility surface without an explicit replacement and removal condition is architecture debt, not a permanent second path."},
-  "enforcement": {"validator": "scripts/validate_architecture.py", "tests": "tests/test_architecture_contract.py", "ci": ".github/workflows/architecture-integrity.yml", "hard_fail": true}
+  "principles": [
+    "one_owner_per_concern",
+    "portable_is_dependency_free",
+    "learning_cannot_authorize",
+    "release_requires_verification",
+    "stale_evidence_requires_refresh",
+    "adapters_and_views_are_not_authority",
+    "execution_state_is_canonical_and_serializable",
+    "probabilities_are_not_facts",
+    "context_is_snapshot_bound",
+    "reuse_before_new_implementation",
+    "usage_compatibility_by_default",
+    "minimal_data_access",
+    "performance_parity",
+    "auren_single_identity",
+    "six_domain_ownership",
+    "guarded_lifecycle_mutation",
+    "independent_arena_evidence"
+  ],
+  "domains": {
+    "core": {
+      "canonical_owner": "AUREN Core",
+      "role": "world model, self model, reasoning and goals"
+    },
+    "engine": {
+      "canonical_owner": "AUREN Engine",
+      "role": "planning, StateGraph execution, agent teams and resource-aware execution"
+    },
+    "memory": {
+      "canonical_owner": "AUREN Memory",
+      "role": "episodic, semantic, engineering and evidence-graph persistence"
+    },
+    "learning": {
+      "canonical_owner": "AUREN Learning",
+      "role": "experimentation, causal attribution, capability invention and curriculum evolution"
+    },
+    "arena": {
+      "canonical_owner": "AUREN Arena",
+      "role": "independent evaluation, holdouts, transfer and attestation"
+    },
+    "guard": {
+      "canonical_owner": "AUREN Guard",
+      "role": "security, authority, verification, canary and rollback"
+    }
+  },
+  "lifecycle": [
+    "intent",
+    "contract",
+    "repo_facts",
+    "decisions",
+    "evidence",
+    "plan",
+    "execute",
+    "verify",
+    "review",
+    "regression",
+    "release",
+    "outcome",
+    "learn"
+  ],
+  "dependency_direction": {
+    "portable": [
+      "stdlib",
+      "declared_python_dependencies"
+    ],
+    "skills": [
+      "portable",
+      "repository_contracts",
+      "host_capabilities"
+    ],
+    "harness": [
+      "portable",
+      "skills",
+      "host_capabilities",
+      "policy"
+    ],
+    "adapters": [
+      "canonical_domains"
+    ],
+    "views": [
+      "canonical_domains",
+      "evidence"
+    ]
+  },
+  "forbidden_patterns": [
+    "second_repository_index",
+    "second_capability_catalog",
+    "second_durable_memory_store",
+    "second_evidence_store",
+    "parallel_workflow_engine",
+    "second_decision_engine",
+    "learning_as_authority",
+    "evaluation_as_authority",
+    "release_without_verification",
+    "portable_imports_host_surfaces",
+    "docs_as_runtime_authority",
+    "probability_as_verification",
+    "duplicate_existing_implementation_without_reuse_review",
+    "n_plus_one_or_redundant_data_access",
+    "usage_pattern_break_without_explicit_requirement",
+    "parallel_product_identity",
+    "domain_without_owner",
+    "learning_as_guard_authority",
+    "arena_as_oracle_authority"
+  ],
+  "compatibility_policy": {
+    "required_metadata": [
+      "status",
+      "canonical_owner",
+      "replacement",
+      "removal_condition"
+    ],
+    "statuses": [
+      "canonical",
+      "adapter",
+      "strategy",
+      "view",
+      "deprecated",
+      "historical"
+    ],
+    "rule": "A compatibility surface without an explicit replacement and removal condition is architecture debt, not a permanent second path."
+  },
+  "enforcement": {
+    "validator": "scripts/validate_architecture.py",
+    "tests": "tests/test_architecture_contract.py",
+    "ci": ".github/workflows/architecture-integrity.yml",
+    "hard_fail": true
+  }
 }
