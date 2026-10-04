@@ -5,6 +5,8 @@ on:
     branches: [main]
     paths:
       - 'site/**'
+      - 'docs/index.html'
+      - 'docs/404.html'
       - '.github/workflows/deploy-pages.yml'
   workflow_dispatch:
 
@@ -15,7 +17,7 @@ permissions:
 
 concurrency:
   group: pages
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   deploy:
@@ -26,19 +28,41 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+
       - name: Configure Pages
         uses: actions/configure-pages@v5
+
       - name: Validate Pages entrypoints
         run: |
-          test -f site/index.html
-          test -f site/404.html
-          test -f docs/index.html
-          test -f docs/404.html
+          test -s site/index.html
+          test -s site/404.html
+          test -s docs/index.html
+          test -s docs/404.html
+          grep -q '<title>AUREN' site/index.html
+          grep -q '<title>AUREN' site/404.html
+
+      - name: Build deployment manifest
+        run: |
+          {
+            echo "AUREN GitHub Pages deployment"
+            echo "commit=${GITHUB_SHA}"
+            echo "source=site"
+            sha256sum site/index.html site/404.html
+          } | tee pages-deployment-manifest.txt
+
+      - name: Upload deployment manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: auren-pages-deployment-manifest
+          path: pages-deployment-manifest.txt
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Upload site
         uses: actions/upload-pages-artifact@v4
         with:
           path: site
+
       - name: Deploy
         id: deployment
         uses: actions/deploy-pages@v4
