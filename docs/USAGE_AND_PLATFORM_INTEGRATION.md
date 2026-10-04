@@ -36,7 +36,7 @@ Clone the repository somewhere stable:
 
 ```bash
 git clone https://github.com/sourabhJainR/Hello_world_With_Structure.git
-cd Hello_world_With_Structure
+cd AUREN
 ```
 
 Validate it before installing:
