@@ -72,7 +72,6 @@ jobs:
           sha256sum auren-portable.zip > auren-portable.sha256
           # Keep the stable launcher beside the bundle so a downloaded
           # regression artifact is immediately usable without cloning AUREN.
-          cp auren_cli.py auren_cli.py
           chmod +x auren_cli.py
       - name: Smoke test standalone launcher against bundle
         run: |
