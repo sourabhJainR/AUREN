@@ -76,7 +76,9 @@ jobs:
       - name: Smoke test standalone launcher against bundle
         run: |
           set -euo pipefail
-          python auren_cli.py auren-portable.zip --help >/dev/null
+          HOME="$RUNNER_TEMP/auren-home" python auren_cli.py auren-portable.zip
+          test -f "$RUNNER_TEMP/auren-home/.auren/current/auren_cli.py"
+          test -f "$RUNNER_TEMP/auren-home/.auren/current/portable/auren_runtime.py"
       - name: Publish installable cleanup regression artifact
         uses: actions/upload-artifact@v7
         with:
