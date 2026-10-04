@@ -199,3 +199,7 @@ from .attested_cross_project_transfer import ProjectTransferObservation, CrossPr
 from .sealed_arena_boundary import ExternalOutcomeReceipt, SealedArenaBoundary, SealedArenaEvidence, SealedCampaignRequest, SealedCaseEnvelope
 
 __all__ += ["ExternalOutcomeReceipt", "SealedArenaBoundary", "SealedArenaEvidence", "SealedCampaignRequest", "SealedCaseEnvelope"]
+
+from .sealed_arena_exchange import export_campaign_request, import_campaign_request, export_outcome_receipt, import_outcome_receipt
+
+__all__ += ["export_campaign_request", "import_campaign_request", "export_outcome_receipt", "import_outcome_receipt"]

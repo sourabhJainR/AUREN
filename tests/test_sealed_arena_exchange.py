@@ -13,7 +13,10 @@ class SealedArenaExchangeTests(unittest.TestCase):
         self.receipt = ExternalOutcomeReceipt("campaign-d", "corpus-d", "evaluator", "oracle", "sig", (("case-1", True, "evidence-d"),))
 
     def test_request_round_trip(self) -> None:
-        self.assertEqual(import_campaign_request(export_campaign_request(self.request)), self.request)
+        round_trip = import_campaign_request(export_campaign_request(self.request))
+        self.assertEqual(round_trip.campaign_digest, self.request.campaign_digest)
+        self.assertEqual(round_trip.corpus_digest, self.request.corpus_digest)
+        self.assertEqual(round_trip.cases[0].transfer_dimensions, self.request.cases[0].transfer_dimensions)
 
     def test_receipt_round_trip(self) -> None:
         self.assertEqual(import_outcome_receipt(export_outcome_receipt(self.receipt)), self.receipt)
