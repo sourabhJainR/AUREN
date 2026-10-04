@@ -1,7 +1,7 @@
 {
   "name": "adaptive-ai-coding-orchestrator",
   "description": "Adaptive repository-aware engineering control plane for coding, debugging, research, POCs, reviews and safe changes, with capability-aware providers, durable memory, procedural skills, bounded delegation, secure tools, verification and evidence-backed learning.",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "author": {
     "name": "AUREN Engineering",
     "url": "https://github.com/sourabhJainR/AUREN"
