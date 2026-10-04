@@ -1,4 +1,4 @@
-name: AER Portable Bundle
+name: AUREN Portable Bundle
 
 on:
   push:
@@ -38,27 +38,27 @@ jobs:
             tests.test_bidirectional_install tests.test_contract_alignment tests.test_graph_agent_team \
             tests.test_engineering_design_guard tests.test_state_graph_hardening \
             tests.test_execution_contract tests.test_evidence_contract tests.test_adaptive_planning_evidence tests.test_execution_strategy_learning tests.test_skill_group_evidence -v
-      - name: Read AER version
+      - name: Read AUREN version
         id: version
         run: |
           VERSION=$(python -c "import json; print(json.load(open('.claude-plugin/plugin.json', encoding='utf-8'))['version'])")
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
       - name: Build canonical portable bundle
-        run: python aer_cli.py build --output aer-portable.zip
+        run: python aer_cli.py build --output auren-portable.zip
       - name: Verify canonical portable bundle
-        run: python aer_cli.py verify aer-portable.zip
+        run: python aer_cli.py verify auren-portable.zip
       - name: Verify canonical payload and version
         env:
           EXPECTED_VERSION: ${{ steps.version.outputs.version }}
         run: |
           python - <<'PY'
           import json, os, zipfile
-          with zipfile.ZipFile('aer-portable.zip') as z:
+          with zipfile.ZipFile('auren-portable.zip') as z:
               names = set(z.namelist())
               required = {'aer_cli.py','aer-bundle.json','payload/.claude-plugin/plugin.json','payload/.claude-plugin/marketplace.json','payload/skills/ai-coding-orchestrator/SKILL.md','payload/.ai-harness/ARTIFACT_UPGRADE_CONTRACT.json'}
               missing = sorted(required - names)
               if missing:
-                  raise SystemExit('missing canonical AER payload: ' + ', '.join(missing))
+                  raise SystemExit('missing canonical AUREN payload: ' + ', '.join(missing))
               expected = os.environ['EXPECTED_VERSION']
               plugin = json.loads(z.read('payload/.claude-plugin/plugin.json'))
               manifest = json.loads(z.read('aer-bundle.json'))
@@ -71,12 +71,21 @@ jobs:
               contract = json.loads(z.read('payload/.ai-harness/ARTIFACT_UPGRADE_CONTRACT.json'))
               if contract.get('downgrade') != 'explicit_install_only' or contract.get('automatic_update_downgrade') != 'forbidden':
                   raise SystemExit('artifact downgrade policy changed unexpectedly')
-          print(f'Canonical AER portable bundle verified: {expected}')
+          print(f'Canonical AUREN portable bundle verified: {expected}')
           PY
-      - name: Publish single AER distribution
+      - name: Publish reusable AUREN distribution artifact
         uses: actions/upload-artifact@v7
         with:
-          name: aer-portable
-          path: aer-portable.zip
+          name: auren-portable
+          path: auren-portable.zip
+          if-no-files-found: error
+          retention-days: '30'
+      - name: Create bundle checksum
+        run: sha256sum auren-portable.zip > auren-portable.sha256
+      - name: Publish reusable AUREN checksum artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: auren-portable-checksum
+          path: auren-portable.sha256
           if-no-files-found: error
           retention-days: '30'

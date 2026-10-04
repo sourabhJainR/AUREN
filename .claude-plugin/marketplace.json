@@ -4,22 +4,22 @@
   "version": "1.0.1",
   "description": "Repository-aware AI engineering control plane with adaptive routing, bounded context, specialist planning, durable execution history, verification, and optional extensions.",
   "owner": {
-    "name": "AER Engineering",
-    "url": "https://github.com/sourabhJainR/Hello_world_With_Structure"
+    "name": "AUREN Engineering",
+    "url": "https://github.com/sourabhJainR/AUREN"
   },
   "plugins": [
     {
       "name": "adaptive-ai-coding-orchestrator",
       "source": "./",
-      "version": "22.1.0",
+      "version": "1.0.2",
       "description": "Adaptive coding orchestration for implementation, debugging, research, POCs, visual documentation, Jira tasks, safe repository changes, and evidence-backed learning.",
       "author": {
-        "name": "AER Engineering",
-        "url": "https://github.com/sourabhJainR/Hello_world_With_Structure"
+        "name": "AUREN Engineering",
+        "url": "https://github.com/sourabhJainR/AUREN"
       },
       "license": "MIT",
-      "homepage": "https://github.com/sourabhJainR/Hello_world_With_Structure",
-      "repository": "https://github.com/sourabhJainR/Hello_world_With_Structure",
+      "homepage": "https://github.com/sourabhJainR/AUREN",
+      "repository": "https://github.com/sourabhJainR/AUREN",
       "keywords": [
         "ai-coding",
         "software-engineering",

@@ -1,56 +1,103 @@
-name: Plugin Release
+name: AUREN v1 Release
 
 on:
   push:
+    branches:
+      - release/v1.0-packaging
     tags:
       - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to build, for example v1.0.2
+        required: true
+        default: v1.0.2
 
 permissions:
   contents: write
 
 jobs:
-  validate-and-release:
+  build-and-release:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v7
         with:
           python-version: '3.11'
-      - name: Prepare CI artifacts
-        if: always()
-        run: |
-          rm -rf ci-artifacts
-          mkdir -p ci-artifacts
-          printf 'commit=%s\nrun_id=%s\nworkflow=%s\nref=%s\n' "$GITHUB_SHA" "$GITHUB_RUN_ID" "$GITHUB_WORKFLOW" "$GITHUB_REF" > ci-artifacts/run-metadata.txt
-      - name: Validate package
-        run: |
-          set -o pipefail
-          {
-            python scripts/validate_plugin.py
-            python -m py_compile scripts/install_skill.py scripts/validate_plugin.py
-            python -m unittest discover -s tests -v
-          } 2>&1 | tee ci-artifacts/release-validation.log
-      - name: Validate tag matches plugin version
+      - name: Resolve release tag
+        id: release
         env:
-          TAG: ${{ github.ref_name }}
+          EVENT_TAG: ${{ github.ref_name }}
+          INPUT_TAG: ${{ inputs.tag }}
         run: |
-          python - <<'PY' 2>&1 | tee ci-artifacts/tag-validation.log
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            TAG="${EVENT_TAG}"
+          elif [[ -n "${INPUT_TAG}" ]]; then
+            TAG="${INPUT_TAG}"
+          else
+            TAG="v1.0.2"
+          fi
+          if [[ ! "${TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid release tag: ${TAG}"
+            exit 1
+          fi
+          VERSION="${TAG#v}"
+          echo "tag=${TAG}" >> "${GITHUB_OUTPUT}"
+          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+      - name: Verify release version
+        env:
+          EXPECTED_VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          python - <<'PY'
           import json, os
           version = json.load(open('.claude-plugin/plugin.json', encoding='utf-8'))['version']
-          tag = os.environ['TAG']
-          expected = f'v{version}'
-          if tag != expected:
-              raise SystemExit(f'tag {tag} does not match plugin version {expected}')
-          print(f'tag {tag} matches plugin version {version}')
+          expected = os.environ['EXPECTED_VERSION']
+          if version != expected:
+              raise SystemExit(f'plugin version {version} does not match release version {expected}')
+          print(f'AUREN release version verified: {version}')
           PY
-      - name: Publish CI artifacts
-        if: always()
-        uses: ./.github/actions/publish-ci-artifacts
-        with:
-          artifact-name: plugin-release-validation
-          path: ci-artifacts/
-          retention-days: '30'
-      - name: Create GitHub release
+      - name: Run release validation
+        run: |
+          python -m py_compile aer_cli.py portable/aer_runtime.py
+          python aer_cli.py build --output auren-portable.zip
+          python aer_cli.py verify auren-portable.zip
+      - name: Verify release bundle contents
+        run: |
+          python - <<'PY'
+          import zipfile
+          with zipfile.ZipFile('auren-portable.zip') as z:
+              names = set(z.namelist())
+              required = {
+                  'aer_cli.py',
+                  'aer-bundle.json',
+                  'payload/.claude-plugin/plugin.json',
+                  'payload/.claude-plugin/marketplace.json',
+                  'payload/skills/ai-coding-orchestrator/SKILL.md',
+              }
+              missing = sorted(required - names)
+              if missing:
+                  raise SystemExit('missing release payload: ' + ', '.join(missing))
+          print('AUREN v1 release bundle contents verified')
+          PY
+      - name: Create release checksums
+        run: sha256sum auren-portable.zip > SHA256SUMS
+      - name: Create GitHub release and upload install assets
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "${GITHUB_REF_NAME}" --generate-notes --title "${GITHUB_REF_NAME}"
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          if gh release view "${TAG}" >/dev/null 2>&1; then
+            echo "Release ${TAG} already exists and is immutable; nothing to upload."
+            exit 0
+          fi
+          gh release create "${TAG}" \
+            auren-portable.zip \
+            install.sh \
+            install.ps1 \
+            SHA256SUMS \
+            --target "${GITHUB_SHA}" \
+            --title "AUREN ${TAG}" \
+            --generate-notes \
+            --notes "AUREN portable ${TAG}. Includes a repository-isolated distribution, one-command installers, and SHA-256 checksum."

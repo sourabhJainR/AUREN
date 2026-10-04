@@ -1,13 +1,13 @@
 {
   "name": "adaptive-ai-coding-orchestrator",
   "description": "Adaptive repository-aware engineering control plane for coding, debugging, research, POCs, reviews and safe changes, with capability-aware providers, durable memory, procedural skills, bounded delegation, secure tools, verification and evidence-backed learning.",
-  "version": "22.1.0",
+  "version": "1.0.2",
   "author": {
-    "name": "AER Engineering",
-    "url": "https://github.com/sourabhJainR/Hello_world_With_Structure"
+    "name": "AUREN Engineering",
+    "url": "https://github.com/sourabhJainR/AUREN"
   },
-  "homepage": "https://github.com/sourabhJainR/Hello_world_With_Structure",
-  "repository": "https://github.com/sourabhJainR/Hello_world_With_Structure",
+  "homepage": "https://github.com/sourabhJainR/AUREN",
+  "repository": "https://github.com/sourabhJainR/AUREN",
   "license": "MIT",
   "keywords": [
     "ai-coding",
