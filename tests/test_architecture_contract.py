@@ -24,7 +24,7 @@ class ArchitectureContractTests(unittest.TestCase):
         self.assertIsNone(validate())
 
     def test_contract_is_yaml_compatible_json(self) -> None:
-        self.assertEqual(load_contract()["architecture"]["short_name"], "AER")
+        self.assertEqual(load_contract()["architecture"]["short_name"], "AUREN")
 
     def test_enforcement_points_exist(self) -> None:
         contract = load_contract()
