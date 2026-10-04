@@ -114,7 +114,7 @@ See [`docs/LOCAL_OFFLOAD.md`](docs/LOCAL_OFFLOAD.md) for the API and safety mode
 
 ## Engineering lifecycle and evidence
 
-The twelve-phase engineering evolution control plane is available through `portable.engineering_evolution.EngineeringEvolutionControlPlane`, spanning canonical evidence, evidence graph, predictive feedback, AER compaction, impact/failure prediction, historical decomposition, provider calibration, cross-project validation, graduation, benchmark gates, and Ollama-independent embedded local LLM execution.
+The twelve-phase engineering evolution control plane is available through `portable.engineering_evolution.EngineeringEvolutionControlPlane`, spanning canonical evidence, evidence graph, predictive feedback, AUREN compaction, impact/failure prediction, historical decomposition, provider calibration, cross-project validation, graduation, benchmark gates, and Ollama-independent embedded local LLM execution.
 
 The canonical `EngineeringEvidenceEnvelope` carries immutable lifecycle references from context through changeset, verification, review, learning and release without duplicating evidence claims. See [`docs/CANONICAL_ENGINEERING_EVIDENCE_ENVELOPE.md`](docs/CANONICAL_ENGINEERING_EVIDENCE_ENVELOPE.md).
 
@@ -300,7 +300,7 @@ python ~/.auren/current/auren_cli.py dashboard --project-root /path/to/your/repo
 Windows PowerShell:
 
 ~~~powershell
-python "$HOME\\.aer\\current\\auren_cli.py" dashboard --project-root "C:\\path\\to\\your\\repository"
+python "$HOME\\.auren\\current\\auren_cli.py" dashboard --project-root "C:\\path\\to\\your\\repository"
 ~~~
 
 Then open http://127.0.0.1:8765.
@@ -311,7 +311,7 @@ If the default port is busy:
 python ~/.auren/current/auren_cli.py dashboard --project-root /path/to/your/repository --port 8876
 ~~~
 
-The dashboard uses the selected project root for repository intelligence and existing AER state. It does not expose source contents, prompts, credentials, or provide write/execution APIs.
+The dashboard uses the selected project root for repository intelligence and existing AUREN state. It does not expose source contents, prompts, credentials, or provide write/execution APIs.
 
 See [dashboard/README.md](dashboard/README.md) for installation-path details, Windows/Linux/macOS commands, remote access through SSH tunneling, health checks, troubleshooting, and the direct module invocation.
 
@@ -355,10 +355,10 @@ Execution journals, telemetry, caches, worktrees, and Python caches remain outsi
 
 ## Repository isolation and safety
 
-Installing, updating, or rolling back AER does not:
+Installing, updating, or rolling back AUREN does not:
 
 - add AUREN distribution files to the target repository;
-- modify project source, tests, manifests, or configuration merely to install AER;
+- modify project source, tests, manifests, or configuration merely to install AUREN;
 - modify Git remotes, hooks, branches, or ignore rules;
 - silently modify MCP configuration, credentials, permissions, production access, or merge authority;
 - allow learned behavior to weaken immutable safety or security controls.
@@ -386,7 +386,7 @@ Independent read-only work can be parallelized. Mutating agents are serialized b
 ```text
 AUREN/
 ├── .ai-harness/                 # adaptive harness, policies, runtime and lifecycle
-├── portable/                    # dependency-light distributable AER runtime
+├── portable/                    # dependency-light distributable AUREN runtime
 ├── agency/                      # upstream agency assets and provenance
 ├── skills/                      # canonical local agent skills
 ├── .agents/                     # compatibility/agent skill surfaces
@@ -441,7 +441,7 @@ Review this change for correctness, compatibility, security, regression risk, ob
 
 ## Design principle
 
-**Use AI for engineering speed; use AER for engineering discipline.**
+**Use AI for engineering speed; use AUREN for engineering discipline.**
 
 ## Product Architecture
 
