@@ -1,10 +1,11 @@
-"""Portable AER runtime package."""
+"""Portable AUREN runtime package."""
 
 from .adaptive_runtime import AdaptiveRuntime
 from .adaptive_learning import AdaptiveLearningStore, DeferredLearningJob, WorkStyleProfile
 from .adaptive_tuning import AdaptivePolicy, AdaptiveTuner, ExperienceRecord, MaintenanceReceipt, TuningDecision
 from .empirical_improvement import EmpiricalImprovement, ImprovementObservation, ImprovementReport
 from .aer_runtime import main
+from .auren_domains import AurenDomain, DOMAINS, DOMAIN_BY_KEY, canonical_domain_keys, domain_for
 from .impact_analysis import ImpactRecord, ImpactReport, analyze
 from .lifecycle_hooks import HookBus, HookDecision, HookEvent, HookPhase, HookedExecution
 from .provider_fabric import CapabilityRequest, ProviderCapability, ProviderFabric, RoutingDecision
@@ -77,7 +78,7 @@ from .regression_corpus import RegressionCase, RegressionCorpus
 from .engineering_dashboard import DashboardSnapshot, EngineeringDashboard
 
 __all__ = [
-    "main", "AdaptiveRuntime", "AdaptiveLearningStore", "DeferredLearningJob", "WorkStyleProfile", "AdaptivePolicy", "AdaptiveTuner", "ExperienceRecord", "MaintenanceReceipt", "TuningDecision", "EmpiricalImprovement", "ImprovementObservation", "ImprovementReport",
+    "main", "AurenDomain", "DOMAINS", "DOMAIN_BY_KEY", "canonical_domain_keys", "domain_for", "AdaptiveRuntime", "AdaptiveLearningStore", "DeferredLearningJob", "WorkStyleProfile", "AdaptivePolicy", "AdaptiveTuner", "ExperienceRecord", "MaintenanceReceipt", "TuningDecision", "EmpiricalImprovement", "ImprovementObservation", "ImprovementReport",
     "EpisodeSkillEvolution", "EpisodeSkillReplayCorpus", "ReplayCase", "ReplayResult", "SkillEvolutionResult", "RegressionCase", "RegressionCorpus", "DashboardSnapshot", "EngineeringDashboard",
     "HookBus", "HookDecision", "HookEvent", "HookPhase", "HookedExecution",
     "CapabilityRequest", "ProviderCapability", "ProviderFabric", "RoutingDecision", "SessionCheckpoint", "SessionStore",
