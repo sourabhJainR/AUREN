@@ -53,7 +53,7 @@ def export_campaign_request(request: SealedCampaignRequest) -> bytes:
 def import_campaign_request(raw: bytes) -> SealedCampaignRequest:
     from .sealed_arena_boundary import SealedCaseEnvelope
     payload = _decode(raw, "campaign_request")
-    cases = tuple(SealedCaseEnvelope(**case) for case in payload.get("cases", ()))
+    cases = tuple(SealedCaseEnvelope(**{**case, "transfer_dimensions": tuple(case.get("transfer_dimensions", ()))}) for case in payload.get("cases", ()))
     return SealedCampaignRequest(payload["campaign_digest"], payload["corpus_digest"], cases)
 
 
