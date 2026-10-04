@@ -1,0 +1,60 @@
+name: AUREN cleanup contract
+
+on:
+  pull_request:
+    paths:
+      - 'docs/CLEANUP_PROTECTED_ARTIFACTS.yml'
+      - 'docs/REPOSITORY_CLEANUP_AND_ROLLBACK.md'
+      - 'README.md'
+      - 'site/**'
+      - 'docs/index.html'
+      - 'docs/404.html'
+      - '.github/workflows/**'
+  push:
+    branches: [main]
+    paths:
+      - 'docs/CLEANUP_PROTECTED_ARTIFACTS.yml'
+      - 'docs/REPOSITORY_CLEANUP_AND_ROLLBACK.md'
+      - 'README.md'
+      - 'site/**'
+      - 'docs/index.html'
+      - 'docs/404.html'
+      - '.github/workflows/**'
+
+permissions:
+  contents: read
+
+jobs:
+  protected-artifacts:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Validate cleanup governance contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f docs/CLEANUP_PROTECTED_ARTIFACTS.yml
+          test -f docs/REPOSITORY_CLEANUP_AND_ROLLBACK.md
+
+          required=(
+            "README.md"
+            ".github/workflows/deploy-pages.yml"
+            "site/index.html"
+            "site/404.html"
+            "docs/index.html"
+            "docs/404.html"
+            "docs/GITHUB_PAGES.md"
+          )
+
+          for path in "${required[@]}"; do
+            test -f "$path" || {
+              echo "::error::Protected AUREN artifact is missing: $path"
+              exit 1
+            }
+          done
+
+          grep -q "Repository cleanup and rollback governance" README.md
+          grep -q "cleanup regression" docs/REPOSITORY_CLEANUP_AND_ROLLBACK.md
+          grep -q "Rollback strategy" docs/REPOSITORY_CLEANUP_AND_ROLLBACK.md
+          echo "AUREN cleanup contract and protected presence artifacts are intact."
