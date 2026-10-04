@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import json
+import os
 import sys
 import unittest
 
@@ -29,11 +29,16 @@ class ExternalEvaluatorGatewayTests(unittest.TestCase):
             )
 
     def test_external_process_does_not_inherit_secrets(self) -> None:
-        command = ExternalEvaluatorCommand((sys.executable, "-c", "import os; raise SystemExit(0 if "PATH" in os.environ and "AUREN_SECRET" not in os.environ else 1)"))
-        evidence = ExternalEvaluatorGateway(SealedArenaBoundary(lambda value: value.signature == "sig")).evaluate(
-            self.request, ExternalEvaluatorCommand((sys.executable, "-c", "import sys; sys.stdin.buffer.read(); sys.stdout.buffer.write(" + repr(export_outcome_receipt(self.receipt)) + ".encode())"))
-        )
-        self.assertEqual(evidence.holdout_pass_rate, 1.0)
+        os.environ["AUREN_SECRET"] = "hidden"
+        try:
+            payload = repr(export_outcome_receipt(self.receipt))
+            script = "import os,sys; sys.stdin.buffer.read(); sys.exit(3) if \"AUREN_SECRET\" in os.environ else None; sys.stdout.buffer.write(" + payload + ".encode())"
+            evidence = ExternalEvaluatorGateway(SealedArenaBoundary(lambda value: value.signature == "sig")).evaluate(
+                self.request, ExternalEvaluatorCommand((sys.executable, "-c", script))
+            )
+            self.assertEqual(evidence.holdout_pass_rate, 1.0)
+        finally:
+            os.environ.pop("AUREN_SECRET", None)
 
     def test_shell_is_not_used(self) -> None:
         command = ExternalEvaluatorCommand((sys.executable, "-c", "import sys; sys.stdout.write(sys.stdin.read())"))
