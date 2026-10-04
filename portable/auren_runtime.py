@@ -24,7 +24,7 @@ from pathlib import Path, PurePosixPath
 
 BUNDLE_FORMAT_VERSION = 2
 BUNDLE_NAME = "auren-portable"
-AUREN_REPOSITORY = "sourabhJainR/Hello_world_With_Structure"
+AUREN_REPOSITORY = "sourabhJainR/AUREN"
 AUREN_BRANCH = "main"
 MANIFEST_NAME = "auren-bundle.json"
 PAYLOAD_ROOT = "payload"
