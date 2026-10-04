@@ -1,4 +1,4 @@
-from portable.independent_transfer_learning_lifecycle import (
+from portable.independent_transfer_learning_lifecycle import (\n    CausalAttributionEstimator,
     CrossDomainTransferMeasurer,
     IndependentBenchmarkGenerator,
     IndependentTransferLearningLifecycle,
@@ -34,11 +34,11 @@ def test_transfer_requires_real_target_domains_and_measures_lift():
     measurement = CrossDomainTransferMeasurer().measure(
         source_domain="code",
         outcomes=(
-            ("code", "control", True, .70, False),
-            ("math", "control", True, .60, False),
-            ("math", "treatment", True, .70, False),
-            ("science", "control", True, .55, False),
-            ("science", "treatment", True, .68, False),
+            ("code", "control", True, .70, False, False),
+            ("math", "control", True, .60, False, True),
+            ("math", "treatment", True, .70, False, True),
+            ("science", "control", True, .55, False, True),
+            ("science", "treatment", True, .68, False, True),
         ),
     )
     assert measurement.target_domains == ("math", "science")
@@ -59,11 +59,11 @@ def test_lifecycle_promotes_only_after_causal_and_transfer_gates():
         transfer=CrossDomainTransferMeasurer().measure(
             source_domain="code",
             outcomes=(
-                ("code", "control", True, .70, False),
-                ("math", "control", True, .60, False),
-                ("math", "treatment", True, .70, False),
-                ("science", "control", True, .55, False),
-                ("science", "treatment", True, .68, False),
+                ("code", "control", True, .70, False, False),
+                ("math", "control", True, .60, False, True),
+                ("math", "treatment", True, .70, False, True),
+                ("science", "control", True, .55, False, True),
+                ("science", "treatment", True, .68, False, True),
             ),
         ),
         fresh_holdout=True,
@@ -85,3 +85,15 @@ def test_rollback_restores_previous_version():
     restored = ledger.rollback("cap", reason="holdout regression")
     assert restored.version == "v1"
     assert ledger.active("cap").version == "v1"
+
+
+def test_causal_attribution_requires_randomization_and_independent_holdout():
+    attribution = CausalAttributionEstimator.estimate(
+        (.60, .62, .61, .59),
+        (.72, .70, .73, .71),
+        randomized=True,
+        independent_holdout=True,
+    )
+    assert attribution.attributable
+    assert attribution.treatment_effect > 0
+    assert attribution.confidence > 0
