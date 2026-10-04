@@ -1,4 +1,5 @@
-from portable.independent_transfer_learning_lifecycle import (\n    CausalAttributionEstimator,
+from portable.independent_transfer_learning_lifecycle import (
+    CausalAttributionEstimator,
     CrossDomainTransferMeasurer,
     IndependentBenchmarkGenerator,
     IndependentTransferLearningLifecycle,
