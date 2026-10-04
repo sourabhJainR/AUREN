@@ -356,7 +356,8 @@ class IndependentTransferLearningLifecycle:
 
 
 __all__ = [
-    "GeneratedBenchmark", "IndependentBenchmarkGenerator", "CausalAttribution",\n    "CausalAttributionEstimator",
+    "GeneratedBenchmark", "IndependentBenchmarkGenerator", "CausalAttribution",
+    "CausalAttributionEstimator",
     "DomainTransferMeasurement", "CrossDomainTransferMeasurer",
     "LifecyclePromotionRecord", "PromotionRollbackLedger",
     "LifecycleResult", "IndependentTransferLearningLifecycle",
