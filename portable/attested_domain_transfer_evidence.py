@@ -9,7 +9,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Mapping, Sequence
 
-from .attestation_freshness import FreshEvaluationAttestation, FreshnessAwareAttestor
 from .sealed_cross_domain_arena import CrossDomainCampaign
 from .attested_cross_project_transfer import (
     AttestedCrossProjectTransferEvaluator,
@@ -21,6 +20,7 @@ from .attested_cross_project_transfer import (
 @dataclass(frozen=True, slots=True)
 class DomainTransferEvidence:
     observations: tuple[ProjectTransferObservation, ...]
+    domains: tuple[str, ...]
     assessment: CrossProjectTransferAssessment
 
 
@@ -55,11 +55,13 @@ class AttestedDomainTransferEvidenceBuilder:
             raise ValueError("campaign has no domain cases")
         attested_ids = {a.evidence_digest for a in attestations if a.trustworthy}
         observations: list[ProjectTransferObservation] = []
+        observed_domains: set[str] = set()
         for case_id, (success, regression, evidence_digest) in results.items():
             if case_id not in domain_by_case:
                 raise ValueError(f"result references unknown domain case: {case_id}")
             if evidence_digest not in attested_ids:
                 raise ValueError(f"result lacks trustworthy independent attestation: {case_id}")
+            observed_domains.add(domain_by_case[case_id])
             observations.append(
                 ProjectTransferObservation(
                     source_project=source_project,
@@ -72,7 +74,8 @@ class AttestedDomainTransferEvidenceBuilder:
                     attestation_digest=evidence_digest,
                 )
             )
-        domains_observed = {domain_by_case[o.attestation_digest] for o in ()}
+        if len(observed_domains) < 2:
+            raise ValueError("transfer evidence must cover at least two domains")
         if len(observations) < min_samples:
             raise ValueError("insufficient attested transfer observations")
         assessment = self.evaluator.evaluate(
@@ -81,7 +84,7 @@ class AttestedDomainTransferEvidenceBuilder:
             min_samples=min_samples,
             min_transfer_rate=min_transfer_rate,
         )
-        return DomainTransferEvidence(tuple(observations), assessment)
+        return DomainTransferEvidence(tuple(observations), tuple(sorted(observed_domains)), assessment)
 
 
 __all__ = ["DomainTransferEvidence", "AttestedDomainTransferEvidenceBuilder"]
