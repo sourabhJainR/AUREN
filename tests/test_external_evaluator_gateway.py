@@ -31,7 +31,7 @@ class ExternalEvaluatorGatewayTests(unittest.TestCase):
     def test_external_process_does_not_inherit_secrets(self) -> None:
         os.environ["AUREN_SECRET"] = "hidden"
         try:
-            payload = repr(export_outcome_receipt(self.receipt))
+            payload = repr(export_outcome_receipt(self.receipt).decode("utf-8"))
             script = "import os,sys; sys.stdin.buffer.read(); sys.exit(3) if \"AUREN_SECRET\" in os.environ else None; sys.stdout.buffer.write(" + payload + ".encode())"
             evidence = ExternalEvaluatorGateway(SealedArenaBoundary(lambda value: value.signature == "sig")).evaluate(
                 self.request, ExternalEvaluatorCommand((sys.executable, "-c", script))
