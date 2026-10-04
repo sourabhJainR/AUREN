@@ -14,7 +14,7 @@ class SealedArenaBoundaryTests(unittest.TestCase):
         receipt = ExternalOutcomeReceipt("campaign-d", "corpus-d", "evaluator", "oracle", "sig", (("case-1", True, "evidence-d"),))
         evidence = SealedArenaBoundary(lambda value: value.signature == "sig").accept(self.request, receipt)
         self.assertEqual(evidence.holdout_pass_rate, 1.0)
-        self.assertEqual(evidence.verified_case_count, 1)
+        self.assertEqual(evidence.result_case_count, 1)
 
     def test_rejects_benchmark_answer_material(self) -> None:
         with self.assertRaises(ValueError):
