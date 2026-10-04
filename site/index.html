@@ -19,7 +19,7 @@ pre{overflow:auto;background:#050b14;border:1px solid var(--line);border-radius:
 <body>
 <nav><div class="wrap inner"><strong>AUREN</strong><span><a href="#system">System</a><a href="#demo">Demo</a><a href="#results">Results</a><a href="#deploy">Deploy</a><a href="https://github.com/sourabhJainR/AUREN">GitHub</a></span></div></nav>
 <header class="hero wrap">
-<div class="eyebrow">Autonomous Unified Reasoning &amp; Engineering Network</div>
+<div class="eyebrow">Autonomous Unified Reasoning &amp; Engineering Network · v1.0.4</div>
 <h1>AI engineering that learns from evidence.</h1>
 <p>AUREN is a provider-neutral AI engineering system that turns software work into a bounded, auditable learning loop: understand the repository, plan, execute, verify, review, record evidence, evaluate what actually transfers, and promote or roll back learned strategies only when the gates pass.</p>
 <div class="buttons"><a class="btn primary" href="#demo">See the demo</a><a class="btn" href="https://github.com/sourabhJainR/AUREN">View source</a><a class="btn" href="#deploy">Deploy AUREN</a></div>
@@ -92,16 +92,27 @@ and report open risks.</code></pre>
 
 <section id="deploy"><div class="wrap">
 <h2>Deploy AUREN</h2><p class="lead">AUREN already has a portable distribution. The website itself is a static GitHub Pages site and does not require a server runtime.</p>
-<h3>1. Install from the repository</h3>
+<h3>1. Install the latest release</h3>
+<pre><code>curl -fsSL https://raw.githubusercontent.com/sourabhJainR/AUREN/main/install.sh | bash</code></pre>
+<p>Windows PowerShell:</p>
+<pre><code>irm https://raw.githubusercontent.com/sourabhJainR/AUREN/main/install.ps1 | iex</code></pre>
+<h3>2. Build and verify from source</h3>
 <pre><code>git clone https://github.com/sourabhJainR/AUREN.git
 cd AUREN
 python auren_cli.py build --output auren-portable.zip
 python auren_cli.py verify auren-portable.zip
-python auren_cli.py auren-portable.zip</code></pre>
-<h3>2. Start the engineering console</h3>
+python auren_cli.py install auren-portable.zip --skill auto</code></pre>
+<h3>3. Upgrade, rollback and uninstall</h3>
+<pre><code>python ~/.auren/current/auren_cli.py check-update
+python ~/.auren/current/auren_cli.py update
+python ~/.auren/current/auren_cli.py rollback</code></pre>
+<p>Before deleting <code>~/.auren</code>, uninstall any AUREN maintenance service using the matching <code>user</code> or <code>system</code> scope.</p>
+<pre><code>python ~/.auren/current/portable/maintenance_service.py --scope user uninstall
+rm -rf ~/.auren</code></pre>
+<h3>4. Start the engineering console</h3>
 <pre><code>python ~/.auren/current/auren_cli.py dashboard \
   --project-root /path/to/your/repository</code></pre>
-<h3>3. Deploy this documentation site</h3>
+<h3>5. Deploy this documentation site</h3>
 <p>GitHub Pages can publish a repository directly or through a GitHub Actions workflow. This site uses the Actions path so the static <code>site/</code> directory is deployed on every push to <code>main</code>.</p>
 <pre><code>Repository Settings
   → Pages
@@ -120,8 +131,9 @@ site/index.html</code></pre>
 <section><div class="wrap">
 <h2>Documentation map</h2>
 <div class="grid">
-<div class="card"><h3>Architecture</h3><p><a href="https://github.com/sourabhJainR/AUREN/blob/main/README.md">README and system overview</a><br><a href="https://github.com/sourabhJainR/AUREN/blob/main/docs/DEPLOYMENT.md">Deployment</a></p></div>
+<div class="card"><h3>Architecture</h3><p><a href="https://github.com/sourabhJainR/AUREN/blob/main/README.md">README and system overview</a><br><a href="https://github.com/sourabhJainR/AUREN/blob/main/docs/ARCHITECTURE_CURRENT.md">Current architecture</a><br><a href="https://github.com/sourabhJainR/AUREN/blob/main/docs/DEPLOYMENT.md">Deployment</a></p></div>
 <div class="card"><h3>Evidence lifecycle</h3><p><a href="https://github.com/sourabhJainR/AUREN/blob/main/docs/INDEPENDENT_TRANSFER_LIFECYCLE.md">Independent transfer lifecycle</a><br><a href="https://github.com/sourabhJainR/AUREN/blob/main/docs/REGRESSION_CANARY.md">Regression and canary controls</a></p></div>
+<div class="card"><h3>Integrations</h3><p><a href="https://github.com/sourabhJainR/AUREN/blob/main/docs/USAGE_AND_PLATFORM_INTEGRATION.md">Claude, Codex, Copilot, Gemini, MCP and local LLMs</a></p></div>
 <div class="card"><h3>Runtime</h3><p><a href="https://github.com/sourabhJainR/AUREN/tree/main/portable">Portable runtime</a><br><a href="https://github.com/sourabhJainR/AUREN/tree/main/examples">Examples</a></p></div>
 </div>
 </div></section>

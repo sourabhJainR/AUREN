@@ -1,492 +1,313 @@
-# Usage and Platform Integration
+# AUREN Usage and Platform Integration
 
-This guide explains how to use Adaptive AI Coding Orchestrator as a portable engineering operating layer with Claude Code, Codex CLI, Gemini CLI, and other Agent Skills-compatible hosts.
+AUREN is a provider-neutral engineering runtime. The canonical runtime, state and package names are AUREN; no host integration is a hard dependency.
 
-## 1. Mental model
+## 1. Install AUREN
 
-You do not need to learn an internal command language.
+### Latest release
 
-Describe the outcome:
+Linux/macOS:
 
-```text
-Fix duplicate tenant export rows without changing the public API.
-```
+~~~bash
+curl -fsSL https://raw.githubusercontent.com/sourabhJainR/AUREN/main/install.sh | bash
+~~~
 
-The orchestrator should infer the workflow, inspect repository conventions, grill consequential ambiguity, build a compact contract, gather targeted evidence, make the smallest safe change, verify it, and report remaining risks.
+Windows PowerShell:
 
-The normal spine is:
+~~~powershell
+irm https://raw.githubusercontent.com/sourabhJainR/AUREN/main/install.ps1 | iex
+~~~
 
-```text
-Request
-  -> classify
-  -> grill if needed
-  -> compact specification
-  -> targeted repository evidence
-  -> implementation / research / POC / debug / review
-  -> verification
-  -> independent review when warranted
-  -> handoff + evidence
-```
+### Exact release
 
-For small, settled work, stages are skipped. Do not force every task through the complete spine.
+~~~bash
+AUREN_VERSION=v1.0.4 curl -fsSL https://raw.githubusercontent.com/sourabhJainR/AUREN/main/install.sh | bash
+~~~
 
-## 2. Install once
+The installer installs the immutable runtime under `~/.auren` and does not modify the target repository.
 
-Clone the repository somewhere stable:
+### Source checkout
 
-```bash
-git clone https://github.com/sourabhJainR/Hello_world_With_Structure.git
+~~~bash
+git clone https://github.com/sourabhJainR/AUREN.git
 cd AUREN
-```
+python auren_cli.py build --output auren-portable.zip
+python auren_cli.py verify auren-portable.zip
+python auren_cli.py install auren-portable.zip --skill auto
+~~~
 
-Validate it before installing:
+## 2. Upgrade, rollback and uninstall
 
-```bash
-python3 scripts/validate_plugin.py
-python3 scripts/run_evals.py
-python3 -m unittest discover -s tests -v
-```
+Check for an update:
 
-Install the local skill/plugin using the repository installer when supported:
+~~~bash
+python ~/.auren/current/auren_cli.py check-update
+~~~
 
-```bash
-./install.sh
-```
+Upgrade:
 
-Or:
+~~~bash
+python ~/.auren/current/auren_cli.py update
+~~~
 
-```bash
-python3 scripts/install_skill.py --auto
-```
+Rollback to the previous pinned installation:
 
-The installer backs up existing files and does not silently install third-party tools or change MCP/permissions.
+~~~bash
+python ~/.auren/current/auren_cli.py rollback
+~~~
 
-## 3. Claude Code
+A rollback is deliberately previous-version based. There is no arbitrary `--version` rollback flag.
 
-Claude Code supports filesystem-based Agent Skills. A project skill lives under `.claude/skills/<skill-name>/SKILL.md`; a personal skill can live under `~/.claude/skills/<skill-name>/SKILL.md`. Claude can discover skills automatically and they can also be invoked explicitly. citeturn0search0turn0search10
+Before deleting `~/.auren`, uninstall any service that was installed:
 
-### Recommended project setup
+~~~bash
+python ~/.auren/current/portable/maintenance_service.py --scope user uninstall
+rm -rf ~/.auren
+~~~
 
-From the repository root, expose the orchestrator as a project skill through the package/install mechanism, or link/copy the skill directory into:
+For a system-scoped service use `--scope system` with the required privileges.
 
-```text
-.claude/skills/adaptive-ai-coding-orchestrator/
-```
+Older installations may have left `~/.aer`; remove that directory only after any legacy service has been stopped/uninstalled:
 
-The directory should contain the existing `SKILL.md` and its referenced resources.
+~~~bash
+rm -rf ~/.aer
+~~~
 
-Then start Claude Code in the target repository:
+## 3. Canonical package layout
 
-```bash
-cd ~/src/my-service
-claude
-```
+The public package uses one naming scheme:
 
-Check that the skill is discovered using Claude Code's skills interface if available, or invoke it explicitly with its skill name. Claude Code also watches skill directories for changes during a session in supported locations. citeturn0search0
+~~~text
+AUREN/
+~/.auren/
+auren_cli.py
+auren-portable.zip
+auren-bundle.json
+portable/auren_runtime.py
+portable/auren_console.py
+auren-core/
+~~~
 
-### Real Claude Code task
+Legacy public/runtime names such as `aer_cli.py`, `aer-portable.zip`, `aer-bundle.json`, `.aer/`, and `aer-core/` are not part of the current distribution contract.
 
-```text
-Implement JIRA-4821: add tenant-level export filtering.
+## 4. Claude Code
 
-Requirements:
-- preserve the existing public API
-- follow the repository's existing authorization/filtering pattern
-- add regression coverage
-- do not refactor unrelated code
+AUREN ships the Agent Skill under:
 
-Start by grilling any ambiguity and inspect the existing export flow before changing code.
-```
+~~~text
+skills/ai-coding-orchestrator/
+~~~
 
-Expected orchestration:
+For a repository-local setup, link or copy that skill into:
 
-```text
-Jira/task
-  -> identify repository rules
-  -> inspect export entry point
-  -> trace authorization/filtering
-  -> identify data model and callers
-  -> create compact contract
-  -> implement minimal change
-  -> run focused tests
-  -> run relevant regression tests
-  -> architecture/operational review
-  -> final evidence
-```
+~~~text
+.claude/skills/ai-coding-orchestrator/
+~~~
 
-If the requirement is already completely settled, the system should not waste a turn asking questions.
+The portable installer can also activate the Claude integration when Claude Code is installed:
 
-## 4. Claude Code: research mode
+~~~bash
+python ~/.auren/current/auren_cli.py update --skill claude
+~~~
 
-Ask explicitly for research when you do not want code changes:
-
-```text
-Research why the reporting API can time out under high-cardinality tenant queries.
-Do not modify files.
-Trace the actual repository flow and use logs/tests/configuration if available.
-Separate facts, inferences, and unknowns.
-Give me a detailed evidence-backed report.
-```
-
-The result should contain evidence, flow, findings, unknowns, and confidence rather than a speculative explanation.
-
-## 5. Claude Code: POC mode
-
-Use POC when feasibility is unknown:
-
-```text
-Build a disposable POC to determine whether the current serializer can process
-1 million records under 500 ms p95. Do not productionize the POC.
-Define the experiment, success threshold, measurement method, and conclusion.
-```
-
-The orchestrator should keep the POC isolated from production architecture and explicitly mark whether any artifact is reusable.
-
-## 6. Codex CLI
-
-Codex supports Agent Skills with `SKILL.md` plus optional scripts, references, and assets. Its skill guidance emphasizes concise skills, progressive disclosure, appropriate degrees of freedom, and validation. Codex also supports `AGENTS.md` for durable repository guidance. citeturn1search1turn1search0
-
-### Recommended setup
-
-Install the orchestrator skill into the Codex skills directory used by your installation, for example:
-
-```text
-$CODEX_HOME/skills/adaptive-ai-coding-orchestrator/
-```
-
-If `CODEX_HOME` is not set, Codex normally uses its user-local configuration under the home directory. Prefer the official Codex skill installer or your existing skill-management mechanism rather than manually changing internal directories. Codex's official skill catalog supports installing skills from GitHub paths. citeturn1search3turn1search7
-
-For a repository-specific setup, keep durable project rules in:
-
-```text
-AGENTS.md
-```
-
-and keep the orchestrator workflow in the skill. Codex documents `AGENTS.md` as a hierarchical instruction surface, while skills are intended for reusable workflows. citeturn1search0turn1search4
-
-### Real Codex task
-
-```text
-$adaptive-ai-coding-orchestrator
-
-Fix the intermittent duplicate-row bug in the tenant export pipeline.
-Do not change the API contract.
-First reproduce or establish the failure path, then identify the root cause.
-Add a regression test and verify unaffected export modes.
-```
-
-If your Codex surface uses the `$skill-name` convention, invoke it as shown above. Codex's app-server interface also accepts an explicit skill input, which avoids skill-name resolution latency. citeturn1search5
-
-### Codex review task
-
-```text
-$adaptive-ai-coding-orchestrator
-
-Review the current diff for:
-1. specification compliance
-2. regression risk
-3. weak architectural boundaries
-4. data-model fragility
-5. error handling
-6. logging/metrics/tracing gaps
-Do not modify files. Return actionable findings with evidence.
-```
-
-## 7. Gemini CLI
-
-Gemini CLI supports the Agent Skills open standard. User skills can live under `~/.gemini/skills/` or `.agents/skills/`, while workspace skills can live under `.gemini/skills/` or `.agents/skills/`. Gemini provides `gemini skills install`, `link`, `enable`, `disable`, and `reload`. citeturn0search1turn0search5
-
-### Install
-
-For a Git repository skill:
-
-```bash
-gemini skills install https://github.com/sourabhJainR/Hello_world_With_Structure.git
-```
-
-If the skill is in a subdirectory, use the appropriate `--path` supported by your Gemini CLI version. For development, linking is convenient:
-
-```bash
-gemini skills link ./skills/ai-coding-orchestrator
-```
-
-Then verify:
-
-```text
-/skills list
-```
-
-Gemini requires consent before activating a skill unless consent is explicitly configured. citeturn0search1turn0search5
-
-### Real Gemini task
-
-```text
-Investigate the checkout timeout reported in JIRA-913.
-Do not modify code yet.
-Trace the request from API entry point through downstream calls.
-Use repository evidence and distinguish facts from inference.
-If the repository has an established telemetry pattern, use it in the analysis.
-```
-
-## 8. Other Agent Skills-compatible platforms
-
-The core skill follows the Agent Skills shape: a directory containing `SKILL.md`, with optional references, scripts, and assets. This makes the workflow portable across hosts that implement the standard. Claude Code and Gemini CLI both document this model, and Codex has adopted the same structure. citeturn0search0turn0search1turn1search1
-
-For an unsupported host:
-
-1. Find its skill discovery directory.
-2. Install/link `skills/ai-coding-orchestrator/` there.
-3. Preserve the `SKILL.md` frontmatter required by that host.
-4. Keep repository-specific rules in the host's native project instruction file.
-5. Start with a read-only research/review task.
-6. Confirm discovery and activation.
-7. Run the deterministic repository evals.
-8. Only then enable implementation workflows.
-
-Do not assume every host supports automatic invocation, explicit slash commands, subagents, MCP, hooks, or permission controls. Use the host adapter only for capabilities it actually provides.
-
-## 9. Using the system with code-mem and Graphify
-
-These are optional evidence providers, not prerequisites.
+Then start Claude Code in the target repository and give the task in normal language. Keep repository-specific constraints in the repository's native instruction files.
 
 Example:
 
-```text
-Investigate why changing the customer hierarchy causes stale report values.
-Use the repository graph/memory capability if available.
-Trace callers and downstream dependencies before proposing a fix.
-Do not modify code.
-```
+~~~text
+Fix the failing payment export test.
+Inspect repository instructions first.
+Trace the failure with evidence.
+Make the smallest compatible change.
+Add regression coverage and verify the result.
+Do not change unrelated behavior.
+~~~
 
-Expected behavior:
+## 5. Claude Desktop / MCP
 
-```text
-Task
- -> detect code-mem/Graphify availability
- -> query only relevant symbols/relationships
- -> rank evidence
- -> inspect source
- -> produce evidence-backed flow
-```
+If the host supports local MCP servers, register AUREN's stdio MCP server:
 
-If the provider is unavailable, continue with repository-native search and source inspection. Never fail the entire workflow because an optional provider is absent.
+~~~json
+{
+  "mcpServers": {
+    "auren": {
+      "command": "python",
+      "args": ["/absolute/path/to/.auren/current/portable/agency_mcp.py"]
+    }
+  }
+}
+~~~
 
-## 10. Using the system with Jira
+Use the MCP configuration mechanism provided by the installed Claude Desktop version. Do not copy this JSON into an unrelated host configuration file.
 
-A Jira issue can be supplied directly when the host has Jira access:
+MCP is an integration surface, not the source of AUREN's planning, verification or learning authority.
 
-```text
-Implement PROJ-1842.
-Before coding, reconstruct the acceptance criteria and non-goals from the issue,
-then inspect the repository for the existing implementation pattern.
-Ask only questions that materially affect the implementation.
-```
+## 6. Codex CLI and ChatGPT Work
 
-If Jira integration is unavailable, paste the issue or provide its exported text. Do not invent missing acceptance criteria.
+For Codex CLI, expose the same `skills/ai-coding-orchestrator/` Agent Skill through the supported skills directory, or use the repository's `AGENTS.md` for durable project rules.
 
-## 11. The four common modes
+For ChatGPT/Codex/ChatGPT Work environments, use the product's supported Agent Skills, MCP or connected-tool mechanism when available. Do not assume a managed or hosted environment can read a local filesystem configuration.
+
+A safe pattern is:
+
+~~~text
+AUREN owns repository inspection, planning, evidence, verification and learning.
+The host LLM provides model reasoning.
+The host must not bypass AUREN's verification, Guard or Arena evidence gates.
+~~~
+
+## 7. GitHub Copilot
+
+For repository-specific Copilot use, keep durable rules in:
+
+~~~text
+AGENTS.md
+.github/copilot-instructions.md
+~~~
+
+AUREN's Agent Skill can be exposed through a Copilot-supported skills location such as `.github/skills/`, `.claude/skills/`, or `.agents/skills/`.
+
+Where MCP is supported, connect AUREN's MCP server. Otherwise, invoke AUREN's CLI separately and use the resulting evidence/report in the Copilot workflow.
+
+Do not make Copilot a hard dependency of AUREN.
+
+## 8. Gemini CLI
+
+Gemini CLI supports the Agent Skills format. Install the AUREN skill from the repository:
+
+~~~bash
+gemini skills install https://github.com/sourabhJainR/AUREN.git --path skills/ai-coding-orchestrator
+~~~
+
+Or link a local checkout:
+
+~~~bash
+gemini skills link ./skills/ai-coding-orchestrator
+~~~
+
+Verify discovery:
+
+~~~text
+/skills list
+~~~
+
+If you use the workspace scope, use the scope option supported by your installed Gemini CLI version.
+
+Gemini can also connect to an AUREN MCP server where MCP is enabled:
+
+~~~bash
+gemini mcp add auren python /absolute/path/to/.auren/current/portable/agency_mcp.py --scope user
+~~~
+
+## 9. Grok, Kimi and other released LLM hosts
+
+Do not assume a provider-specific feature exists.
+
+Use the strongest supported AUREN surface in this order:
+
+1. Agent Skills, when the host supports the standard.
+2. MCP, when the host supports local or remote MCP.
+3. CLI/tool calling, when the host can execute local commands.
+4. HTTP/API adapter, when an authenticated AUREN service is explicitly deployed.
+5. Chat-only operation, where AUREN runs separately and its evidence/report is supplied to the model.
+
+The host model remains replaceable. AUREN's execution, verification, evidence and learning contracts remain provider-neutral.
+
+## 10. Local LLMs
+
+A local model can be used without changing the AUREN architecture:
+
+~~~text
+Local LLM
+    |
+    v
+AUREN provider adapter
+    |
+    +--> context / retrieval
+    +--> planning / routing
+    +--> tool execution
+    +--> verification / review
+    +--> evidence / learning
+~~~
+
+The local model is an inference provider, not an authority boundary. AUREN can continue to run with no external model provider when the requested operation is deterministic or uses a configured local backend.
+
+## 11. Optional providers and skills
+
+Third-party skills, memory providers, MCP servers and model providers are optional. AUREN must degrade to repository-native evidence and deterministic execution when an optional provider is unavailable.
+
+Never grant an optional provider more authority than the AUREN policy and Guard contracts allow.
+
+## 12. Operating modes
 
 ### Implement
 
-```text
-Implement JIRA-4821. Preserve existing API behavior and add regression tests.
-```
+~~~text
+Implement the requested change. Inspect repository instructions first, identify the root cause or design constraints with evidence, make the smallest safe change, add regression coverage, verify it, review it, and report open risks.
+~~~
 
 ### Research
 
-```text
-Research the root cause of this latency problem. Do not modify code.
-Use evidence and give a detailed fact/inference/unknown analysis.
-```
+~~~text
+Research the problem without modifying files. Separate repository facts, inferences, unknowns and recommendations. Cite the evidence paths used.
+~~~
 
 ### POC
 
-```text
-Build a disposable experiment to determine whether approach X meets Y.
-Do not productionize it.
-```
+~~~text
+Build a disposable proof of concept. Define the hypothesis, success threshold, experiment, measurement and conclusion. Do not productionize it.
+~~~
 
-### Review / Grill
+### Review
 
-```text
-Grill this PR. Challenge requirements, assumptions, architecture, data model,
-operational behavior, observability, security and regression risk. Do not modify files.
-```
+~~~text
+Review the current change for specification compliance, regression risk, architecture, data model, error handling, observability, security and operational behavior. Do not modify files.
+~~~
 
-## 12. Recommended first run on a new repository
+## 13. Golden path
 
-Do not start with a large implementation task.
+~~~text
+Request
+  -> repository instructions
+  -> targeted evidence
+  -> contract / plan
+  -> implementation or research
+  -> verification
+  -> review
+  -> evidence
+  -> learning only after independent gates
+~~~
 
-Run:
+For small, settled tasks, AUREN may skip unnecessary stages. It should not manufacture process for its own sake.
 
-```text
-Learn this repository enough to work safely.
-Do not modify files.
-Identify:
-- project structure and architectural boundaries
-- build/test commands
-- exception/error-handling pattern
-- logging and telemetry pattern
-- dependency-management pattern
-- testing conventions
-- configuration and deployment conventions
-- repository instructions
-- likely high-risk areas
-Return facts, evidence paths, unknowns, and the minimum context needed for future work.
-```
+## 14. Troubleshooting
 
-Then run a small read-only review:
+### Skill not discovered
 
-```text
-Review one representative feature flow end-to-end.
-Do not modify code.
-Explain the entry point, important components, data flow, error paths,
-tests, and observability using repository evidence.
-```
+Check that `SKILL.md` exists in the host's supported directory, its frontmatter is valid, and the host has refreshed its skill registry.
 
-Only after those checks should you begin significant implementation.
+### Too many questions
 
-## 13. How to reduce back-and-forth
+Tell the host to proceed with bounded assumptions unless a missing answer materially changes correctness, safety, architecture, scope or acceptance.
 
-Give the system five things when known:
+### Optional provider unavailable
 
-```text
-Outcome
-Constraints
-Protected behavior
-Acceptance criteria
-Risk tolerance
-```
+Continue with repository-native retrieval and deterministic verification. Optional integrations must never become a single point of failure.
 
-For example:
+### Need to inspect the runtime
 
-```text
-Outcome: add tenant-level export filtering.
-Constraints: use existing authorization pattern; no new dependency.
-Protected: existing API contract and non-tenant exports.
-Acceptance: filtered rows are correct; existing export tests remain green.
-Risk: medium; production API.
-```
+~~~bash
+python ~/.auren/current/auren_cli.py status --json
+~~~
 
-If you do not know these values, state what you know and let the orchestrator grill only the consequential gaps.
+### Need to verify a downloaded bundle
 
-Avoid saying only:
+~~~bash
+python auren_cli.py verify auren-portable.zip
+~~~
 
-```text
-Make this better.
-```
+## 15. Production boundary
 
-unless you intentionally want the system to begin in discovery/grill mode.
+AUREN is responsible for bounded execution, evidence and learning contracts. The surrounding host remains responsible for its own model credentials, permissions, user approval and platform-specific configuration.
 
-## 14. What the system should report at the end
-
-For implementation:
-
-```text
-DONE
-- what changed
-- files/components changed
-- tests run
-- verification result
-
-EVIDENCE
-- important repository facts
-- relevant test/command output
-
-OPEN RISKS
-- unresolved issues or unknowns
-
-NEXT
-- only if follow-up is genuinely needed
-```
-
-For research:
-
-```text
-QUESTION
-EVIDENCE
-FLOW / FINDINGS
-FACTS
-INFERENCES
-UNKNOWNS
-CONFIDENCE / LIMITATIONS
-RECOMMENDATIONS
-```
-
-For review:
-
-```text
-CRITICAL
-HIGH
-MEDIUM
-LOW
-
-Each finding should contain evidence, impact, and a concrete recommendation.
-```
-
-## 15. Safe rollout
-
-For a team rollout:
-
-1. Start with read-only research and review.
-2. Enable implementation on low-risk repositories.
-3. Keep third-party extensions optional.
-4. Run deterministic evals in CI.
-5. Add a regression eval for every significant orchestrator defect.
-6. Measure time-to-proven-change, model calls, tokens, retries, and verification failures.
-7. Expand permissions only after the workflow is trusted.
-8. Keep production deployment and merge authority outside the default agent permission boundary.
-
-## 16. Troubleshooting
-
-### Skill is not discovered
-
-Check that:
-
-- the directory is in the host's supported skill location;
-- `SKILL.md` exists;
-- required frontmatter is valid;
-- the skill description clearly states when it should trigger;
-- the host has refreshed/reloaded skills;
-- the current repository is within the skill's discovery scope.
-
-### It triggers too often
-
-Narrow the `description`/trigger metadata. Keep always-loaded metadata short and move detailed procedures into references. Claude Code explicitly recommends concise skill bodies because loaded skill content remains in context; Gemini similarly uses metadata-first progressive disclosure. citeturn0search0turn0search1
-
-### It asks too many questions
-
-Tell it to proceed with bounded assumptions unless the missing answer materially changes correctness, safety, architecture, scope, or acceptance.
-
-### It produces speculative research
-
-Use:
-
-```text
-Separate facts, inferences, unknowns, and recommendations.
-Cite the repository/source evidence for every material finding.
-Do not modify code.
-```
-
-### An optional provider is unavailable
-
-Continue without it. The core repository evidence path must remain functional.
-
-## 17. Golden path
-
-For most engineering tasks, this is enough:
-
-```text
-1. Start the agent in the repository.
-2. Install/discover the orchestrator skill.
-3. State the desired outcome in natural language.
-4. Include constraints/protected behavior if known.
-5. Let the orchestrator grill only consequential ambiguity.
-6. Let it inspect repository conventions before changing code.
-7. Let it implement the smallest safe change.
-8. Require tests and regression verification.
-9. Review architecture, operations and observability for meaningful changes.
-10. Inspect DONE / EVIDENCE / OPEN RISKS before merging.
-```
-
-The user should not need to know which internal skill, graph provider, memory provider, model, or retrieval strategy was selected. That is the orchestrator's job.
+AUREN does not silently modify credentials, Git remotes, hooks, production access or merge authority.
