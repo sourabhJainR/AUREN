@@ -58,3 +58,24 @@ jobs:
           grep -q "cleanup regression" docs/REPOSITORY_CLEANUP_AND_ROLLBACK.md
           grep -q "Rollback strategy" docs/REPOSITORY_CLEANUP_AND_ROLLBACK.md
           echo "AUREN cleanup contract and protected presence artifacts are intact."
+
+      - name: Build installable regression artifact
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+      - name: Build and verify portable bundle
+        run: |
+          set -euo pipefail
+          python -m py_compile auren_cli.py portable/auren_runtime.py
+          python auren_cli.py build --output auren-portable.zip
+          python auren_cli.py verify auren-portable.zip
+          sha256sum auren-portable.zip > auren-portable.sha256
+      - name: Publish installable cleanup regression artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: auren-cleanup-regression-installable
+          path: |
+            auren-portable.zip
+            auren-portable.sha256
+          if-no-files-found: error
+          retention-days: '30'
