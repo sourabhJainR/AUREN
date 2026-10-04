@@ -203,3 +203,7 @@ __all__ += ["ExternalOutcomeReceipt", "SealedArenaBoundary", "SealedArenaEvidenc
 from .sealed_arena_exchange import export_campaign_request, import_campaign_request, export_outcome_receipt, import_outcome_receipt
 
 __all__ += ["export_campaign_request", "import_campaign_request", "export_outcome_receipt", "import_outcome_receipt"]
+
+from .external_evaluator_gateway import ExternalEvaluatorCommand, ExternalEvaluatorGateway
+
+__all__ += ["ExternalEvaluatorCommand", "ExternalEvaluatorGateway"]
