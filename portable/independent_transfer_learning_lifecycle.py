@@ -304,11 +304,29 @@ class IndependentTransferLearningLifecycle:
         treatment_scores: Sequence[float] | None = None,
         version: str = "candidate",
     ) -> LifecycleResult:
-        if run_receipt is not None:
-            if run_receipt.corpus_digest != benchmark.request.corpus_digest:
-                raise ValueError("run receipt corpus does not match benchmark")
-            if not run_receipt.trustworthy:
-                raise ValueError("run receipt is not trustworthy")
+        if run_receipt is None:
+            raise ValueError("promotion evaluation requires a sealed execution receipt")
+        if run_receipt.corpus_digest != benchmark.request.corpus_digest:
+            raise ValueError("run receipt corpus does not match benchmark")
+        if run_receipt.manifest_digest != benchmark.manifest.digest:
+            raise ValueError("run receipt manifest does not match benchmark")
+        sealed_holdouts = {case.case_id for case in benchmark.request.cases if case.holdout}
+        if not set(run_receipt.holdout_case_ids) <= sealed_holdouts:
+            raise ValueError("run receipt contains an unsealed holdout case")
+        if not run_receipt.trustworthy:
+            raise ValueError("run receipt is not trustworthy")
+        if not randomized_assignment:
+            raise ValueError("causal attribution requires randomized treatment assignment")
+        if control_scores is not None or treatment_scores is not None:
+            if control_scores is None or treatment_scores is None:
+                raise ValueError("control and treatment score samples must be supplied together")
+            attribution = CausalAttributionEstimator.estimate(
+                control_scores, treatment_scores,
+                randomized=True, independent_holdout=fresh_holdout,
+            )
+            attribution_confidence = attribution.confidence
+            control_score = attribution.control_mean
+            treatment_score = attribution.treatment_mean
         evidence = CausalPromotionEvidence(
             capability_id, intervention_id, baseline_score, control_score,
             treatment_score, holdout_score, attribution_confidence,
