@@ -1,6 +1,6 @@
 # Usage and Platform Integration
 
-This guide explains how to use AUREN as a portable engineering operating layer with Claude Code, Codex CLI, Gemini CLI, and other Agent Skills-compatible hosts.
+This guide explains how to use Adaptive AI Coding Orchestrator as a portable engineering operating layer with Claude Code, Codex CLI, Gemini CLI, and other Agent Skills-compatible hosts.
 
 ## 1. Mental model
 
@@ -35,8 +35,8 @@ For small, settled work, stages are skipped. Do not force every task through the
 Clone the repository somewhere stable:
 
 ```bash
-git clone https://github.com/sourabhJainR/AUREN.git
-cd Hello_world_With_Structure
+git clone https://github.com/sourabhJainR/Hello_world_With_Structure.git
+cd AUREN
 ```
 
 Validate it before installing:
@@ -70,7 +70,7 @@ Claude Code supports filesystem-based Agent Skills. A project skill lives under 
 From the repository root, expose the orchestrator as a project skill through the package/install mechanism, or link/copy the skill directory into:
 
 ```text
-.claude/skills/auren/
+.claude/skills/adaptive-ai-coding-orchestrator/
 ```
 
 The directory should contain the existing `SKILL.md` and its referenced resources.
@@ -151,7 +151,7 @@ Codex supports Agent Skills with `SKILL.md` plus optional scripts, references, a
 Install the orchestrator skill into the Codex skills directory used by your installation, for example:
 
 ```text
-$CODEX_HOME/skills/auren/
+$CODEX_HOME/skills/adaptive-ai-coding-orchestrator/
 ```
 
 If `CODEX_HOME` is not set, Codex normally uses its user-local configuration under the home directory. Prefer the official Codex skill installer or your existing skill-management mechanism rather than manually changing internal directories. Codex's official skill catalog supports installing skills from GitHub paths. citeturn1search3turn1search7
@@ -167,7 +167,7 @@ and keep the orchestrator workflow in the skill. Codex documents `AGENTS.md` as 
 ### Real Codex task
 
 ```text
-$auren
+$adaptive-ai-coding-orchestrator
 
 Fix the intermittent duplicate-row bug in the tenant export pipeline.
 Do not change the API contract.
@@ -180,7 +180,7 @@ If your Codex surface uses the `$skill-name` convention, invoke it as shown abov
 ### Codex review task
 
 ```text
-$auren
+$adaptive-ai-coding-orchestrator
 
 Review the current diff for:
 1. specification compliance
@@ -201,7 +201,7 @@ Gemini CLI supports the Agent Skills open standard. User skills can live under `
 For a Git repository skill:
 
 ```bash
-gemini skills install https://github.com/sourabhJainR/AUREN.git
+gemini skills install https://github.com/sourabhJainR/Hello_world_With_Structure.git
 ```
 
 If the skill is in a subdirectory, use the appropriate `--path` supported by your Gemini CLI version. For development, linking is convenient:
