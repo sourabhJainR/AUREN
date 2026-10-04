@@ -148,8 +148,7 @@ class CrossDomainTransferMeasurer:
             raise ValueError("source_domain is required")
         target_domains = sorted({
             domain for domain, cohort, _success, _score, _regression, holdout in outcomes
-            if holdout
-            if domain != source_domain and cohort == "treatment"
+            if holdout and domain != source_domain and cohort == "treatment"
         })
         if len(target_domains) < minimum_target_domains:
             raise ValueError("insufficient independent target domains")
@@ -300,6 +299,9 @@ class IndependentTransferLearningLifecycle:
         evidence_ids: Iterable[str],
         prior_campaign_digest: str,
         run_receipt: ArenaRunReceipt | None = None,
+        randomized_assignment: bool = False,
+        control_scores: Sequence[float] | None = None,
+        treatment_scores: Sequence[float] | None = None,
         version: str = "candidate",
     ) -> LifecycleResult:
         if run_receipt is not None:
