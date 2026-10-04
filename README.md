@@ -442,3 +442,9 @@ Review this change for correctness, compatibility, security, regression risk, ob
 ## Design principle
 
 **Use AI for engineering speed; use AER for engineering discipline.**
+
+## Product Architecture
+
+AUREN is organized as six canonical domains: **Core** (world/self model, reasoning, goals), **Engine** (planner, StateGraph, agents, resources), **Memory** (episodic, semantic, engineering, evidence graph), **Learning** (experimentation, causal attribution, capability invention, curriculum), **Arena** (independent evaluation, holdouts, transfer, attestation), and **Guard** (security, authority, verification, canary, rollback).
+
+See [the canonical AUREN architecture](docs/ARCHITECTURE_CURRENT.md) for ownership and trust boundaries.
