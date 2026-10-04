@@ -9,9 +9,9 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Release tag to build, for example v1.0.2
+        description: Release tag to build, for example v1.0.3
         required: true
-        default: v1.0.2
+        default: v1.0.3
 
 permissions:
   contents: write
@@ -37,7 +37,7 @@ jobs:
           elif [[ -n "${INPUT_TAG}" ]]; then
             TAG="${INPUT_TAG}"
           else
-            TAG="v1.0.2"
+            TAG="v1.0.3"
           fi
           if [[ ! "${TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "Invalid release tag: ${TAG}"
@@ -52,17 +52,19 @@ jobs:
         run: |
           python - <<'PY'
           import json, os
-          version = json.load(open('.claude-plugin/plugin.json', encoding='utf-8'))['version']
           expected = os.environ['EXPECTED_VERSION']
-          if version != expected:
-              raise SystemExit(f'plugin version {version} does not match release version {expected}')
-          print(f'AUREN release version verified: {version}')
+          canonical = open('VERSION', encoding='utf-8').read().strip()
+          plugin = json.load(open('.claude-plugin/plugin.json', encoding='utf-8'))['version']
+          marketplace = json.load(open('.claude-plugin/marketplace.json', encoding='utf-8'))['plugins'][0]['version']
+          if canonical != expected or plugin != expected or marketplace != expected:
+              raise SystemExit(f'version mismatch: VERSION={canonical} plugin={plugin} marketplace={marketplace} release={expected}')
+          print(f'AUREN release version verified: {expected}')
           PY
       - name: Run release validation
         run: |
-          python -m py_compile aer_cli.py portable/aer_runtime.py
-          python aer_cli.py build --output auren-portable.zip
-          python aer_cli.py verify auren-portable.zip
+          python -m py_compile auren_cli.py portable/auren_runtime.py
+          python auren_cli.py build --output auren-portable.zip
+          python auren_cli.py verify auren-portable.zip
       - name: Verify release bundle contents
         run: |
           python - <<'PY'
@@ -70,8 +72,8 @@ jobs:
           with zipfile.ZipFile('auren-portable.zip') as z:
               names = set(z.namelist())
               required = {
-                  'aer_cli.py',
-                  'aer-bundle.json',
+                  'auren_cli.py',
+                  'auren-bundle.json',
                   'payload/.claude-plugin/plugin.json',
                   'payload/.claude-plugin/marketplace.json',
                   'payload/skills/ai-coding-orchestrator/SKILL.md',

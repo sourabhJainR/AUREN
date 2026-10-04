@@ -1,10 +1,10 @@
-# AER Portable Distribution
+# AUREN Portable Distribution
 
-AUREN is a **machine-scoped, repository-isolated, version-pinned engineering control plane**. Installing, updating, or rolling back AER never vendors its implementation into the repository being worked on.
+AUREN is a **machine-scoped, repository-isolated, version-pinned engineering control plane**. Installing, updating, or rolling back AUREN never vendors its implementation into the repository being worked on.
 
 ## Distribution unit
 
-The bundle contains the current provider-neutral AER runtime and canonical Agent Skill, including routing, bounded context, context cache, learning, policy registry, rollback controls, regression corpus, shadow/canary evaluation, verification, capability planning, provider-native capability discovery, lifecycle hooks, observability, evaluation, and optional-extension contracts.
+The bundle contains the current provider-neutral AUREN runtime and canonical Agent Skill, including routing, bounded context, context cache, learning, policy registry, rollback controls, regression corpus, shadow/canary evaluation, verification, capability planning, provider-native capability discovery, lifecycle hooks, observability, evaluation, and optional-extension contracts.
 
 Mutable machine/session state is excluded from the bundle: execution journals, telemetry, learned task logs, worktrees, caches, and Python caches.
 
@@ -40,12 +40,12 @@ When `CodingTask.workspace_root` is supplied, `run_coding_task()` performs this 
 
 ## Agent observability, evaluation and prompt lifecycle
 
-AER now includes a dependency-free observability layer inspired by the useful parts of modern LLM observability platforms such as Opik: trace trees, spans, scores, datasets, experiments, versioned prompts, and local telemetry. Opik itself is not required at runtime. The goal is to give AER the same engineering feedback loop without coupling the portable bundle to a hosted service.
+AUREN now includes a dependency-free observability layer inspired by the useful parts of modern LLM observability platforms such as Opik: trace trees, spans, scores, datasets, experiments, versioned prompts, and local telemetry. Opik itself is not required at runtime. The goal is to give AUREN the same engineering feedback loop without coupling the portable bundle to a hosted service.
 
 Each coding task can produce a trace containing:
 
 ```text
-AER coding task
+AUREN coding task
   -> planning span
   -> agent execution span
   -> evidence/retrieval span
@@ -76,11 +76,11 @@ prompts.register("planner", "2", "Plan this task safely: {task}")
 prompts.promote("planner", "2")
 ```
 
-Every prompt version has a deterministic digest. AER can therefore associate an agent run with the exact prompt version used and replay it during evaluation.
+Every prompt version has a deterministic digest. AUREN can therefore associate an agent run with the exact prompt version used and replay it during evaluation.
 
 ### Datasets and experiments
 
-Datasets are versioned and content-addressed. Experiments execute a function over the dataset and use a deterministic or LLM-backed judge supplied by the caller. This supports regression suites, RAG retrieval tests, coding-task acceptance sets, and model/prompt comparisons without forcing an LLM dependency into AER.
+Datasets are versioned and content-addressed. Experiments execute a function over the dataset and use a deterministic or LLM-backed judge supplied by the caller. This supports regression suites, RAG retrieval tests, coding-task acceptance sets, and model/prompt comparisons without forcing an LLM dependency into AUREN.
 
 ```python
 from portable.agency_observability import Dataset, DatasetItem, run_experiment
@@ -104,7 +104,7 @@ A failed experiment reports the exact dataset item and metric below the threshol
 
 ### Bounded feedback loops
 
-AER now incorporates the strongest execution pattern from Forward Future's Loopy project without importing its catalog/site or creating a second agent runtime. The runtime contract lives in `.ai-harness/runtime/feedback_loop.py` and is provider-neutral.
+AUREN now incorporates the strongest execution pattern from Forward Future's Loopy project without importing its catalog/site or creating a second agent runtime. The runtime contract lives in `.ai-harness/runtime/feedback_loop.py` and is provider-neutral.
 
 ```python
 from portable.feedback_loop import BoundedLoop, LoopAction, LoopDefinition, VerificationResult
@@ -127,13 +127,13 @@ observe fresh state
 
 `LoopRunReceipt` contains the immutable loop-definition digest, scope, acceptance check, run boundary, every executed pass, evidence, terminal result, and next step. The receipt is suitable for later review/debrief and can feed the existing learning path. A single receipt does not establish a recurring pattern.
 
-For recurring engineering work, AER can use the same design to discover candidates in CI, maintenance, deployment, tests, runbooks, research, POC, review, and bug-fix workflows. A code pattern alone is only a candidate; the workflow must have fresh feedback that can change the next action. Tasks without that feedback remain one-shot workflows.
+For recurring engineering work, AUREN can use the same design to discover candidates in CI, maintenance, deployment, tests, runbooks, research, POC, review, and bug-fix workflows. A code pattern alone is only a candidate; the workflow must have fresh feedback that can change the next action. Tasks without that feedback remain one-shot workflows.
 
 Project loop persistence remains explicit: `LOOPS.md` is only created or changed when the user asks to save a reusable loop. Saved loop text is treated as untrusted reference data and never grants execution authority.
 
-The loop layer complements, rather than replaces, AER deployment gates. A loop may repeat verification or repair before release, but it cannot bypass regression, security, review, shadow, canary, promote, or rollback policy.
+The loop layer complements, rather than replaces, AUREN deployment gates. A loop may repeat verification or repair before release, but it cannot bypass regression, security, review, shadow, canary, promote, or rollback policy.
 
-## What this adds to the AER control loop
+## What this adds to the AUREN control loop
 
 ```text
 Intent / Contract
@@ -149,11 +149,11 @@ Intent / Contract
       -> Promote / monitor / rollback
 ```
 
-The important distinction is that observability records what happened, evaluation measures whether it was good, the bounded loop defines how repeated work stops, and AER policy decides whether behavior is allowed to proceed. Telemetry and learned recommendations cannot weaken safety, security, or promotion gates.
+The important distinction is that observability records what happened, evaluation measures whether it was good, the bounded loop defines how repeated work stops, and AUREN policy decides whether behavior is allowed to proceed. Telemetry and learned recommendations cannot weaken safety, security, or promotion gates.
 
 ## Provider-native capabilities
 
-AER now discovers capabilities exposed by local coding-agent providers and prefers a native capability when evidence is available. If no provider exposes the requested capability, AER uses its own provider-neutral fallback.
+AUREN now discovers capabilities exposed by local coding-agent providers and prefers a native capability when evidence is available. If no provider exposes the requested capability, AUREN uses its own provider-neutral fallback.
 
 ```python
 from portable.provider_fabric import CapabilityRequest, ProviderFabric
@@ -169,7 +169,7 @@ Supported capability names include `agent`, `subagent`, `hooks`, `session_resume
 
 ## Lifecycle hooks
 
-Provider-native hooks can map into the same AER lifecycle contract, while AER can execute the contract itself when a provider has no hook system.
+Provider-native hooks can map into the same AUREN lifecycle contract, while AUREN can execute the contract itself when a provider has no hook system.
 
 ```text
 session_start -> plan_start -> before_agent -> before_tool -> after_tool
@@ -201,7 +201,7 @@ python ~/.auren/current/auren_cli.py update
 
 The updater resolves the remote commit first, reads the version from that exact commit, downloads that exact commit, rebuilds and integrity-verifies the bundle, installs the new pinned version, and then switches the `current` pointer. A commit change without a semantic version bump is rejected.
 
-The default channel is the AER repository `main` branch. Controlled environments can use another stable branch or tag as the channel:
+The default channel is the AUREN repository `main` branch. Controlled environments can use another stable branch or tag as the channel:
 
 ```bash
 python ~/.auren/current/auren_cli.py check-update --ref release
@@ -239,9 +239,9 @@ Rollback affects only AUREN's user-scoped installation and already-selected user
 The installer, updater and rollback commands:
 
 - never create, replace, delete, or back up `.ai-harness` in a project;
-- never add AER files to the project's working tree or Git index;
+- never add AUREN files to the project's working tree or Git index;
 - never modify `.git/config`, hooks, remotes, branches, or ignore files;
-- never modify project source, tests, manifests, or configuration merely to install AER;
+- never modify project source, tests, manifests, or configuration merely to install AUREN;
 - never silently modify MCP configuration, credentials, permissions, production access, or merge authority.
 
 A clean target repository therefore stays unchanged when AUREN is installed, updated, or rolled back.

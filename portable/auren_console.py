@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Local, read-only AER end-user console.
+"""Local, read-only AUREN end-user console.
 
-The console is intentionally a view over existing machine-scoped AER state.
+The console is intentionally a view over existing machine-scoped AUREN state.
 It does not execute tasks, mutate policy, or create a second state store.
 """
 from __future__ import annotations
@@ -250,7 +250,7 @@ def _health_summary(root: Path) -> dict[str, Any]:
     checks = {
         "state_home": root.is_dir(),
         "active_pin": (root / "active.json").is_file(),
-        "machine_scoped": root.name == ".aer",
+        "machine_scoped": root.name == ".auren",
         "observability": (root / "observability" / "traces.jsonl").is_file(),
         "sessions": (root / "sessions").is_dir(),
     }
@@ -260,8 +260,8 @@ def _health_summary(root: Path) -> dict[str, Any]:
     }
 
 
-def collect_snapshot(aer_home: Path | str | None = None) -> ConsoleSnapshot:
-    root = Path(aer_home or (Path.home() / ".aer")).expanduser().resolve()
+def collect_snapshot(auren_home: Path | str | None = None) -> ConsoleSnapshot:
+    root = Path(auren_home or (Path.home() / ".auren")).expanduser().resolve()
     return ConsoleSnapshot(
         generated_at=datetime.now(timezone.utc).isoformat(),
         installation=_installation_summary(root),
@@ -282,7 +282,7 @@ def render_status(snapshot: ConsoleSnapshot, as_json: bool = False) -> str:
     health = payload["health"]
     return "\n".join(
         [
-            "AER status",
+            "AUREN status",
             f"Health: {health.get('status', 'unknown')}",
             f"Installation: {installation.get('status', 'unknown')}",
             f"Version: {installation.get('version', 'n/a')}",
@@ -347,7 +347,7 @@ def render_dashboard(snapshot: ConsoleSnapshot) -> str:
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>AER Console</title>
+<title>AUREN Console</title>
 <style>
 :root{{font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color-scheme:dark;background:#0b1020;color:#e8edf7;}}
 *{{box-sizing:border-box}} body{{margin:0;background:linear-gradient(160deg,#0b1020,#121b2f 60%,#0b1020);min-height:100vh;}}
@@ -359,10 +359,10 @@ main{{max-width:1180px;margin:auto;padding:32px 20px 48px}} header{{display:flex
 </style>
 </head>
 <body><main>
-<header><div><h1>AER Console</h1><p>One view over execution evidence, health, learning and recovery.</p></div><div class="meta">Read-only local view<br>{html.escape(payload['generated_at'])}</div></header>
-<section class="panel"><h2>Overview</h2><p>The current AER control-plane state at a glance.</p></section>
+<header><div><h1>AUREN Console</h1><p>One view over execution evidence, health, learning and recovery.</p></div><div class="meta">Read-only local view<br>{html.escape(payload['generated_at'])}</div></header>
+<section class="panel"><h2>Overview</h2><p>The current AUREN control-plane state at a glance.</p></section>
 <div class="grid">
-{_card('System', health.get('status','unknown'), 'Local AER state', health.get('status'))}
+{_card('System', health.get('status','unknown'), 'Local AUREN state', health.get('status'))}
 {_card('Installation', installation.get('version','not installed'), installation.get('source_commit','') or 'No active pin', installation.get('status'))}
 {_card('Recent runs', runs.get('count',0), runs.get('status','unknown'), runs.get('status'))}
 {_card('Checkpoints', recovery.get('count',0), recovery.get('status','unknown'), recovery.get('status'))}
@@ -377,7 +377,7 @@ main{{max-width:1180px;margin:auto;padding:32px 20px 48px}} header{{display:flex
 <section class="panel"><h2>Recovery</h2><div class="kv"><div class="key">State</div><div>{html.escape(str(recovery.get('status','unknown')))}</div><div class="key">Items</div><div>{html.escape(str(recovery.get('count',0)))}</div></div></section>
 </div>
 <section class="panel"><h2>Health checks</h2><ul>{''.join(f'<li><span>{html.escape(k.replace("_"," ").title())}</span><span class="chip {"good" if v else "warn"}">{"pass" if v else "missing"}</span></li>' for k,v in health.get("checks",{}).items())}</ul></section>
-<div class="footer">AER Console never serves repository source files and exposes no mutating API.</div>
+<div class="footer">AUREN Console never serves repository source files and exposes no mutating API.</div>
 </main></body></html>"""
 
 
@@ -391,7 +391,7 @@ def _serve_once(host: str, port: int, snapshot_provider) -> tuple[ThreadingHTTPS
     bind_host = "127.0.0.1"
 
     class Handler(BaseHTTPRequestHandler):
-        server_version = "AERConsole/1.0"
+        server_version = "AURENConsole/1.0"
 
         def _write(self, status: int, content_type: str, body: bytes) -> None:
             self.send_response(status)
@@ -432,7 +432,7 @@ def _serve_once(host: str, port: int, snapshot_provider) -> tuple[ThreadingHTTPS
 
 
 def serve_console(
-    aer_home: Path | str | None = None,
+    auren_home: Path | str | None = None,
     host: str = "127.0.0.1",
     port: int = 0,
     open_browser: bool = False,
@@ -440,14 +440,14 @@ def serve_console(
 ) -> str:
     if port < 0 or port > 65535:
         raise ValueError("port must be between 0 and 65535")
-    snapshot_provider = lambda: collect_snapshot(aer_home)
+    snapshot_provider = lambda: collect_snapshot(auren_home)
     server, url = _serve_once(host, port, snapshot_provider)
     if open_browser:
         try:
             webbrowser.open(url)
         except Exception:
             pass
-    print(f"AER Console: {url}")
+    print(f"AUREN Console: {url}")
     if block:
         try:
             server.serve_forever(poll_interval=0.5)
@@ -459,26 +459,26 @@ def serve_console(
 
 
 def parser() -> argparse.ArgumentParser:
-    root = argparse.ArgumentParser(description="AER local status and read-only console")
+    root = argparse.ArgumentParser(description="AUREN local status and read-only console")
     sub = root.add_subparsers(dest="command", required=True)
     status = sub.add_parser("status")
     status.add_argument("--json", action="store_true")
-    status.add_argument("--aer-home", type=Path, default=None)
+    status.add_argument("--auren-home", type=Path, default=None)
     console = sub.add_parser("console")
     console.add_argument("--host", default="127.0.0.1")
     console.add_argument("--port", type=int, default=0)
     console.add_argument("--open", dest="open_browser", action="store_true")
-    console.add_argument("--aer-home", type=Path, default=None)
+    console.add_argument("--auren-home", type=Path, default=None)
     return root
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     if args.command == "status":
-        print(render_status(collect_snapshot(args.aer_home), args.json))
+        print(render_status(collect_snapshot(args.auren_home), args.json))
         return 0
     if args.command == "console":
-        serve_console(args.aer_home, args.host, args.port, args.open_browser, True)
+        serve_console(args.auren_home, args.host, args.port, args.open_browser, True)
         return 0
     return 0
 

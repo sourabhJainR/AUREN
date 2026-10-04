@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Claude Code UserPromptSubmit hook for AER."""
+"""Claude Code UserPromptSubmit hook for AUREN."""
 from __future__ import annotations
 
 import json
@@ -17,7 +17,7 @@ def main() -> int:
     if not prompt:
         return 0
 
-    home = Path(os.environ.get("AER_HOME", Path.home() / ".aer")).expanduser()
+    home = Path(os.environ.get("AUREN_HOME", Path.home() / ".auren")).expanduser()
     version = "unknown"
     try:
         active = json.loads((home / "active.json").read_text(encoding="utf-8"))
@@ -26,8 +26,8 @@ def main() -> int:
         pass
 
     context = (
-        f"AER control plane is active (version {version}). "
-        "For repository engineering work, use the AER skill "
+        f"AUREN control plane is active (version {version}). "
+        "For repository engineering work, use the AUREN skill "
         "`/adaptive-ai-coding-orchestrator:ai-coding-orchestrator` when appropriate. "
         "Follow repository instructions first; preserve user intent and scope; collect repository evidence before editing; "
         "make the smallest safe change; verify the result; and report evidence, verification, risks, and incomplete checks. "

@@ -4,7 +4,7 @@ from .adaptive_runtime import AdaptiveRuntime
 from .adaptive_learning import AdaptiveLearningStore, DeferredLearningJob, WorkStyleProfile
 from .adaptive_tuning import AdaptivePolicy, AdaptiveTuner, ExperienceRecord, MaintenanceReceipt, TuningDecision
 from .empirical_improvement import EmpiricalImprovement, ImprovementObservation, ImprovementReport
-from .aer_runtime import main
+from .auren_runtime import main
 from .auren_domains import AurenDomain, DOMAINS, DOMAIN_BY_KEY, canonical_domain_keys, domain_for
 from .impact_analysis import ImpactRecord, ImpactReport, analyze
 from .lifecycle_hooks import HookBus, HookDecision, HookEvent, HookPhase, HookedExecution

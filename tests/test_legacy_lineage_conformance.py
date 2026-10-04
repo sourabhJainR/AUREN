@@ -107,8 +107,10 @@ class LegacyLineageConformanceTests(unittest.TestCase):
             scheduler.close()
 
     def test_portable_release_lineage_contract(self):
+        canonical = Path("VERSION").read_text(encoding="utf-8").strip()
         plugin = json.loads(Path(".claude-plugin/plugin.json").read_text())
-        self.assertEqual(tuple(map(int, plugin["version"].split("."))), (1, 0, 2))
+        self.assertEqual(plugin["version"], canonical)
+        self.assertEqual(tuple(map(int, canonical.split("."))), (1, 0, 3))
 
 
 if __name__ == "__main__":

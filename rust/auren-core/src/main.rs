@@ -1,4 +1,4 @@
-use aer_core::{repository_digest, route_resource, sha256_hex, Request, Response};
+use auren_core::{repository_digest, route_resource, sha256_hex, Request, Response};
 use std::io::{self, BufRead, Write};
 
 fn main() {

@@ -6,7 +6,7 @@ on:
     paths:
       - '.ai-harness/**'
       - 'portable/**'
-      - 'aer_cli.py'
+      - 'auren_cli.py'
       - 'state/**'
       - 'tests/**'
       - '.github/workflows/production-hardening.yml'
@@ -15,7 +15,7 @@ on:
     paths:
       - '.ai-harness/**'
       - 'portable/**'
-      - 'aer_cli.py'
+      - 'auren_cli.py'
       - 'state/**'
       - 'tests/**'
       - '.github/workflows/production-hardening.yml'
@@ -34,10 +34,10 @@ jobs:
         if: always()
         run: |
           mkdir -p ci-artifacts
-          mkdir -p dist/aer-portable
-      - name: Compile AER components
+          mkdir -p dist/auren-portable
+      - name: Compile AUREN components
         run: |
-          python -m py_compile aer_cli.py portable/aer_runtime.py portable/orchestration.py .ai-harness/security_gate.py .ai-harness/safe_provider.py .ai-harness/state_validator.py .ai-harness/verification_gate.py .ai-harness/run.py .ai-harness/provider.py .ai-harness/p1_lifecycle.py .ai-harness/runtime/artifact_chain.py .ai-harness/runtime/work_report.py .ai-harness/runtime/regression_memory.py .ai-harness/runtime/regression_selector.py .ai-harness/runtime/learning_controller.py .ai-harness/runtime/work_report_traceability.py .ai-harness/runtime/requirement_traceability.py .ai-harness/runtime/context_pipeline.py .ai-harness/runtime/context_planner.py
+          python -m py_compile auren_cli.py portable/auren_runtime.py portable/orchestration.py .ai-harness/security_gate.py .ai-harness/safe_provider.py .ai-harness/state_validator.py .ai-harness/verification_gate.py .ai-harness/run.py .ai-harness/provider.py .ai-harness/p1_lifecycle.py .ai-harness/runtime/artifact_chain.py .ai-harness/runtime/work_report.py .ai-harness/runtime/regression_memory.py .ai-harness/runtime/regression_selector.py .ai-harness/runtime/learning_controller.py .ai-harness/runtime/work_report_traceability.py .ai-harness/runtime/requirement_traceability.py .ai-harness/runtime/context_pipeline.py .ai-harness/runtime/context_planner.py
       - name: Run focused hardening tests
         run: |
           set -euo pipefail
@@ -81,45 +81,45 @@ jobs:
           assert validate_state(sample) == []
           print('Ledger schema and implementation contract validated successfully')
           PY
-      - name: Build AER portable bundle
+      - name: Build AUREN portable bundle
         run: |
-          python aer_cli.py build --output dist/aer-portable.zip --source-commit "$GITHUB_SHA"
-          test -s dist/aer-portable.zip
-      - name: Verify AER portable bundle
+          python auren_cli.py build --output dist/auren-portable.zip --source-commit "$GITHUB_SHA"
+          test -s dist/auren-portable.zip
+      - name: Verify AUREN portable bundle
         run: |
           set -o pipefail
-          python aer_cli.py verify dist/aer-portable.zip 2>&1 | tee ci-artifacts/aer-verification.log
+          python auren_cli.py verify dist/auren-portable.zip 2>&1 | tee ci-artifacts/auren-verification.log
           python - <<'PY'
           import zipfile
-          with zipfile.ZipFile('dist/aer-portable.zip') as z:
-              names = set(z.namelist()); required = {'aer-bundle.json','aer_cli.py','payload/portable/aer_runtime.py','payload/portable/orchestration.py'}
+          with zipfile.ZipFile('dist/auren-portable.zip') as z:
+              names = set(z.namelist()); required = {'auren-bundle.json','auren_cli.py','payload/portable/auren_runtime.py','payload/portable/orchestration.py'}
               missing = sorted(required - names)
-              if missing: raise SystemExit(f'AER portable bundle is missing: {missing}')
-          print('AER portable bundle contains the CLI, runtime, orchestration engine, and manifest')
+              if missing: raise SystemExit(f'AUREN portable bundle is missing: {missing}')
+          print('AUREN portable bundle contains the CLI, runtime, orchestration engine, and manifest')
           PY
-      - name: Assemble directly runnable AER distribution
+      - name: Assemble directly runnable AUREN distribution
         run: |
-          rm -rf dist/aer-portable
-          mkdir -p dist/aer-portable
+          rm -rf dist/auren-portable
+          mkdir -p dist/auren-portable
           python - <<'PY'
           import shutil, zipfile
           from pathlib import Path
-          bundle = Path('dist/aer-portable.zip'); staging = Path('dist/aer-portable-staging'); destination = Path('dist/aer-portable')
+          bundle = Path('dist/auren-portable.zip'); staging = Path('dist/auren-portable-staging'); destination = Path('dist/auren-portable')
           shutil.rmtree(staging, ignore_errors=True); staging.mkdir(parents=True)
           with zipfile.ZipFile(bundle) as z: z.extractall(staging)
           payload = staging / 'payload'
           for name in ('.ai-harness', 'portable', 'skills'):
               source = payload / name
               if source.exists(): shutil.copytree(source, destination / name, dirs_exist_ok=True)
-          shutil.copy2(staging / 'aer_cli.py', destination / 'aer_cli.py'); shutil.copy2(staging / 'aer-bundle.json', destination / 'aer-bundle.json'); shutil.rmtree(staging, ignore_errors=True)
-          required = (destination/'aer-bundle.json', destination/'aer_cli.py', destination/'portable'/'aer_runtime.py', destination/'portable'/'orchestration.py')
+          shutil.copy2(staging / 'auren_cli.py', destination / 'auren_cli.py'); shutil.copy2(staging / 'auren-bundle.json', destination / 'auren-bundle.json'); shutil.rmtree(staging, ignore_errors=True)
+          required = (destination/'auren-bundle.json', destination/'auren_cli.py', destination/'portable'/'auren_runtime.py', destination/'portable'/'orchestration.py')
           for path in required:
               if not path.is_file(): raise SystemExit(f'Missing directly runnable distribution file: {path}')
-          print('Directly runnable AER distribution assembled')
+          print('Directly runnable AUREN distribution assembled')
           PY
-      - name: Smoke-test directly runnable AER distribution
+      - name: Smoke-test directly runnable AUREN distribution
         run: |
-          python dist/aer-portable/aer_cli.py verify dist/aer-portable.zip > ci-artifacts/extracted-cli-smoke.log
+          python dist/auren-portable/auren_cli.py verify dist/auren-portable.zip > ci-artifacts/extracted-cli-smoke.log
           grep -q '"portable": true' ci-artifacts/extracted-cli-smoke.log
       - name: Collect CI metadata
         if: always()
@@ -128,14 +128,14 @@ jobs:
           printf 'run_id=%s\n' "$GITHUB_RUN_ID" >> ci-artifacts/run-metadata.txt
           printf 'workflow=%s\n' "$GITHUB_WORKFLOW" >> ci-artifacts/run-metadata.txt
           printf 'ref=%s\n' "$GITHUB_REF" >> ci-artifacts/run-metadata.txt
-      - name: Publish clean AER distribution
+      - name: Publish clean AUREN distribution
         if: success()
         uses: actions/upload-artifact@v7
         with:
-          name: aer-portable
+          name: auren-portable
           path: |
-            dist/aer-portable/
-            dist/aer-portable.zip
+            dist/auren-portable/
+            dist/auren-portable.zip
           if-no-files-found: error
           retention-days: 14
           include-hidden-files: true
@@ -143,7 +143,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: aer-ci-evidence
+          name: auren-ci-evidence
           path: ci-artifacts/
           if-no-files-found: error
           retention-days: 14

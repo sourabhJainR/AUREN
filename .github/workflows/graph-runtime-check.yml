@@ -36,7 +36,7 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
-      - name: Compile all AER runtime modules
+      - name: Compile all AUREN runtime modules
         run: python -m compileall -q .ai-harness portable
       - name: Run graph, agent-pattern and response resilience tests
         run: |
@@ -47,5 +47,5 @@ jobs:
           python -m unittest discover -s .ai-harness/tests -v
       - name: Validate portable build
         run: |
-          python aer_cli.py build --output /tmp/aer-portable.zip
-          python aer_cli.py verify /tmp/aer-portable.zip
+          python auren_cli.py build --output /tmp/auren-portable.zip
+          python auren_cli.py verify /tmp/auren-portable.zip

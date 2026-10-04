@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stable, self-bootstrapping AER command-line entry point."""
+"""Stable, self-bootstrapping AUREN command-line entry point."""
 from __future__ import annotations
 
 import argparse
@@ -20,9 +20,9 @@ MARKETPLACE_NAME = "adaptive-ai-engineering"
 
 
 def _load_runtime_from(root: Path):
-    runtime = root / "portable" / "aer_runtime.py"
+    runtime = root / "portable" / "auren_runtime.py"
     if not runtime.is_file():
-        runtime = root / "payload" / "portable" / "aer_runtime.py"
+        runtime = root / "payload" / "portable" / "auren_runtime.py"
     if not runtime.is_file():
         return None
     runtime_root = str(runtime.parent.parent)
@@ -33,9 +33,9 @@ def _load_runtime_from(root: Path):
         package = types.ModuleType("portable")
         package.__path__ = [runtime_root]
         sys.modules["portable"] = package
-    spec = importlib.util.spec_from_file_location("portable.aer_runtime", runtime)
+    spec = importlib.util.spec_from_file_location("portable.auren_runtime", runtime)
     if spec is None or spec.loader is None:
-        raise SystemExit(f"unable to load AER runtime: {runtime}")
+        raise SystemExit(f"unable to load AUREN runtime: {runtime}")
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
     try:
@@ -47,27 +47,27 @@ def _load_runtime_from(root: Path):
 
 
 def _load_runtime_from_bundle(bundle: Path):
-    temp_root = Path(tempfile.mkdtemp(prefix="aer-cli-runtime-"))
+    temp_root = Path(tempfile.mkdtemp(prefix="auren-cli-runtime-"))
     try:
         with zipfile.ZipFile(bundle) as archive:
             names = {name.rstrip("/") for name in archive.namelist()}
-            runtime_name = "payload/portable/aer_runtime.py"
+            runtime_name = "payload/portable/auren_runtime.py"
             if runtime_name not in names:
-                nested = [name for name in names if name.lower().endswith(".zip") and Path(name).name.lower() == "aer-portable.zip"]
+                nested = [name for name in names if name.lower().endswith(".zip") and Path(name).name.lower() == "auren-portable.zip"]
                 if len(nested) != 1:
-                    raise SystemExit("unable to find portable AER runtime; expected payload/portable/aer_runtime.py or an artifact containing aer-portable.zip")
-                inner = temp_root / "aer-portable.zip"
+                    raise SystemExit("unable to find portable AUREN runtime; expected payload/portable/auren_runtime.py or an artifact containing auren-portable.zip")
+                inner = temp_root / "auren-portable.zip"
                 inner.write_bytes(archive.read(nested[0]))
                 with zipfile.ZipFile(inner) as nested_archive:
                     if runtime_name not in {name.rstrip("/") for name in nested_archive.namelist()}:
-                        raise SystemExit("aer-portable.zip does not contain payload/portable/aer_runtime.py")
+                        raise SystemExit("auren-portable.zip does not contain payload/portable/auren_runtime.py")
                     nested_archive.extract(runtime_name, temp_root)
             else:
                 archive.extract(runtime_name, temp_root)
         return _load_runtime_from(temp_root), temp_root
     except (OSError, zipfile.BadZipFile) as exc:
         shutil.rmtree(temp_root, ignore_errors=True)
-        raise SystemExit(f"invalid AER bundle: {exc}") from exc
+        raise SystemExit(f"invalid AUREN bundle: {exc}") from exc
 
 
 def _load_runtime(argv: list[str]):
@@ -78,7 +78,7 @@ def _load_runtime(argv: list[str]):
     for candidate in bundle_candidates:
         if candidate.is_file() and candidate.suffix.lower() == ".zip":
             return _load_runtime_from_bundle(candidate.resolve())
-    raise SystemExit("AER runtime not found. Run from the AER source checkout or portable bundle, or provide an AER .zip bundle.")
+    raise SystemExit("AUREN runtime not found. Run from the AUREN source checkout or portable bundle, or provide an AUREN .zip bundle.")
 
 
 def _inject_plugin_payload(bundle: Path, root: Path) -> None:
@@ -88,7 +88,7 @@ def _inject_plugin_payload(bundle: Path, root: Path) -> None:
         return
     with zipfile.ZipFile(bundle, "r") as source:
         entries = {item.filename: source.read(item.filename) for item in source.infolist()}
-    manifest = json.loads(entries["aer-bundle.json"].decode("utf-8"))
+    manifest = json.loads(entries["auren-bundle.json"].decode("utf-8"))
     records = list(manifest.get("files", []))
     recorded = {item.get("path") for item in records if isinstance(item, dict)}
     for path in sorted(plugin_root.rglob("*")):
@@ -101,7 +101,7 @@ def _inject_plugin_payload(bundle: Path, root: Path) -> None:
         if rel not in recorded:
             records.append({"path": rel, "sha256": hashlib.sha256(data).hexdigest(), "size": len(data)})
     manifest["files"] = sorted(records, key=lambda item: item["path"])
-    entries["aer-bundle.json"] = (json.dumps(manifest, indent=2, sort_keys=True) + "\n").encode("utf-8")
+    entries["auren-bundle.json"] = (json.dumps(manifest, indent=2, sort_keys=True) + "\n").encode("utf-8")
     temp = bundle.with_suffix(".plugin.tmp.zip")
     with zipfile.ZipFile(temp, "w", compression=zipfile.ZIP_DEFLATED) as target:
         for name, data in entries.items():
@@ -125,7 +125,7 @@ def _prepare_runtime_for_distribution(runtime) -> None:
     runtime._copy_payload = copy_payload
     original_build = runtime.build
 
-    def build_with_provider_payload(root: Path, output: Path, source_commit: str | None = None, source_ref: str = runtime.AER_BRANCH) -> Path:
+    def build_with_provider_payload(root: Path, output: Path, source_commit: str | None = None, source_ref: str = runtime.AUREN_BRANCH) -> Path:
         result = original_build(root, output, source_commit=source_commit, source_ref=source_ref)
         _inject_plugin_payload(result, root)
         return result
@@ -134,9 +134,9 @@ def _prepare_runtime_for_distribution(runtime) -> None:
 
 
 def _run_dashboard(args: list[str]) -> int:
-    """Run the local Engineering Console from the active AER installation."""
-    parser = argparse.ArgumentParser(description="Run the AER Engineering Console.")
-    parser.add_argument("--project-root", default=".", help="Repository whose AER state and code graph should be displayed.")
+    """Run the local Engineering Console from the active AUREN installation."""
+    parser = argparse.ArgumentParser(description="Run the AUREN Engineering Console.")
+    parser.add_argument("--project-root", default=".", help="Repository whose AUREN state and code graph should be displayed.")
     parser.add_argument("--host", default="127.0.0.1", help="Bind address. Keep the default for local-only access.")
     parser.add_argument("--port", type=int, default=8765)
     options = parser.parse_args(args)
@@ -157,12 +157,12 @@ def _claude_plugin_install(current_root: Path) -> None:
     """Register and install the bundled Claude plugin at user scope."""
     claude = _claude_available()
     if not claude:
-        print("Claude Code not found on PATH; AER Claude integration was not activated.")
+        print("Claude Code not found on PATH; AUREN Claude integration was not activated.")
         return
     marketplace = current_root / ".claude-plugin" / "marketplace.json"
     plugin_manifest = current_root / ".claude-plugin" / "plugin.json"
     if not marketplace.is_file() or not plugin_manifest.is_file():
-        print("AER Claude integration skipped: plugin metadata is missing from the installed bundle.")
+        print("AUREN Claude integration skipped: plugin metadata is missing from the installed bundle.")
         return
 
     def run(*command: str) -> subprocess.CompletedProcess[str]:
@@ -197,7 +197,7 @@ def _should_activate_claude(args: list[str]) -> bool:
 
 
 def _load_work_report_module(root: Path):
-    """Load WorkReport safely even when aer_cli.py is run as a top-level script."""
+    """Load WorkReport safely even when auren_cli.py is run as a top-level script."""
     try:
         from .ai_harness.runtime.work_report import WorkReport, WorkReportGenerator
         return WorkReport, WorkReportGenerator
@@ -209,7 +209,7 @@ def _load_work_report_module(root: Path):
             runtime_report = root / ".ai-harness" / "runtime" / "work_report.py"
             if not runtime_report.is_file():
                 return None
-            spec = importlib.util.spec_from_file_location("aer_work_report", runtime_report)
+            spec = importlib.util.spec_from_file_location("auren_work_report", runtime_report)
             if spec is None or spec.loader is None:
                 return None
             module = importlib.util.module_from_spec(spec)
@@ -247,7 +247,7 @@ def _emit_work_report(args: list[str], result: int, root: Path) -> None:
             implementation=["Structured WorkReport is rendered to a self-contained HTML artifact.", "Mermaid source is embedded so diagrams remain inspectable and reproducible."],
             hld=["CLI -> runtime -> work outcome -> reporting subsystem -> .ai-harness/reports/latest.html"],
             lld=["Reporter is isolated, deterministic, dependency-free, and best-effort.", "The report records scope, assumptions, boundaries, findings, risks, threats, verification, regression areas, evidence, and diagrams."],
-            references=[{"type": "repository", "path": ".ai-harness/runtime/work_report.py"}, {"type": "entry-point", "path": "aer_cli.py"}],
+            references=[{"type": "repository", "path": ".ai-harness/runtime/work_report.py"}, {"type": "entry-point", "path": "auren_cli.py"}],
             evidence=[{"type": "command", "argv": args, "exit_code": result}],
             verification=["Primary CLI result is returned unchanged after report generation.", "Report generation is exception-isolated."],
             regressions=["CLI failure behavior", "portable runtime loading", "Claude plugin activation", "report-write failure isolation"],
@@ -276,8 +276,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         result = int(runtime.main(args))
         if result == 0 and _should_activate_claude(args):
-            aer_home = Path.home() / ".aer"
-            current = aer_home / "current"
+            auren_home = Path.home() / ".auren"
+            current = auren_home / "current"
             if current.exists():
                 _claude_plugin_install(current)
         return result
