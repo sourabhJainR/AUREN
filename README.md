@@ -537,3 +537,13 @@ Review this change for correctness, compatibility, security, regression risk, ob
 AUREN is organized as six canonical domains: **Core** (world/self model, reasoning, goals), **Engine** (planner, StateGraph, agents, resources), **Memory** (episodic, semantic, engineering, evidence graph), **Learning** (experimentation, causal attribution, capability invention, curriculum), **Arena** (independent evaluation, holdouts, transfer, attestation), and **Guard** (security, authority, verification, canary, rollback).
 
 See [the canonical AUREN architecture](docs/ARCHITECTURE_CURRENT.md) for ownership and trust boundaries.
+## GitHub Pages deployment
+
+The public documentation site is served at `https://sourabhJainR.github.io/AUREN/`.
+
+Keep these four entrypoints during repository cleanup:
+
+- `site/index.html` and `site/404.html` are the canonical GitHub Actions deployment payload.
+- `docs/index.html` and `docs/404.html` are retained as branch-publishing compatibility entrypoints because the repository previously used the `main/docs` Pages source.
+
+Do not remove either pair unless the GitHub Pages repository setting has been verified to use GitHub Actions and the compatibility contract is intentionally retired. The Pages workflow validates all four files before deployment.
