@@ -28,6 +28,13 @@ jobs:
         uses: actions/checkout@v6
       - name: Configure Pages
         uses: actions/configure-pages@v5
+      - name: Validate Pages entrypoints
+        run: |
+          test -f site/index.html
+          test -f site/404.html
+          test -f docs/index.html
+          test -f docs/404.html
+
       - name: Upload site
         uses: actions/upload-pages-artifact@v4
         with:
