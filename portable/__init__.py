@@ -216,3 +216,6 @@ __all__ += ["FreshEvaluationAttestation", "AttestationFreshnessPolicy", "Attesta
 
 from .sealed_cross_domain_arena import SealedDomain, CrossDomainCampaign, SealedCrossDomainRunner
 __all__ += ["SealedDomain", "CrossDomainCampaign", "SealedCrossDomainRunner"]
+
+from .attested_domain_transfer_evidence import DomainTransferEvidence, AttestedDomainTransferEvidenceBuilder
+__all__ += ["DomainTransferEvidence", "AttestedDomainTransferEvidenceBuilder"]
