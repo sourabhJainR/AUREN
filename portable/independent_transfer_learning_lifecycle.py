@@ -65,10 +65,15 @@ class IndependentBenchmarkGenerator:
     ) -> GeneratedBenchmark:
         if not generator_id.strip() or generator_id == runtime_id:
             raise ValueError("benchmark generator must be independent of runtime")
+        oracle_ids = tuple(sorted({str(x).strip() for x in oracle_ids if str(x).strip()}))
+        if generator_id in oracle_ids:
+            raise ValueError("benchmark generator must be independent of oracle")
         holdouts = tuple(sorted({str(x).strip() for x in holdout_domains if str(x).strip()}))
         train_domains = tuple(sorted(set(domains) - set(holdouts)))
         if not train_domains or not holdouts:
             raise ValueError("benchmark needs disjoint train and holdout domains")
+        if not set(holdouts) <= set(domains):
+            raise ValueError("holdout domains must exist in generated benchmark")
         manifest = BenchmarkManifest.seal(
             benchmark_id, version,
             train_domains=train_domains,
