@@ -131,7 +131,7 @@ jobs:
               for path in files:
                   if path.is_file() and path.suffix.lower() in {'.md','.py','.toml','.json','.yml','.yaml','.sh'}:
                       text=path.read_text(encoding='utf-8',errors='ignore').lower()
-                      if 'github.com/sourabhjainr/auren' in text or 'auren_effectiveness_integration' in text:
+                      if 'github.com/sourabhjainr/aer' in text or 'auren_effectiveness_integration' in text:
                           hits.append(str(path))
           assert not hits, f'forbidden external linkage: {hits}'
           PY
