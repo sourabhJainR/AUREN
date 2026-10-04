@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Build, verify, install and update isolated AER distributions.
+"""Build, verify, install and update isolated AUREN distributions.
 
-AER is machine-scoped. Project repositories are workspaces only and are never
+AUREN is machine-scoped. Project repositories are workspaces only and are never
 used as an installation location. Installed builds are immutable and pinned by
 semantic version, exact source commit and bundle hash, so updates are auditable
 and rollbacks are deterministic.
@@ -23,12 +23,12 @@ from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 
 BUNDLE_FORMAT_VERSION = 2
-BUNDLE_NAME = "aer-portable"
-AER_REPOSITORY = "sourabhJainR/Hello_world_With_Structure"
-AER_BRANCH = "main"
-MANIFEST_NAME = "aer-bundle.json"
+BUNDLE_NAME = "auren-portable"
+AUREN_REPOSITORY = "sourabhJainR/Hello_world_With_Structure"
+AUREN_BRANCH = "main"
+MANIFEST_NAME = "auren-bundle.json"
 PAYLOAD_ROOT = "payload"
-LAUNCHER_PATH = "aer_cli.py"
+LAUNCHER_PATH = "auren_cli.py"
 REQUIRED_PATHS = (".ai-harness", "skills/ai-coding-orchestrator", "portable", "dashboard")
 EXCLUDED_PARTS = {"__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".git", "worktrees"}
 MUTABLE_FILE_NAMES = {"execution.journal.jsonl", "telemetry.jsonl", "task-memory.jsonl", "regression-events.jsonl"}
@@ -42,8 +42,8 @@ class FileRecord:
 def repo_root() -> Path:
     return Path(__file__).resolve().parents[1]
 
-def home_aer(aer_home: Path | None = None) -> Path:
-    return (aer_home or (Path.home() / ".aer")).expanduser().resolve()
+def home_auren(auren_home: Path | None = None) -> Path:
+    return (auren_home or (Path.home() / ".auren")).expanduser().resolve()
 
 def should_include(path: Path, root: Path) -> bool:
     rel = path.relative_to(root)
@@ -68,6 +68,11 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 def _plugin_version(root: Path) -> str:
+    version_file = root / "VERSION"
+    if version_file.is_file():
+        version = version_file.read_text(encoding="utf-8").strip()
+        if version:
+            return version
     path = root / ".claude-plugin" / "plugin.json"
     if path.exists():
         value = json.loads(path.read_text(encoding="utf-8"))
@@ -99,7 +104,7 @@ def _git_head(root: Path) -> str | None:
     value = result.stdout.strip()
     return value if result.returncode == 0 and len(value) >= 7 else None
 
-def make_manifest(root: Path, files: list[Path], source_commit: str | None = None, source_ref: str = AER_BRANCH) -> dict:
+def make_manifest(root: Path, files: list[Path], source_commit: str | None = None, source_ref: str = AUREN_BRANCH) -> dict:
     records = [FileRecord(p.relative_to(root).as_posix(), sha256_file(p), p.stat().st_size).__dict__ for p in files]
     launcher = root / LAUNCHER_PATH
     if not launcher.is_file():
@@ -116,14 +121,14 @@ def make_manifest(root: Path, files: list[Path], source_commit: str | None = Non
         "isolated_install": True,
         "provider_neutral": True,
         "target_repository_mutation": False,
-        "source_repository": AER_REPOSITORY,
+        "source_repository": AUREN_REPOSITORY,
         "source_ref": source_ref,
         "source_commit": source_commit or _git_head(root),
         "mutable_state_excluded": True,
         "files": records,
     }
 
-def build(root: Path, output: Path, source_commit: str | None = None, source_ref: str = AER_BRANCH) -> Path:
+def build(root: Path, output: Path, source_commit: str | None = None, source_ref: str = AUREN_BRANCH) -> Path:
     files = iter_source_files(root)
     manifest = make_manifest(root, files, source_commit=source_commit, source_ref=source_ref)
     if not manifest["source_commit"]:
@@ -134,7 +139,7 @@ def build(root: Path, output: Path, source_commit: str | None = None, source_ref
         for source in files:
             archive.write(source, f"{PAYLOAD_ROOT}/{source.relative_to(root).as_posix()}")
         archive.write(root / LAUNCHER_PATH, LAUNCHER_PATH)
-        archive.writestr(f"{PAYLOAD_ROOT}/PORTABLE_BUNDLE.txt", "AER portable bundle\nInstallation is user-scoped and repository-isolated.\nVersion and exact source commit are pinned in the manifest.\n")
+        archive.writestr(f"{PAYLOAD_ROOT}/PORTABLE_BUNDLE.txt", "AUREN portable bundle\nInstallation is user-scoped and repository-isolated.\nVersion and exact source commit are pinned in the manifest.\n")
     return output
 
 def safe_extract(archive: zipfile.ZipFile, destination: Path) -> None:
@@ -156,16 +161,16 @@ def _manifest_record_path(root: Path, record_path: str) -> Path:
     return root / PAYLOAD_ROOT / record_path
 
 def _native_bundle(bundle: Path) -> tuple[Path, Path | None]:
-    """Return a native AER bundle, transparently unwrapping upload-artifact ZIPs.
+    """Return a native AUREN bundle, transparently unwrapping upload-artifact ZIPs.
 
     GitHub Actions ``upload-artifact`` packages every uploaded file in another
-    ZIP archive. Therefore downloading an artifact containing ``aer-portable.zip``
-    produces ``artifact.zip -> aer-portable.zip``. The CLI accepts both forms so
+    ZIP archive. Therefore downloading an artifact containing ``auren-portable.zip``
+    produces ``artifact.zip -> auren-portable.zip``. The CLI accepts both forms so
     users can pass the downloaded artifact directly to ``install`` or ``verify``.
     """
     bundle = Path(bundle).expanduser().resolve()
     if not bundle.is_file():
-        raise SystemExit(f"AER bundle does not exist: {bundle}")
+        raise SystemExit(f"AUREN bundle does not exist: {bundle}")
     try:
         with zipfile.ZipFile(bundle) as archive:
             names = [name for name in archive.namelist() if not name.endswith("/")]
@@ -173,21 +178,21 @@ def _native_bundle(bundle: Path) -> tuple[Path, Path | None]:
                 return bundle, None
             zip_members = [name for name in names if name.lower().endswith(".zip")]
             if len(zip_members) == 1 and Path(zip_members[0]).name.lower() == f"{BUNDLE_NAME}.zip":
-                temp_root = Path(tempfile.mkdtemp(prefix="aer-artifact-"))
+                temp_root = Path(tempfile.mkdtemp(prefix="auren-artifact-"))
                 inner = temp_root / f"{BUNDLE_NAME}.zip"
                 inner.write_bytes(archive.read(zip_members[0]))
                 try:
                     with zipfile.ZipFile(inner) as nested:
                         if MANIFEST_NAME not in [name for name in nested.namelist() if not name.endswith("/")]:
-                            raise SystemExit("artifact contains aer-portable.zip, but it is not a valid AER bundle")
+                            raise SystemExit("artifact contains auren-portable.zip, but it is not a valid AUREN bundle")
                 except zipfile.BadZipFile as exc:
-                    raise SystemExit(f"artifact contains an invalid aer-portable.zip: {exc}") from exc
+                    raise SystemExit(f"artifact contains an invalid auren-portable.zip: {exc}") from exc
                 return inner, temp_root
     except zipfile.BadZipFile as exc:
-        raise SystemExit(f"invalid AER bundle: {exc}") from exc
+        raise SystemExit(f"invalid AUREN bundle: {exc}") from exc
     raise SystemExit(
-        "invalid AER bundle: expected aer-bundle.json at the archive root; "
-        "if this is a GitHub Actions artifact, it must contain exactly aer-portable.zip"
+        "invalid AUREN bundle: expected auren-bundle.json at the archive root; "
+        "if this is a GitHub Actions artifact, it must contain exactly auren-portable.zip"
     )
 
 def _verify_native_bundle(bundle: Path) -> dict:
@@ -205,7 +210,7 @@ def _verify_native_bundle(bundle: Path) -> dict:
             records = manifest.get("files")
             if not isinstance(records, list) or not records:
                 raise SystemExit("bundle manifest file inventory is missing")
-            root = Path(tempfile.mkdtemp(prefix="aer-verify-"))
+            root = Path(tempfile.mkdtemp(prefix="auren-verify-"))
             try:
                 safe_extract(archive, root)
                 seen: set[str] = set()
@@ -224,12 +229,12 @@ def _verify_native_bundle(bundle: Path) -> dict:
                 if LAUNCHER_PATH not in seen:
                     raise SystemExit(f"bundle launcher is not covered by manifest: {LAUNCHER_PATH}")
                 if not (root / LAUNCHER_PATH).is_file():
-                    raise SystemExit("bundle launcher is missing: aer_cli.py")
+                    raise SystemExit("bundle launcher is missing: auren_cli.py")
                 return manifest
             finally:
                 shutil.rmtree(root, ignore_errors=True)
     except (OSError, zipfile.BadZipFile, json.JSONDecodeError) as exc:
-        raise SystemExit(f"invalid AER bundle: {exc}") from exc
+        raise SystemExit(f"invalid AUREN bundle: {exc}") from exc
 
 def verify_bundle(bundle: Path) -> dict:
     native, temp_root = _native_bundle(bundle)
@@ -263,7 +268,7 @@ def _copy_payload(payload: Path, version_root: Path) -> None:
         _copy_tree_without_mutable_state(skill, version_root / "skills" / "ai-coding-orchestrator")
     launcher = payload.parent / LAUNCHER_PATH
     if not launcher.is_file():
-        raise SystemExit("bundle launcher is missing: aer_cli.py")
+        raise SystemExit("bundle launcher is missing: auren_cli.py")
     shutil.copy2(launcher, version_root / LAUNCHER_PATH)
 
 def _atomic_json(path: Path, value: object) -> None:
@@ -324,15 +329,15 @@ def _version_install_root(root: Path, version: str, bundle_hash: str) -> Path:
     """
     return root / "versions" / f"v{version}-{bundle_hash[:12]}"
 
-def install(bundle: Path, install_skill: str = "agents", aer_home: Path | None = None) -> Path:
+def install(bundle: Path, install_skill: str = "agents", auren_home: Path | None = None) -> Path:
     native_bundle, temp_root = _native_bundle(bundle)
     try:
         manifest = _verify_native_bundle(native_bundle)
-        root = home_aer(aer_home)
+        root = home_auren(auren_home)
         version = str(manifest["version"])
         bundle_hash = sha256_file(native_bundle)
         version_root = _version_install_root(root, version, bundle_hash)
-        temp = Path(tempfile.mkdtemp(prefix="aer-install-"))
+        temp = Path(tempfile.mkdtemp(prefix="auren-install-"))
         try:
             with zipfile.ZipFile(native_bundle) as archive:
                 safe_extract(archive, temp)
@@ -362,7 +367,7 @@ def install(bundle: Path, install_skill: str = "agents", aer_home: Path | None =
             with (root / "history.jsonl").open("a", encoding="utf-8") as handle:
                 handle.write(json.dumps({"event": "activate", **record}) + "\n")
             _sync_skills(temp / PAYLOAD_ROOT / "skills" / "ai-coding-orchestrator", install_skill)
-            print(f"Installed and pinned AER {version} ({manifest['source_commit'][:12]})")
+            print(f"Installed and pinned AUREN {version} ({manifest['source_commit'][:12]})")
             print(f"Build: {version_root.name}")
             print(f"Active installation: {root / 'current'}")
             print("Repository isolation: ON")
@@ -374,7 +379,7 @@ def install(bundle: Path, install_skill: str = "agents", aer_home: Path | None =
             shutil.rmtree(temp_root, ignore_errors=True)
 
 def _http_json(url: str) -> dict:
-    request = urllib.request.Request(url, headers={"Accept": "application/vnd.github+json", "User-Agent": "aer-portable"})
+    request = urllib.request.Request(url, headers={"Accept": "application/vnd.github+json", "User-Agent": "auren-portable"})
     with urllib.request.urlopen(request, timeout=20) as response:
         value = json.loads(response.read().decode("utf-8"))
     if not isinstance(value, dict):
@@ -382,38 +387,38 @@ def _http_json(url: str) -> dict:
     return value
 
 def _remote_target(ref: str) -> tuple[str, str]:
-    commit_data = _http_json(f"https://api.github.com/repos/{AER_REPOSITORY}/commits/{ref}")
+    commit_data = _http_json(f"https://api.github.com/repos/{AUREN_REPOSITORY}/commits/{ref}")
     commit = commit_data.get("sha")
     if not isinstance(commit, str) or not commit:
-        raise SystemExit("remote AER commit could not be resolved")
-    plugin = _http_json(f"https://raw.githubusercontent.com/{AER_REPOSITORY}/{commit}/.claude-plugin/plugin.json")
+        raise SystemExit("remote AUREN commit could not be resolved")
+    plugin = _http_json(f"https://raw.githubusercontent.com/{AUREN_REPOSITORY}/{commit}/.claude-plugin/plugin.json")
     version = plugin.get("version")
     if not isinstance(version, str) or not version:
-        raise SystemExit("remote AER version could not be resolved")
+        raise SystemExit("remote AUREN version could not be resolved")
     return version, commit
 
 def _download_source(ref: str, destination: Path) -> Path:
-    request = urllib.request.Request(f"https://api.github.com/repos/{AER_REPOSITORY}/zipball/{ref}", headers={"User-Agent": "aer-portable"})
+    request = urllib.request.Request(f"https://api.github.com/repos/{AUREN_REPOSITORY}/zipball/{ref}", headers={"User-Agent": "auren-portable"})
     archive_path = destination / "source.zip"
     try:
         with urllib.request.urlopen(request, timeout=60) as response, archive_path.open("wb") as handle:
             shutil.copyfileobj(response, handle)
     except urllib.error.URLError as exc:
-        raise SystemExit(f"unable to download AER update source: {exc}") from exc
+        raise SystemExit(f"unable to download AUREN update source: {exc}") from exc
     root = destination / "source"
     root.mkdir()
     try:
         with zipfile.ZipFile(archive_path) as archive:
             safe_extract(archive, root)
     except (OSError, zipfile.BadZipFile) as exc:
-        raise SystemExit(f"downloaded AER source is invalid: {exc}") from exc
+        raise SystemExit(f"downloaded AUREN source is invalid: {exc}") from exc
     candidates = [p for p in root.iterdir() if p.is_dir()]
     if len(candidates) != 1:
-        raise SystemExit("unexpected AER source archive layout")
+        raise SystemExit("unexpected AUREN source archive layout")
     return candidates[0]
 
-def check_update(aer_home: Path | None = None, ref: str = AER_BRANCH) -> dict:
-    root = home_aer(aer_home)
+def check_update(auren_home: Path | None = None, ref: str = AUREN_BRANCH) -> dict:
+    root = home_auren(auren_home)
     active = json.loads((root / "active.json").read_text(encoding="utf-8")) if (root / "active.json").is_file() else {}
     remote_version, remote_commit = _remote_target(ref)
     current_version = str(active.get("version") or "0.0.0")
@@ -448,8 +453,8 @@ def _history_records(root: Path) -> list[dict]:
             records.append(value)
     return records
 
-def rollback(aer_home: Path | None = None) -> Path:
-    root = home_aer(aer_home)
+def rollback(auren_home: Path | None = None) -> Path:
+    root = home_auren(auren_home)
     active = json.loads((root / "active.json").read_text(encoding="utf-8")) if (root / "active.json").is_file() else {}
     active_key = (active.get("source_commit"), active.get("bundle_sha256"))
     target: dict | None = None
@@ -459,7 +464,7 @@ def rollback(aer_home: Path | None = None) -> Path:
             target = record
             break
     if target is None:
-        raise SystemExit("no previous immutable AER version is available")
+        raise SystemExit("no previous immutable AUREN version is available")
     install_root = str(target.get("install_root") or f"v{target.get('version')}")
     if Path(install_root).name != install_root or install_root in {".", ".."}:
         raise SystemExit("rollback target contains an unsafe installation path")
@@ -471,60 +476,60 @@ def rollback(aer_home: Path | None = None) -> Path:
     with (root / "history.jsonl").open("a", encoding="utf-8") as handle:
         handle.write(json.dumps({"event": "rollback", **target}) + "\n")
     _sync_skills(version_root / "skills" / "ai-coding-orchestrator", "agents")
-    print(f"Rolled back AER to {target['version']} ({str(target.get('source_commit', ''))[:12]})")
+    print(f"Rolled back AUREN to {target['version']} ({str(target.get('source_commit', ''))[:12]})")
     return root / "current"
 
-def update(aer_home: Path | None = None, ref: str = AER_BRANCH, install_skill: str = "agents") -> Path:
+def update(auren_home: Path | None = None, ref: str = AUREN_BRANCH, install_skill: str = "agents") -> Path:
     remote_version, remote_commit = _remote_target(ref)
-    root = home_aer(aer_home)
+    root = home_auren(auren_home)
     active = json.loads((root / "active.json").read_text(encoding="utf-8")) if (root / "active.json").is_file() else {}
     current_version = str(active.get("version") or "0.0.0")
     current_commit = str(active.get("source_commit") or "")
     comparison = (_version_tuple(remote_version), remote_commit)
     current_comparison = (_version_tuple(current_version), current_commit)
     if remote_version == current_version and remote_commit == current_commit:
-        raise SystemExit("AER is already up to date")
+        raise SystemExit("AUREN is already up to date")
     if _version_tuple(remote_version) < _version_tuple(current_version):
         raise SystemExit(f"refusing downgrade from {current_version} to {remote_version}; use rollback for a pinned previous version")
     if comparison == current_comparison:
-        raise SystemExit("AER is already up to date")
-    with tempfile.TemporaryDirectory(prefix="aer-update-") as tmp:
+        raise SystemExit("AUREN is already up to date")
+    with tempfile.TemporaryDirectory(prefix="auren-update-") as tmp:
         source = _download_source(remote_commit, Path(tmp))
-        bundle = Path(tmp) / "aer-portable.zip"
+        bundle = Path(tmp) / "auren-portable.zip"
         build(source, bundle, source_commit=remote_commit, source_ref=ref)
         install(bundle, install_skill, root)
     return root / "current"
 
 def parser() -> argparse.ArgumentParser:
-    root = argparse.ArgumentParser(description="AER portable distribution manager")
+    root = argparse.ArgumentParser(description="AUREN portable distribution manager")
     sub = root.add_subparsers(dest="command", required=True)
     build_parser = sub.add_parser("build")
-    build_parser.add_argument("--output", type=Path, default=Path("aer-portable.zip"))
+    build_parser.add_argument("--output", type=Path, default=Path("auren-portable.zip"))
     build_parser.add_argument("--source-commit", default=None)
-    build_parser.add_argument("--source-ref", default=AER_BRANCH)
+    build_parser.add_argument("--source-ref", default=AUREN_BRANCH)
     verify_parser = sub.add_parser("verify")
     verify_parser.add_argument("bundle", type=Path)
     install_parser = sub.add_parser("install")
     install_parser.add_argument("bundle", type=Path)
     install_parser.add_argument("--skill", choices=("none", "agents", "claude", "gemini", "all", "auto"), default="agents")
-    install_parser.add_argument("--aer-home", type=Path, default=None)
+    install_parser.add_argument("--auren-home", type=Path, default=None)
     update_parser = sub.add_parser("update")
-    update_parser.add_argument("--ref", default=AER_BRANCH)
+    update_parser.add_argument("--ref", default=AUREN_BRANCH)
     update_parser.add_argument("--skill", choices=("none", "agents", "claude", "gemini", "all", "auto"), default="agents")
-    update_parser.add_argument("--aer-home", type=Path, default=None)
+    update_parser.add_argument("--auren-home", type=Path, default=None)
     check_parser = sub.add_parser("check-update")
-    check_parser.add_argument("--ref", default=AER_BRANCH)
-    check_parser.add_argument("--aer-home", type=Path, default=None)
+    check_parser.add_argument("--ref", default=AUREN_BRANCH)
+    check_parser.add_argument("--auren-home", type=Path, default=None)
     rollback_parser = sub.add_parser("rollback")
-    rollback_parser.add_argument("--aer-home", type=Path, default=None)
+    rollback_parser.add_argument("--auren-home", type=Path, default=None)
     status_parser = sub.add_parser("status")
     status_parser.add_argument("--json", action="store_true")
-    status_parser.add_argument("--aer-home", type=Path, default=None)
+    status_parser.add_argument("--auren-home", type=Path, default=None)
     console_parser = sub.add_parser("console")
     console_parser.add_argument("--host", default="127.0.0.1")
     console_parser.add_argument("--port", type=int, default=0)
     console_parser.add_argument("--open", dest="open_browser", action="store_true")
-    console_parser.add_argument("--aer-home", type=Path, default=None)
+    console_parser.add_argument("--auren-home", type=Path, default=None)
     workbench_parser = sub.add_parser("workbench")
     workbench_parser.add_argument("--project-root", type=Path, default=Path("."))
     workbench_parser.add_argument("--workers", type=int, default=None)
@@ -542,21 +547,21 @@ def main(argv: list[str] | None = None) -> int:
     elif args.command == "verify":
         print(json.dumps(verify_bundle(args.bundle), indent=2, sort_keys=True))
     elif args.command == "install":
-        install(args.bundle, args.skill, args.aer_home)
+        install(args.bundle, args.skill, args.auren_home)
     elif args.command == "check-update":
-        print(json.dumps(check_update(args.aer_home, args.ref), indent=2, sort_keys=True))
+        print(json.dumps(check_update(args.auren_home, args.ref), indent=2, sort_keys=True))
     elif args.command == "update":
-        update(args.aer_home, args.ref, args.skill)
+        update(args.auren_home, args.ref, args.skill)
     elif args.command == "rollback":
-        rollback(args.aer_home)
+        rollback(args.auren_home)
     elif args.command == "status":
-        from .aer_console import collect_snapshot, render_status
-        print(render_status(collect_snapshot(args.aer_home), args.json))
+        from .auren_console import collect_snapshot, render_status
+        print(render_status(collect_snapshot(args.auren_home), args.json))
     elif args.command == "console":
-        from .aer_console import serve_console
+        from .auren_console import serve_console
         if args.host not in {"127.0.0.1", "localhost", "::1"}:
             raise SystemExit("console host must be loopback")
-        serve_console(args.aer_home, args.host, args.port, args.open_browser, True)
+        serve_console(args.auren_home, args.host, args.port, args.open_browser, True)
     elif args.command == "workbench":
         from .local_workbench import LocalWorkbench, packet
         argv = list(args.argv)

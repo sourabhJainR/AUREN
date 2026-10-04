@@ -5,7 +5,7 @@ from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
-from portable.aer_console import (
+from portable.auren_console import (
     _serve_once,
     collect_snapshot,
     render_dashboard,
@@ -16,7 +16,7 @@ from portable.aer_console import (
 class TestConsoleSnapshot(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
-        self.home = Path(self.temp.name) / ".aer"
+        self.home = Path(self.temp.name) / ".auren"
 
     def tearDown(self):
         self.temp.cleanup()
@@ -66,7 +66,7 @@ class TestConsoleSnapshot(unittest.TestCase):
 
     def test_dashboard_contains_human_facing_sections(self):
         html = render_dashboard(collect_snapshot(self.home))
-        self.assertIn("AER Console", html)
+        self.assertIn("AUREN Console", html)
         self.assertIn("Overview", html)
         self.assertIn("Runs", html)
         self.assertIn("Learning", html)
@@ -76,7 +76,7 @@ class TestConsoleSnapshot(unittest.TestCase):
 class TestConsoleHTTP(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
-        self.home = Path(self.temp.name) / ".aer"
+        self.home = Path(self.temp.name) / ".auren"
         self.server, self.url = _serve_once("127.0.0.1", 0, lambda: collect_snapshot(self.home))
         import threading
 

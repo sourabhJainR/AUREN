@@ -10,7 +10,7 @@ on:
       - '.ai-harness/*.md'
       - '.github/workflows/**'
       - '.github/actions/publish-ci-artifacts/**'
-      - 'aer_cli.py'
+      - 'auren_cli.py'
   push:
     paths:
       - '.ai-harness/runtime/**'
@@ -20,7 +20,7 @@ on:
       - '.ai-harness/*.md'
       - '.github/workflows/**'
       - '.github/actions/publish-ci-artifacts/**'
-      - 'aer_cli.py'
+      - 'auren_cli.py'
 
 jobs:
   traceability:
@@ -64,11 +64,11 @@ jobs:
           assert c['collaborative_development']['enabled'] is True
           print(f"Harness version: {c['harness']['version']}")
           PY
-      - name: Validate AER CLI
+      - name: Validate AUREN CLI
         run: |
-          python -m py_compile aer_cli.py
-          cp aer_cli.py ci-artifacts/aer_cli.py
-          printf '# AER CLI\n\nDownload or view the [aer_cli.py source](https://github.com/sourabhJainR/Hello_world_With_Structure/blob/%s/aer_cli.py).\n' "$GITHUB_SHA" > ci-artifacts/AER_CLI.md
+          python -m py_compile auren_cli.py
+          cp auren_cli.py ci-artifacts/auren_cli.py
+          printf '# AUREN CLI\n\nDownload or view the [auren_cli.py source](https://github.com/sourabhJainR/Hello_world_With_Structure/blob/%s/auren_cli.py).\n' "$GITHUB_SHA" > ci-artifacts/AUREN_CLI.md
       - name: Collect run metadata
         if: always()
         run: |
@@ -85,11 +85,11 @@ jobs:
           artifact-name: traceability-results
           path: ci-artifacts/
           retention-days: '14'
-      - name: Publish AER CLI link
+      - name: Publish AUREN CLI link
         if: always()
         run: |
-          echo '## AER CLI' >> "$GITHUB_STEP_SUMMARY"
+          echo '## AUREN CLI' >> "$GITHUB_STEP_SUMMARY"
           echo '' >> "$GITHUB_STEP_SUMMARY"
-          echo '[View aer_cli.py in this exact commit](https://github.com/sourabhJainR/Hello_world_With_Structure/blob/'"$GITHUB_SHA"'/aer_cli.py)' >> "$GITHUB_STEP_SUMMARY"
+          echo '[View auren_cli.py in this exact commit](https://github.com/sourabhJainR/Hello_world_With_Structure/blob/'"$GITHUB_SHA"'/auren_cli.py)' >> "$GITHUB_STEP_SUMMARY"
           echo '' >> "$GITHUB_STEP_SUMMARY"
           echo 'The same file is included inside the `traceability-results` workflow artifact.' >> "$GITHUB_STEP_SUMMARY"

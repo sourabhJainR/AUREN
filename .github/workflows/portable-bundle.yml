@@ -16,7 +16,7 @@ on:
       - 'portable/**'
       - 'state/**'
       - 'architecture/**'
-      - 'aer_cli.py'
+      - 'auren_cli.py'
       - 'tests/**'
       - '.github/workflows/portable-bundle.yml'
 
@@ -34,7 +34,7 @@ jobs:
       - name: Run deterministic contract tests
         run: |
           PYTHONPATH=.:.ai-harness python -m unittest \
-            tests.test_portable_aer tests.test_task_planner tests.test_impact_analysis \
+            tests.test_portable_auren tests.test_task_planner tests.test_impact_analysis \
             tests.test_bidirectional_install tests.test_contract_alignment tests.test_graph_agent_team \
             tests.test_engineering_design_guard tests.test_state_graph_hardening \
             tests.test_execution_contract tests.test_evidence_contract tests.test_adaptive_planning_evidence tests.test_execution_strategy_learning tests.test_skill_group_evidence -v
@@ -44,9 +44,9 @@ jobs:
           VERSION=$(python -c "import json; print(json.load(open('.claude-plugin/plugin.json', encoding='utf-8'))['version'])")
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
       - name: Build canonical portable bundle
-        run: python aer_cli.py build --output auren-portable.zip
+        run: python auren_cli.py build --output auren-portable.zip
       - name: Verify canonical portable bundle
-        run: python aer_cli.py verify auren-portable.zip
+        run: python auren_cli.py verify auren-portable.zip
       - name: Verify canonical payload and version
         env:
           EXPECTED_VERSION: ${{ steps.version.outputs.version }}
@@ -55,17 +55,17 @@ jobs:
           import json, os, zipfile
           with zipfile.ZipFile('auren-portable.zip') as z:
               names = set(z.namelist())
-              required = {'aer_cli.py','aer-bundle.json','payload/.claude-plugin/plugin.json','payload/.claude-plugin/marketplace.json','payload/skills/ai-coding-orchestrator/SKILL.md','payload/.ai-harness/ARTIFACT_UPGRADE_CONTRACT.json'}
+              required = {'auren_cli.py','auren-bundle.json','payload/.claude-plugin/plugin.json','payload/.claude-plugin/marketplace.json','payload/skills/ai-coding-orchestrator/SKILL.md','payload/.ai-harness/ARTIFACT_UPGRADE_CONTRACT.json'}
               missing = sorted(required - names)
               if missing:
                   raise SystemExit('missing canonical AUREN payload: ' + ', '.join(missing))
               expected = os.environ['EXPECTED_VERSION']
               plugin = json.loads(z.read('payload/.claude-plugin/plugin.json'))
-              manifest = json.loads(z.read('aer-bundle.json'))
+              manifest = json.loads(z.read('auren-bundle.json'))
               if plugin.get('version') != expected or manifest.get('version') != expected:
                   raise SystemExit(f'version mismatch: plugin={plugin.get("version")} manifest={manifest.get("version")} expected={expected}')
               recorded = {item['path'] for item in manifest['files']}
-              for path in ('aer_cli.py','.claude-plugin/plugin.json','.ai-harness/ARTIFACT_UPGRADE_CONTRACT.json'):
+              for path in ('auren_cli.py','.claude-plugin/plugin.json','.ai-harness/ARTIFACT_UPGRADE_CONTRACT.json'):
                   if path not in recorded:
                       raise SystemExit(f'{path} is not integrity-covered')
               contract = json.loads(z.read('payload/.ai-harness/ARTIFACT_UPGRADE_CONTRACT.json'))

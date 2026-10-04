@@ -11,7 +11,7 @@ on:
       - 'skills/**'
       - 'scripts/**'
       - 'portable/**'
-      - 'aer_cli.py'
+      - 'auren_cli.py'
       - 'docs/**'
       - '.claude/**'
       - 'AGENTS.md'
@@ -31,7 +31,7 @@ on:
       - 'skills/**'
       - 'scripts/**'
       - 'portable/**'
-      - 'aer_cli.py'
+      - 'auren_cli.py'
       - 'docs/**'
       - '.claude/**'
       - 'AGENTS.md'
@@ -58,17 +58,17 @@ jobs:
         run: |
           rm -rf ci-artifacts
           mkdir -p ci-artifacts
-          cp aer_cli.py ci-artifacts/aer_cli.py
+          cp auren_cli.py ci-artifacts/auren_cli.py
           printf 'Repository: %s\nCommit: %s\nRun: %s\n' "$GITHUB_REPOSITORY" "$GITHUB_SHA" "$GITHUB_RUN_ID" > ci-artifacts/run-metadata.txt
           cat > ci-artifacts/evidence-artifact-manifest.json <<'EOF'
-          {"schema_version":"1.0","artifacts":["aer_cli.py","run-metadata.txt","targeted-learning-tests.txt","aer-portable.zip"]}
+          {"schema_version":"1.0","artifacts":["auren_cli.py","run-metadata.txt","targeted-learning-tests.txt","auren-portable.zip"]}
           EOF
-          cat > ci-artifacts/AER_CLI.md <<EOF
-          # AER CLI
+          cat > ci-artifacts/AUREN_CLI.md <<EOF
+          # AUREN CLI
 
-          The public AER command-line entry point is **aer_cli.py**.
+          The public AUREN command-line entry point is **auren_cli.py**.
 
-          [View aer_cli.py in this exact commit](https://github.com/${GITHUB_REPOSITORY}/blob/${GITHUB_SHA}/aer_cli.py)
+          [View auren_cli.py in this exact commit](https://github.com/${GITHUB_REPOSITORY}/blob/${GITHUB_SHA}/auren_cli.py)
           EOF
       - name: Validate Python harness
         run: python -m unittest discover -s tests -v
@@ -81,20 +81,20 @@ jobs:
           python -m unittest discover -s examples/habit-tracker/tests -v
           python -m unittest discover -s examples/family-financial-register/tests -v
       - name: Compile harness, runtime, extensions and installer
-        run: python -m py_compile .ai-harness/run.py .ai-harness/engine.py .ai-harness/context_engine.py .ai-harness/knowledge_fabric.py .ai-harness/extension_registry.py .ai-harness/provider.py .ai-harness/observability.py .ai-harness/project_profile.py .ai-harness/placement.py .ai-harness/worktree.py .ai-harness/review_agents.py .ai-harness/runtime/p0.py .ai-harness/runtime/p1.py .ai-harness/runtime/p1_pipeline.py .ai-harness/runtime/p2.py .ai-harness/runtime/p2_pipeline.py .ai-harness/runtime/legacy.py .ai-harness/runtime/execution_controls.py .ai-harness/runtime/intent_contract.py .ai-harness/runtime/learning.py .ai-harness/runtime/learning_engine.py .ai-harness/runtime/policy_registry.py .ai-harness/runtime/regression_replay.py .ai-harness/runtime/rollback_controller.py .ai-harness/runtime/learning_controller.py .ai-harness/runtime/canary_evaluator.py .ai-harness/runtime/rca.py .ai-harness/runtime/collaboration.py .ai-harness/runtime/second_brain.py .ai-harness/runtime/loop_engine.py .ai-harness/runtime/capability_catalog.py .ai-harness/runtime/instruction_loader.py .ai-harness/runtime/run_journal.py scripts/install_skill.py scripts/validate_plugin.py scripts/run_evals.py scripts/run_p0_evals.py scripts/run_p2_evals.py scripts/run_full_suite.py scripts/run_p1_evals.py scripts/report_regression.py scripts/heartbeat.py portable/aer_runtime.py aer_cli.py .ai-harness/p1_lifecycle.py examples/habit-tracker/app.py examples/family-financial-register/app.py
+        run: python -m py_compile .ai-harness/run.py .ai-harness/engine.py .ai-harness/context_engine.py .ai-harness/knowledge_fabric.py .ai-harness/extension_registry.py .ai-harness/provider.py .ai-harness/observability.py .ai-harness/project_profile.py .ai-harness/placement.py .ai-harness/worktree.py .ai-harness/review_agents.py .ai-harness/runtime/p0.py .ai-harness/runtime/p1.py .ai-harness/runtime/p1_pipeline.py .ai-harness/runtime/p2.py .ai-harness/runtime/p2_pipeline.py .ai-harness/runtime/legacy.py .ai-harness/runtime/execution_controls.py .ai-harness/runtime/intent_contract.py .ai-harness/runtime/learning.py .ai-harness/runtime/learning_engine.py .ai-harness/runtime/policy_registry.py .ai-harness/runtime/regression_replay.py .ai-harness/runtime/rollback_controller.py .ai-harness/runtime/learning_controller.py .ai-harness/runtime/canary_evaluator.py .ai-harness/runtime/rca.py .ai-harness/runtime/collaboration.py .ai-harness/runtime/second_brain.py .ai-harness/runtime/loop_engine.py .ai-harness/runtime/capability_catalog.py .ai-harness/runtime/instruction_loader.py .ai-harness/runtime/run_journal.py scripts/install_skill.py scripts/validate_plugin.py scripts/run_evals.py scripts/run_p0_evals.py scripts/run_p2_evals.py scripts/run_full_suite.py scripts/run_p1_evals.py scripts/report_regression.py scripts/heartbeat.py portable/auren_runtime.py auren_cli.py .ai-harness/p1_lifecycle.py examples/habit-tracker/app.py examples/family-financial-register/app.py
       - name: Validate portable bundle build and integrity
         run: |
-          python aer_cli.py build --output /tmp/aer-portable.zip
-          python aer_cli.py verify /tmp/aer-portable.zip
-          cp /tmp/aer-portable.zip ci-artifacts/aer-portable.zip
+          python auren_cli.py build --output /tmp/auren-portable.zip
+          python auren_cli.py verify /tmp/auren-portable.zip
+          cp /tmp/auren-portable.zip ci-artifacts/auren-portable.zip
           python - <<'PY'
           import json, zipfile
-          with zipfile.ZipFile('/tmp/aer-portable.zip') as archive:
-              manifest=json.loads(archive.read('aer-bundle.json'))
+          with zipfile.ZipFile('/tmp/auren-portable.zip') as archive:
+              manifest=json.loads(archive.read('auren-bundle.json'))
               assert manifest['portable'] is True
               assert manifest['provider_neutral'] is True
-              assert archive.getinfo('aer_cli.py')
-              assert archive.getinfo('payload/portable/aer_runtime.py')
+              assert archive.getinfo('auren_cli.py')
+              assert archive.getinfo('payload/portable/auren_runtime.py')
               assert manifest['files']
           PY
       - name: Validate configuration
@@ -120,18 +120,18 @@ jobs:
         run: python -c "from pathlib import Path; p=Path('.ai-harness/FLASH_CONTEXT_POLICY.md'); assert p.exists() and 'FlashAttention' in p.read_text(encoding='utf-8')"
       - name: Validate knowledge fabric policy
         run: python -c "from pathlib import Path; p=Path('.ai-harness/KNOWLEDGE_FABRIC_POLICY.md'); assert p.exists() and 'Graphify' in p.read_text(encoding='utf-8') and 'codebase-memory-mcp' in p.read_text(encoding='utf-8')"
-      - name: Validate core has no external AER linkage
+      - name: Validate core has no external AUREN linkage
         run: |
           python - <<'PY'
           from pathlib import Path
           hits=[]
-          roots=[Path('.ai-harness'),Path('.agents'),Path('.claude'),Path('skills'),Path('state'),Path('scripts'),Path('portable'),Path('aer_cli.py'),Path('README.md'),Path('AGENTS.md')]
+          roots=[Path('.ai-harness'),Path('.agents'),Path('.claude'),Path('skills'),Path('state'),Path('scripts'),Path('portable'),Path('auren_cli.py'),Path('README.md'),Path('AGENTS.md')]
           for root in roots:
               files=[root] if root.is_file() else root.rglob('*')
               for path in files:
                   if path.is_file() and path.suffix.lower() in {'.md','.py','.toml','.json','.yml','.yaml','.sh'}:
                       text=path.read_text(encoding='utf-8',errors='ignore').lower()
-                      if 'github.com/sourabhjainr/aer' in text or 'aer_effectiveness_integration' in text:
+                      if 'github.com/sourabhjainr/auren' in text or 'auren_effectiveness_integration' in text:
                           hits.append(str(path))
           assert not hits, f'forbidden external linkage: {hits}'
           PY
@@ -161,16 +161,16 @@ jobs:
         if: always()
         uses: ./.github/actions/publish-ci-artifacts
         with:
-          artifact-name: aer-harness-results
+          artifact-name: auren-harness-results
           path: ci-artifacts/
           retention-days: '14'
-      - name: Publish AER CLI link
+      - name: Publish AUREN CLI link
         if: always()
         run: |
           {
-            echo '## AER CLI'
+            echo '## AUREN CLI'
             echo
-            echo "[View aer_cli.py in this exact commit](https://github.com/${GITHUB_REPOSITORY}/blob/${GITHUB_SHA}/aer_cli.py)"
+            echo "[View auren_cli.py in this exact commit](https://github.com/${GITHUB_REPOSITORY}/blob/${GITHUB_SHA}/auren_cli.py)"
             echo
-            echo 'The same aer_cli.py is included in the aer-harness-results artifact.'
+            echo 'The same auren_cli.py is included in the auren-harness-results artifact.'
           } >> "$GITHUB_STEP_SUMMARY"

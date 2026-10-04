@@ -1,6 +1,6 @@
 # Composable Engineering Skills
 
-These skills adapt useful engineering workflow patterns to this repository's existing AER architecture.
+These skills adapt useful engineering workflow patterns to this repository's existing AUREN architecture.
 
 They are deliberately thin orchestration documents. Runtime execution, context retrieval, capability selection, bounded loops, provenance, verification, rollout, and visual documentation remain owned by the existing canonical contracts.
 

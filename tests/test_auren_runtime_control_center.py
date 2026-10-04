@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from portable.aer_runtime import main, parser
+from portable.auren_runtime import main, parser
 
 
 class ControlCenterCliTests(unittest.TestCase):
@@ -13,7 +13,7 @@ class ControlCenterCliTests(unittest.TestCase):
         args = parser().parse_args(["status"])
         self.assertEqual(args.command, "status")
         self.assertFalse(args.json)
-        self.assertIsNone(args.aer_home)
+        self.assertIsNone(args.auren_home)
 
     def test_console_parser_defaults_to_loopback(self):
         args = parser().parse_args(["console"])
@@ -28,11 +28,11 @@ class ControlCenterCliTests(unittest.TestCase):
                 [
                     sys.executable,
                     "-m",
-                    "portable.aer_runtime",
+                    "portable.auren_runtime",
                     "status",
                     "--json",
-                    "--aer-home",
-                    str(Path(directory) / ".aer"),
+                    "--auren-home",
+                    str(Path(directory) / ".auren"),
                 ],
                 text=True,
                 capture_output=True,

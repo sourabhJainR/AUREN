@@ -1,7 +1,7 @@
 {
   "name": "adaptive-ai-coding-orchestrator",
   "description": "Adaptive repository-aware engineering control plane for coding, debugging, research, POCs, reviews and safe changes, with capability-aware providers, durable memory, procedural skills, bounded delegation, secure tools, verification and evidence-backed learning.",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "author": {
     "name": "AUREN Engineering",
     "url": "https://github.com/sourabhJainR/AUREN"
@@ -33,7 +33,7 @@
   ],
   "skills": "./skills/",
   "mcpServers": {
-    "aer-adaptive-runtime": {
+    "auren-adaptive-runtime": {
       "command": "python",
       "args": [
         "${CLAUDE_PLUGIN_ROOT}/portable/chat_capability.py"
@@ -47,7 +47,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python ${CLAUDE_PLUGIN_ROOT}/skills/ai-coding-orchestrator/hooks/aer_prompt.py",
+            "command": "python ${CLAUDE_PLUGIN_ROOT}/skills/ai-coding-orchestrator/hooks/auren_prompt.py",
             "timeout": 10
           }
         ]

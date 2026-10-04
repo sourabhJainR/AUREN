@@ -330,7 +330,7 @@ curl -fsSL https://raw.githubusercontent.com/sourabhJainR/AUREN/main/install.sh 
 Install a specific release:
 
 ```bash
-AUREN_VERSION=v1.0.2 curl -fsSL https://raw.githubusercontent.com/sourabhJainR/AUREN/main/install.sh | bash
+AUREN_VERSION=v1.0.3 curl -fsSL https://raw.githubusercontent.com/sourabhJainR/AUREN/main/install.sh | bash
 ```
 
 Windows PowerShell:
@@ -344,7 +344,7 @@ The installer downloads the release bundle, extracts the pinned launcher, verifi
 Install directly from a downloaded release bundle:
 
 ```bash
-python aer_cli.py auren-portable.zip
+python auren_cli.py auren-portable.zip
 ```
 
 Build and verify a bundle locally:
@@ -352,8 +352,8 @@ Build and verify a bundle locally:
 ```bash
 git clone https://github.com/sourabhJainR/AUREN.git
 cd AUREN
-python aer_cli.py build --output auren-portable.zip
-python aer_cli.py verify auren-portable.zip
+python auren_cli.py build --output auren-portable.zip
+python auren_cli.py verify auren-portable.zip
 ```
 
 AUREN records a provenance chain:

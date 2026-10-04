@@ -7,7 +7,7 @@ Adaptive, repository-aware AI software engineering orchestration for Claude Code
 From Claude Code:
 
 ```text
-/plugin marketplace add sourabhJainR/Hello_world_With_Structure
+/plugin marketplace add sourabhJainR/AUREN
 /plugin install adaptive-ai-coding-orchestrator@adaptive-ai-engineering
 ```
 

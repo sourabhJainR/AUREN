@@ -10,7 +10,7 @@ try {
   Invoke-WebRequest -Uri "https://github.com/$repo/releases/$version/download/auren-portable.zip" -OutFile $bundle
   $expanded = Join-Path $tmp "bundle"
   Expand-Archive -Path $bundle -DestinationPath $expanded -Force
-  python (Join-Path $expanded "aer_cli.py") $bundle
+  python (Join-Path $expanded "auren_cli.py") $bundle
 } finally {
   Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
 }

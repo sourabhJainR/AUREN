@@ -1,4 +1,4 @@
-# AER native core
+# AUREN native core
 
 This crate contains deterministic kernels that are candidates for native
 execution: hashing and empirical resource routing.
@@ -18,11 +18,11 @@ Migration rule:
 
 Build and test:
 
-    cargo test --manifest-path rust/aer-core/Cargo.toml
+    cargo test --manifest-path rust/auren-core/Cargo.toml
 
 Run the JSON-lines worker:
 
-    cargo run --manifest-path rust/aer-core/Cargo.toml --bin aer-core
+    cargo run --manifest-path rust/auren-core/Cargo.toml --bin auren-core
 
 This separation lets the native core be adopted incrementally by packaged
 installations without forcing Rust onto existing Python users.
