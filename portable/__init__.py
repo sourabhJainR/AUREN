@@ -195,3 +195,7 @@ from .long_horizon_campaign_manager import CampaignStep, CampaignCheckpoint, Lon
 from .independent_evaluation_attestation import EvaluationAttestation, AttestedEvaluation, IndependentEvaluationAttestor
 
 from .attested_cross_project_transfer import ProjectTransferObservation, CrossProjectTransferAssessment, AttestedCrossProjectTransferEvaluator
+
+from .sealed_arena_boundary import ExternalOutcomeReceipt, SealedArenaBoundary, SealedArenaEvidence, SealedCampaignRequest, SealedCaseEnvelope
+
+__all__ += ["ExternalOutcomeReceipt", "SealedArenaBoundary", "SealedArenaEvidence", "SealedCampaignRequest", "SealedCaseEnvelope"]
