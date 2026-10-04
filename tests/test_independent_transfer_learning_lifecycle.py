@@ -59,8 +59,8 @@ def test_lifecycle_promotes_only_after_causal_and_transfer_gates():
         holdout_score=.66,
         attribution_confidence=.90,
         randomized_assignment=True,
-        control_scores=(.61, .60, .62, .61),
-        treatment_scores=(.72, .71, .73, .72),
+        control_scores=(.60, .61, .59, .62, .60, .61, .59, .60, .62, .61),
+        treatment_scores=(.72, .73, .71, .74, .72, .73, .71, .72, .74, .73),
         run_receipt=ArenaRunReceipt(
             run_id="run-1",
             arena_version="1",
