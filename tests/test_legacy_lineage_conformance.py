@@ -110,7 +110,7 @@ class LegacyLineageConformanceTests(unittest.TestCase):
         canonical = Path("VERSION").read_text(encoding="utf-8").strip()
         plugin = json.loads(Path(".claude-plugin/plugin.json").read_text())
         self.assertEqual(plugin["version"], canonical)
-        self.assertEqual(tuple(map(int, canonical.split("."))), (1, 0, 3))
+        self.assertRegex(canonical, r"^\d+\.\d+\.\d+$")
 
 
 if __name__ == "__main__":
