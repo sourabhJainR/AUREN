@@ -547,3 +547,12 @@ Keep these four entrypoints during repository cleanup:
 - `docs/index.html` and `docs/404.html` are retained as branch-publishing compatibility entrypoints because the repository previously used the `main/docs` Pages source.
 
 Do not remove either pair unless the GitHub Pages repository setting has been verified to use GitHub Actions and the compatibility contract is intentionally retired. The Pages workflow validates all four files before deployment.
+
+
+## Repository cleanup and rollback governance
+
+Repository cleanup is governed by an evidence gate so that reducing repository size never silently removes AUREN's runtime, CI, release, compatibility, or public presence. The cleanup contract requires dependency inventory, classification, baseline capture, isolated PR review, regression evaluation, an actionable rollback path, and post-merge re-testing.
+
+The protected-artifact manifest is [docs/CLEANUP_PROTECTED_ARTIFACTS.yml](docs/CLEANUP_PROTECTED_ARTIFACTS.yml), and the full procedure is [docs/REPOSITORY_CLEANUP_AND_ROLLBACK.md](docs/REPOSITORY_CLEANUP_AND_ROLLBACK.md).
+
+**Rule:** if an artifact's dependency is uncertain, keep it until the dependency is disproven or a validated replacement exists. A green unit-test suite is not sufficient evidence for removing deployment, packaging, release, documentation, or externally referenced artifacts.

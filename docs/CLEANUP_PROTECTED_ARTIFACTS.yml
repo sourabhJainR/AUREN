@@ -1,0 +1,31 @@
+version: 1
+purpose: "Protected AUREN presence and deployment artifacts for cleanup regression control"
+policy:
+  removal_requires:
+    - dependency_inventory
+    - regression_evaluation
+    - replacement_validation
+    - rollback_plan
+    - post_merge_retest
+protected_paths:
+  - path: README.md
+    reason: "Canonical product identity, installation, usage, architecture and deployment contract"
+    class: product_contract
+  - path: .github/workflows/deploy-pages.yml
+    reason: "Public documentation deployment control plane"
+    class: deployment_control
+  - path: site/index.html
+    reason: "Canonical GitHub Pages entrypoint"
+    class: deployment_artifact
+  - path: site/404.html
+    reason: "Canonical GitHub Pages error entrypoint"
+    class: deployment_artifact
+  - path: docs/index.html
+    reason: "Branch-publishing compatibility entrypoint retained for the current Pages contract"
+    class: compatibility_entrypoint
+  - path: docs/404.html
+    reason: "Branch-publishing compatibility error entrypoint retained for the current Pages contract"
+    class: compatibility_entrypoint
+  - path: docs/GITHUB_PAGES.md
+    reason: "Documents the active Pages publishing and cleanup contract"
+    class: deployment_contract
