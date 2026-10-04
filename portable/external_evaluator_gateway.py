@@ -9,9 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 import os
 import subprocess
-from typing import Sequence
 
-from .sealed_arena_boundary import ExternalOutcomeReceipt, SealedArenaBoundary, SealedArenaEvidence, SealedCampaignRequest
+from .sealed_arena_boundary import SealedArenaBoundary, SealedArenaEvidence, SealedCampaignRequest
 from .sealed_arena_exchange import export_campaign_request, import_outcome_receipt
 
 
@@ -44,7 +43,7 @@ class ExternalEvaluatorGateway:
             list(command.argv),
             input=export_campaign_request(request),
             stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
             shell=False,
             timeout=command.timeout_seconds,
             check=False,
