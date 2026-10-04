@@ -5,6 +5,7 @@ from portable.independent_transfer_learning_lifecycle import (
     IndependentTransferLearningLifecycle,
     PromotionRollbackLedger,
 )
+from portable.arena_run_receipt import ArenaRunReceipt, oracle_registry_digest
 
 
 def benchmark():
@@ -57,6 +58,23 @@ def test_lifecycle_promotes_only_after_causal_and_transfer_gates():
         treatment_score=.72,
         holdout_score=.66,
         attribution_confidence=.90,
+        randomized_assignment=True,
+        control_scores=(.61, .60, .62, .61),
+        treatment_scores=(.72, .71, .73, .72),
+        run_receipt=ArenaRunReceipt(
+            run_id="run-1",
+            arena_version="1",
+            corpus_digest=benchmark().request.corpus_digest,
+            manifest_digest=benchmark().manifest.digest,
+            oracle_digest=oracle_registry_digest(benchmark().manifest.oracle_ids),
+            runtime_snapshot="runtime-1",
+            evaluator_version="eval-1",
+            case_ids=tuple(case.case_id for case in benchmark().request.cases),
+            holdout_case_ids=("math-1", "math-2", "science-1", "science-2"),
+            passed_case_ids=tuple(case.case_id for case in benchmark().request.cases),
+            verified_case_ids=tuple(case.case_id for case in benchmark().request.cases),
+            duration_ms=10,
+        ),
         transfer=CrossDomainTransferMeasurer().measure(
             source_domain="code",
             outcomes=(
