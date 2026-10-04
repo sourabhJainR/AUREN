@@ -139,27 +139,27 @@ class CrossDomainTransferMeasurer:
         self,
         *,
         source_domain: str,
-        outcomes: Sequence[tuple[str, str, bool, float, bool]],
+        outcomes: Sequence[tuple[str, str, bool, float, bool, bool]],
         minimum_target_domains: int = 2,
         minimum_lift: float = 0.03,
     ) -> DomainTransferMeasurement:
-        # (domain, cohort, success, score, regression), with target cohorts
-        # evaluated only on sealed holdouts.
+        # (domain, cohort, success, score, regression, holdout). Target cohorts must be sealed holdouts.
         if not source_domain.strip():
             raise ValueError("source_domain is required")
         target_domains = sorted({
-            domain for domain, cohort, _success, _score, _regression in outcomes
+            domain for domain, cohort, _success, _score, _regression, holdout in outcomes
+            if holdout
             if domain != source_domain and cohort == "treatment"
         })
         if len(target_domains) < minimum_target_domains:
             raise ValueError("insufficient independent target domains")
         source = [score for domain, cohort, _s, score, _r in outcomes
-                  if domain == source_domain and cohort == "control"]
+                  if domain == source_domain and cohort == "control" and not holdout]
         target_control = [score for domain, cohort, _s, score, _r in outcomes
-                          if domain != source_domain and cohort == "control"]
+                          if domain != source_domain and cohort == "control" and holdout]
         target_treatment = [score for domain, cohort, _s, score, _r in outcomes
-                            if domain != source_domain and cohort == "treatment"]
-        regressions = sum(bool(r) for domain, _c, _s, _score, r in outcomes if domain != source_domain)
+                            if domain != source_domain and cohort == "treatment" and holdout]
+        regressions = sum(bool(r) for domain, _c, _s, _score, r, holdout in outcomes if domain != source_domain and holdout)
         if not source or not target_control or not target_treatment:
             raise ValueError("source and target control/treatment observations are required")
         source_baseline = sum(source) / len(source)
@@ -183,7 +183,7 @@ class LifecyclePromotionRecord:
 
     @property
     def digest(self) -> str:
-        return hashlib.sha256(json.dumps(self.__dict__, sort_keys=True).encode()).hexdigest()
+        return hashlib.sha256(json.dumps({"capability_id": self.capability_id, "version": self.version, "state": self.state, "evidence_digest": self.evidence_digest, "prior_version": self.prior_version}, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
 class PromotionRollbackLedger:
@@ -302,7 +302,7 @@ class IndependentTransferLearningLifecycle:
 
 
 __all__ = [
-    "GeneratedBenchmark", "IndependentBenchmarkGenerator",
+    "GeneratedBenchmark", "IndependentBenchmarkGenerator", "CausalAttribution",\n    "CausalAttributionEstimator",
     "DomainTransferMeasurement", "CrossDomainTransferMeasurer",
     "LifecyclePromotionRecord", "PromotionRollbackLedger",
     "LifecycleResult", "IndependentTransferLearningLifecycle",
