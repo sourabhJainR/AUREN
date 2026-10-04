@@ -1,5 +1,9 @@
 # AUREN — Autonomous Unified Reasoning & Engineering Network
 
+**Current release:** `1.0.4`  
+**Canonical repository:** `sourabhJainR/AUREN`  
+**Runtime state:** `~/.auren`
+
 A provider-neutral AI engineering system that turns software work into a measurable, evidence-backed learning loop. AUREN combines repository intelligence, task decomposition, capability routing, graph-based agent execution, bounded local/cloud resources, verification and review, durable evidence, regression replay, and continuous strategy learning. Its improvement loop is empirical rather than self-asserted: generate independent benchmarks, execute them through sealed boundaries, measure transfer on new domains, estimate causal effects, re-test on fresh holdouts, and promote or roll back learned capabilities only when the evidence gates pass.
 
 AUREN separates **execution authority from learning**. Active runs operate under bounded, policy-gated execution; learning is recorded as evidence and can influence future runs only after independent evaluation, regression checks, and promotion/rollback decisions. The result is an engineering system designed to improve from observed outcomes while remaining auditable, reproducible, and fail-closed when evidence is insufficient.
@@ -287,6 +291,71 @@ The service starts automatically and waits efficiently for the durable monthly s
 
 The service only owns lifecycle and execution of the already-gated maintenance lane. It does not change credentials, permissions, merge authority, security policy, or active task policy. A failed maintenance cycle remains retryable through the scheduler's claim/run ledger instead of being silently discarded.
 
+## Install, upgrade, rollback and uninstall
+
+AUREN is installed outside the project repository under `~/.auren`. The release bundle is immutable and identified by version, source commit and bundle hash.
+
+### Install the latest release
+
+Linux/macOS:
+
+~~~bash
+curl -fsSL https://raw.githubusercontent.com/sourabhJainR/AUREN/main/install.sh | bash
+~~~
+
+Windows PowerShell:
+
+~~~powershell
+irm https://raw.githubusercontent.com/sourabhJainR/AUREN/main/install.ps1 | iex
+~~~
+
+### Install an exact release
+
+~~~bash
+AUREN_VERSION=v1.0.4 curl -fsSL https://raw.githubusercontent.com/sourabhJainR/AUREN/main/install.sh | bash
+~~~
+
+### Check for updates
+
+~~~bash
+python ~/.auren/current/auren_cli.py check-update
+~~~
+
+### Upgrade
+
+~~~bash
+python ~/.auren/current/auren_cli.py update
+~~~
+
+The updater verifies the remote source, builds a new immutable version directory, preserves existing state, and atomically switches `~/.auren/current`. It refuses automatic downgrades.
+
+### Roll back
+
+~~~bash
+python ~/.auren/current/auren_cli.py rollback
+~~~
+
+Rollback selects the previous pinned installation. It does not mutate or overwrite immutable version directories.
+
+### Uninstall
+
+If the maintenance service is installed, remove the service first:
+
+~~~bash
+python ~/.auren/current/portable/maintenance_service.py --scope user uninstall
+rm -rf ~/.auren
+~~~
+
+For a system-scoped service, use `--scope system` with the privileges required by the host before removing `~/.auren`.
+
+A legacy `.aer` installation, if one exists from an older release, can be removed after its service is stopped:
+
+~~~bash
+rm -rf ~/.aer
+~~~
+
+AUREN does not install into or modify the target repository merely by being installed.
+
 ## AUREN Engineering Console
 
 AUREN includes a lightweight local web UI for observing engineering execution, learning, evidence, regression protection, repository/code-graph state, quality signals, benchmarks, research activity, and test growth.
@@ -420,7 +489,7 @@ AUREN/
 └── tests/                       # portable and integration regression coverage
 ```
 
-The repository intentionally contains compatibility and historical documentation surfaces. They are not independent runtime owners.
+The repository keeps only active architecture, deployment, lifecycle, evaluation, and compatibility documentation. Historical implementation plans are not part of the product package.
 
 ## Reference documentation
 
@@ -432,8 +501,6 @@ The repository intentionally contains compatibility and historical documentation
 - [`docs/USAGE_AND_PLATFORM_INTEGRATION.md`](docs/USAGE_AND_PLATFORM_INTEGRATION.md) — platform usage and integration.
 - [`docs/ENGINEERING_WORK_REPORTS.md`](docs/ENGINEERING_WORK_REPORTS.md) — work-report and evidence flow.
 - [`docs/REGRESSION_CANARY.md`](docs/REGRESSION_CANARY.md) — regression, shadow, and canary controls.
-- [`docs/superpowers/specs/2026-09-17-continuous-agi-learning-loop-design.md`](docs/superpowers/specs/2026-09-17-continuous-agi-learning-loop-design.md) — continuous learning design.
-- [`docs/superpowers/plans/2026-09-17-continuous-agi-learning-loop.md`](docs/superpowers/plans/2026-09-17-continuous-agi-learning-loop.md) — implementation plan and evidence checkpoints.
 
 ## Typical requests
 
