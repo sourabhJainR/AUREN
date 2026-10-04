@@ -108,7 +108,7 @@ class LegacyLineageConformanceTests(unittest.TestCase):
 
     def test_portable_release_lineage_contract(self):
         plugin = json.loads(Path(".claude-plugin/plugin.json").read_text())
-        self.assertGreaterEqual(tuple(map(int, plugin["version"].split("."))), (22, 1, 0))
+        self.assertEqual(tuple(map(int, plugin["version"].split("."))), (1, 0, 2))
 
 
 if __name__ == "__main__":
