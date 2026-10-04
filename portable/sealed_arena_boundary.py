@@ -108,7 +108,7 @@ class ExternalOutcomeReceipt:
 class SealedArenaEvidence:
     receipt_digest: str
     holdout_pass_rate: float
-    verified_case_count: int
+    result_case_count: int
 
 
 class SealedArenaBoundary:
