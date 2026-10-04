@@ -29,27 +29,33 @@
   "domains": {
     "core": {
       "canonical_owner": "AUREN Core",
-      "role": "world model, self model, reasoning and goals"
+      "role": "world model, self model, reasoning and goals",
+      "rule": "AUREN Core owns world model, self model, reasoning and goals; it cannot authorize consequential execution."
     },
     "engine": {
       "canonical_owner": "AUREN Engine",
-      "role": "planning, StateGraph execution, agent teams and resource-aware execution"
+      "role": "planning, StateGraph execution, agent teams and resource-aware execution",
+      "rule": "AUREN Engine owns planning, StateGraph execution, agent teams and resource routing; Guard controls consequential authority."
     },
     "memory": {
       "canonical_owner": "AUREN Memory",
-      "role": "episodic, semantic, engineering and evidence-graph persistence"
+      "role": "episodic, semantic, engineering and evidence-graph persistence",
+      "rule": "AUREN Memory owns episodic, semantic, engineering and evidence-graph persistence; stored observations do not become facts without verification."
     },
     "learning": {
       "canonical_owner": "AUREN Learning",
-      "role": "experimentation, causal attribution, capability invention and curriculum evolution"
+      "role": "experimentation, causal attribution, capability invention and curriculum evolution",
+      "rule": "AUREN Learning owns experimentation, causal attribution, capability invention and curriculum evolution; it cannot grant permissions, bypass verification, or authorize release."
     },
     "arena": {
       "canonical_owner": "AUREN Arena",
-      "role": "independent evaluation, holdouts, transfer and attestation"
+      "role": "independent evaluation, holdouts, transfer and attestation",
+      "rule": "AUREN Arena owns independent evaluation, holdouts, transfer and attestation; evaluation cannot promote capabilities or act as its own oracle."
     },
     "guard": {
       "canonical_owner": "AUREN Guard",
-      "role": "security, authority, verification, canary and rollback"
+      "role": "security, authority, verification, canary and rollback",
+      "rule": "AUREN Guard owns security, authority, verification, canary and rollback; consequential lifecycle mutation requires Guard authorization."
     }
   },
   "lifecycle": [
