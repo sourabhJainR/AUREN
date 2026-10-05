@@ -211,10 +211,14 @@ class AdaptiveRuntime:
                 context["auren_recovery_mode"] = "fresh-retry"
             call = dict(kwargs)
             call["context"] = context
-            result = self._run_once(**call)
-            last["result"] = result
-            status = "completed" if result.status.value == "accepted" else "failed"
-            return status, result.stop_reason or result.status.value, tuple(item.digest for item in result.evidence)
+            try:
+                result = self._run_once(**call)
+                last["result"] = result
+                status = "completed" if result.status.value == "accepted" else "failed"
+                return status, result.stop_reason or result.status.value, tuple(item.digest for item in result.evidence)
+            except Exception as exc:
+                last["result"] = None
+                return "failed", f"{type(exc).__name__}: {exc}", (f"exception:{type(exc).__name__}",)
 
         def review(_iteration: int):
             result = last["result"]
