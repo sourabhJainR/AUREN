@@ -34,7 +34,15 @@ class PersistentSupervisorDaemon:
         stale = self.controller.detect_stale(self.stale_after_seconds)
         resumed = 0
         for task in stale:
-            self.controller.recover_stale(task.id, reason="stale heartbeat detected")
+            plans = self.controller.generate_alternate_plans(task.id, "stale heartbeat detected")
+            chosen = None
+            for plan in plans:
+                ok, reason, evidence = self.controller.confirm_alternate(task.id, plan)
+                self.controller.company.record(task.work_unit_id, "alternate", "accepted" if ok else "rejected", reason, evidence)
+                if ok:
+                    chosen = plan
+                    break
+            self.controller.recover_stale(task.id, reason=f"stale heartbeat detected; alternate={chosen or 'none'}")
         scores = self.controller.resume_pending(limit=self.max_tasks_per_tick)
         reviewed = self.controller.self_review(limit=self.max_tasks_per_tick)
         score = min((s.score for s in scores), default=1.0)
