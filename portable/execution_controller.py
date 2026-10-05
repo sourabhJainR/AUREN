@@ -103,8 +103,10 @@ class ExecutionController:
             if not row or row[3] in {"completed", "failed", "cancelled"}:
                 return None
             attempts = int(row[4]) + 1
-            db.execute("UPDATE tasks SET state='running',attempts=?,updated_at=? WHERE id=?",
-                       (attempts, _now(), task_id))
+            now = _now()
+            lease = (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat()
+            db.execute("UPDATE tasks SET state='running',attempts=?,updated_at=?,heartbeat_at=?,lease_until=? WHERE id=?",
+                       (attempts, now, now, lease, task_id))
         return DurableTask(row[0], row[1], json.loads(row[2]), "running", attempts, row[5])
 
     def run_once(self, task_id: str) -> TrustScore | None:
@@ -113,7 +115,9 @@ class ExecutionController:
             return None
         handler = self._load_handler(task.handler)
         try:
+            self.heartbeat(task.id)
             result = handler(task.payload)
+            self.heartbeat(task.id)
             evidence = [f"handler:{task.handler}"]
             if isinstance(result, Mapping):
                 evidence.extend(str(x) for x in result.get("evidence", ()) if x)
@@ -124,13 +128,13 @@ class ExecutionController:
             self.company.record(task.work_unit_id, "execution", "completed" if success else "failed", detail, evidence)
             state = "completed" if success else "failed"
             with sqlite3.connect(self.db_path) as db:
-                db.execute("UPDATE tasks SET state=?,updated_at=? WHERE id=?", (state, _now(), task.id))
+                db.execute("UPDATE tasks SET state=?,updated_at=?,heartbeat_at=?,lease_until=NULL WHERE id=?", (state, _now(), _now(), task.id))
             return self.company.finish(task.work_unit_id, success=success, reason=detail, evidence=evidence)
         except Exception as exc:
             detail = f"{type(exc).__name__}: {exc}"
             self.company.record(task.work_unit_id, "execution", "failed", detail, (f"handler:{task.handler}",))
             with sqlite3.connect(self.db_path) as db:
-                db.execute("UPDATE tasks SET state=?,updated_at=? WHERE id=?", ("failed", _now(), task.id))
+                db.execute("UPDATE tasks SET state=?,updated_at=?,heartbeat_at=?,lease_until=NULL WHERE id=?", ("failed", _now(), _now(), task.id))
             self.company.finish(task.work_unit_id, success=False, reason=detail)
             raise
 
