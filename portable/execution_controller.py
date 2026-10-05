@@ -10,7 +10,7 @@ import importlib
 import json
 import sqlite3
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping
 from uuid import uuid4
@@ -46,7 +46,7 @@ class ExecutionController:
             CREATE TABLE IF NOT EXISTS tasks(
               id TEXT PRIMARY KEY, handler TEXT NOT NULL, payload TEXT NOT NULL,
               state TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0,
-              work_unit_id TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+              work_unit_id TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, heartbeat_at TEXT, lease_until TEXT);
             """)
 
     def register_handler(self, name: str, handler: Handler | str) -> str:
@@ -86,9 +86,9 @@ class ExecutionController:
         task = DurableTask(uuid4().hex, handler, dict(payload), "pending", 0, work.id)
         with sqlite3.connect(self.db_path) as db:
             now = _now()
-            db.execute("INSERT INTO tasks VALUES(?,?,?,?,?,?,?,?,?)",
+            db.execute("INSERT INTO tasks(id,handler,payload,state,attempts,work_unit_id,created_at,updated_at,heartbeat_at,lease_until) VALUES(?,?,?,?,?,?,?,?,?,?)",
                        (task.id, task.handler, json.dumps(task.payload, sort_keys=True),
-                        task.state, task.attempts, task.work_unit_id, now, now))
+                        task.state, task.attempts, task.work_unit_id, now, now, now, now))
         return task
 
     def _claim(self, task_id: str) -> DurableTask | None:
@@ -140,6 +140,69 @@ class ExecutionController:
             if score is not None:
                 scores.append(score)
         return scores
+
+
+    def heartbeat(self, task_id: str, *, lease_seconds: int = 300) -> None:
+        now = datetime.now(timezone.utc)
+        lease = (now + timedelta(seconds=max(1, lease_seconds))).isoformat()
+        with sqlite3.connect(self.db_path) as db:
+            db.execute("UPDATE tasks SET heartbeat_at=?,lease_until=?,updated_at=? WHERE id=? AND state='running'",
+                       (now.isoformat(), lease, now.isoformat(), task_id))
+
+    def detect_stale(self, stale_after_seconds: int = 900) -> list[DurableTask]:
+        cutoff = (datetime.now(timezone.utc) - timedelta(seconds=max(1, stale_after_seconds))).isoformat()
+        with sqlite3.connect(self.db_path) as db:
+            rows = db.execute("SELECT id,handler,payload,state,attempts,work_unit_id FROM tasks WHERE state='running' AND (heartbeat_at IS NULL OR heartbeat_at<?)", (cutoff,)).fetchall()
+        return [DurableTask(r[0],r[1],json.loads(r[2]),r[3],int(r[4]),r[5]) for r in rows]
+
+    def recover_stale(self, task_id: str, *, reason: str) -> None:
+        task = self.task(task_id)
+        if task is None:
+            return
+        self.company.record(task.work_unit_id, "recovery", "detected", reason, (f"task:{task.id}",))
+        with sqlite3.connect(self.db_path) as db:
+            db.execute("UPDATE tasks SET state='pending',updated_at=?,lease_until=NULL WHERE id=? AND state='running'", (_now(), task_id))
+
+    def generate_alternate_plans(self, task_id: str, reason: str) -> tuple[str, ...]:
+        task = self.task(task_id)
+        if task is None:
+            raise KeyError(task_id)
+        return (
+            f"retry {task.handler} with verified inputs",
+            f"reduce scope for {task.handler} and verify incrementally",
+            f"switch to specialist review before {task.handler}",
+            f"rollback to last verified checkpoint before {task.handler}",
+        )
+
+    def confirm_alternate(self, task_id: str, plan: str) -> tuple[bool, str, tuple[str, ...]]:
+        task = self.task(task_id)
+        if task is None:
+            return False, "task not found", ()
+        safe = not any(x in plan.lower() for x in ("disable security", "delete evidence", "expose secret"))
+        return safe, "passed safety policy" if safe else "blocked by safety policy", (f"alternate:{task.id}", f"plan:{plan}")
+
+    def self_review(self, *, limit: int = 20) -> int:
+        count = 0
+        with sqlite3.connect(self.db_path) as db:
+            rows = db.execute("SELECT id,work_unit_id,state,attempts FROM tasks ORDER BY updated_at DESC LIMIT ?", (limit,)).fetchall()
+        for task_id,wid,state,attempts in rows:
+            ok = state != "failed" and attempts < 1000000
+            self.company.record(wid, "self_review", "passed" if ok else "failed",
+                                f"task={task_id}; state={state}; attempts={attempts}", (f"task:{task_id}",))
+            count += 1
+        return count
+
+    def health_findings(self) -> tuple[str, ...]:
+        findings = []
+        with sqlite3.connect(self.db_path) as db:
+            failed = db.execute("SELECT COUNT(*) FROM tasks WHERE state='failed'").fetchone()[0]
+            stale = db.execute("SELECT COUNT(*) FROM tasks WHERE state='running' AND (heartbeat_at IS NULL OR heartbeat_at<?)",
+                               ((datetime.now(timezone.utc)-timedelta(minutes=15)).isoformat(),)).fetchone()[0]
+        if failed:
+            findings.append(f"failed_tasks={failed}")
+        if stale:
+            findings.append(f"stale_tasks={stale}")
+        return tuple(findings)
 
     def task(self, task_id: str) -> DurableTask | None:
         with sqlite3.connect(self.db_path) as db:
