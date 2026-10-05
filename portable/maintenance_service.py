@@ -94,7 +94,7 @@ class MaintenanceService:
             try:
                 receipt = self.run_once()
                 if receipt is not None:
-                    print(json.dumps(receipt.__dict__, sort_keys=True), flush=True)
+                    print(json.dumps(receipt if isinstance(receipt, dict) else receipt.__dict__, sort_keys=True), flush=True)
             except Exception as exc:
                 print(f"AUREN maintenance error: {type(exc).__name__}: {exc}", file=sys.stderr, flush=True)
             for _ in range(self.config.poll_seconds):
