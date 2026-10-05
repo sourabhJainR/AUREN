@@ -200,15 +200,41 @@ class AdaptiveRuntime:
         task_id = str(kwargs["task_id"])
         intent = str(kwargs["intent"])
         work_id = self.execution_controller.work_unit_for_session(session_id, f"{task_id}: {intent}")
-        result = self._run_once(**kwargs)
-        status = "completed" if result.status.value == "accepted" else "failed"
-        evidence = tuple(item.digest for item in result.evidence)
-        self.execution_controller.company.record(work_id, "verification", "passed" if status == "completed" else "failed", result.stop_reason or result.status.value, evidence)
-        if status == "completed":
-            self.execution_controller.company.finish(work_id, success=True, reason=result.stop_reason or "graph accepted", evidence=evidence)
-            return result
-        self.execution_controller.company.finish(work_id, success=False, reason=result.stop_reason or "graph failed", evidence=evidence)
-        raise RuntimeError(result.stop_reason or "AUREN execution failed")
+        attempts = {"count": 0}
+        last = {"result": None}
+
+        def execute(iteration: int):
+            attempts["count"] = iteration
+            context = dict(kwargs.get("context") or {})
+            context["auren_supervisor_iteration"] = iteration
+            if iteration > 1:
+                context["auren_recovery_mode"] = "fresh-retry"
+            call = dict(kwargs)
+            call["context"] = context
+            result = self._run_once(**call)
+            last["result"] = result
+            status = "completed" if result.status.value == "accepted" else "failed"
+            return status, result.stop_reason or result.status.value, tuple(item.digest for item in result.evidence)
+
+        def review(_iteration: int):
+            result = last["result"]
+            ok = result is not None and result.status.value == "accepted"
+            refs = tuple(item.digest for item in result.evidence) if result is not None else ()
+            return ok, result.stop_reason if result is not None else "no result", refs
+
+        max_iterations = int((kwargs.get("context") or {}).get("auren_max_iterations", 3))
+        unit = self.execution_controller.company.resume(work_id)
+        if unit.max_iterations != max_iterations:
+            pass
+        score = self.execution_controller.company.iterate(
+            work_id, execute=execute, review=review, recover=lambda detail: (attempts["count"] < max_iterations, "fresh retry selected", (detail,)),
+        )
+        result = last["result"]
+        if result is None:
+            raise RuntimeError("AUREN supervisor completed without an execution result")
+        if result.status.value != "accepted":
+            raise RuntimeError(result.stop_reason or "AUREN execution failed")
+        return result
     def _run_once(
         self,
         *,
