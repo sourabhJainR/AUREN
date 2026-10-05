@@ -83,7 +83,9 @@ class MaintenanceService:
     def run_once(self):
         if not self.config.enabled:
             return None
-        return self.runtime.maintenance_tick(self.config.project_root, budget=self.config.maintenance_budget)
+        resumed = self.runtime.resume_tasks(limit=self.config.maintenance_budget)
+        maintenance = self.runtime.maintenance_tick(self.config.project_root, budget=self.config.maintenance_budget)
+        return {"resumed": len(resumed), "maintenance": maintenance}
 
     def loop(self) -> int:
         signal.signal(signal.SIGTERM, self.stop)
