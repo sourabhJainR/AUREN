@@ -48,6 +48,11 @@ class ExecutionController:
               state TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0,
               work_unit_id TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, heartbeat_at TEXT, lease_until TEXT);
             """)
+            columns = {row[1] for row in db.execute("PRAGMA table_info(tasks)").fetchall()}
+            for column in ("heartbeat_at", "lease_until"):
+                if column not in columns:
+                    db.execute(f"ALTER TABLE tasks ADD COLUMN {column} TEXT")
+
 
     def register_handler(self, name: str, handler: Handler | str) -> str:
         """Persist an importable handler reference; callable handlers use module:qualname."""
