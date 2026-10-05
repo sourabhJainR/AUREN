@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Sequence
 
 from .adaptive_runtime import AdaptiveRuntime
+from .autonomous_daemon import PersistentSupervisorDaemon
 from .automation_scheduler import AutomationScheduler
 from .orchestration import Graph
 
@@ -83,6 +84,7 @@ class MaintenanceService:
     def run_once(self):
         if not self.config.enabled:
             return None
+        checkpoint = PersistentSupervisorDaemon(project_root, max_tasks_per_tick=limit).checkpoint()
         resumed = self.runtime.resume_tasks(limit=self.config.maintenance_budget, project_root=self.config.project_root)
         maintenance = self.runtime.maintenance_tick(self.config.project_root, budget=self.config.maintenance_budget)
         return {"resumed": len(resumed), "maintenance": maintenance}
