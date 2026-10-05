@@ -79,6 +79,23 @@ class RecipeMiner:
             unique[(item.pattern, item.recipe)] = item
         return tuple(list(unique.values())[:limit])
 
+@dataclass(frozen=True)
+class AgentPersona:
+    name: str
+    focus: str
+    responsibilities: tuple[str, ...]
+    risk_focus: tuple[str, ...] = ()
+
+DEFAULT_PERSONAS = (
+    AgentPersona("frontend", "frontend engineer", ("UI", "accessibility", "UX", "browser compatibility")),
+    AgentPersona("backend", "backend engineer", ("APIs", "services", "contracts", "performance")),
+    AgentPersona("dba", "database engineer", ("schema", "migrations", "integrity", "query performance")),
+    AgentPersona("security_privacy", "security and privacy engineer", ("threat model", "secrets", "authorization", "data minimization"), ("security", "privacy")),
+    AgentPersona("reviewer", "independent reviewer", ("correctness", "regression", "evidence", "maintainability")),
+    AgentPersona("pm", "product manager", ("acceptance criteria", "scope", "user value", "delivery risk")),
+    AgentPersona("enduser", "end user advocate", ("usability", "documentation", "failure recovery", "real-world workflow")),
+)
+
 class ExecutiveTeam:
     """Single-company execution model for specialist agents under one owner."""
     DEFAULT_ROLES = ("planner", "builder", "verifier", "reviewer", "recovery", "learner")
@@ -86,6 +103,21 @@ class ExecutiveTeam:
         self.company = company
         self.skills = registry or SkillRegistry()
         self.agents: dict[str, SkillAgent] = {}
+
+    def personas_for(self, goal: str) -> tuple[AgentPersona, ...]:
+        text = goal.lower()
+        selected = []
+        for persona in DEFAULT_PERSONAS:
+            if persona.name in {"frontend", "dba", "security_privacy"}:
+                terms = {
+                    "frontend": ("ui", "frontend", "web", "browser", "screen"),
+                    "dba": ("db", "database", "sql", "schema", "migration", "storage"),
+                    "security_privacy": ("security", "privacy", "auth", "secret", "permission", "data"),
+                }[persona.name]
+                if not any(term in text for term in terms):
+                    continue
+            selected.append(persona)
+        return tuple(selected)
 
     def register(self, agent: SkillAgent) -> None:
         if not agent.name.strip() or not agent.skills:
@@ -115,4 +147,4 @@ class ExecutiveTeam:
             self.company.extract_recipe(wid, item.pattern, recipe=item.recipe, evidence=item.evidence, confidence=item.confidence)
         return recipes
 
-__all__ = ["ExecutiveTeam", "RecipeMiner", "Recipe", "SkillAgent"]
+__all__ = ["ExecutiveTeam", "RecipeMiner", "Recipe", "SkillAgent", "AgentPersona", "DEFAULT_PERSONAS"]
