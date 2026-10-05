@@ -84,10 +84,10 @@ class MaintenanceService:
     def run_once(self):
         if not self.config.enabled:
             return None
-        checkpoint = PersistentSupervisorDaemon(project_root, max_tasks_per_tick=limit).checkpoint()
+        checkpoint = PersistentSupervisorDaemon(self.config.project_root, max_tasks_per_tick=self.config.maintenance_budget).checkpoint()
         resumed = self.runtime.resume_tasks(limit=self.config.maintenance_budget, project_root=self.config.project_root)
         maintenance = self.runtime.maintenance_tick(self.config.project_root, budget=self.config.maintenance_budget)
-        return {"resumed": len(resumed), "maintenance": maintenance}
+        return {"resumed": len(resumed), "checkpoint": checkpoint.__dict__, "maintenance": maintenance.__dict__ if maintenance is not None else None}
 
     def loop(self) -> int:
         signal.signal(signal.SIGTERM, self.stop)
@@ -431,7 +431,7 @@ def run_foreground(config: MaintenanceServiceConfig) -> int:
 def run_once(config: MaintenanceServiceConfig) -> int:
     receipt = MaintenanceService(config).run_once()
     if receipt is not None:
-        print(json.dumps(receipt.__dict__, indent=2, sort_keys=True))
+        print(json.dumps(receipt if isinstance(receipt, dict) else receipt.__dict__, indent=2, sort_keys=True))
     else:
         print("AUREN maintenance: not due or disabled")
     return 0
