@@ -91,7 +91,7 @@ class ExecutiveTeam:
     def register(self, agent: SkillAgent) -> None:
         if not agent.name.strip() or not agent.skills:
             raise ValueError("agent name and skills are required")
-        missing=[name for name in agent.skills if name not in self.skills.discover()]
+        available={skill.name for skill in self.skills.discover()}\n        missing=[name for name in agent.skills if name not in available]
         if missing:
             raise KeyError(f"unregistered skills: {missing}")
         self.agents[agent.name]=agent
