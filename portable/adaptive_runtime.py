@@ -71,6 +71,8 @@ class AdaptiveRuntime:
         self.last_learning_signal: LearningSignal | None = None
         self.last_deferred_learning_job: DeferredLearningJob | None = None
         self.last_maintenance_receipt: MaintenanceReceipt | None = None
+        from .execution_controller import ExecutionController
+        self.execution_controller = ExecutionController(Path.home() / ".aer" / "executive")
 
     def capability(self, name: str, preferred: tuple[str, ...] = ()) -> RoutingDecision:
         return self.provider_fabric.route(CapabilityRequest(name, preferred))
@@ -180,7 +182,34 @@ class AdaptiveRuntime:
         project_key = self.session_store.project_key(project_root)
         return AdaptiveTuner(self.persistent_memory, project_key).current_policy(scope)
 
-    def run(
+    def register_task_handler(self, name: str, handler: Any) -> str:
+        """Register a restart-safe module-level task handler."""
+        return self.execution_controller.register_handler(name, handler)
+
+    def submit_task(self, handler: str, payload: Mapping[str, Any], *, goal: str | None = None) -> Any:
+        """Persist a task so the service can resume it after a restart."""
+        return self.execution_controller.submit(handler, payload, goal=goal)
+
+    def resume_tasks(self, *, limit: int = 20) -> list[Any]:
+        """Resume pending/running durable tasks after process or host restart."""
+        return self.execution_controller.resume_pending(limit=limit)
+
+    def run(self, **kwargs: Any) -> OrchestrationRun:
+        """Default execution path: durable executive supervision around graph execution."""
+        session_id = str(kwargs["session_id"])
+        task_id = str(kwargs["task_id"])
+        intent = str(kwargs["intent"])
+        work_id = self.execution_controller.work_unit_for_session(session_id, f"{task_id}: {intent}")
+        result = self._run_once(**kwargs)
+        status = "completed" if result.status.value == "accepted" else "failed"
+        evidence = tuple(item.digest for item in result.evidence)
+        self.execution_controller.company.record(work_id, "verification", "passed" if status == "completed" else "failed", result.stop_reason or result.status.value, evidence)
+        if status == "completed":
+            self.execution_controller.company.finish(work_id, success=True, reason=result.stop_reason or "graph accepted", evidence=evidence)
+            return result
+        self.execution_controller.company.finish(work_id, success=False, reason=result.stop_reason or "graph failed", evidence=evidence)
+        raise RuntimeError(result.stop_reason or "AUREN execution failed")
+    def _run_once(
         self,
         *,
         session_id: str,
