@@ -86,6 +86,9 @@ class AutonomousCompany:
             CREATE TABLE IF NOT EXISTS recipes(
               id TEXT PRIMARY KEY, work_unit_id TEXT NOT NULL, pattern TEXT NOT NULL,
               recipe TEXT NOT NULL, confidence REAL NOT NULL, evidence TEXT NOT NULL, created_at TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS clarifications(
+              id TEXT PRIMARY KEY, work_unit_id TEXT NOT NULL, question TEXT NOT NULL,
+              dependency TEXT NOT NULL, state TEXT NOT NULL, evidence TEXT NOT NULL, created_at TEXT NOT NULL);
             """)
 
     def _db(self):
@@ -120,6 +123,30 @@ class AutonomousCompany:
                 db.execute("UPDATE work_units SET state=?,updated_at=? WHERE id=?", (state,_utc(),wid))
             else:
                 db.execute("UPDATE work_units SET state=?,iteration=?,updated_at=? WHERE id=?", (state,iteration,_utc(),wid))
+
+    def hold_clarification(self, wid: str, question: str, *, dependency: str, evidence: Iterable[str] = ()) -> str:
+        if not question.strip() or not dependency.strip():
+            raise ValueError("question and dependency are required")
+        cid = uuid4().hex
+        refs = tuple(dict.fromkeys(str(x).strip() for x in evidence if str(x).strip()))
+        with self._db() as db:
+            db.execute("INSERT INTO clarifications VALUES(?,?,?,?,?,?,?)",
+                       (cid, wid, question.strip(), dependency.strip(), "open", json.dumps(refs), _utc()))
+        self.record(wid, "clarification", "held", question.strip(), refs + (f"dependency:{dependency}",))
+        return cid
+
+    def open_clarifications(self, wid: str) -> tuple[dict[str, object], ...]:
+        with self._db() as db:
+            rows = db.execute("SELECT id,question,dependency,state,evidence,created_at FROM clarifications WHERE work_unit_id=? AND state='open' ORDER BY created_at", (wid,)).fetchall()
+        return tuple({"id":r[0],"question":r[1],"dependency":r[2],"state":r[3],"evidence":tuple(json.loads(r[4])),"created_at":r[5]} for r in rows)
+
+    def resolve_clarification(self, clarification_id: str, resolution: str) -> None:
+        with self._db() as db:
+            row=db.execute("SELECT work_unit_id FROM clarifications WHERE id=? AND state='open'", (clarification_id,)).fetchone()
+            if not row:
+                raise KeyError(clarification_id)
+            db.execute("UPDATE clarifications SET state='resolved' WHERE id=?", (clarification_id,))
+        self.record(row[0], "clarification", "resolved", resolution, (f"clarification:{clarification_id}",))
 
     def record(self, wid: str, kind: str, status: str, detail: str, evidence: Iterable[str] = ()) -> str:
         state, iteration = self._state(wid)
@@ -240,6 +267,15 @@ class AutonomousCompany:
             self._transition(wid,"running",iteration)
             status,detail,evidence=execute(iteration)
             self.record(wid,"execution",status,detail,evidence)
+            if status == "blocked":
+                self.record(wid, "clarification", "held", detail, evidence)
+                if recover:
+                    ok,why,refs=recover(detail)
+                    self.record(wid, "recovery", "accepted" if ok else "held", why, refs)
+                    if ok:
+                        continue
+                self._transition(wid, "waiting_external", iteration)
+                return self.trust(wid)
             if status not in {"passed","completed"}:
                 if recover:
                     ok,why,refs=recover(detail)
