@@ -222,7 +222,13 @@ class ExecutionController:
         return self.company.trust(task.work_unit_id)
 
     def execute_graph(self, graph: Any, task_id: str, intent: str, context: Mapping[str, Any] | None = None) -> Any:
-        """Compatibility adapter for StateGraph/GraphAgentTeam-style callers."""
+        """Execute StateGraph or GraphAgentTeam under the durable supervisor boundary."""
+        from .state_graph import StateGraph, GraphAgentTeam
+        if isinstance(graph, GraphAgentTeam):
+            return graph.run(task_id, intent, context)
+        if isinstance(graph, StateGraph):
+            return graph.run(task_id, intent, context)
+        # Backward compatibility for existing Graph callers.
         from .orchestration import Orchestrator
         return Orchestrator(graph).run(task_id, intent, context)
 
