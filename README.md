@@ -66,7 +66,7 @@ See [`docs/CAPABILITY_MEMORY_OWNERSHIP.md`](docs/CAPABILITY_MEMORY_OWNERSHIP.md)
 
 See [`docs/CAPABILITY_AWARE_EXECUTION.md`](docs/CAPABILITY_AWARE_EXECUTION.md) for capability-aware execution, optional installed-skill/MCP/plugin discovery, bounded selection, and graceful degradation.
 
-## Deterministic repository intelligence
+## Durable autonomous execution\n\nAUREN now supports company-level long-running work units through `portable.autonomous_company.AutonomousCompany`. The supervisor persists iterations, blocker decisions, alternate-path confirmation, CI waits, self-reviews, evidence, recipes, and a shareable trust score so work can resume after process restarts. `portable.executive_team.ExecutiveTeam` provides skill-specific agents under one durable task owner, while `RecipeMiner` extracts reusable patterns from the repository. See [`docs/AUTONOMOUS_EXECUTIVE_LOOP.md`](docs/AUTONOMOUS_EXECUTIVE_LOOP.md).\n\n## Deterministic repository intelligence
 
 AUREN builds one deterministic repository snapshot and reuses it for multiple structural questions.
 
