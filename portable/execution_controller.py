@@ -80,7 +80,7 @@ class ExecutionController:
             raise TypeError(f"durable handler is not callable: {row[0]}")
         return obj
 
-    def submit(self, handler: str, payload: Mapping[str, Any], *, goal: str | None = None) -> DurableTask:
+    def work_unit_for_session(self, session_id: str, goal: str) -> str:\n        with sqlite3.connect(self.db_path) as db:\n            row = db.execute("SELECT work_unit_id FROM sessions WHERE session_id=?", (session_id,)).fetchone()\n            if row:\n                return str(row[0])\n        work = self.company.start(goal)\n        with sqlite3.connect(self.db_path) as db:\n            db.execute("INSERT INTO sessions(session_id,work_unit_id,goal,updated_at) VALUES(?,?,?,?)", (session_id, work.id, goal, _now()))\n        return work.id\n\n    def submit(self, handler: str, payload: Mapping[str, Any], *, goal: str | None = None) -> DurableTask:
         self._load_handler(handler)
         work = self.company.start(goal or f"execute durable handler: {handler}")
         task = DurableTask(uuid4().hex, handler, dict(payload), "pending", 0, work.id)
