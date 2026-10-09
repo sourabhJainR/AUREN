@@ -21,7 +21,7 @@ Use focused map queries for callers, callees, impact, tests, and current situati
 
 `portable.task_planner.TaskPlan`, `portable.impact_analysis`, `portable.repo_intelligence.RepositoryMap`, `CodebaseIndex`, `ContextEvidence` and `.ai-harness/runtime/tool_runner.py`, `.ai-harness/runtime/lsp_server.py`, `.ai-harness/runtime/feedback_loop.py`, `.ai-harness/runtime/auto_compaction.py` remain canonical. `downgrade=explicit_install_only` applies to artifact installation.
 
-The `Engineering State Ledger` is the canonical lifecycle spine. Control-plane policies are: `ORCHESTRATION_SPEC.md`, `TEN_LOOP_POLICY.md`, `CONTEXT_POLICY.md`, `ARCHITECTURE_POLICY.md`, `EXECUTION_POLICY.md`, `VERIFICATION_POLICY.md`, `REVIEW_POLICY.md`, `LEARNING_POLICY.md`, `TOKEN_POLICY.md`, `PROVIDER_CONTRACT.md`, `QUALITY_GOVERNANCE.md`.
+The `Engineering State Ledger` is the canonical lifecycle spine. For repeated hard failures, `portable.engineering_recovery.EngineeringRecoveryLedger` owns durable attempt budgets and checkpoints; `skills/engineering/arena-recovery.md` defines the Arena-informed candidate/attack/defend/review workflow. Control-plane policies are: `ORCHESTRATION_SPEC.md`, `TEN_LOOP_POLICY.md`, `CONTEXT_POLICY.md`, `ARCHITECTURE_POLICY.md`, `EXECUTION_POLICY.md`, `VERIFICATION_POLICY.md`, `REVIEW_POLICY.md`, `LEARNING_POLICY.md`, `TOKEN_POLICY.md`, `PROVIDER_CONTRACT.md`, `QUALITY_GOVERNANCE.md`.
 
 ## Required workflow
 
@@ -42,6 +42,8 @@ Read the detailed guidance before substantial implementation:
 Prefer minimal safe changes. Do not create parallel repository indexes, memory stores, capability catalogs, evidence stores, workflow engines, logging abstractions, or privileged paths. Preserve existing API shapes, lifecycle ordering, persisted contracts, CLI/HTTP behavior, and user-visible workflows unless the requested change explicitly requires a contract change.
 
 For bugs: `reproduce -> isolate -> identify owner -> minimal fix -> regression test -> verify -> review adjacent behavior`.
+
+For high-risk work or repeated failures, record the exact failure signature and a falsifiable hypothesis before retrying. Permit at most two attempts for the same failure/hypothesis pair; then switch to a documented alternate hypothesis/implementation, independent adversarial review, smaller verified increment, or safe rollback. Enforce the per-run attempt and elapsed-time budgets with `EngineeringRecoveryLedger`; exhaustion must stop as `blocked` with evidence, not loop. Persist phase checkpoints and the exact head SHA so work can resume after restart. Do not accept queued/running, stale-head, failed, or skipped required CI as verification; use `verify_ci_gate` and require all mandatory checks on the exact PR head. Independent candidate review informs a choice but does not replace tests or grant authorization.
 
 Require explicit approval for destructive, irreversible, production, financial, privacy-sensitive, or external-message actions. Never bypass security, permission, scope, or regression gates.
 
