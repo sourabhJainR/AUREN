@@ -218,7 +218,8 @@ class AdaptiveRuntime:
                 return status, result.stop_reason or result.status.value, tuple(item.digest for item in result.evidence)
             except Exception as exc:
                 last["result"] = None
-                return "failed", f"{type(exc).__name__}: {exc}", (f"exception:{type(exc).__name__}",)
+                last["failure"] = f"{type(exc).__name__}: {exc}"
+                return "failed", last["failure"], (f"exception:{type(exc).__name__}",)
 
         def review(_iteration: int):
             result = last["result"]
@@ -235,7 +236,7 @@ class AdaptiveRuntime:
         )
         result = last["result"]
         if result is None:
-            raise RuntimeError("AUREN supervisor completed without an execution result")
+            raise RuntimeError(f"AUREN supervisor completed without an execution result; last execution failure: {last.get('failure', 'unknown')}")
         if result.status.value != "accepted":
             raise RuntimeError(result.stop_reason or "AUREN execution failed")
         return result
