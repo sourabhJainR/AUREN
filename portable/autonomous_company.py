@@ -153,7 +153,7 @@ class AutonomousCompany:
         eid = uuid4().hex
         refs = tuple(dict.fromkeys(str(x).strip() for x in evidence if str(x).strip()))
         with self._db() as db:
-            db.execute("INSERT INTO events VALUES(?,?,?,?,?,?,?)",
+            db.execute("INSERT INTO events VALUES(?,?,?,?,?,?,?,?)",
                        (eid,wid,iteration,kind,status,detail,json.dumps(refs),_utc()))
         return eid
 
