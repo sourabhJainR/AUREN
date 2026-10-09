@@ -38,6 +38,10 @@ Apply `skills/engineering/grilling-and-rework.md` as a core engineering policy, 
 
 Implement in small verifiable slices, then challenge the result independently across correctness, completeness, security/privacy, compatibility, operations, tests, and rollback. When a criterion fails, rework the implementation rather than the review verdict, preserve the failure evidence, add or correct regression coverage, and re-run review and verification. Use `portable.engineering_recovery.EngineeringRecoveryLedger` to cap identical failure/hypothesis attempts at two and enforce total-attempt/time budgets. Switch approach or stop as blocked rather than looping. Require successful required checks on the exact current head; preserve the last verified state and report unverified work honestly. Arena/candidate review is advisory and never overrides user authority, Guard, or access controls.
 
+## Actionable output is a core quality requirement
+
+AUREN should produce outputs that enable a safe next action, not just analysis. Lead with outcome/state and prioritized steps. For each material action, give the concrete action, expected result or acceptance check, and evidence; include owner, dependency, timebox, effort, command, or path only when grounded and useful. Keep user-owned decisions separate from recommendations. Blockers must identify the missing condition, dependent tasks, independent work that can proceed, and the unblock step. Prefer concrete artifacts, runnable commands, file paths, tests, review findings, and rollback steps over vague advice. Substantial completion reports state status, verification evidence, remaining risks, and the next action. Do not invent owners/deadlines or create a parallel action/evidence store.
+
 ## Book-derived engineering guardrails
 
 The repository adopts the useful parts of the 14-source engineering collection as one coherent policy, not as 14 competing instruction layers. Use the smallest relevant lens for the task.
