@@ -23,6 +23,12 @@ Use focused map queries for callers, callees, impact, tests, and current situati
 
 The `Engineering State Ledger` is the canonical lifecycle spine. For repeated hard failures, `portable.engineering_recovery.EngineeringRecoveryLedger` owns durable attempt budgets and checkpoints; `skills/engineering/arena-recovery.md` defines the Arena-informed candidate/attack/defend/review workflow. Control-plane policies are: `ORCHESTRATION_SPEC.md`, `TEN_LOOP_POLICY.md`, `CONTEXT_POLICY.md`, `ARCHITECTURE_POLICY.md`, `EXECUTION_POLICY.md`, `VERIFICATION_POLICY.md`, `REVIEW_POLICY.md`, `LEARNING_POLICY.md`, `TOKEN_POLICY.md`, `PROVIDER_CONTRACT.md`, `QUALITY_GOVERNANCE.md`.
 
+## Core grilling and rework foundation
+
+Read and apply `skills/engineering/grilling-and-rework.md` for consequential or ambiguous work. Treat dependency-aware grilling as decision discovery, not a questionnaire ritual: agents establish facts with evidence; users own material decisions; ask the whole currently-unblocked question frontier in rounds; defer dependent questions; and record resolved choices in canonical task/decision state. A changed answer reopens only affected branches. Unresolved choices block only dependent tasks, while independent safe work continues.
+
+For implementation, use small verifiable slices and independent adversarial review. When a criterion fails, rework the implementation—not the verdict—and rerun regression tests and review. Same failure/hypothesis gets at most two attempts before an alternate approach or blocked status. Persist checkpoints, use exact-head CI, preserve the last verified state, and never turn a recommendation into user consent or a review into authorization.
+
 ## Required workflow
 
 `intent -> context -> plan -> evidence -> change -> verification -> review -> artifact -> rollout -> observation`
