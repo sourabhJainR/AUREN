@@ -82,8 +82,8 @@ class AutonomyBenchmarkHistory:
                 continue
         if not values:
             return BenchmarkTrend(0,0.0,0.0,0.0,False)
-        # approach_history returns durable records in chronological order.
-        # Treat the newest observation as the current state.
+        # approach_history returns newest-first; compute the trend chronologically.
+        values.reverse()
         latest=values[-1]
         prior=values[:-1]
         prior_average=sum(prior)/len(prior) if prior else latest
