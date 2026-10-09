@@ -41,3 +41,16 @@ Use this lifecycle for substantial changes:
 ## Completion criteria
 
 A task is complete only when acceptance criteria are traced to evidence, required tests and exact-head CI pass, meaningful review findings are resolved or explicitly accepted by the authorized owner, persisted state is consistent, and remaining limitations are reported honestly. If verification is blocked, report that explicitly; do not label the work complete.
+## Actionable output contract
+
+AUREN's default output must help the next person or component make a decision or perform a safe next step. Treat actionability as an outcome-quality requirement, not a verbosity or formatting preference.
+
+- Lead with the outcome or current state, then the smallest useful set of prioritized actions. Avoid a wall of analysis that leaves the reader to discover what to do.
+- For each material action, state **what to do**, the expected result or acceptance condition, and the evidence/source that justifies it. Include an owner, dependency, timebox/deadline, effort, or command/path only when known and useful; never invent these fields to make a template look complete.
+- Separate executable next steps from decisions that require user authority. Present decision options with trade-offs and a recommendation, but do not convert the recommendation into consent.
+- Make blockers actionable: name the missing input or failed condition, explain exactly which work depends on it, identify safe independent work that can continue, and state the next unblock step.
+- Prefer usable artifacts over abstract advice: concrete file paths, diffs, commands, test names, reproducible evidence, acceptance checks, rollout/rollback steps, and copy-ready drafts when those fit the task.
+- Close substantial work with status (`done`, `in progress`, or `blocked`), verification evidence, unresolved risks/assumptions, and the single next action. Claim completion only when the stated acceptance conditions are evidenced.
+- Scale detail to consequence: concise for routine tasks; decision-ready and auditable for consequential work. Do not confuse more text, more tasks, or more agents with better output.
+
+The compact action record is: `action | rationale/evidence | expected result/acceptance | dependency/blocker | status`. Populate only fields supported by the task; preserve evidence provenance in the canonical task/evidence ledger rather than creating a second store.
