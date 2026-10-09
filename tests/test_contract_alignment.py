@@ -69,7 +69,7 @@ class ContractAlignmentTests(unittest.TestCase):
         self.assertIn("Core grilling and rework foundation", canonical)
         self.assertIn("Actionable output contract", text)
         self.assertIn("expected result or acceptance condition", text)
-        self.assertIn("blockers useful", text)
+        self.assertIn("Make blockers actionable", text)
         self.assertIn("Actionable output is part of completion", canonical)
 
     def test_runtime_service_paths_are_present(self) -> None:
