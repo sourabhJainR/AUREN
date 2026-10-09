@@ -55,6 +55,7 @@ class RecoveryAttempt:
     phase: str
     failure_signature: str
     hypothesis: str
+    failure_class: str
     action: str
     outcome: str
     evidence: tuple[str, ...]
@@ -145,6 +146,7 @@ class EngineeringRecoveryLedger:
                     phase TEXT NOT NULL,
                     failure_signature TEXT NOT NULL,
                     hypothesis TEXT NOT NULL,
+                    failure_class TEXT NOT NULL DEFAULT 'unknown',
                     action TEXT NOT NULL,
                     outcome TEXT NOT NULL DEFAULT 'running',
                     evidence_json TEXT NOT NULL DEFAULT '[]',
@@ -163,6 +165,9 @@ class EngineeringRecoveryLedger:
                     PRIMARY KEY(task_id, phase)
                 );
             """)
+            columns = {row[1] for row in db.execute("PRAGMA table_info(recovery_attempts)").fetchall()}
+            if "failure_class" not in columns:
+                db.execute("ALTER TABLE recovery_attempts ADD COLUMN failure_class TEXT NOT NULL DEFAULT 'unknown'")
 
     def _db(self) -> sqlite3.Connection:
         db = sqlite3.connect(self.path, timeout=10)
@@ -230,6 +235,7 @@ class EngineeringRecoveryLedger:
         hypothesis: str,
         *,
         action: str,
+        failure_class: FailureClass | str = FailureClass.UNKNOWN,
         head_sha: str = "",
     ) -> int:
         decision = self.decision(task_id, phase, failure_signature, hypothesis)
@@ -237,6 +243,9 @@ class EngineeringRecoveryLedger:
             raise RecoveryLimitReached(decision.action, decision.reason)
         if action not in {"reproduce", "narrow_fix", "alternate_implementation", "independent_review", "rollback"}:
             raise ValueError("action must name a recognized recovery step")
+        failure_class_value = failure_class.value if isinstance(failure_class, FailureClass) else str(failure_class)
+        if failure_class_value not in {item.value for item in FailureClass}:
+            raise ValueError("failure_class must be a recognized failure category")
         now = time.time()
         with self._db() as db:
             db.execute("BEGIN IMMEDIATE")
@@ -252,9 +261,9 @@ class EngineeringRecoveryLedger:
                 raise RecoveryLimitReached(action_result, "recovery budget changed or is exhausted")
             cur = db.execute(
                 """INSERT INTO recovery_attempts
-                   (task_id,phase,failure_signature,hypothesis,action,outcome,head_sha,created_at)
-                   VALUES(?,?,?,?,?,'running',?,?)""",
-                (task_id, phase, failure_signature, hypothesis, action, head_sha, now),
+                   (task_id,phase,failure_signature,hypothesis,failure_class,action,outcome,head_sha,created_at)
+                   VALUES(?,?,?,?,?,?,'running',?,?)""",
+                (task_id, phase, failure_signature, hypothesis, failure_class_value, action, head_sha, now),
             )
             return int(cur.lastrowid)
 
@@ -281,6 +290,11 @@ class EngineeringRecoveryLedger:
         if status not in {"pending", "in_progress", "verified", "blocked", "rolled_back"}:
             raise ValueError("invalid checkpoint status")
         data = dict(payload or {})
+        if status == "verified":
+            if not head_sha.strip() or data.get("verified_head_sha") != head_sha.strip():
+                raise ValueError("verified checkpoints must bind evidence to the exact head SHA")
+            if not data.get("verification_evidence"):
+                raise ValueError("verified checkpoints require non-empty verification_evidence")
         now = time.time()
         with self._db() as db:
             if not db.execute("SELECT 1 FROM recovery_runs WHERE task_id=?", (task_id,)).fetchone():
@@ -308,12 +322,12 @@ class EngineeringRecoveryLedger:
     def attempts(self, task_id: str) -> tuple[RecoveryAttempt, ...]:
         with self._db() as db:
             rows = db.execute(
-                """SELECT id,task_id,phase,failure_signature,hypothesis,action,outcome,
+                """SELECT id,task_id,phase,failure_signature,hypothesis,failure_class,action,outcome,
                           evidence_json,head_sha,created_at FROM recovery_attempts
                    WHERE task_id=? ORDER BY id""", (task_id,)
             ).fetchall()
         return tuple(RecoveryAttempt(
             int(r["id"]), r["task_id"], r["phase"], r["failure_signature"], r["hypothesis"],
-            r["action"], r["outcome"], tuple(json.loads(r["evidence_json"])),
+            r["failure_class"], r["action"], r["outcome"], tuple(json.loads(r["evidence_json"])),
             r["head_sha"], float(r["created_at"])
         ) for r in rows)
