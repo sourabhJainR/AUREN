@@ -71,6 +71,7 @@ class AutonomyBenchmarkHistory:
 
     def trend(self, *, limit: int = 40) -> BenchmarkTrend:
         rows=approach_history(self.root,self.KEY,limit=max(1,int(limit)),exact=True)
+        rows.sort(key=lambda row: (str(row.get("recorded_at", "")), int(row.get("revision", 0) or 0)))
         values=[]
         for row in rows:
             try:
@@ -82,8 +83,7 @@ class AutonomyBenchmarkHistory:
                 continue
         if not values:
             return BenchmarkTrend(0,0.0,0.0,0.0,False)
-        # approach_history returns durable records in chronological order.
-        # Treat the newest observation as the current state.
+        # Rows are sorted by durable timestamp and revision before aggregation.
         latest=values[-1]
         prior=values[:-1]
         prior_average=sum(prior)/len(prior) if prior else latest
