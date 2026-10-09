@@ -96,9 +96,15 @@ class ExecutionController:
                 "SELECT work_unit_id, goal FROM sessions WHERE session_id=?", (session_id,)
             ).fetchone()
             if row:
-                if row[1] != goal:
-                    raise ValueError("session_id is already bound to a different goal")
-                return str(row[0])
+                prior_state, _ = self.company._state(str(row[0]))
+                if prior_state in {"running", "waiting_ci", "waiting_external"}:
+                    if row[1] != goal:
+                        raise ValueError("session_id is already bound to a different active goal")
+                    return str(row[0])
+                work = self.company.start(goal)
+                db.execute("UPDATE sessions SET work_unit_id=?,goal=?,updated_at=? WHERE session_id=?",
+                           (work.id, goal, _now(), session_id))
+                return work.id
             work = self.company.start(goal)
             db.execute(
                 "INSERT INTO sessions(session_id,work_unit_id,goal,updated_at) VALUES(?,?,?,?)",
