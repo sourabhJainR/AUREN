@@ -1,3 +1,4 @@
+import time
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -18,6 +19,8 @@ class BenchmarkHistoryTests(unittest.TestCase):
             for i, value in enumerate((.9, .89, .7)):
                 history.record(self._benchmark(value), task=f"task-{i}",
                                evidence_ids=[f"evidence:{i}"])
+                if i < 2:
+                    time.sleep(1.01)
             trend=history.trend()
             self.assertEqual(trend.samples, 3)
             self.assertLess(trend.delta, 0)
