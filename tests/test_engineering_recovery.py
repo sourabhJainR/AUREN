@@ -4,6 +4,7 @@ import pytest
 
 from portable.engineering_recovery import (
     EngineeringRecoveryLedger,
+    FailureClass,
     RecoveryAction,
     RecoveryLimitReached,
     verify_ci_gate,
@@ -17,7 +18,7 @@ def test_recovery_budget_forces_alternate_after_two_same_hypothesis_attempts(tmp
     for index in range(2):
         attempt_id = ledger.begin_attempt(
             "task-1", "implementation", "test-fails:assert-7", "parser lacks precedence",
-            action="narrow_fix", head_sha=f"sha-{index}",
+            action="narrow_fix", failure_class=FailureClass.CODE_DEFECT, head_sha=f"sha-{index}",
         )
         ledger.finish_attempt(attempt_id, outcome="failed", evidence=[f"test-run-{index}"])
 
@@ -93,3 +94,23 @@ def test_total_budget_blocks_even_when_hypothesis_changes(tmp_path: Path):
     ledger.finish_attempt(attempt_id, outcome="failed")
     decision = ledger.decision("task-3", "build", "failure-b", "hypothesis-b")
     assert decision.action is RecoveryAction.BLOCKED
+
+
+
+def test_verified_checkpoint_requires_evidence_bound_to_exact_head(tmp_path: Path):
+    ledger = EngineeringRecoveryLedger(tmp_path / "recovery.sqlite")
+    ledger.start_run("task-4", "verified evidence is required")
+
+    with pytest.raises(ValueError, match="exact head SHA"):
+        ledger.checkpoint("task-4", "verify", status="verified", head_sha="new-sha",
+                          payload={"verified_head_sha": "old-sha", "verification_evidence": ["tests passed"]})
+
+    with pytest.raises(ValueError, match="non-empty verification_evidence"):
+        ledger.checkpoint("task-4", "verify", status="verified", head_sha="new-sha",
+                          payload={"verified_head_sha": "new-sha"})
+
+    checkpoint = ledger.checkpoint(
+        "task-4", "verify", status="verified", head_sha="new-sha",
+        payload={"verified_head_sha": "new-sha", "verification_evidence": ["focused tests passed"]},
+    )
+    assert checkpoint.status == "verified"
