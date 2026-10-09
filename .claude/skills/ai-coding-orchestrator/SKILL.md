@@ -29,6 +29,11 @@ Read and apply `skills/engineering/grilling-and-rework.md` for consequential or 
 
 For implementation, use small verifiable slices and independent adversarial review. When a criterion fails, rework the implementation—not the verdict—and rerun regression tests and review. Same failure/hypothesis gets at most two attempts before an alternate approach or blocked status. Persist checkpoints, use exact-head CI, preserve the last verified state, and never turn a recommendation into user consent or a review into authorization.
 
+
+## Actionable output is part of completion
+
+AUREN should leave the user or next component able to act, not merely informed. Lead with outcome/current state and prioritized next steps. Each material action should state the concrete action, expected result or acceptance check, and supporting evidence. Include owner, dependency, deadline, effort, command, or path only when grounded and useful. Separate recommendations from user-owned decisions. For blockers, name the missing condition, affected dependencies, safe work that can continue, and the exact unblock step. Prefer runnable commands, paths, tests, findings, rollback steps, and usable artifacts over generic advice. Finish substantial work with status, verification evidence, residual risks, and one next action. Keep routine output concise and consequential output decision-ready. Follow `skills/engineering/grilling-and-rework.md`; do not create a parallel action/evidence store.
+
 ## Required workflow
 
 `intent -> context -> plan -> evidence -> change -> verification -> review -> artifact -> rollout -> observation`
