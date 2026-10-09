@@ -67,6 +67,10 @@ class ContractAlignmentTests(unittest.TestCase):
         canonical = (ROOT / "skills" / "ai-coding-orchestrator" / "SKILL.md").read_text(encoding="utf-8")
         self.assertIn("skills/engineering/grilling-and-rework.md", canonical)
         self.assertIn("Core grilling and rework foundation", canonical)
+        self.assertIn("Actionable output contract", text)
+        self.assertIn("expected result or acceptance condition", text)
+        self.assertIn("blockers useful", text)
+        self.assertIn("Actionable output is part of completion", canonical)
 
     def test_runtime_service_paths_are_present(self) -> None:
         missing = [str(path.relative_to(ROOT)) for path in RUNTIME_PATHS if not path.is_file()]
