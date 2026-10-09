@@ -51,6 +51,23 @@ class ContractAlignmentTests(unittest.TestCase):
         ):
             self.assertIn(token, canonical)
 
+    def test_grilling_and_rework_are_core_contracts(self) -> None:
+        policy = ROOT / "skills" / "engineering" / "grilling-and-rework.md"
+        self.assertTrue(policy.is_file(), "core grilling/rework policy must be present")
+        text = policy.read_text(encoding="utf-8")
+        for token in (
+            "dependency-aware rounds",
+            "user retains authority",
+            "rework the implementation, not the verdict",
+            "at most two attempts",
+            "exact current head",
+            "Unresolved decisions block only tasks that depend on them",
+        ):
+            self.assertIn(token, text)
+        canonical = (ROOT / "skills" / "ai-coding-orchestrator" / "SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("skills/engineering/grilling-and-rework.md", canonical)
+        self.assertIn("Core grilling and rework foundation", canonical)
+
     def test_runtime_service_paths_are_present(self) -> None:
         missing = [str(path.relative_to(ROOT)) for path in RUNTIME_PATHS if not path.is_file()]
         self.assertEqual(missing, [])
