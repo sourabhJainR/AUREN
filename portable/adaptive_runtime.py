@@ -201,7 +201,7 @@ class AdaptiveRuntime:
         intent = str(kwargs["intent"])
         work_id = self.execution_controller.work_unit_for_session(f"{session_id}:{task_id}", f"{task_id}: {intent}")
         attempts = {"count": 0}
-        last = {"result": None}
+        last = {"result": None, "failure": "execution callback was not invoked"}
 
         def execute(iteration: int):
             attempts["count"] = iteration
