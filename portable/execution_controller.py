@@ -41,6 +41,8 @@ class ExecutionController:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         with sqlite3.connect(self.db_path) as db:
             db.executescript("""
+            CREATE TABLE IF NOT EXISTS sessions(
+              session_id TEXT PRIMARY KEY, work_unit_id TEXT NOT NULL, goal TEXT NOT NULL, updated_at TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS handlers(
               name TEXT PRIMARY KEY, reference TEXT NOT NULL, updated_at TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS tasks(
@@ -85,7 +87,26 @@ class ExecutionController:
             raise TypeError(f"durable handler is not callable: {row[0]}")
         return obj
 
-    def work_unit_for_session(self, session_id: str, goal: str) -> str:\n        with sqlite3.connect(self.db_path) as db:\n            row = db.execute("SELECT work_unit_id FROM sessions WHERE session_id=?", (session_id,)).fetchone()\n            if row:\n                return str(row[0])\n        work = self.company.start(goal)\n        with sqlite3.connect(self.db_path) as db:\n            db.execute("INSERT INTO sessions(session_id,work_unit_id,goal,updated_at) VALUES(?,?,?,?)", (session_id, work.id, goal, _now()))\n        return work.id\n\n    def submit(self, handler: str, payload: Mapping[str, Any], *, goal: str | None = None) -> DurableTask:
+    def work_unit_for_session(self, session_id: str, goal: str) -> str:
+        """Return a stable work unit for a session, creating it once if needed."""
+        if not session_id.strip():
+            raise ValueError("session_id is required")
+        with sqlite3.connect(self.db_path) as db:
+            row = db.execute(
+                "SELECT work_unit_id, goal FROM sessions WHERE session_id=?", (session_id,)
+            ).fetchone()
+            if row:
+                if row[1] != goal:
+                    raise ValueError("session_id is already bound to a different goal")
+                return str(row[0])
+            work = self.company.start(goal)
+            db.execute(
+                "INSERT INTO sessions(session_id,work_unit_id,goal,updated_at) VALUES(?,?,?,?)",
+                (session_id, work.id, goal, _now()),
+            )
+        return work.id
+
+    def submit(self, handler: str, payload: Mapping[str, Any], *, goal: str | None = None) -> DurableTask:
         self._load_handler(handler)
         work = self.company.start(goal or f"execute durable handler: {handler}")
         task = DurableTask(uuid4().hex, handler, dict(payload), "pending", 0, work.id)
