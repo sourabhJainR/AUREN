@@ -32,6 +32,12 @@ For every non-trivial software-engineering task:
 
 The normal runtime is a single adaptive run. Recursive or repeated execution is never automatic; it requires an explicit user request.
 
+## Core foundation: grilling, evidence, and rework
+
+Apply `skills/engineering/grilling-and-rework.md` as a core engineering policy, not an optional external skill. Before consequential or ambiguous changes, map the decision dependencies and acceptance criteria. Ask dependency-aware rounds: all currently answerable decisions together, never downstream questions whose prerequisites are open. Agents investigate facts and cite evidence; the user owns material product and trade-off decisions. Recommendations are not consent. Persist decisions and provenance in canonical task context; do not create parallel memory. Reopen only branches affected by changed answers. Unresolved decisions block only dependent tasks; continue independent safe work.
+
+Implement in small verifiable slices, then challenge the result independently across correctness, completeness, security/privacy, compatibility, operations, tests, and rollback. When a criterion fails, rework the implementation rather than the review verdict, preserve the failure evidence, add or correct regression coverage, and re-run review and verification. Use `portable.engineering_recovery.EngineeringRecoveryLedger` to cap identical failure/hypothesis attempts at two and enforce total-attempt/time budgets. Switch approach or stop as blocked rather than looping. Require successful required checks on the exact current head; preserve the last verified state and report unverified work honestly. Arena/candidate review is advisory and never overrides user authority, Guard, or access controls.
+
 ## Book-derived engineering guardrails
 
 The repository adopts the useful parts of the 14-source engineering collection as one coherent policy, not as 14 competing instruction layers. Use the smallest relevant lens for the task.
