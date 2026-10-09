@@ -199,7 +199,7 @@ class AdaptiveRuntime:
         session_id = str(kwargs["session_id"])
         task_id = str(kwargs["task_id"])
         intent = str(kwargs["intent"])
-        work_id = self.execution_controller.work_unit_for_session(session_id, f"{task_id}: {intent}")
+        work_id = self.execution_controller.work_unit_for_session(f"{session_id}:{task_id}", f"{task_id}: {intent}")
         attempts = {"count": 0}
         last = {"result": None}
 
