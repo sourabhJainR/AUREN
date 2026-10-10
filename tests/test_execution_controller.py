@@ -31,6 +31,7 @@ def test_ci_gated_task_rejects_stale_head_and_persists_failure(tmp_path: Path):
         {
             "require_ci_gate": True,
             "expected_head_sha": "new-head",
+            "required_checks": ["tests"],
             "result": {
                 "success": True,
                 "detail": "change verified",
@@ -57,6 +58,7 @@ def test_ci_gated_task_rejects_missing_or_skipped_required_check(tmp_path: Path)
         {
             "require_ci_gate": True,
             "expected_head_sha": "head-1",
+            "required_checks": ["tests", "lint"],
             "result": {
                 "success": True,
                 "ci_gate": {
@@ -82,6 +84,7 @@ def test_ci_gated_task_completes_only_for_exact_head_and_all_required_checks(tmp
         {
             "require_ci_gate": True,
             "expected_head_sha": "head-2",
+            "required_checks": ["tests", "lint"],
             "result": {
                 "success": True,
                 "detail": "change verified",
