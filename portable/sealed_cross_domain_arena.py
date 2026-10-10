@@ -53,9 +53,13 @@ class CrossDomainCampaign:
             raise ValueError("domain references a case outside the sealed request")
         if len(assigned) != sum(len(domain.case_ids) for domain in self.domains):
             raise ValueError("a case may belong to only one domain")
+        if not any(domain.novel for domain in self.domains):
+            raise ValueError("cross-domain campaign requires at least one explicitly novel domain")
         holdouts = {case.case_id for case in self.request.cases if case.holdout}
         if any(not (set(domain.case_ids) & holdouts) for domain in self.domains):
             raise ValueError("every domain requires at least one holdout case")
+        if assigned != request_ids:
+            raise ValueError("every sealed case must be assigned to exactly one domain")
 
     @property
     def campaign_digest(self) -> str:

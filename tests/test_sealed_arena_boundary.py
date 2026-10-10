@@ -29,6 +29,29 @@ class SealedArenaBoundaryTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             SealedArenaBoundary(lambda _value: True).accept(self.request, receipt)
 
+    def test_rejects_partial_campaign_receipt(self) -> None:
+        second = SealedCaseEnvelope("case-2", "task-2", "input-2", "env-2", False)
+        request = SealedCampaignRequest("campaign-d", "corpus-d", (self.case, second))
+        receipt = ExternalOutcomeReceipt(
+            "campaign-d", "corpus-d", "evaluator", "oracle", "sig",
+            (("case-1", True, "evidence-d"),),
+        )
+        with self.assertRaisesRegex(ValueError, "incomplete"):
+            SealedArenaBoundary(lambda _value: True).accept(request, receipt)
+
+    def test_rejects_non_boolean_outcome(self) -> None:
+        with self.assertRaisesRegex(ValueError, "must be booleans"):
+            ExternalOutcomeReceipt(
+                "campaign-d", "corpus-d", "evaluator", "oracle", "sig",
+                (("case-1", "false", "evidence-d"),),
+            )
+
+    def test_rejects_nested_answer_material(self) -> None:
+        with self.assertRaisesRegex(ValueError, "answer material"):
+            self.request.validate_task_metadata({
+                "task": {"parameters": [{"expected-answer": "gold"}]},
+            })
+
     def test_rejects_unknown_case(self) -> None:
         receipt = ExternalOutcomeReceipt("campaign-d", "corpus-d", "evaluator", "oracle", "sig", (("case-unknown", True, "evidence-d"),))
         with self.assertRaises(ValueError):
