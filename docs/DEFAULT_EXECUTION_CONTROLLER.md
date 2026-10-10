@@ -10,7 +10,7 @@ This preserves the existing graph execution engine while making the supervisor t
 
 ## Restart behavior
 
-A session is mapped to a durable work unit. For a directly constructed `ExecutionController(root)`, its ledger is stored at `<root>/.auren/execution.sqlite3`. The current `AdaptiveRuntime` constructor supplies `~/.aer/executive` as that root, yielding `~/.aer/executive/.auren/execution.sqlite3`; this differs from the README's documented `~/.auren` state root. Do not move or merge these stores manually. Safe path unification and legacy-data migration are tracked in [issue #379](https://github.com/sourabhJainR/AUREN/issues/379).
+A session is mapped to a durable work unit. For a directly constructed `ExecutionController(root)`, its ledger is stored at `<root>/.auren/execution.sqlite3`. The default `AdaptiveRuntime` supplies `~/.auren/executive` as that root. On startup, `AurenStatePaths` copies known SQLite stores and session JSON from legacy `~/.aer` into matching canonical paths using atomic writes and SQLite backup. Legacy files are retained. If both roots contain conflicting data, startup fails closed with an actionable `StatePathConflict`; do not delete either copy before an explicit backup and reconciliation. See [issue #379](https://github.com/sourabhJainR/AUREN/issues/379) for migration rollout and live-environment verification.
 
 If the worker exits after a work unit has started, the next invocation with the same session_id resumes the existing work unit rather than creating a new one.
 
@@ -32,7 +32,7 @@ Handlers are stored as module:qualname, not serialized Python objects. This make
 
 A failed graph execution is recorded as a supervisor failure. The existing default runtime permits bounded fresh retries through `auren_max_iterations` in the execution context, defaulting to three supervisor iterations. Each iteration has execution evidence; repeated failure should terminate rather than loop forever.
 
-`portable.engineering_recovery.EngineeringRecoveryLedger` adds durable failure signatures, hypothesis budgets, checkpoints and an exact-head CI gate, but it is not yet directly integrated into this default execution path. Issue [#377](https://github.com/sourabhJainR/AUREN/issues/377) remains open until the real supervisor path enforces those guarantees and integration tests prove them.
+`portable.engineering_recovery.EngineeringRecoveryLedger` is wired into the default `AdaptiveRuntime.run()` path. It records each attempt and evidence, caps each same-hypothesis plan at two attempts, persists execution checkpoints, switches the exposed recovery mode to `alternate-plan`, and enforces a total attempt/time budget. `auren_max_iterations` is validated and capped at 12. The exact-head CI helper remains an explicit gate for engineering/release workflows; a general graph run cannot claim CI passed unless its caller supplies and verifies that evidence. The integration tests must remain green before [issue #377](https://github.com/sourabhJainR/AUREN/issues/377) can close.
 
 ## Service behavior
 
