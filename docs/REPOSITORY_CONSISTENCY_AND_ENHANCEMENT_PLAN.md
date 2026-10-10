@@ -93,3 +93,35 @@ Run one small, genuinely independent campaign with an unseen task family, unseen
 ## Operating rule
 
 Do not equate documentation, a helper module, a passing unit test, or a green CI workflow with end-to-end capability. A phase is complete only when the actual default path demonstrates the acceptance criteria and the evidence is tied to the exact tested revision.
+
+
+## Execution evidence update — 2026-10-11
+
+This section supersedes earlier "pending implementation" statements only where the specific merged change and exact-head CI evidence below support that status. It does not waive external or production-environment acceptance gates.
+
+### Completed implementation and exact-head verification
+
+| Workstream | Evidence | Status / remaining acceptance |
+|---|---|---|
+| Architecture consistency | [PR #381](https://github.com/sourabhJainR/AUREN/pull/381) merged after its required workflows passed; merge baseline is [7dc0553](https://github.com/sourabhJainR/AUREN/commit/7dc055383c30ee359bde75145f90262f5e691b5f). | Documentation/API ownership correction is merged. Continue protecting the documented graph API distinction. |
+| State path + default runtime recovery | [PR #382](https://github.com/sourabhJainR/AUREN/pull/382), exact head [0084263](https://github.com/sourabhJainR/AUREN/commit/00842634ac1d9e47156be0b0cd1aee85f6c58aac); merged as [4cc1f54](https://github.com/sourabhJainR/AUREN/commit/4cc1f548c769e0ed3c03917d0f87df992a23a7ab). Exact-head runs passed: AI Harness Check #4705, Production AI Harness Hardening #1625, Architecture Integrity #1198, AUREN Portable Bundle #1753, Agent Capability Runtime #1050. | Automated suite exercised migration through `AdaptiveRuntime`, three bounded attempts (`default-plan`, same-hypothesis retry, then `alternate-plan-1`), durable checkpoint contents, and recovery persistence after constructing a fresh runtime. State path unit tests cover legacy SQLite/session copying, preservation, idempotence and conflicting roots. Still require a controlled upgrade/rollback rehearsal against representative real legacy stores and explicit interrupted-migration/restart-resume evidence before closing #379; #377 remains open until exact-head CI gating is demonstrated in the actual engineering controller, not merely as a helper or CI workflow. |
+| Sealed Arena boundary hardening | [PR #383](https://github.com/sourabhJainR/AUREN/pull/383), exact head [3fb6417](https://github.com/sourabhJainR/AUREN/commit/3fb64179a5b6e2bd7a2c9111236b4ba6b0cbd519); merged as [c426a23](https://github.com/sourabhJainR/AUREN/commit/c426a2318535b98d6f905b1f8700c077b9485d0f). Exact-head runs passed: AI Harness Check #4697, Production AI Harness Hardening #1621, Architecture Integrity #1194, AUREN Portable Bundle #1749. | Negative tests cover malformed schema, path containment, nested answer leakage, incomplete receipts and unassigned domain cases. This is protocol hardening only—not proof of external generalization. |
+| Merged main revision | The repository commit search after both merges returned [4cc1f54](https://github.com/sourabhJainR/AUREN/commit/4cc1f548c769e0ed3c03917d0f87df992a23a7ab) as the latest commit, and the default-branch runtime source contains the terminal recovery checkpoint fix. | Merge identity and merged source content verified. The available connected Actions query returns PR-triggered workflow runs only; it does not expose the post-merge push-run list, so do not represent post-merge push CI as independently confirmed by that query. Re-check Actions on the current default-branch revision after this plan update. |
+
+### Explicit external / repository-administrator blockers
+
+1. **Independent Arena campaign — #368 remains open.** No genuinely external evaluator and oracle, independently controlled unseen benchmark/holdout, retained receipt/attestation, or outside-party reproduction has been supplied. Do not substitute local tests or self-attestation. Acceptance requires an independent party to execute a sealed campaign, publish the corpus/runtime/evaluator digests and signed/content-addressed receipt, repeat the measurement, and document limitations and negative controls.
+2. **GitHub Pages publication — #380 remains open.** The deployment workflow and compatibility entrypoints exist, but the live site could not be verified from the available external fetch, and the connected GitHub actions do not expose the repository Pages-settings mutation. A repository administrator must enable Pages with GitHub Actions, run deployment from main, and verify both the canonical homepage and a missing-path 404 against the deployed commit.
+3. **State migration rollout — #379 remains open.** Code and automated tests are merged, but production rollout acceptance still requires a backed-up, representative legacy-state rehearsal; confirmation that both-root conflicts fail without loss; interruption/restart-resume checks; and a demonstrated rollback/data-restore path.
+4. **Runtime recovery gate — #377 remains open.** Bounded retries, alternate-plan switching and durable checkpoints are exercised in the default runtime. Remaining acceptance is wiring exact-head CI evidence into the real engineering promotion/controller path, proving stale/running/skipped checks fail closed, and testing restart/resume and safe termination under the integrated controller.
+
+### Next acceptance sequence
+
+- [ ] Re-check required push-triggered workflows on the current default-branch SHA after this plan change; repair failures before claiming main is green.
+- [ ] Run and retain a controlled state migration + rollback rehearsal using a disposable copy of representative legacy SQLite/session state.
+- [ ] Integrate and test exact-head CI evidence as a hard gate in the real engineering controller; reject stale, incomplete, skipped or non-successful runs.
+- [ ] Obtain an external evaluator/oracle and complete the first independent sealed Arena campaign; keep #368 open until receipt and measurements are independently reproducible.
+- [ ] Obtain repository administrator action to enable Pages; verify homepage and 404 from the deployed commit before closing #380.
+- [ ] Close #379, #377, #368 or #380 only when their specific acceptance evidence is attached to the corresponding issue.
+
+**Production-readiness statement:** the two implementation PRs are merged and their listed exact-head workflows passed. AUREN is not yet fully production-accepted for this enhancement program while the external Arena campaign, Pages publication, real-store migration/rollback rehearsal and controller-enforced exact-head CI gate remain outstanding.
