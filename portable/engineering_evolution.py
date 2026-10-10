@@ -1,6 +1,6 @@
 """Integrated twelve-phase engineering evolution control plane.
 
-This module composes the existing AER primitives rather than replacing them.
+This module composes the existing AUREN primitives rather than replacing them.
 It adds durable coordination for evidence graphs, predictive feedback,
 compaction, impact/failure prediction, historical decomposition, provider
 calibration, cross-project transfer validation, autonomy graduation, benchmark
@@ -259,7 +259,7 @@ class EngineeringEvolutionControlPlane:
                              str(getattr(error, "error_digest", "")), adjusted,
                              round(accuracy, 4), samples, evidence_ids)
 
-    # Phase 4: compact evidence using AER-like stable key/value rows.
+    # Phase 4: compact evidence using stable key/value rows.
     def compact_context(self, items: Sequence[Mapping[str, Any]], *, budget: int = 12000) -> CompactionResult:
         if budget < 128:
             raise ValueError("budget must be at least 128")
