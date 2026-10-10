@@ -76,7 +76,7 @@ class ContractAlignmentTests(unittest.TestCase):
         arena = (ROOT / "docs" / "INDEPENDENT_GENERALIZATION_ARENA.md").read_text(encoding="utf-8")
         integration = (ROOT / "docs" / "MATT_POCOCK_SKILLS_INTEGRATION.md").read_text(encoding="utf-8")
         for path, content in (("Arena docs", arena), ("skills integration docs", integration)):
-            self.assertNotRegex(content, r"\\bAER\\b", f"stale product identity in {path}")
+            self.assertNotRegex(content, r"\bAER\b", f"stale product identity in {path}")
         self.assertIn("issue #368", arena)
         self.assertIn("`VERSION` is the canonical release version", integration)
         self.assertNotIn("21.0.0", integration)
