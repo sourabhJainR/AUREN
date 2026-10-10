@@ -333,6 +333,12 @@ class AdaptiveRuntime:
             payload={
                 "outcome": "accepted" if result is not None and result.status.value == "accepted" else "blocked",
                 "attempt_count": len(self.recovery_ledger.attempts(work_id)),
+                "hypothesis": str(attempts.get("hypothesis", "default-plan")),
+                "recovery_mode": (
+                    "alternate-plan"
+                    if str(attempts.get("hypothesis", "")).startswith("alternate-plan")
+                    else "fresh-retry" if attempts.get("count", 0) > 1 else "initial"
+                ),
                 "last_failure": "" if result is not None and result.status.value == "accepted" else str(final_failure),
                 "verification_note": (
                     "graph execution accepted; independent verification and exact-head CI evidence were not asserted by this runtime"
