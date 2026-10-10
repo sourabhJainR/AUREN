@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import tempfile
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -53,9 +54,24 @@ class SessionStore:
         checkpoint.seal()
         self.root.mkdir(parents=True, exist_ok=True)
         target = self.path(checkpoint.session_id)
-        temp = target.with_suffix(".tmp")
-        temp.write_text(json.dumps(asdict(checkpoint), indent=2, sort_keys=True) + "\n", encoding="utf-8")
-        os.replace(temp, target)
+        # Each writer gets its own same-directory temporary file. A shared
+        # "<session>.tmp" name lets concurrent checkpoint writes clobber one
+        # another before the atomic replace, especially on Windows.
+        fd, temp_name = tempfile.mkstemp(
+            prefix=f".{target.name}.",
+            suffix=".tmp",
+            dir=self.root,
+        )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as stream:
+                json.dump(asdict(checkpoint), stream, indent=2, sort_keys=True)
+                stream.write("\n")
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temp_name, target)
+        finally:
+            if os.path.exists(temp_name):
+                os.unlink(temp_name)
         return target
 
     def load(self, session_id: str) -> SessionCheckpoint | None:
