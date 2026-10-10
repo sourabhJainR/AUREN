@@ -28,6 +28,8 @@ from .session_state import SessionCheckpoint, SessionStore
 from .trigger_runtime import TriggerEvent, TriggerRuntime
 from .world_model import PredictionError, WorldPrediction
 from .world_mega_model import WorldMegaModel
+from .engineering_recovery import EngineeringRecoveryLedger, RecoveryAction, RecoveryLimitReached
+from .state_paths import AurenStatePaths
 
 
 class AdaptiveRuntime:
@@ -48,19 +50,31 @@ class AdaptiveRuntime:
         max_total_attempts: int = 32,
         maintenance_interval_seconds: int = 300,
         maintenance_budget: int = 20,
+        state_root: Path | str | None = None,
+        legacy_state_root: Path | str | None = None,
     ) -> None:
         if maintenance_interval_seconds < 1:
             raise ValueError("maintenance_interval_seconds must be positive")
         if maintenance_budget < 1:
             raise ValueError("maintenance_budget must be positive")
         self.orchestrator = Orchestrator(graph, max_total_attempts=max_total_attempts)
-        self.session_store = session_store or SessionStore()
+        if state_root is None:
+            self.state_paths = AurenStatePaths.prepare(
+                canonical_root=Path.home() / ".auren",
+                legacy_root=legacy_state_root or (Path.home() / ".aer"),
+            )
+        else:
+            self.state_paths = AurenStatePaths.prepare(
+                canonical_root=state_root,
+                legacy_root=legacy_state_root,
+            )
+        state = self.state_paths.root
+        self.session_store = session_store or SessionStore(state / "sessions")
         self.provider_fabric = provider_fabric or ProviderFabric()
         self.hooks = hooks or HookBus()
         self.capability_fabric = capability_fabric or CapabilityFabric()
-        aer_state = Path.home() / ".aer"
-        self.persistent_memory = persistent_memory or PersistentMemory(aer_state / "memory" / "memory.db")
-        self.automation_scheduler = automation_scheduler or AutomationScheduler(aer_state / "automation" / "automation.db")
+        self.persistent_memory = persistent_memory or PersistentMemory(state / "memory" / "memory.db")
+        self.automation_scheduler = automation_scheduler or AutomationScheduler(state / "automation" / "automation.db")
         self.output_quality = output_quality or OutputQualityGate()
         self.provider_adapters = provider_adapters or ProviderAdapterRegistry()
         self.trigger_runtime = TriggerRuntime(self.automation_scheduler)
@@ -72,7 +86,13 @@ class AdaptiveRuntime:
         self.last_deferred_learning_job: DeferredLearningJob | None = None
         self.last_maintenance_receipt: MaintenanceReceipt | None = None
         from .execution_controller import ExecutionController
-        self.execution_controller = ExecutionController(Path.home() / ".aer" / "executive")
+        self.execution_controller = ExecutionController(state / "executive")
+        self.recovery_ledger = EngineeringRecoveryLedger(
+            state / "engineering-recovery.sqlite3",
+            max_same_hypothesis_attempts=2,
+            max_total_attempts=12,
+            max_elapsed_seconds=3600,
+        )
 
     def capability(self, name: str, preferred: tuple[str, ...] = ()) -> RoutingDecision:
         return self.provider_fabric.route(CapabilityRequest(name, preferred))
@@ -195,51 +215,123 @@ class AdaptiveRuntime:
         return self.execution_controller.resume_pending(limit=limit)
 
     def run(self, **kwargs: Any) -> OrchestrationRun:
-        """Default execution path: durable executive supervision around graph execution."""
+        """Execute under durable supervision and a bounded, evidence-backed recovery ledger."""
         session_id = str(kwargs["session_id"])
         task_id = str(kwargs["task_id"])
         intent = str(kwargs["intent"])
         work_id = self.execution_controller.work_unit_for_session(f"{session_id}:{task_id}", f"{task_id}: {intent}")
-        attempts = {"count": 0}
-        last = {"result": None, "failure": "execution callback was not invoked"}
+        self.recovery_ledger.start_run(work_id, f"{task_id}: {intent}")
+        attempts: dict[str, Any] = {
+            "count": 0, "hypothesis": "default-plan", "alternate_count": 0,
+            "attempt_id": None, "blocked": None,
+        }
+        last: dict[str, Any] = {
+            "result": None, "failure": "execution callback was not invoked",
+        }
 
         def execute(iteration: int):
             attempts["count"] = iteration
+            if iteration > 1:
+                previous_hypothesis = str(attempts["hypothesis"])
+                decision = self.recovery_ledger.decision(
+                    work_id, "execution", "execution-failure", previous_hypothesis,
+                )
+                if decision.action is RecoveryAction.BLOCKED:
+                    attempts["blocked"] = decision.reason
+                    last["failure"] = decision.reason
+                    return "failed", decision.reason, ("recovery-budget-exhausted",)
+                if decision.action is RecoveryAction.ALTERNATE_PLAN:
+                    attempts["alternate_count"] += 1
+                    attempts["hypothesis"] = f"alternate-plan-{attempts['alternate_count']}"
+                context_mode = (
+                    "alternate-plan" if str(attempts["hypothesis"]).startswith("alternate-plan")
+                    else "fresh-retry"
+                )
+            else:
+                context_mode = "initial"
+            hypothesis = str(attempts["hypothesis"])
+            try:
+                attempt_id = self.recovery_ledger.begin_attempt(
+                    work_id, "execution", "execution-failure", hypothesis,
+                    action=(
+                        "reproduce" if iteration == 1
+                        else "alternate_implementation" if context_mode == "alternate-plan"
+                        else "narrow_fix"
+                    ),
+                    head_sha=str((kwargs.get("context") or {}).get("head_sha", "")),
+                )
+            except RecoveryLimitReached as exc:
+                attempts["blocked"] = exc.reason
+                last["failure"] = exc.reason
+                return "failed", exc.reason, ("recovery-budget-exhausted",)
+            attempts["attempt_id"] = attempt_id
+            self.recovery_ledger.checkpoint(
+                work_id, "execution", status="in_progress", head_sha="",
+                payload={
+                    "iteration": iteration,
+                    "hypothesis": hypothesis,
+                    "recovery_mode": context_mode,
+                    "previous_failure": last.get("failure", ""),
+                },
+            )
             context = dict(kwargs.get("context") or {})
             context["auren_supervisor_iteration"] = iteration
-            if iteration > 1:
-                context["auren_recovery_mode"] = "fresh-retry"
+            context["auren_recovery_mode"] = context_mode
+            context["auren_recovery_hypothesis"] = hypothesis
             call = dict(kwargs)
             call["context"] = context
             try:
                 result = self._run_once(**call)
                 last["result"] = result
-                status = "completed" if result.status.value == "accepted" else "failed"
-                return status, result.stop_reason or result.status.value, tuple(item.digest for item in result.evidence)
+                accepted = result.status.value == "accepted"
+                detail = result.stop_reason or result.status.value
+                evidence = tuple(item.digest for item in result.evidence)
+                if not accepted:
+                    last["failure"] = detail
+                self.recovery_ledger.finish_attempt(
+                    attempt_id, outcome="passed" if accepted else "failed",
+                    evidence=(*evidence, detail),
+                )
+                return ("completed" if accepted else "failed"), detail, evidence
             except Exception as exc:
                 last["result"] = None
                 last["failure"] = f"{type(exc).__name__}: {exc}"
+                self.recovery_ledger.finish_attempt(
+                    attempt_id, outcome="failed",
+                    evidence=(last["failure"], f"hypothesis:{hypothesis}"),
+                )
                 return "failed", last["failure"], (f"exception:{type(exc).__name__}",)
 
         def review(_iteration: int):
             result = last["result"]
             ok = result is not None and result.status.value == "accepted"
             refs = tuple(item.digest for item in result.evidence) if result is not None else ()
-            return ok, result.stop_reason if result is not None else "no result", refs
+            return ok, result.stop_reason if result is not None else str(last.get("failure", "no result")), refs
 
-        max_iterations = int((kwargs.get("context") or {}).get("auren_max_iterations", 3))
-        unit = self.execution_controller.company.resume(work_id)
-        if unit.max_iterations != max_iterations:
-            pass
-        score = self.execution_controller.company.iterate(
-            work_id, execute=execute, review=review, recover=lambda detail: (attempts["count"] < max_iterations, "fresh retry selected", (detail,)),
+        context = dict(kwargs.get("context") or {})
+        try:
+            requested_iterations = int(context.get("auren_max_iterations", 3))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("auren_max_iterations must be an integer between 1 and 12") from exc
+        if requested_iterations < 1 or requested_iterations > 12:
+            raise ValueError("auren_max_iterations must be between 1 and 12")
+        self.execution_controller.company.resume(work_id)
+        self.execution_controller.company.iterate(
+            work_id, execute=execute, review=review,
+            recover=lambda detail: (
+                attempts["count"] < requested_iterations and not attempts["blocked"],
+                "bounded retry or alternate plan selected",
+                (detail, str(attempts.get("hypothesis", ""))),
+            ),
         )
         result = last["result"]
         if result is None:
-            raise RuntimeError(f"AUREN supervisor completed without an execution result; last execution failure: {last.get('failure', 'unknown')}")
+            reason = attempts.get("blocked") or last.get("failure", "unknown")
+            raise RuntimeError(f"AUREN supervisor stopped safely; actionable reason: {reason}")
         if result.status.value != "accepted":
             raise RuntimeError(result.stop_reason or "AUREN execution failed")
         return result
+
     def _run_once(
         self,
         *,
