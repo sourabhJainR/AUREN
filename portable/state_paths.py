@@ -20,6 +20,14 @@ class StatePathConflict(RuntimeError):
     """Raised when canonical and legacy state cannot be reconciled safely."""
 
 
+_KNOWN_DATABASES = frozenset({
+    "memory/memory.db",
+    "automation/automation.db",
+    "executive/.auren/execution.sqlite3",
+    "executive/.auren/executive.sqlite3",
+})
+
+
 class AurenStatePaths:
     """Resolve the canonical state root and safely copy legacy state when needed."""
 
@@ -73,13 +81,17 @@ class AurenStatePaths:
     @staticmethod
     def _sqlite_digest(path: Path) -> str:
         digest = hashlib.sha256()
+        db = None
         try:
-            with sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=10) as db:
-                for row in db.iterdump():
-                    digest.update(row.encode("utf-8"))
-                    digest.update(b"\n")
+            db = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=10)
+            for row in db.iterdump():
+                digest.update(row.encode("utf-8"))
+                digest.update(b"\n")
         except sqlite3.Error as exc:
             raise StatePathConflict(f"State database is not readable SQLite data: {path}") from exc
+        finally:
+            if db is not None:
+                db.close()
         return digest.hexdigest()
 
     @staticmethod
@@ -97,7 +109,7 @@ class AurenStatePaths:
         candidates = sorted(
             path for path in legacy.rglob("*")
             if path.is_file() and (
-                path.suffix.lower() in {".db", ".sqlite", ".sqlite3"}
+                path.relative_to(legacy).as_posix() in _KNOWN_DATABASES
                 or (path.parent.name == "sessions" and path.suffix.lower() == ".json")
             )
         )
@@ -134,11 +146,16 @@ class AurenStatePaths:
                 fd, temp_name = tempfile.mkstemp(prefix=f".{target.name}.migration-", suffix=".tmp", dir=target.parent)
                 os.close(fd)
                 try:
-                    with sqlite3.connect(source, timeout=10) as source_db, sqlite3.connect(temp_name, timeout=10) as target_db:
+                    source_db = sqlite3.connect(source, timeout=10)
+                    target_db = sqlite3.connect(temp_name, timeout=10)
+                    try:
                         source_db.backup(target_db)
                         result = target_db.execute("PRAGMA integrity_check").fetchone()
                         if not result or result[0] != "ok":
                             raise StatePathConflict(f"SQLite integrity check failed while copying {source}")
+                    finally:
+                        target_db.close()
+                        source_db.close()
                     if self._sqlite_digest(Path(temp_name)) != source_digest:
                         raise StatePathConflict(f"Copied SQLite state failed digest verification: {source}")
                     os.replace(temp_name, target)
