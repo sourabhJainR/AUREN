@@ -1,4 +1,4 @@
-"""Durable, project-neutral AER session checkpoints and recovery."""
+"""Durable, project-neutral AUREN session checkpoints and recovery."""
 from __future__ import annotations
 
 import hashlib
