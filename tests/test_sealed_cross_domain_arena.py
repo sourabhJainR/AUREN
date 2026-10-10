@@ -25,6 +25,23 @@ def test_requires_two_domains_and_holdout_per_domain():
     assert campaign.campaign_digest
 
 
+
+def test_rejects_unassigned_sealed_case():
+    try:
+        CrossDomainCampaign(
+            "x", request(),
+            (
+                SealedDomain("math", ("c1",)),
+                SealedDomain("code", ("c2",)),
+            ),
+            "oracle", "evaluator",
+        )
+    except ValueError as exc:
+        assert "every sealed case" in str(exc)
+    else:
+        raise AssertionError("expected incomplete domain assignment to fail closed")
+
+
 def test_rejects_domain_without_holdout():
     try:
         CrossDomainCampaign(
