@@ -58,6 +58,28 @@ class AdaptiveRuntimeRecoveryIntegrationTests(unittest.TestCase):
         self.assertEqual(checkpoint.status, "blocked")
         self.assertEqual(checkpoint.payload["hypothesis"], "alternate-plan-1")
 
+        # Recovery state is durable across a fresh default-runtime instance.
+        resumed = AdaptiveRuntime(graph, state_root=self.root / "state")
+        resumed_attempts = resumed.recovery_ledger.attempts(work_id)
+        self.assertEqual([item.hypothesis for item in resumed_attempts], [item.hypothesis for item in attempts])
+        self.assertEqual(resumed.recovery_ledger.get_checkpoint(work_id, "execution").payload["recovery_mode"], "alternate-plan")
+
+    def test_default_runtime_migrates_legacy_sessions_on_startup(self):
+        legacy = self.root / ".aer"
+        canonical = self.root / ".auren"
+        old_session = legacy / "sessions" / "legacy-session.json"
+        old_session.parent.mkdir(parents=True)
+        old_session.write_text('{"session_id":"legacy-session","stage":"resume"}', encoding="utf-8")
+
+        graph = Graph([Node("work", NodeKind.DETERMINISTIC, lambda state: "ok")])
+        runtime = AdaptiveRuntime(graph, state_root=canonical, legacy_state_root=legacy)
+
+        migrated = canonical / "sessions" / "legacy-session.json"
+        self.assertTrue(migrated.is_file())
+        self.assertTrue(old_session.is_file(), "runtime migration must retain the legacy source")
+        self.assertEqual(runtime.session_store.root, (canonical / "sessions").resolve())
+        self.assertEqual(migrated.read_text(encoding="utf-8"), old_session.read_text(encoding="utf-8"))
+
     def test_default_runtime_rejects_unbounded_iteration_requests(self):
         graph = Graph([Node("work", NodeKind.DETERMINISTIC, lambda state: "ok")])
         runtime = AdaptiveRuntime(graph, state_root=self.root / "state")
