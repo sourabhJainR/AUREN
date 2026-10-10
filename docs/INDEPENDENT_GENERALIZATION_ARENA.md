@@ -1,7 +1,8 @@
 # Independent Generalization Arena
 
-The arena is the next evidence boundary for AER. It evaluates behavior against a
-sealed corpus that is owned outside the adaptive runtime.
+The Independent Generalization Arena is AUREN's independent evaluation boundary. It evaluates behavior against a sealed corpus owned outside the adaptive runtime.
+
+This document defines the target trust contract, not a claim that a complete external campaign is already operational. Repository-level protocol tests do not prove independent evaluation or general intelligence. The executable sealed-evaluation path and first independent campaign are tracked in [issue #368](https://github.com/sourabhJainR/AUREN/issues/368).
 
 ## Boundary
 
