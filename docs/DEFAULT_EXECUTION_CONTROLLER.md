@@ -32,7 +32,7 @@ Handlers are stored as module:qualname, not serialized Python objects. This make
 
 A failed graph execution is recorded as a supervisor failure. The existing default runtime permits bounded fresh retries through `auren_max_iterations` in the execution context, defaulting to three supervisor iterations. Each iteration has execution evidence; repeated failure should terminate rather than loop forever.
 
-`portable.engineering_recovery.EngineeringRecoveryLedger` adds durable failure signatures, hypothesis budgets, checkpoints and an exact-head CI gate, but it is not yet directly integrated into this default execution path. Issue [#377](https://github.com/sourabhJainR/AUREN/issues/377) remains open until the real supervisor path enforces those guarantees and integration tests prove them.
+`portable.engineering_recovery.EngineeringRecoveryLedger` is wired into the default `AdaptiveRuntime.run()` path. It records each attempt and evidence, caps each same-hypothesis plan at two attempts, persists execution checkpoints, switches the exposed recovery mode to `alternate-plan`, and enforces a total attempt/time budget. `auren_max_iterations` is validated and capped at 12. The exact-head CI helper remains an explicit gate for engineering/release workflows; a general graph run cannot claim CI passed unless its caller supplies and verifies that evidence. The integration tests must remain green before [issue #377](https://github.com/sourabhJainR/AUREN/issues/377) can close.
 
 ## Service behavior
 
