@@ -67,6 +67,31 @@ class IndependentGeneralizationArenaTests(unittest.TestCase):
             self.assertTrue(report.gate_passed)
             self.assertEqual(set(report.holdout_domains), {"planning", "science", "design"})
 
+    def test_rejects_corpus_ancestor_of_runtime_root(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            runtime = root / "runtime"
+            runtime.mkdir()
+            with self.assertRaises(ValueError):
+                IndependentGeneralizationArena(
+                    corpus_root=root, runtime_root=runtime, oracles={"oracle-v1": lambda _: True}
+                )
+
+    def test_rejects_non_boolean_holdout_flags(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            runtime, corpus = root / "runtime", root / "sealed"
+            runtime.mkdir()
+            corpus.mkdir()
+            self._corpus(corpus)
+            cases = json.loads((corpus / "cases.json").read_text(encoding="utf-8"))
+            cases[0]["holdout"] = "false"
+            (corpus / "cases.json").write_text(json.dumps(cases), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "holdout must be a boolean"):
+                IndependentGeneralizationArena(
+                    corpus_root=corpus, runtime_root=runtime, oracles={"oracle-v1": lambda _: True}
+                ).load()
+
     def test_tampered_manifest_fails_before_execution(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
