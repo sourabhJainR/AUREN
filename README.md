@@ -49,8 +49,10 @@ The important architectural boundary is that **execution remains bounded and pol
 | Area | Canonical owner |
 |---|---|
 | Dependency planning | `portable.task_planner.TaskPlan` |
-| Graph execution | `portable.agency_state_graph.StateGraph` |
-| Agent-team orchestration | `.ai-harness/runtime/graph_agent_team.py` |
+| Default graph orchestration | `portable.orchestration.Graph` / `Orchestrator` |
+| Supervisor-facing graph/team facade | `portable.state_graph.StateGraph` / `GraphAgentTeam` |
+| Standalone checkpointable graph runtime | `portable.agency_state_graph.StateGraph` |
+| Agent-team orchestration | `portable.state_graph.GraphAgentTeam` plus the harness adapter in `.ai-harness/runtime/graph_agent_team.py` |
 | Capability semantics and routing | `portable.agent_capabilities` / `CapabilityFabric` |
 | Durable memory | `portable.agent_capabilities.PersistentMemory` |
 | Repository retrieval | `portable.agency_codebase_context.CodebaseIndex` and `portable.repo_intelligence.RepositoryMap` |
@@ -60,7 +62,7 @@ The important architectural boundary is that **execution remains bounded and pol
 | OS service lifecycle | `portable.maintenance_service` |
 | Local bounded execution | `portable.local_offload.LocalOffloadBroker` |
 
-Compatibility surfaces adapt to these owners instead of maintaining independent state.
+Compatibility surfaces should adapt to these owners instead of maintaining independent state. The supervisor-facing `portable.state_graph` API wraps the existing `Graph`/`Orchestrator` path; `portable.agency_state_graph` is a distinct lower-level graph runtime. Keep their contracts explicit and add integration tests before assuming the two graph APIs are interchangeable.
 
 See [`docs/CAPABILITY_MEMORY_OWNERSHIP.md`](docs/CAPABILITY_MEMORY_OWNERSHIP.md) for the capability/memory contract and [`docs/RIPWIRE_INTEGRATION.md`](docs/RIPWIRE_INTEGRATION.md) for repository-intelligence design lineage.
 
