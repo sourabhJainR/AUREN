@@ -10,7 +10,7 @@ AUREN separates **execution authority from learning**. Active runs operate under
 
 ## What AUREN is today
 
-The repository now has one coherent execution path from task intake through verification, learning, memory consolidation, empirical tuning, and controlled improvement.
+The primary product flow is designed to connect task intake through verification, learning, memory consolidation, empirical tuning, and controlled improvement. The repository also retains distinct compatibility and lower-level execution surfaces; their boundaries and outstanding integration gaps are documented in [`docs/REPOSITORY_CONSISTENCY_AND_ENHANCEMENT_PLAN.md`](docs/REPOSITORY_CONSISTENCY_AND_ENHANCEMENT_PLAN.md).
 
 ```text
 Task / Intent
