@@ -61,9 +61,25 @@ class SealedCampaignRequest:
             raise ValueError("sealed campaign requires at least one holdout")
 
     def validate_task_metadata(self, payload: Mapping[str, object]) -> None:
-        forbidden = sorted(str(key).lower() for key in payload if str(key).lower() in _FORBIDDEN_PAYLOAD_KEYS)
+        forbidden: set[str] = set()
+
+        def inspect(value: object, path: str) -> None:
+            if isinstance(value, Mapping):
+                for key, child in value.items():
+                    normalized = str(key).strip().lower().replace("-", "_").replace(" ", "_")
+                    if normalized in _FORBIDDEN_PAYLOAD_KEYS:
+                        forbidden.add(f"{path}.{key}")
+                    inspect(child, f"{path}.{key}")
+            elif isinstance(value, (list, tuple)):
+                for index, child in enumerate(value):
+                    inspect(child, f"{path}[{index}]")
+
+        inspect(payload, "payload")
         if forbidden:
-            raise ValueError(f"sealed task metadata contains benchmark answer material: {forbidden}")
+            raise ValueError(
+                "sealed task metadata contains benchmark answer material: "
+                + ", ".join(sorted(forbidden))
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,12 +99,22 @@ class ExternalOutcomeReceipt:
                 raise ValueError(f"{name} is required")
         if self.evaluator_id == self.oracle_id:
             raise ValueError("evaluator and oracle must be distinct principals")
+        if not isinstance(self.signature, str) or not self.signature.strip():
+            raise ValueError("outcome receipt signature is required")
         if not self.results:
             raise ValueError("outcome receipt requires results")
+        for row in self.results:
+            if not isinstance(row, (tuple, list)) or len(row) != 3:
+                raise ValueError("outcome receipt result rows must contain case id, boolean outcome, and evidence digest")
+            case_id, passed, evidence_digest = row
+            if not isinstance(case_id, str) or not case_id.strip():
+                raise ValueError("outcome receipt contains an invalid case id")
+            if type(passed) is not bool:
+                raise ValueError("outcome receipt outcomes must be booleans")
+            if not isinstance(evidence_digest, str) or not evidence_digest.strip():
+                raise ValueError("outcome receipt contains an invalid evidence digest")
         if len({row[0] for row in self.results}) != len(self.results):
             raise ValueError("outcome receipt contains duplicate case ids")
-        if any(not case_id.strip() or not evidence_digest.strip() for case_id, _passed, evidence_digest in self.results):
-            raise ValueError("outcome receipt contains incomplete result rows")
 
     @property
     def receipt_digest(self) -> str:
@@ -130,10 +156,13 @@ class SealedArenaBoundary:
         observed_ids = {row[0] for row in receipt.results}
         if not observed_ids <= expected_ids:
             raise ValueError("outcome receipt contains an unknown case")
+        if observed_ids != expected_ids:
+            missing = sorted(expected_ids - observed_ids)
+            raise ValueError(f"outcome receipt is incomplete; missing cases: {missing}")
         holdouts = {case.case_id for case in request.cases if case.holdout}
         holdout_results = [row for row in receipt.results if row[0] in holdouts]
-        if not holdout_results:
-            raise ValueError("sealed outcome contains no holdout result")
+        if len(holdout_results) != len(holdouts):
+            raise ValueError("sealed outcome is missing one or more holdout results")
         passed = sum(row[1] for row in holdout_results)
         return SealedArenaEvidence(receipt.receipt_digest, passed / len(holdout_results), len(receipt.results))
 
