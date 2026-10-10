@@ -10,7 +10,7 @@ This preserves the existing graph execution engine while making the supervisor t
 
 ## Restart behavior
 
-A session is mapped to a durable work unit. The mapping and execution ledger live under the project .auren directory.
+A session is mapped to a durable work unit. For a directly constructed `ExecutionController(root)`, its ledger is stored at `<root>/.auren/execution.sqlite3`. The current `AdaptiveRuntime` constructor supplies `~/.aer/executive` as that root, yielding `~/.aer/executive/.auren/execution.sqlite3`; this differs from the README's documented `~/.auren` state root. Do not move or merge these stores manually. Safe path unification and legacy-data migration are tracked in [issue #379](https://github.com/sourabhJainR/AUREN/issues/379).
 
 If the worker exits after a work unit has started, the next invocation with the same session_id resumes the existing work unit rather than creating a new one.
 
@@ -26,15 +26,13 @@ Handlers are stored as module:qualname, not serialized Python objects. This make
 
 ## StateGraph / GraphAgentTeam compatibility
 
-The current AUREN tree's concrete execution primitive is Graph + Orchestrator; there are no classes named StateGraph or GraphAgentTeam in the current source tree. ExecutionController.execute_graph() is the compatibility boundary for callers using those graph/team concepts, while the real AdaptiveRuntime path remains unchanged at the graph engine level.
-
-No second graph implementation was introduced.
+`portable.state_graph.StateGraph` and `portable.state_graph.GraphAgentTeam` are the supervisor-facing compatibility API over `portable.orchestration.Graph` and `Orchestrator`; `ExecutionController.execute_graph()` dispatches these types. Separately, `portable.agency_state_graph.StateGraph` is a lower-level checkpointable graph runtime with explicit state, edge, interrupt and bounded-superstep semantics. These are distinct classes in distinct modules and must not be treated as interchangeable without an explicit adapter and integration tests.
 
 ## Recovery
 
-A failed graph execution is recorded as a supervisor failure. The default runtime permits bounded fresh retries through auren_max_iterations in the execution context, defaulting to three supervisor iterations.
+A failed graph execution is recorded as a supervisor failure. The existing default runtime permits bounded fresh retries through `auren_max_iterations` in the execution context, defaulting to three supervisor iterations. Each iteration has execution evidence; repeated failure should terminate rather than loop forever.
 
-Each iteration has its own execution evidence. A successful iteration terminates the work unit; repeated failure produces a terminal failure and trust evidence rather than silently looping forever.
+`portable.engineering_recovery.EngineeringRecoveryLedger` adds durable failure signatures, hypothesis budgets, checkpoints and an exact-head CI gate, but it is not yet directly integrated into this default execution path. Issue [#377](https://github.com/sourabhJainR/AUREN/issues/377) remains open until the real supervisor path enforces those guarantees and integration tests prove them.
 
 ## Service behavior
 
