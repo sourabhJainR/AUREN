@@ -1,4 +1,4 @@
-"""Reusable facade that composes AER orchestration and agent capabilities."""
+"""Reusable facade that composes AUREN orchestration and agent capabilities."""
 from __future__ import annotations
 
 import json
@@ -31,7 +31,7 @@ from .world_mega_model import WorldMegaModel
 
 
 class AdaptiveRuntime:
-    """Single AER composition point for provider, capability and durable state."""
+    """Single AUREN composition point for provider, capability and durable state."""
 
     def __init__(
         self,

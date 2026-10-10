@@ -72,6 +72,30 @@ class ContractAlignmentTests(unittest.TestCase):
         self.assertIn("Make blockers actionable", text)
         self.assertIn("Actionable output is part of completion", canonical)
 
+    def test_active_arena_and_skill_docs_use_current_identity_and_version_authority(self) -> None:
+        arena = (ROOT / "docs" / "INDEPENDENT_GENERALIZATION_ARENA.md").read_text(encoding="utf-8")
+        integration = (ROOT / "docs" / "MATT_POCOCK_SKILLS_INTEGRATION.md").read_text(encoding="utf-8")
+        for path, content in (("Arena docs", arena), ("skills integration docs", integration)):
+            self.assertNotRegex(content, r"\bAER\b", f"stale product identity in {path}")
+        self.assertIn("issue #368", arena)
+        self.assertIn("`VERSION` is the canonical release version", integration)
+        self.assertNotIn("21.0.0", integration)
+        self.assertNotIn("22.0.0", integration)
+
+    def test_graph_runtime_docs_match_the_real_module_boundaries(self) -> None:
+        supervisor_graph = (ROOT / "portable" / "state_graph.py").read_text(encoding="utf-8")
+        lower_level_graph = (ROOT / "portable" / "agency_state_graph.py").read_text(encoding="utf-8")
+        controller_docs = (ROOT / "docs" / "DEFAULT_EXECUTION_CONTROLLER.md").read_text(encoding="utf-8")
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        self.assertIn("class StateGraph:", supervisor_graph)
+        self.assertIn("class GraphAgentTeam:", supervisor_graph)
+        self.assertIn("class StateGraph:", lower_level_graph)
+        for token in ("portable.state_graph.StateGraph", "portable.state_graph.GraphAgentTeam",
+                      "portable.agency_state_graph.StateGraph", "#379", "#377"):
+            self.assertIn(token, controller_docs)
+        self.assertIn("Standalone checkpointable graph runtime", readme)
+        self.assertIn("Default graph orchestration", readme)
+
     def test_runtime_service_paths_are_present(self) -> None:
         missing = [str(path.relative_to(ROOT)) for path in RUNTIME_PATHS if not path.is_file()]
         self.assertEqual(missing, [])
