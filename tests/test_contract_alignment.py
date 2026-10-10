@@ -91,7 +91,7 @@ class ContractAlignmentTests(unittest.TestCase):
         self.assertIn("class GraphAgentTeam:", supervisor_graph)
         self.assertIn("class StateGraph:", lower_level_graph)
         for token in ("portable.state_graph.StateGraph", "portable.state_graph.GraphAgentTeam",
-                      "portable.agency_state_graph.StateGraph", "issue #379", "issue #377"):
+                      "portable.agency_state_graph.StateGraph", "#379", "#377"):
             self.assertIn(token, controller_docs)
         self.assertIn("Standalone checkpointable graph runtime", readme)
         self.assertIn("Default graph orchestration", readme)
