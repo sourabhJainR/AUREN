@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
+from portable.session_state import SessionCheckpoint, SessionStore
 from portable.state_paths import AurenStatePaths, StatePathConflict
 
 
@@ -83,6 +86,76 @@ class AurenStatePathsTests(unittest.TestCase):
             _database(source, "legacy-was-written-again")
             with self.assertRaisesRegex(StatePathConflict, "changed after migration"):
                 AurenStatePaths.prepare(canonical, legacy)
+
+
+class SessionCheckpointDurabilityTests(unittest.TestCase):
+    def test_checkpoint_round_trips_through_a_fresh_store(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "sessions"
+            store = SessionStore(root)
+            checkpoint = SessionCheckpoint(
+                session_id="durable-session",
+                task_id="task-17",
+                project_key="project-key",
+                stage="verify",
+                completed_batches=["plan", "implement"],
+                remaining_batches=["review", "merge"],
+                active_provider="local",
+                attempt=3,
+                last_error=None,
+                project_root="/workspace/project",
+                intent="verify durable checkpoint state",
+            )
+
+            path = store.save(checkpoint)
+            restored = SessionStore(root).load("durable-session")
+
+            self.assertIsNotNone(restored)
+            assert restored is not None
+            self.assertEqual(restored.task_id, "task-17")
+            self.assertEqual(restored.stage, "verify")
+            self.assertEqual(restored.completed_batches, ["plan", "implement"])
+            self.assertEqual(restored.remaining_batches, ["review", "merge"])
+            self.assertEqual(restored.attempt, 3)
+            self.assertEqual(restored.project_root, "/workspace/project")
+            self.assertEqual(restored.intent, "verify durable checkpoint state")
+            self.assertEqual(restored.state_digest, checkpoint.state_digest)
+            self.assertEqual(path.read_text(encoding="utf-8").endswith("\n"), True)
+            self.assertEqual(list(root.iterdir()), [path])
+
+    def test_checkpoint_writes_use_unique_temporary_files_and_leave_no_debris(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "sessions"
+            store = SessionStore(root)
+            original_replace = os.replace
+            temp_names: list[str] = []
+
+            def capture_replace(source, target):
+                temp_names.append(Path(source).name)
+                return original_replace(source, target)
+
+            with patch("portable.session_state.os.replace", side_effect=capture_replace):
+                store.save(SessionCheckpoint(
+                    session_id="same-session",
+                    task_id="task-one",
+                    project_key="project-key",
+                    stage="implement",
+                ))
+                store.save(SessionCheckpoint(
+                    session_id="same-session",
+                    task_id="task-two",
+                    project_key="project-key",
+                    stage="verify",
+                ))
+
+            self.assertEqual(len(temp_names), 2)
+            self.assertNotEqual(temp_names[0], temp_names[1])
+            self.assertEqual(len(list(root.iterdir())), 1)
+            restored = SessionStore(root).load("same-session")
+            self.assertIsNotNone(restored)
+            assert restored is not None
+            self.assertEqual(restored.task_id, "task-two")
+            self.assertEqual(restored.stage, "verify")
 
 
 if __name__ == "__main__":
