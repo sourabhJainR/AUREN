@@ -11,7 +11,7 @@ AUREN reviewed the `mattpocock/skills` engineering set, including the retrospect
 
 These are thin orchestration surfaces. They reuse AUREN's canonical repository intelligence, context/evidence envelope, provenance ledger, verification and rollout contracts.
 
-## Already represented in AER
+## Already represented in AUREN
 
 AUREN already contains aligned forms of the important engineering disciplines for:
 
