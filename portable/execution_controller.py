@@ -16,6 +16,7 @@ from typing import Any, Callable, Mapping
 from uuid import uuid4
 
 from .autonomous_company import AutonomousCompany, TrustScore
+from .engineering_recovery import verify_ci_gate
 
 Handler = Callable[[Mapping[str, Any]], Any]
 
@@ -152,6 +153,46 @@ class ExecutionController:
                 detail = str(result.get("detail", "handler completed"))
             else:
                 success, detail = True, "handler completed"
+
+            # CI-gated tasks cannot complete based on a helper result or a stale run.
+            # The task submitter opts in via durable payload; missing/malformed proof fails closed.
+            if bool(task.payload.get("require_ci_gate", False)):
+                gate = result.get("ci_gate") if isinstance(result, Mapping) else None
+                if not isinstance(gate, Mapping):
+                    success = False
+                    detail = "required exact-head CI evidence is missing"
+                    evidence.append("ci-gate:missing")
+                else:
+                    try:
+                        required_checks = gate.get("required_checks", ())
+                        passed_checks = gate.get("passed_checks", ())
+                        skipped_checks = gate.get("skipped_checks", ())
+                        if not all(isinstance(items, (list, tuple)) and all(isinstance(x, str) for x in items)
+                                   for items in (required_checks, passed_checks, skipped_checks)):
+                            raise ValueError("check lists must be arrays of strings")
+                        verdict = verify_ci_gate(
+                            expected_head_sha=str(task.payload.get("expected_head_sha", "")),
+                            ci_head_sha=str(gate.get("head_sha", "")),
+                            status=str(gate.get("status", "")),
+                            conclusion=str(gate.get("conclusion", "")) or None,
+                            required_checks=required_checks,
+                            passed_checks=passed_checks,
+                            skipped_checks=skipped_checks,
+                        )
+                    except (TypeError, ValueError) as gate_error:
+                        verdict = None
+                        gate_reason = f"malformed exact-head CI evidence: {gate_error}"
+                    if verdict is None:
+                        success = False
+                        detail = gate_reason
+                    elif not verdict.accepted:
+                        success = False
+                        detail = f"exact-head CI gate rejected task: {verdict.reason}"
+                    else:
+                        evidence.append(f"ci-head:{gate.get('head_sha')}")
+                        evidence.append("ci-gate:required-checks-passed")
+                        detail = f"{detail}; {verdict.reason}"
+
             self.company.record(task.work_unit_id, "execution", "completed" if success else "failed", detail, evidence)
             state = "completed" if success else "failed"
             with sqlite3.connect(self.db_path) as db:
