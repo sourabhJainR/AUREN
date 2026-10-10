@@ -219,6 +219,13 @@ class AdaptiveRuntime:
         session_id = str(kwargs["session_id"])
         task_id = str(kwargs["task_id"])
         intent = str(kwargs["intent"])
+        context = dict(kwargs.get("context") or {})
+        try:
+            requested_iterations = int(context.get("auren_max_iterations", 3))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("auren_max_iterations must be an integer between 1 and 12") from exc
+        if requested_iterations < 1 or requested_iterations > 12:
+            raise ValueError("auren_max_iterations must be between 1 and 12")
         work_id = self.execution_controller.work_unit_for_session(f"{session_id}:{task_id}", f"{task_id}: {intent}")
         self.recovery_ledger.start_run(work_id, f"{task_id}: {intent}")
         attempts: dict[str, Any] = {
@@ -308,13 +315,6 @@ class AdaptiveRuntime:
             refs = tuple(item.digest for item in result.evidence) if result is not None else ()
             return ok, result.stop_reason if result is not None else str(last.get("failure", "no result")), refs
 
-        context = dict(kwargs.get("context") or {})
-        try:
-            requested_iterations = int(context.get("auren_max_iterations", 3))
-        except (TypeError, ValueError) as exc:
-            raise ValueError("auren_max_iterations must be an integer between 1 and 12") from exc
-        if requested_iterations < 1 or requested_iterations > 12:
-            raise ValueError("auren_max_iterations must be between 1 and 12")
         self.execution_controller.company.resume(work_id)
         self.execution_controller.company.iterate(
             work_id, execute=execute, review=review,
@@ -325,9 +325,23 @@ class AdaptiveRuntime:
             ),
         )
         result = last["result"]
+        final_failure = attempts.get("blocked") or last.get("failure", "unknown")
+        self.recovery_ledger.checkpoint(
+            work_id, "execution",
+            status="pending" if result is not None and result.status.value == "accepted" else "blocked",
+            head_sha="",
+            payload={
+                "outcome": "accepted" if result is not None and result.status.value == "accepted" else "blocked",
+                "attempt_count": len(self.recovery_ledger.attempts(work_id)),
+                "last_failure": "" if result is not None and result.status.value == "accepted" else str(final_failure),
+                "verification_note": (
+                    "graph execution accepted; independent verification and exact-head CI evidence were not asserted by this runtime"
+                    if result is not None and result.status.value == "accepted" else "execution did not reach an accepted result"
+                ),
+            },
+        )
         if result is None:
-            reason = attempts.get("blocked") or last.get("failure", "unknown")
-            raise RuntimeError(f"AUREN supervisor stopped safely; actionable reason: {reason}")
+            raise RuntimeError(f"AUREN supervisor stopped safely; actionable reason: {final_failure}")
         if result.status.value != "accepted":
             raise RuntimeError(result.stop_reason or "AUREN execution failed")
         return result
