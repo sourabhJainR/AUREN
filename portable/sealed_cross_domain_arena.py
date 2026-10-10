@@ -51,6 +51,10 @@ class CrossDomainCampaign:
         assigned = {case_id for domain in self.domains for case_id in domain.case_ids}
         if not assigned <= request_ids:
             raise ValueError("domain references a case outside the sealed request")
+        if assigned != request_ids:
+            raise ValueError("every sealed case must be assigned to exactly one domain")
+        if not any(domain.novel for domain in self.domains):
+            raise ValueError("cross-domain campaign requires at least one explicitly novel domain")
         if len(assigned) != sum(len(domain.case_ids) for domain in self.domains):
             raise ValueError("a case may belong to only one domain")
         holdouts = {case.case_id for case in self.request.cases if case.holdout}
