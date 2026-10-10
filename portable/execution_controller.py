@@ -164,9 +164,12 @@ class ExecutionController:
                     evidence.append("ci-gate:missing")
                 else:
                     try:
-                        required_checks = gate.get("required_checks", ())
+                        # Required checks are policy supplied with the task, not claims made by CI evidence.
+                        required_checks = task.payload.get("required_checks", ())
                         passed_checks = gate.get("passed_checks", ())
                         skipped_checks = gate.get("skipped_checks", ())
+                        if not isinstance(required_checks, (list, tuple)) or not required_checks:
+                            raise ValueError("task must declare a non-empty required_checks list")
                         if not all(isinstance(items, (list, tuple)) and all(isinstance(x, str) for x in items)
                                    for items in (required_checks, passed_checks, skipped_checks)):
                             raise ValueError("check lists must be arrays of strings")
