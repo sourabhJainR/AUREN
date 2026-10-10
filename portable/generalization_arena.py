@@ -49,7 +49,7 @@ class IndependentGeneralizationArena:
     ) -> None:
         self.corpus_root = Path(corpus_root).resolve()
         self.runtime_root = Path(runtime_root).resolve()
-        if self.corpus_root == self.runtime_root or self.runtime_root in self.corpus_root.parents:
+        if (self.corpus_root == self.runtime_root or self.runtime_root in self.corpus_root.parents or self.corpus_root in self.runtime_root.parents):
             raise ValueError("benchmark corpus must be outside the adaptive runtime root")
         self.oracles = dict(oracles)
         self.evaluator = evaluator or ExecutionBackedEvaluator()
@@ -59,6 +59,17 @@ class IndependentGeneralizationArena:
         corpus_path = self.corpus_root / "cases.json"
         manifest_data = json.loads(manifest_path.read_text(encoding="utf-8"))
         cases_data = json.loads(corpus_path.read_text(encoding="utf-8"))
+        if not isinstance(manifest_data, dict):
+            raise ValueError("sealed benchmark manifest must be a JSON object")
+        for field in ("train_domains", "holdout_domains", "oracle_ids"):
+            values = manifest_data.get(field)
+            if not isinstance(values, list) or not values or any(
+                not isinstance(value, str) or not value.strip() for value in values
+            ):
+                raise ValueError(f"manifest {field} must be a non-empty array of strings")
+        for field in ("benchmark_id", "version", "digest"):
+            if not isinstance(manifest_data.get(field), str) or not manifest_data[field].strip():
+                raise ValueError(f"manifest {field} must be a non-empty string")
         manifest = BenchmarkManifest.seal(
             manifest_data["benchmark_id"],
             manifest_data["version"],
@@ -66,21 +77,35 @@ class IndependentGeneralizationArena:
             holdout_domains=manifest_data["holdout_domains"],
             oracle_ids=manifest_data["oracle_ids"],
         )
-        if manifest.digest != manifest_data.get("digest"):
-            raise ValueError("sealed benchmark manifest digest mismatch")
+        if (
+            manifest.digest != manifest_data.get("digest")
+            or list(manifest.train_domains) != manifest_data["train_domains"]
+            or list(manifest.holdout_domains) != manifest_data["holdout_domains"]
+            or list(manifest.oracle_ids) != manifest_data["oracle_ids"]
+        ):
+            raise ValueError("sealed benchmark manifest digest or canonical ordering mismatch")
         if not isinstance(cases_data, list) or not cases_data:
             raise ValueError("sealed corpus must contain cases")
-        cases = tuple(
-            ArenaCase(
-                case_id=str(row["case_id"]),
-                kind=str(row["kind"]),
-                domain=str(row["domain"]),
-                holdout=bool(row["holdout"]),
+        cases_list = []
+        for index, row in enumerate(cases_data):
+            if not isinstance(row, dict):
+                raise ValueError(f"sealed case at index {index} must be a JSON object")
+            for field in ("case_id", "kind", "domain", "oracle_id"):
+                if not isinstance(row.get(field), str) or not row[field].strip():
+                    raise ValueError(f"sealed case at index {index} has invalid {field}")
+            if type(row.get("holdout")) is not bool:
+                raise ValueError(f"sealed case {row['case_id']} holdout must be a boolean")
+            if not isinstance(row.get("task"), dict):
+                raise ValueError(f"sealed case {row['case_id']} task must be a JSON object")
+            cases_list.append(ArenaCase(
+                case_id=row["case_id"],
+                kind=row["kind"],
+                domain=row["domain"],
+                holdout=row["holdout"],
                 task=dict(row["task"]),
-                oracle_id=str(row["oracle_id"]),
-            )
-            for row in cases_data
-        )
+                oracle_id=row["oracle_id"],
+            ))
+        cases = tuple(cases_list)
         ids = [case.case_id for case in cases]
         if len(ids) != len(set(ids)):
             raise ValueError("sealed corpus contains duplicate case ids")
