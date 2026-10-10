@@ -55,7 +55,7 @@ class AdaptiveRuntimeRecoveryIntegrationTests(unittest.TestCase):
         )
         checkpoint = runtime.recovery_ledger.get_checkpoint(work_id, "execution")
         self.assertIsNotNone(checkpoint)
-        self.assertEqual(checkpoint.status, "in_progress")
+        self.assertEqual(checkpoint.status, "blocked")
         self.assertEqual(checkpoint.payload["hypothesis"], "alternate-plan-1")
 
     def test_default_runtime_rejects_unbounded_iteration_requests(self):
