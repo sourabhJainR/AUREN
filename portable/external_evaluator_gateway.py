@@ -28,7 +28,7 @@ class ExternalEvaluatorCommand:
 
     def __post_init__(self) -> None:
         if not isinstance(self.argv, tuple) or not self.argv or any(
-            not isinstance(part, str) or not part.strip() for part in self.argv
+            not isinstance(part, str) or not part.strip() or "\\x00" in part for part in self.argv
         ):
             raise ValueError("external evaluator argv must be a non-empty tuple of non-empty strings")
         if (
@@ -42,6 +42,14 @@ class ExternalEvaluatorCommand:
             raise ValueError("max_output_bytes must be a positive integer")
         if not isinstance(self.environment, tuple):
             raise ValueError("environment must be an immutable tuple of key/value pairs")
+        forbidden_environment_keys = {
+            "PATH", "PYTHONPATH", "PYTHONHOME", "PYTHONSTARTUP", "PYTHONINSPECT",
+            "PYTHONUSERBASE", "PYTHONEXECUTABLE", "PYTHONPLATLIBDIR",
+            "LD_PRELOAD", "LD_LIBRARY_PATH", "LD_AUDIT", "LD_DEBUG",
+            "DYLD_INSERT_LIBRARIES", "DYLD_LIBRARY_PATH", "DYLD_FRAMEWORK_PATH",
+            "BASH_ENV", "ENV", "IFS", "GCONV_PATH", "PERL5OPT", "RUBYOPT",
+            "NODE_OPTIONS", "JAVA_TOOL_OPTIONS",
+        }
         keys = []
         for item in self.environment:
             if not isinstance(item, tuple) or len(item) != 2:
@@ -49,11 +57,12 @@ class ExternalEvaluatorCommand:
             key, value = item
             if not isinstance(key, str) or not key.strip() or not isinstance(value, str):
                 raise ValueError("environment keys must be non-empty strings and values must be strings")
-            if key.upper() in {"PATH", "PYTHONPATH", "LD_PRELOAD", "DYLD_INSERT_LIBRARIES"}:
+            normalized_key = key.upper()
+            if normalized_key in forbidden_environment_keys:
                 raise ValueError(f"environment override is not allowed for {key}")
-            keys.append(key)
+            keys.append(normalized_key)
         if len(keys) != len(set(keys)):
-            raise ValueError("environment keys must be unique")
+            raise ValueError("environment keys must be unique ignoring case")
 
 
 def _kill_evaluator_process_tree(process: subprocess.Popen[bytes]) -> None:
