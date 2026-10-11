@@ -378,9 +378,9 @@ class SealedArenaBoundary:
         if len(holdout_results) != len(holdouts):
             raise ValueError("sealed outcome is missing one or more holdout results")
         passed = sum(row[1] is True for row in holdout_results)
-        # Claim only after all signature, lineage, freshness, and completeness
-        # checks pass. SQLite's unique nonce constraint makes concurrent accepts
-        # single-winner and survives process restarts.
+        # Direct boundary callers claim only after all validation succeeds.
+        # The external gateway instead claims before execution and uses the
+        # preclaimed path above, so failed attempts cannot reuse their nonce.
         if self._replay_ledger is not None and not replay_claimed:
             self._replay_ledger.claim(
                 run_nonce=request.run_nonce,
