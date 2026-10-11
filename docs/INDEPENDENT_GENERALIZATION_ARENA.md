@@ -24,8 +24,14 @@ Keep these components in separate storage and trust boundaries:
 5. Holdout store: withheld until a release/evaluation window.
 
 For stronger isolation, run the runtime and oracle in separate processes or
-containers and mount the corpus read-only. Repository tests only validate the
-protocol boundary; they are not independent external evaluation.
+containers and mount the corpus read-only. The Python convenience API rejects
+in-process policy callables by default because a callable in the evaluator
+process can inspect or mutate evaluator state. The
+`allow_in_process_runners=True` option exists only for trusted, local tests; it
+is not a sandbox and must not be enabled for untrusted policies. Production
+campaigns should use the isolated subprocess or container runner. Repository
+tests only validate the protocol boundary; they are not independent external
+evaluation.
 
 ## Required evidence
 
