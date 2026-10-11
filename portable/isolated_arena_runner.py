@@ -13,6 +13,7 @@ import math
 import os
 import subprocess
 import tempfile
+import threading
 import time
 from collections.abc import Mapping, Sequence
 from typing import Any
@@ -94,24 +95,63 @@ def run_campaign_isolated(
             )
             with tempfile.TemporaryFile(mode="w+b") as output:
                 process = subprocess.Popen(
-                    list(policy_command), stdin=subprocess.PIPE, stdout=output,
+                    list(policy_command), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                     stderr=subprocess.DEVNULL, cwd=workdir, env=env, shell=False,
                     close_fds=True,
                 )
+                output_limit_exceeded = threading.Event()
+                stream_error: list[BaseException] = []
+
+                def drain_output() -> None:
+                    total = 0
+                    try:
+                        assert process.stdout is not None
+                        while True:
+                            chunk = process.stdout.read(8192)
+                            if not chunk:
+                                return
+                            total += len(chunk)
+                            if total > max_output_bytes:
+                                output_limit_exceeded.set()
+                                process.kill()
+                                return
+                            output.write(chunk)
+                    except (OSError, ValueError) as exc:
+                        stream_error.append(exc)
+
+                def send_request() -> None:
+                    try:
+                        assert process.stdin is not None
+                        process.stdin.write(request.encode("utf-8"))
+                        process.stdin.close()
+                    except (BrokenPipeError, OSError, ValueError):
+                        return
+
+                reader = threading.Thread(target=drain_output, daemon=True)
+                writer = threading.Thread(target=send_request, daemon=True)
+                reader.start()
+                writer.start()
                 try:
-                    process.communicate(input=request.encode("utf-8"), timeout=timeout)
+                    process.wait(timeout=timeout)
                 except subprocess.TimeoutExpired as exc:
                     process.kill()
-                    process.communicate()
+                    process.wait()
+                    writer.join(timeout=1.0)
+                    reader.join(timeout=1.0)
                     if deadline - time.monotonic() <= 0:
                         raise ArenaError("Arena campaign execution budget exhausted") from exc
                     raise ArenaError("policy subprocess exceeded its per-case timeout") from exc
+                writer.join(timeout=1.0)
+                reader.join(timeout=1.0)
+                if output_limit_exceeded.is_set():
+                    raise ArenaError("policy subprocess output exceeds configured byte limit")
+                if reader.is_alive():
+                    process.kill()
+                    raise ArenaError("policy output stream did not close within the bounded wait")
+                if stream_error:
+                    raise ArenaError("policy output stream could not be read")
                 if process.returncode != 0:
                     raise ArenaError("policy subprocess returned a non-zero exit status")
-                output.seek(0, os.SEEK_END)
-                output_size = output.tell()
-                if output_size > max_output_bytes:
-                    raise ArenaError("policy subprocess output exceeds configured byte limit")
                 output.seek(0)
                 try:
                     return json.loads(output.read().decode("utf-8"))
