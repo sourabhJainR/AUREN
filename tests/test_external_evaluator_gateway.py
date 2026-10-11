@@ -117,7 +117,8 @@ class ExternalEvaluatorGatewayTests(unittest.TestCase):
                 return "rejected"
 
         with ThreadPoolExecutor(max_workers=2) as pool:
-            results = [pool.submit(claim).result(timeout=5), pool.submit(claim).result(timeout=5)]
+            futures = [pool.submit(claim) for _ in range(2)]
+            results = [future.result(timeout=5) for future in futures]
         self.assertCountEqual(results, ["accepted", "rejected"])
 
     def test_receipt_nonce_must_match_request(self) -> None:
