@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import sqlite3
 import subprocess
@@ -59,9 +60,9 @@ class SubprocessPolicy:
         timeout_seconds: float = 15.0,
         max_output_bytes: int = 1_000_000,
     ):
-        if not command or any(not isinstance(part, str) or not part for part in command):
+        if isinstance(command, (str, bytes)) or not command or any(not isinstance(part, str) or not part for part in command):
             raise ArenaError("candidate command must be a non-empty string sequence")
-        if timeout_seconds <= 0:
+        if not isinstance(timeout_seconds, (int, float)) or not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
             raise ArenaError("timeout_seconds must be positive")
         if max_output_bytes <= 0:
             raise ArenaError("max_output_bytes must be positive")
