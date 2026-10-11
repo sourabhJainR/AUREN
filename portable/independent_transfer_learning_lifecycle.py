@@ -165,7 +165,7 @@ class CrossDomainTransferMeasurer:
             domain, cohort, success, score, regression, holdout = item
             if not isinstance(domain, str) or not domain.strip():
                 raise ValueError(f"outcomes[{index}].domain must be non-empty text")
-            if cohort not in {"control", "treatment"}:
+            if not isinstance(cohort, str) or cohort not in {"control", "treatment"}:
                 raise ValueError(f"outcomes[{index}].cohort must be control or treatment")
             if type(success) is not bool or type(regression) is not bool or type(holdout) is not bool:
                 raise ValueError(f"outcomes[{index}] success, regression, and holdout must be booleans")
@@ -174,7 +174,7 @@ class CrossDomainTransferMeasurer:
             normalized.append((domain, cohort, success, float(score), regression, holdout))
         target_domains = sorted({
             domain for domain, cohort, _success, _score, _regression, holdout in normalized
-            if holdout and domain != source_domain and cohort == "treatment"
+            if holdout and domain != source_domain
         })
         if len(target_domains) < minimum_target_domains:
             raise ValueError("insufficient independent target domains")
