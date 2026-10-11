@@ -3,6 +3,7 @@ import hashlib
 import json
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from portable.independent_arena import ArenaError, NonceLedger, run_campaign, seal_manifest, validate_manifest, verify_receipt
@@ -180,6 +181,33 @@ class IndependentArenaTests(unittest.TestCase):
         )
         receipt["promotion_authorized"] = True
         self.assertFalse(verify_receipt(rehash_receipt(receipt), sealed))
+
+    def test_rejects_stale_timestamp_even_when_receipt_digest_is_recomputed(self):
+        sealed = seal_manifest(fixture())
+        receipt = run_campaign(
+            sealed, lambda task: 15, nonce_ledger=new_ledger(),
+            policy_digest="p", run_nonce="stale-timestamp-test",
+        )
+        receipt["issued_at"] = (datetime.now(timezone.utc) - timedelta(days=2)).isoformat()
+        self.assertFalse(verify_receipt(rehash_receipt(receipt), sealed))
+
+    def test_rejects_future_timestamp_beyond_clock_skew(self):
+        sealed = seal_manifest(fixture())
+        receipt = run_campaign(
+            sealed, lambda task: 15, nonce_ledger=new_ledger(),
+            policy_digest="p", run_nonce="future-timestamp-test",
+        )
+        receipt["issued_at"] = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+        self.assertFalse(verify_receipt(rehash_receipt(receipt), sealed))
+
+    def test_rejects_invalid_freshness_bounds(self):
+        sealed = seal_manifest(fixture())
+        receipt = run_campaign(
+            sealed, lambda task: 15, nonce_ledger=new_ledger(),
+            policy_digest="p", run_nonce="invalid-freshness-bounds",
+        )
+        self.assertFalse(verify_receipt(receipt, sealed, max_age_seconds=float("nan")))
+        self.assertFalse(verify_receipt(receipt, sealed, clock_skew_seconds=-1))
 
     def test_rejects_naive_timestamp_even_when_receipt_digest_is_recomputed(self):
         sealed = seal_manifest(fixture())
