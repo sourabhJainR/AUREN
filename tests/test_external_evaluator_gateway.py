@@ -64,7 +64,7 @@ class ExternalEvaluatorGatewayTests(unittest.TestCase):
         gateway.evaluate(self.request, ExternalEvaluatorCommand((sys.executable, "-c", script)))
         reopened = SealedArenaReplayLedger(Path(self.tempdir.name) / "replay.sqlite3")
         with self.assertRaises(ReplayRejected):
-            ExternalEvaluatorGateway(SealedArenaBoundary(lambda value: value.signature == "sig"), reopened).evaluate(
+            ExternalEvaluatorGateway(SealedArenaBoundary(lambda value: value.signature == "sig"), reopened, allow_test_verifier=True).evaluate(
                 self.request, ExternalEvaluatorCommand((sys.executable, "-c", script))
             )
 
