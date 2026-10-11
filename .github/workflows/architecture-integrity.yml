@@ -14,6 +14,8 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
+      - name: Install optional cryptographic verification test dependency
+        run: python -m pip install 'cryptography>=42,<47'
       - name: Validate architecture constitution
         run: python scripts/validate_architecture.py
       - name: Run architecture contract regression tests
@@ -32,6 +34,8 @@ jobs:
           echo "AUREN_ARENA_TEST_IMAGE=$(docker image inspect --format='{{.Id}}' auren-arena-policy-test)" >> "$GITHUB_ENV"
       - name: Run real container-backed Arena smoke test
         run: python -m unittest tests.test_container_sandboxed_arena_integration -v
+      - name: Run Ed25519 sealed receipt authentication regressions
+        run: python -m unittest tests.test_sealed_arena_signature -v
       - name: Run sealed Arena boundary, exchange, gateway, and replay regressions
         run: python -m unittest tests.test_sealed_arena_boundary tests.test_sealed_arena_exchange tests.test_external_evaluator_gateway tests.test_external_evaluator_gateway_budget tests.test_sealed_arena_replay_concurrency -v
       - name: Run cross-domain campaign lineage and transfer-metric regressions
