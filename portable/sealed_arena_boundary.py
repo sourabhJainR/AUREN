@@ -1,7 +1,7 @@
 """Opaque sealed Arena boundary for independently evaluated campaigns.
 
 AUREN receives case digests and externally attested outcomes, never benchmark
-answers or an in-process oracle.  This module validates the trust envelope and
+answers or an in-process oracle. This module validates the trust envelope and
 returns evidence; it has no promotion or execution authority.
 """
 from __future__ import annotations
@@ -11,7 +11,24 @@ import hashlib
 import json
 from typing import Final, Mapping
 
-_FORBIDDEN_PAYLOAD_KEYS: Final[frozenset[str]] = frozenset({"answer", "expected_answer", "oracle_answer", "gold", "solution"})
+_FORBIDDEN_PAYLOAD_KEYS: Final[frozenset[str]] = frozenset({
+    "answer",
+    "expected_answer",
+    "expected_output",
+    "oracle_answer",
+    "ground_truth",
+    "correct_answer",
+    "reference_answer",
+    "answer_key",
+    "gold",
+    "gold_label",
+    "solution",
+})
+
+
+def _required_text(name: str, value: object) -> None:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{name} must be a non-empty string")
 
 
 @dataclass(frozen=True, slots=True)
@@ -24,13 +41,25 @@ class SealedCaseEnvelope:
     transfer_dimensions: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
-        for name, value in (("case_id", self.case_id), ("task_digest", self.task_digest), ("input_digest", self.input_digest), ("environment_digest", self.environment_digest)):
-            if not str(value).strip():
-                raise ValueError(f"{name} is required")
+        for name, value in (
+            ("case_id", self.case_id),
+            ("task_digest", self.task_digest),
+            ("input_digest", self.input_digest),
+            ("environment_digest", self.environment_digest),
+        ):
+            _required_text(name, value)
+        if type(self.holdout) is not bool:
+            raise ValueError("holdout must be a boolean")
+        if not isinstance(self.transfer_dimensions, tuple) or any(
+            not isinstance(item, str) or not item.strip() for item in self.transfer_dimensions
+        ):
+            raise ValueError("transfer_dimensions must be a tuple of non-empty strings")
 
     @property
     def digest(self) -> str:
-        return hashlib.sha256(json.dumps(self.as_dict(), sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+        return hashlib.sha256(
+            json.dumps(self.as_dict(), sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -51,12 +80,13 @@ class SealedCampaignRequest:
     run_nonce: str = ""
 
     def __post_init__(self) -> None:
-        if not self.campaign_digest.strip() or not self.corpus_digest.strip():
-            raise ValueError("campaign_digest and corpus_digest are required")
-        if not isinstance(self.run_nonce, str):
-            raise ValueError("run_nonce must be a string")
-        if not self.cases:
-            raise ValueError("sealed campaign requires cases")
+        _required_text("campaign_digest", self.campaign_digest)
+        _required_text("corpus_digest", self.corpus_digest)
+        _required_text("run_nonce", self.run_nonce)
+        if not isinstance(self.cases, tuple) or not self.cases:
+            raise ValueError("sealed campaign requires a non-empty tuple of cases")
+        if any(not isinstance(case, SealedCaseEnvelope) for case in self.cases):
+            raise ValueError("sealed campaign cases must be SealedCaseEnvelope values")
         ids = [case.case_id for case in self.cases]
         if len(ids) != len(set(ids)):
             raise ValueError("sealed campaign contains duplicate case ids")
@@ -98,15 +128,23 @@ class ExternalOutcomeReceipt:
     run_nonce: str = ""
 
     def __post_init__(self) -> None:
-        for name, value in (("campaign_digest", self.campaign_digest), ("corpus_digest", self.corpus_digest), ("evaluator_id", self.evaluator_id), ("oracle_id", self.oracle_id), ("signature", self.signature)):
-            if not str(value).strip():
-                raise ValueError(f"{name} is required")
+        for name, value in (
+            ("campaign_digest", self.campaign_digest),
+            ("corpus_digest", self.corpus_digest),
+            ("evaluator_id", self.evaluator_id),
+            ("oracle_id", self.oracle_id),
+            ("signature", self.signature),
+            ("run_nonce", self.run_nonce),
+        ):
+            _required_text(name, value)
         if self.evaluator_id == self.oracle_id:
             raise ValueError("evaluator and oracle must be distinct principals")
-        if not isinstance(self.signature, str) or not self.signature.strip():
-            raise ValueError("outcome receipt signature is required")
-        if not self.results:
-            raise ValueError("outcome receipt requires results")
+        if type(self.contamination_free) is not bool:
+            raise ValueError("contamination_free must be a boolean")
+        if type(self.independent_oracle) is not bool:
+            raise ValueError("independent_oracle must be a boolean")
+        if not isinstance(self.results, tuple) or not self.results:
+            raise ValueError("outcome receipt requires a non-empty tuple of results")
         for row in self.results:
             if not isinstance(row, (tuple, list)) or len(row) != 3:
                 raise ValueError("outcome receipt result rows must contain case id, boolean outcome, and evidence digest")
@@ -132,7 +170,9 @@ class ExternalOutcomeReceipt:
             "contamination_free": self.contamination_free,
             "independent_oracle": self.independent_oracle,
         }
-        return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+        return hashlib.sha256(
+            json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
 
 
 @dataclass(frozen=True, slots=True)
@@ -151,11 +191,13 @@ class SealedArenaBoundary:
         self._verify_signature = verify_signature
 
     def accept(self, request: SealedCampaignRequest, receipt: ExternalOutcomeReceipt) -> SealedArenaEvidence:
+        if not isinstance(request, SealedCampaignRequest) or not isinstance(receipt, ExternalOutcomeReceipt):
+            raise TypeError("sealed request and externally attested receipt are required")
         if receipt.campaign_digest != request.campaign_digest or receipt.corpus_digest != request.corpus_digest:
             raise ValueError("outcome receipt lineage does not match sealed campaign")
         if receipt.run_nonce != request.run_nonce:
             raise ValueError("outcome receipt nonce does not match sealed campaign request")
-        if not receipt.contamination_free or not receipt.independent_oracle:
+        if receipt.contamination_free is not True or receipt.independent_oracle is not True:
             raise ValueError("sealed Arena rejects contaminated or non-independent outcomes")
         if not self._verify_signature(receipt):
             raise ValueError("external outcome signature is not verified")
@@ -166,11 +208,11 @@ class SealedArenaBoundary:
         if observed_ids != expected_ids:
             missing = sorted(expected_ids - observed_ids)
             raise ValueError(f"outcome receipt is incomplete; missing cases: {missing}")
-        holdouts = {case.case_id for case in request.cases if case.holdout}
+        holdouts = {case.case_id for case in request.cases if case.holdout is True}
         holdout_results = [row for row in receipt.results if row[0] in holdouts]
         if len(holdout_results) != len(holdouts):
             raise ValueError("sealed outcome is missing one or more holdout results")
-        passed = sum(row[1] for row in holdout_results)
+        passed = sum(row[1] is True for row in holdout_results)
         return SealedArenaEvidence(receipt.receipt_digest, passed / len(holdout_results), len(receipt.results))
 
 
