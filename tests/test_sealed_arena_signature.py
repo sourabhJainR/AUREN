@@ -3,8 +3,12 @@ from __future__ import annotations
 import unittest
 from dataclasses import replace
 
-from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+try:
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+except ImportError:  # optional dependency; the dedicated CI job installs it
+    serialization = None
+    Ed25519PrivateKey = None
 
 from portable.sealed_arena_boundary import ExternalOutcomeReceipt
 from portable.sealed_arena_signature import (
@@ -12,6 +16,7 @@ from portable.sealed_arena_signature import (
 )
 
 
+@unittest.skipIf(Ed25519PrivateKey is None, "optional cryptography dependency is not installed")
 class Ed25519ReceiptVerifierTests(unittest.TestCase):
     def setUp(self):
         self.private = Ed25519PrivateKey.generate()
