@@ -26,6 +26,12 @@ jobs:
         run: python -m unittest tests.test_execution_controller_promotion_gate -v
       - name: Run executable and isolated Arena kernel regressions
         run: python -m unittest tests.test_independent_arena tests.test_isolated_arena_runner tests.test_container_sandboxed_arena -v
+      - name: Build minimal Arena policy image for real sandbox smoke test
+        run: |
+          docker build --pull -t auren-arena-policy-test tests/fixtures/arena-policy
+          echo "AUREN_ARENA_TEST_IMAGE=$(docker image inspect --format='{{.Id}}' auren-arena-policy-test)" >> "$GITHUB_ENV"
+      - name: Run real container-backed Arena smoke test
+        run: python -m unittest tests.test_container_sandboxed_arena_integration -v
       - name: Run sealed Arena boundary, exchange, gateway, and replay regressions
         run: python -m unittest tests.test_sealed_arena_boundary tests.test_sealed_arena_exchange tests.test_external_evaluator_gateway tests.test_external_evaluator_gateway_budget tests.test_sealed_arena_replay_concurrency -v
       - name: Run cross-domain campaign lineage regressions
