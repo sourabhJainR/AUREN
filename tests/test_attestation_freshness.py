@@ -1,4 +1,5 @@
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 
 from portable.attestation_freshness import (
     AttestationFreshnessPolicy,
@@ -94,6 +95,12 @@ class AttestationFreshnessTests(unittest.TestCase):
         )
         self.assertFalse(invalid.trustworthy)
         self.assertTrue(valid.trustworthy)
+
+    def test_concurrent_replay_claim_has_exactly_one_winner(self):
+        registry = AttestationReplayRegistry()
+        with ThreadPoolExecutor(max_workers=16) as pool:
+            results = list(pool.map(registry.claim, ["same-attestation"] * 64))
+        self.assertEqual(sum(results), 1)
 
     def test_boolean_timestamp_is_rejected(self):
         with self.assertRaisesRegex(ValueError, "non-negative integer"):
