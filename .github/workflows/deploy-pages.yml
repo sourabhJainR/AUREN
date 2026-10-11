@@ -1,5 +1,7 @@
 name: Deploy AUREN documentation
 
+# Touching this workflow intentionally re-runs the Pages deployment gate on main.
+
 on:
   push:
     branches: [main]

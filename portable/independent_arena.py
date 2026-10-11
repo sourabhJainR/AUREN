@@ -8,14 +8,10 @@ from __future__ import annotations
 
 import hashlib
 import json
-import math
-import os
-import sqlite3
-import subprocess
-import tempfile
-from pathlib import Path
 from datetime import datetime, timezone
-from typing import Any, Callable, Mapping, Sequence
+from typing import Any, Callable, Mapping
+
+from .sealed_arena_replay import SealedArenaReplayLedger
 
 SCHEMA_VERSION = "arena-run-v1"
 _ALLOWED_SPLITS = {"development", "evaluation", "sealed_holdout"}
@@ -46,94 +42,7 @@ def _require_text(value: Any, field: str) -> str:
 
 
 
-class SubprocessPolicy:
-    """JSON-in/JSON-out adapter that keeps candidate execution out of evaluator memory.
-
-    This is process separation, not a complete security sandbox. The operator must
-    additionally use an OS/container boundary to restrict filesystem and network access.
-    """
-
-    def __init__(
-        self,
-        command: Sequence[str],
-        *,
-        timeout_seconds: float = 15.0,
-        max_output_bytes: int = 1_000_000,
-    ):
-        if isinstance(command, (str, bytes)) or not command or any(not isinstance(part, str) or not part for part in command):
-            raise ArenaError("candidate command must be a non-empty string sequence")
-        if not isinstance(timeout_seconds, (int, float)) or not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
-            raise ArenaError("timeout_seconds must be positive")
-        if max_output_bytes <= 0:
-            raise ArenaError("max_output_bytes must be positive")
-        self.command = tuple(command)
-        self.timeout_seconds = timeout_seconds
-        self.max_output_bytes = max_output_bytes
-
-    def __call__(self, task: Mapping[str, str]) -> Any:
-        payload = canonical_json(dict(task)).decode("utf-8")
-        with tempfile.TemporaryDirectory(prefix="auren-arena-candidate-") as working_directory:
-            # Do not forward the evaluator's credentials, tokens, or arbitrary environment.
-            environment = {
-                "PATH": os.environ.get("PATH", ""),
-                "HOME": working_directory,
-                "TMPDIR": working_directory,
-                "LANG": "C.UTF-8",
-                "LC_ALL": "C.UTF-8",
-            }
-            try:
-                completed = subprocess.run(
-                    self.command,
-                    input=payload,
-                    text=True,
-                    capture_output=True,
-                    cwd=working_directory,
-                    env=environment,
-                    timeout=self.timeout_seconds,
-                    check=False,
-                )
-            except subprocess.TimeoutExpired as exc:
-                raise ArenaError("candidate process timed out") from exc
-            if completed.returncode != 0:
-                raise ArenaError("candidate process exited unsuccessfully")
-            if len(completed.stdout.encode("utf-8")) > self.max_output_bytes:
-                raise ArenaError("candidate output exceeded configured limit")
-            try:
-                return json.loads(completed.stdout)
-            except (json.JSONDecodeError, TypeError) as exc:
-                raise ArenaError("candidate stdout must contain one JSON value") from exc
-
-
-class NonceLedger:
-    """SQLite-backed atomic replay ledger; use one shared path across evaluator restarts."""
-
-    def __init__(self, database_path: str | Path):
-        self.database_path = str(database_path)
-        if self.database_path == ":memory:":
-            raise ArenaError("NonceLedger requires a persistent database path")
-        Path(self.database_path).parent.mkdir(parents=True, exist_ok=True)
-        with sqlite3.connect(self.database_path, timeout=10) as connection:
-            connection.execute(
-                """CREATE TABLE IF NOT EXISTS arena_nonce_claims (
-                    nonce TEXT PRIMARY KEY,
-                    benchmark_id TEXT NOT NULL,
-                    manifest_digest TEXT NOT NULL,
-                    policy_digest TEXT NOT NULL,
-                    claimed_at TEXT NOT NULL
-                )"""
-            )
-
-    def claim(self, nonce: str, benchmark_id: str, manifest_digest: str, policy_digest: str) -> None:
-        """Atomically claim a nonce before execution; duplicates fail closed."""
-        _require_text(nonce, "run_nonce")
-        try:
-            with sqlite3.connect(self.database_path, timeout=10) as connection:
-                connection.execute(
-                    "INSERT INTO arena_nonce_claims VALUES (?, ?, ?, ?, ?)",
-                    (nonce, benchmark_id, manifest_digest, policy_digest, datetime.now(timezone.utc).isoformat()),
-                )
-        except sqlite3.IntegrityError as exc:
-            raise ArenaError("run_nonce has already been used") from exc
+NonceLedger = SealedArenaReplayLedger
 
 
 def validate_manifest(manifest: Mapping[str, Any]) -> dict[str, Any]:
@@ -227,7 +136,11 @@ def run_campaign(
         raise ArenaError("manifest digest mismatch")
     if not isinstance(nonce_ledger, NonceLedger):
         raise ArenaError("a persistent NonceLedger is required for replay protection")
-    nonce_ledger.claim(run_nonce, manifest["benchmark_id"], expected_manifest_digest, policy_digest)
+    nonce_ledger.claim(
+        run_nonce=run_nonce,
+        campaign_digest=manifest["benchmark_id"],
+        corpus_digest=expected_manifest_digest,
+    )
     results = []
     for case in manifest["cases"]:
         # No oracle, split, manifest, neighboring case, or expected answer crosses

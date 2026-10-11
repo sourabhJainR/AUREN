@@ -48,10 +48,13 @@ class SealedCampaignRequest:
     campaign_digest: str
     corpus_digest: str
     cases: tuple[SealedCaseEnvelope, ...]
+    run_nonce: str = ""
 
     def __post_init__(self) -> None:
         if not self.campaign_digest.strip() or not self.corpus_digest.strip():
             raise ValueError("campaign_digest and corpus_digest are required")
+        if not isinstance(self.run_nonce, str):
+            raise ValueError("run_nonce must be a string")
         if not self.cases:
             raise ValueError("sealed campaign requires cases")
         ids = [case.case_id for case in self.cases]
@@ -92,6 +95,7 @@ class ExternalOutcomeReceipt:
     results: tuple[tuple[str, bool, str], ...]
     contamination_free: bool = True
     independent_oracle: bool = True
+    run_nonce: str = ""
 
     def __post_init__(self) -> None:
         for name, value in (("campaign_digest", self.campaign_digest), ("corpus_digest", self.corpus_digest), ("evaluator_id", self.evaluator_id), ("oracle_id", self.oracle_id), ("signature", self.signature)):
@@ -121,6 +125,7 @@ class ExternalOutcomeReceipt:
         payload = {
             "campaign_digest": self.campaign_digest,
             "corpus_digest": self.corpus_digest,
+            "run_nonce": self.run_nonce,
             "evaluator_id": self.evaluator_id,
             "oracle_id": self.oracle_id,
             "results": self.results,
@@ -148,6 +153,8 @@ class SealedArenaBoundary:
     def accept(self, request: SealedCampaignRequest, receipt: ExternalOutcomeReceipt) -> SealedArenaEvidence:
         if receipt.campaign_digest != request.campaign_digest or receipt.corpus_digest != request.corpus_digest:
             raise ValueError("outcome receipt lineage does not match sealed campaign")
+        if receipt.run_nonce != request.run_nonce:
+            raise ValueError("outcome receipt nonce does not match sealed campaign request")
         if not receipt.contamination_free or not receipt.independent_oracle:
             raise ValueError("sealed Arena rejects contaminated or non-independent outcomes")
         if not self._verify_signature(receipt):
