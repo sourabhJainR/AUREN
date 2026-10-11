@@ -85,6 +85,7 @@ class PromotionEvidenceChainBuilder:
         evaluator_id: str = "",
         oracle_id: str = "",
         policy_runtime_id: str = "",
+        trusted_isolation_signers: frozenset[str] | None = None,
         isolation_now: float | None = None,
     ) -> PromotionEvidenceChain:
         if not isinstance(campaign, ExternalEvaluationCampaign):
@@ -113,6 +114,7 @@ class PromotionEvidenceChainBuilder:
                     evaluator_id=evaluator_id,
                     oracle_id=oracle_id,
                     policy_runtime_id=policy_runtime_id,
+                    trusted_signer_ids=trusted_isolation_signers,
                     now=time.time() if isolation_now is None else isolation_now,
                 )
             except (TypeError, ValueError) as exc:

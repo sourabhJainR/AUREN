@@ -53,6 +53,7 @@ def isolation_kwargs(campaign, receipt):
         evaluator_id="runtime-evaluator",
         oracle_id="independent-oracle",
         policy_runtime_id="policy-runtime",
+        trusted_isolation_signers=frozenset({"independent-sandbox-auditor"}),
         isolation_now=now,
     )
 
@@ -235,6 +236,36 @@ class PromotionEvidenceChainTests(unittest.TestCase):
         )
         self.assertFalse(chain.complete)
         self.assertTrue(any("signer must be independent" in reason for reason in chain.reasons))
+
+    def test_chain_rejects_untrusted_isolation_signer(self):
+        campaign = make_campaign()
+        receipt = make_receipt(campaign)
+        causal = make_causal(receipt)
+        decision = CausalCapabilityPromotionGate().evaluate(causal)
+        kwargs = isolation_kwargs(campaign, receipt)
+        kwargs["isolation_attestation"] = replace(
+            kwargs["isolation_attestation"], signer_id="unconfigured-sandbox-auditor"
+        )
+        chain = PromotionEvidenceChainBuilder().build(
+            campaign, receipt, causal, decision,
+            attested_campaign=make_attested_campaign(campaign), **kwargs
+        )
+        self.assertFalse(chain.complete)
+        self.assertTrue(any("not in the out-of-band trusted signer allowlist" in reason for reason in chain.reasons))
+
+    def test_chain_rejects_missing_trusted_isolation_signer_allowlist(self):
+        campaign = make_campaign()
+        receipt = make_receipt(campaign)
+        causal = make_causal(receipt)
+        decision = CausalCapabilityPromotionGate().evaluate(causal)
+        kwargs = isolation_kwargs(campaign, receipt)
+        kwargs["trusted_isolation_signers"] = None
+        chain = PromotionEvidenceChainBuilder().build(
+            campaign, receipt, causal, decision,
+            attested_campaign=make_attested_campaign(campaign), **kwargs
+        )
+        self.assertFalse(chain.complete)
+        self.assertTrue(any("out-of-band trusted isolation signer allowlist is required" in reason for reason in chain.reasons))
 
     def test_chain_rejects_expired_isolation_attestation(self):
         campaign = make_campaign()
