@@ -22,8 +22,32 @@ from typing import Any
 from .independent_arena import ArenaError, NonceLedger, run_campaign
 
 
+def _kill_windows_process_tree(process: subprocess.Popen[Any]) -> None:
+    """Ask Windows to terminate the process and its descendants, then fall back."""
+    try:
+        result = subprocess.run(
+            ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=5.0,
+            check=False,
+            shell=False,
+            close_fds=True,
+        )
+        if result.returncode == 0:
+            return
+    except (OSError, subprocess.TimeoutExpired):
+        # taskkill may be unavailable or time out; still kill the direct child.
+        pass
+    try:
+        process.kill()
+    except OSError:
+        pass
+
+
 def _kill_policy_process_tree(process: subprocess.Popen[Any]) -> None:
-    """Kill the policy process group on POSIX so descendants cannot outlive a case."""
+    """Best-effort tree termination; POSIX uses process groups, Windows taskkill."""
     if os.name == "posix":
         try:
             os.killpg(process.pid, signal.SIGKILL)
@@ -33,9 +57,12 @@ def _kill_policy_process_tree(process: subprocess.Popen[Any]) -> None:
         except OSError:
             # Best-effort fallback if the process group cannot be addressed.
             pass
+    elif os.name == "nt":
+        _kill_windows_process_tree(process)
+        return
     try:
         process.kill()
-    except ProcessLookupError:
+    except OSError:
         pass
 
 
@@ -116,6 +143,7 @@ def run_campaign_isolated(
                     list(policy_command), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                     stderr=subprocess.DEVNULL, cwd=workdir, env=env, shell=False,
                     close_fds=True, start_new_session=(os.name == "posix"),
+                    creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) if os.name == "nt" else 0,
                 )
                 output_limit_exceeded = threading.Event()
                 stream_error: list[BaseException] = []
