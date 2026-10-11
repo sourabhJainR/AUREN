@@ -53,6 +53,7 @@ class AgentCapabilityTests(unittest.TestCase):
             ("accented", "User José lives in München and enjoys café."),
             ("cjk", "東京のチームが設計を確認する。"),
             ("devanagari", "नमस्ते दुनिया"),
+            ("東京カテゴリ", "plain text content"),
         )
         for use_fts in (True, False):
             with self.subTest(use_fts=use_fts), tempfile.TemporaryDirectory() as tmp:
@@ -64,6 +65,7 @@ class AgentCapabilityTests(unittest.TestCase):
                 self.assertEqual(len(memory.search("unicode-project", "東京")), 1)
                 self.assertEqual(len(memory.search("unicode-project", "नमस्ते")), 1)
                 self.assertEqual(len(memory.search("unicode-project", "München")), 1)
+                self.assertEqual(len(memory.search("unicode-project", "東京カテゴリ")), 1)
 
     def test_scheduler_claim_is_single_owner(self):
         import tempfile
