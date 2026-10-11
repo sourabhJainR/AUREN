@@ -48,7 +48,6 @@ class ExternalEvaluatorGatewayTests(unittest.TestCase):
         self.assertEqual(evidence.holdout_pass_rate, 1.0)
 
 
-
     def test_gateway_rejects_mismatched_boundary_replay_ledger(self) -> None:
         other = SealedArenaReplayLedger(Path(self.tempdir.name) / "other-replay.sqlite3")
         boundary = SealedArenaBoundary(lambda value: value.signature == "sig", replay_ledger=self.ledger)
