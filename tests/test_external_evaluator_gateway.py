@@ -69,6 +69,36 @@ class ExternalEvaluatorGatewayTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "nonce"):
             SealedArenaBoundary(lambda value: value.signature == "sig").accept(self.request, wrong)
 
+
+    def test_external_evaluator_output_budget_is_enforced_during_read(self) -> None:
+        script = "import sys; sys.stdin.buffer.read(); sys.stdout.write('x' * 1000000)"
+        gateway = ExternalEvaluatorGateway(SealedArenaBoundary(lambda _value: True), self.ledger)
+        with self.assertRaisesRegex(ValueError, "exceeds output budget"):
+            gateway.evaluate(
+                self.request,
+                ExternalEvaluatorCommand((sys.executable, "-c", script), max_output_bytes=128),
+            )
+
+    def test_external_evaluator_timeout_fails_closed(self) -> None:
+        script = "import sys,time; sys.stdin.buffer.read(); time.sleep(2)"
+        gateway = ExternalEvaluatorGateway(SealedArenaBoundary(lambda _value: True), self.ledger)
+        with self.assertRaisesRegex(RuntimeError, "timed out"):
+            gateway.evaluate(
+                self.request,
+                ExternalEvaluatorCommand((sys.executable, "-c", script), timeout_seconds=0.05),
+            )
+
+    def test_invalid_receipt_does_not_echo_evaluator_output(self) -> None:
+        secret = "DO_NOT_LEAK_EVALUATOR_STDOUT"
+        script = "import sys; sys.stdin.buffer.read(); print(" + repr(secret) + ")"
+        gateway = ExternalEvaluatorGateway(SealedArenaBoundary(lambda _value: True), self.ledger)
+        with self.assertRaises(ValueError) as caught:
+            gateway.evaluate(
+                self.request,
+                ExternalEvaluatorCommand((sys.executable, "-c", script)),
+            )
+        self.assertNotIn(secret, str(caught.exception))
+
     def test_shell_is_not_used(self) -> None:
         command = ExternalEvaluatorCommand((sys.executable, "-c", "import sys; sys.stdout.write(sys.stdin.read())"))
         self.assertEqual(command.argv[0], sys.executable)
