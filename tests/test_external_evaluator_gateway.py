@@ -48,6 +48,13 @@ class ExternalEvaluatorGatewayTests(unittest.TestCase):
         self.assertEqual(evidence.holdout_pass_rate, 1.0)
 
 
+
+    def test_gateway_rejects_mismatched_boundary_replay_ledger(self) -> None:
+        other = SealedArenaReplayLedger(Path(self.tempdir.name) / "other-replay.sqlite3")
+        boundary = SealedArenaBoundary(lambda value: value.signature == "sig", replay_ledger=self.ledger)
+        with self.assertRaisesRegex(ValueError, "share the same replay ledger database"):
+            ExternalEvaluatorGateway(boundary, other, allow_test_verifier=True)
+
     def test_gateway_and_boundary_can_share_one_replay_ledger(self) -> None:
         payload = export_outcome_receipt(self.receipt).decode("utf-8")
         script = "import sys; sys.stdin.buffer.read(); sys.stdout.write(" + repr(payload) + ")"
