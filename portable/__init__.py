@@ -208,6 +208,10 @@ from .isolated_arena_runner import run_campaign_isolated
 
 __all__ += ["run_campaign_isolated"]
 
+from .container_sandboxed_arena import run_campaign_container_sandboxed
+
+__all__ += ["run_campaign_container_sandboxed"]
+
 from .external_evaluator_gateway import ExternalEvaluatorCommand, ExternalEvaluatorGateway
 
 __all__ += ["ExternalEvaluatorCommand", "ExternalEvaluatorGateway"]
