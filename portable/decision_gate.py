@@ -26,6 +26,7 @@ def validate_decision_record(
     expected_repository: str,
     expected_head: str,
     authorized_approvers: Iterable[str] = (),
+    known_evidence_ids: Iterable[str] | None = None,
 ) -> list[str]:
     """Return contract violations; an empty list means structurally eligible.
 
@@ -111,9 +112,11 @@ def validate_decision_record(
             continue
         if set(check) - {"name", "command", "status", "commit_sha", "evidence_id"}:
             errors.append(f"checks[{i}] contains unknown fields")
-        for key in ("name", "command", "evidence_id", "commit_sha"):
+        for key in ("name", "command", "evidence_id", "commit_sha", "evaluator_type"):
             if not isinstance(check.get(key), str) or not check[key].strip():
                 errors.append(f"checks[{i}].{key} is required")
+        if check.get("evaluator_type") not in {"internal", "independent", "external"}:
+            errors.append(f"checks[{i}].evaluator_type is invalid")
         if check.get("status") not in CHECK_STATUSES:
             errors.append(f"checks[{i}].status is invalid")
         if check.get("status") == "passed" and check.get("commit_sha") != expected_head:
@@ -157,7 +160,16 @@ def validate_decision_record(
     if level not in PROMOTION_LEVELS:
         errors.append("promotion.level is invalid")
         level = "none"
+    known = set(known_evidence_ids) if known_evidence_ids is not None else None
     if PROMOTION_LEVELS[level] > 0:
+        if known is None:
+            errors.append("promotion requires a trusted canonical known_evidence_ids set")
+        else:
+            for i, check in enumerate(checks):
+                if isinstance(check, dict):
+                    evidence_id = check.get("evidence_id")
+                    if isinstance(evidence_id, str) and evidence_id not in known:
+                        errors.append(f"checks[{i}] references unknown canonical evidence_id")
         if any(not isinstance(check, dict) or check.get("status") != "passed" for check in checks):
             errors.append("promotion is blocked unless every recorded check passed")
         if not checks or any(isinstance(check, dict) and check.get("commit_sha") != expected_head for check in checks):
@@ -169,7 +181,11 @@ def validate_decision_record(
             errors.append("promotion requires an explicitly authorized approver")
         if not isinstance(approval_evidence, str) or not approval_evidence.strip():
             errors.append("promotion requires approval_evidence_id")
+        elif known is not None and approval_evidence not in known:
+            errors.append("promotion approval_evidence_id is not in the canonical evidence ledger")
     if level == "independently_corroborated":
+        if not any(isinstance(check, dict) and check.get("evaluator_type") in {"independent", "external"} and check.get("status") == "passed" for check in checks):
+            errors.append("independent corroboration requires a passing independent/external evaluator check")
         for key in ("external_evaluator_id", "corpus_owner_id", "receipt_digest", "repeat_run_id"):
             if not isinstance(promotion.get(key), str) or not promotion[key].strip():
                 errors.append(f"independent corroboration requires promotion.{key}")
@@ -187,6 +203,7 @@ def require_valid_decision_record(
     expected_repository: str,
     expected_head: str,
     authorized_approvers: Iterable[str] = (),
+    known_evidence_ids: Iterable[str] | None = None,
 ) -> None:
     """Raise ValueError on any contract violation."""
     errors = validate_decision_record(
@@ -194,6 +211,7 @@ def require_valid_decision_record(
         expected_repository=expected_repository,
         expected_head=expected_head,
         authorized_approvers=authorized_approvers,
+        known_evidence_ids=known_evidence_ids,
     )
     if errors:
         raise ValueError("decision record rejected: " + "; ".join(errors))
