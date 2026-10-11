@@ -6,7 +6,7 @@ Every sealed campaign request has a canonical `request_digest` computed from:
 - unique run nonce;
 - the exact ordered case envelopes, including case IDs, task/input/environment digests, holdout assignment, and transfer dimensions.
 
-The exchange format is version 2 and carries that digest. Import recomputes it after validating the envelope digest, so an attacker cannot mutate a case or holdout assignment and merely recompute the outer transport digest.
+The exchange format is version 3 and carries that digest plus signed per-case evaluation metrics. Import recomputes the request digest after validating the envelope digest, so an attacker cannot mutate a case or holdout assignment and merely recompute the outer transport digest.
 
 An external outcome receipt must carry the same request digest. `SealedArenaBoundary` rejects receipts whose request digest differs, even if the campaign ID, corpus ID, case IDs, and nonce are otherwise unchanged. This closes the gap where a receipt could be reused against a changed case manifest that retained the same caller-supplied corpus string.
 

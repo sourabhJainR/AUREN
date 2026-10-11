@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import hashlib
 import json
+import math
 from typing import Final, Mapping
 
 _FORBIDDEN_PAYLOAD_KEYS: Final[frozenset[str]] = frozenset({
@@ -141,6 +142,8 @@ class ExternalOutcomeReceipt:
     independent_oracle: bool = False
     run_nonce: str = ""
     request_digest: str = ""
+    # case_id, predicted score, realized score, uncertainty, resource cost ms, recovered
+    metrics: tuple[tuple[str, float, float, float, float, bool], ...] = ()
 
     def __post_init__(self) -> None:
         for name, value in (
@@ -173,6 +176,28 @@ class ExternalOutcomeReceipt:
                 raise ValueError("outcome receipt contains an invalid evidence digest")
         if len({row[0] for row in self.results}) != len(self.results):
             raise ValueError("outcome receipt contains duplicate case ids")
+        if not isinstance(self.metrics, tuple):
+            raise ValueError("outcome receipt metrics must be a tuple")
+        result_ids = {row[0] for row in self.results}
+        metric_ids: set[str] = set()
+        for row in self.metrics:
+            if not isinstance(row, (tuple, list)) or len(row) != 6:
+                raise ValueError("metric rows require case id, predicted score, realized score, uncertainty, resource cost, and recovery flag")
+            case_id, predicted, realized, uncertainty, resource_cost_ms, recovered = row
+            if not isinstance(case_id, str) or not case_id.strip():
+                raise ValueError("metric row case_id must be non-empty")
+            if case_id not in result_ids:
+                raise ValueError("metric row references a case without a result")
+            if case_id in metric_ids:
+                raise ValueError("outcome receipt contains duplicate metric case ids")
+            metric_ids.add(case_id)
+            for name, value in (("predicted_score", predicted), ("realized_score", realized), ("uncertainty", uncertainty)):
+                if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not 0.0 <= value <= 1.0:
+                    raise ValueError(f"{name} must be finite and within [0,1]")
+            if isinstance(resource_cost_ms, bool) or not isinstance(resource_cost_ms, (int, float)) or not math.isfinite(resource_cost_ms) or resource_cost_ms < 0:
+                raise ValueError("resource_cost_ms must be finite and non-negative")
+            if type(recovered) is not bool:
+                raise ValueError("recovered must be a boolean")
 
     @property
     def receipt_digest(self) -> str:
@@ -184,6 +209,7 @@ class ExternalOutcomeReceipt:
             "evaluator_id": self.evaluator_id,
             "oracle_id": self.oracle_id,
             "results": self.results,
+            "metrics": self.metrics,
             "contamination_free": self.contamination_free,
             "independent_oracle": self.independent_oracle,
         }
@@ -197,6 +223,9 @@ class SealedArenaEvidence:
     receipt_digest: str
     holdout_pass_rate: float
     result_case_count: int
+    case_results: tuple[tuple[str, bool, str], ...] = ()
+    case_metrics: tuple[tuple[str, float, float, float, float, bool], ...] = ()
+    request_digest: str = ""
 
 
 class SealedArenaBoundary:
@@ -232,7 +261,14 @@ class SealedArenaBoundary:
         if len(holdout_results) != len(holdouts):
             raise ValueError("sealed outcome is missing one or more holdout results")
         passed = sum(row[1] is True for row in holdout_results)
-        return SealedArenaEvidence(receipt.receipt_digest, passed / len(holdout_results), len(receipt.results))
+        return SealedArenaEvidence(
+            receipt.receipt_digest,
+            passed / len(holdout_results),
+            len(receipt.results),
+            tuple(tuple(row) for row in receipt.results),
+            tuple(tuple(row) for row in receipt.metrics),
+            request.request_digest,
+        )
 
 
 __all__ = ["SealedCaseEnvelope", "SealedCampaignRequest", "ExternalOutcomeReceipt", "SealedArenaEvidence", "SealedArenaBoundary"]
