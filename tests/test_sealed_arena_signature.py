@@ -56,7 +56,11 @@ class Ed25519ReceiptVerifierTests(unittest.TestCase):
     def test_evaluator_or_oracle_cannot_be_signer(self):
         for principal in ("evaluator-1", "oracle-1"):
             with self.subTest(principal=principal):
-                receipt = replace(self.receipt, evaluator_id=principal, oracle_id="other")
+                receipt = replace(
+                    self.receipt,
+                    evaluator_id=principal if principal == "evaluator-1" else "evaluator-1",
+                    oracle_id=principal if principal == "oracle-1" else "oracle-1",
+                )
                 signature = self.private.sign(receipt_signing_message(receipt, principal))
                 signed = replace(receipt, signature=encode_receipt_signature(principal, signature))
                 verifier = Ed25519ReceiptVerifier({principal: self.public})
