@@ -19,7 +19,7 @@ from uuid import uuid4
 
 from .independent_arena import ArenaError, NonceLedger, run_campaign
 
-_IMAGE_DIGEST_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/:+-]*@sha256:([0-9a-f]{64})$")
+_IMAGE_DIGEST_RE = re.compile(r"^(?:[A-Za-z0-9][A-Za-z0-9._/:+-]*@sha256:([0-9a-f]{64})|sha256:([0-9a-f]{64}))$")
 _CONTAINER_RUNTIME_NAMES = {"docker", "podman"}
 _MAX_TIMEOUT_SECONDS = 300.0
 
@@ -38,8 +38,9 @@ def _validate_inputs(
         runtime_basename = runtime_basename[:-4]
     if runtime_basename not in _CONTAINER_RUNTIME_NAMES:
         raise ArenaError("container_runtime must be a Docker or Podman executable, not a command string")
-    if not isinstance(image, str) or not _IMAGE_DIGEST_RE.fullmatch(image):
-        raise ArenaError("container_image must be pinned by an immutable @sha256:<64 hex> digest")
+    match = _IMAGE_DIGEST_RE.fullmatch(image) if isinstance(image, str) else None
+    if match is None:
+        raise ArenaError("container_image must be pinned by an immutable @sha256:<64 hex> digest or local sha256:<64 hex> image ID")
     if isinstance(policy_args, (str, bytes)) or not isinstance(policy_args, Sequence):
         raise ArenaError("policy_args must be a sequence of container command arguments")
     if any(not isinstance(arg, str) or not arg or "\x00" in arg for arg in policy_args):
@@ -48,7 +49,8 @@ def _validate_inputs(
         raise ArenaError("timeout_seconds must be a finite positive number")
     if not math.isfinite(timeout_seconds) or timeout_seconds <= 0 or timeout_seconds > _MAX_TIMEOUT_SECONDS:
         raise ArenaError(f"timeout_seconds must be greater than zero and at most {_MAX_TIMEOUT_SECONDS:g}")
-    expected_policy_digest = "sha256:" + image.rsplit("@sha256:", 1)[1]
+    image_digest = match.group(1) or match.group(2)
+    expected_policy_digest = "sha256:" + image_digest
     if policy_digest != expected_policy_digest:
         raise ArenaError("policy_digest must match the pinned container image digest")
     return tuple(policy_args)
