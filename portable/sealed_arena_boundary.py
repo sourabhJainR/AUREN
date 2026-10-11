@@ -22,12 +22,14 @@ _FORBIDDEN_PAYLOAD_KEYS: Final[frozenset[str]] = frozenset({
     "expected_answer",
     "expected_output",
     "oracle_answer",
+    "oracle_output",
     "ground_truth",
     "correct_answer",
     "reference_answer",
     "answer_key",
     "gold",
     "gold_label",
+    "gold_output",
     "solution",
 })
 

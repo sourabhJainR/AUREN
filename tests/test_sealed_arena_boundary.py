@@ -96,7 +96,10 @@ class SealedArenaBoundaryTests(unittest.TestCase):
             self.request.validate_task_metadata({"prompt": "opaque", "answer": "gold"})
 
     def test_rejects_known_answer_aliases_nested_in_metadata(self) -> None:
-        for key in ("ground_truth", "correct-answer", "reference answer", "answer_key", "gold_label"):
+        for key in (
+            "ground_truth", "correct-answer", "reference answer", "answer_key",
+            "gold_label", "expected_output", "oracle_output", "gold_output",
+        ):
             with self.subTest(key=key), self.assertRaisesRegex(ValueError, "answer material"):
                 self.request.validate_task_metadata({"task": {"parameters": [{key: "secret"}]}})
 
