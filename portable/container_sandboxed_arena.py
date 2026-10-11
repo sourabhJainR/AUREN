@@ -33,7 +33,7 @@ def _validate_inputs(
 ) -> tuple[str, ...]:
     if not isinstance(container_runtime, str) or not container_runtime.strip():
         raise ArenaError("container_runtime must name Docker or Podman")
-    runtime_basename = container_runtime.replace("\\\\", "/").rsplit("/", 1)[-1].lower()
+    runtime_basename = container_runtime.replace(chr(92), "/").rsplit("/", 1)[-1].lower()
     if runtime_basename.endswith(".exe"):
         runtime_basename = runtime_basename[:-4]
     if runtime_basename not in _CONTAINER_RUNTIME_NAMES:
