@@ -12,7 +12,7 @@ from typing import Any
 
 from .sealed_arena_boundary import ExternalOutcomeReceipt, SealedCampaignRequest
 
-SCHEMA_VERSION = "3"
+SCHEMA_VERSION = "4"
 
 
 def _canonical(payload: dict[str, Any]) -> bytes:
@@ -81,6 +81,9 @@ def export_outcome_receipt(receipt: ExternalOutcomeReceipt) -> bytes:
 
 def import_outcome_receipt(raw: bytes) -> ExternalOutcomeReceipt:
     payload = _decode(raw, "outcome_receipt")
+    required_freshness = {"issued_at_epoch", "expires_at_epoch"}
+    if not required_freshness <= payload.keys():
+        raise ValueError("outcome receipt is missing signed freshness fields")
     payload["results"] = tuple(tuple(row) for row in payload.get("results", ()))
     payload["metrics"] = tuple(tuple(row) for row in payload.get("metrics", ()))
     return ExternalOutcomeReceipt(**payload)
