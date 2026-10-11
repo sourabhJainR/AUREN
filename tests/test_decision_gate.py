@@ -1,6 +1,8 @@
 """Regression tests for fail-closed decision and promotion gates."""
 from __future__ import annotations
 
+import json
+from pathlib import Path
 import unittest
 
 from portable.decision_gate import validate_decision_record
@@ -43,7 +45,13 @@ class DecisionGateTests(unittest.TestCase):
     def errors(self, record: dict, **kwargs) -> list[str]:
         return validate_decision_record(record, expected_repository=REPO, expected_head=HEAD, **kwargs)
 
-    def test_accepts_well_formed_unpromoted_record(self) -> None:
+    def test_json_schema_is_valid_and_requires_core_evidence(self) -> None:
+        schema_path = Path(__file__).resolve().parents[1] / "schemas" / "task-decision-record-v1.schema.json"
+        schema = json.loads(schema_path.read_text(encoding="utf-8"))
+        self.assertEqual(schema["properties"]["schema_version"]["const"], "1.0")
+        self.assertTrue({"base_commit", "head_commit", "acceptance_criteria", "checks", "rollback_action", "promotion"}.issubset(schema["required"]))
+
+    def test_accepts_well_formed_unpromoted_record(self) -> None
         self.assertEqual(self.errors(valid_record()), [])
 
     def test_rejects_missing_acceptance_criteria_and_rollback(self) -> None:
