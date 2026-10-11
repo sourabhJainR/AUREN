@@ -155,8 +155,9 @@ jobs:
         run: python .ai-harness/placement.py ExampleService.py ExampleConstants.py ExampleHandler.py
       - name: Check worktree helper
         run: python .ai-harness/worktree.py list
-      - name: Run complete deterministic system suite
-        run: python scripts/run_full_suite.py
+      # The deterministic full suite is intentionally not rerun here: every command
+      # it orchestrates is already executed as an individual required step above.
+      # Keep scripts/run_full_suite.py available for local and standalone full-suite runs.
       - name: Publish CI artifacts
         if: always()
         uses: ./.github/actions/publish-ci-artifacts
