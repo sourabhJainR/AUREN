@@ -221,6 +221,11 @@ __all__ += ["FreshEvaluationAttestation", "AttestationFreshnessPolicy", "Attesta
 from .sealed_cross_domain_arena import SealedDomain, CrossDomainCampaign, SealedCrossDomainRunner
 __all__ += ["SealedDomain", "CrossDomainCampaign", "SealedCrossDomainRunner"]
 
+from .cross_domain_transfer_metrics import (
+    TransferAggregate, DomainTransferMetrics, CrossDomainTransferReport, build_cross_domain_report,
+)
+__all__ += ["TransferAggregate", "DomainTransferMetrics", "CrossDomainTransferReport", "build_cross_domain_report"]
+
 from .attested_domain_transfer_evidence import DomainTransferEvidence, AttestedDomainTransferEvidenceBuilder
 __all__ += ["DomainTransferEvidence", "AttestedDomainTransferEvidenceBuilder"]
 
