@@ -35,3 +35,8 @@ Isolation verification now requires a non-empty allowlist of trusted auditor sig
 `ArenaEvidenceObservationLedger` records both accepted and rejected evidence-chain outcomes as content-addressed immutable observations. Only accepted records are exposed through `learning_inputs`; rejected records retain their blocking reasons. Re-ingesting the same receipt is rejected as replay, and a different observation for an already-seen receipt is rejected as a conflict. A new evaluation must produce a new receipt rather than overwrite prior evidence.
 
 With a persistent SQLite database path, the ledger stores observations across process restarts and uses a unique receipt key to reject replay/conflicting writes under concurrent ingestion. Omitting the path creates an in-memory ledger for tests only. Production deployments still need filesystem/database access controls, backups, externally provisioned trust roots, and an operational retention policy; the ledger does not authorize policy changes.
+
+
+## Attestation key rotation and revocation
+
+`AttestationTrustPolicy` requires an explicit trusted signer allowlist and trusted key-ID allowlist. Attestations carry a `key_id` that is included in the content-addressed attestation digest. Policies may revoke signer identities or individual key IDs; a revoked signer/key, missing key ID, or key ID removed during rotation fails closed. Rotate by provisioning the replacement key ID out of band, updating the trusted key set, and revoking the old key only after overlap/rollover policy is satisfied. The runtime must not hold private signing keys. This policy is configuration plumbing; deployments must supply authenticated key material and a cryptographic verifier that signs/verifies the full attestation payload.
