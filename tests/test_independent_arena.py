@@ -47,7 +47,7 @@ class IndependentArenaTests(unittest.TestCase):
         first = run_campaign(sealed, policy, nonce_ledger=new_ledger(), policy_digest="sha256:policy-a", run_nonce="run-001")
         second = run_campaign(sealed, policy, nonce_ledger=new_ledger(), policy_digest="sha256:policy-a", run_nonce="run-002")
         self.assertNotEqual(first["result_digest"], second["result_digest"])
-        third = run_campaign(sealed, policy, policy_digest="sha256:policy-a", run_nonce="run-001")
+        third = run_campaign(sealed, policy, nonce_ledger=new_ledger(), policy_digest="sha256:policy-a", run_nonce="run-001")
         self.assertEqual(first["result_digest"], third["result_digest"])
 
     def test_manifest_tampering_is_rejected(self):
