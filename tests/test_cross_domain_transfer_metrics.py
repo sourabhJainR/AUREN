@@ -47,6 +47,8 @@ def setup_campaign(capability_id="planner-v1"):
         ),
         run_nonce=bound_request.run_nonce,
         request_digest=bound_request.request_digest,
+        contamination_free=True,
+        independent_oracle=True,
         metrics=(
             ("source-case", 0.80, 0.70, 0.20, 100.0, True),
             ("few-case", 0.60, 0.90, 0.30, 250.0, True),
