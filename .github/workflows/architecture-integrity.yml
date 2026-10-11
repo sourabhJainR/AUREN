@@ -34,8 +34,8 @@ jobs:
           echo "AUREN_ARENA_TEST_IMAGE=$(docker image inspect --format='{{.Id}}' auren-arena-policy-test)" >> "$GITHUB_ENV"
       - name: Run real container-backed Arena smoke test
         run: python -m unittest tests.test_container_sandboxed_arena_integration -v
-      - name: Run Ed25519 sealed receipt authentication regressions
-        run: python -m unittest tests.test_sealed_arena_signature -v
+      - name: Run Ed25519 sealed receipt and custody authentication regressions
+        run: python -m unittest tests.test_sealed_arena_signature tests.test_sealed_arena_custody -v
       - name: Run sealed Arena boundary, exchange, gateway, and replay regressions
         run: python -m unittest tests.test_sealed_arena_boundary tests.test_sealed_arena_exchange tests.test_external_evaluator_gateway tests.test_external_evaluator_gateway_budget tests.test_sealed_arena_replay_concurrency -v
       - name: Run cross-domain campaign lineage and transfer-metric regressions
