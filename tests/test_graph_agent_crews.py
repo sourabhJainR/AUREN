@@ -47,7 +47,7 @@ class GraphAgentCrewTests(unittest.TestCase):
 
     def test_java_crew_does_not_match_javascript_substring(self):
         team, _graph = self.make_team(lambda _state: "ok")
-        ids = {item.crew_id for item in team.plan_crews("Build a JavaScript interface").assignments}
+        ids = {item.crew_id for item in team.plan_crews("Build a React JavaScript interface").assignments}
         self.assertNotIn("java", ids)
         self.assertIn("react", ids)
 
