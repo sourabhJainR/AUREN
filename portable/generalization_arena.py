@@ -46,7 +46,11 @@ class IndependentGeneralizationArena:
         runtime_root: str | Path,
         oracles: Mapping[str, Callable[[Any], bool]],
         evaluator: ExecutionBackedEvaluator | None = None,
+        allow_in_process_runners: bool = False,
     ) -> None:
+        if type(allow_in_process_runners) is not bool:
+            raise ValueError("allow_in_process_runners must be a boolean")
+        self.allow_in_process_runners = allow_in_process_runners
         self.corpus_root = Path(corpus_root).resolve()
         self.runtime_root = Path(runtime_root).resolve()
         if (self.corpus_root == self.runtime_root or self.runtime_root in self.corpus_root.parents or self.corpus_root in self.runtime_root.parents):
@@ -132,6 +136,10 @@ class IndependentGeneralizationArena:
         *,
         runners: Mapping[str, Callable[[Mapping[str, Any]], Any]],
     ) -> GeneralIntelligenceEvaluation:
+        if not self.allow_in_process_runners:
+            raise RuntimeError(
+                "in-process policy runners are disabled; use the isolated subprocess or container Arena runner"
+            )
         corpus = self.load()
         cases = []
         for case in corpus.cases:
