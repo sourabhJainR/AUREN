@@ -73,7 +73,7 @@ def validate_decision_record(
     if not COMMIT_RE.fullmatch(head_commit):
         errors.append("head_commit must be a full 40-character commit SHA")
     if head_commit and head_commit != expected_head:
-        errors.append("decision evidence is stale: head_commit does not match expected head")
+        errors.append("stale evidence: head_commit does not match expected head")
     if risk_level not in {"low", "medium", "high", "critical"}:
         errors.append("risk_level must be low, medium, high, or critical")
 
