@@ -58,6 +58,24 @@ def _validate_inputs(
     return tuple(policy_args)
 
 
+def _force_remove_container(container_runtime: str, container_name: str) -> None:
+    """Best-effort cleanup after abnormal container-client termination."""
+    try:
+        subprocess.run(
+            [container_runtime, "rm", "--force", container_name],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=5.0,
+            check=False,
+            shell=False,
+            close_fds=True,
+        )
+    except Exception:
+        # Cleanup is best-effort; the evaluation remains an error regardless.
+        pass
+
+
 def _run_one_case(
     task: Mapping[str, str],
     *,
@@ -142,19 +160,7 @@ def _run_one_case(
             pass
         process.wait()
         reader.join(timeout=1.0)
-        try:
-            subprocess.run(
-                [container_runtime, "rm", "--force", container_name],
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                timeout=5.0,
-                check=False,
-                shell=False,
-                close_fds=True,
-            )
-        except Exception:
-            pass
+        _force_remove_container(container_runtime, container_name)
         raise ArenaError("sandboxed policy exceeded its wall-clock timeout") from exc
     except (BrokenPipeError, OSError) as exc:
         try:
@@ -163,25 +169,15 @@ def _run_one_case(
             pass
         process.wait()
         reader.join(timeout=1.0)
+        _force_remove_container(container_runtime, container_name)
         raise ArenaError("sandbox runtime input stream failed") from exc
 
     reader.join(timeout=1.0)
     if output_exceeded.is_set():
-        try:
-            subprocess.run(
-                [container_runtime, "rm", "--force", container_name],
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                timeout=5.0,
-                check=False,
-                shell=False,
-                close_fds=True,
-            )
-        except Exception:
-            pass
+        _force_remove_container(container_runtime, container_name)
         raise ArenaError("sandboxed policy output exceeds configured byte limit")
     if reader.is_alive() or stream_error:
+        _force_remove_container(container_runtime, container_name)
         raise ArenaError("sandboxed policy output stream could not be read")
     if process.returncode != 0:
         raise ArenaError("sandboxed policy returned a non-zero exit status")

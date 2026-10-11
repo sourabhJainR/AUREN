@@ -98,6 +98,21 @@ class ContainerSandboxedArenaTests(unittest.TestCase):
         self.assertEqual(run.call_args.args[0][:3], ["docker", "rm", "--force"])
         self.assertNotIn("x" * 128, json.dumps(receipt))
 
+    @patch("portable.container_sandboxed_arena.subprocess.run")
+    @patch("portable.container_sandboxed_arena.subprocess.Popen")
+    def test_input_stream_failure_requests_forced_container_cleanup(self, popen, run):
+        process = popen.return_value
+        process.stdin = Mock()
+        process.stdin.write.side_effect = BrokenPipeError("private detail")
+        process.stdout = io.BytesIO(b"")
+        process.wait.return_value = None
+        process.returncode = -9
+        run.return_value = subprocess.CompletedProcess(["docker", "rm"], 0, stdout="", stderr="")
+        receipt = self.run_campaign()
+        self.assertEqual(receipt["counts"], {"pass": 0, "fail": 0, "error": 1})
+        self.assertNotIn("private detail", json.dumps(receipt))
+        self.assertEqual(run.call_args.args[0][:3], ["docker", "rm", "--force"])
+
     def test_rejects_invalid_output_limit_before_execution(self):
         with patch("portable.container_sandboxed_arena.subprocess.Popen") as popen:
             with self.assertRaisesRegex(ValueError, "max_output_bytes"):
