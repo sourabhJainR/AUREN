@@ -157,7 +157,14 @@ class IndependentGeneralizationArena:
                     manifest_digest=corpus.manifest.digest,
                 )
             )
-        return self.evaluator.evaluate(cases)
+        report = self.evaluator.evaluate(cases)
+        # Detect persistent corpus or manifest mutation during the evaluation window.
+        # This is an integrity recheck, not proof against a privileged operator that
+        # mutates and restores files between reads; production custody stays external.
+        after = self.load()
+        if after.corpus_digest != corpus.corpus_digest:
+            raise ValueError("sealed benchmark corpus changed during evaluation")
+        return report
 
 
 __all__ = ["ArenaCase", "ArenaCorpus", "IndependentGeneralizationArena"]

@@ -107,6 +107,33 @@ class IndependentGeneralizationArenaTests(unittest.TestCase):
                     corpus_root=corpus, runtime_root=runtime, oracles={"oracle-v1": lambda _: True}
                 ).load()
 
+    def test_detects_corpus_mutation_during_evaluation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            runtime, corpus = root / "runtime", root / "sealed"
+            runtime.mkdir()
+            corpus.mkdir()
+            self._corpus(corpus)
+            arena = IndependentGeneralizationArena(
+                corpus_root=corpus,
+                runtime_root=runtime,
+                oracles={"oracle-v1": lambda observed: observed["answer"] >= 0},
+            )
+            mutated = False
+
+            def mutating_runner(task):
+                nonlocal mutated
+                if not mutated:
+                    cases_path = corpus / "cases.json"
+                    cases = json.loads(cases_path.read_text(encoding="utf-8"))
+                    cases[0]["task"]["answer"] = 999
+                    cases_path.write_text(json.dumps(cases), encoding="utf-8")
+                    mutated = True
+                return task
+
+            with self.assertRaisesRegex(ValueError, "changed during evaluation"):
+                arena.evaluate(runners={f"case-{i}": mutating_runner for i in range(6)})
+
     def test_missing_runner_fails_closed(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
