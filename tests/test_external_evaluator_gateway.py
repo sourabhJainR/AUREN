@@ -27,8 +27,16 @@ class ExternalEvaluatorGatewayTests(unittest.TestCase):
         self.tempdir.cleanup()
 
     def test_gateway_rejects_protocol_only_boundary_by_default(self) -> None:
-        with self.assertRaisesRegex(ValueError, "trusted boundary.*signed holdout custody"):
+        with self.assertRaisesRegex(ValueError, "trusted Ed25519 keyring.*signed holdout custody"):
             ExternalEvaluatorGateway(SealedArenaBoundary(lambda _value: True), self.ledger)
+
+    def test_gateway_rejects_custom_custody_callback_as_production_verifier(self) -> None:
+        boundary = SealedArenaBoundary(
+            lambda _value: True,
+            verify_custody_signature=lambda _signer, _signature, _message: True,
+        )
+        with self.assertRaisesRegex(ValueError, "trusted Ed25519 keyring"):
+            ExternalEvaluatorGateway(boundary, self.ledger)
 
     def test_gateway_uses_external_process_and_sealed_receipt(self) -> None:
         payload = export_outcome_receipt(self.receipt).decode("utf-8")
