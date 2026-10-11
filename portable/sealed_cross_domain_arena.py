@@ -77,17 +77,7 @@ class CrossDomainCampaign:
     def campaign_digest(self) -> str:
         payload = {
             "campaign_id": self.campaign_id,
-            "request_digest": hashlib.sha256(
-                json.dumps(
-                    {
-                        "campaign_digest": self.request.campaign_digest,
-                        "corpus_digest": self.request.corpus_digest,
-                        "cases": [case.as_dict() for case in self.request.cases],
-                    },
-                    sort_keys=True,
-                    separators=(",", ":"),
-                ).encode("utf-8")
-            ).hexdigest(),
+            "request_digest": self.request.request_digest,
             "domains": [
                 {"domain_id": domain.domain_id, "case_ids": domain.case_ids, "novel": domain.novel}
                 for domain in self.domains
