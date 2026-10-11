@@ -137,8 +137,8 @@ class ExternalOutcomeReceipt:
     oracle_id: str
     signature: str
     results: tuple[tuple[str, bool, str], ...]
-    contamination_free: bool = True
-    independent_oracle: bool = True
+    contamination_free: bool = False
+    independent_oracle: bool = False
     run_nonce: str = ""
     request_digest: str = ""
 

@@ -67,6 +67,22 @@ class SealedArenaBoundaryTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "distinct principals"):
             self.receipt(evaluator_id="same", oracle_id="same")
 
+    def test_missing_trust_claims_default_to_fail_closed(self) -> None:
+        receipt = ExternalOutcomeReceipt(
+            campaign_digest="campaign-d",
+            corpus_digest="corpus-d",
+            evaluator_id="evaluator",
+            oracle_id="oracle",
+            signature="sig",
+            results=(("case-1", True, "evidence-d"),),
+            run_nonce="nonce-1",
+            request_digest=self.request.request_digest,
+        )
+        self.assertFalse(receipt.contamination_free)
+        self.assertFalse(receipt.independent_oracle)
+        with self.assertRaisesRegex(ValueError, "rejects contaminated"):
+            SealedArenaBoundary(lambda _value: True).accept(self.request, receipt)
+
     def test_rejects_contamination(self) -> None:
         receipt = self.receipt(contamination_free=False)
         with self.assertRaisesRegex(ValueError, "rejects contaminated"):

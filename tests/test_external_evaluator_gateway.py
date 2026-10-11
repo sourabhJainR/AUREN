@@ -17,7 +17,7 @@ class ExternalEvaluatorGatewayTests(unittest.TestCase):
         self.tempdir = tempfile.TemporaryDirectory()
         self.ledger = SealedArenaReplayLedger(Path(self.tempdir.name) / "replay.sqlite3")
         self.request = SealedCampaignRequest("campaign-d", "corpus-d", (SealedCaseEnvelope("case-1", "task-d", "input-d", "env-d", True),), "nonce-1")
-        self.receipt = ExternalOutcomeReceipt("campaign-d", "corpus-d", "evaluator", "oracle", "sig", (("case-1", True, "evidence-d"),), run_nonce="nonce-1", request_digest=self.request.request_digest)
+        self.receipt = ExternalOutcomeReceipt("campaign-d", "corpus-d", "evaluator", "oracle", "sig", (("case-1", True, "evidence-d"),), run_nonce="nonce-1", request_digest=self.request.request_digest, contamination_free=True, independent_oracle=True)
 
     def tearDown(self) -> None:
         self.tempdir.cleanup()
@@ -61,7 +61,7 @@ class ExternalEvaluatorGatewayTests(unittest.TestCase):
             )
 
     def test_receipt_nonce_must_match_request(self) -> None:
-        wrong = ExternalOutcomeReceipt("campaign-d", "corpus-d", "evaluator", "oracle", "sig", (("case-1", True, "evidence-d"),), run_nonce="wrong-nonce", request_digest=self.request.request_digest)
+        wrong = ExternalOutcomeReceipt("campaign-d", "corpus-d", "evaluator", "oracle", "sig", (("case-1", True, "evidence-d"),), run_nonce="wrong-nonce", request_digest=self.request.request_digest, contamination_free=True, independent_oracle=True)
         with self.assertRaisesRegex(ValueError, "nonce"):
             SealedArenaBoundary(lambda value: value.signature == "sig").accept(self.request, wrong)
 
