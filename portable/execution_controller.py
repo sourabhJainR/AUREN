@@ -165,7 +165,8 @@ class ExecutionController:
     def _claim(self, task_id: str) -> DurableTask | None:
         with sqlite3.connect(self.db_path) as db:
             row = db.execute("SELECT id,handler,payload,state,attempts,work_unit_id FROM tasks WHERE id=?",
-                             (task_id,)).fetchone()            if not row or row[3] in {"completed", "failed", "cancelled"}:
+                             (task_id,)).fetchone()
+            if not row or row[3] in {"completed", "failed", "cancelled"}:
                 return None
             attempts = int(row[4]) + 1
             now = _now()
@@ -291,7 +292,8 @@ class ExecutionController:
     def confirm_alternate(self, task_id: str, plan: str) -> tuple[bool, str, tuple[str, ...]]:
         task = self.task(task_id)
         if task is None:
-            return False, "task not found", ()        safe = not any(x in plan.lower() for x in ("disable security", "delete evidence", "expose secret"))
+            return False, "task not found", ()
+        safe = not any(x in plan.lower() for x in ("disable security", "delete evidence", "expose secret"))
         return safe, "passed safety policy" if safe else "blocked by safety policy", (f"alternate:{task.id}", f"plan:{plan}")
 
     def self_review(self, *, limit: int = 20) -> int:
