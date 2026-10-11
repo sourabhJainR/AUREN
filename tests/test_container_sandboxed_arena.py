@@ -5,7 +5,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from portable.container_sandboxed_arena import run_campaign_container_sandboxed
 from portable.independent_arena import NonceLedger, seal_manifest, verify_receipt
@@ -63,7 +63,7 @@ class ContainerSandboxedArenaTests(unittest.TestCase):
             self.assertIn(flag, command)
         self.assertFalse(any(arg == "-v" or arg == "--volume" or arg.startswith("--mount") for arg in command))
         self.assertIn("--tmpfs=/tmp:rw,noexec,nosuid,nodev,size=16m", command)
-        sent_task = json.loads(process.stdin.getvalue().decode("utf-8"))
+        sent_task = json.loads(process.stdin.write.call_args.args[0].decode("utf-8"))
         self.assertEqual(set(sent_task), {"prompt"})
         self.assertNotIn("oracle", sent_task)
         self.assertNotIn("split", sent_task)
@@ -73,9 +73,9 @@ class ContainerSandboxedArenaTests(unittest.TestCase):
     @patch("portable.container_sandboxed_arena.subprocess.Popen")
     def test_timeout_requests_forced_container_cleanup(self, popen, run):
         process = popen.return_value
-        process.stdin = io.BytesIO()
+        process.stdin = Mock()
         process.stdout = io.BytesIO(b"")
-        process.wait.side_effect = subprocess.TimeoutExpired("docker run", 0.01)
+        process.wait.side_effect = [subprocess.TimeoutExpired("docker run", 0.01), None]
         process.returncode = -9
         receipt = self.run_campaign(timeout_seconds=0.01)
         self.assertEqual(receipt["counts"], {"pass": 0, "fail": 0, "error": 1})
