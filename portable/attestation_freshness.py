@@ -1,14 +1,14 @@
 """Freshness and replay protection for external Arena attestations.
 
-This layer wraps an existing attestation rather than changing the wire format.
-It binds an issuance timestamp and one-time-use identity to the verified
-attestation digest. Replay storage is injected and can be durable/distributed.
+This layer binds issuance time, freshness policy, and one-time-use outcome to
+the verified evidence digest. Principal authentication is injected and explicit.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
 import hashlib
 import json
+import threading
 from typing import Callable
 
 from .attestation_key_separation import AttestationTrustPolicy, SeparationAwareAttestor
@@ -21,8 +21,10 @@ class FreshEvaluationAttestation:
     issued_at: int
 
     def __post_init__(self) -> None:
-        if self.issued_at < 0:
-            raise ValueError("issued_at must be non-negative")
+        if not isinstance(self.attestation, EvaluationAttestation):
+            raise TypeError("EvaluationAttestation is required")
+        if type(self.issued_at) is not int or self.issued_at < 0:
+            raise ValueError("issued_at must be a non-negative integer")
 
     @property
     def attestation_id(self) -> str:
@@ -41,12 +43,14 @@ class AttestationFreshnessPolicy:
     max_future_skew_seconds: int = 30
 
     def __post_init__(self) -> None:
+        if type(self.max_age_seconds) is not int or type(self.max_future_skew_seconds) is not int:
+            raise ValueError("freshness windows must be integers")
         if self.max_age_seconds < 0 or self.max_future_skew_seconds < 0:
             raise ValueError("freshness windows must be non-negative")
 
     def validate(self, attestation: FreshEvaluationAttestation, *, now: int) -> tuple[bool, tuple[str, ...]]:
-        if now < 0:
-            raise ValueError("now must be non-negative")
+        if type(now) is not int or now < 0:
+            raise ValueError("now must be a non-negative integer")
         if attestation.issued_at > now + self.max_future_skew_seconds:
             return False, ("attestation issuance time is too far in the future",)
         if now - attestation.issued_at > self.max_age_seconds:
@@ -55,22 +59,29 @@ class AttestationFreshnessPolicy:
 
 
 class AttestationReplayRegistry:
-    """One-time-use registry; production deployments can inject durable storage."""
+    """Thread-safe process-local one-time-use registry.
+
+    Production deployments should inject durable, transactional storage shared
+    by all verifier workers; this in-memory implementation only prevents
+    concurrent replay inside one process.
+    """
 
     def __init__(self, seen: set[str] | None = None) -> None:
         self._seen = set(seen or ())
+        self._lock = threading.Lock()
 
     def claim(self, attestation_id: str) -> bool:
-        if not attestation_id.strip():
+        if not isinstance(attestation_id, str) or not attestation_id.strip():
             raise ValueError("attestation_id is required")
-        if attestation_id in self._seen:
-            return False
-        self._seen.add(attestation_id)
-        return True
+        with self._lock:
+            if attestation_id in self._seen:
+                return False
+            self._seen.add(attestation_id)
+            return True
 
 
 class FreshnessAwareAttestor:
-    """Verify lineage, principal separation, freshness, and replay protection."""
+    """Verify lineage, authenticated principal separation, freshness, and replay protection."""
 
     def __init__(
         self,
@@ -78,8 +89,11 @@ class FreshnessAwareAttestor:
         policy: AttestationTrustPolicy,
         freshness_policy: AttestationFreshnessPolicy,
         replay_registry: AttestationReplayRegistry | None = None,
+        verify_principal: Callable[[str, str], bool] | None = None,
     ) -> None:
-        self._attestor = SeparationAwareAttestor(verify_signature, policy)
+        if not isinstance(freshness_policy, AttestationFreshnessPolicy):
+            raise TypeError("AttestationFreshnessPolicy is required")
+        self._attestor = SeparationAwareAttestor(verify_signature, policy, verify_principal)
         self.freshness_policy = freshness_policy
         self.replay_registry = replay_registry or AttestationReplayRegistry()
 
@@ -95,6 +109,8 @@ class FreshnessAwareAttestor:
         now: int,
         contamination_detected: bool = False,
     ) -> AttestedEvaluation:
+        if not isinstance(attestation, FreshEvaluationAttestation):
+            raise TypeError("FreshEvaluationAttestation is required")
         base = self._attestor.verify(
             attestation.attestation,
             evaluator_id=evaluator_id,
@@ -105,20 +121,34 @@ class FreshnessAwareAttestor:
             contamination_detected=contamination_detected,
         )
         fresh, freshness_reasons = self.freshness_policy.validate(attestation, now=now)
-        replay_ok = self.replay_registry.claim(attestation.attestation_id) if fresh else False
-        reasons = tuple(
-            (*base.reasons, *freshness_reasons)
-            if replay_ok
-            else (*base.reasons, *freshness_reasons, "attestation has already been consumed or is not fresh")
-        )
+        # Invalid signatures/lineage must not consume the one-time replay slot:
+        # otherwise an unauthenticated request could preempt a valid attestation.
+        replay_ok = self.replay_registry.claim(attestation.attestation_id) if fresh and base.trustworthy else False
+        reasons = list((*base.reasons, *freshness_reasons))
+        if fresh and base.trustworthy and not replay_ok:
+            reasons.append("attestation has already been consumed")
         trustworthy = base.trustworthy and fresh and replay_ok
+        evidence_payload = {
+            "base_evidence_digest": base.evidence_digest,
+            "attestation_id": attestation.attestation_id,
+            "issued_at": attestation.issued_at,
+            "verified_at": now,
+            "max_age_seconds": self.freshness_policy.max_age_seconds,
+            "max_future_skew_seconds": self.freshness_policy.max_future_skew_seconds,
+            "fresh": fresh,
+            "replay_accepted": replay_ok,
+            "trustworthy": trustworthy,
+        }
+        evidence_digest = hashlib.sha256(
+            json.dumps(evidence_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
         return AttestedEvaluation(
             base.attestation,
             trustworthy,
             base.independent,
             base.contamination_free,
-            reasons,
-            base.evidence_digest,
+            tuple(reasons),
+            evidence_digest,
         )
 
 

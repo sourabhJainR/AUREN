@@ -1,13 +1,15 @@
 """Explicit principal/key-separation policy for external Arena attestations.
 
 Cryptographic verification alone is insufficient if the same principal can act
-as evaluator, oracle, and attestation signer. This module makes those trust
-relationships explicit while keeping cryptography deployment-injected.
+as evaluator, oracle, and attestation signer. Principal identities must also be
+authenticated by a separately configured verifier; names alone are not proof.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import FrozenSet
+import hashlib
+import json
+from typing import Callable, FrozenSet
 
 from .independent_evaluation_attestation import AttestedEvaluation, EvaluationAttestation, IndependentEvaluationAttestor
 
@@ -19,15 +21,17 @@ class AttestationTrustPolicy:
     require_distinct_evaluator_oracle: bool = True
 
     def __post_init__(self) -> None:
-        if not self.trusted_signers:
-            raise ValueError("at least one trusted attestation signer is required")
-        if any(not signer.strip() for signer in self.trusted_signers):
-            raise ValueError("trusted signer ids must be non-empty")
+        if not isinstance(self.trusted_signers, frozenset) or not self.trusted_signers:
+            raise ValueError("trusted_signers must be a non-empty frozenset")
+        if any(not isinstance(signer, str) or not signer.strip() for signer in self.trusted_signers):
+            raise ValueError("trusted signer ids must be non-empty strings")
+        if type(self.require_distinct_signer) is not bool or type(self.require_distinct_evaluator_oracle) is not bool:
+            raise ValueError("attestation separation policy flags must be booleans")
 
     def validate(self, attestation: EvaluationAttestation, *, evaluator_id: str, oracle_id: str) -> tuple[bool, tuple[str, ...]]:
+        if not isinstance(evaluator_id, str) or not evaluator_id.strip() or not isinstance(oracle_id, str) or not oracle_id.strip():
+            raise ValueError("evaluator_id and oracle_id are required non-empty strings")
         reasons: list[str] = []
-        if not evaluator_id.strip() or not oracle_id.strip():
-            raise ValueError("evaluator_id and oracle_id are required")
         if self.require_distinct_evaluator_oracle and evaluator_id == oracle_id:
             reasons.append("evaluator and oracle principals must be distinct")
         if attestation.signer_id not in self.trusted_signers:
@@ -38,11 +42,21 @@ class AttestationTrustPolicy:
 
 
 class SeparationAwareAttestor:
-    """Verify an attestation plus explicit evaluator/oracle/signer separation."""
+    """Verify signature, lineage, trusted signer, and authenticated principal separation."""
 
-    def __init__(self, verify_signature, policy: AttestationTrustPolicy) -> None:
+    def __init__(
+        self,
+        verify_signature: Callable[[EvaluationAttestation], bool],
+        policy: AttestationTrustPolicy,
+        verify_principal: Callable[[str, str], bool] | None = None,
+    ) -> None:
+        if not isinstance(policy, AttestationTrustPolicy):
+            raise TypeError("AttestationTrustPolicy is required")
+        if verify_principal is not None and not callable(verify_principal):
+            raise TypeError("verify_principal must be callable")
         self._attestor = IndependentEvaluationAttestor(verify_signature)
         self.policy = policy
+        self.verify_principal = verify_principal
 
     def verify(
         self,
@@ -62,17 +76,51 @@ class SeparationAwareAttestor:
             expected_oracle_digest=expected_oracle_digest,
             contamination_detected=contamination_detected,
         )
-        separated, separation_reasons = self.policy.validate(attestation, evaluator_id=evaluator_id, oracle_id=oracle_id)
-        if separated:
-            return base
-        reasons = tuple((*base.reasons, *separation_reasons))
+        separated, separation_reasons = self.policy.validate(
+            attestation, evaluator_id=evaluator_id, oracle_id=oracle_id
+        )
+        reasons = list((*base.reasons, *separation_reasons))
+        evaluator_authenticated = False
+        oracle_authenticated = False
+        if self.verify_principal is None:
+            reasons.append("principal identity verifier is not configured")
+        else:
+            try:
+                evaluator_authenticated = self.verify_principal(evaluator_id, "evaluator") is True
+            except Exception:
+                evaluator_authenticated = False
+            try:
+                oracle_authenticated = self.verify_principal(oracle_id, "oracle") is True
+            except Exception:
+                oracle_authenticated = False
+            if not evaluator_authenticated:
+                reasons.append("evaluator principal identity is not authenticated")
+            if not oracle_authenticated:
+                reasons.append("oracle principal identity is not authenticated")
+
+        independent = separated and evaluator_authenticated and oracle_authenticated
+        payload = {
+            "base_evidence_digest": base.evidence_digest,
+            "evaluator_id": evaluator_id,
+            "oracle_id": oracle_id,
+            "trusted_signers": sorted(self.policy.trusted_signers),
+            "require_distinct_signer": self.policy.require_distinct_signer,
+            "require_distinct_evaluator_oracle": self.policy.require_distinct_evaluator_oracle,
+            "separation_passed": separated,
+            "evaluator_authenticated": evaluator_authenticated,
+            "oracle_authenticated": oracle_authenticated,
+            "separation_reasons": tuple(separation_reasons),
+        }
+        evidence_digest = hashlib.sha256(
+            json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
         return AttestedEvaluation(
-            base.attestation,
-            False,
-            False,
-            base.contamination_free,
-            reasons,
-            base.evidence_digest,
+            attestation=base.attestation,
+            verified=base.verified,
+            independent=independent,
+            contamination_free=base.contamination_free,
+            reasons=tuple(reasons),
+            evidence_digest=evidence_digest,
         )
 
 

@@ -1,3 +1,6 @@
+import unittest
+from concurrent.futures import ThreadPoolExecutor
+
 from portable.attestation_freshness import (
     AttestationFreshnessPolicy,
     AttestationReplayRegistry,
@@ -15,90 +18,94 @@ def make_attestation(issued_at=100):
     )
 
 
-def make_verifier():
+def verify_principal(principal, role):
+    return (role == "evaluator" and principal == "evaluator") or (
+        role == "oracle" and principal == "oracle-service"
+    )
+
+
+def make_verifier(registry=None, verify_identity=verify_principal, verify_signature=None):
+    if verify_signature is None:
+        verify_signature = lambda attestation: attestation.signature == "sig"
     return FreshnessAwareAttestor(
-        lambda _: True,
+        verify_signature,
         AttestationTrustPolicy(frozenset({"signer"})),
         AttestationFreshnessPolicy(max_age_seconds=10, max_future_skew_seconds=2),
-        AttestationReplayRegistry(),
+        registry or AttestationReplayRegistry(),
+        verify_principal=verify_identity,
     )
 
 
-def test_fresh_attestation_is_trustworthy_once():
-    verifier = make_verifier()
-    result = verifier.verify(
-        make_attestation(),
-        evaluator_id="evaluator",
-        oracle_id="oracle-service",
-        expected_campaign_digest="campaign",
-        expected_corpus_digest="corpus",
-        expected_oracle_digest="oracle",
-        now=105,
-    )
-    assert result.trustworthy
+class AttestationFreshnessTests(unittest.TestCase):
+    def kwargs(self):
+        return dict(
+            evaluator_id="evaluator",
+            oracle_id="oracle-service",
+            expected_campaign_digest="campaign",
+            expected_corpus_digest="corpus",
+            expected_oracle_digest="oracle",
+            now=105,
+        )
+
+    def test_fresh_attestation_is_trustworthy_once(self):
+        result = make_verifier().verify(make_attestation(), **self.kwargs())
+        self.assertTrue(result.trustworthy)
+
+    def test_replay_is_rejected_and_has_distinct_evidence_digest(self):
+        verifier = make_verifier()
+        attestation = make_attestation()
+        first = verifier.verify(attestation, **self.kwargs())
+        replay = verifier.verify(attestation, **self.kwargs())
+        self.assertTrue(first.trustworthy)
+        self.assertFalse(replay.trustworthy)
+        self.assertIn("already been consumed", replay.reasons[-1])
+        self.assertNotEqual(first.evidence_digest, replay.evidence_digest)
+
+    def test_expired_attestation_is_rejected(self):
+        result = make_verifier().verify(make_attestation(issued_at=100), **{**self.kwargs(), "now": 111})
+        self.assertFalse(result.trustworthy)
+        self.assertTrue(any("expired" in reason for reason in result.reasons))
+
+    def test_future_skew_is_rejected(self):
+        result = make_verifier().verify(make_attestation(issued_at=103), **{**self.kwargs(), "now": 100})
+        self.assertFalse(result.trustworthy)
+        self.assertTrue(any("future" in reason for reason in result.reasons))
+
+    def test_replay_registry_can_be_preseeded(self):
+        attestation = make_attestation()
+        registry = AttestationReplayRegistry({attestation.attestation_id})
+        result = make_verifier(registry).verify(attestation, **self.kwargs())
+        self.assertFalse(result.trustworthy)
+        self.assertTrue(any("already been consumed" in reason for reason in result.reasons))
+
+    def test_missing_principal_verifier_fails_closed(self):
+        result = make_verifier(verify_identity=None).verify(make_attestation(), **self.kwargs())
+        self.assertFalse(result.independent)
+        self.assertFalse(result.trustworthy)
+        self.assertTrue(any("not configured" in reason for reason in result.reasons))
+
+    def test_invalid_signature_does_not_consume_replay_slot(self):
+        registry = AttestationReplayRegistry()
+        attestation = make_attestation()
+        invalid = make_verifier(registry, verify_signature=lambda _value: False).verify(
+            attestation, **self.kwargs()
+        )
+        valid = make_verifier(registry, verify_signature=lambda _value: True).verify(
+            attestation, **self.kwargs()
+        )
+        self.assertFalse(invalid.trustworthy)
+        self.assertTrue(valid.trustworthy)
+
+    def test_concurrent_replay_claim_has_exactly_one_winner(self):
+        registry = AttestationReplayRegistry()
+        with ThreadPoolExecutor(max_workers=16) as pool:
+            results = list(pool.map(registry.claim, ["same-attestation"] * 64))
+        self.assertEqual(sum(results), 1)
+
+    def test_boolean_timestamp_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "non-negative integer"):
+            make_attestation(issued_at=True)
 
 
-def test_replay_is_rejected():
-    verifier = make_verifier()
-    attestation = make_attestation()
-    kwargs = dict(
-        evaluator_id="evaluator",
-        oracle_id="oracle-service",
-        expected_campaign_digest="campaign",
-        expected_corpus_digest="corpus",
-        expected_oracle_digest="oracle",
-        now=105,
-    )
-    assert verifier.verify(attestation, **kwargs).trustworthy
-    replay = verifier.verify(attestation, **kwargs)
-    assert not replay.trustworthy
-    assert "already been consumed" in replay.reasons[-1]
-
-
-def test_expired_attestation_is_rejected():
-    result = make_verifier().verify(
-        make_attestation(issued_at=100),
-        evaluator_id="evaluator",
-        oracle_id="oracle-service",
-        expected_campaign_digest="campaign",
-        expected_corpus_digest="corpus",
-        expected_oracle_digest="oracle",
-        now=111,
-    )
-    assert not result.trustworthy
-    assert "expired" in result.reasons
-
-
-def test_future_skew_is_rejected():
-    result = make_verifier().verify(
-        make_attestation(issued_at=103),
-        evaluator_id="evaluator",
-        oracle_id="oracle-service",
-        expected_campaign_digest="campaign",
-        expected_corpus_digest="corpus",
-        expected_oracle_digest="oracle",
-        now=100,
-    )
-    assert not result.trustworthy
-    assert "future" in result.reasons[0]
-
-
-def test_replay_registry_can_be_preseeded():
-    attestation = make_attestation()
-    registry = AttestationReplayRegistry({attestation.attestation_id})
-    verifier = FreshnessAwareAttestor(
-        lambda _: True,
-        AttestationTrustPolicy(frozenset({"signer"})),
-        AttestationFreshnessPolicy(),
-        registry,
-    )
-    result = verifier.verify(
-        attestation,
-        evaluator_id="evaluator",
-        oracle_id="oracle-service",
-        expected_campaign_digest="campaign",
-        expected_corpus_digest="corpus",
-        expected_oracle_digest="oracle",
-        now=100,
-    )
-    assert not result.trustworthy
+if __name__ == "__main__":
+    unittest.main()
