@@ -4,7 +4,7 @@ import unittest
 
 from portable.external_evaluator_gateway import ExternalEvaluatorCommand
 from portable.sealed_arena_boundary import SealedArenaEvidence, SealedCampaignRequest, SealedCaseEnvelope
-from portable.sealed_cross_domain_arena import CrossDomainCampaign, SealedCrossDomainRunner, SealedDomain
+from portable.sealed_cross_domain_arena import CrossDomainCampaign, SealedCrossDomainRunner, SealedDomain, TargetDomainProvenance
 
 
 def make_campaign():
@@ -17,11 +17,22 @@ def make_campaign():
         ),
         "run-nonce",
     )
+    provenance = TargetDomainProvenance(
+        domain_id="domain-a",
+        origin="https://benchmarks.example.org/domain-a",
+        manifest_digest=request.manifest_digest,
+        split="sealed_holdout",
+        development_corpus_digest="development-corpus",
+        development_overlap_status="no_overlap",
+        overlap_attestation_digest="overlap-attestation",
+        independent_operator_id="independent-operator",
+        attestation_digest="test-attestation",
+    )
     return CrossDomainCampaign(
         "campaign-id",
         request,
         (
-            SealedDomain("domain-a", ("case-a",), True),
+            SealedDomain("domain-a", ("case-a",), True, provenance=provenance),
             SealedDomain("domain-b", ("case-b",), False),
         ),
         "independent-oracle",
@@ -42,7 +53,7 @@ class SealedCrossDomainLineageTests(unittest.TestCase):
     def test_runner_binds_domain_assignment_into_external_receipt_lineage(self):
         campaign = make_campaign()
         gateway = RecordingGateway()
-        result = SealedCrossDomainRunner(gateway).run(
+        result = SealedCrossDomainRunner(gateway, target_provenance_verifier=lambda _value: True).run(
             campaign, ExternalEvaluatorCommand(("external-evaluator",))
         )
         self.assertEqual(gateway.request.campaign_digest, campaign.campaign_digest)
