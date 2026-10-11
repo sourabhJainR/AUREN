@@ -29,7 +29,7 @@ jobs:
       - name: Run sealed Arena boundary, exchange, gateway, and replay regressions
         run: python -m unittest tests.test_sealed_arena_boundary tests.test_sealed_arena_exchange tests.test_external_evaluator_gateway tests.test_external_evaluator_gateway_budget tests.test_sealed_arena_replay_concurrency -v
       - name: Run cross-domain campaign lineage regressions
-        run: python -m unittest tests.test_sealed_cross_domain_lineage -v
+        run: python -m unittest tests.test_sealed_cross_domain_lineage tests.test_sealed_cross_domain_request_binding -v
       - name: Run independent attestation and key separation regressions
         run: python -m unittest tests.test_independent_evaluation_attestation tests.test_attestation_key_separation tests.test_attested_cross_project_transfer tests.test_attestation_freshness -v
       - name: Run external campaign attestation regressions
