@@ -141,7 +141,7 @@ def run_campaign_container_sandboxed(
     The image must be pinned by digest and contain the policy entry point. No
     host volumes are mounted, networking is disabled, the root filesystem is
     read-only, and the policy runs as an unprivileged numeric UID/GID. The
-    evaluator sends only case_id/domain/prompt to stdin and scores the output
+    evaluator sends only the prompt to stdin and scores the output
     outside the container. Each case uses a fresh container and unique name.
     """
     args = _validate_inputs(
