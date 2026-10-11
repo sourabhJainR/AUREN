@@ -115,10 +115,10 @@ def verify_arena_isolation_attestation(
         raise ValueError("isolation attestation run receipt digest mismatch")
     if attestation.image_digest != expected_image_digest:
         raise ValueError("isolation attestation image digest mismatch")
-    if attestation.signer_id not in trusted_signer_ids:
-        raise ValueError("isolation attestation signer is not in the out-of-band trusted signer allowlist")
     if attestation.signer_id in {evaluator_id, oracle_id, policy_runtime_id}:
         raise ValueError("isolation attestation signer must be independent of evaluator, oracle, and policy runtime")
+    if attestation.signer_id not in trusted_signer_ids:
+        raise ValueError("isolation attestation signer is not in the out-of-band trusted signer allowlist")
     missing = sorted(_REQUIRED_CONTROLS - set(attestation.controls))
     if missing:
         raise ValueError("isolation attestation is missing required controls: " + ", ".join(missing))
