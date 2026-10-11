@@ -167,6 +167,32 @@ class ExternalEvaluatorGatewayTests(unittest.TestCase):
         time.sleep(0.6)
         self.assertFalse(marker.exists(), "an evaluator descendant survived the timeout")
 
+
+    def test_interrupted_run_nonce_stays_burned_after_ledger_reopen(self) -> None:
+        gateway = ExternalEvaluatorGateway(
+            SealedArenaBoundary(lambda _value: True), self.ledger, allow_test_verifier=True
+        )
+        with self.assertRaisesRegex(RuntimeError, "timed out"):
+            gateway.evaluate(
+                self.request,
+                ExternalEvaluatorCommand(
+                    (sys.executable, "-c", "import sys,time; sys.stdin.buffer.read(); time.sleep(2)"),
+                    timeout_seconds=0.05,
+                ),
+            )
+
+        reopened = SealedArenaReplayLedger(Path(self.tempdir.name) / "replay.sqlite3")
+        payload = export_outcome_receipt(self.receipt).decode("utf-8")
+        valid_script = "import sys; sys.stdin.buffer.read(); sys.stdout.write(" + repr(payload) + ")"
+        with self.assertRaises(ReplayRejected):
+            ExternalEvaluatorGateway(
+                SealedArenaBoundary(lambda value: value.signature == "sig"),
+                reopened,
+                allow_test_verifier=True,
+            ).evaluate(
+                self.request, ExternalEvaluatorCommand((sys.executable, "-c", valid_script))
+            )
+
     def test_invalid_receipt_does_not_echo_evaluator_output(self) -> None:
         secret = "DO_NOT_LEAK_EVALUATOR_STDOUT"
         script = "import sys; sys.stdin.buffer.read(); print(" + repr(secret) + ")"
