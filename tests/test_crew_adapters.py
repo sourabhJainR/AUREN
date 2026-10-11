@@ -146,10 +146,6 @@ class ApprovedCrewAdapterTests(unittest.TestCase):
         self.assertEqual(observed["retry"]["attempt"], 1)
         self.assertEqual(observed["checkpoint"]["queued"][0]["attempt"], 1)
         self.assertFalse(observed["readiness"]["ready"])
-        with self.assertRaisesRegex(RuntimeError, "only available during graph execution"):
-            observed["enqueue"]["source_crew"]  # The handoff record itself is data, not a live capability.
-            # A captured dispatcher is already covered by the existing GraphAgentTeam tests.
-
     def test_stategraph_rejects_handoff_from_unassigned_source(self):
         def run_node(state):
             with self.assertRaisesRegex(ValueError, "not assigned"):
