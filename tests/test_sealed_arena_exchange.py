@@ -17,6 +17,7 @@ class SealedArenaExchangeTests(unittest.TestCase):
             (("case-1", True, "evidence-d"),), run_nonce="nonce-1",
             request_digest=self.request.request_digest,
             contamination_free=True, independent_oracle=True,
+            metrics=(("case-1", 0.9, 0.8, 0.1, 12.5, True),),
         )
 
     def test_request_round_trip(self) -> None:
