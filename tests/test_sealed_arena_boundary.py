@@ -47,6 +47,12 @@ class SealedArenaBoundaryTests(unittest.TestCase):
         self.assertEqual(evidence.holdout_pass_rate, 1.0)
         self.assertEqual(evidence.result_case_count, 1)
 
+    def test_rejects_missing_corpus_provenance(self) -> None:
+        request = SealedCampaignRequest("campaign-d", "corpus-d", (self.case,), "nonce-1")
+        receipt = self.receipt(request_digest=request.request_digest)
+        with self.assertRaisesRegex(ValueError, "missing corpus provenance"):
+            SealedArenaBoundary(lambda _value: True).accept(request, receipt)
+
     def test_rejects_missing_or_blank_run_nonce(self) -> None:
         with self.assertRaisesRegex(ValueError, "run_nonce"):
             SealedCampaignRequest("campaign-d", "corpus-d", (self.case,))
