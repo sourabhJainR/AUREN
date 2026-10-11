@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sqlite3
+from pathlib import Path
 from datetime import datetime, timezone
 from typing import Any, Callable, Mapping
 
@@ -36,6 +38,38 @@ def _require_text(value: Any, field: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ArenaError(f"{field} must be a non-empty string")
     return value
+
+
+
+class NonceLedger:
+    """SQLite-backed atomic replay ledger; use one shared path across evaluator restarts."""
+
+    def __init__(self, database_path: str | Path):
+        self.database_path = str(database_path)
+        if self.database_path != ":memory:":
+            Path(self.database_path).parent.mkdir(parents=True, exist_ok=True)
+        with sqlite3.connect(self.database_path, timeout=10) as connection:
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS arena_nonce_claims (
+                    nonce TEXT PRIMARY KEY,
+                    benchmark_id TEXT NOT NULL,
+                    manifest_digest TEXT NOT NULL,
+                    policy_digest TEXT NOT NULL,
+                    claimed_at TEXT NOT NULL
+                )"""
+            )
+
+    def claim(self, nonce: str, benchmark_id: str, manifest_digest: str, policy_digest: str) -> None:
+        """Atomically claim a nonce before execution; duplicates fail closed."""
+        _require_text(nonce, "run_nonce")
+        try:
+            with sqlite3.connect(self.database_path, timeout=10) as connection:
+                connection.execute(
+                    "INSERT INTO arena_nonce_claims VALUES (?, ?, ?, ?, ?)",
+                    (nonce, benchmark_id, manifest_digest, policy_digest, datetime.now(timezone.utc).isoformat()),
+                )
+        except sqlite3.IntegrityError as exc:
+            raise ArenaError("run_nonce has already been used") from exc
 
 
 def validate_manifest(manifest: Mapping[str, Any]) -> dict[str, Any]:
@@ -112,6 +146,7 @@ def run_campaign(
     *,
     policy_digest: str,
     run_nonce: str,
+    nonce_ledger: NonceLedger,
 ) -> dict[str, Any]:
     """Run sealed cases; policy sees task inputs only, never oracle labels.
 
@@ -126,6 +161,9 @@ def run_campaign(
     expected_manifest_digest = digest(manifest)
     if sealed.get("manifest_digest") != expected_manifest_digest:
         raise ArenaError("manifest digest mismatch")
+    if not isinstance(nonce_ledger, NonceLedger):
+        raise ArenaError("a persistent NonceLedger is required for replay protection")
+    nonce_ledger.claim(run_nonce, manifest["benchmark_id"], expected_manifest_digest, policy_digest)
     results = []
     for case in manifest["cases"]:
         # No oracle, split, manifest, neighboring case, or expected answer crosses
