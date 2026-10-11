@@ -1,4 +1,5 @@
 from pathlib import Path
+import tempfile
 import unittest
 
 from portable.external_decision_evidence_ingestion import (
@@ -39,7 +40,6 @@ def outcome(digest="campaign-1"):
 
 class ExternalDecisionEvidenceIngestionTests(unittest.TestCase):
     def test_ingests_only_independently_verified_evidence(self):
-        import tempfile
         with tempfile.TemporaryDirectory() as tmp:
             g = graph(tmp)
             ingestor = ExternalDecisionEvidenceIngestor(g)
@@ -62,7 +62,6 @@ class ExternalDecisionEvidenceIngestionTests(unittest.TestCase):
             self.assertFalse(plan.fallback)
 
     def test_rejects_contaminated_or_unverified_evidence(self):
-        import tempfile
         with tempfile.TemporaryDirectory() as tmp:
             g = graph(tmp)
             ingestor = ExternalDecisionEvidenceIngestor(g)
@@ -81,7 +80,6 @@ class ExternalDecisionEvidenceIngestionTests(unittest.TestCase):
                     )
 
     def test_rejects_lineage_mismatch(self):
-        import tempfile
         with tempfile.TemporaryDirectory() as tmp:
             g = graph(tmp)
             ingestor = ExternalDecisionEvidenceIngestor(g)
