@@ -123,6 +123,15 @@ def build_cross_domain_report(
         raise ValueError("capability_id is required for capability-specific transfer reporting")
     if evidence.request_digest != expected_request_digest:
         raise ValueError("evidence request digest does not match the evaluated campaign")
+    for domain in campaign.domains:
+        if domain.novel is True:
+            provenance = domain.provenance
+            if provenance is None:
+                raise ValueError(f"novel target domain {domain.domain_id} lacks held-out provenance")
+            if provenance.manifest_digest != campaign.request.manifest_digest:
+                raise ValueError(f"target domain {domain.domain_id} provenance manifest mismatch")
+            if provenance.development_corpus_digest == campaign.request.corpus_digest:
+                raise ValueError(f"target domain {domain.domain_id} reuses the development corpus")
     result_map = {row[0]: (row[1], row[2]) for row in evidence.case_results}
     metric_map = {row[0]: row for row in evidence.case_metrics}
     holdouts = {case.case_id for case in campaign.request.cases if case.holdout is True}

@@ -54,6 +54,17 @@ class AttestedDomainTransferEvidenceBuilder:
         if not domain_by_case:
             raise ValueError("campaign has no domain cases")
         attested_ids = {a.evidence_digest for a in attestations if a.trustworthy}
+        for domain in campaign.domains:
+            if domain.novel is True:
+                provenance = domain.provenance
+                if provenance is None:
+                    raise ValueError(f"novel target domain {domain.domain_id} lacks held-out provenance")
+                if provenance.manifest_digest != campaign.request.manifest_digest:
+                    raise ValueError(f"target domain {domain.domain_id} provenance manifest mismatch")
+                if provenance.development_corpus_digest == campaign.request.corpus_digest:
+                    raise ValueError(f"target domain {domain.domain_id} reuses the development corpus")
+                if provenance.attestation_digest not in attested_ids or provenance.overlap_attestation_digest not in attested_ids:
+                    raise ValueError(f"target domain {domain.domain_id} lacks trustworthy overlap provenance attestation")
         observations: list[ProjectTransferObservation] = []
         observed_domains: set[str] = set()
         for case_id, (success, regression, evidence_digest) in results.items():
