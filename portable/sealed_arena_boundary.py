@@ -263,6 +263,7 @@ class SealedArenaBoundary:
             raise ValueError("max_future_skew_seconds must be finite and non-negative")
         self._verify_signature = verify_signature
         self._verify_custody_signature = verify_custody_signature
+        self._trusted_custody_profile = False
         self._clock = clock
         self._max_future_skew_seconds = float(max_future_skew_seconds)
 
@@ -271,17 +272,19 @@ class SealedArenaBoundary:
         """Build a production boundary requiring signed outcome and custody evidence."""
         from .sealed_arena_signature import Ed25519ReceiptVerifier
         verifier = Ed25519ReceiptVerifier(trusted_public_keys)
-        return cls(
+        boundary = cls(
             verifier,
             verify_custody_signature=verifier.verify_detached,
             clock=clock,
             max_future_skew_seconds=max_future_skew_seconds,
         )
+        boundary._trusted_custody_profile = True
+        return boundary
 
     @property
-    def has_custody_verifier(self) -> bool:
-        """Whether this boundary authenticates operator custody as well as outcomes."""
-        return self._verify_custody_signature is not None
+    def has_trusted_custody_verifier(self) -> bool:
+        """Whether this boundary uses the configured trusted Ed25519 keyring."""
+        return self._trusted_custody_profile is True and self._verify_custody_signature is not None
 
     def accept(self, request: SealedCampaignRequest, receipt: ExternalOutcomeReceipt) -> SealedArenaEvidence:
         if not isinstance(request, SealedCampaignRequest) or not isinstance(receipt, ExternalOutcomeReceipt):
