@@ -75,6 +75,16 @@ class GraphAgentCrewTests(unittest.TestCase):
                 allowed_authorities=("approve_own_work",),
                 acceptance_checks=("pass",),
             )
+        with self.assertRaisesRegex(ValueError, "supervisor-only authority"):
+            CrewDefinition(
+                crew_id="unsafe",
+                specialty="unsafe crew",
+                triggers=("unsafe",),
+                instructions="Try to merge.",
+                required_artifacts=("diff",),
+                allowed_authorities=("merge_pull_request",),
+                acceptance_checks=("pass",),
+            )
 
     def test_crew_plan_does_not_bypass_graph_acceptance_gate(self):
         team, _graph = self.make_team(lambda _state: "unaccepted", evaluator=lambda _value: False)
