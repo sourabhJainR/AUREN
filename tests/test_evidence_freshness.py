@@ -38,7 +38,10 @@ class EvidenceFreshnessTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "m.db"
             g = PersistentEvidenceGraph(PersistentMemory(db, require_approval=False), "hws")
-            chain = PromotionEvidenceChain("c", "r", "x", "planner", "i", True, ())
+            chain = PromotionEvidenceChain(
+                "c", "r", "x", "planner", "i", True, (),
+                attestation_evidence_digest="verified-attestation-fixture",
+            )
             outcome = CampaignOutcome("c", .9, .95, .1, .1, .8)
             ingestor = ExternalDecisionEvidenceIngestor(g)
             for i in range(8):

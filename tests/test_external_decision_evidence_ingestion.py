@@ -1,4 +1,5 @@
 from pathlib import Path
+import tempfile
 import unittest
 
 from portable.external_decision_evidence_ingestion import (
@@ -18,11 +19,19 @@ def graph(tmp_path):
     )
 
 
-def chain(campaign_digest="campaign-1"):
-    return PromotionEvidenceChain(
-        campaign_digest, "receipt-1", "causal-1", "planner", "intervention-1",
-        True, ()
+def chain(campaign_digest="campaign-1", **overrides):
+    values = dict(
+        campaign_digest=campaign_digest,
+        run_receipt_digest="receipt-1",
+        causal_evidence_digest="causal-1",
+        capability_id="planner",
+        intervention_id="intervention-1",
+        eligible=True,
+        reasons=(),
+        attestation_evidence_digest="verified-attestation-fixture",
     )
+    values.update(overrides)
+    return PromotionEvidenceChain(**values)
 
 
 def outcome(digest="campaign-1"):
@@ -31,7 +40,6 @@ def outcome(digest="campaign-1"):
 
 class ExternalDecisionEvidenceIngestionTests(unittest.TestCase):
     def test_ingests_only_independently_verified_evidence(self):
-        import tempfile
         with tempfile.TemporaryDirectory() as tmp:
             g = graph(tmp)
             ingestor = ExternalDecisionEvidenceIngestor(g)
@@ -54,7 +62,6 @@ class ExternalDecisionEvidenceIngestionTests(unittest.TestCase):
             self.assertFalse(plan.fallback)
 
     def test_rejects_contaminated_or_unverified_evidence(self):
-        import tempfile
         with tempfile.TemporaryDirectory() as tmp:
             g = graph(tmp)
             ingestor = ExternalDecisionEvidenceIngestor(g)
@@ -73,7 +80,6 @@ class ExternalDecisionEvidenceIngestionTests(unittest.TestCase):
                     )
 
     def test_rejects_lineage_mismatch(self):
-        import tempfile
         with tempfile.TemporaryDirectory() as tmp:
             g = graph(tmp)
             ingestor = ExternalDecisionEvidenceIngestor(g)
@@ -83,6 +89,17 @@ class ExternalDecisionEvidenceIngestionTests(unittest.TestCase):
             )
             with self.assertRaises(ValueError):
                 ingestor.ingest(chain(), outcome(), e)
+
+    def test_rejects_chain_without_attestation_evidence_digest(self):
+        incomplete = chain(attestation_evidence_digest="")
+        self.assertFalse(incomplete.complete)
+        with tempfile.TemporaryDirectory() as tmp:
+            ingestor = ExternalDecisionEvidenceIngestor(graph(tmp))
+            e = ExternalDecisionEvidence(
+                "verifier", "planner", "agent", "agent", .95, .92, 40, 1, "campaign-1"
+            )
+            with self.assertRaises(ValueError):
+                ingestor.ingest(incomplete, outcome(), e)
 
 
 if __name__ == "__main__":
