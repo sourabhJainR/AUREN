@@ -171,6 +171,20 @@ def _run_one_case(
         reader.join(timeout=1.0)
         _force_remove_container(container_runtime, container_name)
         raise ArenaError("sandbox runtime input stream failed") from exc
+    except KeyboardInterrupt:
+        # An interactive cancellation must not leave a detached container
+        # running. Preserve the interrupt even when cleanup is unsuccessful.
+        try:
+            process.kill()
+        except OSError:
+            pass
+        try:
+            process.wait(timeout=5.0)
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+        reader.join(timeout=1.0)
+        _force_remove_container(container_runtime, container_name)
+        raise
 
     reader.join(timeout=1.0)
     if output_exceeded.is_set():
