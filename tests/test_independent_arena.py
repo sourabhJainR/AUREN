@@ -1,7 +1,16 @@
 import copy
+import tempfile
 import unittest
+from pathlib import Path
 
-from portable.independent_arena import ArenaError, run_campaign, seal_manifest, validate_manifest, verify_receipt
+from portable.independent_arena import ArenaError, NonceLedger, run_campaign, seal_manifest, validate_manifest, verify_receipt
+
+
+def new_ledger():
+    temporary_directory = tempfile.TemporaryDirectory()
+    ledger = NonceLedger(Path(temporary_directory.name) / "nonce-ledger.sqlite3")
+    ledger._test_tempdir = temporary_directory
+    return ledger
 
 
 def fixture():
@@ -27,7 +36,7 @@ class IndependentArenaTests(unittest.TestCase):
                 return 15
             return "transient"
 
-        receipt = run_campaign(sealed, policy, policy_digest="sha256:policy-a", run_nonce="run-001")
+        receipt = run_campaign(sealed, policy, nonce_ledger=new_ledger(), policy_digest="sha256:policy-a", run_nonce="run-001")
         self.assertTrue(all(set(item) == {"case_id", "domain", "prompt"} for item in observed))
         self.assertEqual(receipt["counts"], {"pass": 2, "fail": 0, "error": 0})
         self.assertTrue(verify_receipt(receipt, sealed))
@@ -65,6 +74,23 @@ class IndependentArenaTests(unittest.TestCase):
         data["runtime_id"] = data["evaluator_id"]
         with self.assertRaises(ArenaError):
             validate_manifest(data)
+
+
+    def test_nonce_replay_is_rejected_across_ledger_instances(self):
+        sealed = seal_manifest(fixture())
+        with tempfile.TemporaryDirectory() as directory:
+            database = Path(directory) / "durable-ledger.sqlite3"
+            first_ledger = NonceLedger(database)
+            run_campaign(
+                sealed, lambda task: 15, nonce_ledger=first_ledger,
+                policy_digest="p", run_nonce="one-time-run",
+            )
+            reopened_ledger = NonceLedger(database)
+            with self.assertRaises(ArenaError):
+                run_campaign(
+                    sealed, lambda task: 15, nonce_ledger=reopened_ledger,
+                    policy_digest="p", run_nonce="one-time-run",
+                )
 
     def test_policy_errors_are_recorded_without_exception_text(self):
         sealed = seal_manifest(fixture())
