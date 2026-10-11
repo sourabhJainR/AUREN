@@ -48,9 +48,12 @@ def validate_manifest(manifest: Mapping[str, Any]) -> dict[str, Any]:
     """Validate and copy a benchmark manifest; fail closed on ambiguous input."""
     if not isinstance(manifest, Mapping):
         raise ArenaError("manifest must be an object")
-    for field in ("benchmark_id", "evaluator_id", "runtime_id", "cases"):
-        if field not in manifest:
-            raise ArenaError(f"missing manifest field: {field}")
+    manifest_fields = {"benchmark_id", "evaluator_id", "runtime_id", "cases"}
+    supplied_fields = set(manifest)
+    if supplied_fields not in (manifest_fields, manifest_fields | {"schema_version"}):
+        raise ArenaError("manifest has unknown or missing fields")
+    if "schema_version" in manifest and manifest["schema_version"] != SCHEMA_VERSION:
+        raise ArenaError("unsupported Arena manifest schema version")
     benchmark_id = _require_text(manifest["benchmark_id"], "benchmark_id")
     evaluator_id = _require_text(manifest["evaluator_id"], "evaluator_id")
     runtime_id = _require_text(manifest["runtime_id"], "runtime_id")
@@ -64,6 +67,8 @@ def validate_manifest(manifest: Mapping[str, Any]) -> dict[str, Any]:
     for index, case in enumerate(cases):
         if not isinstance(case, Mapping):
             raise ArenaError(f"case {index} must be an object")
+        if set(case) != {"case_id", "domain", "split", "prompt", "oracle"}:
+            raise ArenaError(f"case {index} has unknown or missing fields")
         case_id = _require_text(case.get("case_id"), f"cases[{index}].case_id")
         if case_id in seen:
             raise ArenaError(f"duplicate case_id: {case_id}")

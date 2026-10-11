@@ -90,6 +90,30 @@ class IndependentArenaTests(unittest.TestCase):
         receipt["counts"]["pass"] = 999
         self.assertFalse(verify_receipt(receipt, sealed))
 
+    def test_manifest_rejects_unknown_fields(self):
+        data = fixture()
+        data["promotion_authorized"] = True
+        with self.assertRaisesRegex(ArenaError, "manifest has unknown or missing fields"):
+            validate_manifest(data)
+
+    def test_manifest_rejects_missing_fields(self):
+        data = fixture()
+        del data["runtime_id"]
+        with self.assertRaisesRegex(ArenaError, "manifest has unknown or missing fields"):
+            validate_manifest(data)
+
+    def test_case_rejects_unknown_fields(self):
+        data = fixture()
+        data["cases"][0]["oracle_answer"] = 15
+        with self.assertRaisesRegex(ArenaError, "case 0 has unknown or missing fields"):
+            validate_manifest(data)
+
+    def test_case_rejects_missing_fields(self):
+        data = fixture()
+        del data["cases"][0]["oracle"]
+        with self.assertRaisesRegex(ArenaError, "case 0 has unknown or missing fields"):
+            validate_manifest(data)
+
     def test_duplicate_case_ids_and_shared_principal_fail_closed(self):
         data = fixture()
         data["cases"].append(copy.deepcopy(data["cases"][0]))
