@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import unittest
 
 from portable.sealed_arena_boundary import ExternalOutcomeReceipt, SealedCampaignRequest, SealedCaseEnvelope
@@ -36,8 +38,13 @@ class SealedArenaExchangeTests(unittest.TestCase):
             self.assertNotIn(token, raw)
 
     def test_missing_nonce_in_exchange_fails_closed(self) -> None:
-        raw = b'{"kind":"campaign_request","payload":{"campaign_digest":"c","corpus_digest":"d","cases":[{"case_id":"case-1","task_digest":"t","input_digest":"i","environment_digest":"e","holdout":true}]},"payload_digest":"invalid","schema_version":"1"}'
-        with self.assertRaises(ValueError):
+        body = json.loads(export_campaign_request(self.request).decode("utf-8"))
+        del body["payload"]["run_nonce"]
+        body["payload_digest"] = hashlib.sha256(
+            json.dumps(body["payload"], sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+        raw = json.dumps(body, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        with self.assertRaisesRegex(ValueError, "run_nonce"):
             import_campaign_request(raw)
 
 
