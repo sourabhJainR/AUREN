@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from datetime import datetime, timezone
 from typing import Any, Callable, Mapping
 
@@ -203,14 +204,33 @@ def run_campaign(
     return receipt
 
 
-def verify_receipt(receipt: Mapping[str, Any], sealed: Mapping[str, Any]) -> bool:
-    """Verify receipt integrity *and* semantic consistency with the sealed manifest.
+def verify_receipt(
+    receipt: Mapping[str, Any],
+    sealed: Mapping[str, Any],
+    *,
+    max_age_seconds: float = 86_400.0,
+    clock_skew_seconds: float = 300.0,
+) -> bool:
+    """Verify receipt integrity, semantic consistency, and freshness.
 
     Digest checks alone are not sufficient: a caller can recompute an unkeyed
     digest after changing fields. Re-derive case identity, outcomes, counts, and
     domain aggregates from the evaluator-owned manifest before accepting evidence.
+    Receipts older than 24 hours or more than five minutes in the future fail
+    closed by default; trusted callers may tighten these bounds explicitly.
     """
     if not isinstance(receipt, Mapping) or not isinstance(sealed, Mapping):
+        return False
+    if (
+        isinstance(max_age_seconds, bool)
+        or not isinstance(max_age_seconds, (int, float))
+        or not math.isfinite(max_age_seconds)
+        or max_age_seconds < 0
+        or isinstance(clock_skew_seconds, bool)
+        or not isinstance(clock_skew_seconds, (int, float))
+        or not math.isfinite(clock_skew_seconds)
+        or clock_skew_seconds < 0
+    ):
         return False
     try:
         expected_fields = {
@@ -243,6 +263,11 @@ def verify_receipt(receipt: Mapping[str, Any], sealed: Mapping[str, Any]) -> boo
             return False
         parsed_issued_at = datetime.fromisoformat(issued_at.replace("Z", "+00:00"))
         if parsed_issued_at.tzinfo is None or parsed_issued_at.utcoffset() is None:
+            return False
+        now = datetime.now(timezone.utc)
+        issued_at_utc = parsed_issued_at.astimezone(timezone.utc)
+        age_seconds = (now - issued_at_utc).total_seconds()
+        if age_seconds > max_age_seconds or age_seconds < -clock_skew_seconds:
             return False
 
         results = receipt.get("results")
