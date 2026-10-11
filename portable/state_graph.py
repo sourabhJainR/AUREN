@@ -254,7 +254,6 @@ class GraphAgentTeam:
         # a different crew plan or broaden the declared crew authority.
         state["auren_crew_plan"] = plan.to_payload()
         selected_ids = {assignment.crew_id for assignment in plan.assignments}
-        state["auren_crew_agents"] = {key: value for key, value in self.agents.items() if key in selected_ids}
         state["auren_crew_guardrails"] = {
             "execution_authority": "StateGraph",
             "crews_may_self_approve": False,
@@ -263,7 +262,51 @@ class GraphAgentTeam:
             "required_rollback_for_consequential_changes": True,
             "forbidden_authorities": sorted(_FORBIDDEN_CREW_AUTHORITIES),
         }
-        return self.graph.run(task_id, intent, state)
+        dispatch_active = {"value": True}
+
+        def dispatch_crew(crew_id: str, task: str, evidence: Mapping[str, Any] | None = None) -> dict[str, Any]:
+            if not dispatch_active["value"]:
+                raise RuntimeError("crew dispatch is only available during graph execution")
+            if crew_id not in selected_ids:
+                raise ValueError(f"crew {crew_id} is not assigned to this graph task")
+            agent = self.agents.get(crew_id)
+            if agent is None:
+                raise ValueError(f"no registered proposal agent for crew {crew_id}")
+            proposer = getattr(agent, "propose", None)
+            if not callable(proposer):
+                raise TypeError("crew agents must expose a side-effect-free propose(request) interface")
+            if not isinstance(task, str) or not task.strip():
+                raise ValueError("crew task must be non-empty text")
+            if evidence is not None and not isinstance(evidence, Mapping):
+                raise ValueError("crew evidence must be a mapping")
+            definition = self.crews[crew_id]
+            request = {
+                "crew_id": crew_id,
+                "specialty": definition.specialty,
+                "instructions": definition.instructions,
+                "task": task,
+                "evidence": dict(evidence or {}),
+                "required_artifacts": list(definition.required_artifacts),
+                "acceptance_checks": list(definition.acceptance_checks),
+                "allowed_authorities": list(definition.allowed_authorities),
+                "graph_digest": self.graph.digest(),
+                "crew_plan_digest": plan.digest,
+            }
+            proposal = proposer(request)
+            return {
+                "crew_id": crew_id,
+                "proposal": proposal,
+                "review_required": True,
+                "review_status": "pending",
+                "acceptance_checks": list(definition.acceptance_checks),
+            }
+
+        # Only graph nodes receive the scoped dispatcher, never raw agent objects.
+        state["auren_crew_dispatch"] = dispatch_crew
+        try:
+            return self.graph.run(task_id, intent, state)
+        finally:
+            dispatch_active["value"] = False
 
 
 __all__ = [
