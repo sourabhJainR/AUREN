@@ -30,6 +30,8 @@ class TargetDomainProvenance:
     overlap_attestation_digest: str
     independent_operator_id: str
     attestation_digest: str
+    attestation_signer_id: str = ""
+    attestation_signature: str = ""
 
     def __post_init__(self) -> None:
         for name, value in (("domain_id", self.domain_id), ("origin", self.origin), ("manifest_digest", self.manifest_digest), ("split", self.split), ("development_corpus_digest", self.development_corpus_digest), ("development_overlap_status", self.development_overlap_status), ("overlap_attestation_digest", self.overlap_attestation_digest), ("independent_operator_id", self.independent_operator_id), ("attestation_digest", self.attestation_digest)):
@@ -43,7 +45,19 @@ class TargetDomainProvenance:
 
     @property
     def provenance_digest(self) -> str:
-        payload = {"domain_id": self.domain_id, "origin": self.origin, "manifest_digest": self.manifest_digest, "split": self.split, "development_corpus_digest": self.development_corpus_digest, "development_overlap_status": self.development_overlap_status, "overlap_attestation_digest": self.overlap_attestation_digest, "independent_operator_id": self.independent_operator_id, "attestation_digest": self.attestation_digest}
+        payload = {
+            "domain_id": self.domain_id,
+            "origin": self.origin,
+            "manifest_digest": self.manifest_digest,
+            "split": self.split,
+            "development_corpus_digest": self.development_corpus_digest,
+            "development_overlap_status": self.development_overlap_status,
+            "overlap_attestation_digest": self.overlap_attestation_digest,
+            "independent_operator_id": self.independent_operator_id,
+            "attestation_digest": self.attestation_digest,
+            "attestation_signer_id": self.attestation_signer_id,
+            "attestation_signature": self.attestation_signature,
+        }
         return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
 
 
@@ -158,6 +172,8 @@ class SealedCrossDomainRunner:
                 raise ValueError(f"target domain {domain.domain_id} provenance manifest mismatch")
             if provenance.development_corpus_digest == campaign.request.corpus_digest:
                 raise ValueError(f"target domain {domain.domain_id} reuses the development corpus")
+            if provenance.independent_operator_id in {campaign.evaluator_id, campaign.independent_oracle_id}:
+                raise ValueError(f"target domain {domain.domain_id} operator must be independent of evaluator and oracle")
             if self.target_provenance_verifier(provenance) is not True:
                 raise ValueError(f"target domain {domain.domain_id} provenance attestation is not verified")
 
