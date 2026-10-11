@@ -110,7 +110,7 @@ def validate_decision_record(
         if not isinstance(check, dict):
             errors.append(f"checks[{i}] must be an object")
             continue
-        if set(check) - {"name", "command", "status", "commit_sha", "evidence_id"}:
+        if set(check) - {"name", "command", "status", "commit_sha", "evidence_id", "evaluator_type"}:
             errors.append(f"checks[{i}] contains unknown fields")
         for key in ("name", "command", "evidence_id", "commit_sha", "evaluator_type"):
             if not isinstance(check.get(key), str) or not check[key].strip():
