@@ -29,3 +29,8 @@ For untrusted policies and independent campaigns, execute the runner under a sep
 ## Failure handling
 
 Malformed input, duplicate cases, digest mismatch, nonce replay, non-zero policy exit, invalid JSON output, and policy timeout fail closed or produce explicit per-case `error` outcomes. A receipt with errors is a valid record of a failed evaluation, not a successful campaign. Promotion remains behind Guard authorization and separate evidence/rollback gates.
+
+
+## Trusted target-domain custody
+
+Sealed cross-domain runs require an out-of-band allowlist of trusted target-domain operators. Each novel target domain must carry a non-empty signature whose signer ID matches its named independent operator, and the configured verifier must cryptographically validate that signature. Missing trust configuration, unsigned provenance, an untrusted operator, or evaluator/oracle overlap fails closed before the external evaluator is called. Test signatures and allowlists are fixtures only; production trust roots must be provisioned independently.

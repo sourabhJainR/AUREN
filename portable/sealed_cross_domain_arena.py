@@ -150,13 +150,26 @@ class CrossDomainCampaign:
 class SealedCrossDomainRunner:
     """Run an external evaluator against a digest-bound multi-domain campaign."""
 
-    def __init__(self, gateway: ExternalEvaluatorGateway, *, target_provenance_verifier=None) -> None:
+    def __init__(
+        self,
+        gateway: ExternalEvaluatorGateway,
+        *,
+        target_provenance_verifier=None,
+        trusted_target_operator_ids: frozenset[str] | None = None,
+    ) -> None:
         if not callable(getattr(gateway, "evaluate", None)):
             raise TypeError("an external evaluator gateway is required")
         if target_provenance_verifier is not None and not callable(target_provenance_verifier):
             raise TypeError("target_provenance_verifier must be callable")
+        if trusted_target_operator_ids is not None and (
+            not isinstance(trusted_target_operator_ids, frozenset)
+            or not trusted_target_operator_ids
+            or any(not isinstance(item, str) or not item.strip() for item in trusted_target_operator_ids)
+        ):
+            raise ValueError("trusted_target_operator_ids must be a non-empty frozenset of operator IDs")
         self.gateway = gateway
         self.target_provenance_verifier = target_provenance_verifier
+        self.trusted_target_operator_ids = trusted_target_operator_ids
 
     def _verify_target_provenance(self, campaign: CrossDomainCampaign) -> None:
         targets = [domain for domain in campaign.domains if domain.novel is True]
@@ -164,6 +177,8 @@ class SealedCrossDomainRunner:
             raise ValueError("at least one target domain is required")
         if self.target_provenance_verifier is None:
             raise ValueError("independent target-domain provenance verifier is required")
+        if not self.trusted_target_operator_ids:
+            raise ValueError("out-of-band trusted target-domain operator allowlist is required")
         for domain in targets:
             provenance = domain.provenance
             if provenance is None:
@@ -174,6 +189,10 @@ class SealedCrossDomainRunner:
                 raise ValueError(f"target domain {domain.domain_id} reuses the development corpus")
             if provenance.independent_operator_id in {campaign.evaluator_id, campaign.independent_oracle_id}:
                 raise ValueError(f"target domain {domain.domain_id} operator must be independent of evaluator and oracle")
+            if provenance.attestation_signer_id != provenance.independent_operator_id or not provenance.attestation_signature:
+                raise ValueError(f"target domain {domain.domain_id} is missing a matching operator signature")
+            if provenance.independent_operator_id not in self.trusted_target_operator_ids:
+                raise ValueError(f"target domain {domain.domain_id} operator is not in the out-of-band trusted allowlist")
             if self.target_provenance_verifier(provenance) is not True:
                 raise ValueError(f"target domain {domain.domain_id} provenance attestation is not verified")
 
