@@ -13,6 +13,8 @@ import math
 import os
 import subprocess
 import tempfile
+import threading
+import time
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -53,6 +55,8 @@ def run_campaign_isolated(
     run_nonce: str,
     nonce_ledger: NonceLedger,
     timeout_seconds: float = 10.0,
+    campaign_timeout_seconds: float = 120.0,
+    max_output_bytes: int = 65_536,
     policy_environment: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
     """Execute each case in a fresh policy subprocess.
@@ -60,7 +64,9 @@ def run_campaign_isolated(
     The command is invoked without a shell. Only the task-facing JSON object is
     sent to stdin; stdout must contain exactly one JSON value. Environment
     inheritance is allowlisted, stderr and exception details are never placed
-    in receipts, and each invocation has a bounded timeout.
+    in receipts. Per-case and whole-campaign deadlines bound runtime; stdout is
+    redirected to a temporary file and rejected above max_output_bytes to avoid
+    unbounded in-memory capture. This is still not an OS sandbox.
     """
     if isinstance(policy_command, (str, bytes)) or not isinstance(policy_command, Sequence) or not policy_command:
         raise ArenaError("policy_command must be a non-empty argument sequence")
@@ -70,32 +76,87 @@ def run_campaign_isolated(
         raise ArenaError("timeout_seconds must be a finite positive number")
     if not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
         raise ArenaError("timeout_seconds must be a finite positive number")
+    for name, value in (("campaign_timeout_seconds", campaign_timeout_seconds),):
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0:
+            raise ArenaError(f"{name} must be a finite positive number")
+    if type(max_output_bytes) is not int or max_output_bytes < 1:
+        raise ArenaError("max_output_bytes must be a positive integer")
     env = _policy_environment(policy_environment)
+    deadline = time.monotonic() + float(campaign_timeout_seconds)
 
     with tempfile.TemporaryDirectory(prefix="auren-arena-policy-") as workdir:
         def policy(task: Mapping[str, str]) -> Any:
-            completed = subprocess.run(
-                list(policy_command),
-                input=json.dumps(
-                    dict(task), sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
-                ),
-                text=True,
-                encoding="utf-8",
-                stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
-                cwd=workdir,
-                env=env,
-                timeout=float(timeout_seconds),
-                check=False,
-                shell=False,
-                close_fds=True,
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise ArenaError("Arena campaign execution budget exhausted")
+            timeout = min(float(timeout_seconds), remaining)
+            request = json.dumps(
+                dict(task), sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
             )
-            if completed.returncode != 0:
-                raise ArenaError("policy subprocess returned a non-zero exit status")
-            try:
-                return json.loads(completed.stdout)
-            except (json.JSONDecodeError, TypeError) as exc:
-                raise ArenaError("policy subprocess did not return one valid JSON value") from exc
+            with tempfile.TemporaryFile(mode="w+b") as output:
+                process = subprocess.Popen(
+                    list(policy_command), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL, cwd=workdir, env=env, shell=False,
+                    close_fds=True,
+                )
+                output_limit_exceeded = threading.Event()
+                stream_error: list[BaseException] = []
+
+                def drain_output() -> None:
+                    total = 0
+                    try:
+                        assert process.stdout is not None
+                        while True:
+                            chunk = process.stdout.read(8192)
+                            if not chunk:
+                                return
+                            total += len(chunk)
+                            if total > max_output_bytes:
+                                output_limit_exceeded.set()
+                                process.kill()
+                                return
+                            output.write(chunk)
+                    except (OSError, ValueError) as exc:
+                        stream_error.append(exc)
+
+                def send_request() -> None:
+                    try:
+                        assert process.stdin is not None
+                        process.stdin.write(request.encode("utf-8"))
+                        process.stdin.close()
+                    except (BrokenPipeError, OSError, ValueError):
+                        return
+
+                reader = threading.Thread(target=drain_output, daemon=True)
+                writer = threading.Thread(target=send_request, daemon=True)
+                reader.start()
+                writer.start()
+                try:
+                    process.wait(timeout=timeout)
+                except subprocess.TimeoutExpired as exc:
+                    process.kill()
+                    process.wait()
+                    writer.join(timeout=1.0)
+                    reader.join(timeout=1.0)
+                    if deadline - time.monotonic() <= 0:
+                        raise ArenaError("Arena campaign execution budget exhausted") from exc
+                    raise ArenaError("policy subprocess exceeded its per-case timeout") from exc
+                writer.join(timeout=1.0)
+                reader.join(timeout=1.0)
+                if output_limit_exceeded.is_set():
+                    raise ArenaError("policy subprocess output exceeds configured byte limit")
+                if reader.is_alive():
+                    process.kill()
+                    raise ArenaError("policy output stream did not close within the bounded wait")
+                if stream_error:
+                    raise ArenaError("policy output stream could not be read")
+                if process.returncode != 0:
+                    raise ArenaError("policy subprocess returned a non-zero exit status")
+                output.seek(0)
+                try:
+                    return json.loads(output.read().decode("utf-8"))
+                except (json.JSONDecodeError, UnicodeDecodeError, TypeError) as exc:
+                    raise ArenaError("policy subprocess did not return one valid JSON value") from exc
 
         return run_campaign(
             sealed,
