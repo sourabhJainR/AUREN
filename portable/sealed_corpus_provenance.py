@@ -28,6 +28,8 @@ class SealedCorpusProvenance:
     contamination_status: str
     independent_operator_id: str
     attestation_digest: str
+    attestation_signer_id: str = ""
+    attestation_signature: str = ""
 
     def __post_init__(self) -> None:
         for name, value in (
@@ -59,6 +61,8 @@ class SealedCorpusProvenance:
                 "contamination_status": self.contamination_status,
                 "independent_operator_id": self.independent_operator_id,
                 "attestation_digest": self.attestation_digest,
+                "attestation_signer_id": self.attestation_signer_id,
+                "attestation_signature": self.attestation_signature,
             },
             sort_keys=True,
             separators=(",", ":"),
