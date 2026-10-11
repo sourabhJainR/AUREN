@@ -24,4 +24,18 @@ class SealedArenaPolicyTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "evaluator-only"):
             PolicyCaseOutput.from_untrusted({"receipt_key": "fake"})
 
+    def test_answer_aliases_are_rejected_recursively(self):
+        forbidden_payloads = (
+            {"answer": "gold"},
+            {"input": {"expected_answer": "gold"}},
+            {"environment": [{"expected-output": "gold"}]},
+            {"task": {"reference answer": "gold"}},
+            {"nested": {"solution": "gold"}},
+            {"nested": {"gold_label": "gold"}},
+            {"nested": {"oracle_output": "gold"}},
+        )
+        for payload in forbidden_payloads:
+            with self.subTest(payload=payload), self.assertRaisesRegex(ValueError, "evaluator-only"):
+                PolicyCaseOutput.from_untrusted(payload)
+
 if __name__ == "__main__": unittest.main()
