@@ -36,6 +36,21 @@ class GraphAgentCrewTests(unittest.TestCase):
         } <= ids)
         self.assertEqual(first.graph_digest, second.graph_digest)
 
+    def test_routes_python_rust_java_react_and_angular_crews(self):
+        team, _graph = self.make_team(lambda _state: "ok")
+        intent = "Implement Python FastAPI, Rust Cargo, Java Spring Boot, React TSX, and Angular RxJS modules"
+        plan = team.plan_crews(intent)
+        ids = {item.crew_id for item in plan.assignments}
+        self.assertTrue({"python", "rust", "java", "react", "angular"} <= ids)
+        personas = team.required_personas(intent)
+        self.assertTrue({"python", "rust", "java", "react", "angular"} <= set(personas))
+
+    def test_java_crew_does_not_match_javascript_substring(self):
+        team, _graph = self.make_team(lambda _state: "ok")
+        ids = {item.crew_id for item in team.plan_crews("Build a JavaScript interface").assignments}
+        self.assertNotIn("java", ids)
+        self.assertIn("react", ids)
+
     def test_preserves_legacy_persona_order_and_adds_specialists(self):
         team, _graph = self.make_team(lambda _state: "ok")
         personas = team.required_personas("frontend UI, SQL database, C# .NET, security permissions")
