@@ -102,8 +102,9 @@ class ExecutionController:
             }
         with sqlite3.connect(self.db_path) as db:
             # Re-registering a handler after restart must not silently remove its
-            # trusted policy merely because the caller omitted the policy argument.
-            if ci_gate_policy is None:
+            # trusted policy when the caller omits the policy or passes an empty
+            # mapping. Gate removal must be a separate, explicit administrative API.
+            if not policy:
                 prior = db.execute(
                     "SELECT ci_gate_policy_json FROM handlers WHERE name=?", (name,)
                 ).fetchone()
