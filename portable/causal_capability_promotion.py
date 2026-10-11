@@ -1,16 +1,21 @@
 """Causal evidence gate for capability promotion.
 
 A capability improvement is not attributed to a learning intervention merely
-because a post-test score increased. This gate requires a fresh holdout,
-treatment/control evidence, independent attribution evidence, and no known
-contamination. It returns a decision record only; execution and lifecycle
-mutation remain outside this module.
+because a post-test score increased. The gate requires fresh holdout,
+treatment/control evidence, independent attribution, and no contamination.
+It returns a decision record only; lifecycle mutation remains outside this module.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
 import hashlib
 import json
+import math
+
+
+def _required_text(name: str, value: object) -> None:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{name} must be a non-empty string")
 
 
 @dataclass(frozen=True, slots=True)
@@ -28,16 +33,25 @@ class CausalPromotionEvidence:
     evidence_ids: tuple[str, ...]
 
     def __post_init__(self) -> None:
+        _required_text("capability_id", self.capability_id)
+        _required_text("intervention_id", self.intervention_id)
         for name in (
             "baseline_score", "control_score", "treatment_score",
             "holdout_score", "attribution_confidence",
         ):
-            value = float(getattr(self, name))
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+                raise ValueError(f"{name} must be a finite number between 0 and 1")
             if not 0.0 <= value <= 1.0:
                 raise ValueError(f"{name} must be between 0 and 1")
-        if not self.capability_id.strip() or not self.intervention_id.strip():
-            raise ValueError("capability_id and intervention_id are required")
-        if not self.evidence_ids or len(set(self.evidence_ids)) != len(self.evidence_ids):
+        for name in ("fresh_holdout", "independent_oracle", "contamination_detected"):
+            if type(getattr(self, name)) is not bool:
+                raise ValueError(f"{name} must be a boolean")
+        if not isinstance(self.evidence_ids, tuple) or not self.evidence_ids:
+            raise ValueError("unique independent evidence ids are required")
+        if any(not isinstance(item, str) or not item.strip() for item in self.evidence_ids):
+            raise ValueError("evidence ids must be non-empty strings")
+        if len(set(self.evidence_ids)) != len(self.evidence_ids):
             raise ValueError("unique independent evidence ids are required")
 
     @property
@@ -64,7 +78,7 @@ class CausalPromotionEvidence:
             "evidence_ids": self.evidence_ids,
         }
         return hashlib.sha256(
-            json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+            json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
         ).hexdigest()
 
 
@@ -73,6 +87,19 @@ class CausalPromotionDecision:
     eligible: bool
     reasons: tuple[str, ...]
     evidence_digest: str
+
+    def __post_init__(self) -> None:
+        if type(self.eligible) is not bool:
+            raise ValueError("eligible must be a boolean")
+        if not isinstance(self.reasons, tuple) or any(
+            not isinstance(reason, str) or not reason.strip() for reason in self.reasons
+        ):
+            raise ValueError("reasons must be a tuple of non-empty strings")
+        _required_text("evidence_digest", self.evidence_digest)
+        if self.eligible and self.reasons:
+            raise ValueError("eligible decision cannot contain blocking reasons")
+        if not self.eligible and not self.reasons:
+            raise ValueError("blocked decision must contain at least one reason")
 
     @property
     def state(self) -> str:
@@ -89,23 +116,26 @@ class CausalCapabilityPromotionGate:
         minimum_holdout_lift: float = 0.02,
         minimum_attribution_confidence: float = 0.80,
     ) -> None:
-        if not 0 <= minimum_treatment_lift <= 1:
-            raise ValueError("minimum_treatment_lift must be between 0 and 1")
-        if not 0 <= minimum_holdout_lift <= 1:
-            raise ValueError("minimum_holdout_lift must be between 0 and 1")
-        if not 0 <= minimum_attribution_confidence <= 1:
-            raise ValueError("minimum_attribution_confidence must be between 0 and 1")
+        for name, value in (
+            ("minimum_treatment_lift", minimum_treatment_lift),
+            ("minimum_holdout_lift", minimum_holdout_lift),
+            ("minimum_attribution_confidence", minimum_attribution_confidence),
+        ):
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not 0 <= value <= 1:
+                raise ValueError(f"{name} must be a finite number between 0 and 1")
         self.minimum_treatment_lift = minimum_treatment_lift
         self.minimum_holdout_lift = minimum_holdout_lift
         self.minimum_attribution_confidence = minimum_attribution_confidence
 
     def evaluate(self, evidence: CausalPromotionEvidence) -> CausalPromotionDecision:
+        if not isinstance(evidence, CausalPromotionEvidence):
+            raise TypeError("CausalPromotionEvidence is required")
         reasons = []
-        if evidence.contamination_detected:
+        if evidence.contamination_detected is True:
             reasons.append("contamination detected")
-        if not evidence.fresh_holdout:
+        if evidence.fresh_holdout is not True:
             reasons.append("fresh independent holdout required")
-        if not evidence.independent_oracle:
+        if evidence.independent_oracle is not True:
             reasons.append("independent oracle required")
         if evidence.treatment_lift < self.minimum_treatment_lift:
             reasons.append("treatment lift below attribution threshold")
@@ -115,13 +145,7 @@ class CausalCapabilityPromotionGate:
             reasons.append("attribution confidence below threshold")
         if evidence.control_score > evidence.baseline_score + 0.02:
             reasons.append("control group regressed baseline")
-        return CausalPromotionDecision(
-            not reasons, tuple(reasons), evidence.evidence_digest,
-        )
+        return CausalPromotionDecision(not reasons, tuple(reasons), evidence.evidence_digest)
 
 
-__all__ = [
-    "CausalPromotionEvidence",
-    "CausalPromotionDecision",
-    "CausalCapabilityPromotionGate",
-]
+__all__ = ["CausalPromotionEvidence", "CausalPromotionDecision", "CausalCapabilityPromotionGate"]
