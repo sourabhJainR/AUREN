@@ -5,10 +5,11 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest.mock import Mock, patch
 from pathlib import Path
 
 from portable.independent_arena import NonceLedger, seal_manifest, verify_receipt
-from portable.isolated_arena_runner import run_campaign_isolated
+from portable.isolated_arena_runner import run_campaign_isolated, _kill_windows_process_tree
 
 
 def fixture():
@@ -105,6 +106,29 @@ class IsolatedArenaRunnerTests(unittest.TestCase):
         self.assertEqual(receipt["counts"]["error"], 2)
         time.sleep(0.6)
         self.assertFalse(side_effect.exists(), "policy descendant survived timeout cleanup")
+
+    @patch("portable.isolated_arena_runner.subprocess.run")
+    def test_windows_tree_cleanup_uses_taskkill_and_terminates_descendants(self, run):
+        process = Mock()
+        process.pid = 1234
+        run.return_value = type("Result", (), {"returncode": 0})()
+
+        _kill_windows_process_tree(process)
+
+        self.assertEqual(run.call_args.args[0], ["taskkill", "/PID", "1234", "/T", "/F"])
+        self.assertFalse(run.call_args.kwargs["shell"])
+        self.assertEqual(run.call_args.kwargs["timeout"], 5.0)
+        process.kill.assert_not_called()
+
+    @patch("portable.isolated_arena_runner.subprocess.run", side_effect=OSError("taskkill unavailable"))
+    def test_windows_tree_cleanup_falls_back_to_direct_child(self, run):
+        process = Mock()
+        process.pid = 1234
+
+        _kill_windows_process_tree(process)
+
+        run.assert_called_once()
+        process.kill.assert_called_once()
 
     def test_invalid_resource_budgets_are_rejected(self):
         code = "print('null')"
