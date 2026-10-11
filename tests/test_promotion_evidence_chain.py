@@ -1,11 +1,60 @@
+import hashlib
 import unittest
+import time
+from dataclasses import replace
 
 from portable.arena_run_receipt import ArenaRunReceipt, oracle_registry_digest
+from portable.arena_isolation_attestation import ArenaIsolationAttestation
 from portable.attestation_key_separation import AttestationTrustPolicy, SeparationAwareAttestor
 from portable.causal_capability_promotion import CausalCapabilityPromotionGate, CausalPromotionEvidence
 from portable.external_evaluation_campaign import ExternalEvaluationCampaign
 from portable.independent_evaluation_attestation import AttestedEvaluation, EvaluationAttestation
 from portable.promotion_evidence_chain import PromotionEvidenceChainBuilder
+
+
+_REQUIRED_ISOLATION_CONTROLS = (
+    "network_disabled",
+    "no_host_mounts",
+    "read_only_rootfs",
+    "non_root_execution",
+    "credentials_not_exposed",
+    "resource_limits_enforced",
+    "termination_observed",
+)
+_TEST_IMAGE_DIGEST = "sha256:" + "a" * 64
+
+
+def isolation_kwargs(campaign, receipt):
+    now = time.time()
+    unsigned = ArenaIsolationAttestation(
+        campaign_digest=campaign.campaign_digest,
+        run_receipt_digest=receipt.receipt_digest,
+        image_digest=_TEST_IMAGE_DIGEST,
+        sandbox_id="external-sandbox-17",
+        signer_id="independent-sandbox-auditor",
+        signature="placeholder",
+        issued_at_epoch=now - 10,
+        expires_at_epoch=now + 300,
+        controls=_REQUIRED_ISOLATION_CONTROLS,
+    )
+    signature = "signed:" + hashlib.sha256(unsigned.signing_message()).hexdigest()
+    attestation = replace(unsigned, signature=signature)
+
+    def verify(signer_id, supplied_signature, message):
+        return (
+            signer_id == "independent-sandbox-auditor"
+            and supplied_signature == "signed:" + hashlib.sha256(message).hexdigest()
+        )
+
+    return dict(
+        isolation_attestation=attestation,
+        verify_isolation_signature=verify,
+        expected_image_digest=_TEST_IMAGE_DIGEST,
+        evaluator_id="runtime-evaluator",
+        oracle_id="independent-oracle",
+        policy_runtime_id="policy-runtime",
+        isolation_now=now,
+    )
 
 
 def make_campaign(**overrides):
@@ -75,9 +124,12 @@ class PromotionEvidenceChainTests(unittest.TestCase):
         causal = make_causal(receipt)
         decision = CausalCapabilityPromotionGate().evaluate(causal)
         chain = PromotionEvidenceChainBuilder().build(
-            campaign, receipt, causal, decision, attested_campaign=make_attested_campaign(campaign)
+            campaign, receipt, causal, decision,
+            attested_campaign=make_attested_campaign(campaign),
+            **isolation_kwargs(campaign, receipt),
         )
         self.assertTrue(chain.complete, chain.reasons)
+        self.assertTrue(chain.isolation_evidence_digest)
         self.assertEqual(chain.campaign_digest, campaign.campaign_digest)
         self.assertTrue(chain.attestation_evidence_digest)
 
@@ -138,6 +190,84 @@ class PromotionEvidenceChainTests(unittest.TestCase):
         )
         self.assertFalse(chain.complete)
         self.assertTrue(any("not independently verified" in reason for reason in chain.reasons))
+
+
+    def test_chain_blocks_missing_isolation_attestation(self):
+        campaign = make_campaign()
+        receipt = make_receipt(campaign)
+        causal = make_causal(receipt)
+        decision = CausalCapabilityPromotionGate().evaluate(causal)
+        chain = PromotionEvidenceChainBuilder().build(
+            campaign, receipt, causal, decision,
+            attested_campaign=make_attested_campaign(campaign),
+        )
+        self.assertFalse(chain.complete)
+        self.assertTrue(any("isolation attestation is required" in reason for reason in chain.reasons))
+
+    def test_chain_rejects_isolation_attestation_bound_to_another_image(self):
+        campaign = make_campaign()
+        receipt = make_receipt(campaign)
+        causal = make_causal(receipt)
+        decision = CausalCapabilityPromotionGate().evaluate(causal)
+        kwargs = isolation_kwargs(campaign, receipt)
+        kwargs["isolation_attestation"] = replace(
+            kwargs["isolation_attestation"], image_digest="sha256:" + "b" * 64
+        )
+        chain = PromotionEvidenceChainBuilder().build(
+            campaign, receipt, causal, decision,
+            attested_campaign=make_attested_campaign(campaign), **kwargs
+        )
+        self.assertFalse(chain.complete)
+        self.assertTrue(any("image digest mismatch" in reason for reason in chain.reasons))
+
+    def test_chain_rejects_isolation_signer_overlap(self):
+        campaign = make_campaign()
+        receipt = make_receipt(campaign)
+        causal = make_causal(receipt)
+        decision = CausalCapabilityPromotionGate().evaluate(causal)
+        kwargs = isolation_kwargs(campaign, receipt)
+        kwargs["isolation_attestation"] = replace(
+            kwargs["isolation_attestation"], signer_id="runtime-evaluator"
+        )
+        chain = PromotionEvidenceChainBuilder().build(
+            campaign, receipt, causal, decision,
+            attested_campaign=make_attested_campaign(campaign), **kwargs
+        )
+        self.assertFalse(chain.complete)
+        self.assertTrue(any("signer must be independent" in reason for reason in chain.reasons))
+
+    def test_chain_rejects_expired_isolation_attestation(self):
+        campaign = make_campaign()
+        receipt = make_receipt(campaign)
+        causal = make_causal(receipt)
+        decision = CausalCapabilityPromotionGate().evaluate(causal)
+        kwargs = isolation_kwargs(campaign, receipt)
+        now = kwargs["isolation_now"]
+        kwargs["isolation_attestation"] = replace(
+            kwargs["isolation_attestation"], issued_at_epoch=now - 120, expires_at_epoch=now - 1
+        )
+        chain = PromotionEvidenceChainBuilder().build(
+            campaign, receipt, causal, decision,
+            attested_campaign=make_attested_campaign(campaign), **kwargs
+        )
+        self.assertFalse(chain.complete)
+        self.assertTrue(any("stale or expired" in reason for reason in chain.reasons))
+
+    def test_chain_rejects_missing_isolation_control(self):
+        campaign = make_campaign()
+        receipt = make_receipt(campaign)
+        causal = make_causal(receipt)
+        decision = CausalCapabilityPromotionGate().evaluate(causal)
+        kwargs = isolation_kwargs(campaign, receipt)
+        kwargs["isolation_attestation"] = replace(
+            kwargs["isolation_attestation"], controls=_REQUIRED_ISOLATION_CONTROLS[:-1]
+        )
+        chain = PromotionEvidenceChainBuilder().build(
+            campaign, receipt, causal, decision,
+            attested_campaign=make_attested_campaign(campaign), **kwargs
+        )
+        self.assertFalse(chain.complete)
+        self.assertTrue(any("missing required controls" in reason for reason in chain.reasons))
 
 
 if __name__ == "__main__":
