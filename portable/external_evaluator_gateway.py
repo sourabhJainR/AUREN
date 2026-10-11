@@ -7,6 +7,7 @@ benchmark, inspect oracle answers, or grant lifecycle authority.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 import os
 import subprocess
 import threading
@@ -24,14 +25,33 @@ class ExternalEvaluatorCommand:
     environment: tuple[tuple[str, str], ...] = ()
 
     def __post_init__(self) -> None:
-        if not self.argv or any(not str(part).strip() for part in self.argv):
-            raise ValueError("external evaluator command is required")
-        if self.timeout_seconds <= 0:
-            raise ValueError("timeout_seconds must be positive")
-        if self.max_output_bytes <= 0:
-            raise ValueError("max_output_bytes must be positive")
-        if any(not key.strip() for key, _value in self.environment):
-            raise ValueError("environment keys must be non-empty")
+        if not isinstance(self.argv, tuple) or not self.argv or any(
+            not isinstance(part, str) or not part.strip() for part in self.argv
+        ):
+            raise ValueError("external evaluator argv must be a non-empty tuple of non-empty strings")
+        if (
+            isinstance(self.timeout_seconds, bool)
+            or not isinstance(self.timeout_seconds, (int, float))
+            or not math.isfinite(self.timeout_seconds)
+            or self.timeout_seconds <= 0
+        ):
+            raise ValueError("timeout_seconds must be a finite positive number")
+        if isinstance(self.max_output_bytes, bool) or not isinstance(self.max_output_bytes, int) or self.max_output_bytes <= 0:
+            raise ValueError("max_output_bytes must be a positive integer")
+        if not isinstance(self.environment, tuple):
+            raise ValueError("environment must be an immutable tuple of key/value pairs")
+        keys = []
+        for item in self.environment:
+            if not isinstance(item, tuple) or len(item) != 2:
+                raise ValueError("environment entries must be key/value tuples")
+            key, value = item
+            if not isinstance(key, str) or not key.strip() or not isinstance(value, str):
+                raise ValueError("environment keys must be non-empty strings and values must be strings")
+            if key.upper() in {"PATH", "PYTHONPATH", "LD_PRELOAD", "DYLD_INSERT_LIBRARIES"}:
+                raise ValueError(f"environment override is not allowed for {key}")
+            keys.append(key)
+        if len(keys) != len(set(keys)):
+            raise ValueError("environment keys must be unique")
 
 
 class ExternalEvaluatorGateway:
