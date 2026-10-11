@@ -95,6 +95,14 @@ class ExecutionController:
                 "required_checks": list(dict.fromkeys(required_checks)),
             }
         with sqlite3.connect(self.db_path) as db:
+            # Re-registering a handler after restart must not silently remove its
+            # trusted policy merely because the caller omitted the policy argument.
+            if ci_gate_policy is None:
+                prior = db.execute(
+                    "SELECT ci_gate_policy_json FROM handlers WHERE name=?", (name,)
+                ).fetchone()
+                if prior:
+                    policy = json.loads(prior[0] or "{}")
             db.execute(
                 "INSERT INTO handlers(name,reference,updated_at,ci_gate_policy_json) VALUES(?,?,?,?) "
                 "ON CONFLICT(name) DO UPDATE SET reference=excluded.reference,updated_at=excluded.updated_at,"
