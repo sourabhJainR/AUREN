@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import math
 import os
+import signal
 import subprocess
 import threading
 
@@ -54,6 +55,20 @@ class ExternalEvaluatorCommand:
             raise ValueError("environment keys must be unique")
 
 
+def _kill_evaluator_process_tree(process: subprocess.Popen[bytes]) -> None:
+    """Kill the evaluator and descendants in its dedicated process group."""
+    try:
+        if os.name == "posix":
+            os.killpg(process.pid, signal.SIGKILL)
+        else:
+            process.kill()
+    except (ProcessLookupError, PermissionError, OSError):
+        try:
+            process.kill()
+        except (ProcessLookupError, OSError):
+            pass
+
+
 class ExternalEvaluatorGateway:
     """Exchange a sealed request with an evaluator outside the AUREN process."""
 
@@ -93,6 +108,7 @@ class ExternalEvaluatorGateway:
             stderr=subprocess.DEVNULL,
             shell=False,
             env={"PATH": os.environ.get("PATH", ""), **dict(command.environment)},
+            start_new_session=(os.name == "posix"),
         )
         assert process.stdin is not None
         assert process.stdout is not None
@@ -109,7 +125,7 @@ class ExternalEvaluatorGateway:
                     remaining = command.max_output_bytes + 1 - len(output)
                     if remaining <= 0:
                         output_limit_exceeded.set()
-                        process.kill()
+                        _kill_evaluator_process_tree(process)
                         return
                     chunk = process.stdout.read1(min(65_536, remaining))
                     if not chunk:
@@ -140,7 +156,7 @@ class ExternalEvaluatorGateway:
             process.wait(timeout=command.timeout_seconds)
         except subprocess.TimeoutExpired:
             timed_out = True
-            process.kill()
+            _kill_evaluator_process_tree(process)
             process.wait()
 
         writer.join(timeout=1.0)
