@@ -15,6 +15,7 @@ from typing import Callable, Final, Mapping
 
 from .sealed_corpus_provenance import SealedCorpusProvenance
 from .sealed_arena_custody import verify_custody_attestation
+from .sealed_arena_replay import SealedArenaReplayLedger
 
 _FORBIDDEN_PAYLOAD_KEYS: Final[frozenset[str]] = frozenset({
     "answer",
@@ -254,26 +255,32 @@ class SealedArenaEvidence:
 class SealedArenaBoundary:
     """Accept externally attested outcomes without importing the oracle."""
 
-    def __init__(self, verify_signature, *, verify_custody_signature: Callable[[str, str, bytes], bool] | None = None, clock: Callable[[], float] = time.time, max_future_skew_seconds: float = 30.0) -> None:
+    def __init__(self, verify_signature, *, verify_custody_signature: Callable[[str, str, bytes], bool] | None = None, replay_ledger: SealedArenaReplayLedger | None = None, clock: Callable[[], float] = time.time, max_future_skew_seconds: float = 30.0) -> None:
         if not callable(verify_signature) or not callable(clock):
             raise TypeError("signature verifier and clock must be callable")
         if verify_custody_signature is not None and not callable(verify_custody_signature):
             raise TypeError("custody signature verifier must be callable")
+        if replay_ledger is not None and not isinstance(replay_ledger, SealedArenaReplayLedger):
+            raise TypeError("replay_ledger must be a persistent SealedArenaReplayLedger")
         if isinstance(max_future_skew_seconds, bool) or not isinstance(max_future_skew_seconds, (int, float)) or not math.isfinite(max_future_skew_seconds) or max_future_skew_seconds < 0:
             raise ValueError("max_future_skew_seconds must be finite and non-negative")
         self._verify_signature = verify_signature
         self._verify_custody_signature = verify_custody_signature
+        self._replay_ledger = replay_ledger
         self._clock = clock
         self._max_future_skew_seconds = float(max_future_skew_seconds)
 
     @classmethod
-    def from_trusted_ed25519_keys(cls, trusted_public_keys: Mapping[str, bytes | str], *, clock: Callable[[], float] = time.time, max_future_skew_seconds: float = 30.0) -> "SealedArenaBoundary":
-        """Build a production boundary requiring signed outcome and custody evidence."""
+    def from_trusted_ed25519_keys(cls, trusted_public_keys: Mapping[str, bytes | str], *, replay_ledger: SealedArenaReplayLedger, clock: Callable[[], float] = time.time, max_future_skew_seconds: float = 30.0) -> "SealedArenaBoundary":
+        """Build a production boundary requiring signed custody, outcomes, and durable anti-replay."""
+        if not isinstance(replay_ledger, SealedArenaReplayLedger):
+            raise ValueError("trusted Ed25519 boundary requires a persistent replay ledger")
         from .sealed_arena_signature import Ed25519ReceiptVerifier
         verifier = Ed25519ReceiptVerifier(trusted_public_keys)
         return cls(
             verifier,
             verify_custody_signature=verifier.verify_detached,
+            replay_ledger=replay_ledger,
             clock=clock,
             max_future_skew_seconds=max_future_skew_seconds,
         )
@@ -333,6 +340,15 @@ class SealedArenaBoundary:
         if len(holdout_results) != len(holdouts):
             raise ValueError("sealed outcome is missing one or more holdout results")
         passed = sum(row[1] is True for row in holdout_results)
+        # Claim only after all signature, lineage, freshness, and completeness
+        # checks pass. SQLite's unique nonce constraint makes concurrent accepts
+        # single-winner and survives process restarts.
+        if self._replay_ledger is not None:
+            self._replay_ledger.claim(
+                run_nonce=request.run_nonce,
+                campaign_digest=request.campaign_digest,
+                corpus_digest=request.corpus_digest,
+            )
         return SealedArenaEvidence(
             receipt.receipt_digest,
             passed / len(holdout_results),
