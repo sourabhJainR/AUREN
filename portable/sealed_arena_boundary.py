@@ -278,6 +278,11 @@ class SealedArenaBoundary:
             max_future_skew_seconds=max_future_skew_seconds,
         )
 
+    @property
+    def has_custody_verifier(self) -> bool:
+        """Whether this boundary authenticates operator custody as well as outcomes."""
+        return self._verify_custody_signature is not None
+
     def accept(self, request: SealedCampaignRequest, receipt: ExternalOutcomeReceipt) -> SealedArenaEvidence:
         if not isinstance(request, SealedCampaignRequest) or not isinstance(receipt, ExternalOutcomeReceipt):
             raise TypeError("sealed request and externally attested receipt are required")
