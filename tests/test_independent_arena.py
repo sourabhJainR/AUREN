@@ -1,4 +1,6 @@
 import copy
+import hashlib
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -24,6 +26,25 @@ def fixture():
             {"case_id": "text-001", "domain": "classification", "split": "sealed_holdout", "prompt": "Classify: the server returned HTTP 503", "oracle": "transient"},
         ],
     }
+
+
+def rehash_receipt(receipt):
+    result_body = {
+        key: receipt[key]
+        for key in (
+            "schema_version", "benchmark_id", "manifest_digest", "evaluator_id",
+            "runtime_id", "policy_digest", "results", "counts", "domain_scores",
+        )
+    }
+    receipt["result_digest"] = hashlib.sha256(
+        json.dumps(result_body, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")
+    ).hexdigest()
+    body = dict(receipt)
+    body.pop("receipt_digest", None)
+    receipt["receipt_digest"] = hashlib.sha256(
+        json.dumps(body, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")
+    ).hexdigest()
+    return receipt
 
 
 class IndependentArenaTests(unittest.TestCase):
@@ -107,6 +128,32 @@ class IndependentArenaTests(unittest.TestCase):
         self.assertEqual(receipt["counts"]["error"], 2)
         self.assertNotIn("secret implementation detail", str(receipt))
         self.assertTrue(verify_receipt(receipt, sealed))
+
+
+    def test_rejects_wrong_case_lineage_even_when_digests_are_recomputed(self):
+        sealed = seal_manifest(fixture())
+        receipt = run_campaign(sealed, lambda task: 15 if task["prompt"] == "What is 7 + 8?" else "transient",
+                               nonce_ledger=new_ledger(), policy_digest="p", run_nonce="lineage-test")
+        receipt["results"][0]["case_id"] = "different-case"
+        self.assertFalse(verify_receipt(rehash_receipt(receipt), sealed))
+
+    def test_rejects_inconsistent_aggregates_even_when_digests_are_recomputed(self):
+        sealed = seal_manifest(fixture())
+        receipt = run_campaign(sealed, lambda task: 15 if task["prompt"] == "What is 7 + 8?" else "transient",
+                               nonce_ledger=new_ledger(), policy_digest="p", run_nonce="aggregate-test")
+        receipt["counts"]["pass"] = 99
+        self.assertFalse(verify_receipt(rehash_receipt(receipt), sealed))
+        receipt = run_campaign(sealed, lambda task: 15 if task["prompt"] == "What is 7 + 8?" else "transient",
+                               nonce_ledger=new_ledger(), policy_digest="p", run_nonce="domain-test")
+        receipt["domain_scores"]["arithmetic"]["passed"] = 99
+        self.assertFalse(verify_receipt(rehash_receipt(receipt), sealed))
+
+    def test_rejects_naive_timestamp_even_when_receipt_digest_is_recomputed(self):
+        sealed = seal_manifest(fixture())
+        receipt = run_campaign(sealed, lambda task: 15, nonce_ledger=new_ledger(),
+                               policy_digest="p", run_nonce="timestamp-test")
+        receipt["issued_at"] = "2026-10-11T10:00:00"
+        self.assertFalse(verify_receipt(rehash_receipt(receipt), sealed))
 
 
 if __name__ == "__main__":
