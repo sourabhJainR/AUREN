@@ -27,10 +27,10 @@ def validate_decision_record(
     expected_head: str,
     authorized_approvers: Iterable[str] = (),
 ) -> list[str]:
-    """Return all contract violations; an empty list means structurally eligible.
+    """Return contract violations; an empty list means structurally eligible.
 
-    expected_repository and expected_head must come from the caller's live
-    repository context, not from the record being validated.
+    expected_repository and expected_head must come from live repository
+    context, not from the record being validated.
     """
     errors: list[str] = []
 
@@ -51,8 +51,12 @@ def validate_decision_record(
     required_text("selection_rationale")
     required_text("rollback_trigger")
     required_text("rollback_action")
-    required_text("risk_level")
+    risk_level = required_text("risk_level")
 
+    if not expected_repository.strip():
+        errors.append("trusted expected_repository context is required")
+    if not COMMIT_RE.fullmatch(expected_head):
+        errors.append("trusted expected_head must be a full 40-character commit SHA")
     if repository and repository != expected_repository:
         errors.append("record repository does not match live repository context")
     if not COMMIT_RE.fullmatch(base_commit):
@@ -61,13 +65,16 @@ def validate_decision_record(
         errors.append("head_commit must be a full 40-character commit SHA")
     if head_commit and head_commit != expected_head:
         errors.append("decision evidence is stale: head_commit does not match expected head")
-
-    if record.get("risk_level") not in {"low", "medium", "high", "critical"}:
+    if risk_level not in {"low", "medium", "high", "critical"}:
         errors.append("risk_level must be low, medium, high, or critical")
 
     criteria = record.get("acceptance_criteria")
     if not isinstance(criteria, list) or not criteria or any(not isinstance(x, str) or not x.strip() for x in criteria):
         errors.append("acceptance_criteria must be a non-empty list of non-empty strings")
+
+    dependencies = record.get("dependencies")
+    if not isinstance(dependencies, list) or any(not isinstance(x, str) or not x.strip() for x in dependencies):
+        errors.append("dependencies must be a list of non-empty strings")
 
     alternatives = record.get("alternatives")
     if not isinstance(alternatives, list):
@@ -76,7 +83,7 @@ def validate_decision_record(
         for i, item in enumerate(alternatives):
             if not isinstance(item, dict) or not isinstance(item.get("option"), str) or not item["option"].strip() or not isinstance(item.get("reason_rejected"), str) or not item["reason_rejected"].strip():
                 errors.append(f"alternatives[{i}] requires option and reason_rejected")
-        if len(alternatives) == 0 and record.get("risk_level") in {"medium", "high", "critical"}:
+        if not alternatives and risk_level in {"medium", "high", "critical"}:
             errors.append("non-trivial decisions must record at least one alternative")
 
     limitations = record.get("limitations")
@@ -98,14 +105,16 @@ def validate_decision_record(
             errors.append(f"checks[{i}].status is invalid")
         if check.get("status") == "passed" and check.get("commit_sha") != expected_head:
             errors.append(f"checks[{i}] passed evidence is not bound to expected head")
-        if check.get("status") == "passed" and not check.get("evidence_id", "").strip():
+        evidence_id = check.get("evidence_id")
+        if check.get("status") == "passed" and (not isinstance(evidence_id, str) or not evidence_id.strip()):
             errors.append(f"checks[{i}] passed evidence requires evidence_id")
 
     retries = record.get("retry_history", [])
     if not isinstance(retries, list):
         errors.append("retry_history must be a list")
         retries = []
-    previous: dict[str, Any] | None = None
+    previous_signature: tuple[Any, Any] | None = None
+    seen_retry_evidence: set[str] = set()
     for i, attempt in enumerate(retries):
         if not isinstance(attempt, dict):
             errors.append(f"retry_history[{i}] must be an object")
@@ -117,12 +126,11 @@ def validate_decision_record(
         if not isinstance(evidence_added, list) or any(not isinstance(x, str) or not x.strip() for x in evidence_added):
             errors.append(f"retry_history[{i}].new_evidence_ids must be a list of non-empty strings")
             evidence_added = []
-        if previous is not None:
-            unchanged = (attempt.get("hypothesis"), attempt.get("strategy")) == (previous.get("hypothesis"), previous.get("strategy"))
-            previous_evidence = previous.get("new_evidence_ids", [])
-            if unchanged and not set(evidence_added).difference(previous_evidence):
-                errors.append(f"retry_history[{i}] is a no-progress retry; change hypothesis/strategy or add new evidence")
-        previous = attempt
+        signature = (attempt.get("hypothesis"), attempt.get("strategy"))
+        if previous_signature is not None and signature == previous_signature and not set(evidence_added).difference(seen_retry_evidence):
+            errors.append(f"retry_history[{i}] is a no-progress retry; change hypothesis/strategy or add new evidence")
+        previous_signature = signature
+        seen_retry_evidence.update(evidence_added)
 
     promotion = record.get("promotion")
     if not isinstance(promotion, dict):
