@@ -13,7 +13,19 @@ class ProposalAgent:
 
     def propose(self, request):
         self.requests.append(dict(request))
-        return {"recommendation": f"{self.crew_id} proposal", "artifacts": request["required_artifacts"]}
+        checks = {
+            name: {"status": "not_run", "evidence_refs": []}
+            for name in request["acceptance_checks"]
+        }
+        return {
+            "schema_version": "auren-crew-proposal-v1",
+            "recommendation": f"{self.crew_id} proposal",
+            "artifacts": list(request["required_artifacts"]),
+            "evidence_refs": [],
+            "uncertainty": ["Implementation has not yet been independently verified."],
+            "blockers": [],
+            "acceptance_check_results": checks,
+        }
 
 
 class GraphAgentCrewTests(unittest.TestCase):
@@ -99,6 +111,30 @@ class GraphAgentCrewTests(unittest.TestCase):
         self.assertEqual(set(frontend.requests[0]["allowed_authorities"]) & {"merge", "promote"}, set())
         with self.assertRaisesRegex(RuntimeError, "only available during graph execution"):
             observed["auren_crew_dispatch"]("frontend_ui", "late call")
+
+    def test_dispatch_rejects_unstructured_or_unsupported_proposals(self):
+        observed = {}
+        class BadAgent:
+            def propose(self, request):
+                return {"recommendation": "looks good", "artifacts": []}
+        def run_node(state):
+            with self.assertRaisesRegex(ValueError, "structured schema"):
+                state["auren_crew_dispatch"]("frontend_ui", "Implement UI")
+            return "completed"
+        team, _graph = self.make_team(run_node, agents={"frontend_ui": BadAgent()})
+        result = team.run("bad-proposal", "React frontend UI")
+        self.assertEqual(result.status, RunStatus.ACCEPTED)
+
+    def test_crew_contract_changes_change_plan_digest(self):
+        team, _graph = self.make_team(lambda _state: "ok")
+        first = team.plan_crews("React frontend UI")
+        team.add_crew(CrewDefinition(
+            crew_id="custom", specialty="custom", triggers=("react",),
+            instructions="Different contract", required_artifacts=("artifact",),
+            allowed_authorities=("propose_changes",), acceptance_checks=("checked",),
+        ))
+        second = team.plan_crews("React frontend UI")
+        self.assertNotEqual(first.digest, second.digest)
 
     def test_dispatch_rejects_unassigned_crews_and_agents_without_proposal_interface(self):
         observed = {}
