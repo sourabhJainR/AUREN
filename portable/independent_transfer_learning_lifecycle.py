@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import hashlib
+import math
 import json
 from typing import Iterable, Mapping, Sequence
 
@@ -149,21 +150,46 @@ class CrossDomainTransferMeasurer:
         minimum_lift: float = 0.03,
     ) -> DomainTransferMeasurement:
         # (domain, cohort, success, score, regression, holdout). Target cohorts must be sealed holdouts.
-        if not source_domain.strip():
+        if not isinstance(source_domain, str) or not source_domain.strip():
             raise ValueError("source_domain is required")
+        if isinstance(minimum_target_domains, bool) or not isinstance(minimum_target_domains, int) or minimum_target_domains < 1:
+            raise ValueError("minimum_target_domains must be a positive integer")
+        if isinstance(minimum_lift, bool) or not isinstance(minimum_lift, (int, float)) or not math.isfinite(minimum_lift) or not 0.0 <= minimum_lift <= 1.0:
+            raise ValueError("minimum_lift must be a finite number between 0 and 1")
+        if not isinstance(outcomes, Sequence) or isinstance(outcomes, (str, bytes)) or not outcomes:
+            raise ValueError("outcomes must be a non-empty sequence")
+        normalized = []
+        for index, item in enumerate(outcomes):
+            if not isinstance(item, (tuple, list)) or len(item) != 6:
+                raise ValueError(f"outcomes[{index}] must contain domain, cohort, success, score, regression, holdout")
+            domain, cohort, success, score, regression, holdout = item
+            if not isinstance(domain, str) or not domain.strip():
+                raise ValueError(f"outcomes[{index}].domain must be non-empty text")
+            if cohort not in {"control", "treatment"}:
+                raise ValueError(f"outcomes[{index}].cohort must be control or treatment")
+            if type(success) is not bool or type(regression) is not bool or type(holdout) is not bool:
+                raise ValueError(f"outcomes[{index}] success, regression, and holdout must be booleans")
+            if isinstance(score, bool) or not isinstance(score, (int, float)) or not math.isfinite(score) or not 0.0 <= score <= 1.0:
+                raise ValueError(f"outcomes[{index}].score must be a finite number between 0 and 1")
+            normalized.append((domain, cohort, success, float(score), regression, holdout))
         target_domains = sorted({
-            domain for domain, cohort, _success, _score, _regression, holdout in outcomes
+            domain for domain, cohort, _success, _score, _regression, holdout in normalized
             if holdout and domain != source_domain and cohort == "treatment"
         })
         if len(target_domains) < minimum_target_domains:
             raise ValueError("insufficient independent target domains")
-        source = [score for domain, cohort, _s, score, _r, holdout in outcomes
+        source = [score for domain, cohort, _s, score, _r, holdout in normalized
                   if domain == source_domain and cohort == "control" and not holdout]
-        target_control = [score for domain, cohort, _s, score, _r, holdout in outcomes
+        target_control = [score for domain, cohort, _s, score, _r, holdout in normalized
                           if domain != source_domain and cohort == "control" and holdout]
-        target_treatment = [score for domain, cohort, _s, score, _r, holdout in outcomes
+        target_treatment = [score for domain, cohort, _s, score, _r, holdout in normalized
                             if domain != source_domain and cohort == "treatment" and holdout]
-        regressions = sum(bool(r) for domain, _c, _s, _score, r, holdout in outcomes if domain != source_domain and holdout)
+        for domain in target_domains:
+            has_control = any(d == domain and cohort == "control" and holdout for d, cohort, _s, _score, _r, holdout in normalized)
+            has_treatment = any(d == domain and cohort == "treatment" and holdout for d, cohort, _s, _score, _r, holdout in normalized)
+            if not has_control or not has_treatment:
+                raise ValueError(f"target domain {domain} requires both sealed control and treatment observations")
+        regressions = sum(1 for domain, _c, _s, _score, regression, holdout in normalized if domain != source_domain and holdout and regression)
         if not source or not target_control or not target_treatment:
             raise ValueError("source and target control/treatment observations are required")
         source_baseline = sum(source) / len(source)
@@ -172,10 +198,9 @@ class CrossDomainTransferMeasurer:
         lift = treatment - target_baseline
         return DomainTransferMeasurement(
             source_domain, tuple(target_domains), source_baseline, target_baseline,
-            treatment, lift, regressions, len(outcomes),
+            treatment, lift, regressions, len(normalized),
             lift >= minimum_lift and regressions == 0,
         )
-
 
 @dataclass(frozen=True, slots=True)
 class CausalAttribution:
