@@ -258,8 +258,10 @@ class PersistentMemory:
             else:
                 params = (project, like, intent_digest, intent_digest, limit)
                 rows = db.execute("""SELECT id,project,category,text,intent_digest,confidence,verified,created_at
-                    FROM memory WHERE project=? AND text LIKE ? AND (? IS NULL OR intent_digest=?)
-                    ORDER BY verified DESC,confidence DESC,created_at DESC LIMIT ?""", params).fetchall()
+                    FROM memory WHERE project=? AND (text LIKE ? OR category LIKE ? OR project LIKE ?)
+                    AND (? IS NULL OR intent_digest=?)
+                    ORDER BY verified DESC,confidence DESC,created_at DESC LIMIT ?""",
+                    (project, like, like, like, intent_digest, intent_digest, limit)).fetchall()
         return [self._record(r) for r in rows]
 
     def close(self) -> None:
