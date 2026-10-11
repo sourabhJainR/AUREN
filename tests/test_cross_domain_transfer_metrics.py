@@ -101,8 +101,8 @@ class CrossDomainTransferMetricsTests(unittest.TestCase):
 
     def test_metric_values_are_strictly_validated(self):
         campaign, bound_request, receipt, _evidence = setup_campaign()
-        invalid = replace(receipt, metrics=(("source-case", float("nan"), 0.7, 0.2, 1.0, True),))
         with self.assertRaisesRegex(ValueError, "predicted_score"):
+            invalid = replace(receipt, metrics=(("source-case", float("nan"), 0.7, 0.2, 1.0, True),))
             SealedArenaBoundary(lambda value: value.signature == "signed").accept(
                 bound_request, invalid
             )
