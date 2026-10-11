@@ -72,6 +72,37 @@ class SealedCrossDomainLineageTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "case_ids"):
             SealedDomain("domain-a", (" ",))
 
+    def test_target_operator_must_differ_from_evaluator_and_oracle(self):
+        campaign = make_campaign()
+        conflicting = CrossDomainCampaign(
+            campaign.campaign_id,
+            campaign.request,
+            (
+                SealedDomain(
+                    "domain-a",
+                    ("case-a",),
+                    True,
+                    provenance=TargetDomainProvenance(
+                        domain_id="domain-a",
+                        origin="https://benchmarks.example.org/domain-a",
+                        manifest_digest=campaign.request.manifest_digest,
+                        split="sealed_holdout",
+                        development_corpus_digest="development-corpus",
+                        development_overlap_status="no_overlap",
+                        overlap_attestation_digest="overlap-attestation",
+                        independent_operator_id=campaign.evaluator_id,
+                        attestation_digest="test-attestation",
+                    ),
+                ),
+                SealedDomain("domain-b", ("case-b",), False),
+            ),
+            campaign.independent_oracle_id,
+            campaign.evaluator_id,
+        )
+        runner = SealedCrossDomainRunner(RecordingGateway(), target_provenance_verifier=lambda _value: True)
+        with self.assertRaisesRegex(ValueError, "independent of evaluator and oracle"):
+            runner.run(conflicting, ExternalEvaluatorCommand(("external-evaluator",)))
+
     def test_campaign_digest_changes_when_domain_assignment_changes(self):
         campaign = make_campaign()
         altered = CrossDomainCampaign(
