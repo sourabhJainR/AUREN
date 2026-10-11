@@ -16,12 +16,15 @@ from typing import Any, Callable, Mapping
 from uuid import uuid4
 
 from .autonomous_company import AutonomousCompany, TrustScore
+from .decision_gate import require_valid_decision_record
 from .engineering_recovery import verify_ci_gate
 
 Handler = Callable[[Mapping[str, Any]], Any]
 
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
 
 @dataclass(frozen=True)
 class DurableTask:
@@ -31,6 +34,7 @@ class DurableTask:
     state: str
     attempts: int
     work_unit_id: str
+
 
 class ExecutionController:
     """Durable supervisor used as the default owner of graph/team execution."""
@@ -46,32 +50,40 @@ class ExecutionController:
               session_id TEXT PRIMARY KEY, work_unit_id TEXT NOT NULL, goal TEXT NOT NULL, updated_at TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS handlers(
               name TEXT PRIMARY KEY, reference TEXT NOT NULL, updated_at TEXT NOT NULL,
-              ci_gate_policy_json TEXT NOT NULL DEFAULT '{}');
+              ci_gate_policy_json TEXT NOT NULL DEFAULT '{}',
+              promotion_gate_policy_json TEXT NOT NULL DEFAULT '{}');
             CREATE TABLE IF NOT EXISTS tasks(
               id TEXT PRIMARY KEY, handler TEXT NOT NULL, payload TEXT NOT NULL,
               state TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0,
-              work_unit_id TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, heartbeat_at TEXT, lease_until TEXT);
+              work_unit_id TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+              heartbeat_at TEXT, lease_until TEXT);
             """)
             handler_columns = {row[1] for row in db.execute("PRAGMA table_info(handlers)").fetchall()}
             if "ci_gate_policy_json" not in handler_columns:
                 db.execute("ALTER TABLE handlers ADD COLUMN ci_gate_policy_json TEXT NOT NULL DEFAULT '{}'")
+            if "promotion_gate_policy_json" not in handler_columns:
+                db.execute("ALTER TABLE handlers ADD COLUMN promotion_gate_policy_json TEXT NOT NULL DEFAULT '{}'")
             columns = {row[1] for row in db.execute("PRAGMA table_info(tasks)").fetchall()}
             for column in ("heartbeat_at", "lease_until"):
                 if column not in columns:
                     db.execute(f"ALTER TABLE tasks ADD COLUMN {column} TEXT")
 
-
     def register_handler(
-        self, name: str, handler: Handler | str, *,
+        self,
+        name: str,
+        handler: Handler | str,
+        *,
         ci_gate_policy: Mapping[str, Any] | None = None,
+        promotion_gate_policy: Mapping[str, Any] | None = None,
     ) -> str:
-        """Register a handler and optional trusted CI gate policy.
+        """Register a durable handler and trusted, operator-owned gate policies.
 
-        CI policy is set by the service/operator at handler registration, never by
-        task payload. A protected handler's tasks cannot disable the gate or
-        replace the expected SHA/required checks in their input.
+        Gate policy is stored separately from task payload. Omitting a policy on
+        re-registration never silently removes an existing gate. A promotion
+        context provider must obtain the candidate SHA, decision record, approver
+        set, and canonical evidence IDs from trusted live sources.
         """
-        if not name.strip():
+        if not isinstance(name, str) or not name.strip():
             raise ValueError("handler name is required")
         if isinstance(handler, str):
             reference = handler
@@ -81,11 +93,12 @@ class ExecutionController:
             if not module or not qualname or "<locals>" in qualname:
                 raise ValueError("durable handlers must be importable module-level callables")
             reference = f"{module}:{qualname}"
-        policy = dict(ci_gate_policy or {})
-        if policy:
-            expected_sha = policy.get("expected_head_sha")
-            required_checks = policy.get("required_checks")
-            evidence_handler = policy.get("evidence_handler")
+
+        ci_policy = dict(ci_gate_policy or {})
+        if ci_policy:
+            expected_sha = ci_policy.get("expected_head_sha")
+            required_checks = ci_policy.get("required_checks")
+            evidence_handler = ci_policy.get("evidence_handler")
             if not isinstance(expected_sha, str) or not expected_sha.strip():
                 raise ValueError("CI gate policy requires a trusted expected_head_sha")
             if (not isinstance(required_checks, (list, tuple)) or not required_checks
@@ -93,28 +106,44 @@ class ExecutionController:
                 raise ValueError("CI gate policy requires non-empty trusted required_checks")
             if not isinstance(evidence_handler, str) or not evidence_handler.strip():
                 raise ValueError("CI gate policy requires a trusted evidence_handler")
-            # Resolve the provider at registration time; it is service policy, not task input.
+            if evidence_handler == name:
+                raise ValueError("CI evidence provider cannot be the protected handler itself")
             self._load_handler(evidence_handler)
-            policy = {
+            ci_policy = {
                 "expected_head_sha": expected_sha,
                 "required_checks": list(dict.fromkeys(required_checks)),
                 "evidence_handler": evidence_handler,
             }
+
+        promotion_policy = dict(promotion_gate_policy or {})
+        if promotion_policy:
+            context_handler = promotion_policy.get("context_handler")
+            if not isinstance(context_handler, str) or not context_handler.strip():
+                raise ValueError("promotion gate policy requires a trusted context_handler")
+            if context_handler == name:
+                raise ValueError("promotion context provider cannot be the protected handler itself")
+            self._load_handler(context_handler)
+            promotion_policy = {"context_handler": context_handler}
+
         with sqlite3.connect(self.db_path) as db:
-            # Re-registering a handler after restart must not silently remove its
-            # trusted policy when the caller omits the policy or passes an empty
-            # mapping. Gate removal must be a separate, explicit administrative API.
-            if not policy:
-                prior = db.execute(
-                    "SELECT ci_gate_policy_json FROM handlers WHERE name=?", (name,)
-                ).fetchone()
-                if prior:
-                    policy = json.loads(prior[0] or "{}")
+            prior = db.execute(
+                "SELECT ci_gate_policy_json,promotion_gate_policy_json FROM handlers WHERE name=?",
+                (name,),
+            ).fetchone()
+            # Re-registering a handler after restart must not silently remove
+            # either trusted gate when the caller omits or empties its policy.
+            if not ci_policy and prior:
+                ci_policy = json.loads(prior[0] or "{}")
+            if not promotion_policy and prior:
+                promotion_policy = json.loads(prior[1] or "{}")
             db.execute(
-                "INSERT INTO handlers(name,reference,updated_at,ci_gate_policy_json) VALUES(?,?,?,?) "
-                "ON CONFLICT(name) DO UPDATE SET reference=excluded.reference,updated_at=excluded.updated_at,"
-                "ci_gate_policy_json=excluded.ci_gate_policy_json",
-                (name, reference, _now(), json.dumps(policy, sort_keys=True)),
+                "INSERT INTO handlers(name,reference,updated_at,ci_gate_policy_json,promotion_gate_policy_json) "
+                "VALUES(?,?,?,?,?) ON CONFLICT(name) DO UPDATE SET "
+                "reference=excluded.reference,updated_at=excluded.updated_at,"
+                "ci_gate_policy_json=excluded.ci_gate_policy_json,"
+                "promotion_gate_policy_json=excluded.promotion_gate_policy_json",
+                (name, reference, _now(), json.dumps(ci_policy, sort_keys=True),
+                 json.dumps(promotion_policy, sort_keys=True)),
             )
         return reference
 
@@ -126,6 +155,16 @@ class ExecutionController:
         policy = json.loads(row[0] or "{}")
         if not isinstance(policy, dict):
             raise ValueError(f"invalid persisted CI gate policy for handler: {name}")
+        return policy
+
+    def _handler_promotion_gate_policy(self, name: str) -> dict[str, Any]:
+        with sqlite3.connect(self.db_path) as db:
+            row = db.execute("SELECT promotion_gate_policy_json FROM handlers WHERE name=?", (name,)).fetchone()
+        if not row:
+            raise KeyError(f"unknown durable handler: {name}")
+        policy = json.loads(row[0] or "{}")
+        if not isinstance(policy, dict):
+            raise ValueError(f"invalid persisted promotion gate policy for handler: {name}")
         return policy
 
     def _load_handler(self, name: str) -> Handler:
@@ -141,9 +180,78 @@ class ExecutionController:
             raise TypeError(f"durable handler is not callable: {row[0]}")
         return obj
 
+    def _preflight_gates(self, task: DurableTask) -> tuple[bool, str, tuple[str, ...]]:
+        """Validate promotion and exact-head CI gates before invoking a handler."""
+        evidence: list[str] = []
+        try:
+            promotion_policy = self._handler_promotion_gate_policy(task.handler)
+            if promotion_policy:
+                provider = self._load_handler(promotion_policy["context_handler"])
+                # Do not pass task payload: the provider must resolve live repository/head
+                # and canonical evidence from trusted sources, not caller-controlled input.
+                context = provider({
+                    "task_id": task.id,
+                    "handler": task.handler,
+                    "work_unit_id": task.work_unit_id,
+                })
+                if not isinstance(context, Mapping):
+                    return False, "trusted promotion context provider returned no valid context", ("promotion-gate:missing",)
+                record = context.get("decision_record")
+                expected_repository = context.get("expected_repository")
+                expected_head = context.get("expected_head")
+                approvers = context.get("authorized_approvers")
+                evidence_ids = context.get("known_evidence_ids")
+                if not isinstance(record, Mapping):
+                    return False, "promotion gate rejected task: trusted decision record is missing", ("promotion-gate:rejected",)
+                if isinstance(approvers, str) or not isinstance(approvers, (list, tuple, set, frozenset)):
+                    return False, "promotion gate rejected task: authorized approver context is malformed", ("promotion-gate:rejected",)
+                if isinstance(evidence_ids, str) or not isinstance(evidence_ids, (list, tuple, set, frozenset)):
+                    return False, "promotion gate rejected task: canonical evidence context is malformed", ("promotion-gate:rejected",)
+                require_valid_decision_record(
+                    record,
+                    expected_repository=expected_repository,
+                    expected_head=expected_head,
+                    authorized_approvers=approvers,
+                    known_evidence_ids=evidence_ids,
+                )
+                evidence.extend((f"decision-record-head:{expected_head}", "promotion-gate:decision-record-passed"))
+
+            ci_policy = self._handler_ci_gate_policy(task.handler)
+            if ci_policy:
+                provider = self._load_handler(ci_policy["evidence_handler"])
+                gate = provider({
+                    "expected_head_sha": ci_policy["expected_head_sha"],
+                    "required_checks": list(ci_policy["required_checks"]),
+                })
+                if not isinstance(gate, Mapping):
+                    return False, "trusted CI evidence provider returned no valid evidence", tuple((*evidence, "ci-gate:missing"))
+                passed_checks = gate.get("passed_checks", ())
+                skipped_checks = gate.get("skipped_checks", ())
+                if not all(
+                    isinstance(items, (list, tuple)) and all(isinstance(item, str) and item.strip() for item in items)
+                    for items in (passed_checks, skipped_checks)
+                ):
+                    return False, "malformed exact-head CI evidence: check lists must be arrays of strings", tuple((*evidence, "ci-gate:rejected"))
+                verdict = verify_ci_gate(
+                    expected_head_sha=ci_policy["expected_head_sha"],
+                    ci_head_sha=str(gate.get("head_sha", "")),
+                    status=str(gate.get("status", "")),
+                    conclusion=str(gate.get("conclusion", "")) or None,
+                    required_checks=ci_policy["required_checks"],
+                    passed_checks=passed_checks,
+                    skipped_checks=skipped_checks,
+                )
+                if not verdict.accepted:
+                    return False, f"exact-head CI gate rejected task: {verdict.reason}", tuple((*evidence, "ci-gate:rejected"))
+                evidence.extend((f"ci-head:{gate.get('head_sha')}", "ci-gate:required-checks-passed"))
+            return True, "preflight gates passed", tuple(evidence)
+        except Exception as exc:
+            # The gate fails closed before the task handler can cause side effects.
+            return False, f"preflight gate rejected task: {type(exc).__name__}: {exc}", tuple((*evidence, "preflight-gate:rejected"))
+
     def work_unit_for_session(self, session_id: str, goal: str) -> str:
         """Return a stable work unit for a session, creating it once if needed."""
-        if not session_id.strip():
+        if not isinstance(session_id, str) or not session_id.strip():
             raise ValueError("session_id is required")
         with sqlite3.connect(self.db_path) as db:
             row = db.execute(
@@ -162,7 +270,7 @@ class ExecutionController:
             work = self.company.start(goal)
             db.execute(
                 "INSERT INTO sessions(session_id,work_unit_id,goal,updated_at) VALUES(?,?,?,?)",
-                (session_id, work.id, goal, _now()),
+                (session_id, work.id, goal, _now(), session_id),
             )
         return work.id
 
@@ -172,104 +280,90 @@ class ExecutionController:
         task = DurableTask(uuid4().hex, handler, dict(payload), "pending", 0, work.id)
         with sqlite3.connect(self.db_path) as db:
             now = _now()
-            db.execute("INSERT INTO tasks(id,handler,payload,state,attempts,work_unit_id,created_at,updated_at,heartbeat_at,lease_until) VALUES(?,?,?,?,?,?,?,?,?,?)",
-                       (task.id, task.handler, json.dumps(task.payload, sort_keys=True),
-                        task.state, task.attempts, task.work_unit_id, now, now, now, now))
+            db.execute(
+                "INSERT INTO tasks(id,handler,payload,state,attempts,work_unit_id,created_at,updated_at,heartbeat_at,lease_until) "
+                "VALUES(?,?,?,?,?,?,?,?,?,?)",
+                (task.id, task.handler, json.dumps(task.payload, sort_keys=True),
+                 task.state, task.attempts, task.work_unit_id, now, now, now, now),
+            )
         return task
 
     def _claim(self, task_id: str) -> DurableTask | None:
         with sqlite3.connect(self.db_path) as db:
-            row = db.execute("SELECT id,handler,payload,state,attempts,work_unit_id FROM tasks WHERE id=?",
-                             (task_id,)).fetchone()
+            row = db.execute(
+                "SELECT id,handler,payload,state,attempts,work_unit_id FROM tasks WHERE id=?",
+                (task_id,),
+            ).fetchone()
             if not row or row[3] in {"completed", "failed", "cancelled"}:
                 return None
             attempts = int(row[4]) + 1
             now = _now()
             lease = (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat()
-            db.execute("UPDATE tasks SET state='running',attempts=?,updated_at=?,heartbeat_at=?,lease_until=? WHERE id=?",
-                       (attempts, now, now, lease, task_id))
+            db.execute(
+                "UPDATE tasks SET state='running',attempts=?,updated_at=?,heartbeat_at=?,lease_until=? WHERE id=?",
+                (attempts, now, now, lease, task_id),
+            )
         return DurableTask(row[0], row[1], json.loads(row[2]), "running", attempts, row[5])
 
     def run_once(self, task_id: str) -> TrustScore | None:
         task = self._claim(task_id)
         if task is None:
             return None
-        handler = self._load_handler(task.handler)
         try:
             self.heartbeat(task.id)
+            gates_passed, gate_detail, gate_evidence = self._preflight_gates(task)
+            if not gates_passed:
+                evidence = [f"handler:{task.handler}", *gate_evidence]
+                self.company.record(task.work_unit_id, "execution", "failed", gate_detail, evidence)
+                with sqlite3.connect(self.db_path) as db:
+                    db.execute(
+                        "UPDATE tasks SET state='failed',updated_at=?,heartbeat_at=?,lease_until=NULL WHERE id=?",
+                        (_now(), _now(), task.id),
+                    )
+                return self.company.finish(task.work_unit_id, success=False, reason=gate_detail, evidence=evidence)
+
+            handler = self._load_handler(task.handler)
             result = handler(task.payload)
             self.heartbeat(task.id)
-            evidence = [f"handler:{task.handler}"]
+            evidence = [f"handler:{task.handler}", *gate_evidence]
             if isinstance(result, Mapping):
                 evidence.extend(str(x) for x in result.get("evidence", ()) if x)
-                success = bool(result.get("success", True))
-                detail = str(result.get("detail", "handler completed"))
+                success_value = result.get("success", True)
+                if type(success_value) is not bool:
+                    success = False
+                    detail = "handler success field must be a boolean"
+                else:
+                    success = success_value
+                    detail = str(result.get("detail", "handler completed"))
             else:
                 success, detail = True, "handler completed"
-
-            # The trusted handler registration owns gate policy. Task payload cannot
-            # disable the gate, lower required checks, or substitute the expected SHA.
-            gate_policy = self._handler_ci_gate_policy(task.handler)
-            if gate_policy:
-                # Obtain CI evidence from a separately registered trusted provider.
-                # Never accept a handler/task result as proof of its own CI success.
-                evidence_provider = self._load_handler(gate_policy["evidence_handler"])
-                gate = evidence_provider({
-                    "expected_head_sha": gate_policy["expected_head_sha"],
-                    "required_checks": list(gate_policy["required_checks"]),
-                })
-                if not isinstance(gate, Mapping):
-                    success = False
-                    detail = "trusted CI evidence provider returned no valid evidence"
-                    evidence.append("ci-gate:missing")
-                else:
-                    try:
-                        passed_checks = gate.get("passed_checks", ())
-                        skipped_checks = gate.get("skipped_checks", ())
-                        if not all(isinstance(items, (list, tuple)) and all(isinstance(x, str) for x in items)
-                                   for items in (passed_checks, skipped_checks)):
-                            raise ValueError("check lists must be arrays of strings")
-                        verdict = verify_ci_gate(
-                            expected_head_sha=gate_policy["expected_head_sha"],
-                            ci_head_sha=str(gate.get("head_sha", "")),
-                            status=str(gate.get("status", "")),
-                            conclusion=str(gate.get("conclusion", "")) or None,
-                            required_checks=gate_policy["required_checks"],
-                            passed_checks=passed_checks,
-                            skipped_checks=skipped_checks,
-                        )
-                    except (KeyError, TypeError, ValueError) as gate_error:
-                        verdict = None
-                        gate_reason = f"malformed exact-head CI evidence: {gate_error}"
-                    if verdict is None:
-                        success = False
-                        detail = gate_reason
-                    elif not verdict.accepted:
-                        success = False
-                        detail = f"exact-head CI gate rejected task: {verdict.reason}"
-                    else:
-                        evidence.append(f"ci-head:{gate.get('head_sha')}")
-                        evidence.append("ci-gate:required-checks-passed")
-                        detail = f"{detail}; {verdict.reason}"
 
             self.company.record(task.work_unit_id, "execution", "completed" if success else "failed", detail, evidence)
             state = "completed" if success else "failed"
             with sqlite3.connect(self.db_path) as db:
-                db.execute("UPDATE tasks SET state=?,updated_at=?,heartbeat_at=?,lease_until=NULL WHERE id=?", (state, _now(), _now(), task.id))
+                db.execute(
+                    "UPDATE tasks SET state=?,updated_at=?,heartbeat_at=?,lease_until=NULL WHERE id=?",
+                    (state, _now(), _now(), task.id),
+                )
             return self.company.finish(task.work_unit_id, success=success, reason=detail, evidence=evidence)
         except Exception as exc:
             detail = f"{type(exc).__name__}: {exc}"
             self.company.record(task.work_unit_id, "execution", "failed", detail, (f"handler:{task.handler}",))
             with sqlite3.connect(self.db_path) as db:
-                db.execute("UPDATE tasks SET state=?,updated_at=?,heartbeat_at=?,lease_until=NULL WHERE id=?", ("failed", _now(), _now(), task.id))
+                db.execute(
+                    "UPDATE tasks SET state='failed',updated_at=?,heartbeat_at=?,lease_until=NULL WHERE id=?",
+                    (_now(), _now(), task.id),
+                )
             self.company.finish(task.work_unit_id, success=False, reason=detail)
             raise
 
     def resume_pending(self, *, limit: int = 20) -> list[TrustScore]:
         """Resume pending/running work after process or host restart."""
         with sqlite3.connect(self.db_path) as db:
-            rows = db.execute("SELECT id FROM tasks WHERE state IN ('pending','running') ORDER BY updated_at LIMIT ?",
-                              (limit,)).fetchall()
+            rows = db.execute(
+                "SELECT id FROM tasks WHERE state IN ('pending','running') ORDER BY updated_at LIMIT ?",
+                (limit,),
+            ).fetchall()
         scores = []
         for (task_id,) in rows:
             score = self.run_once(task_id)
@@ -277,19 +371,24 @@ class ExecutionController:
                 scores.append(score)
         return scores
 
-
     def heartbeat(self, task_id: str, *, lease_seconds: int = 300) -> None:
         now = datetime.now(timezone.utc)
         lease = (now + timedelta(seconds=max(1, lease_seconds))).isoformat()
         with sqlite3.connect(self.db_path) as db:
-            db.execute("UPDATE tasks SET heartbeat_at=?,lease_until=?,updated_at=? WHERE id=? AND state='running'",
-                       (now.isoformat(), lease, now.isoformat(), task_id))
+            db.execute(
+                "UPDATE tasks SET heartbeat_at=?,lease_until=?,updated_at=? WHERE id=? AND state='running'",
+                (now.isoformat(), lease, now.isoformat(), task_id),
+            )
 
     def detect_stale(self, stale_after_seconds: int = 900) -> list[DurableTask]:
         cutoff = (datetime.now(timezone.utc) - timedelta(seconds=max(1, stale_after_seconds))).isoformat()
         with sqlite3.connect(self.db_path) as db:
-            rows = db.execute("SELECT id,handler,payload,state,attempts,work_unit_id FROM tasks WHERE state='running' AND (heartbeat_at IS NULL OR heartbeat_at<?)", (cutoff,)).fetchall()
-        return [DurableTask(r[0],r[1],json.loads(r[2]),r[3],int(r[4]),r[5]) for r in rows]
+            rows = db.execute(
+                "SELECT id,handler,payload,state,attempts,work_unit_id FROM tasks "
+                "WHERE state='running' AND (heartbeat_at IS NULL OR heartbeat_at<?)",
+                (cutoff,),
+            ).fetchall()
+        return [DurableTask(r[0], r[1], json.loads(r[2]), r[3], int(r[4]), r[5]) for r in rows]
 
     def recover_stale(self, task_id: str, *, reason: str) -> None:
         task = self.task(task_id)
@@ -297,7 +396,10 @@ class ExecutionController:
             return
         self.company.record(task.work_unit_id, "recovery", "detected", reason, (f"task:{task.id}",))
         with sqlite3.connect(self.db_path) as db:
-            db.execute("UPDATE tasks SET state='pending',updated_at=?,lease_until=NULL WHERE id=? AND state='running'", (_now(), task_id))
+            db.execute(
+                "UPDATE tasks SET state='pending',updated_at=?,lease_until=NULL WHERE id=? AND state='running'",
+                (_now(), task_id),
+            )
 
     def generate_alternate_plans(self, task_id: str, reason: str) -> tuple[str, ...]:
         task = self.task(task_id)
@@ -320,11 +422,16 @@ class ExecutionController:
     def self_review(self, *, limit: int = 20) -> int:
         count = 0
         with sqlite3.connect(self.db_path) as db:
-            rows = db.execute("SELECT id,work_unit_id,state,attempts FROM tasks ORDER BY updated_at DESC LIMIT ?", (limit,)).fetchall()
-        for task_id,wid,state,attempts in rows:
+            rows = db.execute(
+                "SELECT id,work_unit_id,state,attempts FROM tasks ORDER BY updated_at DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        for task_id, wid, state, attempts in rows:
             ok = state != "failed" and attempts < 1000000
-            self.company.record(wid, "self_review", "passed" if ok else "failed",
-                                f"task={task_id}; state={state}; attempts={attempts}", (f"task:{task_id}",))
+            self.company.record(
+                wid, "self_review", "passed" if ok else "failed",
+                f"task={task_id}; state={state}; attempts={attempts}", (f"task:{task_id}",),
+            )
             count += 1
         return count
 
@@ -332,8 +439,10 @@ class ExecutionController:
         findings = []
         with sqlite3.connect(self.db_path) as db:
             failed = db.execute("SELECT COUNT(*) FROM tasks WHERE state='failed'").fetchone()[0]
-            stale = db.execute("SELECT COUNT(*) FROM tasks WHERE state='running' AND (heartbeat_at IS NULL OR heartbeat_at<?)",
-                               ((datetime.now(timezone.utc)-timedelta(minutes=15)).isoformat(),)).fetchone()[0]
+            stale = db.execute(
+                "SELECT COUNT(*) FROM tasks WHERE state='running' AND (heartbeat_at IS NULL OR heartbeat_at<?)",
+                ((datetime.now(timezone.utc) - timedelta(minutes=15)).isoformat(),),
+            ).fetchone()[0]
         if failed:
             findings.append(f"failed_tasks={failed}")
         if stale:
@@ -342,8 +451,10 @@ class ExecutionController:
 
     def task(self, task_id: str) -> DurableTask | None:
         with sqlite3.connect(self.db_path) as db:
-            row = db.execute("SELECT id,handler,payload,state,attempts,work_unit_id FROM tasks WHERE id=?",
-                             (task_id,)).fetchone()
+            row = db.execute(
+                "SELECT id,handler,payload,state,attempts,work_unit_id FROM tasks WHERE id=?",
+                (task_id,),
+            ).fetchone()
         return DurableTask(row[0], row[1], json.loads(row[2]), row[3], int(row[4]), row[5]) if row else None
 
     def trust(self, task_id: str) -> TrustScore:
@@ -359,8 +470,8 @@ class ExecutionController:
             return graph.run(task_id, intent, context)
         if isinstance(graph, StateGraph):
             return graph.run(task_id, intent, context)
-        # Backward compatibility for existing Graph callers.
         from .orchestration import Orchestrator
         return Orchestrator(graph).run(task_id, intent, context)
+
 
 __all__ = ["ExecutionController", "DurableTask", "Handler"]
