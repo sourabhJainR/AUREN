@@ -1,8 +1,8 @@
 """Content-addressed receipts for independent generalization arena runs.
 
-This remains evaluation infrastructure only. It records what was evaluated and
-the resulting measurements without allowing the adaptive runtime to alter the
-corpus, oracle, or gate policy.
+This records measurements without allowing the adaptive runtime to alter the
+corpus, oracle, or gate policy. Promotion chains must bind the receipt to the
+exact external campaign digest.
 """
 from __future__ import annotations
 
@@ -31,6 +31,7 @@ class ArenaRunReceipt:
     resource_measurements: tuple[tuple[str, str], ...] = ()
     contamination_detected: bool = False
     receipt_digest: str = ""
+    campaign_digest: str = ""
 
     def __post_init__(self) -> None:
         for name, value in (
@@ -42,21 +43,31 @@ class ArenaRunReceipt:
             ("runtime_snapshot", self.runtime_snapshot),
             ("evaluator_version", self.evaluator_version),
         ):
-            if not value.strip():
+            if not isinstance(value, str) or not value.strip():
                 raise ValueError(f"{name} is required")
-        if self.duration_ms < 0:
-            raise ValueError("duration_ms cannot be negative")
-        if not self.case_ids:
+        if not isinstance(self.campaign_digest, str):
+            raise ValueError("campaign_digest must be a string")
+        if self.campaign_digest and not self.campaign_digest.strip():
+            raise ValueError("campaign_digest cannot be whitespace")
+        if type(self.contamination_detected) is not bool:
+            raise ValueError("contamination_detected must be a boolean")
+        if type(self.duration_ms) is not int or self.duration_ms < 0:
+            raise ValueError("duration_ms must be a non-negative integer")
+        if not isinstance(self.case_ids, tuple) or not self.case_ids:
             raise ValueError("at least one case is required")
+        if any(not isinstance(case_id, str) or not case_id.strip() for case_id in self.case_ids):
+            raise ValueError("case ids must be non-empty strings")
         if len(set(self.case_ids)) != len(self.case_ids):
             raise ValueError("duplicate case id")
+        if not isinstance(self.holdout_case_ids, tuple) or not isinstance(self.passed_case_ids, tuple) or not isinstance(self.verified_case_ids, tuple):
+            raise ValueError("case result collections must be tuples")
         if not set(self.holdout_case_ids) <= set(self.case_ids):
             raise ValueError("holdout case is not in evaluated case set")
         if not set(self.passed_case_ids) <= set(self.case_ids):
             raise ValueError("passed case is not in evaluated case set")
         if not set(self.verified_case_ids) <= set(self.case_ids):
             raise ValueError("verified case is not in evaluated case set")
-        if any(not k.strip() or not isinstance(v, str) for k, v in self.resource_measurements):
+        if any(not isinstance(k, str) or not k.strip() or not isinstance(v, str) for k, v in self.resource_measurements):
             raise ValueError("resource measurements require non-empty keys and string values")
         if len({k for k, _ in self.resource_measurements}) != len(self.resource_measurements):
             raise ValueError("duplicate resource measurement key")
@@ -68,6 +79,7 @@ class ArenaRunReceipt:
     def _payload(self) -> dict[str, object]:
         return {
             "run_id": self.run_id,
+            "campaign_digest": self.campaign_digest,
             "arena_version": self.arena_version,
             "corpus_digest": self.corpus_digest,
             "manifest_digest": self.manifest_digest,
