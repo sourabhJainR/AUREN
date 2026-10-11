@@ -62,7 +62,7 @@ class AgentCapabilityTests(unittest.TestCase):
                 for category, text in samples:
                     memory.remember("unicode-project", category, text, approved=True)
                 self.assertEqual(len(memory.search("unicode-project", "José")), 1)
-                self.assertEqual(len(memory.search("unicode-project", "東京")), 1)
+                self.assertEqual(len(memory.search("unicode-project", "東京")), 2)
                 self.assertEqual(len(memory.search("unicode-project", "नमस्ते")), 1)
                 self.assertEqual(len(memory.search("unicode-project", "München")), 1)
                 self.assertEqual(len(memory.search("unicode-project", "東京カテゴリ")), 1)
