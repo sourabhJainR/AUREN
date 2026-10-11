@@ -35,6 +35,8 @@ class ExternalEvaluatorGatewayBudgetTests(unittest.TestCase):
             (("case-budget", True, "evidence-d"),),
             run_nonce="nonce-budget",
             request_digest=self.request.request_digest,
+            contamination_free=True,
+            independent_oracle=True,
         )
 
     def tearDown(self) -> None:
