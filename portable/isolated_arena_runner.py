@@ -8,6 +8,7 @@ untrusted code and genuinely independent campaigns.
 """
 from __future__ import annotations
 
+import json
 import math
 import os
 import subprocess
@@ -75,7 +76,7 @@ def run_campaign_isolated(
         def policy(task: Mapping[str, str]) -> Any:
             completed = subprocess.run(
                 list(policy_command),
-                input=__import__("json").dumps(
+                input=json.dumps(
                     dict(task), sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
                 ),
                 text=True,
@@ -91,7 +92,6 @@ def run_campaign_isolated(
             )
             if completed.returncode != 0:
                 raise ArenaError("policy subprocess returned a non-zero exit status")
-            import json
             try:
                 return json.loads(completed.stdout)
             except (json.JSONDecodeError, TypeError) as exc:
