@@ -47,9 +47,12 @@ class IndependentArenaTests(unittest.TestCase):
         policy = lambda task: 15 if task["case_id"] == "math-001" else "transient"
         first = run_campaign(sealed, policy, nonce_ledger=new_ledger(), policy_digest="sha256:policy-a", run_nonce="run-001")
         second = run_campaign(sealed, policy, nonce_ledger=new_ledger(), policy_digest="sha256:policy-a", run_nonce="run-002")
-        self.assertNotEqual(first["result_digest"], second["result_digest"])
+        self.assertEqual(first["result_digest"], second["result_digest"])
+        self.assertNotEqual(first["receipt_digest"], second["receipt_digest"])
         third = run_campaign(sealed, policy, nonce_ledger=new_ledger(), policy_digest="sha256:policy-a", run_nonce="run-001")
         self.assertEqual(first["result_digest"], third["result_digest"])
+        self.assertTrue(verify_receipt(first, sealed))
+        self.assertTrue(verify_receipt(second, sealed))
 
     def test_manifest_tampering_is_rejected(self):
         sealed = seal_manifest(fixture())

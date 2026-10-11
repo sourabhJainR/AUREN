@@ -204,6 +204,10 @@ from .sealed_arena_exchange import export_campaign_request, import_campaign_requ
 
 __all__ += ["export_campaign_request", "import_campaign_request", "export_outcome_receipt", "import_outcome_receipt"]
 
+from .isolated_arena_runner import run_campaign_isolated
+
+__all__ += ["run_campaign_isolated"]
+
 from .external_evaluator_gateway import ExternalEvaluatorCommand, ExternalEvaluatorGateway
 
 __all__ += ["ExternalEvaluatorCommand", "ExternalEvaluatorGateway"]
