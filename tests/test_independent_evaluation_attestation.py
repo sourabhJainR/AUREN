@@ -8,6 +8,19 @@ class AttestationTests(unittest.TestCase):
     def att(self):
         return EvaluationAttestation("camp", "corpus", "oracle", "v1", "external-evaluator", "sig")
 
+    @staticmethod
+    def verify_principal(principal, role):
+        return (role == "evaluator" and principal in {"runtime-evaluator", "runtime-A", "runtime-B"}) or (
+            role == "oracle" and principal == "oracle-service"
+        )
+
+    def separation_verifier(self, verify_signature=lambda a: a.signature == "sig"):
+        return SeparationAwareAttestor(
+            verify_signature,
+            AttestationTrustPolicy(frozenset({"external-evaluator"})),
+            self.verify_principal,
+        )
+
     def test_signature_and_lineage_alone_do_not_establish_independence(self):
         result = IndependentEvaluationAttestor(lambda a: a.signature == "sig").verify(
             self.att(),
@@ -20,12 +33,7 @@ class AttestationTests(unittest.TestCase):
         self.assertFalse(result.trustworthy)
 
     def test_matching_verified_attestation_is_trustworthy_after_separation(self):
-        verifier = SeparationAwareAttestor(
-            lambda a: a.signature == "sig",
-            AttestationTrustPolicy(frozenset({"external-evaluator"})),
-            lambda principal, role: (role == "evaluator" and principal in {"runtime-evaluator", "runtime-A", "runtime-B"}) or (role == "oracle" and principal in {"oracle-service"}),
-        )
-        result = verifier.verify(
+        result = self.separation_verifier().verify(
             self.att(),
             evaluator_id="runtime-evaluator",
             oracle_id="oracle-service",
@@ -47,12 +55,7 @@ class AttestationTests(unittest.TestCase):
         self.assertTrue(result.reasons)
 
     def test_contamination_blocks_trust_after_separation(self):
-        verifier = SeparationAwareAttestor(
-            lambda _a: True,
-            AttestationTrustPolicy(frozenset({"external-evaluator"})),
-            lambda principal, role: (role == "evaluator" and principal in {"runtime-evaluator", "runtime-A", "runtime-B"}) or (role == "oracle" and principal == "oracle-service"),
-        )
-        result = verifier.verify(
+        result = self.separation_verifier(lambda _a: True).verify(
             self.att(),
             evaluator_id="runtime-evaluator",
             oracle_id="oracle-service",
@@ -65,10 +68,7 @@ class AttestationTests(unittest.TestCase):
         self.assertTrue(any("contamination" in reason for reason in result.reasons))
 
     def test_separation_context_is_bound_into_evidence_digest(self):
-        verifier = SeparationAwareAttestor(
-            lambda _a: True,
-            AttestationTrustPolicy(frozenset({"external-evaluator"})),
-        )
+        verifier = self.separation_verifier(lambda _a: True)
         kwargs = dict(
             oracle_id="oracle-service",
             expected_campaign_digest="camp",
