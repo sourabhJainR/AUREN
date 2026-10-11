@@ -8,6 +8,7 @@ import re
 from typing import Any, Callable, Mapping
 
 from .orchestration import Graph, Node, NodeKind, NodeStatus, OrchestrationRun, Orchestrator
+from .crew_adapters import GraphHandoffController, rollback_readiness
 
 _FORBIDDEN_CREW_AUTHORITIES = frozenset({
     "merge", "promote", "self_approve", "approve_own_work", "bypass_review",
@@ -390,8 +391,86 @@ class GraphAgentTeam:
                 "self_attested_acceptance_is_not_authoritative": True,
             }
 
-        # Only graph nodes receive the scoped dispatcher, never raw agent objects.
+        # Resume only from an explicitly supplied, schema-validated supervisor checkpoint.
+        checkpoint = state.get("auren_crew_handoff_checkpoint")
+        handoffs = (
+            GraphHandoffController.resume(checkpoint)
+            if checkpoint is not None
+            else GraphHandoffController(max_attempts=3)
+        )
+
+        def enqueue_handoff(source_crew: str, target_crew: str, task: str) -> dict[str, Any]:
+            if not dispatch_active["value"]:
+                raise RuntimeError("handoffs may only be enqueued during graph execution")
+            if source_crew not in selected_ids:
+                raise ValueError(f"handoff source crew {source_crew} is not assigned to this graph task")
+            source = self.crews[source_crew]
+            item = handoffs.enqueue(
+                source_crew=source_crew,
+                target_crew=target_crew,
+                task=task,
+                source_plan_digest=plan.digest,
+                allowed_handoffs=source.handoffs_to,
+                selected_crews=tuple(selected_ids),
+            )
+            return {
+                "source_crew": item.source_crew,
+                "target_crew": item.target_crew,
+                "task": item.task,
+                "source_plan_digest": item.source_plan_digest,
+                "attempt": item.attempt,
+            }
+
+        def claim_handoff() -> dict[str, Any] | None:
+            item = handoffs.claim_next(graph_node_active=dispatch_active["value"])
+            if item is None:
+                return None
+            return {
+                "source_crew": item.source_crew,
+                "target_crew": item.target_crew,
+                "task": item.task,
+                "source_plan_digest": item.source_plan_digest,
+                "attempt": item.attempt,
+            }
+
+        def retry_handoff(record: Mapping[str, Any], retryable: bool) -> dict[str, Any] | None:
+            if not dispatch_active["value"]:
+                raise RuntimeError("handoff retry is only available during graph execution")
+            item = handoffs.retry(
+                __import__("portable.crew_adapters", fromlist=["CrewHandoff"]).CrewHandoff(
+                    record["source_crew"], record["target_crew"], record["task"],
+                    record["source_plan_digest"], record.get("attempt", 0),
+                ),
+                retryable=retryable,
+            )
+            if item is None:
+                return None
+            return {
+                "source_crew": item.source_crew,
+                "target_crew": item.target_crew,
+                "task": item.task,
+                "source_plan_digest": item.source_plan_digest,
+                "attempt": item.attempt,
+            }
+
+        def complete_handoff(record: Mapping[str, Any], independent_review_passed: bool) -> None:
+            if not dispatch_active["value"]:
+                raise RuntimeError("handoff completion is only available during graph execution")
+            from .crew_adapters import CrewHandoff
+            handoffs.mark_completed(CrewHandoff(
+                record["source_crew"], record["target_crew"], record["task"],
+                record["source_plan_digest"], record.get("attempt", 0),
+            ), independent_review_passed=independent_review_passed)
+
+        # Only graph nodes receive scoped functions. Adapter/tool objects are never
+        # placed into graph state; the graph node remains the sole execution authority.
         state["auren_crew_dispatch"] = dispatch_crew
+        state["auren_crew_handoff_enqueue"] = enqueue_handoff
+        state["auren_crew_handoff_claim"] = claim_handoff
+        state["auren_crew_handoff_retry"] = retry_handoff
+        state["auren_crew_handoff_complete"] = complete_handoff
+        state["auren_crew_handoff_checkpoint"] = handoffs.snapshot
+        state["auren_crew_rollback_readiness"] = rollback_readiness
         try:
             return self.graph.run(task_id, intent, state)
         finally:
