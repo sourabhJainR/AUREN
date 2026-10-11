@@ -14,6 +14,7 @@ import time
 from typing import Callable, Final, Mapping
 
 from .sealed_corpus_provenance import SealedCorpusProvenance
+from .sealed_arena_custody import verify_custody_attestation
 
 _FORBIDDEN_PAYLOAD_KEYS: Final[frozenset[str]] = frozenset({
     "answer",
@@ -253,14 +254,29 @@ class SealedArenaEvidence:
 class SealedArenaBoundary:
     """Accept externally attested outcomes without importing the oracle."""
 
-    def __init__(self, verify_signature, *, clock: Callable[[], float] = time.time, max_future_skew_seconds: float = 30.0) -> None:
+    def __init__(self, verify_signature, *, verify_custody_signature: Callable[[str, str, bytes], bool] | None = None, clock: Callable[[], float] = time.time, max_future_skew_seconds: float = 30.0) -> None:
         if not callable(verify_signature) or not callable(clock):
             raise TypeError("signature verifier and clock must be callable")
+        if verify_custody_signature is not None and not callable(verify_custody_signature):
+            raise TypeError("custody signature verifier must be callable")
         if isinstance(max_future_skew_seconds, bool) or not isinstance(max_future_skew_seconds, (int, float)) or not math.isfinite(max_future_skew_seconds) or max_future_skew_seconds < 0:
             raise ValueError("max_future_skew_seconds must be finite and non-negative")
         self._verify_signature = verify_signature
+        self._verify_custody_signature = verify_custody_signature
         self._clock = clock
         self._max_future_skew_seconds = float(max_future_skew_seconds)
+
+    @classmethod
+    def from_trusted_ed25519_keys(cls, trusted_public_keys: Mapping[str, bytes | str], *, clock: Callable[[], float] = time.time, max_future_skew_seconds: float = 30.0) -> "SealedArenaBoundary":
+        """Build a production boundary requiring signed outcome and custody evidence."""
+        from .sealed_arena_signature import Ed25519ReceiptVerifier
+        verifier = Ed25519ReceiptVerifier(trusted_public_keys)
+        return cls(
+            verifier,
+            verify_custody_signature=verifier.verify_detached,
+            clock=clock,
+            max_future_skew_seconds=max_future_skew_seconds,
+        )
 
     def accept(self, request: SealedCampaignRequest, receipt: ExternalOutcomeReceipt) -> SealedArenaEvidence:
         if not isinstance(request, SealedCampaignRequest) or not isinstance(receipt, ExternalOutcomeReceipt):
@@ -288,6 +304,13 @@ class SealedArenaBoundary:
             evaluator_id=receipt.evaluator_id,
             oracle_id=receipt.oracle_id,
         )
+        if self._verify_custody_signature is not None:
+            verify_custody_attestation(
+                request.provenance,
+                self._verify_custody_signature,
+                evaluator_id=receipt.evaluator_id,
+                oracle_id=receipt.oracle_id,
+            )
         if not self._verify_signature(receipt):
             raise ValueError("external outcome signature is not verified")
         expected_ids = {case.case_id for case in request.cases}
