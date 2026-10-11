@@ -43,15 +43,15 @@ class IsolatedArenaRunnerTests(unittest.TestCase):
     def test_policy_receives_only_task_fields_and_receipt_verifies(self):
         code = (
             "import json,sys; task=json.load(sys.stdin); "
-            "assert set(task)=={'case_id','domain','prompt'}; "
-            "print(json.dumps(15 if task['case_id']=='case-1' else 'transient'))"
+            "assert set(task)=={'prompt'}; "
+            "print(json.dumps(15 if task['prompt']=='What is 7 + 8?' else 'transient'))"
         )
         receipt = self.run_policy("run-1", code)
         self.assertEqual(receipt["counts"], {"pass": 2, "fail": 0, "error": 0})
         self.assertTrue(verify_receipt(receipt, fixture()))
 
     def test_result_digest_is_stable_but_receipts_are_unique(self):
-        code = "import json,sys; x=json.load(sys.stdin); print(json.dumps(15 if x['case_id']=='case-1' else 'transient'))"
+        code = "import json,sys; x=json.load(sys.stdin); print(json.dumps(15 if x['prompt']=='What is 7 + 8?' else 'transient'))"
         first = self.run_policy("run-a", code)
         second = self.run_policy("run-b", code)
         self.assertEqual(first["result_digest"], second["result_digest"])
