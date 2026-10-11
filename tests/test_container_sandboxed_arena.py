@@ -46,7 +46,7 @@ class ContainerSandboxedArenaTests(unittest.TestCase):
     @patch("portable.container_sandboxed_arena.subprocess.Popen")
     def test_container_is_networkless_read_only_unprivileged_and_resource_limited(self, popen):
         process = popen.return_value
-        process.stdin = io.BytesIO()
+        process.stdin = Mock()
         process.stdout = io.BytesIO(b"15\n")
         process.wait.return_value = 0
         process.returncode = 0
@@ -87,7 +87,7 @@ class ContainerSandboxedArenaTests(unittest.TestCase):
     @patch("portable.container_sandboxed_arena.subprocess.Popen")
     def test_output_overflow_is_bounded_and_requests_container_cleanup(self, popen, run):
         process = popen.return_value
-        process.stdin = io.BytesIO()
+        process.stdin = Mock()
         process.stdout = io.BytesIO(b"x" * 100_000)
         process.wait.return_value = 0
         process.returncode = -9
