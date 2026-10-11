@@ -26,6 +26,7 @@ class SealedArenaBoundaryTests(unittest.TestCase):
             "contamination_free": True,
             "independent_oracle": True,
             "run_nonce": "nonce-1",
+            "request_digest": self.request.request_digest,
         }
         values.update(overrides)
         return ExternalOutcomeReceipt(**values)
@@ -79,7 +80,7 @@ class SealedArenaBoundaryTests(unittest.TestCase):
     def test_rejects_partial_campaign_receipt(self) -> None:
         second = SealedCaseEnvelope("case-2", "task-2", "input-2", "env-2", False)
         request = SealedCampaignRequest("campaign-d", "corpus-d", (self.case, second), "nonce-1")
-        receipt = self.receipt(results=(("case-1", True, "evidence-d"),))
+        receipt = self.receipt(results=(("case-1", True, "evidence-d"),), request_digest=request.request_digest)
         with self.assertRaisesRegex(ValueError, "incomplete"):
             SealedArenaBoundary(lambda _value: True).accept(request, receipt)
 
