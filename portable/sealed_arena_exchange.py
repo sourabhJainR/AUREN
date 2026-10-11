@@ -58,7 +58,15 @@ def _decode(raw: bytes, expected_kind: str) -> dict[str, Any]:
             "metrics", "issued_at_epoch", "expires_at_epoch",
         },
     }.get(expected_kind)
-    if payload_fields is None or set(payload) != payload_fields:
+    if payload_fields is None:
+        raise ValueError("unsupported sealed Arena exchange payload kind")
+    missing_fields = payload_fields - set(payload)
+    unknown_fields = set(payload) - payload_fields
+    if expected_kind == "outcome_receipt" and missing_fields.intersection({"issued_at_epoch", "expires_at_epoch"}):
+        raise ValueError("outcome receipt is missing signed freshness fields")
+    if "run_nonce" in missing_fields:
+        raise ValueError("sealed Arena exchange payload is missing run_nonce")
+    if missing_fields or unknown_fields:
         raise ValueError("sealed Arena exchange payload has unknown or missing fields")
     if expected_kind == "campaign_request":
         cases = payload.get("cases")
