@@ -70,9 +70,9 @@ class ExternalEvaluatorGateway:
             raise TypeError("a persistent SealedArenaReplayLedger is required")
         if type(allow_test_verifier) is not bool:
             raise TypeError("allow_test_verifier must be a boolean")
-        if not boundary.has_custody_verifier and not allow_test_verifier:
+        if not boundary.has_trusted_custody_verifier and not allow_test_verifier:
             raise ValueError(
-                "external evaluator gateway requires a trusted boundary that verifies signed holdout custody; "
+                "external evaluator gateway requires a trusted Ed25519 keyring boundary that verifies signed holdout custody; "
                 "test-only callbacks require allow_test_verifier=True"
             )
         self.boundary = boundary
