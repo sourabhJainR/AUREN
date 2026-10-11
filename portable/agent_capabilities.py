@@ -12,6 +12,7 @@ import os
 import re
 import sqlite3
 import threading
+import unicodedata
 import uuid
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
@@ -30,6 +31,22 @@ CAPABILITIES = (
 _RISK_ORDER = {"low": 0, "medium": 1, "high": 2}
 _SECRET = re.compile(r"(?i)(api[_-]?key|token|password|secret|authorization)\s*[:=]\s*([^\s,;'\"]+)")
 _INJECTION = re.compile(r"(?i)ignore\s+(all|previous|prior)\s+instructions")
+
+
+def _unicode_search_tokens(value: str) -> list[str]:
+    """Split search text on punctuation while preserving Unicode letters and marks."""
+    tokens: list[str] = []
+    current: list[str] = []
+    for character in value:
+        category = unicodedata.category(character)
+        if category[0] in {"L", "N", "M"} or category == "Pc":
+            current.append(character)
+        elif current:
+            tokens.append("".join(current))
+            current = []
+    if current:
+        tokens.append("".join(current))
+    return tokens
 
 
 def _utc() -> datetime:
@@ -221,9 +238,12 @@ class PersistentMemory:
             query, project = project, "default"
         if not query.strip():
             return []
-        terms = " ".join(re.findall(r"[A-Za-z0-9_]+", query))
-        if not terms:
+        tokens = _unicode_search_tokens(query)
+        if not tokens:
             return []
+        # Quote each token so punctuation in user input cannot become FTS operators.
+        fts_terms = " ".join(f'"{token}"' for token in tokens)
+        like = "%" + "%".join(tokens) + "%"
         with self._lock, self._connect() as db:
             params: tuple[Any, ...]
             if self._fts_available:
@@ -231,9 +251,8 @@ class PersistentMemory:
                     FROM memory AS m JOIN memory_fts AS f ON f.id=m.id
                     WHERE m.project=? AND memory_fts MATCH ? AND (? IS NULL OR m.intent_digest=?)
                     ORDER BY m.verified DESC,m.confidence DESC,m.created_at DESC LIMIT ?""",
-                    (project, terms, intent_digest, intent_digest, limit)).fetchall()
+                    (project, fts_terms, intent_digest, intent_digest, limit)).fetchall()
             else:
-                like = "%" + terms.replace(" ", "%") + "%"
                 params = (project, like, intent_digest, intent_digest, limit)
                 rows = db.execute("""SELECT id,project,category,text,intent_digest,confidence,verified,created_at
                     FROM memory WHERE project=? AND text LIKE ? AND (? IS NULL OR intent_digest=?)
