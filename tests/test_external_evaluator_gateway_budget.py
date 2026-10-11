@@ -49,6 +49,7 @@ class ExternalEvaluatorGatewayBudgetTests(unittest.TestCase):
         gateway = ExternalEvaluatorGateway(
             SealedArenaBoundary(lambda _value: True),
             self.ledger,
+            allow_test_verifier=True,
         )
         with self.assertRaisesRegex(ValueError, "exceeds output budget"):
             gateway.evaluate(
@@ -65,6 +66,7 @@ class ExternalEvaluatorGatewayBudgetTests(unittest.TestCase):
         gateway = ExternalEvaluatorGateway(
             SealedArenaBoundary(lambda _value: True),
             self.ledger,
+            allow_test_verifier=True,
         )
         with self.assertRaisesRegex(RuntimeError, "timed out"):
             gateway.evaluate(
@@ -82,6 +84,7 @@ class ExternalEvaluatorGatewayBudgetTests(unittest.TestCase):
         gateway = ExternalEvaluatorGateway(
             SealedArenaBoundary(lambda value: value.signature == "sig"),
             self.ledger,
+            allow_test_verifier=True,
         )
         evidence = gateway.evaluate(
             self.request,

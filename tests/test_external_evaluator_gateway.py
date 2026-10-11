@@ -26,17 +26,29 @@ class ExternalEvaluatorGatewayTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.tempdir.cleanup()
 
+    def test_gateway_rejects_protocol_only_boundary_by_default(self) -> None:
+        with self.assertRaisesRegex(ValueError, "trusted Ed25519 keyring.*signed holdout custody"):
+            ExternalEvaluatorGateway(SealedArenaBoundary(lambda _value: True), self.ledger)
+
+    def test_gateway_rejects_custom_custody_callback_as_production_verifier(self) -> None:
+        boundary = SealedArenaBoundary(
+            lambda _value: True,
+            verify_custody_signature=lambda _signer, _signature, _message: True,
+        )
+        with self.assertRaisesRegex(ValueError, "trusted Ed25519 keyring"):
+            ExternalEvaluatorGateway(boundary, self.ledger)
+
     def test_gateway_uses_external_process_and_sealed_receipt(self) -> None:
         payload = export_outcome_receipt(self.receipt).decode("utf-8")
         script = "import sys; sys.stdin.buffer.read(); sys.stdout.write(" + repr(payload) + ")"
-        evidence = ExternalEvaluatorGateway(SealedArenaBoundary(lambda value: value.signature == "sig"), self.ledger).evaluate(
+        evidence = ExternalEvaluatorGateway(SealedArenaBoundary(lambda value: value.signature == "sig"), self.ledger, allow_test_verifier=True).evaluate(
             self.request, ExternalEvaluatorCommand((sys.executable, "-c", script))
         )
         self.assertEqual(evidence.holdout_pass_rate, 1.0)
 
     def test_nonzero_exit_fails_closed(self) -> None:
         with self.assertRaises(RuntimeError):
-            ExternalEvaluatorGateway(SealedArenaBoundary(lambda _value: True), self.ledger).evaluate(
+            ExternalEvaluatorGateway(SealedArenaBoundary(lambda _value: True), self.ledger, allow_test_verifier=True).evaluate(
                 self.request, ExternalEvaluatorCommand((sys.executable, "-c", "raise SystemExit(7)"))
             )
 
@@ -45,7 +57,7 @@ class ExternalEvaluatorGatewayTests(unittest.TestCase):
         try:
             payload = repr(export_outcome_receipt(self.receipt).decode("utf-8"))
             script = "import os,sys; sys.stdin.buffer.read(); sys.exit(3) if \"AUREN_SECRET\" in os.environ else None; sys.stdout.buffer.write(" + payload + ".encode())"
-            evidence = ExternalEvaluatorGateway(SealedArenaBoundary(lambda value: value.signature == "sig"), self.ledger).evaluate(
+            evidence = ExternalEvaluatorGateway(SealedArenaBoundary(lambda value: value.signature == "sig"), self.ledger, allow_test_verifier=True).evaluate(
                 self.request, ExternalEvaluatorCommand((sys.executable, "-c", script))
             )
             self.assertEqual(evidence.holdout_pass_rate, 1.0)
@@ -56,11 +68,11 @@ class ExternalEvaluatorGatewayTests(unittest.TestCase):
     def test_replay_is_rejected_even_after_ledger_reopens(self) -> None:
         payload = export_outcome_receipt(self.receipt).decode("utf-8")
         script = "import sys; sys.stdin.buffer.read(); sys.stdout.write(" + repr(payload) + ")"
-        gateway = ExternalEvaluatorGateway(SealedArenaBoundary(lambda value: value.signature == "sig"), self.ledger)
+        gateway = ExternalEvaluatorGateway(SealedArenaBoundary(lambda value: value.signature == "sig"), self.ledger, allow_test_verifier=True)
         gateway.evaluate(self.request, ExternalEvaluatorCommand((sys.executable, "-c", script)))
         reopened = SealedArenaReplayLedger(Path(self.tempdir.name) / "replay.sqlite3")
         with self.assertRaises(ReplayRejected):
-            ExternalEvaluatorGateway(SealedArenaBoundary(lambda value: value.signature == "sig"), reopened).evaluate(
+            ExternalEvaluatorGateway(SealedArenaBoundary(lambda value: value.signature == "sig"), reopened, allow_test_verifier=True).evaluate(
                 self.request, ExternalEvaluatorCommand((sys.executable, "-c", script))
             )
 
@@ -72,7 +84,7 @@ class ExternalEvaluatorGatewayTests(unittest.TestCase):
 
     def test_external_evaluator_output_budget_is_enforced_during_read(self) -> None:
         script = "import sys; sys.stdin.buffer.read(); sys.stdout.write('x' * 1000000)"
-        gateway = ExternalEvaluatorGateway(SealedArenaBoundary(lambda _value: True), self.ledger)
+        gateway = ExternalEvaluatorGateway(SealedArenaBoundary(lambda _value: True), self.ledger, allow_test_verifier=True)
         with self.assertRaisesRegex(ValueError, "exceeds output budget"):
             gateway.evaluate(
                 self.request,
@@ -81,7 +93,7 @@ class ExternalEvaluatorGatewayTests(unittest.TestCase):
 
     def test_external_evaluator_timeout_fails_closed(self) -> None:
         script = "import sys,time; sys.stdin.buffer.read(); time.sleep(2)"
-        gateway = ExternalEvaluatorGateway(SealedArenaBoundary(lambda _value: True), self.ledger)
+        gateway = ExternalEvaluatorGateway(SealedArenaBoundary(lambda _value: True), self.ledger, allow_test_verifier=True)
         with self.assertRaisesRegex(RuntimeError, "timed out"):
             gateway.evaluate(
                 self.request,
@@ -91,7 +103,7 @@ class ExternalEvaluatorGatewayTests(unittest.TestCase):
     def test_invalid_receipt_does_not_echo_evaluator_output(self) -> None:
         secret = "DO_NOT_LEAK_EVALUATOR_STDOUT"
         script = "import sys; sys.stdin.buffer.read(); print(" + repr(secret) + ")"
-        gateway = ExternalEvaluatorGateway(SealedArenaBoundary(lambda _value: True), self.ledger)
+        gateway = ExternalEvaluatorGateway(SealedArenaBoundary(lambda _value: True), self.ledger, allow_test_verifier=True)
         with self.assertRaises(ValueError) as caught:
             gateway.evaluate(
                 self.request,

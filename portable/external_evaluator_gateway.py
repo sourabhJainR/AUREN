@@ -57,9 +57,24 @@ class ExternalEvaluatorCommand:
 class ExternalEvaluatorGateway:
     """Exchange a sealed request with an evaluator outside the AUREN process."""
 
-    def __init__(self, boundary: SealedArenaBoundary, replay_ledger: SealedArenaReplayLedger) -> None:
+    def __init__(
+        self,
+        boundary: SealedArenaBoundary,
+        replay_ledger: SealedArenaReplayLedger,
+        *,
+        allow_test_verifier: bool = False,
+    ) -> None:
+        if not isinstance(boundary, SealedArenaBoundary):
+            raise TypeError("a SealedArenaBoundary is required")
         if not isinstance(replay_ledger, SealedArenaReplayLedger):
             raise TypeError("a persistent SealedArenaReplayLedger is required")
+        if type(allow_test_verifier) is not bool:
+            raise TypeError("allow_test_verifier must be a boolean")
+        if not boundary.has_trusted_custody_verifier and not allow_test_verifier:
+            raise ValueError(
+                "external evaluator gateway requires a trusted Ed25519 keyring boundary that verifies signed holdout custody; "
+                "test-only callbacks require allow_test_verifier=True"
+            )
         self.boundary = boundary
         self.replay_ledger = replay_ledger
 

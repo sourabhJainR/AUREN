@@ -277,12 +277,26 @@ class SealedArenaBoundary:
             raise ValueError("trusted Ed25519 boundary requires a persistent replay ledger")
         from .sealed_arena_signature import Ed25519ReceiptVerifier
         verifier = Ed25519ReceiptVerifier(trusted_public_keys)
-        return cls(
+        boundary = cls(
             verifier,
             verify_custody_signature=verifier.verify_detached,
             replay_ledger=replay_ledger,
             clock=clock,
             max_future_skew_seconds=max_future_skew_seconds,
+        )
+        return boundary
+
+    @property
+    def has_trusted_custody_verifier(self) -> bool:
+        """Whether outcome and custody verification share the trusted Ed25519 keyring."""
+        from .sealed_arena_signature import Ed25519ReceiptVerifier
+
+        custody_verifier = self._verify_custody_signature
+        return (
+            isinstance(self._verify_signature, Ed25519ReceiptVerifier)
+            and custody_verifier is not None
+            and getattr(custody_verifier, "__self__", None) is self._verify_signature
+            and getattr(custody_verifier, "__func__", None) is Ed25519ReceiptVerifier.verify_detached
         )
 
     def accept(self, request: SealedCampaignRequest, receipt: ExternalOutcomeReceipt) -> SealedArenaEvidence:
