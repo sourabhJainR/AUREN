@@ -8,14 +8,10 @@ from __future__ import annotations
 
 import hashlib
 import json
-import math
-import os
 import sqlite3
-import subprocess
-import tempfile
 from pathlib import Path
 from datetime import datetime, timezone
-from typing import Any, Callable, Mapping, Sequence
+from typing import Any, Callable, Mapping
 
 SCHEMA_VERSION = "arena-run-v1"
 _ALLOWED_SPLITS = {"development", "evaluation", "sealed_holdout"}
@@ -44,64 +40,6 @@ def _require_text(value: Any, field: str) -> str:
     return value
 
 
-
-
-class SubprocessPolicy:
-    """JSON-in/JSON-out adapter that keeps candidate execution out of evaluator memory.
-
-    This is process separation, not a complete security sandbox. The operator must
-    additionally use an OS/container boundary to restrict filesystem and network access.
-    """
-
-    def __init__(
-        self,
-        command: Sequence[str],
-        *,
-        timeout_seconds: float = 15.0,
-        max_output_bytes: int = 1_000_000,
-    ):
-        if isinstance(command, (str, bytes)) or not command or any(not isinstance(part, str) or not part for part in command):
-            raise ArenaError("candidate command must be a non-empty string sequence")
-        if not isinstance(timeout_seconds, (int, float)) or not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
-            raise ArenaError("timeout_seconds must be positive")
-        if max_output_bytes <= 0:
-            raise ArenaError("max_output_bytes must be positive")
-        self.command = tuple(command)
-        self.timeout_seconds = timeout_seconds
-        self.max_output_bytes = max_output_bytes
-
-    def __call__(self, task: Mapping[str, str]) -> Any:
-        payload = canonical_json(dict(task)).decode("utf-8")
-        with tempfile.TemporaryDirectory(prefix="auren-arena-candidate-") as working_directory:
-            # Do not forward the evaluator's credentials, tokens, or arbitrary environment.
-            environment = {
-                "PATH": os.environ.get("PATH", ""),
-                "HOME": working_directory,
-                "TMPDIR": working_directory,
-                "LANG": "C.UTF-8",
-                "LC_ALL": "C.UTF-8",
-            }
-            try:
-                completed = subprocess.run(
-                    self.command,
-                    input=payload,
-                    text=True,
-                    capture_output=True,
-                    cwd=working_directory,
-                    env=environment,
-                    timeout=self.timeout_seconds,
-                    check=False,
-                )
-            except subprocess.TimeoutExpired as exc:
-                raise ArenaError("candidate process timed out") from exc
-            if completed.returncode != 0:
-                raise ArenaError("candidate process exited unsuccessfully")
-            if len(completed.stdout.encode("utf-8")) > self.max_output_bytes:
-                raise ArenaError("candidate output exceeded configured limit")
-            try:
-                return json.loads(completed.stdout)
-            except (json.JSONDecodeError, TypeError) as exc:
-                raise ArenaError("candidate stdout must contain one JSON value") from exc
 
 
 class NonceLedger:
