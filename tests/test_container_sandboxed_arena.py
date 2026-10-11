@@ -59,7 +59,7 @@ class ContainerSandboxedArenaTests(unittest.TestCase):
         self.assertFalse(any(arg == "-v" or arg == "--volume" or arg.startswith("--mount") for arg in command))
         self.assertIn("--tmpfs=/tmp:rw,noexec,nosuid,nodev,size=16m", command)
         sent_task = json.loads(run.call_args.kwargs["input"])
-        self.assertEqual(set(sent_task), {"case_id", "domain", "prompt"})
+        self.assertEqual(set(sent_task), {"prompt"})
         self.assertNotIn("oracle", sent_task)
         self.assertNotIn("split", sent_task)
         self.assertFalse(run.call_args.kwargs["shell"])

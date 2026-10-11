@@ -1,7 +1,6 @@
 """Minimal executable kernel for independently supplied Arena evaluations.
 
-The policy receives task-facing fields only; oracle labels stay in the evaluator-owned
-manifest. This protocol boundary is not an OS sandbox. Independent campaigns must run
+The policy receives only the prompt; case IDs, domain labels, split assignments, and oracle labels stay in evaluator-owned state. This protocol boundary is not an OS sandbox. Independent campaigns must run
 the evaluated runtime and evaluator under separately controlled principals/processes.
 """
 from __future__ import annotations
@@ -121,7 +120,7 @@ def run_campaign(
     run_nonce: str,
     nonce_ledger: NonceLedger,
 ) -> dict[str, Any]:
-    """Run sealed cases; policy sees task inputs only, never oracle labels.
+    """Run sealed cases; policy sees only the task prompt, never case IDs, domain labels, split assignments, neighboring cases, or oracle labels.
 
     A unique nonce distinguishes fresh runs. Compare result_digest for deterministic
     repeatability; receipt_digest also binds the issuance timestamp.
@@ -145,11 +144,7 @@ def run_campaign(
     for case in manifest["cases"]:
         # No oracle, split, manifest, neighboring case, or expected answer crosses
         # the policy interface.
-        policy_input = {
-            "case_id": case["case_id"],
-            "domain": case["domain"],
-            "prompt": case["prompt"],
-        }
+        policy_input = {"prompt": case["prompt"]}
         try:
             actual = policy(policy_input)
             outcome = "pass" if _score(case["oracle"], actual) else "fail"
