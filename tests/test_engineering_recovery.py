@@ -95,6 +95,27 @@ class EngineeringRecoveryTests(unittest.TestCase):
         )
         self.assertEqual(checkpoint.status, "verified")
 
+    def test_checkpoint_payload_round_trips_nested_unicode_through_fresh_ledger(self):
+        path = self.root / "recovery.sqlite"
+        first = EngineeringRecoveryLedger(path)
+        first.start_run("unicode-task", "preserve Unicode checkpoint evidence")
+        payload = {
+            "user": {"name": "José", "city": "München"},
+            "tags": ["café", "東京", "नमस्ते", "🚀"],
+            "evidence": {"summary": "naïve façade"},
+        }
+        first.checkpoint(
+            "unicode-task",
+            "verify",
+            status="in_progress",
+            head_sha="unicode-head",
+            payload=payload,
+        )
+        restored = EngineeringRecoveryLedger(path).get_checkpoint("unicode-task", "verify")
+        self.assertIsNotNone(restored)
+        assert restored is not None
+        self.assertEqual(restored.payload, payload)
+
 
 if __name__ == "__main__":
     unittest.main()
