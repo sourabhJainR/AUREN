@@ -102,7 +102,10 @@ class ExternalEvaluatorGateway:
                     output.extend(chunk)
                     if len(output) > command.max_output_bytes:
                         output_limit_exceeded.set()
-                        process.kill()
+                        # The evaluator may have spawned descendants that keep
+                        # running after the direct child is killed. Terminate its
+                        # dedicated process group, just as on timeout.
+                        _kill_evaluator_process_tree(process)
                         return
             except (OSError, ValueError):
                 # Closing a pipe after a timeout/kill is expected.
