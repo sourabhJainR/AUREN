@@ -174,19 +174,7 @@ def _run_one_case(
 
     reader.join(timeout=1.0)
     if output_exceeded.is_set():
-        try:
-            subprocess.run(
-                [container_runtime, "rm", "--force", container_name],
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                timeout=5.0,
-                check=False,
-                shell=False,
-                close_fds=True,
-            )
-        except Exception:
-            pass
+        _force_remove_container(container_runtime, container_name)
         raise ArenaError("sandboxed policy output exceeds configured byte limit")
     if reader.is_alive() or stream_error:
         _force_remove_container(container_runtime, container_name)
