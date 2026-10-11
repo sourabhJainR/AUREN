@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import signal
 import subprocess
 import tempfile
 import threading
@@ -19,6 +20,23 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from .independent_arena import ArenaError, NonceLedger, run_campaign
+
+
+def _kill_policy_process_tree(process: subprocess.Popen[Any]) -> None:
+    """Kill the policy process group on POSIX so descendants cannot outlive a case."""
+    if os.name == "posix":
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+            return
+        except ProcessLookupError:
+            return
+        except OSError:
+            # Best-effort fallback if the process group cannot be addressed.
+            pass
+    try:
+        process.kill()
+    except ProcessLookupError:
+        pass
 
 
 _SENSITIVE_ENV_FRAGMENTS = (
@@ -97,7 +115,7 @@ def run_campaign_isolated(
                 process = subprocess.Popen(
                     list(policy_command), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                     stderr=subprocess.DEVNULL, cwd=workdir, env=env, shell=False,
-                    close_fds=True,
+                    close_fds=True, start_new_session=(os.name == "posix"),
                 )
                 output_limit_exceeded = threading.Event()
                 stream_error: list[BaseException] = []
@@ -113,7 +131,7 @@ def run_campaign_isolated(
                             total += len(chunk)
                             if total > max_output_bytes:
                                 output_limit_exceeded.set()
-                                process.kill()
+                                _kill_policy_process_tree(process)
                                 return
                             output.write(chunk)
                     except (OSError, ValueError) as exc:
@@ -134,7 +152,7 @@ def run_campaign_isolated(
                 try:
                     process.wait(timeout=timeout)
                 except subprocess.TimeoutExpired as exc:
-                    process.kill()
+                    _kill_policy_process_tree(process)
                     process.wait()
                     writer.join(timeout=1.0)
                     reader.join(timeout=1.0)
@@ -146,7 +164,7 @@ def run_campaign_isolated(
                 if output_limit_exceeded.is_set():
                     raise ArenaError("policy subprocess output exceeds configured byte limit")
                 if reader.is_alive():
-                    process.kill()
+                    _kill_policy_process_tree(process)
                     raise ArenaError("policy output stream did not close within the bounded wait")
                 if stream_error:
                     raise ArenaError("policy output stream could not be read")
