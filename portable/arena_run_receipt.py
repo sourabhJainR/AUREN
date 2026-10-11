@@ -77,9 +77,8 @@ class ArenaRunReceipt:
         object.__setattr__(self, "receipt_digest", expected)
 
     def _payload(self) -> dict[str, object]:
-        return {
+        payload: dict[str, object] = {
             "run_id": self.run_id,
-            "campaign_digest": self.campaign_digest,
             "arena_version": self.arena_version,
             "corpus_digest": self.corpus_digest,
             "manifest_digest": self.manifest_digest,
@@ -94,6 +93,11 @@ class ArenaRunReceipt:
             "resource_measurements": self.resource_measurements,
             "contamination_detected": self.contamination_detected,
         }
+        # Preserve the digest format of legacy receipts until they are rebound
+        # to a campaign. Promotion-chain acceptance rejects an empty binding.
+        if self.campaign_digest:
+            payload["campaign_digest"] = self.campaign_digest
+        return payload
 
     @staticmethod
     def _digest(payload: Mapping[str, object]) -> str:
