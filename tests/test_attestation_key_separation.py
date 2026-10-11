@@ -30,7 +30,7 @@ class AttestationKeySeparationTests(unittest.TestCase):
         self.assertTrue(any("signer" in reason for reason in result.reasons))
 
     def test_oracle_cannot_be_evaluator(self):
-        result = SeparationAwareAttestor(lambda _a: True, self.policy()).verify(
+        result = SeparationAwareAttestor(lambda _a: True, self.policy(), self.verify_identity).verify(
             self.att(), evaluator_id="same", oracle_id="same",
             expected_campaign_digest="camp", expected_corpus_digest="corpus", expected_oracle_digest="oracle")
         self.assertFalse(result.trustworthy)
