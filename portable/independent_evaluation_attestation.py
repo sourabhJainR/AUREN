@@ -27,6 +27,7 @@ class EvaluationAttestation:
     evaluator_version: str
     signer_id: str
     signature: str
+    key_id: str = ""
     run_id: str = ""
     receipt_digest: str = ""
     runtime_digest: str = ""
@@ -43,6 +44,8 @@ class EvaluationAttestation:
             ("signature", self.signature),
         ):
             _required_text(name, value)
+        if not isinstance(self.key_id, str):
+            raise ValueError("key_id must be a string")
         for name in ("run_id", "receipt_digest", "runtime_digest"):
             value = getattr(self, name)
             if not isinstance(value, str):
@@ -62,6 +65,7 @@ class EvaluationAttestation:
             "oracle_digest": self.oracle_digest,
             "evaluator_version": self.evaluator_version,
             "signer_id": self.signer_id,
+            "key_id": self.key_id,
             "run_id": self.run_id,
             "receipt_digest": self.receipt_digest,
             "runtime_digest": self.runtime_digest,

@@ -41,10 +41,11 @@ def verify_campaign(campaign):
         campaign.evaluator_version,
         "external-signer",
         campaign.external_attestation,
+        key_id="external-signer-key-v1",
     )
     verifier = SeparationAwareAttestor(
         lambda value: value.signature == campaign.external_attestation,
-        AttestationTrustPolicy(frozenset({"external-signer"})),
+        AttestationTrustPolicy(frozenset({"external-signer"}), trusted_key_ids=frozenset({"external-signer-key-v1"})),
         lambda principal, role: (
             (role == "evaluator" and principal == "runtime-evaluator")
             or (role == "oracle" and principal == "independent-oracle")

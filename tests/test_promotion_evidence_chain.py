@@ -80,6 +80,7 @@ def make_attested_campaign(campaign, receipt=None, *, signature=None, issued_at_
     attestation = EvaluationAttestation(
         campaign.campaign_digest, campaign.corpus_digest, campaign.oracle_digest,
         campaign.evaluator_version, "external-signer", signature,
+        key_id="external-signer-key-v1",
         run_id=receipt.run_id if run_id is None else run_id,
         receipt_digest=receipt.receipt_digest if receipt_digest is None else receipt_digest,
         runtime_digest=receipt.runtime_snapshot if runtime_digest is None else runtime_digest,
@@ -88,7 +89,7 @@ def make_attested_campaign(campaign, receipt=None, *, signature=None, issued_at_
     )
     verifier = SeparationAwareAttestor(
         lambda value: value.signature == campaign.external_attestation,
-        AttestationTrustPolicy(frozenset({"external-signer"})),
+        AttestationTrustPolicy(frozenset({"external-signer"}), trusted_key_ids=frozenset({"external-signer-key-v1"})),
         lambda principal, role: (
             (role == "evaluator" and principal == "runtime-evaluator")
             or (role == "oracle" and principal == "independent-oracle")

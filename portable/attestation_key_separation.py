@@ -19,12 +19,21 @@ class AttestationTrustPolicy:
     trusted_signers: FrozenSet[str]
     require_distinct_signer: bool = True
     require_distinct_evaluator_oracle: bool = True
+    trusted_key_ids: FrozenSet[str] = frozenset()
+    revoked_signers: FrozenSet[str] = frozenset()
+    revoked_key_ids: FrozenSet[str] = frozenset()
 
     def __post_init__(self) -> None:
-        if not isinstance(self.trusted_signers, frozenset) or not self.trusted_signers:
-            raise ValueError("trusted_signers must be a non-empty frozenset")
-        if any(not isinstance(signer, str) or not signer.strip() for signer in self.trusted_signers):
-            raise ValueError("trusted signer ids must be non-empty strings")
+        for name, values in (
+            ("trusted_signers", self.trusted_signers),
+            ("trusted_key_ids", self.trusted_key_ids),
+            ("revoked_signers", self.revoked_signers),
+            ("revoked_key_ids", self.revoked_key_ids),
+        ):
+            if not isinstance(values, frozenset) or (name in {"trusted_signers", "trusted_key_ids"} and not values):
+                raise ValueError(f"{name} must be a non-empty frozenset" if name in {"trusted_signers", "trusted_key_ids"} else f"{name} must be a frozenset")
+            if any(not isinstance(value, str) or not value.strip() for value in values):
+                raise ValueError(f"{name} entries must be non-empty strings")
         if type(self.require_distinct_signer) is not bool or type(self.require_distinct_evaluator_oracle) is not bool:
             raise ValueError("attestation separation policy flags must be booleans")
 
@@ -36,6 +45,14 @@ class AttestationTrustPolicy:
             reasons.append("evaluator and oracle principals must be distinct")
         if attestation.signer_id not in self.trusted_signers:
             reasons.append("attestation signer is not trusted")
+        if attestation.signer_id in self.revoked_signers:
+            reasons.append("attestation signer is revoked")
+        if not attestation.key_id:
+            reasons.append("attestation key id is required")
+        elif attestation.key_id not in self.trusted_key_ids:
+            reasons.append("attestation key id is not trusted")
+        if attestation.key_id in self.revoked_key_ids:
+            reasons.append("attestation key is revoked")
         if self.require_distinct_signer and attestation.signer_id in {evaluator_id, oracle_id}:
             reasons.append("attestation signer must be distinct from evaluator and oracle")
         return not reasons, tuple(reasons)
@@ -104,6 +121,9 @@ class SeparationAwareAttestor:
             "evaluator_id": evaluator_id,
             "oracle_id": oracle_id,
             "trusted_signers": sorted(self.policy.trusted_signers),
+            "trusted_key_ids": sorted(self.policy.trusted_key_ids),
+            "revoked_signers": sorted(self.policy.revoked_signers),
+            "revoked_key_ids": sorted(self.policy.revoked_key_ids),
             "require_distinct_signer": self.policy.require_distinct_signer,
             "require_distinct_evaluator_oracle": self.policy.require_distinct_evaluator_oracle,
             "separation_passed": separated,
