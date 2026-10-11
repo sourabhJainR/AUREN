@@ -91,6 +91,8 @@ class GraphAgentCrewTests(unittest.TestCase):
             observed["dispatch"] = state["auren_crew_dispatch"]
             with self.assertRaisesRegex(ValueError, "not assigned"):
                 state["auren_crew_dispatch"]("database_schema", "run migration")
+            with self.assertRaisesRegex(TypeError, "propose"):
+                state["auren_crew_dispatch"]("frontend_ui", "implement UI")
             return "completed"
         team, _graph = self.make_team(run_node, agents={"frontend_ui": object()})
         result = team.run("task-1", "frontend UI")
