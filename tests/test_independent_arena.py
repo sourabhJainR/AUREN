@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 
 from portable.independent_arena import ArenaError, NonceLedger, run_campaign, seal_manifest, validate_manifest, verify_receipt
+from portable.sealed_arena_replay import ReplayRejected
 
 
 def new_ledger():
@@ -87,7 +88,7 @@ class IndependentArenaTests(unittest.TestCase):
                 policy_digest="p", run_nonce="one-time-run",
             )
             reopened_ledger = NonceLedger(database)
-            with self.assertRaises(ArenaError):
+            with self.assertRaises(ReplayRejected):
                 run_campaign(
                     sealed, lambda task: 15, nonce_ledger=reopened_ledger,
                     policy_digest="p", run_nonce="one-time-run",
