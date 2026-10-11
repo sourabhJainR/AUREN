@@ -46,8 +46,9 @@ class NonceLedger:
 
     def __init__(self, database_path: str | Path):
         self.database_path = str(database_path)
-        if self.database_path != ":memory:":
-            Path(self.database_path).parent.mkdir(parents=True, exist_ok=True)
+        if self.database_path == ":memory:":
+            raise ArenaError("NonceLedger requires a persistent database path")
+        Path(self.database_path).parent.mkdir(parents=True, exist_ok=True)
         with sqlite3.connect(self.database_path, timeout=10) as connection:
             connection.execute(
                 """CREATE TABLE IF NOT EXISTS arena_nonce_claims (
