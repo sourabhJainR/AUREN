@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from portable.crew_adapters import (
+from portable.orchestration import Node, NodeKind, RunStatus\nfrom portable.state_graph import GraphAgentTeam, StateGraph\nfrom portable.crew_adapters import (
     ApprovedTool,
     ApprovedToolCrewAdapter,
     ApprovedToolRegistry,
@@ -120,6 +120,46 @@ class ApprovedCrewAdapterTests(unittest.TestCase):
         claimed = resumed.claim_next(graph_node_active=True)
         self.assertEqual(claimed.target_crew, "qa_reviewer")
         self.assertEqual(claimed.task, "Review endpoint")
+
+    def test_stategraph_controls_handoff_retry_resume_and_rollback_gate(self):
+        observed = {}
+        def run_node(state):
+            observed["enqueue"] = state["auren_crew_handoff_enqueue"](
+                "frontend_ui", "qa_reviewer", "Review accessible UI"
+            )
+            observed["claimed"] = state["auren_crew_handoff_claim"]()
+            observed["retry"] = state["auren_crew_handoff_retry"](observed["claimed"], True)
+            observed["checkpoint"] = state["auren_crew_handoff_checkpoint"]()
+            observed["readiness"] = state["auren_crew_rollback_readiness"](
+                consequential=True, last_known_good_digest=None, rollback_procedure_ref=None,
+                independent_review_passed=False, required_evidence_refs=("ci://main",),
+                verified_evidence_refs=(),
+            )
+            return "recorded"
+        graph = StateGraph.from_nodes([
+            Node("supervised", NodeKind.DETERMINISTIC, run_node, evaluator=lambda output: output == "recorded")
+        ])
+        team = GraphAgentTeam(graph)
+        result = team.run("handoff-1", "frontend UI")
+        self.assertEqual(result.status, RunStatus.ACCEPTED)
+        self.assertEqual(observed["claimed"]["target_crew"], "qa_reviewer")
+        self.assertEqual(observed["retry"]["attempt"], 1)
+        self.assertEqual(observed["checkpoint"]["queued"][0]["attempt"], 1)
+        self.assertFalse(observed["readiness"]["ready"])
+        with self.assertRaisesRegex(RuntimeError, "only available during graph execution"):
+            observed["enqueue"]["source_crew"]  # The handoff record itself is data, not a live capability.
+            # A captured dispatcher is already covered by the existing GraphAgentTeam tests.
+
+    def test_stategraph_rejects_handoff_from_unassigned_source(self):
+        def run_node(state):
+            with self.assertRaisesRegex(ValueError, "not assigned"):
+                state["auren_crew_handoff_enqueue"]("python", "qa_reviewer", "Review code")
+            return "recorded"
+        graph = StateGraph.from_nodes([
+            Node("supervised", NodeKind.DETERMINISTIC, run_node, evaluator=lambda output: output == "recorded")
+        ])
+        result = GraphAgentTeam(graph).run("handoff-2", "frontend UI")
+        self.assertEqual(result.status, RunStatus.ACCEPTED)
 
     def test_rollback_readiness_fails_closed(self):
         blocked = rollback_readiness(
