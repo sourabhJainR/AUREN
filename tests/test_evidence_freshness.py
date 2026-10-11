@@ -48,6 +48,7 @@ class EvidenceFreshnessTests(unittest.TestCase):
                 "c", "r", "x", "planner", "i", True, (),
                 attestation_evidence_digest="verified-attestation-fixture",
                 causal_evidence_ids=tuple(item.evidence_id for item in observations),
+                isolation_evidence_digest="verified-isolation-fixture",
             )
             outcome = CampaignOutcome("c", .9, .95, .1, .1, .8)
             ingestor = ExternalDecisionEvidenceIngestor(g)

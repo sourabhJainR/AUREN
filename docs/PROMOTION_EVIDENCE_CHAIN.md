@@ -16,3 +16,10 @@ of evidence.
 
 It is still not proof of AGI. The external evidence must remain genuinely
 independent, broad, repeated, and resistant to benchmark contamination.
+
+
+## External sandbox isolation evidence
+
+A promotion chain is incomplete unless it includes a valid, detached-signature-verified isolation attestation from an independent sandbox auditor. The report is bound to the exact campaign digest, run-receipt digest, and immutable image digest; it must be current and report network denial, no host mounts, read-only root filesystem, non-root execution, credential non-exposure, resource limits, and observed termination. The attestation signer must be distinct from the evaluator, oracle, and policy runtime.
+
+The trusted public key must be provisioned out of band. A valid signature authenticates the report but does not prove the auditor's claims or the host's isolation by itself; deployments still need independent audit and host/runtime evidence. This gate records evidence only and does not promote capabilities or mutate lifecycle state.
