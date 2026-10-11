@@ -157,6 +157,28 @@ class SessionCheckpointDurabilityTests(unittest.TestCase):
             self.assertEqual(restored.task_id, "task-two")
             self.assertEqual(restored.stage, "verify")
 
+    def test_checkpoint_round_trips_nested_unicode_payload_without_digest_drift(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "sessions"
+            store = SessionStore(root)
+            checkpoint = SessionCheckpoint(
+                session_id="unicode-session",
+                task_id="task-ünicode",
+                project_key="project-key",
+                stage="verify",
+                completed_batches=["café", "東京", "नमस्ते", "🚀"],
+                remaining_batches=["José", "München"],
+                intent="preserve nested unicode metadata: {'user': {'name': 'José'}, 'tags': ['café', '東京']}",
+            )
+            store.save(checkpoint)
+            restored = SessionStore(root).load("unicode-session")
+            self.assertIsNotNone(restored)
+            assert restored is not None
+            self.assertEqual(restored.completed_batches, checkpoint.completed_batches)
+            self.assertEqual(restored.remaining_batches, checkpoint.remaining_batches)
+            self.assertEqual(restored.intent, checkpoint.intent)
+            self.assertEqual(restored.state_digest, checkpoint.state_digest)
+
 
 if __name__ == "__main__":
     unittest.main()
