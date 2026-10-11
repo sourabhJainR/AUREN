@@ -57,6 +57,51 @@ class SealedArenaExchangeTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "missing signed freshness fields"):
             import_outcome_receipt(raw)
 
+    @staticmethod
+    def _rehash_payload(body):
+        body["payload_digest"] = hashlib.sha256(
+            json.dumps(body["payload"], sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
+        ).hexdigest()
+        return json.dumps(body, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
+
+    def test_rejects_unknown_envelope_fields(self) -> None:
+        body = json.loads(export_campaign_request(self.request).decode("utf-8"))
+        body["promotion_authorized"] = True
+        with self.assertRaisesRegex(ValueError, "unknown or missing fields"):
+            import_campaign_request(json.dumps(body).encode("utf-8"))
+
+    def test_rejects_unknown_request_payload_fields_even_when_rehashed(self) -> None:
+        body = json.loads(export_campaign_request(self.request).decode("utf-8"))
+        body["payload"]["answer_key"] = "secret"
+        raw = self._rehash_payload(body)
+        with self.assertRaisesRegex(ValueError, "payload has unknown or missing fields"):
+            import_campaign_request(raw)
+
+    def test_rejects_unknown_nested_case_fields_even_when_rehashed(self) -> None:
+        body = json.loads(export_campaign_request(self.request).decode("utf-8"))
+        body["payload"]["cases"][0]["oracle_answer"] = "secret"
+        raw = self._rehash_payload(body)
+        with self.assertRaisesRegex(ValueError, "unknown or malformed case fields"):
+            import_campaign_request(raw)
+
+    def test_rejects_unknown_provenance_fields_even_when_rehashed(self) -> None:
+        body = json.loads(export_campaign_request(self.request).decode("utf-8"))
+        body["payload"]["provenance"]["independent"] = True
+        raw = self._rehash_payload(body)
+        with self.assertRaisesRegex(ValueError, "unknown or malformed provenance fields"):
+            import_campaign_request(raw)
+
+    def test_rejects_unknown_receipt_payload_fields_even_when_rehashed(self) -> None:
+        body = json.loads(export_outcome_receipt(self.receipt).decode("utf-8"))
+        body["payload"]["promotion_authorized"] = True
+        raw = self._rehash_payload(body)
+        with self.assertRaisesRegex(ValueError, "payload has unknown or missing fields"):
+            import_outcome_receipt(raw)
+
+    def test_rejects_duplicate_json_object_keys(self) -> None:
+        with self.assertRaisesRegex(ValueError, "invalid sealed Arena exchange payload"):
+            import_campaign_request(b'{"kind":"campaign_request","kind":"campaign_request"}')
+
     def test_exchange_does_not_contain_answer_fields(self) -> None:
         raw = export_campaign_request(self.request).decode("utf-8").lower()
         for token in ("answer", "expected_answer", "oracle_answer", "gold", "solution"):

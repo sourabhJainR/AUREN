@@ -16,7 +16,7 @@ SCHEMA_VERSION = "4"
 
 
 def _canonical(payload: dict[str, Any]) -> bytes:
-    return json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
 
 
 def _envelope(kind: str, payload: dict[str, Any]) -> bytes:
@@ -25,16 +25,66 @@ def _envelope(kind: str, payload: dict[str, Any]) -> bytes:
     return _canonical(body)
 
 
+def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate JSON object key")
+        result[key] = value
+    return result
+
+
 def _decode(raw: bytes, expected_kind: str) -> dict[str, Any]:
     try:
-        body = json.loads(raw.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        body = json.loads(raw.decode("utf-8"), object_pairs_hook=_reject_duplicate_keys)
+    except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
         raise ValueError("invalid sealed Arena exchange payload") from exc
+    if not isinstance(body, dict):
+        raise ValueError("sealed Arena exchange envelope must be an object")
+    if set(body) != {"schema_version", "kind", "payload", "payload_digest"}:
+        raise ValueError("sealed Arena exchange envelope has unknown or missing fields")
     if body.get("schema_version") != SCHEMA_VERSION or body.get("kind") != expected_kind:
         raise ValueError("unsupported sealed Arena exchange envelope")
     payload = body.get("payload")
     if not isinstance(payload, dict):
         raise ValueError("exchange payload must be an object")
+    payload_fields = {
+        "campaign_request": {
+            "campaign_digest", "corpus_digest", "run_nonce", "cases", "provenance", "request_digest",
+        },
+        "outcome_receipt": {
+            "campaign_digest", "corpus_digest", "evaluator_id", "oracle_id", "signature",
+            "results", "contamination_free", "independent_oracle", "run_nonce", "request_digest",
+            "metrics", "issued_at_epoch", "expires_at_epoch",
+        },
+    }.get(expected_kind)
+    if payload_fields is None:
+        raise ValueError("unsupported sealed Arena exchange payload kind")
+    missing_fields = payload_fields - set(payload)
+    unknown_fields = set(payload) - payload_fields
+    if expected_kind == "outcome_receipt" and missing_fields.intersection({"issued_at_epoch", "expires_at_epoch"}):
+        raise ValueError("outcome receipt is missing signed freshness fields")
+    if "run_nonce" in missing_fields:
+        raise ValueError("sealed Arena exchange payload is missing run_nonce")
+    if missing_fields or unknown_fields:
+        raise ValueError("sealed Arena exchange payload has unknown or missing fields")
+    if expected_kind == "campaign_request":
+        cases = payload.get("cases")
+        if not isinstance(cases, list) or any(
+            not isinstance(case, dict) or set(case) != {
+                "case_id", "task_digest", "input_digest", "environment_digest", "holdout", "transfer_dimensions",
+            }
+            for case in cases
+        ):
+            raise ValueError("sealed Arena request contains unknown or malformed case fields")
+        provenance = payload.get("provenance")
+        if provenance is not None and (
+            not isinstance(provenance, dict) or set(provenance) != {
+                "corpus_digest", "manifest_digest", "origin", "split", "contamination_status",
+                "independent_operator_id", "attestation_digest",
+            }
+        ):
+            raise ValueError("sealed Arena request contains unknown or malformed provenance fields")
     expected = hashlib.sha256(_canonical(payload)).hexdigest()
     if body.get("payload_digest") != expected:
         raise ValueError("sealed Arena exchange payload digest mismatch")
