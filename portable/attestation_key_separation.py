@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import hashlib
 import json
-from typing import FrozenSet
+from typing import Callable, FrozenSet
 
 from .independent_evaluation_attestation import AttestedEvaluation, EvaluationAttestation, IndependentEvaluationAttestor
 
@@ -44,11 +44,14 @@ class AttestationTrustPolicy:
 class SeparationAwareAttestor:
     """Verify signature, lineage, trusted signer, and evaluator/oracle separation."""
 
-    def __init__(self, verify_signature, policy: AttestationTrustPolicy) -> None:
+    def __init__(self, verify_signature, policy: AttestationTrustPolicy, verify_principal_identity: Callable[[str, str], bool]) -> None:
         if not isinstance(policy, AttestationTrustPolicy):
             raise TypeError("AttestationTrustPolicy is required")
+        if not callable(verify_principal_identity):
+            raise TypeError("verify_principal_identity must be a trusted identity-registry verifier")
         self._attestor = IndependentEvaluationAttestor(verify_signature)
         self.policy = policy
+        self.verify_principal_identity = verify_principal_identity
 
     def verify(
         self,
@@ -71,7 +74,23 @@ class SeparationAwareAttestor:
         separated, separation_reasons = self.policy.validate(
             attestation, evaluator_id=evaluator_id, oracle_id=oracle_id
         )
-        reasons = tuple((*base.reasons, *separation_reasons))
+        # Principal labels supplied by the caller are not identity proof. A
+        # deployment must validate both role bindings against its trusted
+        # identity registry; exceptions and truthy non-bools fail closed.
+        try:
+            evaluator_identity_verified = self.verify_principal_identity(evaluator_id, "evaluator") is True
+        except Exception:
+            evaluator_identity_verified = False
+        try:
+            oracle_identity_verified = self.verify_principal_identity(oracle_id, "oracle") is True
+        except Exception:
+            oracle_identity_verified = False
+        identity_reasons = []
+        if not evaluator_identity_verified:
+            identity_reasons.append("evaluator principal identity is not authenticated by trusted registry")
+        if not oracle_identity_verified:
+            identity_reasons.append("oracle principal identity is not authenticated by trusted registry")
+        reasons = tuple((*base.reasons, *separation_reasons, *identity_reasons))
         payload = {
             "base_evidence_digest": base.evidence_digest,
             "evaluator_id": evaluator_id,
@@ -81,6 +100,8 @@ class SeparationAwareAttestor:
             "require_distinct_evaluator_oracle": self.policy.require_distinct_evaluator_oracle,
             "separation_passed": separated,
             "separation_reasons": separation_reasons,
+            "evaluator_identity_verified": evaluator_identity_verified,
+            "oracle_identity_verified": oracle_identity_verified,
         }
         evidence_digest = hashlib.sha256(
             json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
@@ -88,7 +109,7 @@ class SeparationAwareAttestor:
         return AttestedEvaluation(
             attestation=base.attestation,
             verified=base.verified,
-            independent=separated,
+            independent=separated and evaluator_identity_verified and oracle_identity_verified,
             contamination_free=base.contamination_free,
             reasons=reasons,
             evidence_digest=evidence_digest,
