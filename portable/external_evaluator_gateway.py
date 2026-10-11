@@ -170,6 +170,10 @@ class ExternalEvaluatorGateway:
         if process.returncode != 0:
             raise RuntimeError(f"external evaluator failed with exit code {process.returncode}")
         receipt = import_outcome_receipt(bytes(output))
+        if self.boundary._replay_ledger is not None:
+            return self.boundary._accept_preclaimed(
+                request, receipt, replay_ledger=self.replay_ledger
+            )
         return self.boundary.accept(request, receipt)
 
 
