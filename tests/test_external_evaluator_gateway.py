@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import sys
 import tempfile
+import time
 import unittest
 from dataclasses import replace
 from pathlib import Path
@@ -99,6 +100,28 @@ class ExternalEvaluatorGatewayTests(unittest.TestCase):
                 self.request,
                 ExternalEvaluatorCommand((sys.executable, "-c", script), timeout_seconds=0.05),
             )
+
+
+    @unittest.skipUnless(os.name == "posix", "process-group termination is POSIX-specific")
+    def test_timeout_kills_evaluator_descendants(self) -> None:
+        marker = Path(self.tempdir.name) / "descendant-survived.txt"
+        child_script = (
+            "import pathlib,time; time.sleep(0.4); pathlib.Path(" + repr(str(marker)) + ").write_text('alive')"
+        )
+        parent_script = (
+            "import subprocess,sys,time; sys.stdin.buffer.read(); "
+            "subprocess.Popen([sys.executable, '-c', " + repr(child_script) + "]); time.sleep(60)"
+        )
+        gateway = ExternalEvaluatorGateway(
+            SealedArenaBoundary(lambda _value: True), self.ledger, allow_test_verifier=True
+        )
+        with self.assertRaisesRegex(RuntimeError, "timed out"):
+            gateway.evaluate(
+                self.request,
+                ExternalEvaluatorCommand((sys.executable, "-c", parent_script), timeout_seconds=0.05),
+            )
+        time.sleep(0.6)
+        self.assertFalse(marker.exists(), "an evaluator descendant survived the timeout")
 
     def test_invalid_receipt_does_not_echo_evaluator_output(self) -> None:
         secret = "DO_NOT_LEAK_EVALUATOR_STDOUT"
