@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 import hashlib
 import json
+import re
 from typing import Any, Callable, Mapping
 
 from .orchestration import Graph, Node, NodeKind, NodeStatus, OrchestrationRun, Orchestrator
@@ -136,6 +137,46 @@ def _default_crews() -> tuple[CrewDefinition, ...]:
             ("backend_api", "qa_reviewer"),
         ),
         CrewDefinition(
+            "python", "Python engineering", ("python", "pytest", "pyproject", "pip", "pydantic", "django", "fastapi"),
+            "Build maintainable Python modules and services; use typing, clear dependency boundaries, robust error handling, and focused tests.",
+            ("Python implementation proposal", "type/lint/test evidence", "dependency and compatibility notes"),
+            ("inspect_python", "propose_changes", "implement_changes", "run_python_tests"),
+            ("supported Python versions are explicit", "types and failure paths are covered", "tests and dependency checks pass"),
+            ("backend_api", "qa_reviewer"),
+        ),
+        CrewDefinition(
+            "rust", "Rust engineering", ("rust", "rustc", "cargo", "crate", "borrow checker", "rustfmt", "clippy"),
+            "Use idiomatic Rust with explicit ownership, borrowing, lifetimes, error types, safe concurrency, and reproducible Cargo validation.",
+            ("Rust implementation proposal", "cargo test/check evidence", "safety and compatibility notes"),
+            ("inspect_rust", "propose_changes", "implement_changes", "run_cargo_tests"),
+            ("ownership and lifetime behavior is sound", "unsafe blocks are justified and bounded", "cargo checks and tests pass"),
+            ("backend_api", "qa_reviewer", "security_privacy"),
+        ),
+        CrewDefinition(
+            "java", "Java and JVM engineering", ("java", "jvm", "spring boot", "maven", "gradle", "junit", "javac"),
+            "Implement idiomatic Java/JVM changes with explicit API contracts, resource lifecycle, concurrency behavior, and build-tool-aligned tests.",
+            ("Java implementation proposal", "build/test evidence", "API and runtime compatibility notes"),
+            ("inspect_java", "propose_changes", "implement_changes", "run_java_tests"),
+            ("supported JDK and build versions are explicit", "exceptions and resource handling are safe", "unit/integration tests pass"),
+            ("backend_api", "qa_reviewer"),
+        ),
+        CrewDefinition(
+            "react", "React frontend engineering", ("react", "jsx", "tsx", "react hooks", "react component", "next.js"),
+            "Build composable React interfaces with correct hooks, state boundaries, accessible interactions, and component-level tests.",
+            ("React component proposal", "interaction/accessibility tests", "state and rendering notes"),
+            ("inspect_react", "propose_changes", "implement_changes", "run_react_tests"),
+            ("hooks rules are respected", "loading/error/empty states are handled", "critical interactions and accessibility are tested"),
+            ("frontend_ui", "qa_reviewer", "end_user_validation"),
+        ),
+        CrewDefinition(
+            "angular", "Angular frontend engineering", ("angular", "ng cli", "rxjs", "angular component", "angular service", "angular signals"),
+            "Implement Angular features using typed components, dependency injection, RxJS or signals as appropriate, accessible templates, and testable services.",
+            ("Angular implementation proposal", "component/service tests", "template and dependency notes"),
+            ("inspect_angular", "propose_changes", "implement_changes", "run_angular_tests"),
+            ("subscriptions and lifecycle are safe", "templates are typed and accessible", "unit/build tests pass"),
+            ("frontend_ui", "qa_reviewer", "end_user_validation"),
+        ),
+        CrewDefinition(
             "security_privacy", "Security and privacy", ("security", "privacy", "auth", "authorization", "permission", "secret", "token", "threat", "tenant", "injection"),
             "Threat-model consequential changes; minimize privilege and data exposure; verify fail-closed and rollback behavior.",
             ("threat model", "security tests", "data-flow/authority review", "residual risks"),
@@ -223,7 +264,7 @@ class GraphAgentTeam:
         text = goal.lower()
         selected: list[CrewAssignment] = []
         for crew in self.crews.values():
-            matched = tuple(trigger for trigger in crew.triggers if trigger in text)
+            matched = tuple(trigger for trigger in crew.triggers if re.search(r"(?<![a-z0-9])" + re.escape(trigger.lower()) + r"(?![a-z0-9])", text))
             if crew.always_on or matched:
                 selected.append(CrewAssignment(crew.crew_id, matched, crew.crew_id in self.agents))
         # Keep routing deterministic even when callers register custom crews in a different order.
@@ -245,6 +286,12 @@ class GraphAgentTeam:
             personas.insert(1, "security_privacy")
         if "dotnet" in selected:
             personas.insert(personas.index("backend") + 1, "dotnet")
+        for crew_id, persona in (
+            ("python", "python"), ("rust", "rust"), ("java", "java"),
+            ("react", "react"), ("angular", "angular"),
+        ):
+            if crew_id in selected:
+                personas.insert(personas.index("backend") + 1, persona)
         return tuple(dict.fromkeys(personas))
 
     def run(self, task_id: str, intent: str, context: Mapping[str, Any] | None = None) -> OrchestrationRun:
