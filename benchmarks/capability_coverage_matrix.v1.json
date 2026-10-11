@@ -1,0 +1,506 @@
+{
+  "schema_version": "auren-capability-coverage-v1",
+  "purpose": "A versioned empirical coverage matrix for research toward broad generalization; not a claim that AGI or superintelligence has been achieved.",
+  "global_rules": [
+    "Repository-level engineering tests are not evidence of broad general intelligence.",
+    "Internal fixtures are not independent benchmarks; missing external evidence blocks promotion.",
+    "Every accepted campaign must bind exact runtime, evaluator, corpus, oracle, configuration, run nonce, outcomes, and timestamped signed receipt.",
+    "Negative results and source-domain regressions must be retained; successful promotion requires fresh independent holdout retesting.",
+    "No aggregate superintelligence score or AGI/SI label is defined by this matrix."
+  ],
+  "required_ci": [
+    "Architecture Integrity",
+    "AI Harness Check",
+    "Agent Capability Runtime",
+    "AUREN Portable Bundle",
+    "Production AI Harness Hardening"
+  ],
+  "tracks": [
+    {
+      "id": "multimodal_grounded_action",
+      "name": "Multimodal perception and grounded action",
+      "owner": "AUREN maintainers + independent modality-benchmark operator",
+      "status": "not_implemented_external_suite_required",
+      "dependencies": [
+        "#399",
+        "#400",
+        "#402",
+        "#404"
+      ],
+      "trusted_data_source": "Independently sourced image/audio/video/spatial tasks; operator-retained labels and environment assets",
+      "runtime_identity": "Exact AUREN runtime commit, model/provider version, modality adapters, tool permissions, and environment image digest",
+      "evaluator_identity": "Separate operator-controlled evaluator/oracle identities with signed receipts",
+      "metrics": [
+        "task success by modality",
+        "grounding/action correctness",
+        "calibration and abstention",
+        "unsafe-action rate",
+        "resource cost"
+      ],
+      "test_protocol": {
+        "status": "scaffold_only",
+        "command": "python -m unittest tests.test_container_sandboxed_arena_integration tests.test_sealed_arena_custody -v",
+        "additional_required": "Create real modality-specific tasks and independently held-out environments; existing command validates only general sandbox/custody plumbing."
+      },
+      "baseline": {
+        "status": "not_measured",
+        "source": "No independent modality baseline is retained; internal CI is not modality-performance evidence."
+      },
+      "held_out_plan": "Independent operator seals modality-specific prompts, labels, and environment snapshots; repeat with fresh nonce; publish aggregate metrics only.",
+      "threat_model": [
+        "prompt and tool injection",
+        "hidden-label leakage",
+        "environment side channels",
+        "unsafe physical/digital actions",
+        "modality-specific distribution shift"
+      ],
+      "exact_head_ci": [
+        "Architecture Integrity",
+        "AI Harness Check",
+        "Production AI Harness Hardening",
+        "AUREN Portable Bundle"
+      ],
+      "promotion_criteria": "No promotion until an external modality suite, signed custody/outcome receipts, calibration, safety, and fresh-holdout retest pass.",
+      "external_dependencies": [
+        "independent data/corpus owner",
+        "independent evaluator and oracle",
+        "operator-managed signing keys",
+        "safe modality environment"
+      ]
+    },
+    {
+      "id": "open_ended_environment_learning",
+      "name": "Open-ended environment learning",
+      "owner": "AUREN maintainers + independent environment operator",
+      "status": "partial_runtime_only_external_suite_required",
+      "dependencies": [
+        "#377",
+        "#399",
+        "#400",
+        "#403",
+        "#404"
+      ],
+      "trusted_data_source": "Versioned stateful environments with independently generated goals and hidden transition/score oracles",
+      "runtime_identity": "Exact runtime, policy, environment adapter, checkpoint format, and environment snapshot digest",
+      "evaluator_identity": "External environment service and oracle isolated from candidate state",
+      "metrics": [
+        "goal completion",
+        "sample/interaction efficiency",
+        "exploration cost",
+        "recovery rate",
+        "state integrity",
+        "regression after adaptation"
+      ],
+      "test_protocol": {
+        "status": "partial",
+        "command": "python -m unittest tests.test_adaptive_runtime_supervisor tests.test_adaptive_runtime_recovery_integration -v",
+        "additional_required": "Add long-lived stateful environment tasks with sparse feedback and novel goals; supervisor unit tests alone do not establish open-ended learning."
+      },
+      "baseline": {
+        "status": "internal_regression_only",
+        "source": "Runtime supervisor/recovery tests; no independently operated environment baseline."
+      },
+      "held_out_plan": "Operator withholds environment transitions, goal instances, and scoring oracle; use fresh environment snapshots for retest.",
+      "threat_model": [
+        "state tampering",
+        "reward hacking",
+        "environment leakage",
+        "runaway exploration",
+        "checkpoint corruption"
+      ],
+      "exact_head_ci": [
+        "Architecture Integrity",
+        "AI Harness Check",
+        "Agent Capability Runtime"
+      ],
+      "promotion_criteria": "Require reproducible environment snapshots, cost-bounded recovery, hidden-goal generalization, and fresh independent retest.",
+      "external_dependencies": [
+        "external environment host",
+        "sealed goal/oracle set",
+        "independent run receipt retention"
+      ]
+    },
+    {
+      "id": "long_horizon_autonomy",
+      "name": "Long-horizon autonomy",
+      "owner": "AUREN maintainers + independent task operator",
+      "status": "partial_runtime_only_external_suite_required",
+      "dependencies": [
+        "#377",
+        "#399",
+        "#403",
+        "#411"
+      ],
+      "trusted_data_source": "Operator-authored multi-hour/day workflows with independent completion oracle and controlled side effects",
+      "runtime_identity": "Exact AUREN runtime commit, registered handler digests, state database schema, task plan, and resource budget",
+      "evaluator_identity": "Independent task verifier with separate state and no candidate write access",
+      "metrics": [
+        "end-to-end completion",
+        "restart/resume success",
+        "bounded retry count",
+        "dependency blockage isolation",
+        "time/resource budget adherence",
+        "rollback success"
+      ],
+      "test_protocol": {
+        "status": "partial",
+        "command": "python -m unittest tests.test_adaptive_runtime_recovery_integration tests.test_execution_controller_promotion_gate tests.test_decision_gate -v",
+        "additional_required": "Run process-death and multi-hour/day operator-controlled tasks; fresh-instance unit tests are not equivalent to real process-death acceptance."
+      },
+      "baseline": {
+        "status": "internal_regression_only",
+        "source": "Recovery/controller tests; live long-horizon completion has not been independently measured."
+      },
+      "held_out_plan": "Use a separate operator to issue unseen task graphs, kill/restart processes at randomized checkpoints, and retain signed completion evidence.",
+      "threat_model": [
+        "runaway loops",
+        "stale tasks",
+        "duplicate side effects",
+        "deadlocks",
+        "budget exhaustion",
+        "unsafe retries",
+        "rollback failure"
+      ],
+      "exact_head_ci": [
+        "Architecture Integrity",
+        "AI Harness Check",
+        "Agent Capability Runtime",
+        "Production AI Harness Hardening"
+      ],
+      "promotion_criteria": "No autonomy promotion without real process-death/resume, side-effect idempotency, bounded resource use, independent completion verification, and rollback rehearsal.",
+      "external_dependencies": [
+        "operator-managed runner",
+        "representative long-duration workload",
+        "independent state/completion oracle"
+      ]
+    },
+    {
+      "id": "cross_domain_transfer",
+      "name": "Cross-domain transfer",
+      "owner": "AUREN maintainers + independent target-domain operator",
+      "status": "protocol_implemented_external_campaign_required",
+      "dependencies": [
+        "#399",
+        "#400",
+        "#402",
+        "#404"
+      ],
+      "trusted_data_source": "Independent target task families with signed no-overlap provenance and sealed holdout labels",
+      "runtime_identity": "Exact source-trained policy and AUREN/runtime/adapter digests",
+      "evaluator_identity": "External evaluator and oracle distinct from target-domain operator and candidate",
+      "metrics": [
+        "zero-shot success",
+        "few-shot success",
+        "adapted success",
+        "source regression",
+        "calibration",
+        "resource cost",
+        "failure recovery"
+      ],
+      "test_protocol": {
+        "status": "protocol_and_ci_present",
+        "command": "python -m unittest tests.test_sealed_cross_domain_attestation tests.test_sealed_cross_domain_lineage tests.test_attested_domain_transfer_evidence -v",
+        "additional_required": "Execute on genuinely unseen operator-supplied domains; signatures and internal fixtures do not prove semantic novelty."
+      },
+      "baseline": {
+        "status": "not_independently_measured",
+        "source": "Transfer schemas and tests exist; no external target-domain score is retained."
+      },
+      "held_out_plan": "Operator signs target provenance and no-overlap claim, retains corpus/oracle outside AUREN, uses fresh nonce, and reruns on a new holdout.",
+      "threat_model": [
+        "development/target overlap",
+        "benchmark contamination",
+        "operator/evaluator identity collision",
+        "receipt replay",
+        "domain relabeling"
+      ],
+      "exact_head_ci": [
+        "Architecture Integrity",
+        "AI Harness Check",
+        "Production AI Harness Hardening",
+        "AUREN Portable Bundle"
+      ],
+      "promotion_criteria": "Require signed provenance, verified outcome receipt, separate roles, source regression, target metrics by adaptation mode, and fresh holdout retest.",
+      "external_dependencies": [
+        "independent target-domain operator",
+        "out-of-band trusted public keyring",
+        "sealed corpus and oracle",
+        "signed campaign artifacts"
+      ]
+    },
+    {
+      "id": "causal_scientific_discovery",
+      "name": "Causal reasoning and scientific discovery",
+      "owner": "AUREN maintainers + independent replication team",
+      "status": "partial_causal_gate_external_replication_required",
+      "dependencies": [
+        "#399",
+        "#402",
+        "#403",
+        "#404"
+      ],
+      "trusted_data_source": "Preregistered hypotheses, independently controlled interventions, counterfactual controls, and replication datasets",
+      "runtime_identity": "Exact hypothesis, analysis code, intervention policy, data transform, and runtime digests",
+      "evaluator_identity": "Independent experiment evaluator and replication operator",
+      "metrics": [
+        "hypothesis predictive accuracy",
+        "intervention effect estimation",
+        "counterfactual validity",
+        "replication rate",
+        "calibration",
+        "negative-result retention"
+      ],
+      "test_protocol": {
+        "status": "partial",
+        "command": "python -m unittest tests.test_counterfactual_outcome_attribution tests.test_causal_capability_promotion tests.test_promotion_evidence_chain -v",
+        "additional_required": "Run preregistered external experiments and independent replications; synthetic tests do not establish scientific discovery capability."
+      },
+      "baseline": {
+        "status": "internal_regression_only",
+        "source": "Causal attribution and promotion unit tests; no independent scientific benchmark."
+      },
+      "held_out_plan": "Preregister hypotheses and analysis before outcome access; independent team runs interventions and retains negative results and raw measurements.",
+      "threat_model": [
+        "post-hoc hypothesis selection",
+        "p-hacking",
+        "confounding",
+        "selective reporting",
+        "oracle leakage",
+        "non-replication"
+      ],
+      "exact_head_ci": [
+        "Architecture Integrity",
+        "AI Harness Check",
+        "Production AI Harness Hardening"
+      ],
+      "promotion_criteria": "Require pre-registered analysis, independent control/treatment evidence, fresh replication, confidence thresholds, and retention of failed hypotheses.",
+      "external_dependencies": [
+        "independent domain scientists",
+        "controlled experiment environment",
+        "independent replication data and review"
+      ]
+    },
+    {
+      "id": "memory_continual_learning",
+      "name": "Memory and continual learning",
+      "owner": "AUREN maintainers + independent longitudinal evaluator",
+      "status": "partial_memory_runtime_external_longitudinal_suite_required",
+      "dependencies": [
+        "#399",
+        "#403",
+        "#411"
+      ],
+      "trusted_data_source": "Versioned longitudinal tasks, privacy-reviewed records, independently labeled recall and forgetting probes",
+      "runtime_identity": "Exact memory/index schema, retrieval policy, learning intervention, and checkpoint digests",
+      "evaluator_identity": "Separate evaluator with authorized synthetic/consented records and hidden recall probes",
+      "metrics": [
+        "recall precision/recall",
+        "forgetting and interference",
+        "provenance fidelity",
+        "privacy leakage",
+        "harmful-update rollback",
+        "longitudinal regression"
+      ],
+      "test_protocol": {
+        "status": "partial",
+        "command": "python -m unittest tests.test_persistent_evidence_graph tests.test_evidence_to_learning_intervention tests.test_adaptive_runtime_context -v",
+        "additional_required": "Add independent longitudinal recall/forgetting and privacy leakage tasks across repeated updates."
+      },
+      "baseline": {
+        "status": "internal_regression_only",
+        "source": "Memory/evidence graph regression tests; no independent longitudinal capability baseline."
+      },
+      "held_out_plan": "Operator holds back recall probes and sensitive synthetic canaries; evaluate before and after learning and after rollback.",
+      "threat_model": [
+        "memory poisoning",
+        "cross-user leakage",
+        "privacy inference",
+        "catastrophic forgetting",
+        "provenance loss",
+        "irreversible updates"
+      ],
+      "exact_head_ci": [
+        "Architecture Integrity",
+        "AI Harness Check",
+        "Agent Capability Runtime"
+      ],
+      "promotion_criteria": "Require privacy tests, provenance-preserving memory updates, fresh longitudinal regression, and successful rollback to last-known-good memory/policy.",
+      "external_dependencies": [
+        "privacy-reviewed evaluation corpus",
+        "independent longitudinal evaluator",
+        "operator-controlled backup and rollback rehearsal"
+      ]
+    },
+    {
+      "id": "planning_tools_collaboration",
+      "name": "Planning, tool use, and collaboration",
+      "owner": "AUREN maintainers + independent workflow evaluator",
+      "status": "partial_runtime_only_external_suite_required",
+      "dependencies": [
+        "#411",
+        "#438",
+        "#399",
+        "#403"
+      ],
+      "trusted_data_source": "Independent workflows with controlled tool endpoints, permission matrices, hidden acceptance criteria, and adversarial tool responses",
+      "runtime_identity": "Exact graph, handler/crew registry digest, tool adapters, and permission policy",
+      "evaluator_identity": "Independent QA/oracle; authoring crews cannot self-approve or self-promote",
+      "metrics": [
+        "task success",
+        "tool-call correctness",
+        "handoff loss",
+        "coordination overhead",
+        "unauthorized action rate",
+        "retry recovery",
+        "review defect detection"
+      ],
+      "test_protocol": {
+        "status": "partial",
+        "command": "python -m unittest tests.test_execution_controller_promotion_gate tests.test_graph_agent_evidence_decision tests.test_decision_gate -v",
+        "additional_required": "Exercise real approved-tool adapters and independent reviewer paths against external hidden acceptance tests."
+      },
+      "baseline": {
+        "status": "internal_regression_only",
+        "source": "Graph/decision gate tests; no independently scored multi-crew benchmark."
+      },
+      "held_out_plan": "Separate tool server from candidate; hide acceptance oracle; independently score handoffs, denied actions, and recovery.",
+      "threat_model": [
+        "tool injection",
+        "credential overreach",
+        "self-approval",
+        "review collusion",
+        "handoff evidence loss",
+        "duplicate side effects"
+      ],
+      "exact_head_ci": [
+        "Architecture Integrity",
+        "AI Harness Check",
+        "Agent Capability Runtime",
+        "Production AI Harness Hardening"
+      ],
+      "promotion_criteria": "Require bounded adapters, least privilege, independent QA, exact-head checks, trusted evidence, and tested rollback.",
+      "external_dependencies": [
+        "approved tool sandbox",
+        "independent QA/evaluator",
+        "operator-owned acceptance oracle"
+      ]
+    },
+    {
+      "id": "calibration_robustness_adversarial",
+      "name": "Calibration, robustness, and adversarial resistance",
+      "owner": "AUREN maintainers + independent red team",
+      "status": "partial_security_tests_external_red_team_required",
+      "dependencies": [
+        "#399",
+        "#400",
+        "#402",
+        "#403",
+        "#404"
+      ],
+      "trusted_data_source": "Independent adversarial prompt/tool-injection suites, shifted distributions, calibration labels, and hidden leakage probes",
+      "runtime_identity": "Exact model/provider, policy, prompt templates, tool schemas, and runtime digest",
+      "evaluator_identity": "Independent red team and score oracle; candidate cannot access attack labels",
+      "metrics": [
+        "expected calibration error",
+        "Brier score",
+        "abstention quality",
+        "distribution-shift degradation",
+        "injection success rate",
+        "leakage rate",
+        "false-safe rate"
+      ],
+      "test_protocol": {
+        "status": "partial",
+        "command": "python -m unittest tests.test_sealed_arena_boundary tests.test_sealed_arena_exchange tests.test_sealed_arena_replay_concurrency tests.test_external_evaluator_gateway -v",
+        "additional_required": "Add independently authored calibration and adversarial suites; current tests validate protocol security, not broad behavioral robustness."
+      },
+      "baseline": {
+        "status": "not_independently_measured",
+        "source": "Protocol adversarial tests only; no external behavioral robustness baseline."
+      },
+      "held_out_plan": "Red team seals attack families and score labels; repeat on fresh seeds and publish aggregate failure rates without exposing exploit payloads prematurely.",
+      "threat_model": [
+        "prompt injection",
+        "tool injection",
+        "side channels",
+        "benchmark leakage",
+        "distribution shift",
+        "confidence miscalibration",
+        "unsafe compliance"
+      ],
+      "exact_head_ci": [
+        "Architecture Integrity",
+        "AI Harness Check",
+        "Production AI Harness Hardening"
+      ],
+      "promotion_criteria": "Require bounded error bars, calibrated uncertainty, independent red-team retest, zero critical policy bypasses, and regression review.",
+      "external_dependencies": [
+        "independent red team",
+        "sealed attack corpus",
+        "trusted outcome signer",
+        "safety review"
+      ]
+    },
+    {
+      "id": "independent_evaluation_governance",
+      "name": "Independent evaluation and governance",
+      "owner": "AUREN maintainers + independent campaign operator",
+      "status": "protocol_implemented_campaign_not_run",
+      "dependencies": [
+        "#399",
+        "#400",
+        "#401",
+        "#402",
+        "#403",
+        "#404",
+        "#411"
+      ],
+      "trusted_data_source": "Externally sourced and versioned corpus; separately retained oracle, evaluator logs, signed raw receipts, and baseline artifacts",
+      "runtime_identity": "Exact main SHA, runtime/policy/model/adapter digests, configuration, and resource limits",
+      "evaluator_identity": "Independent operator, evaluator, oracle, custody signer, and promotion authority with documented separation",
+      "metrics": [
+        "receipt validity",
+        "holdout pass rate",
+        "replay rejection",
+        "repeat-run determinism",
+        "uncertainty intervals",
+        "resource cost",
+        "rollback success"
+      ],
+      "test_protocol": {
+        "status": "protocol_and_ci_present",
+        "command": "python -m unittest tests.test_sealed_arena_custody tests.test_sealed_cross_domain_attestation tests.test_external_evaluation_campaign tests.test_external_evaluator_gateway -v",
+        "additional_required": "An independent operator must run the campaign and retain signed artifacts outside the evaluated trust domain."
+      },
+      "baseline": {
+        "status": "internal_regression_only",
+        "source": "Internal CI baseline in docs/ARENA_BASELINE_2026-10-11.md; independent campaign explicitly not run."
+      },
+      "held_out_plan": "External operator retains corpus/oracle/private key; evaluate in separately administered environment; fresh nonce repeat; publish reproducible aggregates and limitations.",
+      "threat_model": [
+        "self-attestation",
+        "operator/evaluator/oracle collision",
+        "replay",
+        "holdout leakage",
+        "receipt forgery",
+        "stale evidence",
+        "promotion bypass"
+      ],
+      "exact_head_ci": [
+        "Architecture Integrity",
+        "AI Harness Check",
+        "Agent Capability Runtime",
+        "AUREN Portable Bundle",
+        "Production AI Harness Hardening"
+      ],
+      "promotion_criteria": "No promotion without signed independent custody and outcomes, complete receipts, exact-head CI, source regression, fresh holdout, and rollback-ready decision record.",
+      "external_dependencies": [
+        "independent operator",
+        "out-of-band trusted keys and revocation process",
+        "sealed corpus/oracle",
+        "external baseline",
+        "signed raw artifacts"
+      ]
+    }
+  ]
+}

@@ -46,5 +46,7 @@ jobs:
         run: python -m unittest tests.test_external_evaluation_campaign tests.test_external_generalization_runner -v
       - name: Run causal promotion and evidence-chain regressions
         run: python -m unittest tests.test_causal_capability_promotion tests.test_promotion_evidence_chain tests.test_arena_run_receipt tests.test_external_decision_evidence_ingestion tests.test_evidence_freshness -v
+      - name: Validate empirical capability coverage matrix
+        run: python -m unittest tests.test_capability_coverage_matrix -v
       - name: Compile dependency-free portable runtime
         run: python -m compileall -q portable scripts
