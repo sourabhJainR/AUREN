@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import math
 import os
+from pathlib import Path
 import signal
 import subprocess
 import threading
@@ -90,6 +91,11 @@ class ExternalEvaluatorGateway:
                 "external evaluator gateway requires a trusted Ed25519 keyring boundary that verifies signed holdout custody; "
                 "test-only callbacks require allow_test_verifier=True"
             )
+        if boundary._replay_ledger is not None and (
+            Path(boundary._replay_ledger.database_path).resolve()
+            != Path(replay_ledger.database_path).resolve()
+        ):
+            raise ValueError("gateway and boundary must share the same replay ledger database")
         self.boundary = boundary
         self.replay_ledger = replay_ledger
 
@@ -170,6 +176,10 @@ class ExternalEvaluatorGateway:
         if process.returncode != 0:
             raise RuntimeError(f"external evaluator failed with exit code {process.returncode}")
         receipt = import_outcome_receipt(bytes(output))
+        if self.boundary._replay_ledger is not None:
+            return self.boundary._accept_preclaimed(
+                request, receipt, replay_ledger=self.replay_ledger
+            )
         return self.boundary.accept(request, receipt)
 
 
