@@ -29,6 +29,7 @@ def chain(campaign_digest="campaign-1", **overrides):
         eligible=True,
         reasons=(),
         attestation_evidence_digest="verified-attestation-fixture",
+        causal_evidence_ids=(),
     )
     values.update(overrides)
     return PromotionEvidenceChain(**values)
@@ -47,7 +48,7 @@ class ExternalDecisionEvidenceIngestionTests(unittest.TestCase):
                 "verifier", "planner", "agent", "agent", .95, .92, 40, 1,
                 "campaign-1",
             )
-            result = ingestor.ingest(chain(), outcome(), e)
+            result = ingestor.ingest(chain(causal_evidence_ids=(e.evidence_id,)), outcome(), e)
             self.assertTrue(result.ingested)
             self.assertEqual(len(g.nodes(kind="observation")), 1)
             plan = EvidenceDrivenDecisionFabric(g).plan(
@@ -70,13 +71,13 @@ class ExternalDecisionEvidenceIngestionTests(unittest.TestCase):
                 {"verified": False},
                 {"oracle_independent": False},
             ):
+                evidence = ExternalDecisionEvidence(
+                    "verifier", "planner", "agent", "agent", .95, .92, 40, 1,
+                    "campaign-1", **kwargs,
+                )
                 with self.assertRaises(ValueError):
                     ingestor.ingest(
-                        chain(), outcome(),
-                        ExternalDecisionEvidence(
-                            "verifier", "planner", "agent", "agent", .95, .92, 40, 1,
-                            "campaign-1", **kwargs,
-                        ),
+                        chain(causal_evidence_ids=(evidence.evidence_id,)), outcome(), evidence,
                     )
 
     def test_rejects_lineage_mismatch(self):
@@ -88,7 +89,28 @@ class ExternalDecisionEvidenceIngestionTests(unittest.TestCase):
                 "other-campaign",
             )
             with self.assertRaises(ValueError):
-                ingestor.ingest(chain(), outcome(), e)
+                ingestor.ingest(chain(causal_evidence_ids=(e.evidence_id,)), outcome(), e)
+
+    def test_rejects_observation_not_bound_to_causal_chain(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ingestor = ExternalDecisionEvidenceIngestor(graph(tmp))
+            e = ExternalDecisionEvidence(
+                "verifier", "planner", "agent", "agent", .95, .92, 40, 1, "campaign-1"
+            )
+            with self.assertRaisesRegex(ValueError, "not bound"):
+                ingestor.ingest(chain(causal_evidence_ids=("another-evidence-id",)), outcome(), e)
+
+    def test_observation_digest_covers_trust_flags_and_rejects_tampering(self):
+        with self.assertRaisesRegex(ValueError, "does not match canonical observation content"):
+            ExternalDecisionEvidence(
+                "verifier", "planner", "agent", "agent", .95, .92, 40, 1,
+                "campaign-1", evidence_id="forged-id",
+            )
+        with self.assertRaisesRegex(ValueError, "verified must be a boolean"):
+            ExternalDecisionEvidence(
+                "verifier", "planner", "agent", "agent", .95, .92, 40, 1,
+                "campaign-1", verified="true",
+            )
 
     def test_rejects_chain_without_attestation_evidence_digest(self):
         incomplete = chain(attestation_evidence_digest="")
@@ -98,6 +120,7 @@ class ExternalDecisionEvidenceIngestionTests(unittest.TestCase):
             e = ExternalDecisionEvidence(
                 "verifier", "planner", "agent", "agent", .95, .92, 40, 1, "campaign-1"
             )
+            incomplete = chain(attestation_evidence_digest="", causal_evidence_ids=(e.evidence_id,))
             with self.assertRaises(ValueError):
                 ingestor.ingest(incomplete, outcome(), e)
 

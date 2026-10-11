@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
 import json
+import math
 
 from .external_evaluation_campaign import CampaignOutcome
 from .persistent_evidence_graph import EvidenceNode, PersistentEvidenceGraph
@@ -40,26 +41,35 @@ class ExternalDecisionEvidence:
             ("tool_path", self.tool_path),
             ("campaign_digest", self.campaign_digest),
         ):
-            if not str(value).strip():
+            if not isinstance(value, str) or not value.strip():
                 raise ValueError(f"{name} is required")
         for name, value in (("success", self.success), ("quality", self.quality)):
-            if not 0.0 <= float(value) <= 1.0:
-                raise ValueError(f"{name} must be between 0 and 1")
-        if self.duration < 0 or self.cost < 0:
-            raise ValueError("duration and cost must be non-negative")
-        if not self.evidence_id:
-            payload = {
-                "task_family": self.task_family, "capability": self.capability,
-                "provider": self.provider, "tool_path": self.tool_path,
-                "success": self.success, "quality": self.quality,
-                "duration": self.duration, "cost": self.cost,
-                "campaign_digest": self.campaign_digest,
-            }
-            object.__setattr__(
-                self, "evidence_id",
-                hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest(),
-            )
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not 0.0 <= value <= 1.0:
+                raise ValueError(f"{name} must be a finite number between 0 and 1")
+        for name, value in (("duration", self.duration), ("cost", self.cost)):
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0:
+                raise ValueError(f"{name} must be a finite non-negative number")
+        for name in ("oracle_independent", "verified", "contaminated"):
+            if type(getattr(self, name)) is not bool:
+                raise ValueError(f"{name} must be a boolean")
 
+        payload = {
+            "task_family": self.task_family, "capability": self.capability,
+            "provider": self.provider, "tool_path": self.tool_path,
+            "success": self.success, "quality": self.quality,
+            "duration": self.duration, "cost": self.cost,
+            "campaign_digest": self.campaign_digest,
+            "oracle_independent": self.oracle_independent,
+            "verified": self.verified,
+            "contaminated": self.contaminated,
+        }
+        expected_id = hashlib.sha256(
+            json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
+        ).hexdigest()
+        if not self.evidence_id:
+            object.__setattr__(self, "evidence_id", expected_id)
+        elif not isinstance(self.evidence_id, str) or self.evidence_id != expected_id:
+            raise ValueError("evidence_id does not match canonical observation content")
 
 @dataclass(frozen=True, slots=True)
 class EvidenceIngestionResult:
@@ -93,6 +103,8 @@ class ExternalDecisionEvidenceIngestor:
             raise ValueError("campaign outcome is not evidence eligible")
         if evidence.campaign_digest != chain.campaign_digest:
             raise ValueError("decision evidence does not match campaign")
+        if evidence.evidence_id not in chain.causal_evidence_ids:
+            raise ValueError("decision observation is not bound to the causal evidence chain")
         if not evidence.verified or not evidence.oracle_independent:
             raise ValueError("decision evidence requires independent verification")
         if evidence.contaminated:

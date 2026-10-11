@@ -26,6 +26,7 @@ class PromotionEvidenceChain:
     eligible: bool
     reasons: tuple[str, ...]
     attestation_evidence_digest: str = ""
+    causal_evidence_ids: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         for name, value in (
@@ -43,6 +44,12 @@ class PromotionEvidenceChain:
             raise ValueError("reasons must be a tuple of non-empty strings")
         if not isinstance(self.attestation_evidence_digest, str):
             raise ValueError("attestation_evidence_digest must be a string")
+        if not isinstance(self.causal_evidence_ids, tuple) or any(
+            not isinstance(item, str) or not item.strip() for item in self.causal_evidence_ids
+        ):
+            raise ValueError("causal_evidence_ids must be a tuple of non-empty strings")
+        if len(set(self.causal_evidence_ids)) != len(self.causal_evidence_ids):
+            raise ValueError("causal_evidence_ids must be unique")
 
     @property
     def complete(self) -> bool:
@@ -50,6 +57,7 @@ class PromotionEvidenceChain:
             self.eligible is True
             and not self.reasons
             and bool(self.attestation_evidence_digest.strip())
+            and bool(self.causal_evidence_ids)
         )
 
 
@@ -131,6 +139,7 @@ class PromotionEvidenceChainBuilder:
             eligible=not reasons,
             reasons=tuple(dict.fromkeys(reasons)),
             attestation_evidence_digest=attested_campaign.evidence_digest,
+            causal_evidence_ids=causal.evidence_ids,
         )
 
 
