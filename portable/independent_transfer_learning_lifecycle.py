@@ -393,7 +393,7 @@ class IndependentTransferLearningLifecycle:
             )
             rolled_back = True
         return LifecycleResult(
-            benchmark, transfer, decision, retest, promotion, rolled_back
+            benchmark, transfer, decision, retest, promotion, rolled_back, retest_passed
         )
 
 
