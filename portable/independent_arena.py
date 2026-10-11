@@ -184,9 +184,19 @@ def run_campaign(
         "counts": counts,
         "domain_scores": domain_scores,
     }
+    # Result identity excludes the unique run nonce and issuance time. This lets
+    # independent fresh runs compare deterministic outcomes while each receipt
+    # remains unique and replay-protected.
+    result_body = {
+        key: body[key]
+        for key in (
+            "schema_version", "benchmark_id", "manifest_digest", "evaluator_id",
+            "runtime_id", "policy_digest", "results", "counts", "domain_scores",
+        )
+    }
     receipt = {
         **body,
-        "result_digest": digest(body),
+        "result_digest": digest(result_body),
         "issued_at": datetime.now(timezone.utc).isoformat(),
     }
     receipt["receipt_digest"] = digest(receipt)
@@ -220,10 +230,10 @@ def verify_receipt(receipt: Mapping[str, Any], sealed: Mapping[str, Any]) -> boo
         claimed_receipt_digest = receipt_body.pop("receipt_digest", None)
         if claimed_receipt_digest != digest(receipt_body):
             return False
-        body = {key: receipt[key] for key in (
+        result_body = {key: receipt[key] for key in (
             "schema_version", "benchmark_id", "manifest_digest", "evaluator_id",
-            "runtime_id", "policy_digest", "run_nonce", "results", "counts", "domain_scores"
+            "runtime_id", "policy_digest", "results", "counts", "domain_scores"
         )}
-        return receipt.get("result_digest") == digest(body)
+        return receipt.get("result_digest") == digest(result_body)
     except (ArenaError, KeyError, TypeError, ValueError):
         return False
