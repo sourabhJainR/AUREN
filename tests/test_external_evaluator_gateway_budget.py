@@ -89,6 +89,21 @@ class ExternalEvaluatorGatewayBudgetTests(unittest.TestCase):
         )
         self.assertEqual(evidence.holdout_pass_rate, 1.0)
 
+    def test_command_rejects_invalid_budgets_and_environment_overrides(self) -> None:
+        for timeout in (True, float("nan"), float("inf"), 0):
+            with self.subTest(timeout=timeout), self.assertRaisesRegex(ValueError, "timeout_seconds"):
+                ExternalEvaluatorCommand((sys.executable, "-c", "pass"), timeout_seconds=timeout)
+        for budget in (True, 0, 1.5):
+            with self.subTest(budget=budget), self.assertRaisesRegex(ValueError, "max_output_bytes"):
+                ExternalEvaluatorCommand((sys.executable, "-c", "pass"), max_output_bytes=budget)
+        for environment in (
+            (("PATH", "/tmp/untrusted"),),
+            (("SAFE", "1"), ("SAFE", "2")),
+            (("SAFE", 3),),
+        ):
+            with self.subTest(environment=environment), self.assertRaises(ValueError):
+                ExternalEvaluatorCommand((sys.executable, "-c", "pass"), environment=environment)
+
 
 if __name__ == "__main__":
     unittest.main()
