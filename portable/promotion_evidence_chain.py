@@ -6,6 +6,8 @@ to reference the exact causal evidence and run receipt. It never mutates state.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
+import json
 import math
 import time
 from typing import Callable
@@ -196,4 +198,104 @@ class PromotionEvidenceChainBuilder:
         )
 
 
-__all__ = ["PromotionEvidenceChain", "PromotionEvidenceChainBuilder"]
+@dataclass(frozen=True, slots=True)
+class ArenaEvidenceObservation:
+    """Immutable accepted or rejected result of one evidence-chain evaluation."""
+
+    campaign_digest: str
+    run_receipt_digest: str
+    causal_evidence_digest: str
+    capability_id: str
+    intervention_id: str
+    accepted: bool
+    reasons: tuple[str, ...]
+    chain_digest: str
+    observation_digest: str = ""
+
+    def __post_init__(self) -> None:
+        for name in (
+            "campaign_digest", "run_receipt_digest", "causal_evidence_digest",
+            "capability_id", "intervention_id", "chain_digest",
+        ):
+            value = getattr(self, name)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"{name} must be a non-empty string")
+        if type(self.accepted) is not bool:
+            raise ValueError("accepted must be a boolean")
+        if not isinstance(self.reasons, tuple) or any(not isinstance(x, str) or not x.strip() for x in self.reasons):
+            raise ValueError("reasons must be a tuple of non-empty strings")
+        if self.accepted and self.reasons:
+            raise ValueError("accepted evidence cannot contain rejection reasons")
+        if not self.accepted and not self.reasons:
+            raise ValueError("rejected evidence must preserve at least one reason")
+        expected = hashlib.sha256(json.dumps({
+            "campaign_digest": self.campaign_digest,
+            "run_receipt_digest": self.run_receipt_digest,
+            "causal_evidence_digest": self.causal_evidence_digest,
+            "capability_id": self.capability_id,
+            "intervention_id": self.intervention_id,
+            "accepted": self.accepted,
+            "reasons": self.reasons,
+            "chain_digest": self.chain_digest,
+        }, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+        if self.observation_digest and self.observation_digest != expected:
+            raise ValueError("observation_digest does not match observation contents")
+        object.__setattr__(self, "observation_digest", expected)
+
+    @classmethod
+    def from_chain(cls, chain: PromotionEvidenceChain) -> "ArenaEvidenceObservation":
+        if not isinstance(chain, PromotionEvidenceChain):
+            raise TypeError("PromotionEvidenceChain is required")
+        chain_digest = hashlib.sha256(json.dumps({
+            "campaign_digest": chain.campaign_digest,
+            "run_receipt_digest": chain.run_receipt_digest,
+            "causal_evidence_digest": chain.causal_evidence_digest,
+            "capability_id": chain.capability_id,
+            "intervention_id": chain.intervention_id,
+            "eligible": chain.eligible,
+            "reasons": chain.reasons,
+            "attestation_evidence_digest": chain.attestation_evidence_digest,
+            "causal_evidence_ids": chain.causal_evidence_ids,
+            "isolation_evidence_digest": chain.isolation_evidence_digest,
+        }, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+        accepted = chain.complete
+        reasons = () if accepted else (chain.reasons or ("evidence chain is incomplete",))
+        return cls(
+            chain.campaign_digest, chain.run_receipt_digest, chain.causal_evidence_digest,
+            chain.capability_id, chain.intervention_id, accepted, tuple(reasons), chain_digest,
+        )
+
+
+class ArenaEvidenceObservationLedger:
+    """Append-only in-memory ledger; only accepted observations are learning inputs.
+
+    Persistence and trust-root custody belong to the deployment's external
+    evidence store. This class prevents accidental duplicate/conflicting
+    receipt ingestion within the current ledger instance.
+    """
+
+    def __init__(self) -> None:
+        self._by_receipt: dict[str, ArenaEvidenceObservation] = {}
+        self._records: list[ArenaEvidenceObservation] = []
+
+    def record(self, chain: PromotionEvidenceChain) -> ArenaEvidenceObservation:
+        observation = ArenaEvidenceObservation.from_chain(chain)
+        prior = self._by_receipt.get(observation.run_receipt_digest)
+        if prior is not None:
+            if prior.observation_digest == observation.observation_digest:
+                raise ValueError("replayed Arena receipt evidence")
+            raise ValueError("conflicting Arena observations for receipt digest")
+        self._by_receipt[observation.run_receipt_digest] = observation
+        self._records.append(observation)
+        return observation
+
+    @property
+    def records(self) -> tuple[ArenaEvidenceObservation, ...]:
+        return tuple(self._records)
+
+    @property
+    def learning_inputs(self) -> tuple[ArenaEvidenceObservation, ...]:
+        return tuple(record for record in self._records if record.accepted)
+
+
+__all__ = ["PromotionEvidenceChain", "PromotionEvidenceChainBuilder", "ArenaEvidenceObservation", "ArenaEvidenceObservationLedger"]
