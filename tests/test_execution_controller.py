@@ -1,6 +1,5 @@
 from pathlib import Path
 
-import pytest
 
 from portable.execution_controller import ExecutionController
 
@@ -173,22 +172,31 @@ def test_reregistering_handler_without_policy_preserves_existing_gate(tmp_path: 
 def test_ci_gate_policy_requires_expected_sha_checks_and_provider(tmp_path: Path):
     controller = ExecutionController(tmp_path)
     controller.register_handler("tests.ci_provider", trusted_ci_success)
-    with pytest.raises(ValueError, match="expected_head_sha"):
-        controller.register_handler(
-            "tests.ci_gate_handler", ci_gate_handler,
-            ci_gate_policy={"required_checks": ["tests"], "evidence_handler": "tests.ci_provider"},
-        )
-    with pytest.raises(ValueError, match="required_checks"):
-        controller.register_handler(
-            "tests.ci_gate_handler", ci_gate_handler,
-            ci_gate_policy={
+
+    invalid_policies = [
+        (
+            {"required_checks": ["tests"], "evidence_handler": "tests.ci_provider"},
+            "expected_head_sha",
+        ),
+        (
+            {
                 "expected_head_sha": "trusted-head",
                 "required_checks": [],
                 "evidence_handler": "tests.ci_provider",
             },
-        )
-    with pytest.raises(ValueError, match="evidence_handler"):
-        controller.register_handler(
-            "tests.ci_gate_handler", ci_gate_handler,
-            ci_gate_policy={"expected_head_sha": "trusted-head", "required_checks": ["tests"]},
-        )
+            "required_checks",
+        ),
+        (
+            {"expected_head_sha": "trusted-head", "required_checks": ["tests"]},
+            "evidence_handler",
+        ),
+    ]
+    for policy, expected_message in invalid_policies:
+        try:
+            controller.register_handler(
+                "tests.ci_gate_handler", ci_gate_handler, ci_gate_policy=policy,
+            )
+        except ValueError as error:
+            assert expected_message in str(error)
+        else:
+            raise AssertionError(f"invalid CI policy should reject {expected_message}")
