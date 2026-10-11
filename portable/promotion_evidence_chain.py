@@ -6,8 +6,11 @@ to reference the exact causal evidence and run receipt. It never mutates state.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import time
+from typing import Callable
 
 from .arena_run_receipt import ArenaRunReceipt
+from .arena_isolation_attestation import ArenaIsolationAttestation, verify_arena_isolation_attestation
 from .causal_capability_promotion import CausalPromotionDecision, CausalPromotionEvidence
 from .external_evaluation_campaign import ExternalEvaluationCampaign
 from .independent_evaluation_attestation import AttestedEvaluation
@@ -27,6 +30,7 @@ class PromotionEvidenceChain:
     reasons: tuple[str, ...]
     attestation_evidence_digest: str = ""
     causal_evidence_ids: tuple[str, ...] = ()
+    isolation_evidence_digest: str = ""
 
     def __post_init__(self) -> None:
         for name, value in (
@@ -44,6 +48,8 @@ class PromotionEvidenceChain:
             raise ValueError("reasons must be a tuple of non-empty strings")
         if not isinstance(self.attestation_evidence_digest, str):
             raise ValueError("attestation_evidence_digest must be a string")
+        if not isinstance(self.isolation_evidence_digest, str):
+            raise ValueError("isolation_evidence_digest must be a string")
         if not isinstance(self.causal_evidence_ids, tuple) or any(
             not isinstance(item, str) or not item.strip() for item in self.causal_evidence_ids
         ):
@@ -58,6 +64,7 @@ class PromotionEvidenceChain:
             and not self.reasons
             and bool(self.attestation_evidence_digest.strip())
             and bool(self.causal_evidence_ids)
+            and bool(self.isolation_evidence_digest.strip())
         )
 
 
@@ -72,6 +79,13 @@ class PromotionEvidenceChainBuilder:
         decision: CausalPromotionDecision,
         *,
         attested_campaign: AttestedEvaluation,
+        isolation_attestation: ArenaIsolationAttestation | None = None,
+        verify_isolation_signature: Callable[[str, str, bytes], bool] | None = None,
+        expected_image_digest: str = "",
+        evaluator_id: str = "",
+        oracle_id: str = "",
+        policy_runtime_id: str = "",
+        isolation_now: float | None = None,
     ) -> PromotionEvidenceChain:
         if not isinstance(campaign, ExternalEvaluationCampaign):
             raise TypeError("ExternalEvaluationCampaign is required")
@@ -85,6 +99,24 @@ class PromotionEvidenceChainBuilder:
             raise TypeError("verified campaign attestation is required")
 
         reasons: list[str] = []
+        isolation_digest = ""
+        if isolation_attestation is None:
+            reasons.append("independently signed sandbox isolation attestation is required")
+        else:
+            try:
+                isolation_digest = verify_arena_isolation_attestation(
+                    isolation_attestation,
+                    verify_isolation_signature,
+                    expected_campaign_digest=campaign.campaign_digest,
+                    expected_run_receipt_digest=receipt.receipt_digest,
+                    expected_image_digest=expected_image_digest,
+                    evaluator_id=evaluator_id,
+                    oracle_id=oracle_id,
+                    policy_runtime_id=policy_runtime_id,
+                    now=time.time() if isolation_now is None else isolation_now,
+                )
+            except (TypeError, ValueError) as exc:
+                reasons.append("sandbox isolation attestation invalid: " + str(exc))
         if not campaign.structurally_valid:
             reasons.append("external campaign is structurally invalid or contaminated")
         if not campaign.has_attestation_material:
@@ -140,6 +172,7 @@ class PromotionEvidenceChainBuilder:
             reasons=tuple(dict.fromkeys(reasons)),
             attestation_evidence_digest=attested_campaign.evidence_digest,
             causal_evidence_ids=causal.evidence_ids,
+            isolation_evidence_digest=isolation_digest,
         )
 
 
