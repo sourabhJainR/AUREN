@@ -103,9 +103,26 @@ def test_transfer_rejects_invalid_thresholds():
         )
 
 
-def test_lifecycle_promotes_only_after_causal_and_transfer_gates():
-    result = IndependentTransferLearningLifecycle().evaluate(
-        benchmark=benchmark(),
+def run_lifecycle(*, passed_case_ids=None, ledger=None, prior_campaign_digest="prior-campaign"):
+    b = benchmark()
+    all_case_ids = tuple(case.case_id for case in b.request.cases)
+    receipt = ArenaRunReceipt(
+        run_id="run-1",
+        arena_version="1",
+        corpus_digest=b.request.corpus_digest,
+        manifest_digest=b.manifest.digest,
+        oracle_digest=oracle_registry_digest(b.manifest.oracle_ids),
+        runtime_snapshot="runtime-1",
+        evaluator_version="eval-1",
+        case_ids=all_case_ids,
+        holdout_case_ids=("math-1", "math-2", "science-1", "science-2"),
+        passed_case_ids=all_case_ids if passed_case_ids is None else tuple(passed_case_ids),
+        verified_case_ids=all_case_ids,
+        duration_ms=10,
+        campaign_digest="fresh-campaign",
+    )
+    return IndependentTransferLearningLifecycle(promotion_ledger=ledger).evaluate(
+        benchmark=b,
         capability_id="transfer-capability",
         intervention_id="intervention-1",
         baseline_score=.60,
@@ -116,20 +133,7 @@ def test_lifecycle_promotes_only_after_causal_and_transfer_gates():
         randomized_assignment=True,
         control_scores=(.60, .61, .59, .62, .60, .61, .59, .60, .62, .61),
         treatment_scores=(.72, .73, .71, .74, .72, .73, .71, .72, .74, .73),
-        run_receipt=ArenaRunReceipt(
-            run_id="run-1",
-            arena_version="1",
-            corpus_digest=benchmark().request.corpus_digest,
-            manifest_digest=benchmark().manifest.digest,
-            oracle_digest=oracle_registry_digest(benchmark().manifest.oracle_ids),
-            runtime_snapshot="runtime-1",
-            evaluator_version="eval-1",
-            case_ids=tuple(case.case_id for case in benchmark().request.cases),
-            holdout_case_ids=("math-1", "math-2", "science-1", "science-2"),
-            passed_case_ids=tuple(case.case_id for case in benchmark().request.cases),
-            verified_case_ids=tuple(case.case_id for case in benchmark().request.cases),
-            duration_ms=10,
-        ),
+        run_receipt=receipt,
         transfer=CrossDomainTransferMeasurer().measure(
             source_domain="code",
             outcomes=(
@@ -143,12 +147,37 @@ def test_lifecycle_promotes_only_after_causal_and_transfer_gates():
         fresh_holdout=True,
         independent_oracle=True,
         evidence_ids=("execution-1", "verification-1", "attribution-1"),
-        prior_campaign_digest="prior-campaign",
+        prior_campaign_digest=prior_campaign_digest,
         version="v2",
     )
+
+
+def test_lifecycle_promotes_only_after_causal_transfer_and_fresh_retest_gates():
+    result = run_lifecycle()
     assert result.causal.eligible
+    assert result.retest_passed
     assert result.promotion is not None
     assert result.promotion.version == "v2"
+
+
+def test_failed_fresh_holdout_retest_blocks_promotion_and_rolls_back():
+    ledger = PromotionRollbackLedger()
+    ledger.promote("transfer-capability", "v1", "evidence-v1")
+    ledger.promote("transfer-capability", "v2", "evidence-v2")
+    result = run_lifecycle(
+        passed_case_ids=("code-1", "code-2", "math-2", "science-1", "science-2"),
+        ledger=ledger,
+    )
+    assert not result.retest_passed
+    assert result.promotion is None
+    assert result.rolled_back
+    assert ledger.active("transfer-capability").version == "v1"
+
+
+def test_lifecycle_rejects_retest_receipt_reusing_prior_campaign():
+    import pytest
+    with pytest.raises(ValueError, match="distinct from the prior campaign"):
+        run_lifecycle(prior_campaign_digest="fresh-campaign")
 
 
 def test_rollback_restores_previous_version():
