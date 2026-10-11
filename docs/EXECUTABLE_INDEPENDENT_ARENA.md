@@ -57,3 +57,41 @@ The example above is a protocol smoke test, **not** an independent evaluation: i
 ## Current acceptance status
 
 The unit tests exercise task-only projection, manifest tampering, receipt tampering, evaluator/runtime separation, policy exceptions, repeatable result digests, and nonce replay rejection across ledger instances. Passing these tests establishes only the local protocol contract. It does not establish external independence, generalization, coding capability, or AGI. The first campaign remains blocked until an independent operator provides and retains the corpus/oracle and signs or otherwise independently attests to the receipt.
+
+
+## Candidate process boundary
+
+For an operator-controlled candidate adapter that accepts one JSON task on stdin and emits one JSON value on stdout, use the subprocess adapter instead of an in-process callback:
+
+```python
+import sys
+from portable.independent_arena import NonceLedger, SubprocessPolicy, run_campaign, seal_manifest
+
+sealed = seal_manifest(independently_supplied_manifest)
+policy = SubprocessPolicy(
+    [sys.executable, "-m", "candidate_adapter"],
+    timeout_seconds=30,
+    max_output_bytes=1_000_000,
+)
+receipt = run_campaign(
+    sealed,
+    policy,
+    policy_digest="sha256:<digest-of-runtime-and-adapter>",
+    run_nonce="unique-operator-generated-run-id",
+    nonce_ledger=NonceLedger("/evaluator-private/arena/nonces.sqlite3"),
+)
+```
+
+The adapter launches a fresh process per case, sends only the task projection, strips the evaluator's general environment, uses a temporary working directory, enforces a timeout, validates JSON output, and converts failures to opaque error outcomes. This narrows accidental in-memory coupling; it is **not** a complete sandbox. The process can still access resources allowed to its OS identity. For a sealed campaign, run it in an externally controlled container/VM or service account with filesystem/network restrictions and keep the holdout manifest, oracle, nonce database, and retained receipt outside that environment.
+
+## Sealed-campaign runbook
+
+1. Independent operator generates the benchmark and keeps the sealed holdout/oracle outside the candidate environment.
+2. Record the corpus digest, evaluator identity, candidate/runtime digest, adapter digest, and the operator-generated nonce.
+3. Run candidate cases through the subprocess adapter inside the operator's restricted execution boundary.
+4. Retain the receipt and manifest digest outside the candidate workspace; independently sign/attest the receipt using an operator-controlled key or attestation service.
+5. Repeat the campaign with a fresh nonce and compare `result_digest` for determinism. Reusing a nonce against the same persistent ledger must fail.
+6. Publish aggregate metrics, per-domain scores, failures, negative/adversarial results, receipt digests, and limitations. Never publish sealed answers or sensitive prompts.
+7. Do not promote a capability from this result alone: require source-domain regression, unseen target-domain transfer, causal attribution, and a fresh independent holdout.
+
+Until the external operator completes these steps, the Arena implementation has only a local regression baseline, not a completed independent campaign.
