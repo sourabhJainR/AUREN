@@ -8,7 +8,7 @@ import re
 from typing import Any, Callable, Mapping
 
 from .orchestration import Graph, Node, NodeKind, NodeStatus, OrchestrationRun, Orchestrator
-from .crew_adapters import GraphHandoffController, rollback_readiness
+from .crew_adapters import CrewHandoff, GraphHandoffController, rollback_readiness
 
 _FORBIDDEN_CREW_AUTHORITIES = frozenset({
     "merge", "promote", "self_approve", "approve_own_work", "bypass_review",
@@ -437,7 +437,7 @@ class GraphAgentTeam:
             if not dispatch_active["value"]:
                 raise RuntimeError("handoff retry is only available during graph execution")
             item = handoffs.retry(
-                __import__("portable.crew_adapters", fromlist=["CrewHandoff"]).CrewHandoff(
+                CrewHandoff(
                     record["source_crew"], record["target_crew"], record["task"],
                     record["source_plan_digest"], record.get("attempt", 0),
                 ),
@@ -456,7 +456,6 @@ class GraphAgentTeam:
         def complete_handoff(record: Mapping[str, Any], independent_review_passed: bool) -> None:
             if not dispatch_active["value"]:
                 raise RuntimeError("handoff completion is only available during graph execution")
-            from .crew_adapters import CrewHandoff
             handoffs.mark_completed(CrewHandoff(
                 record["source_crew"], record["target_crew"], record["task"],
                 record["source_plan_digest"], record.get("attempt", 0),
