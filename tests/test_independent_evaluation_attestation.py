@@ -6,7 +6,7 @@ from portable.attestation_key_separation import AttestationTrustPolicy, Separati
 
 class AttestationTests(unittest.TestCase):
     def att(self):
-        return EvaluationAttestation("camp", "corpus", "oracle", "v1", "external-evaluator", "sig")
+        return EvaluationAttestation("camp", "corpus", "oracle", "v1", "external-evaluator", "sig", key_id="external-evaluator-key-v1")
 
     @staticmethod
     def verify_principal(principal, role):
@@ -17,7 +17,7 @@ class AttestationTests(unittest.TestCase):
     def separation_verifier(self, verify_signature=lambda a: a.signature == "sig"):
         return SeparationAwareAttestor(
             verify_signature,
-            AttestationTrustPolicy(frozenset({"external-evaluator"})),
+            AttestationTrustPolicy(frozenset({"external-evaluator"}), trusted_key_ids=frozenset({"external-evaluator-key-v1"})),
             self.verify_principal,
         )
 
