@@ -270,7 +270,7 @@ class ExecutionController:
             work = self.company.start(goal)
             db.execute(
                 "INSERT INTO sessions(session_id,work_unit_id,goal,updated_at) VALUES(?,?,?,?)",
-                (session_id, work.id, goal, _now(), session_id),
+                (session_id, work.id, goal, _now()),
             )
         return work.id
 
