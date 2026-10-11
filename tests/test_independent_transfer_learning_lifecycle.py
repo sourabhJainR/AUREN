@@ -47,6 +47,61 @@ def test_transfer_requires_real_target_domains_and_measures_lift():
     assert measurement.transfer_lift > .03
     assert measurement.valid
 
+def test_transfer_rejects_non_finite_scores_and_non_boolean_flags():
+    import pytest
+    measurer = CrossDomainTransferMeasurer()
+    with pytest.raises(ValueError, match="score must be a finite number"):
+        measurer.measure(
+            source_domain="code",
+            outcomes=(
+                ("code", "control", True, .70, False, False),
+                ("math", "control", True, .60, False, True),
+                ("math", "treatment", True, float("nan"), False, True),
+                ("science", "control", True, .55, False, True),
+                ("science", "treatment", True, .68, False, True),
+            ),
+        )
+    with pytest.raises(ValueError, match="must be booleans"):
+        measurer.measure(
+            source_domain="code",
+            outcomes=(
+                ("code", "control", True, .70, False, False),
+                ("math", "control", True, .60, False, True),
+                ("math", "treatment", True, .70, "false", True),
+                ("science", "control", True, .55, False, True),
+                ("science", "treatment", True, .68, False, True),
+            ),
+        )
+
+
+def test_transfer_requires_control_and_treatment_within_each_target_domain():
+    import pytest
+    with pytest.raises(ValueError, match="requires both sealed control and treatment"):
+        CrossDomainTransferMeasurer().measure(
+            source_domain="code",
+            outcomes=(
+                ("code", "control", True, .70, False, False),
+                ("math", "control", True, .60, False, True),
+                ("math", "treatment", True, .70, False, True),
+                ("science", "treatment", True, .68, False, True),
+                ("physics", "control", True, .57, False, True),
+            ),
+        )
+
+
+def test_transfer_rejects_invalid_thresholds():
+    import pytest
+    with pytest.raises(ValueError, match="minimum_target_domains"):
+        CrossDomainTransferMeasurer().measure(
+            source_domain="code", outcomes=(("code", "control", True, .7, False, False),),
+            minimum_target_domains=True,
+        )
+    with pytest.raises(ValueError, match="minimum_lift"):
+        CrossDomainTransferMeasurer().measure(
+            source_domain="code", outcomes=(("code", "control", True, .7, False, False),),
+            minimum_lift=float("nan"),
+        )
+
 
 def test_lifecycle_promotes_only_after_causal_and_transfer_gates():
     result = IndependentTransferLearningLifecycle().evaluate(
