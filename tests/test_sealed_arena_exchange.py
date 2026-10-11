@@ -23,6 +23,7 @@ class SealedArenaExchangeTests(unittest.TestCase):
         self.assertEqual(round_trip.campaign_digest, self.request.campaign_digest)
         self.assertEqual(round_trip.corpus_digest, self.request.corpus_digest)
         self.assertEqual(round_trip.run_nonce, self.request.run_nonce)
+        self.assertEqual(round_trip.request_digest, self.request.request_digest)
         self.assertEqual(round_trip.cases[0].transfer_dimensions, self.request.cases[0].transfer_dimensions)
 
     def test_receipt_round_trip(self) -> None:
