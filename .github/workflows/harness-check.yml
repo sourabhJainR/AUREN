@@ -25,6 +25,7 @@ on:
       - 'examples/**'
   pull_request:
     paths:
+      - '.github/workflows/**'
       - '.ai-harness/**'
       - '.agents/**'
       - '.claude-plugin/**'
@@ -76,10 +77,6 @@ jobs:
         run: |
           set -o pipefail
           python -m unittest tests.test_skill_group_evidence tests.test_execution_strategy tests.test_execution_strategy_learning -v 2>&1 | tee ci-artifacts/targeted-learning-tests.txt
-      - name: Validate reference applications
-        run: |
-          python -m unittest discover -s examples/habit-tracker/tests -v
-          python -m unittest discover -s examples/family-financial-register/tests -v
       - name: Compile harness, runtime, extensions and installer
         run: python -m py_compile .ai-harness/run.py .ai-harness/engine.py .ai-harness/context_engine.py .ai-harness/knowledge_fabric.py .ai-harness/extension_registry.py .ai-harness/provider.py .ai-harness/observability.py .ai-harness/project_profile.py .ai-harness/placement.py .ai-harness/worktree.py .ai-harness/review_agents.py .ai-harness/runtime/p0.py .ai-harness/runtime/p1.py .ai-harness/runtime/p1_pipeline.py .ai-harness/runtime/p2.py .ai-harness/runtime/p2_pipeline.py .ai-harness/runtime/legacy.py .ai-harness/runtime/execution_controls.py .ai-harness/runtime/intent_contract.py .ai-harness/runtime/learning.py .ai-harness/runtime/learning_engine.py .ai-harness/runtime/policy_registry.py .ai-harness/runtime/regression_replay.py .ai-harness/runtime/rollback_controller.py .ai-harness/runtime/learning_controller.py .ai-harness/runtime/canary_evaluator.py .ai-harness/runtime/rca.py .ai-harness/runtime/collaboration.py .ai-harness/runtime/second_brain.py .ai-harness/runtime/loop_engine.py .ai-harness/runtime/capability_catalog.py .ai-harness/runtime/instruction_loader.py .ai-harness/runtime/run_journal.py scripts/install_skill.py scripts/validate_plugin.py scripts/run_evals.py scripts/run_p0_evals.py scripts/run_p2_evals.py scripts/run_full_suite.py scripts/run_p1_evals.py scripts/report_regression.py scripts/heartbeat.py portable/auren_runtime.py auren_cli.py .ai-harness/p1_lifecycle.py examples/habit-tracker/app.py examples/family-financial-register/app.py
       - name: Validate portable bundle build and integrity
@@ -139,22 +136,6 @@ jobs:
         run: python -m unittest tests.test_legacy_runtime tests.test_execution_controls tests.test_intent_contract tests.test_provider tests.test_rca tests.test_collaboration -v
       - name: Detect optional extensions
         run: python .ai-harness/extension_registry.py
-      - name: Run deterministic routing eval suite
-        run: python scripts/run_evals.py
-      - name: Run deterministic P0 contract eval suite
-        run: python scripts/run_p0_evals.py
-      - name: Run deterministic P1 integration eval suite
-        run: python scripts/run_p1_evals.py
-      - name: Run deterministic P2 capability eval suite
-        run: python scripts/run_p2_evals.py
-      - name: Run harness evaluation suite
-        run: python .ai-harness/run.py eval
-      - name: Check convention profile
-        run: python .ai-harness/project_profile.py
-      - name: Check placement analyzer
-        run: python .ai-harness/placement.py ExampleService.py ExampleConstants.py ExampleHandler.py
-      - name: Check worktree helper
-        run: python .ai-harness/worktree.py list
       # The deterministic full suite is intentionally not rerun here: every command
       # it orchestrates is already executed as an individual required step above.
       # Keep scripts/run_full_suite.py available for local and standalone full-suite runs.
@@ -175,3 +156,41 @@ jobs:
             echo
             echo 'The same auren_cli.py is included in the auren-harness-results artifact.'
           } >> "$GITHUB_STEP_SUMMARY"
+
+  examples:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+      - name: Validate reference applications
+        run: |
+          python -m unittest discover -s examples/habit-tracker/tests -v
+          python -m unittest discover -s examples/family-financial-register/tests -v
+
+
+  evaluations:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+      - name: Run deterministic routing eval suite
+        run: python scripts/run_evals.py
+      - name: Run deterministic P0 contract eval suite
+        run: python scripts/run_p0_evals.py
+      - name: Run deterministic P1 integration eval suite
+        run: python scripts/run_p1_evals.py
+      - name: Run deterministic P2 capability eval suite
+        run: python scripts/run_p2_evals.py
+      - name: Run harness evaluation suite
+        run: python .ai-harness/run.py eval
+      - name: Check convention profile
+        run: python .ai-harness/project_profile.py
+      - name: Check placement analyzer
+        run: python .ai-harness/placement.py ExampleService.py ExampleConstants.py ExampleHandler.py
+      - name: Check worktree helper
+        run: python .ai-harness/worktree.py list
+
