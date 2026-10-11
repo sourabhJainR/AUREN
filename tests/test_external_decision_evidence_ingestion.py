@@ -30,6 +30,7 @@ def chain(campaign_digest="campaign-1", **overrides):
         reasons=(),
         attestation_evidence_digest="verified-attestation-fixture",
         causal_evidence_ids=(),
+        isolation_evidence_digest="verified-isolation-fixture",
     )
     values.update(overrides)
     return PromotionEvidenceChain(**values)
