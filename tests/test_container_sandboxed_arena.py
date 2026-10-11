@@ -77,6 +77,27 @@ class ContainerSandboxedArenaTests(unittest.TestCase):
         self.assertTrue(cleanup[3].startswith("auren-arena-"))
 
     @patch("portable.container_sandboxed_arena.subprocess.run")
+    @patch("portable.container_sandboxed_arena.subprocess.Popen")
+    def test_output_overflow_is_bounded_and_requests_container_cleanup(self, popen, run):
+        process = popen.return_value
+        process.stdin = __import__("io").BytesIO()
+        process.stdout = __import__("io").BytesIO(b"x" * 100_000)
+        process.wait.return_value = 0
+        process.returncode = -9
+        run.return_value = subprocess.CompletedProcess(["docker", "rm"], 0, stdout="", stderr="")
+        receipt = self.run_campaign(max_output_bytes=128)
+        self.assertEqual(receipt["counts"], {"pass": 0, "fail": 0, "error": 1})
+        self.assertEqual(popen.call_args.kwargs["stdout"], subprocess.PIPE)
+        self.assertEqual(run.call_args.args[0][:3], ["docker", "rm", "--force"])
+        self.assertNotIn("x" * 128, json.dumps(receipt))
+
+    def test_rejects_invalid_output_limit_before_execution(self):
+        with patch("portable.container_sandboxed_arena.subprocess.Popen") as popen:
+            with self.assertRaisesRegex(ValueError, "max_output_bytes"):
+                self.run_campaign(max_output_bytes=0)
+            popen.assert_not_called()
+
+    @patch("portable.container_sandboxed_arena.subprocess.run")
     def test_nonzero_policy_exit_is_not_a_pass(self, run):
         run.return_value = subprocess.CompletedProcess(["docker"], 2, stdout="15", stderr="secret")
         receipt = self.run_campaign()
