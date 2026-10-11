@@ -78,9 +78,9 @@ class ExternalEvaluatorGatewayBudgetTests(unittest.TestCase):
             f"started=pathlib.Path({str(started)!r}); "
             f"child={child_script!r}; "
             "subprocess.Popen([sys.executable, '-c', child]); "
-            "deadline=time.monotonic()+2\\n"
-            "while not started.exists() and time.monotonic()<deadline:\\n"
-            "    time.sleep(0.01)\\n"
+            "deadline=time.monotonic()+2\n"
+            "while not started.exists() and time.monotonic()<deadline:\n"
+            "    time.sleep(0.01)\n"
             "sys.stdout.buffer.write(b'x'*1000000)"
         )
         gateway = ExternalEvaluatorGateway(
