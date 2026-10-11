@@ -225,6 +225,7 @@ class SealedArenaEvidence:
     result_case_count: int
     case_results: tuple[tuple[str, bool, str], ...] = ()
     case_metrics: tuple[tuple[str, float, float, float, float, bool], ...] = ()
+    request_digest: str = ""
 
 
 class SealedArenaBoundary:
@@ -266,6 +267,7 @@ class SealedArenaBoundary:
             len(receipt.results),
             tuple(tuple(row) for row in receipt.results),
             tuple(tuple(row) for row in receipt.metrics),
+            request.request_digest,
         )
 
 
