@@ -263,7 +263,6 @@ class SealedArenaBoundary:
             raise ValueError("max_future_skew_seconds must be finite and non-negative")
         self._verify_signature = verify_signature
         self._verify_custody_signature = verify_custody_signature
-        self._trusted_custody_profile = False
         self._clock = clock
         self._max_future_skew_seconds = float(max_future_skew_seconds)
 
@@ -278,13 +277,20 @@ class SealedArenaBoundary:
             clock=clock,
             max_future_skew_seconds=max_future_skew_seconds,
         )
-        boundary._trusted_custody_profile = True
         return boundary
 
     @property
     def has_trusted_custody_verifier(self) -> bool:
-        """Whether this boundary uses the configured trusted Ed25519 keyring."""
-        return self._trusted_custody_profile is True and self._verify_custody_signature is not None
+        """Whether outcome and custody verification share the trusted Ed25519 keyring."""
+        from .sealed_arena_signature import Ed25519ReceiptVerifier
+
+        custody_verifier = self._verify_custody_signature
+        return (
+            isinstance(self._verify_signature, Ed25519ReceiptVerifier)
+            and custody_verifier is not None
+            and getattr(custody_verifier, "__self__", None) is self._verify_signature
+            and getattr(custody_verifier, "__func__", None) is Ed25519ReceiptVerifier.verify_detached
+        )
 
     def accept(self, request: SealedCampaignRequest, receipt: ExternalOutcomeReceipt) -> SealedArenaEvidence:
         if not isinstance(request, SealedCampaignRequest) or not isinstance(receipt, ExternalOutcomeReceipt):
