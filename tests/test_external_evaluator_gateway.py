@@ -221,7 +221,7 @@ class ExternalEvaluatorGatewayTests(unittest.TestCase):
 
     def test_command_rejects_nul_bytes_in_arguments(self) -> None:
         with self.assertRaisesRegex(ValueError, "non-empty tuple"):
-            ExternalEvaluatorCommand((sys.executable, "-c", "pass\\x00bad"))
+            ExternalEvaluatorCommand((sys.executable, "-c", "pass" + chr(0) + "bad"))
 
     def test_shell_is_not_used(self) -> None:
         command = ExternalEvaluatorCommand((sys.executable, "-c", "import sys; sys.stdout.write(sys.stdin.read())"))
