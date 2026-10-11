@@ -12,6 +12,7 @@ import subprocess
 
 from .sealed_arena_boundary import SealedArenaBoundary, SealedArenaEvidence, SealedCampaignRequest
 from .sealed_arena_exchange import export_campaign_request, import_outcome_receipt
+from .sealed_arena_replay import SealedArenaReplayLedger
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,10 +36,20 @@ class ExternalEvaluatorCommand:
 class ExternalEvaluatorGateway:
     """Exchange a sealed request with an evaluator outside the AUREN process."""
 
-    def __init__(self, boundary: SealedArenaBoundary) -> None:
+    def __init__(self, boundary: SealedArenaBoundary, replay_ledger: SealedArenaReplayLedger) -> None:
+        if not isinstance(replay_ledger, SealedArenaReplayLedger):
+            raise TypeError("a persistent SealedArenaReplayLedger is required")
         self.boundary = boundary
+        self.replay_ledger = replay_ledger
 
     def evaluate(self, request: SealedCampaignRequest, command: ExternalEvaluatorCommand) -> SealedArenaEvidence:
+        if not request.run_nonce.strip():
+            raise ValueError("sealed campaign request requires a unique run_nonce")
+        self.replay_ledger.claim(
+            run_nonce=request.run_nonce,
+            campaign_digest=request.campaign_digest,
+            corpus_digest=request.corpus_digest,
+        )
         completed = subprocess.run(
             list(command.argv),
             input=export_campaign_request(request),
