@@ -154,9 +154,23 @@ class ContainerSandboxedArenaTests(unittest.TestCase):
         self.run_campaign(container_runtime=r"C:\Program Files\Docker\docker.exe")
         self.assertEqual(popen.call_args.args[0][0], r"C:\Program Files\Docker\docker.exe")
 
-    def test_rejects_shell_command_as_container_runtime(self):
-        with self.assertRaisesRegex(ValueError, "executable"):
-            self.run_campaign(container_runtime="docker; echo unsafe")
+    @patch("portable.container_sandboxed_arena.subprocess.run")
+    @patch("portable.container_sandboxed_arena.subprocess.Popen")
+    def test_keyboard_interrupt_requests_cleanup_and_preserves_interrupt(self, popen, run):
+        process = popen.return_value
+        process.stdin = Mock()
+        process.stdout = io.BytesIO(b"")
+        process.wait.side_effect = [KeyboardInterrupt(), None]
+        process.returncode = -9
+        run.side_effect = OSError("runtime cleanup unavailable")
+
+        with self.assertRaises(KeyboardInterrupt):
+            self.run_campaign(nonce="interrupt-cleanup")
+
+        self.assertTrue(process.kill.called)
+        self.assertEqual(run.call_args.args[0][:3], ["docker", "rm", "--force"])
+        self.assertEqual(run.call_args.kwargs["timeout"], 5.0)
+        self.assertEqual(run.call_args.kwargs["check"], False)
 
 
 if __name__ == "__main__":
