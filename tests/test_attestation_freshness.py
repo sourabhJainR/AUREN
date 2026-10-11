@@ -23,9 +23,11 @@ def verify_principal(principal, role):
     )
 
 
-def make_verifier(registry=None, verify_identity=verify_principal):
+def make_verifier(registry=None, verify_identity=verify_principal, verify_signature=None):
+    if verify_signature is None:
+        verify_signature = lambda attestation: attestation.signature == "sig"
     return FreshnessAwareAttestor(
-        lambda attestation: attestation.signature == "sig",
+        verify_signature,
         AttestationTrustPolicy(frozenset({"signer"})),
         AttestationFreshnessPolicy(max_age_seconds=10, max_future_skew_seconds=2),
         registry or AttestationReplayRegistry(),
@@ -48,13 +50,15 @@ class AttestationFreshnessTests(unittest.TestCase):
         result = make_verifier().verify(make_attestation(), **self.kwargs())
         self.assertTrue(result.trustworthy)
 
-    def test_replay_is_rejected(self):
+    def test_replay_is_rejected_and_has_distinct_evidence_digest(self):
         verifier = make_verifier()
         attestation = make_attestation()
-        self.assertTrue(verifier.verify(attestation, **self.kwargs()).trustworthy)
+        first = verifier.verify(attestation, **self.kwargs())
         replay = verifier.verify(attestation, **self.kwargs())
+        self.assertTrue(first.trustworthy)
         self.assertFalse(replay.trustworthy)
         self.assertIn("already been consumed", replay.reasons[-1])
+        self.assertNotEqual(first.evidence_digest, replay.evidence_digest)
 
     def test_expired_attestation_is_rejected(self):
         result = make_verifier().verify(make_attestation(issued_at=100), **{**self.kwargs(), "now": 111})
@@ -78,6 +82,18 @@ class AttestationFreshnessTests(unittest.TestCase):
         self.assertFalse(result.independent)
         self.assertFalse(result.trustworthy)
         self.assertTrue(any("not configured" in reason for reason in result.reasons))
+
+    def test_invalid_signature_does_not_consume_replay_slot(self):
+        registry = AttestationReplayRegistry()
+        attestation = make_attestation()
+        invalid = make_verifier(registry, verify_signature=lambda _value: False).verify(
+            attestation, **self.kwargs()
+        )
+        valid = make_verifier(registry, verify_signature=lambda _value: True).verify(
+            attestation, **self.kwargs()
+        )
+        self.assertFalse(invalid.trustworthy)
+        self.assertTrue(valid.trustworthy)
 
     def test_boolean_timestamp_is_rejected(self):
         with self.assertRaisesRegex(ValueError, "non-negative integer"):
