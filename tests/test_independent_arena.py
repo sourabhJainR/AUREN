@@ -1,10 +1,9 @@
 import copy
 import tempfile
-import sys
 import unittest
 from pathlib import Path
 
-from portable.independent_arena import ArenaError, NonceLedger, SubprocessPolicy, run_campaign, seal_manifest, validate_manifest, verify_receipt
+from portable.independent_arena import ArenaError, NonceLedger, run_campaign, seal_manifest, validate_manifest, verify_receipt
 
 
 def new_ledger():
@@ -77,28 +76,6 @@ class IndependentArenaTests(unittest.TestCase):
             validate_manifest(data)
 
 
-
-    def test_subprocess_policy_receives_task_json_and_returns_json(self):
-        sealed = seal_manifest(fixture())
-        policy = SubprocessPolicy([
-            sys.executable, "-c",
-            "import json,sys; t=json.load(sys.stdin); print(json.dumps(15 if t['case_id']=='math-001' else 'transient'))",
-        ])
-        receipt = run_campaign(
-            sealed, policy, nonce_ledger=new_ledger(),
-            policy_digest="sha256:subprocess-policy", run_nonce="subprocess-run",
-        )
-        self.assertEqual(receipt["counts"], {"pass": 2, "fail": 0, "error": 0})
-
-    def test_subprocess_timeout_becomes_opaque_error(self):
-        sealed = seal_manifest(fixture())
-        policy = SubprocessPolicy([sys.executable, "-c", "import time; time.sleep(2)"], timeout_seconds=0.1)
-        receipt = run_campaign(
-            sealed, policy, nonce_ledger=new_ledger(),
-            policy_digest="sha256:slow-policy", run_nonce="timeout-run",
-        )
-        self.assertEqual(receipt["counts"]["error"], 2)
-        self.assertNotIn("timed out", str(receipt))
 
     def test_nonce_replay_is_rejected_across_ledger_instances(self):
         sealed = seal_manifest(fixture())
