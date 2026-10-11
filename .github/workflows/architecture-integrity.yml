@@ -25,6 +25,6 @@ jobs:
       - name: Run cross-domain campaign lineage regressions
         run: python -m unittest tests.test_sealed_cross_domain_lineage -v
       - name: Run independent attestation and key separation regressions
-        run: python -m unittest tests.test_independent_evaluation_attestation tests.test_attestation_key_separation tests.test_attested_cross_project_transfer -v
+        run: python -m unittest tests.test_independent_evaluation_attestation tests.test_attestation_key_separation tests.test_attested_cross_project_transfer tests.test_attestation_freshness -v
       - name: Compile dependency-free portable runtime
         run: python -m compileall -q portable scripts
