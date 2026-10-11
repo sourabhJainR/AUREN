@@ -85,14 +85,20 @@ class ExecutionController:
         if policy:
             expected_sha = policy.get("expected_head_sha")
             required_checks = policy.get("required_checks")
+            evidence_handler = policy.get("evidence_handler")
             if not isinstance(expected_sha, str) or not expected_sha.strip():
                 raise ValueError("CI gate policy requires a trusted expected_head_sha")
             if (not isinstance(required_checks, (list, tuple)) or not required_checks
                     or not all(isinstance(item, str) and item.strip() for item in required_checks)):
                 raise ValueError("CI gate policy requires non-empty trusted required_checks")
+            if not isinstance(evidence_handler, str) or not evidence_handler.strip():
+                raise ValueError("CI gate policy requires a trusted evidence_handler")
+            # Resolve the provider at registration time; it is service policy, not task input.
+            self._load_handler(evidence_handler)
             policy = {
                 "expected_head_sha": expected_sha,
                 "required_checks": list(dict.fromkeys(required_checks)),
+                "evidence_handler": evidence_handler,
             }
         with sqlite3.connect(self.db_path) as db:
             # Re-registering a handler after restart must not silently remove its
@@ -204,10 +210,16 @@ class ExecutionController:
             # disable the gate, lower required checks, or substitute the expected SHA.
             gate_policy = self._handler_ci_gate_policy(task.handler)
             if gate_policy:
-                gate = result.get("ci_gate") if isinstance(result, Mapping) else None
+                # Obtain CI evidence from a separately registered trusted provider.
+                # Never accept a handler/task result as proof of its own CI success.
+                evidence_provider = self._load_handler(gate_policy["evidence_handler"])
+                gate = evidence_provider({
+                    "expected_head_sha": gate_policy["expected_head_sha"],
+                    "required_checks": list(gate_policy["required_checks"]),
+                })
                 if not isinstance(gate, Mapping):
                     success = False
-                    detail = "required exact-head CI evidence is missing"
+                    detail = "trusted CI evidence provider returned no valid evidence"
                     evidence.append("ci-gate:missing")
                 else:
                     try:
