@@ -26,7 +26,7 @@ from a caller-supplied authorized-approver set.
   approval evidence.
 - independently_corroborated: additionally requires separately controlled
   evaluator and corpus/oracle identifiers, a receipt digest, and a repeat-run
-  identifier. Internal CI alone cannot satisfy this status.
+  identifier. Internal CI alone cannot satisfy this status: at least one passing check must be marked independent/external, and its evaluator/corpus lineage and receipt/repeat-run identifiers must be supplied.
 
 The validator does not grant permissions, authenticate an approver on its own,
 create signatures, or claim a sandbox. The caller must obtain authorized
