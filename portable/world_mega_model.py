@@ -125,6 +125,11 @@ class WorldMegaModel:
         experience_router=None,
         min_failures: int = 3,
         min_evidence: int = 3,
+        promotion_record: Mapping[str, object] | None = None,
+        promotion_repository: str | None = None,
+        promotion_head: str | None = None,
+        authorized_approvers: Iterable[str] = (),
+        known_evidence_ids: Iterable[str] | None = None,
     ) -> None:
         if not isinstance(memory, PersistentMemory):
             raise TypeError("memory must be a PersistentMemory instance")
@@ -147,7 +152,15 @@ class WorldMegaModel:
         self.transfer = LearningTransfer(memory, self.project)
         self.transfer_validator = TransferValidator(self.transfer)
         self.continual = ContinualLearningGuard(memory, self.project)
-        self.lifecycle = CapabilityLifecycle(memory, self.project)
+        self.lifecycle = CapabilityLifecycle(
+            memory,
+            self.project,
+            promotion_record=promotion_record,
+            expected_repository=promotion_repository,
+            expected_head=promotion_head,
+            authorized_approvers=authorized_approvers,
+            known_evidence_ids=known_evidence_ids,
+        )
         self.experience_router = experience_router
         self.pathways = PathwayOptimizer(experience_router) if experience_router is not None else None
         self.engineering = WholeSystemEngineeringEvaluator()
@@ -524,9 +537,11 @@ class WorldMegaModel:
                     lifecycle.reasons,
                 )
         if lifecycle is None or lifecycle.state != "promoted":
+            status = lifecycle.state if lifecycle is not None else "canary"
+            reasons = lifecycle.reasons if lifecycle is not None and lifecycle.reasons else ("canary window has not completed",)
             return AutonomousCapabilityEvolutionCycle(
-                problem.strip(), curriculum, invention, report, lifecycle, None, "canary",
-                ("canary window has not completed",),
+                problem.strip(), curriculum, invention, report, lifecycle, None, status,
+                reasons,
             )
 
         pathway = None
