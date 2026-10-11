@@ -93,6 +93,20 @@ class SealedCampaignRequest:
         if not any(case.holdout for case in self.cases):
             raise ValueError("sealed campaign requires at least one holdout")
 
+    @property
+    def request_digest(self) -> str:
+        """Content-address the exact case set, split assignments, nonce and lineage."""
+        payload = {
+            "campaign_digest": self.campaign_digest,
+            "corpus_digest": self.corpus_digest,
+            "run_nonce": self.run_nonce,
+            "cases": [case.as_dict() for case in self.cases],
+        }
+        canonical = json.dumps(
+            payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        ).encode("utf-8")
+        return hashlib.sha256(canonical).hexdigest()
+
     def validate_task_metadata(self, payload: Mapping[str, object]) -> None:
         forbidden: set[str] = set()
 
@@ -126,6 +140,7 @@ class ExternalOutcomeReceipt:
     contamination_free: bool = True
     independent_oracle: bool = True
     run_nonce: str = ""
+    request_digest: str = ""
 
     def __post_init__(self) -> None:
         for name, value in (
@@ -135,6 +150,7 @@ class ExternalOutcomeReceipt:
             ("oracle_id", self.oracle_id),
             ("signature", self.signature),
             ("run_nonce", self.run_nonce),
+            ("request_digest", self.request_digest),
         ):
             _required_text(name, value)
         if self.evaluator_id == self.oracle_id:
@@ -164,6 +180,7 @@ class ExternalOutcomeReceipt:
             "campaign_digest": self.campaign_digest,
             "corpus_digest": self.corpus_digest,
             "run_nonce": self.run_nonce,
+            "request_digest": self.request_digest,
             "evaluator_id": self.evaluator_id,
             "oracle_id": self.oracle_id,
             "results": self.results,
@@ -197,6 +214,8 @@ class SealedArenaBoundary:
             raise ValueError("outcome receipt lineage does not match sealed campaign")
         if receipt.run_nonce != request.run_nonce:
             raise ValueError("outcome receipt nonce does not match sealed campaign request")
+        if receipt.request_digest != request.request_digest:
+            raise ValueError("outcome receipt request digest does not match the exact sealed case set")
         if receipt.contamination_free is not True or receipt.independent_oracle is not True:
             raise ValueError("sealed Arena rejects contaminated or non-independent outcomes")
         if not self._verify_signature(receipt):

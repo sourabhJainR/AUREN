@@ -26,6 +26,7 @@ class SealedArenaBoundaryTests(unittest.TestCase):
             "contamination_free": True,
             "independent_oracle": True,
             "run_nonce": "nonce-1",
+            "request_digest": self.request.request_digest,
         }
         values.update(overrides)
         return ExternalOutcomeReceipt(**values)
@@ -79,7 +80,7 @@ class SealedArenaBoundaryTests(unittest.TestCase):
     def test_rejects_partial_campaign_receipt(self) -> None:
         second = SealedCaseEnvelope("case-2", "task-2", "input-2", "env-2", False)
         request = SealedCampaignRequest("campaign-d", "corpus-d", (self.case, second), "nonce-1")
-        receipt = self.receipt(results=(("case-1", True, "evidence-d"),))
+        receipt = self.receipt(results=(("case-1", True, "evidence-d"),), request_digest=request.request_digest)
         with self.assertRaisesRegex(ValueError, "incomplete"):
             SealedArenaBoundary(lambda _value: True).accept(request, receipt)
 
@@ -99,6 +100,14 @@ class SealedArenaBoundaryTests(unittest.TestCase):
     def test_rejects_signature_failure(self) -> None:
         with self.assertRaisesRegex(ValueError, "signature is not verified"):
             SealedArenaBoundary(lambda _value: False).accept(self.request, self.receipt())
+
+    def test_rejects_receipt_for_modified_case_set(self) -> None:
+        altered_case = SealedCaseEnvelope("case-1", "task-d", "changed-input", "env-d", True, ("novel-domain",))
+        altered_request = SealedCampaignRequest("campaign-d", "corpus-d", (altered_case,), "nonce-1")
+        with self.assertRaisesRegex(ValueError, "request digest"):
+            SealedArenaBoundary(lambda value: value.signature == "sig").accept(
+                altered_request, self.receipt()
+            )
 
     def test_rejects_nonce_mismatch(self) -> None:
         with self.assertRaisesRegex(ValueError, "nonce"):
