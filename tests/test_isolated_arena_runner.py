@@ -66,6 +66,32 @@ class IsolatedArenaRunnerTests(unittest.TestCase):
         self.assertEqual(timed_out["counts"]["error"], 2)
         self.assertTrue(verify_receipt(timed_out, fixture()))
 
+    def test_campaign_deadline_bounds_multiple_policy_invocations(self):
+        receipt = self.run_policy(
+            "campaign-deadline",
+            "import time; time.sleep(0.2); print('null')",
+            timeout_seconds=1.0,
+            campaign_timeout_seconds=0.05,
+        )
+        self.assertGreater(receipt["counts"]["error"], 0)
+        self.assertTrue(verify_receipt(receipt, fixture()))
+
+    def test_oversized_policy_output_is_rejected_without_capture(self):
+        receipt = self.run_policy(
+            "oversized-output",
+            "print('x' * 100000)",
+            max_output_bytes=128,
+        )
+        self.assertEqual(receipt["counts"]["error"], 2)
+        self.assertTrue(verify_receipt(receipt, fixture()))
+
+    def test_invalid_resource_budgets_are_rejected(self):
+        code = "print('null')"
+        with self.assertRaisesRegex(ValueError, "campaign_timeout_seconds"):
+            self.run_policy("bad-campaign-budget", code, campaign_timeout_seconds=0)
+        with self.assertRaisesRegex(ValueError, "max_output_bytes"):
+            self.run_policy("bad-output-budget", code, max_output_bytes=0)
+
     def test_policy_environment_does_not_inherit_evaluator_secrets(self):
         os.environ["AUREN_EVALUATOR_SECRET_FOR_TEST"] = "do-not-leak"
         self.addCleanup(os.environ.pop, "AUREN_EVALUATOR_SECRET_FOR_TEST", None)
