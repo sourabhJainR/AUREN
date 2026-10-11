@@ -244,9 +244,12 @@ class PersistentMemory:
         # Quote each token so punctuation in user input cannot become FTS operators.
         fts_terms = " ".join(f'"{token}"' for token in tokens)
         like = "%" + "%".join(tokens) + "%"
+        # FTS5's default tokenizer does not reliably split all scripts (notably CJK)
+        # into searchable subwords. Use a substring path for non-ASCII queries.
+        unicode_query = not query.isascii()
         with self._lock, self._connect() as db:
             params: tuple[Any, ...]
-            if self._fts_available:
+            if self._fts_available and not unicode_query:
                 rows = db.execute("""SELECT m.id,m.project,m.category,m.text,m.intent_digest,m.confidence,m.verified,m.created_at
                     FROM memory AS m JOIN memory_fts AS f ON f.id=m.id
                     WHERE m.project=? AND memory_fts MATCH ? AND (? IS NULL OR m.intent_digest=?)
