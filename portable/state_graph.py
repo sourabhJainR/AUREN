@@ -66,6 +66,7 @@ class CrewAssignment:
     crew_id: str
     matched_triggers: tuple[str, ...]
     agent_registered: bool
+    contract_digest: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -266,7 +267,18 @@ class GraphAgentTeam:
         for crew in self.crews.values():
             matched = tuple(trigger for trigger in crew.triggers if re.search(r"(?<![a-z0-9])" + re.escape(trigger.lower()) + r"(?![a-z0-9])", text))
             if crew.always_on or matched:
-                selected.append(CrewAssignment(crew.crew_id, matched, crew.crew_id in self.agents))
+                contract = {
+                    "crew_id": crew.crew_id, "specialty": crew.specialty,
+                    "triggers": crew.triggers, "instructions": crew.instructions,
+                    "required_artifacts": crew.required_artifacts,
+                    "allowed_authorities": crew.allowed_authorities,
+                    "acceptance_checks": crew.acceptance_checks,
+                    "handoffs_to": crew.handoffs_to,
+                    "always_on": crew.always_on,
+                    "independent_review_required": crew.independent_review_required,
+                }
+                contract_digest = hashlib.sha256(json.dumps(contract, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+                selected.append(CrewAssignment(crew.crew_id, matched, crew.crew_id in self.agents, contract_digest))
         # Keep routing deterministic even when callers register custom crews in a different order.
         selected.sort(key=lambda item: (0 if self.crews[item.crew_id].always_on else 1, item.crew_id))
         return CrewPlan(
@@ -340,12 +352,42 @@ class GraphAgentTeam:
                 "crew_plan_digest": plan.digest,
             }
             proposal = proposer(request)
+            if not isinstance(proposal, Mapping):
+                raise ValueError("crew proposal must be a structured mapping")
+            required_fields = {
+                "schema_version", "recommendation", "artifacts", "evidence_refs",
+                "uncertainty", "blockers", "acceptance_check_results",
+            }
+            if set(proposal) != required_fields:
+                raise ValueError("crew proposal fields do not match the required structured schema")
+            if proposal.get("schema_version") != "auren-crew-proposal-v1":
+                raise ValueError("unsupported crew proposal schema version")
+            if not isinstance(proposal.get("recommendation"), str) or not proposal["recommendation"].strip():
+                raise ValueError("crew proposal recommendation must be non-empty text")
+            for field in ("artifacts", "evidence_refs", "uncertainty", "blockers"):
+                values = proposal.get(field)
+                if not isinstance(values, list) or any(not isinstance(value, str) or not value.strip() for value in values):
+                    raise ValueError(f"crew proposal {field} must be a list of non-empty strings")
+            checks = proposal.get("acceptance_check_results")
+            if not isinstance(checks, Mapping) or set(checks) != set(definition.acceptance_checks):
+                raise ValueError("crew proposal must report every declared acceptance check")
+            for check_name, result in checks.items():
+                if not isinstance(result, Mapping) or set(result) != {"status", "evidence_refs"}:
+                    raise ValueError(f"acceptance result for {check_name} must include status and evidence_refs")
+                if result.get("status") not in {"pass", "fail", "blocked", "not_run"}:
+                    raise ValueError(f"acceptance result for {check_name} has an invalid status")
+                refs = result.get("evidence_refs")
+                if not isinstance(refs, list) or any(not isinstance(ref, str) or not ref.strip() for ref in refs):
+                    raise ValueError(f"acceptance evidence refs for {check_name} must be a list of non-empty strings")
+                if result["status"] == "pass" and not refs:
+                    raise ValueError(f"acceptance check {check_name} cannot pass without evidence references")
             return {
                 "crew_id": crew_id,
-                "proposal": proposal,
+                "proposal": dict(proposal),
                 "review_required": True,
                 "review_status": "pending",
                 "acceptance_checks": list(definition.acceptance_checks),
+                "self_attested_acceptance_is_not_authoritative": True,
             }
 
         # Only graph nodes receive the scoped dispatcher, never raw agent objects.
