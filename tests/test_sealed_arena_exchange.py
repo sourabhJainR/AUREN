@@ -46,6 +46,17 @@ class SealedArenaExchangeTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             import_campaign_request(raw)
 
+
+    def test_import_rejects_receipt_missing_freshness_fields(self) -> None:
+        body = json.loads(export_outcome_receipt(self.receipt).decode("utf-8"))
+        del body["payload"]["issued_at_epoch"]
+        body["payload_digest"] = hashlib.sha256(
+            json.dumps(body["payload"], sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+        raw = json.dumps(body, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        with self.assertRaisesRegex(ValueError, "missing signed freshness fields"):
+            import_outcome_receipt(raw)
+
     def test_exchange_does_not_contain_answer_fields(self) -> None:
         raw = export_campaign_request(self.request).decode("utf-8").lower()
         for token in ("answer", "expected_answer", "oracle_answer", "gold", "solution"):
