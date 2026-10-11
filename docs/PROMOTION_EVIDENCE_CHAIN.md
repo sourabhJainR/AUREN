@@ -28,3 +28,10 @@ The trusted public key must be provisioned out of band. A valid signature authen
 ## Trusted isolation signer configuration
 
 Isolation verification now requires a non-empty allowlist of trusted auditor signer IDs supplied by deployment configuration out of band. A valid signature from an arbitrary self-selected signer is insufficient. Configure the allowlist from a separately controlled trust root and keep the signature verifier's public keys outside the evaluated runtime. Tests use an explicit fixture allowlist; they do not provision production trust.
+
+
+## Immutable observation ledger
+
+`ArenaEvidenceObservationLedger` records both accepted and rejected evidence-chain outcomes as content-addressed immutable observations. Only accepted records are exposed through `learning_inputs`; rejected records retain their blocking reasons. Re-ingesting the same receipt is rejected as replay, and a different observation for an already-seen receipt is rejected as a conflict. A new evaluation must produce a new receipt rather than overwrite prior evidence.
+
+The in-process ledger prevents duplicate/conflicting ingestion only within its lifetime. Production deployments still need durable append-only storage, access controls, and independently provisioned trust roots; this helper does not itself provide durable storage or authorize policy changes.

@@ -9,7 +9,7 @@ from portable.attestation_key_separation import AttestationTrustPolicy, Separati
 from portable.causal_capability_promotion import CausalCapabilityPromotionGate, CausalPromotionEvidence
 from portable.external_evaluation_campaign import ExternalEvaluationCampaign
 from portable.independent_evaluation_attestation import AttestedEvaluation, EvaluationAttestation
-from portable.promotion_evidence_chain import PromotionEvidenceChainBuilder
+from portable.promotion_evidence_chain import ArenaEvidenceObservationLedger, PromotionEvidenceChainBuilder
 
 
 _REQUIRED_ISOLATION_CONTROLS = (
@@ -336,6 +336,60 @@ class PromotionEvidenceChainTests(unittest.TestCase):
         self.assertFalse(chain.complete)
         self.assertTrue(any("missing required controls" in reason for reason in chain.reasons))
 
+
+
+    def test_accepted_evidence_is_immutable_and_replay_is_rejected(self):
+        campaign = make_campaign()
+        receipt = make_receipt(campaign)
+        causal = make_causal(receipt)
+        decision = CausalCapabilityPromotionGate().evaluate(causal)
+        chain = PromotionEvidenceChainBuilder().build(
+            campaign, receipt, causal, decision,
+            attested_campaign=make_attested_campaign(campaign, receipt),
+            **isolation_kwargs(campaign, receipt),
+        )
+        self.assertTrue(chain.complete, chain.reasons)
+        ledger = ArenaEvidenceObservationLedger()
+        record = ledger.record(chain)
+        self.assertTrue(record.accepted)
+        self.assertEqual(ledger.learning_inputs, (record,))
+        with self.assertRaisesRegex(ValueError, "replayed Arena receipt evidence"):
+            ledger.record(chain)
+        with self.assertRaisesRegex(ValueError, "observation_digest"):
+            replace(record, observation_digest="tampered")
+
+    def test_rejected_evidence_is_preserved_but_never_becomes_learning_input(self):
+        campaign = make_campaign()
+        receipt = make_receipt(campaign)
+        causal = make_causal(receipt)
+        decision = CausalCapabilityPromotionGate().evaluate(causal)
+        chain = PromotionEvidenceChainBuilder().build(
+            campaign, receipt, causal, decision,
+            attested_campaign=make_attested_campaign(campaign, receipt),
+        )
+        self.assertFalse(chain.complete)
+        ledger = ArenaEvidenceObservationLedger()
+        record = ledger.record(chain)
+        self.assertFalse(record.accepted)
+        self.assertTrue(record.reasons)
+        self.assertEqual(ledger.records, (record,))
+        self.assertEqual(ledger.learning_inputs, ())
+
+    def test_conflicting_observation_for_same_receipt_is_rejected(self):
+        campaign = make_campaign()
+        receipt = make_receipt(campaign)
+        causal = make_causal(receipt)
+        decision = CausalCapabilityPromotionGate().evaluate(causal)
+        chain = PromotionEvidenceChainBuilder().build(
+            campaign, receipt, causal, decision,
+            attested_campaign=make_attested_campaign(campaign, receipt),
+            **isolation_kwargs(campaign, receipt),
+        )
+        ledger = ArenaEvidenceObservationLedger()
+        ledger.record(chain)
+        conflicting = replace(chain, eligible=False, reasons=("conflicting evidence",))
+        with self.assertRaisesRegex(ValueError, "conflicting Arena observations"):
+            ledger.record(conflicting)
 
 if __name__ == "__main__":
     unittest.main()
