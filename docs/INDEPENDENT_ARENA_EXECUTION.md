@@ -16,6 +16,10 @@ The Independent Generalization Arena separates task presentation from oracle sco
 
 A matching result digest is evidence of deterministic normalized outputs for the bound inputs; it is not by itself proof of evaluator independence or cross-domain generalization.
 
+## Container-backed output boundary
+
+`portable.container_sandboxed_arena.run_campaign_container_sandboxed` requires a digest-pinned image, disables networking, mounts no host volumes, uses a read-only root filesystem and an unprivileged UID/GID, and applies CPU, memory, PID, and temporary-filesystem limits. Stdout is streamed with a configurable byte ceiling (65,536 bytes by default). Overflow kills the runtime client, requests forced removal of the named container, and records an error rather than accepting a partial answer.
+
 ## Process and trust limits
 
 The subprocess runner does not use a shell, bounds execution time, discards stderr from the receipt path, uses a minimal allowlisted environment, and rejects explicit policy environment variables that look like evaluator secrets. It does **not** provide a kernel/container/network/filesystem sandbox. A policy process may still access resources permitted to its OS identity and may attempt to inspect its surrounding machine.
