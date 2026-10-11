@@ -42,6 +42,10 @@ class SealedCorpusProvenance:
             ("attestation_digest", self.attestation_digest),
         ):
             _text(name, value)
+        if not isinstance(self.attestation_signer_id, str) or not isinstance(self.attestation_signature, str):
+            raise ValueError("attestation signer and signature must be strings")
+        if bool(self.attestation_signer_id) != bool(self.attestation_signature):
+            raise ValueError("attestation signer and signature must be provided together")
         parsed = urlparse(self.origin)
         if parsed.scheme not in {"https", "file", "urn"}:
             raise ValueError("origin must use an explicit https, file, or urn URI")
