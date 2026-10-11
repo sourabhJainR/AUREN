@@ -12,7 +12,7 @@ from typing import Any
 
 from .sealed_arena_boundary import ExternalOutcomeReceipt, SealedCampaignRequest
 
-SCHEMA_VERSION = "4"
+SCHEMA_VERSION = "5"
 
 
 def _canonical(payload: dict[str, Any]) -> bytes:
@@ -81,7 +81,7 @@ def _decode(raw: bytes, expected_kind: str) -> dict[str, Any]:
         if provenance is not None and (
             not isinstance(provenance, dict) or set(provenance) != {
                 "corpus_digest", "manifest_digest", "origin", "split", "contamination_status",
-                "independent_operator_id", "attestation_digest",
+                "independent_operator_id", "attestation_digest", "attestation_signer_id", "attestation_signature",
             }
         ):
             raise ValueError("sealed Arena request contains unknown or malformed provenance fields")
@@ -105,6 +105,8 @@ def export_campaign_request(request: SealedCampaignRequest) -> bytes:
             "contamination_status": request.provenance.contamination_status,
             "independent_operator_id": request.provenance.independent_operator_id,
             "attestation_digest": request.provenance.attestation_digest,
+            "attestation_signer_id": request.provenance.attestation_signer_id,
+            "attestation_signature": request.provenance.attestation_signature,
         } if request.provenance else None),
         "request_digest": request.request_digest,
     }
