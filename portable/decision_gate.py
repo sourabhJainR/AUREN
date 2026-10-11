@@ -38,7 +38,7 @@ def validate_decision_record(
         "schema_version", "task_id", "repository", "base_commit", "head_commit",
         "risk_level", "acceptance_criteria", "selected_option", "selection_rationale",
         "alternatives", "dependencies", "checks", "limitations", "rollback_trigger",
-        "rollback_action", "retry_history", "promotion",
+        "rollback_action", "last_known_good_commit", "retry_history", "promotion",
     }
     unknown_fields = set(record) - allowed_fields
     if unknown_fields:
@@ -62,6 +62,16 @@ def validate_decision_record(
     required_text("rollback_trigger")
     required_text("rollback_action")
     risk_level = required_text("risk_level")
+    last_known_good = record.get("last_known_good_commit")
+    if risk_level in {"high", "critical"}:
+        if not isinstance(last_known_good, str) or not COMMIT_RE.fullmatch(last_known_good):
+            errors.append("high/critical risk requires last_known_good_commit as a full 40-character SHA")
+        elif last_known_good == expected_head:
+            errors.append("last_known_good_commit must differ from the candidate head")
+    elif last_known_good is not None and (
+        not isinstance(last_known_good, str) or not COMMIT_RE.fullmatch(last_known_good)
+    ):
+        errors.append("last_known_good_commit must be a full 40-character SHA when provided")
 
     if not isinstance(expected_repository, str) or not expected_repository.strip():
         errors.append("trusted expected_repository context is required")
