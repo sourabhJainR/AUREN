@@ -85,6 +85,26 @@ class IsolatedArenaRunnerTests(unittest.TestCase):
         self.assertEqual(receipt["counts"]["error"], 2)
         self.assertTrue(verify_receipt(receipt, fixture()))
 
+    @unittest.skipUnless(os.name == "posix", "process-group cleanup is POSIX-specific")
+    def test_timeout_kills_policy_descendants(self):
+        side_effect = self.root / "escaped-child.txt"
+        child_code = (
+            "import time,pathlib; time.sleep(0.4); "
+            + "pathlib.Path(" + repr(str(side_effect)) + ").write_text('escaped')"
+        )
+        parent_code = (
+            "import subprocess,sys,time; "
+            + "subprocess.Popen([sys.executable, '-c', " + repr(child_code) + "]); "
+            + "time.sleep(5); print('null')"
+        )
+        receipt = self.run_policy(
+            "timeout-descendant", parent_code, timeout_seconds=0.05,
+            campaign_timeout_seconds=2.0,
+        )
+        self.assertEqual(receipt["counts"]["error"], 2)
+        time.sleep(0.6)
+        self.assertFalse(side_effect.exists(), "policy descendant survived timeout cleanup")
+
     def test_invalid_resource_budgets_are_rejected(self):
         code = "print('null')"
         with self.assertRaisesRegex(ValueError, "campaign_timeout_seconds"):
