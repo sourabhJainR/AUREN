@@ -22,7 +22,7 @@ A matching result digest is evidence of deterministic normalized outputs for the
 
 ## Process and trust limits
 
-The subprocess runner does not use a shell, bounds execution time, discards stderr from the receipt path, uses a minimal allowlisted environment, and rejects explicit policy environment variables that look like evaluator secrets. It does **not** provide a kernel/container/network/filesystem sandbox. A policy process may still access resources permitted to its OS identity and may attempt to inspect its surrounding machine.
+The subprocess runner does not use a shell, bounds execution time, discards stderr from the receipt path, uses a minimal allowlisted environment, and rejects explicit policy environment variables that look like evaluator secrets. On POSIX, timeout and output-overflow handling kill the policy process group; on Windows, the runner starts a new process group and requests tree termination through `taskkill /T /F`, with direct-child termination as a best-effort fallback. It does **not** provide a kernel/container/network/filesystem sandbox. A policy process may still access resources permitted to its OS identity and may attempt to inspect its surrounding machine.
 
 For untrusted policies and independent campaigns, execute the runner under a separately controlled OS account, container/VM or external sandbox with network and filesystem restrictions. The benchmark owner must retain the sealed corpus and signing keys outside the evaluated runtime's control. Do not treat an in-process callback, a local subprocess, or internal tests as proof of an independent evaluation.
 
