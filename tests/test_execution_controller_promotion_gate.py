@@ -48,6 +48,7 @@ def valid_record(head=HEAD_SHA):
         "limitations": ["External generalization remains unproven"],
         "rollback_trigger": "Any required check or canary fails",
         "rollback_action": "Restore last known-good revision",
+        "last_known_good_commit": BASE_SHA,
         "retry_history": [],
         "promotion": {
             "level": "verified_for_scope",
@@ -127,6 +128,28 @@ class ExecutionControllerPromotionGateTests(unittest.TestCase):
                 protected_promotion_handler,
                 promotion_gate_policy={"context_handler": "missing-provider"},
             )
+
+
+    def test_unknown_evidence_and_unauthorized_approver_block_side_effects(self):
+        _PROMOTION_CONTEXT["known_evidence_ids"] = ["approval-1"]
+        task = self.submit()
+        self.controller.run_once(task.id)
+        self.assertEqual(self.controller.task(task.id).state, "failed")
+        self.assertEqual(_PROMOTION_SIDE_EFFECTS, [])
+
+        _PROMOTION_CONTEXT.update(valid_context())
+        _PROMOTION_CONTEXT["decision_record"]["promotion"]["approved_by"] = "untrusted-user"
+        task = self.submit()
+        self.controller.run_once(task.id)
+        self.assertEqual(self.controller.task(task.id).state, "failed")
+        self.assertEqual(_PROMOTION_SIDE_EFFECTS, [])
+
+    def test_missing_rollback_anchor_blocks_high_risk_promotion(self):
+        _PROMOTION_CONTEXT["decision_record"].pop("last_known_good_commit")
+        task = self.submit()
+        self.controller.run_once(task.id)
+        self.assertEqual(self.controller.task(task.id).state, "failed")
+        self.assertEqual(_PROMOTION_SIDE_EFFECTS, [])
 
 
 if __name__ == "__main__":
