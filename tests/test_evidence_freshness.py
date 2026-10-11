@@ -40,9 +40,9 @@ class EvidenceFreshnessTests(unittest.TestCase):
             g = PersistentEvidenceGraph(PersistentMemory(db, require_approval=False), "hws")
             observations = tuple(
                 ExternalDecisionEvidence(
-                    "verifier", "planner", "agent", "agent", .95, .95, 30, 1, "c"
+                    "verifier", "planner", "agent", "agent", .95, .95, 30 + i, 1, "c"
                 )
-                for _ in range(8)
+                for i in range(8)
             )
             chain = PromotionEvidenceChain(
                 "c", "r", "x", "planner", "i", True, (),
