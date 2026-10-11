@@ -41,7 +41,7 @@ class ExternalEvaluatorGatewayTests(unittest.TestCase):
         try:
             payload = repr(export_outcome_receipt(self.receipt).decode("utf-8"))
             script = "import os,sys; sys.stdin.buffer.read(); sys.exit(3) if \"AUREN_SECRET\" in os.environ else None; sys.stdout.buffer.write(" + payload + ".encode())"
-            evidence = ExternalEvaluatorGateway(SealedArenaBoundary(lambda value: value.signature == "sig")).evaluate(
+            evidence = ExternalEvaluatorGateway(SealedArenaBoundary(lambda value: value.signature == "sig"), self.ledger).evaluate(
                 self.request, ExternalEvaluatorCommand((sys.executable, "-c", script))
             )
             self.assertEqual(evidence.holdout_pass_rate, 1.0)
