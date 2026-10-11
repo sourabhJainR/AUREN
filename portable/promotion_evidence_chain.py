@@ -1,7 +1,7 @@
-"""Evidence-chain gate joining external evaluation, run receipts, and causal attribution.
+"""Evidence-chain gate joining verified campaign attestation, run receipts, and causal attribution.
 
-The gate checks campaign/receipt lineage and requires the causal decision to
-reference the exact causal evidence and run receipt. It never mutates state.
+The gate checks exact campaign/receipt lineage and requires the causal decision
+to reference the exact causal evidence and run receipt. It never mutates state.
 """
 from __future__ import annotations
 
@@ -10,11 +10,13 @@ from dataclasses import dataclass
 from .arena_run_receipt import ArenaRunReceipt
 from .causal_capability_promotion import CausalPromotionDecision, CausalPromotionEvidence
 from .external_evaluation_campaign import ExternalEvaluationCampaign
+from .independent_evaluation_attestation import AttestedEvaluation
 
 
 @dataclass(frozen=True, slots=True)
 class PromotionEvidenceChain:
     campaign_digest: str
+    attestation_evidence_digest: str
     run_receipt_digest: str
     causal_evidence_digest: str
     capability_id: str
@@ -28,7 +30,7 @@ class PromotionEvidenceChain:
 
 
 class PromotionEvidenceChainBuilder:
-    """Join independent evidence without granting promotion authority."""
+    """Join independently verified evidence without granting promotion authority."""
 
     def build(
         self,
@@ -36,6 +38,8 @@ class PromotionEvidenceChainBuilder:
         receipt: ArenaRunReceipt,
         causal: CausalPromotionEvidence,
         decision: CausalPromotionDecision,
+        *,
+        attested_campaign: AttestedEvaluation,
     ) -> PromotionEvidenceChain:
         if not isinstance(campaign, ExternalEvaluationCampaign):
             raise TypeError("ExternalEvaluationCampaign is required")
@@ -45,10 +49,27 @@ class PromotionEvidenceChainBuilder:
             raise TypeError("CausalPromotionEvidence is required")
         if not isinstance(decision, CausalPromotionDecision):
             raise TypeError("CausalPromotionDecision is required")
+        if not isinstance(attested_campaign, AttestedEvaluation):
+            raise TypeError("verified campaign attestation is required")
 
         reasons: list[str] = []
-        if not campaign.trustworthy:
-            reasons.append("external campaign is not trustworthy")
+        if not campaign.structurally_valid:
+            reasons.append("external campaign is structurally invalid or contaminated")
+        if not campaign.has_attestation_material:
+            reasons.append("external campaign has no attestation material")
+        if not attested_campaign.trustworthy:
+            reasons.append("external campaign attestation is not independently verified")
+        attestation = attested_campaign.attestation
+        if attestation.campaign_digest != campaign.campaign_digest:
+            reasons.append("attestation and campaign digests differ")
+        if attestation.corpus_digest != campaign.corpus_digest:
+            reasons.append("attestation and campaign corpus digests differ")
+        if attestation.oracle_digest != campaign.oracle_digest:
+            reasons.append("attestation and campaign oracle digests differ")
+        if attestation.evaluator_version != campaign.evaluator_version:
+            reasons.append("attestation and campaign evaluator versions differ")
+        if attestation.signature != campaign.external_attestation:
+            reasons.append("attestation signature does not match campaign attestation material")
         if not receipt.trustworthy:
             reasons.append("arena run receipt is not trustworthy")
         if receipt.campaign_digest != campaign.campaign_digest:
@@ -69,7 +90,7 @@ class PromotionEvidenceChainBuilder:
             reasons.append("causal evidence does not reference this run receipt digest")
         if decision.evidence_digest != causal.evidence_digest:
             reasons.append("promotion decision does not reference this causal evidence digest")
-        if not decision.eligible:
+        if decision.eligible is not True:
             reasons.extend(decision.reasons)
         if causal.fresh_holdout is not True:
             reasons.append("causal evidence lacks a fresh holdout")
@@ -79,6 +100,7 @@ class PromotionEvidenceChainBuilder:
             reasons.append("causal evidence reports contamination")
         return PromotionEvidenceChain(
             campaign.campaign_digest,
+            attested_campaign.evidence_digest,
             receipt.receipt_digest,
             causal.evidence_digest,
             causal.capability_id,
