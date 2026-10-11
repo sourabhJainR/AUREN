@@ -300,6 +300,30 @@ class SealedArenaBoundary:
         )
 
     def accept(self, request: SealedCampaignRequest, receipt: ExternalOutcomeReceipt) -> SealedArenaEvidence:
+        return self._accept(request, receipt, replay_claimed=False)
+
+    def _accept_preclaimed(
+        self,
+        request: SealedCampaignRequest,
+        receipt: ExternalOutcomeReceipt,
+        *,
+        replay_ledger: SealedArenaReplayLedger,
+    ) -> SealedArenaEvidence:
+        """Accept after the gateway has claimed this nonce in the same ledger."""
+        if not isinstance(replay_ledger, SealedArenaReplayLedger) or self._replay_ledger is None:
+            raise ValueError("preclaimed acceptance requires the boundary's persistent replay ledger")
+        from pathlib import Path
+        if Path(self._replay_ledger.database_path).resolve() != Path(replay_ledger.database_path).resolve():
+            raise ValueError("preclaimed acceptance requires the same replay ledger database")
+        return self._accept(request, receipt, replay_claimed=True)
+
+    def _accept(
+        self,
+        request: SealedCampaignRequest,
+        receipt: ExternalOutcomeReceipt,
+        *,
+        replay_claimed: bool,
+    ) -> SealedArenaEvidence:
         if not isinstance(request, SealedCampaignRequest) or not isinstance(receipt, ExternalOutcomeReceipt):
             raise TypeError("sealed request and externally attested receipt are required")
         if receipt.campaign_digest != request.campaign_digest or receipt.corpus_digest != request.corpus_digest:
@@ -357,7 +381,7 @@ class SealedArenaBoundary:
         # Claim only after all signature, lineage, freshness, and completeness
         # checks pass. SQLite's unique nonce constraint makes concurrent accepts
         # single-winner and survives process restarts.
-        if self._replay_ledger is not None:
+        if self._replay_ledger is not None and not replay_claimed:
             self._replay_ledger.claim(
                 run_nonce=request.run_nonce,
                 campaign_digest=request.campaign_digest,
