@@ -14,7 +14,7 @@ class AutonomousCapabilityEvolutionCycleTests(unittest.TestCase):
         memory = PersistentMemory(root / "memory.sqlite3", require_approval=False)
         return WorldMegaModel(memory, "evolution-demo", experience_router=ExperienceRouter(root))
 
-    def test_full_cycle_promotes_and_selects_pathway(self):
+    def test_full_cycle_blocks_promotion_without_decision_record(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             model = self._model(root)
@@ -53,13 +53,13 @@ class AutonomousCapabilityEvolutionCycleTests(unittest.TestCase):
                 curriculum_budget=2,
             )
 
-            self.assertEqual(cycle.status, "promoted")
+            self.assertEqual(cycle.status, "promotion_blocked")
             self.assertIsNotNone(cycle.generalization)
             self.assertTrue(cycle.generalization.generalized)
             self.assertIsNotNone(cycle.lifecycle)
-            self.assertEqual(cycle.lifecycle.state, "promoted")
-            self.assertIsNotNone(cycle.pathway)
-            self.assertIn(cycle.pathway.capability, {"verification", cycle.invention.selected.composition.id})
+            self.assertEqual(cycle.lifecycle.state, "promotion_blocked")
+            self.assertTrue(any("decision record is required" in reason for reason in cycle.reasons))
+            self.assertIsNone(cycle.pathway, "pathway selection must not follow a blocked promotion")
 
     def test_failed_canary_rolls_back_before_pathway_selection(self):
         with tempfile.TemporaryDirectory() as tmp:
