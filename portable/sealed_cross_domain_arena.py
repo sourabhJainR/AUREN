@@ -23,6 +23,7 @@ class SealedDomain:
     domain_id: str
     case_ids: tuple[str, ...]
     novel: bool = True
+    evaluation_mode: str = "zero_shot"
 
     def __post_init__(self) -> None:
         _require_text("domain_id", self.domain_id)
@@ -34,6 +35,8 @@ class SealedDomain:
             raise ValueError("domain contains duplicate case ids")
         if type(self.novel) is not bool:
             raise ValueError("novel must be a boolean")
+        if self.evaluation_mode not in {"zero_shot", "few_shot", "adapted"}:
+            raise ValueError("evaluation_mode must be zero_shot, few_shot, or adapted")
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,11 +46,14 @@ class CrossDomainCampaign:
     domains: tuple[SealedDomain, ...]
     independent_oracle_id: str
     evaluator_id: str
+    capability_id: str = ""
 
     def __post_init__(self) -> None:
         _require_text("campaign_id", self.campaign_id)
         _require_text("independent_oracle_id", self.independent_oracle_id)
         _require_text("evaluator_id", self.evaluator_id)
+        if not isinstance(self.capability_id, str):
+            raise ValueError("capability_id must be a string")
         if not isinstance(self.request, SealedCampaignRequest):
             raise ValueError("cross-domain campaign requires a sealed campaign request")
         if self.evaluator_id == self.independent_oracle_id:
@@ -79,9 +85,11 @@ class CrossDomainCampaign:
             "campaign_id": self.campaign_id,
             "request_digest": self.request.request_digest,
             "domains": [
-                {"domain_id": domain.domain_id, "case_ids": domain.case_ids, "novel": domain.novel}
+                {"domain_id": domain.domain_id, "case_ids": domain.case_ids, "novel": domain.novel,
+                 "evaluation_mode": domain.evaluation_mode}
                 for domain in self.domains
             ],
+            "capability_id": self.capability_id,
             "evaluator_id": self.evaluator_id,
             "independent_oracle_id": self.independent_oracle_id,
         }
