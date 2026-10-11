@@ -204,6 +204,25 @@ class ExternalEvaluatorGatewayTests(unittest.TestCase):
             )
         self.assertNotIn(secret, str(caught.exception))
 
+    def test_command_rejects_interpreter_and_loader_environment_overrides(self) -> None:
+        for key in ("PYTHONHOME", "pythonstartup", "LD_LIBRARY_PATH", "Node_Options", "BASH_ENV"):
+            with self.subTest(key=key), self.assertRaisesRegex(ValueError, "environment override is not allowed"):
+                ExternalEvaluatorCommand(
+                    (sys.executable, "-c", "pass"),
+                    environment=((key, "attacker-controlled"),),
+                )
+
+    def test_command_environment_keys_are_unique_ignoring_case(self) -> None:
+        with self.assertRaisesRegex(ValueError, "unique ignoring case"):
+            ExternalEvaluatorCommand(
+                (sys.executable, "-c", "pass"),
+                environment=(("LANG", "C"), ("lang", "en_US.UTF-8")),
+            )
+
+    def test_command_rejects_nul_bytes_in_arguments(self) -> None:
+        with self.assertRaisesRegex(ValueError, "non-empty tuple"):
+            ExternalEvaluatorCommand((sys.executable, "-c", "pass" + chr(0) + "bad"))
+
     def test_shell_is_not_used(self) -> None:
         command = ExternalEvaluatorCommand((sys.executable, "-c", "import sys; sys.stdout.write(sys.stdin.read())"))
         self.assertEqual(command.argv[0], sys.executable)
