@@ -27,6 +27,8 @@ def make_campaign():
         overlap_attestation_digest="overlap-attestation",
         independent_operator_id="independent-operator",
         attestation_digest="test-attestation",
+        attestation_signer_id="independent-operator",
+        attestation_signature="fixture-signature",
     )
     return CrossDomainCampaign(
         "campaign-id",
@@ -53,7 +55,7 @@ class SealedCrossDomainLineageTests(unittest.TestCase):
     def test_runner_binds_domain_assignment_into_external_receipt_lineage(self):
         campaign = make_campaign()
         gateway = RecordingGateway()
-        result = SealedCrossDomainRunner(gateway, target_provenance_verifier=lambda _value: True).run(
+        result = SealedCrossDomainRunner(gateway, target_provenance_verifier=lambda _value: True, trusted_target_operator_ids=frozenset({"independent-operator"})).run(
             campaign, ExternalEvaluatorCommand(("external-evaluator",))
         )
         self.assertEqual(gateway.request.campaign_digest, campaign.campaign_digest)
@@ -92,6 +94,8 @@ class SealedCrossDomainLineageTests(unittest.TestCase):
                         overlap_attestation_digest="overlap-attestation",
                         independent_operator_id=campaign.evaluator_id,
                         attestation_digest="test-attestation",
+                        attestation_signer_id=campaign.evaluator_id,
+                        attestation_signature="fixture-signature",
                     ),
                 ),
                 SealedDomain("domain-b", ("case-b",), False),
@@ -99,9 +103,37 @@ class SealedCrossDomainLineageTests(unittest.TestCase):
             campaign.independent_oracle_id,
             campaign.evaluator_id,
         )
-        runner = SealedCrossDomainRunner(RecordingGateway(), target_provenance_verifier=lambda _value: True)
+        runner = SealedCrossDomainRunner(RecordingGateway(), target_provenance_verifier=lambda _value: True, trusted_target_operator_ids=frozenset({"independent-operator"}))
         with self.assertRaisesRegex(ValueError, "independent of evaluator and oracle"):
             runner.run(conflicting, ExternalEvaluatorCommand(("external-evaluator",)))
+
+    def test_runner_rejects_operator_not_in_out_of_band_allowlist(self):
+        campaign = make_campaign()
+        runner = SealedCrossDomainRunner(
+            RecordingGateway(),
+            target_provenance_verifier=lambda _value: True,
+            trusted_target_operator_ids=frozenset({"different-operator"}),
+        )
+        with self.assertRaisesRegex(ValueError, "not in the out-of-band trusted allowlist"):
+            runner.run(campaign, ExternalEvaluatorCommand(("external-evaluator",)))
+
+    def test_runner_requires_signed_operator_provenance(self):
+        campaign = make_campaign()
+        provenance = campaign.domains[0].provenance
+        from dataclasses import replace
+        altered = replace(provenance, attestation_signer_id="", attestation_signature="")
+        domains = (replace(campaign.domains[0], provenance=altered), campaign.domains[1])
+        unsigned = CrossDomainCampaign(
+            campaign.campaign_id, campaign.request, domains,
+            campaign.independent_oracle_id, campaign.evaluator_id,
+        )
+        runner = SealedCrossDomainRunner(
+            RecordingGateway(),
+            target_provenance_verifier=lambda _value: True,
+            trusted_target_operator_ids=frozenset({"independent-operator"}),
+        )
+        with self.assertRaisesRegex(ValueError, "missing a matching operator signature"):
+            runner.run(unsigned, ExternalEvaluatorCommand(("external-evaluator",)))
 
     def test_campaign_digest_changes_when_domain_assignment_changes(self):
         campaign = make_campaign()
