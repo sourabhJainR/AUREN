@@ -51,6 +51,7 @@ class DecisionGateTests(unittest.TestCase):
         schema = json.loads(schema_path.read_text(encoding="utf-8"))
         self.assertEqual(schema["properties"]["schema_version"]["const"], "1.0")
         self.assertTrue({"base_commit", "head_commit", "acceptance_criteria", "checks", "rollback_action", "promotion"}.issubset(schema["required"]))
+        self.assertTrue(any("last_known_good_commit" in rule.get("then", {}).get("required", []) for rule in schema.get("allOf", [])))
 
     def test_accepts_well_formed_unpromoted_record(self) -> None:
         self.assertEqual(self.errors(valid_record()), [])
@@ -146,6 +147,24 @@ class DecisionGateTests(unittest.TestCase):
         record = valid_record()
         record["alternatives"] = []
         self.assertTrue(any("at least one alternative" in e for e in self.errors(record)))
+
+
+    def test_high_and_critical_risk_require_distinct_last_known_good_sha(self) -> None:
+        for risk in ("high", "critical"):
+            record = valid_record()
+            record["risk_level"] = risk
+            errors = self.errors(record)
+            self.assertTrue(any("last_known_good_commit" in error for error in errors))
+            record["last_known_good_commit"] = BASE
+            self.assertEqual(self.errors(record), [])
+            record["last_known_good_commit"] = HEAD
+            self.assertTrue(any("must differ from the candidate head" in error for error in self.errors(record)))
+
+    def test_low_and_medium_risk_allow_omitted_last_known_good_sha(self) -> None:
+        record = valid_record()
+        self.assertEqual(self.errors(record), [])
+        record["last_known_good_commit"] = "not-a-commit"
+        self.assertTrue(any("last_known_good_commit must be a full" in error for error in self.errors(record)))
 
 
 if __name__ == "__main__":
