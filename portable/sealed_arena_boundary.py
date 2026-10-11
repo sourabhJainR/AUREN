@@ -10,7 +10,8 @@ from dataclasses import dataclass
 import hashlib
 import json
 import math
-from typing import Final, Mapping
+import time
+from typing import Callable, Final, Mapping
 
 from .sealed_corpus_provenance import SealedCorpusProvenance
 
@@ -156,6 +157,8 @@ class ExternalOutcomeReceipt:
     request_digest: str = ""
     # case_id, predicted score, realized score, uncertainty, resource cost ms, recovered
     metrics: tuple[tuple[str, float, float, float, float, bool], ...] = ()
+    issued_at_epoch: float = 0.0
+    expires_at_epoch: float = 0.0
 
     def __post_init__(self) -> None:
         for name, value in (
@@ -168,6 +171,11 @@ class ExternalOutcomeReceipt:
             ("request_digest", self.request_digest),
         ):
             _required_text(name, value)
+        for name, value in (("issued_at_epoch", self.issued_at_epoch), ("expires_at_epoch", self.expires_at_epoch)):
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0:
+                raise ValueError(f"{name} must be a finite positive Unix timestamp")
+        if self.issued_at_epoch >= self.expires_at_epoch:
+            raise ValueError("receipt expiry must be later than issuance")
         if self.evaluator_id == self.oracle_id:
             raise ValueError("evaluator and oracle must be distinct principals")
         if type(self.contamination_free) is not bool:
@@ -224,6 +232,8 @@ class ExternalOutcomeReceipt:
             "metrics": self.metrics,
             "contamination_free": self.contamination_free,
             "independent_oracle": self.independent_oracle,
+            "issued_at_epoch": self.issued_at_epoch,
+            "expires_at_epoch": self.expires_at_epoch,
         }
         return hashlib.sha256(
             json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
@@ -257,6 +267,13 @@ class SealedArenaBoundary:
             raise ValueError("outcome receipt nonce does not match sealed campaign request")
         if receipt.request_digest != request.request_digest:
             raise ValueError("outcome receipt request digest does not match the exact sealed case set")
+        now = self._clock()
+        if isinstance(now, bool) or not isinstance(now, (int, float)) or not math.isfinite(now):
+            raise ValueError("Arena clock must return a finite Unix timestamp")
+        if receipt.issued_at_epoch > now + self._max_future_skew_seconds:
+            raise ValueError("external outcome receipt is issued in the future")
+        if receipt.expires_at_epoch <= now:
+            raise ValueError("external outcome receipt is stale or expired")
         if receipt.contamination_free is not True or receipt.independent_oracle is not True:
             raise ValueError("sealed Arena rejects contaminated or non-independent outcomes")
         if request.provenance is None:
