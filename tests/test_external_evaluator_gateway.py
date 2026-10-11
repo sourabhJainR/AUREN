@@ -61,7 +61,7 @@ class ExternalEvaluatorGatewayTests(unittest.TestCase):
             )
 
     def test_receipt_nonce_must_match_request(self) -> None:
-        wrong = ExternalOutcomeReceipt("campaign-d", "corpus-d", "evaluator", "oracle", "sig", (("case-1", True, "evidence-d"),), run_nonce="wrong-nonce", request_digest=self.request.request_digest)
+        wrong = ExternalOutcomeReceipt("campaign-d", "corpus-d", "evaluator", "oracle", "sig", (("case-1", True, "evidence-d"),), run_nonce="wrong-nonce", request_digest=self.request.request_digest, contamination_free=True, independent_oracle=True)
         with self.assertRaisesRegex(ValueError, "nonce"):
             SealedArenaBoundary(lambda value: value.signature == "sig").accept(self.request, wrong)
 
