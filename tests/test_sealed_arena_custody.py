@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import hashlib
+import tempfile
 import unittest
 from dataclasses import replace
+from pathlib import Path
 
 try:
     from cryptography.hazmat.primitives import serialization
@@ -14,6 +16,7 @@ except ImportError:
 from portable.sealed_arena_boundary import ExternalOutcomeReceipt, SealedArenaBoundary, SealedCampaignRequest, SealedCaseEnvelope
 from portable.sealed_arena_custody import provenance_signing_message
 from portable.sealed_arena_signature import encode_receipt_signature, receipt_signing_message
+from portable.sealed_arena_replay import ReplayRejected, SealedArenaReplayLedger
 from portable.sealed_corpus_provenance import SealedCorpusProvenance
 
 
@@ -67,11 +70,25 @@ class SignedHoldoutCustodyTests(unittest.TestCase):
         return replace(unsigned, signature=encode_receipt_signature(signer, signature))
 
     def boundary(self):
-        return SealedArenaBoundary.from_trusted_ed25519_keys(self.trust)
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        ledger = SealedArenaReplayLedger(Path(directory.name) / "replay.sqlite3")
+        return SealedArenaBoundary.from_trusted_ed25519_keys(self.trust, replay_ledger=ledger)
 
     def test_boundary_requires_both_operator_custody_and_evaluator_signatures(self):
         evidence = self.boundary().accept(self.request, self.make_receipt())
         self.assertEqual(evidence.holdout_pass_rate, 1.0)
+
+    def test_trusted_boundary_rejects_replayed_nonce(self):
+        boundary = self.boundary()
+        receipt = self.make_receipt()
+        boundary.accept(self.request, receipt)
+        with self.assertRaises(ReplayRejected):
+            boundary.accept(self.request, receipt)
+
+    def test_trusted_boundary_requires_persistent_replay_ledger(self):
+        with self.assertRaisesRegex(ValueError, "persistent replay ledger"):
+            SealedArenaBoundary.from_trusted_ed25519_keys(self.trust, replay_ledger=None)
 
     def test_unsigned_provenance_is_rejected_by_trusted_boundary(self):
         unsigned = replace(
