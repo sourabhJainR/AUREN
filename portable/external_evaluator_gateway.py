@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import os
 import subprocess
+import threading
 
 from .sealed_arena_boundary import SealedArenaBoundary, SealedArenaEvidence, SealedCampaignRequest
 from .sealed_arena_exchange import export_campaign_request, import_outcome_receipt
@@ -50,21 +51,74 @@ class ExternalEvaluatorGateway:
             campaign_digest=request.campaign_digest,
             corpus_digest=request.corpus_digest,
         )
-        completed = subprocess.run(
+        process = subprocess.Popen(
             list(command.argv),
-            input=export_campaign_request(request),
+            stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
             shell=False,
-            timeout=command.timeout_seconds,
-            check=False,
             env={"PATH": os.environ.get("PATH", ""), **dict(command.environment)},
         )
-        if completed.returncode != 0:
-            raise RuntimeError(f"external evaluator failed with exit code {completed.returncode}")
-        if len(completed.stdout) > command.max_output_bytes:
+        assert process.stdin is not None
+        assert process.stdout is not None
+
+        # Enforce the output budget while bytes are being read. Checking the size
+        # after subprocess.run(capture_output=True) is too late: an evaluator can
+        # exhaust the parent process's memory before the post-hoc check executes.
+        output = bytearray()
+        output_limit_exceeded = threading.Event()
+
+        def drain_output() -> None:
+            try:
+                while True:
+                    remaining = command.max_output_bytes + 1 - len(output)
+                    if remaining <= 0:
+                        output_limit_exceeded.set()
+                        process.kill()
+                        return
+                    chunk = process.stdout.read1(min(65_536, remaining))
+                    if not chunk:
+                        return
+                    output.extend(chunk)
+                    if len(output) > command.max_output_bytes:
+                        output_limit_exceeded.set()
+                        process.kill()
+                        return
+            except (OSError, ValueError):
+                # Closing a pipe after a timeout/kill is expected.
+                return
+
+        def send_request() -> None:
+            try:
+                process.stdin.write(export_campaign_request(request))
+                process.stdin.close()
+            except (BrokenPipeError, OSError, ValueError):
+                # The evaluator may exit early; its exit status is checked below.
+                return
+
+        reader = threading.Thread(target=drain_output, name="arena-evaluator-stdout", daemon=True)
+        writer = threading.Thread(target=send_request, name="arena-evaluator-stdin", daemon=True)
+        reader.start()
+        writer.start()
+        timed_out = False
+        try:
+            process.wait(timeout=command.timeout_seconds)
+        except subprocess.TimeoutExpired:
+            timed_out = True
+            process.kill()
+            process.wait()
+
+        writer.join(timeout=1.0)
+        reader.join(timeout=1.0)
+        if output_limit_exceeded.is_set():
             raise ValueError("external evaluator receipt exceeds output budget")
-        receipt = import_outcome_receipt(completed.stdout)
+        if timed_out:
+            raise RuntimeError("external evaluator timed out")
+        if reader.is_alive():
+            raise RuntimeError("external evaluator output stream did not close within the bounded wait")
+        if process.returncode != 0:
+            raise RuntimeError(f"external evaluator failed with exit code {process.returncode}")
+        receipt = import_outcome_receipt(bytes(output))
         return self.boundary.accept(request, receipt)
 
 
