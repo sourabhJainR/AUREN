@@ -10,6 +10,7 @@ from portable.sealed_arena_boundary import (
 from portable.sealed_cross_domain_arena import CrossDomainCampaign, SealedDomain, SealedCrossDomainRunner
 from portable.external_evaluator_gateway import ExternalEvaluatorCommand
 from portable.cross_domain_transfer_metrics import build_cross_domain_report
+from portable.sealed_corpus_provenance import SealedCorpusProvenance
 
 
 def setup_campaign(capability_id="planner-v1"):
@@ -22,6 +23,16 @@ def setup_campaign(capability_id="planner-v1"):
         ),
         "metrics-run-1",
     )
+    provenance = SealedCorpusProvenance(
+        corpus_digest=request.corpus_digest,
+        manifest_digest=request.manifest_digest,
+        origin="https://benchmarks.example.org/transfer/holdout-v1",
+        split="sealed_holdout",
+        contamination_status="clean",
+        independent_operator_id="independent-operator",
+        attestation_digest="transfer-attestation-v1",
+    )
+    request = replace(request, provenance=provenance)
     campaign = CrossDomainCampaign(
         "transfer-campaign",
         request,
