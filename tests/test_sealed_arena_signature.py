@@ -77,6 +77,45 @@ class Ed25519ReceiptVerifierTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "multiple trusted signer IDs"):
             Ed25519ReceiptVerifier({"lab-a": self.public, "lab-b": self.public})
 
+    def test_revoked_key_cannot_authenticate_old_or_new_receipts(self):
+        signed = self.signed()
+        revoked = Ed25519ReceiptVerifier(
+            {"independent-lab": self.public}, revoked_signers={"independent-lab"}
+        )
+        self.assertFalse(revoked(signed))
+        self.assertFalse(revoked.verify_detached("independent-lab", signed.signature.split(".", 1)[1], b"message"))
+
+    def test_key_validity_window_is_enforced_with_injected_clock(self):
+        signed = self.signed()
+        before = Ed25519ReceiptVerifier(
+            {"independent-lab": self.public},
+            key_validity={"independent-lab": (100.0, 200.0)},
+            clock=lambda: 99.0,
+        )
+        active = Ed25519ReceiptVerifier(
+            {"independent-lab": self.public},
+            key_validity={"independent-lab": (100.0, 200.0)},
+            clock=lambda: 150.0,
+        )
+        expired = Ed25519ReceiptVerifier(
+            {"independent-lab": self.public},
+            key_validity={"independent-lab": (100.0, 200.0)},
+            clock=lambda: 200.0,
+        )
+        self.assertFalse(before(signed))
+        self.assertTrue(active(signed))
+        self.assertFalse(expired(signed))
+
+    def test_key_lifecycle_policy_rejects_unknown_ids_and_invalid_windows(self):
+        with self.assertRaisesRegex(ValueError, "exist in the trusted key map"):
+            Ed25519ReceiptVerifier({"lab": self.public}, revoked_signers={"missing-lab"})
+        with self.assertRaisesRegex(ValueError, "only be configured for trusted signers"):
+            Ed25519ReceiptVerifier({"lab": self.public}, key_validity={"missing-lab": (1.0, 2.0)})
+        with self.assertRaisesRegex(ValueError, "later than not_before"):
+            Ed25519ReceiptVerifier({"lab": self.public}, key_validity={"lab": (5.0, 5.0)})
+        with self.assertRaisesRegex(ValueError, "collection"):
+            Ed25519ReceiptVerifier({"lab": self.public}, revoked_signers="lab")
+
 
 if __name__ == "__main__":
     unittest.main()
