@@ -84,6 +84,7 @@ def verify_arena_isolation_attestation(
     evaluator_id: str,
     oracle_id: str,
     policy_runtime_id: str,
+    trusted_signer_ids: frozenset[str] | None,
     now: float,
     max_future_skew_seconds: float = 30.0,
 ) -> str:
@@ -92,6 +93,10 @@ def verify_arena_isolation_attestation(
         raise TypeError("ArenaIsolationAttestation is required")
     if not callable(verify_detached_signature):
         raise ValueError("trusted isolation signature verifier is required")
+    if not isinstance(trusted_signer_ids, frozenset) or not trusted_signer_ids:
+        raise ValueError("out-of-band trusted isolation signer allowlist is required")
+    if any(not isinstance(item, str) or not item.strip() for item in trusted_signer_ids):
+        raise ValueError("trusted isolation signer ids must be non-empty strings")
     for name, value in (
         ("expected_campaign_digest", expected_campaign_digest),
         ("expected_run_receipt_digest", expected_run_receipt_digest),
@@ -110,6 +115,8 @@ def verify_arena_isolation_attestation(
         raise ValueError("isolation attestation run receipt digest mismatch")
     if attestation.image_digest != expected_image_digest:
         raise ValueError("isolation attestation image digest mismatch")
+    if attestation.signer_id not in trusted_signer_ids:
+        raise ValueError("isolation attestation signer is not in the out-of-band trusted signer allowlist")
     if attestation.signer_id in {evaluator_id, oracle_id, policy_runtime_id}:
         raise ValueError("isolation attestation signer must be independent of evaluator, oracle, and policy runtime")
     missing = sorted(_REQUIRED_CONTROLS - set(attestation.controls))
