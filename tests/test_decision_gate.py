@@ -85,6 +85,23 @@ class DecisionGateTests(unittest.TestCase):
         self.assertTrue(any("external_evaluator_id" in e for e in errors))
         self.assertTrue(any("separately controlled evaluator" in e for e in errors))
 
+    def test_rejects_claimed_independence_with_untrusted_control_values(self) -> None:
+        record = valid_record()
+        record["promotion"] = {
+            "level": "independently_corroborated",
+            "approved_by": APPROVER,
+            "approval_evidence_id": "approval-1",
+            "external_evaluator_id": "eval-1",
+            "corpus_owner_id": "corpus-owner-1",
+            "receipt_digest": "sha256:receipt",
+            "repeat_run_id": "repeat-1",
+            "evaluator_control": "bogus",
+            "corpus_control": "bogus",
+        }
+        errors = self.errors(record, authorized_approvers={APPROVER})
+        self.assertTrue(any("separately controlled evaluator" in e for e in errors))
+        self.assertTrue(any("separately controlled corpus/oracle" in e for e in errors))
+
     def test_rejects_repeated_no_progress_retry(self) -> None:
         record = valid_record()
         record["retry_history"] = [
