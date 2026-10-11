@@ -119,6 +119,113 @@ class IndependentBenchmarkGenerator:
 
 
 @dataclass(frozen=True, slots=True)
+class DomainEvaluationObservation:
+    """One case-level result bound to a receipt and target-domain provenance."""
+
+    case_id: str
+    domain: str
+    task_family: str
+    environment_id: str
+    mode: str
+    cohort: str
+    success: bool
+    score: float
+    uncertainty: float
+    calibration_error: float
+    resource_cost_ms: int
+    recovery_attempts: int
+    regression: bool
+    holdout: bool
+    run_receipt_digest: str
+    provenance_digest: str
+
+    def __post_init__(self) -> None:
+        for name in ("case_id", "domain", "task_family", "environment_id", "run_receipt_digest"):
+            value = getattr(self, name)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"{name} must be a non-empty string")
+        if self.mode not in {"zero_shot", "few_shot", "adapted"}:
+            raise ValueError("mode must be zero_shot, few_shot, or adapted")
+        if self.cohort not in {"control", "treatment"}:
+            raise ValueError("cohort must be control or treatment")
+        for name in ("success", "regression", "holdout"):
+            if type(getattr(self, name)) is not bool:
+                raise ValueError(f"{name} must be a boolean")
+        for name in ("score", "uncertainty", "calibration_error"):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not 0.0 <= value <= 1.0:
+                raise ValueError(f"{name} must be a finite number between 0 and 1")
+        for name in ("resource_cost_ms", "recovery_attempts"):
+            value = getattr(self, name)
+            if type(value) is not int or value < 0:
+                raise ValueError(f"{name} must be a non-negative integer")
+        if not isinstance(self.provenance_digest, str):
+            raise ValueError("provenance_digest must be a string")
+        if self.holdout and not self.provenance_digest.strip():
+            raise ValueError("holdout observations require a provenance digest")
+
+
+@dataclass(frozen=True, slots=True)
+class DomainEvaluationReport:
+    source_domain: str
+    target_domains: tuple[str, ...]
+    mode_scores: tuple[tuple[str, float], ...]
+    mode_success_rates: tuple[tuple[str, float], ...]
+    source_regression_count: int
+    source_observation_count: int
+    uncertainty_mean: float
+    calibration_error_mean: float
+    resource_cost_ms_mean: float
+    recovery_rate: float
+    observation_count: int
+
+    @classmethod
+    def summarize(
+        cls, observations: Sequence[DomainEvaluationObservation], *, source_domain: str,
+        minimum_target_domains: int = 1,
+    ) -> "DomainEvaluationReport":
+        if not isinstance(source_domain, str) or not source_domain.strip():
+            raise ValueError("source_domain is required")
+        if isinstance(minimum_target_domains, bool) or not isinstance(minimum_target_domains, int) or minimum_target_domains < 1:
+            raise ValueError("minimum_target_domains must be a positive integer")
+        if not isinstance(observations, Sequence) or isinstance(observations, (str, bytes)) or not observations:
+            raise ValueError("observations must be a non-empty sequence")
+        if any(not isinstance(item, DomainEvaluationObservation) for item in observations):
+            raise TypeError("all observations must be DomainEvaluationObservation instances")
+        identities = [(item.run_receipt_digest, item.case_id, item.mode, item.cohort) for item in observations]
+        if len(set(identities)) != len(identities):
+            raise ValueError("duplicate domain evaluation observation")
+        source = [item for item in observations if item.domain == source_domain and not item.holdout]
+        targets = [item for item in observations if item.domain != source_domain and item.holdout]
+        target_domains = tuple(sorted({item.domain for item in targets}))
+        if len(target_domains) < minimum_target_domains:
+            raise ValueError("insufficient provenance-bound target domains")
+        if not source:
+            raise ValueError("source-domain regression observations are required")
+        if not targets:
+            raise ValueError("sealed target-domain observations are required")
+        missing_modes = {"zero_shot", "few_shot", "adapted"} - {item.mode for item in targets}
+        if missing_modes:
+            raise ValueError("target observations missing evaluation modes: " + ", ".join(sorted(missing_modes)))
+        modes = ("zero_shot", "few_shot", "adapted")
+        mode_scores = tuple((mode, sum(item.score for item in targets if item.mode == mode) / sum(1 for item in targets if item.mode == mode)) for mode in modes)
+        mode_success_rates = tuple((mode, sum(1 for item in targets if item.mode == mode and item.success) / sum(1 for item in targets if item.mode == mode)) for mode in modes)
+        return cls(
+            source_domain=source_domain,
+            target_domains=target_domains,
+            mode_scores=mode_scores,
+            mode_success_rates=mode_success_rates,
+            source_regression_count=sum(1 for item in source if item.regression),
+            source_observation_count=len(source),
+            uncertainty_mean=sum(item.uncertainty for item in targets) / len(targets),
+            calibration_error_mean=sum(item.calibration_error for item in targets) / len(targets),
+            resource_cost_ms_mean=sum(item.resource_cost_ms for item in targets) / len(targets),
+            recovery_rate=sum(1 for item in targets if item.recovery_attempts > 0) / len(targets),
+            observation_count=len(observations),
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class DomainTransferMeasurement:
     source_domain: str
     target_domains: tuple[str, ...]

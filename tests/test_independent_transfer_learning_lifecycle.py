@@ -1,5 +1,7 @@
 from portable.independent_transfer_learning_lifecycle import (
     CausalAttributionEstimator,
+    DomainEvaluationObservation,
+    DomainEvaluationReport,
     CrossDomainTransferMeasurer,
     IndependentBenchmarkGenerator,
     IndependentTransferLearningLifecycle,
@@ -228,3 +230,63 @@ def test_causal_attribution_requires_strict_boolean_evidence_flags():
             (.60, .62), (.72, .70),
             randomized="yes", independent_holdout=True,
         )
+
+def domain_observation(**overrides):
+    values = dict(
+        case_id="case-1", domain="math", task_family="symbolic-reasoning",
+        environment_id="math-env-v1", mode="zero_shot", cohort="treatment",
+        success=True, score=.82, uncertainty=.12, calibration_error=.08,
+        resource_cost_ms=120, recovery_attempts=0, regression=False, holdout=True,
+        run_receipt_digest="receipt-1", provenance_digest="signed-provenance-1",
+    )
+    values.update(overrides)
+    return DomainEvaluationObservation(**values)
+
+
+def test_domain_report_separates_zero_few_shot_adapted_and_source_regression():
+    observations = [
+        domain_observation(case_id="src-1", domain="code", task_family="code-generation",
+                           environment_id="repo-env", mode="zero_shot", cohort="control",
+                           score=.70, uncertainty=.10, calibration_error=.10,
+                           resource_cost_ms=90, recovery_attempts=0, regression=True,
+                           holdout=False, provenance_digest=""),
+        domain_observation(case_id="t0", domain="math", mode="zero_shot", score=.60),
+        domain_observation(case_id="t1", domain="math", mode="few_shot", score=.72,
+                           success=True, resource_cost_ms=160, recovery_attempts=1),
+        domain_observation(case_id="t2", domain="math", mode="adapted", score=.80,
+                           success=True, resource_cost_ms=200),
+        domain_observation(case_id="t3", domain="science", mode="zero_shot", score=.64),
+        domain_observation(case_id="t4", domain="science", mode="few_shot", score=.70),
+        domain_observation(case_id="t5", domain="science", mode="adapted", score=.78),
+    ]
+    report = DomainEvaluationReport.summarize(observations, source_domain="code", minimum_target_domains=2)
+    assert report.target_domains == ("math", "science")
+    assert dict(report.mode_scores) == {"zero_shot": .62, "few_shot": .71, "adapted": .79}
+    assert report.source_regression_count == 1
+    assert report.source_observation_count == 1
+    assert report.resource_cost_ms_mean > 0
+    assert report.recovery_rate > 0
+    assert report.observation_count == len(observations)
+
+
+def test_domain_observation_requires_holdout_provenance_and_strict_numeric_values():
+    import pytest
+    with pytest.raises(ValueError, match="provenance digest"):
+        domain_observation(provenance_digest="")
+    with pytest.raises(ValueError, match="finite number"):
+        domain_observation(score=float("nan"))
+    with pytest.raises(ValueError, match="boolean"):
+        domain_observation(success="yes")
+
+
+def test_domain_report_rejects_duplicate_observations_and_missing_modes():
+    import pytest
+    one = domain_observation()
+    with pytest.raises(ValueError, match="duplicate domain evaluation observation"):
+        DomainEvaluationReport.summarize([one, one], source_domain="code")
+    source = domain_observation(case_id="source", domain="code", holdout=False,
+                                provenance_digest="", mode="zero_shot")
+    with pytest.raises(ValueError, match="missing evaluation modes"):
+        DomainEvaluationReport.summarize([source, one], source_domain="code")
+
+

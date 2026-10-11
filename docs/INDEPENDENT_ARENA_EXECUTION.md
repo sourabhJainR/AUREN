@@ -34,3 +34,10 @@ Malformed input, duplicate cases, digest mismatch, nonce replay, non-zero policy
 ## Trusted target-domain custody
 
 Sealed cross-domain runs require an out-of-band allowlist of trusted target-domain operators. Each novel target domain must carry a non-empty signature whose signer ID matches its named independent operator, and the configured verifier must cryptographically validate that signature. Missing trust configuration, unsigned provenance, an untrusted operator, or evaluator/oracle overlap fails closed before the external evaluator is called. Test signatures and allowlists are fixtures only; production trust roots must be provisioned independently.
+
+
+## Cross-domain measurement contract
+
+`portable.independent_transfer_learning_lifecycle.DomainEvaluationObservation` captures case-level task family, environment, evaluation mode (zero-shot, few-shot, or adapted), outcome, uncertainty, calibration error, resource cost, recovery attempts, source regression, run-receipt digest, and target provenance digest. `DomainEvaluationReport.summarize` reports the three target-domain modes separately and preserves source-domain regression counts rather than hiding regressions inside an aggregate score.
+
+A non-empty provenance digest is only a reference to evidence, not proof that the target is genuinely unseen or independently controlled. Promotion still requires the external attestation, sealed holdout custody, and sandbox-isolation gates described above. No report from internal fixtures is an independent generalization result.
