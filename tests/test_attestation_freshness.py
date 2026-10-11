@@ -13,7 +13,7 @@ from portable.independent_evaluation_attestation import EvaluationAttestation
 
 def make_attestation(issued_at=100):
     return FreshEvaluationAttestation(
-        EvaluationAttestation("campaign", "corpus", "oracle", "v1", "signer", "sig"),
+        EvaluationAttestation("campaign", "corpus", "oracle", "v1", "signer", "sig", key_id="signer-key-v1"),
         issued_at,
     )
 
@@ -29,7 +29,7 @@ def make_verifier(registry=None, verify_identity=verify_principal, verify_signat
         verify_signature = lambda attestation: attestation.signature == "sig"
     return FreshnessAwareAttestor(
         verify_signature,
-        AttestationTrustPolicy(frozenset({"signer"})),
+        AttestationTrustPolicy(frozenset({"signer"}), trusted_key_ids=frozenset({"signer-key-v1"})),
         AttestationFreshnessPolicy(max_age_seconds=10, max_future_skew_seconds=2),
         registry or AttestationReplayRegistry(),
         verify_principal=verify_identity,
