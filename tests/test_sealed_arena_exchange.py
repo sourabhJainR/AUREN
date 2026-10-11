@@ -14,7 +14,8 @@ class SealedArenaExchangeTests(unittest.TestCase):
         self.request = SealedCampaignRequest("campaign-d", "corpus-d", (case,), "nonce-1")
         self.receipt = ExternalOutcomeReceipt(
             "campaign-d", "corpus-d", "evaluator", "oracle", "sig",
-            (("case-1", True, "evidence-d"),), run_nonce="nonce-1"
+            (("case-1", True, "evidence-d"),), run_nonce="nonce-1",
+            request_digest=self.request.request_digest,
         )
 
     def test_request_round_trip(self) -> None:
