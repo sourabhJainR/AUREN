@@ -41,3 +41,41 @@ Sealed cross-domain runs require an out-of-band allowlist of trusted target-doma
 `portable.independent_transfer_learning_lifecycle.DomainEvaluationObservation` captures case-level task family, environment, evaluation mode (zero-shot, few-shot, or adapted), outcome, uncertainty, calibration error, resource cost, recovery attempts, source regression, run-receipt digest, and target provenance digest. `DomainEvaluationReport.summarize` reports the three target-domain modes separately and preserves source-domain regression counts rather than hiding regressions inside an aggregate score.
 
 A non-empty provenance digest is only a reference to evidence, not proof that the target is genuinely unseen or independently controlled. Promotion still requires the external attestation, sealed holdout custody, and sandbox-isolation gates described above. No report from internal fixtures is an independent generalization result.
+
+
+## External campaign runbook (issue #404)
+
+This runbook is an operator handoff, not evidence that a campaign has run. Keep issue #404 open until an independent operator supplies the signed artifacts listed below.
+
+### 1. Establish independent control
+
+- Select a task family and project/environment that were not used to develop or tune the capability under test. Record the rationale and a source-domain overlap check.
+- Use an operator, evaluator, oracle, and sandbox auditor with separately authenticated identities. No identity may be reused across prohibited roles.
+- Provision signer public keys and trust policy out of band. Keep private signing keys, oracle answers, and sealed holdout material outside AUREN and the evaluated runtime.
+- Pin the exact AUREN `main` SHA, evaluator version, runtime image digest, configuration digest, and environment version before the run.
+
+### 2. Seal and execute
+
+- Create a versioned manifest with content-addressed cases, task-family/environment identifiers, train/evaluation/holdout split, corpus digest, and signed custody provenance.
+- Execute through an independently administered sandbox. Collect signed isolation evidence for network denial, no host mounts, read-only root, non-root identity, credential isolation, CPU/memory/PID limits, and observed termination.
+- Run the same fixed campaign twice with fresh run IDs/nonces. Retain each full receipt and attestation; compare normalized outcome/result digests for deterministic consistency without exposing holdout contents.
+- Execute negative controls: nonce replay, receipt/corpus mismatch, invalid or expired signatures, signer overlap, missing isolation controls, contamination, partial receipt coverage, and malformed outcome data. Preserve the rejected evidence and reasons.
+
+### 3. Report and preserve evidence
+
+- Report baseline and capability results separately for zero-shot, few-shot, and adapted modes; include source-domain regressions, target-domain success, uncertainty/calibration, resource cost, recovery attempts, failures, and sample sizes.
+- Publish only sanitized manifests/digests, trust-root fingerprints, signed receipts/attestations, verifier versions, repeat-run comparison, baseline method, and limitations. Never publish hidden prompts, expected answers, oracle material, or identifying data that enables holdout reconstruction.
+- Have an independent reviewer verify signatures, role separation, custody provenance, sandbox claims, and exact receipt-to-report lineage. A valid signature authenticates a claim; it is not an independent audit of the claim's truth.
+
+### Required artifacts before closing #404
+
+1. Operator/evaluator/oracle/sandbox-auditor identity and role-separation statement.
+2. Sealed corpus manifest digest and independently signed custody provenance.
+3. Exact runtime, evaluator, configuration, and immutable image digests.
+4. At least two fresh signed run receipts and deterministic comparison.
+5. Signed isolation attestations and evidence of the controls observed.
+6. Baseline comparison plus zero-shot/few-shot/adapted metrics and source regression results.
+7. Negative/adversarial test results, rejected records, resource usage, uncertainty, failures, and limitations.
+8. Independent reviewer sign-off and a sanitized reproducible report.
+
+Do not mark the campaign complete from unit tests, test signatures, internal fixtures, or a self-reported isolation manifest. If an independent operator or required artifact is unavailable, keep promotion blocked and #404 open.
