@@ -45,20 +45,32 @@ class ExecutionController:
             CREATE TABLE IF NOT EXISTS sessions(
               session_id TEXT PRIMARY KEY, work_unit_id TEXT NOT NULL, goal TEXT NOT NULL, updated_at TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS handlers(
-              name TEXT PRIMARY KEY, reference TEXT NOT NULL, updated_at TEXT NOT NULL);
+              name TEXT PRIMARY KEY, reference TEXT NOT NULL, updated_at TEXT NOT NULL,
+              ci_gate_policy_json TEXT NOT NULL DEFAULT '{}');
             CREATE TABLE IF NOT EXISTS tasks(
               id TEXT PRIMARY KEY, handler TEXT NOT NULL, payload TEXT NOT NULL,
               state TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0,
               work_unit_id TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, heartbeat_at TEXT, lease_until TEXT);
             """)
+            handler_columns = {row[1] for row in db.execute("PRAGMA table_info(handlers)").fetchall()}
+            if "ci_gate_policy_json" not in handler_columns:
+                db.execute("ALTER TABLE handlers ADD COLUMN ci_gate_policy_json TEXT NOT NULL DEFAULT '{}'")
             columns = {row[1] for row in db.execute("PRAGMA table_info(tasks)").fetchall()}
             for column in ("heartbeat_at", "lease_until"):
                 if column not in columns:
                     db.execute(f"ALTER TABLE tasks ADD COLUMN {column} TEXT")
 
 
-    def register_handler(self, name: str, handler: Handler | str) -> str:
-        """Persist an importable handler reference; callable handlers use module:qualname."""
+    def register_handler(
+        self, name: str, handler: Handler | str, *,
+        ci_gate_policy: Mapping[str, Any] | None = None,
+    ) -> str:
+        """Register a handler and optional trusted CI gate policy.
+
+        CI policy is set by the service/operator at handler registration, never by
+        task payload. A protected handler's tasks cannot disable the gate or
+        replace the expected SHA/required checks in their input.
+        """
         if not name.strip():
             raise ValueError("handler name is required")
         if isinstance(handler, str):
@@ -69,11 +81,37 @@ class ExecutionController:
             if not module or not qualname or "<locals>" in qualname:
                 raise ValueError("durable handlers must be importable module-level callables")
             reference = f"{module}:{qualname}"
+        policy = dict(ci_gate_policy or {})
+        if policy:
+            expected_sha = policy.get("expected_head_sha")
+            required_checks = policy.get("required_checks")
+            if not isinstance(expected_sha, str) or not expected_sha.strip():
+                raise ValueError("CI gate policy requires a trusted expected_head_sha")
+            if (not isinstance(required_checks, (list, tuple)) or not required_checks
+                    or not all(isinstance(item, str) and item.strip() for item in required_checks)):
+                raise ValueError("CI gate policy requires non-empty trusted required_checks")
+            policy = {
+                "expected_head_sha": expected_sha,
+                "required_checks": list(dict.fromkeys(required_checks)),
+            }
         with sqlite3.connect(self.db_path) as db:
-            db.execute("INSERT INTO handlers(name,reference,updated_at) VALUES(?,?,?) "
-                       "ON CONFLICT(name) DO UPDATE SET reference=excluded.reference,updated_at=excluded.updated_at",
-                       (name, reference, _now()))
+            db.execute(
+                "INSERT INTO handlers(name,reference,updated_at,ci_gate_policy_json) VALUES(?,?,?,?) "
+                "ON CONFLICT(name) DO UPDATE SET reference=excluded.reference,updated_at=excluded.updated_at,"
+                "ci_gate_policy_json=excluded.ci_gate_policy_json",
+                (name, reference, _now(), json.dumps(policy, sort_keys=True)),
+            )
         return reference
+
+    def _handler_ci_gate_policy(self, name: str) -> dict[str, Any]:
+        with sqlite3.connect(self.db_path) as db:
+            row = db.execute("SELECT ci_gate_policy_json FROM handlers WHERE name=?", (name,)).fetchone()
+        if not row:
+            raise KeyError(f"unknown durable handler: {name}")
+        policy = json.loads(row[0] or "{}")
+        if not isinstance(policy, dict):
+            raise ValueError(f"invalid persisted CI gate policy for handler: {name}")
+        return policy
 
     def _load_handler(self, name: str) -> Handler:
         with sqlite3.connect(self.db_path) as db:
@@ -127,8 +165,7 @@ class ExecutionController:
     def _claim(self, task_id: str) -> DurableTask | None:
         with sqlite3.connect(self.db_path) as db:
             row = db.execute("SELECT id,handler,payload,state,attempts,work_unit_id FROM tasks WHERE id=?",
-                             (task_id,)).fetchone()
-            if not row or row[3] in {"completed", "failed", "cancelled"}:
+                             (task_id,)).fetchone()            if not row or row[3] in {"completed", "failed", "cancelled"}:
                 return None
             attempts = int(row[4]) + 1
             now = _now()
@@ -154,9 +191,10 @@ class ExecutionController:
             else:
                 success, detail = True, "handler completed"
 
-            # CI-gated tasks cannot complete based on a helper result or a stale run.
-            # The task submitter opts in via durable payload; missing/malformed proof fails closed.
-            if bool(task.payload.get("require_ci_gate", False)):
+            # The trusted handler registration owns gate policy. Task payload cannot
+            # disable the gate, lower required checks, or substitute the expected SHA.
+            gate_policy = self._handler_ci_gate_policy(task.handler)
+            if gate_policy:
                 gate = result.get("ci_gate") if isinstance(result, Mapping) else None
                 if not isinstance(gate, Mapping):
                     success = False
@@ -164,25 +202,21 @@ class ExecutionController:
                     evidence.append("ci-gate:missing")
                 else:
                     try:
-                        # Required checks are policy supplied with the task, not claims made by CI evidence.
-                        required_checks = task.payload.get("required_checks", ())
                         passed_checks = gate.get("passed_checks", ())
                         skipped_checks = gate.get("skipped_checks", ())
-                        if not isinstance(required_checks, (list, tuple)) or not required_checks:
-                            raise ValueError("task must declare a non-empty required_checks list")
                         if not all(isinstance(items, (list, tuple)) and all(isinstance(x, str) for x in items)
-                                   for items in (required_checks, passed_checks, skipped_checks)):
+                                   for items in (passed_checks, skipped_checks)):
                             raise ValueError("check lists must be arrays of strings")
                         verdict = verify_ci_gate(
-                            expected_head_sha=str(task.payload.get("expected_head_sha", "")),
+                            expected_head_sha=gate_policy["expected_head_sha"],
                             ci_head_sha=str(gate.get("head_sha", "")),
                             status=str(gate.get("status", "")),
                             conclusion=str(gate.get("conclusion", "")) or None,
-                            required_checks=required_checks,
+                            required_checks=gate_policy["required_checks"],
                             passed_checks=passed_checks,
                             skipped_checks=skipped_checks,
                         )
-                    except (TypeError, ValueError) as gate_error:
+                    except (KeyError, TypeError, ValueError) as gate_error:
                         verdict = None
                         gate_reason = f"malformed exact-head CI evidence: {gate_error}"
                     if verdict is None:
@@ -257,8 +291,7 @@ class ExecutionController:
     def confirm_alternate(self, task_id: str, plan: str) -> tuple[bool, str, tuple[str, ...]]:
         task = self.task(task_id)
         if task is None:
-            return False, "task not found", ()
-        safe = not any(x in plan.lower() for x in ("disable security", "delete evidence", "expose secret"))
+            return False, "task not found", ()        safe = not any(x in plan.lower() for x in ("disable security", "delete evidence", "expose secret"))
         return safe, "passed safety policy" if safe else "blocked by safety policy", (f"alternate:{task.id}", f"plan:{plan}")
 
     def self_review(self, *, limit: int = 20) -> int:
