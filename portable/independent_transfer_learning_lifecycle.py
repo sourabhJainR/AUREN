@@ -353,9 +353,12 @@ class IndependentTransferLearningLifecycle:
             raise ValueError("run receipt corpus does not match benchmark")
         if run_receipt.manifest_digest != benchmark.manifest.digest:
             raise ValueError("run receipt manifest does not match benchmark")
+        expected_case_ids = {case.case_id for case in benchmark.request.cases}
+        if set(run_receipt.case_ids) != expected_case_ids:
+            raise ValueError("run receipt case set does not match the complete benchmark")
         sealed_holdouts = {case.case_id for case in benchmark.request.cases if case.holdout}
-        if not set(run_receipt.holdout_case_ids) <= sealed_holdouts:
-            raise ValueError("run receipt contains an unsealed holdout case")
+        if set(run_receipt.holdout_case_ids) != sealed_holdouts:
+            raise ValueError("run receipt must cover the complete sealed holdout set")
         if not run_receipt.trustworthy:
             raise ValueError("run receipt is not trustworthy")
         if not run_receipt.campaign_digest:

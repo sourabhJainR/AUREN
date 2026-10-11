@@ -103,7 +103,7 @@ def test_transfer_rejects_invalid_thresholds():
         )
 
 
-def run_lifecycle(*, passed_case_ids=None, ledger=None, prior_campaign_digest="prior-campaign"):
+def run_lifecycle(*, passed_case_ids=None, holdout_case_ids=None, ledger=None, prior_campaign_digest="prior-campaign"):
     b = benchmark()
     all_case_ids = tuple(case.case_id for case in b.request.cases)
     receipt = ArenaRunReceipt(
@@ -115,7 +115,7 @@ def run_lifecycle(*, passed_case_ids=None, ledger=None, prior_campaign_digest="p
         runtime_snapshot="runtime-1",
         evaluator_version="eval-1",
         case_ids=all_case_ids,
-        holdout_case_ids=("math-1", "math-2", "science-1", "science-2"),
+        holdout_case_ids=("math-1", "math-2", "science-1", "science-2") if holdout_case_ids is None else tuple(holdout_case_ids),
         passed_case_ids=all_case_ids if passed_case_ids is None else tuple(passed_case_ids),
         verified_case_ids=all_case_ids,
         duration_ms=10,
@@ -172,6 +172,12 @@ def test_failed_fresh_holdout_retest_blocks_promotion_and_rolls_back():
     assert result.promotion is None
     assert result.rolled_back
     assert ledger.active("transfer-capability").version == "v1"
+
+
+def test_lifecycle_rejects_partial_sealed_holdout_coverage():
+    import pytest
+    with pytest.raises(ValueError, match="complete sealed holdout set"):
+        run_lifecycle(holdout_case_ids=("math-1", "science-1", "science-2"))
 
 
 def test_lifecycle_rejects_retest_receipt_reusing_prior_campaign():
