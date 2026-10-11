@@ -18,5 +18,7 @@ jobs:
         run: python scripts/validate_architecture.py
       - name: Run architecture contract regression tests
         run: python -m unittest tests.test_architecture_contract -v
+      - name: Run decision record and promotion gate regressions
+        run: python -m unittest tests.test_decision_gate -v
       - name: Compile dependency-free portable runtime
         run: python -m compileall -q portable scripts
