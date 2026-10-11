@@ -33,6 +33,15 @@ def validate_decision_record(
     context, not from the record being validated.
     """
     errors: list[str] = []
+    allowed_fields = {
+        "schema_version", "task_id", "repository", "base_commit", "head_commit",
+        "risk_level", "acceptance_criteria", "selected_option", "selection_rationale",
+        "alternatives", "dependencies", "checks", "limitations", "rollback_trigger",
+        "rollback_action", "retry_history", "promotion",
+    }
+    unknown_fields = set(record) - allowed_fields
+    if unknown_fields:
+        errors.append(f"unknown decision record fields: {sorted(unknown_fields)}")
 
     def required_text(key: str, where: Mapping[str, Any] = record) -> str:
         value = where.get(key)
@@ -53,9 +62,9 @@ def validate_decision_record(
     required_text("rollback_action")
     risk_level = required_text("risk_level")
 
-    if not expected_repository.strip():
+    if not isinstance(expected_repository, str) or not expected_repository.strip():
         errors.append("trusted expected_repository context is required")
-    if not COMMIT_RE.fullmatch(expected_head):
+    if not isinstance(expected_head, str) or not COMMIT_RE.fullmatch(expected_head):
         errors.append("trusted expected_head must be a full 40-character commit SHA")
     if repository and repository != expected_repository:
         errors.append("record repository does not match live repository context")
@@ -81,6 +90,8 @@ def validate_decision_record(
         errors.append("alternatives must be a list")
     else:
         for i, item in enumerate(alternatives):
+            if isinstance(item, dict) and set(item) - {"option", "reason_rejected"}:
+                errors.append(f"alternatives[{i}] contains unknown fields")
             if not isinstance(item, dict) or not isinstance(item.get("option"), str) or not item["option"].strip() or not isinstance(item.get("reason_rejected"), str) or not item["reason_rejected"].strip():
                 errors.append(f"alternatives[{i}] requires option and reason_rejected")
         if not alternatives and risk_level in {"medium", "high", "critical"}:
@@ -98,6 +109,8 @@ def validate_decision_record(
         if not isinstance(check, dict):
             errors.append(f"checks[{i}] must be an object")
             continue
+        if set(check) - {"name", "command", "status", "commit_sha", "evidence_id"}:
+            errors.append(f"checks[{i}] contains unknown fields")
         for key in ("name", "command", "evidence_id", "commit_sha"):
             if not isinstance(check.get(key), str) or not check[key].strip():
                 errors.append(f"checks[{i}].{key} is required")
@@ -119,6 +132,8 @@ def validate_decision_record(
         if not isinstance(attempt, dict):
             errors.append(f"retry_history[{i}] must be an object")
             continue
+        if set(attempt) - {"hypothesis", "strategy", "new_evidence_ids"}:
+            errors.append(f"retry_history[{i}] contains unknown fields")
         for key in ("hypothesis", "strategy"):
             if not isinstance(attempt.get(key), str) or not attempt[key].strip():
                 errors.append(f"retry_history[{i}].{key} is required")
@@ -136,6 +151,8 @@ def validate_decision_record(
     if not isinstance(promotion, dict):
         errors.append("promotion object is required")
         promotion = {}
+    if set(promotion) - {"level", "approved_by", "approval_evidence_id", "external_evaluator_id", "corpus_owner_id", "receipt_digest", "repeat_run_id", "evaluator_control", "corpus_control"}:
+        errors.append("promotion contains unknown fields")
     level = promotion.get("level", "none")
     if level not in PROMOTION_LEVELS:
         errors.append("promotion.level is invalid")
@@ -156,9 +173,9 @@ def validate_decision_record(
         for key in ("external_evaluator_id", "corpus_owner_id", "receipt_digest", "repeat_run_id"):
             if not isinstance(promotion.get(key), str) or not promotion[key].strip():
                 errors.append(f"independent corroboration requires promotion.{key}")
-        if promotion.get("evaluator_control") in {None, "", "implementation_team"}:
+        if promotion.get("evaluator_control") not in {"separate_operator", "external"}:
             errors.append("independent corroboration requires a separately controlled evaluator")
-        if promotion.get("corpus_control") in {None, "", "implementation_team"}:
+        if promotion.get("corpus_control") not in {"separate_operator", "external"}:
             errors.append("independent corroboration requires a separately controlled corpus/oracle")
 
     return errors
