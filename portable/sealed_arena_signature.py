@@ -89,6 +89,8 @@ class Ed25519ReceiptVerifier:
             )
             if len(signature) != 64:
                 return False
+            if base64.urlsafe_b64encode(signature).decode("ascii").rstrip("=") != encoded_signature:
+                return False
             from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
             public_key = Ed25519PublicKey.from_public_bytes(self._trusted_public_keys[signer_id])
             public_key.verify(signature, receipt_signing_message(receipt, signer_id))
