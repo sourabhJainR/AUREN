@@ -6,6 +6,16 @@ from portable.orchestration import Node, NodeKind, RunStatus
 from portable.state_graph import CrewDefinition, GraphAgentTeam, StateGraph
 
 
+class ProposalAgent:
+    def __init__(self, crew_id):
+        self.crew_id = crew_id
+        self.requests = []
+
+    def propose(self, request):
+        self.requests.append(dict(request))
+        return {"recommendation": f"{self.crew_id} proposal", "artifacts": request["required_artifacts"]}
+
+
 class GraphAgentCrewTests(unittest.TestCase):
     def make_team(self, node_runner, *, evaluator=None, agents=None):
         graph = StateGraph.from_nodes([
@@ -33,18 +43,33 @@ class GraphAgentCrewTests(unittest.TestCase):
             "pm", "security_privacy", "dba", "frontend", "backend", "dotnet", "reviewer", "enduser"
         ))
 
-    def test_plan_and_guardrails_are_injected_and_caller_cannot_override(self):
+    def test_plan_guardrails_and_dispatch_are_scoped_to_graph_execution(self):
         observed = {}
+        frontend = ProposalAgent("frontend_ui")
+        security = ProposalAgent("security_privacy")
+
         def run_node(state):
             observed.update(state)
+            frontend_result = state["auren_crew_dispatch"](
+                "frontend_ui", "Design the login screen", {"requirement": "keyboard accessible"}
+            )
+            security_result = state["auren_crew_dispatch"](
+                "security_privacy", "Review authentication boundary", {"risk": "credential exposure"}
+            )
+            observed["frontend_result"] = frontend_result
+            observed["security_result"] = security_result
             return "completed"
-        team, _graph = self.make_team(run_node, agents={"frontend_ui": object(), "security_privacy": object()})
+
+        team, _graph = self.make_team(
+            run_node, agents={"frontend_ui": frontend, "security_privacy": security}
+        )
         result = team.run(
             "task-1", "frontend UI with authentication and privacy",
             {
                 "auren_crew_plan": {"digest": "forged"},
                 "auren_crew_guardrails": {"merge_or_promotion_authority": True},
-                "auren_crew_agents": {"attacker": object()},
+                "auren_crew_dispatch": lambda *_args: {"bypass": True},
+                "secret": "must not be forwarded implicitly",
             },
         )
         self.assertEqual(result.status, RunStatus.ACCEPTED)
@@ -52,7 +77,28 @@ class GraphAgentCrewTests(unittest.TestCase):
         self.assertNotEqual(observed["auren_crew_plan"].get("digest"), "forged")
         self.assertFalse(observed["auren_crew_guardrails"]["merge_or_promotion_authority"])
         self.assertFalse(observed["auren_crew_guardrails"]["crews_may_self_approve"])
-        self.assertEqual(set(observed["auren_crew_agents"]), {"frontend_ui", "security_privacy"})
+        self.assertEqual(observed["frontend_result"]["review_status"], "pending")
+        self.assertTrue(observed["frontend_result"]["review_required"])
+        self.assertEqual(frontend.requests[0]["task"], "Design the login screen")
+        self.assertNotIn("secret", frontend.requests[0])
+        self.assertEqual(set(frontend.requests[0]["allowed_authorities"]) & {"merge", "promote"}, set())
+        with self.assertRaisesRegex(RuntimeError, "only available during graph execution"):
+            observed["auren_crew_dispatch"]("frontend_ui", "late call")
+
+    def test_dispatch_rejects_unassigned_crews_and_agents_without_proposal_interface(self):
+        observed = {}
+        def run_node(state):
+            observed["dispatch"] = state["auren_crew_dispatch"]
+            with self.assertRaisesRegex(ValueError, "not assigned"):
+                state["auren_crew_dispatch"]("database_schema", "run migration")
+            with self.assertRaisesRegex(TypeError, "propose"):
+                state["auren_crew_dispatch"]("frontend_ui", "implement UI")
+            return "completed"
+        team, _graph = self.make_team(run_node, agents={"frontend_ui": object()})
+        result = team.run("task-1", "frontend UI")
+        self.assertEqual(result.status, RunStatus.ACCEPTED)
+        with self.assertRaisesRegex(RuntimeError, "only available during graph execution"):
+            observed["dispatch"]("frontend_ui", "outside graph")
 
     def test_crew_cannot_be_granted_merge_or_self_approval_authority(self):
         with self.assertRaisesRegex(ValueError, "supervisor-only authority"):
