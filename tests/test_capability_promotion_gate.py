@@ -23,6 +23,7 @@ def record():
         "limitations": ["No independent generalization campaign claimed"],
         "rollback_trigger": "Any required check fails",
         "rollback_action": "Restore last known-good capability and rerun holdout",
+        "last_known_good_commit": BASE,
         "retry_history": [],
         "promotion": {"level": "verified_for_scope", "approved_by": APPROVER,
                       "approval_evidence_id": "approval-1"},
