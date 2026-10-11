@@ -38,6 +38,16 @@ class SealedArenaExchangeTests(unittest.TestCase):
         for token in ("answer", "expected_answer", "oracle_answer", "gold", "solution"):
             self.assertNotIn(token, raw)
 
+    def test_case_tampering_fails_even_when_outer_digest_is_recomputed(self) -> None:
+        body = json.loads(export_campaign_request(self.request).decode("utf-8"))
+        body["payload"]["cases"][0]["input_digest"] = "tampered-input"
+        body["payload_digest"] = hashlib.sha256(
+            json.dumps(body["payload"], sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+        raw = json.dumps(body, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        with self.assertRaisesRegex(ValueError, "request digest mismatch"):
+            import_campaign_request(raw)
+
     def test_missing_nonce_in_exchange_fails_closed(self) -> None:
         body = json.loads(export_campaign_request(self.request).decode("utf-8"))
         del body["payload"]["run_nonce"]
