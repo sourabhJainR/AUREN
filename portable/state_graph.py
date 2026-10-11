@@ -229,12 +229,17 @@ class GraphAgentTeam:
         )
 
     def required_personas(self, goal: str) -> tuple[str, ...]:
-        aliases = {
-            "product_pm": "pm", "backend_api": "backend", "frontend_ui": "frontend",
-            "database_schema": "dba", "dotnet": "dotnet", "security_privacy": "security_privacy",
-            "qa_reviewer": "reviewer", "end_user_validation": "enduser",
-        }
-        return tuple(aliases[item.crew_id] for item in self.plan_crews(goal).assignments)
+        selected = {item.crew_id for item in self.plan_crews(goal).assignments}
+        personas = ["pm", "backend", "reviewer", "enduser"]
+        if "frontend_ui" in selected:
+            personas.insert(1, "frontend")
+        if "database_schema" in selected:
+            personas.insert(1, "dba")
+        if "security_privacy" in selected:
+            personas.insert(1, "security_privacy")
+        if "dotnet" in selected:
+            personas.insert(personas.index("backend") + 1, "dotnet")
+        return tuple(dict.fromkeys(personas))
 
     def run(self, task_id: str, intent: str, context: Mapping[str, Any] | None = None) -> OrchestrationRun:
         plan = self.plan_crews(intent)
