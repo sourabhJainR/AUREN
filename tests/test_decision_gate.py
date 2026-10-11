@@ -51,7 +51,7 @@ class DecisionGateTests(unittest.TestCase):
         self.assertEqual(schema["properties"]["schema_version"]["const"], "1.0")
         self.assertTrue({"base_commit", "head_commit", "acceptance_criteria", "checks", "rollback_action", "promotion"}.issubset(schema["required"]))
 
-    def test_accepts_well_formed_unpromoted_record(self) -> None
+    def test_accepts_well_formed_unpromoted_record(self) -> None:
         self.assertEqual(self.errors(valid_record()), [])
 
     def test_rejects_missing_acceptance_criteria_and_rollback(self) -> None:
