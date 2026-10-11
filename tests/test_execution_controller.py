@@ -169,6 +169,18 @@ def test_reregistering_handler_without_policy_preserves_existing_gate(tmp_path: 
     assert controller.task(task.id).state == "failed"
 
 
+def test_reregistering_handler_with_empty_policy_preserves_existing_gate(tmp_path: Path):
+    controller = ExecutionController(tmp_path)
+    register_protected_handler(controller, trusted_ci_stale)
+    controller.register_handler("tests.ci_gate_handler", ci_gate_handler, ci_gate_policy={})
+    task = controller.submit(
+        "tests.ci_gate_handler",
+        {"require_ci_gate": False, "result": {"success": True}},
+    )
+    controller.run_once(task.id)
+    assert controller.task(task.id).state == "failed"
+
+
 def test_ci_gate_policy_requires_expected_sha_checks_and_provider(tmp_path: Path):
     controller = ExecutionController(tmp_path)
     controller.register_handler("tests.ci_provider", trusted_ci_success)
