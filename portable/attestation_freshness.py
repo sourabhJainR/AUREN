@@ -2,7 +2,7 @@
 
 This layer wraps an existing attestation rather than changing the wire format.
 It binds an issuance timestamp and one-time-use identity to the verified
-attestation digest. Replay storage is injected and can be durable/distributed.
+attestation digest. Principal authentication is injected and must be explicit.
 """
 from __future__ import annotations
 
@@ -21,8 +21,8 @@ class FreshEvaluationAttestation:
     issued_at: int
 
     def __post_init__(self) -> None:
-        if self.issued_at < 0:
-            raise ValueError("issued_at must be non-negative")
+        if type(self.issued_at) is not int or self.issued_at < 0:
+            raise ValueError("issued_at must be a non-negative integer")
 
     @property
     def attestation_id(self) -> str:
@@ -41,12 +41,14 @@ class AttestationFreshnessPolicy:
     max_future_skew_seconds: int = 30
 
     def __post_init__(self) -> None:
+        if type(self.max_age_seconds) is not int or type(self.max_future_skew_seconds) is not int:
+            raise ValueError("freshness windows must be integers")
         if self.max_age_seconds < 0 or self.max_future_skew_seconds < 0:
             raise ValueError("freshness windows must be non-negative")
 
     def validate(self, attestation: FreshEvaluationAttestation, *, now: int) -> tuple[bool, tuple[str, ...]]:
-        if now < 0:
-            raise ValueError("now must be non-negative")
+        if type(now) is not int or now < 0:
+            raise ValueError("now must be a non-negative integer")
         if attestation.issued_at > now + self.max_future_skew_seconds:
             return False, ("attestation issuance time is too far in the future",)
         if now - attestation.issued_at > self.max_age_seconds:
@@ -61,7 +63,7 @@ class AttestationReplayRegistry:
         self._seen = set(seen or ())
 
     def claim(self, attestation_id: str) -> bool:
-        if not attestation_id.strip():
+        if not isinstance(attestation_id, str) or not attestation_id.strip():
             raise ValueError("attestation_id is required")
         if attestation_id in self._seen:
             return False
@@ -70,7 +72,7 @@ class AttestationReplayRegistry:
 
 
 class FreshnessAwareAttestor:
-    """Verify lineage, principal separation, freshness, and replay protection."""
+    """Verify lineage, authenticated principal separation, freshness, and replay protection."""
 
     def __init__(
         self,
@@ -78,8 +80,9 @@ class FreshnessAwareAttestor:
         policy: AttestationTrustPolicy,
         freshness_policy: AttestationFreshnessPolicy,
         replay_registry: AttestationReplayRegistry | None = None,
+        verify_principal: Callable[[str, str], bool] | None = None,
     ) -> None:
-        self._attestor = SeparationAwareAttestor(verify_signature, policy)
+        self._attestor = SeparationAwareAttestor(verify_signature, policy, verify_principal)
         self.freshness_policy = freshness_policy
         self.replay_registry = replay_registry or AttestationReplayRegistry()
 
@@ -95,6 +98,8 @@ class FreshnessAwareAttestor:
         now: int,
         contamination_detected: bool = False,
     ) -> AttestedEvaluation:
+        if not isinstance(attestation, FreshEvaluationAttestation):
+            raise TypeError("FreshEvaluationAttestation is required")
         base = self._attestor.verify(
             attestation.attestation,
             evaluator_id=evaluator_id,
