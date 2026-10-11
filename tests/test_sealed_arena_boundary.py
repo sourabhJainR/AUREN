@@ -101,6 +101,14 @@ class SealedArenaBoundaryTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "signature is not verified"):
             SealedArenaBoundary(lambda _value: False).accept(self.request, self.receipt())
 
+    def test_rejects_receipt_for_modified_case_set(self) -> None:
+        altered_case = SealedCaseEnvelope("case-1", "task-d", "changed-input", "env-d", True, ("novel-domain",))
+        altered_request = SealedCampaignRequest("campaign-d", "corpus-d", (altered_case,), "nonce-1")
+        with self.assertRaisesRegex(ValueError, "request digest"):
+            SealedArenaBoundary(lambda value: value.signature == "sig").accept(
+                altered_request, self.receipt()
+            )
+
     def test_rejects_nonce_mismatch(self) -> None:
         with self.assertRaisesRegex(ValueError, "nonce"):
             SealedArenaBoundary(lambda _value: True).accept(
