@@ -2,12 +2,14 @@
 
 Promotion is blocked unless a machine-checkable decision record is valid for
 trusted repository/head context, canonical evidence, an authorized approver,
-and an explicit rollback plan. Canary observations are still retained when
-promotion is blocked; the gate does not mutate the active policy.
+and an explicit rollback plan. Every canary observation must also resolve to
+the trusted evidence registry. Canary observations are retained when blocked.
 """
 from __future__ import annotations
 
+from copy import deepcopy
 import json
+import math
 from dataclasses import dataclass
 from typing import Iterable, Mapping
 
@@ -45,21 +47,33 @@ class CapabilityLifecycle:
             raise TypeError("memory must be a PersistentMemory instance")
         if not isinstance(project, str) or not project.strip():
             raise ValueError("project is required")
-        if min_canaries < 1:
-            raise ValueError("min_canaries must be positive")
-        if not 0 <= regression_tolerance <= 1:
-            raise ValueError("regression_tolerance must be between 0 and 1")
+        if type(min_canaries) is not int or min_canaries < 1:
+            raise ValueError("min_canaries must be a positive integer")
+        if isinstance(regression_tolerance, bool) or not isinstance(regression_tolerance, (int, float)) or not math.isfinite(regression_tolerance) or not 0 <= regression_tolerance <= 1:
+            raise ValueError("regression_tolerance must be a finite number between 0 and 1")
+        for name, value in (("expected_repository", expected_repository), ("expected_head", expected_head)):
+            if value is not None and (not isinstance(value, str) or not value.strip()):
+                raise ValueError(f"{name} must be a non-empty string when supplied")
+        if isinstance(authorized_approvers, str):
+            raise ValueError("authorized_approvers must be an iterable of principal ids, not a string")
+        approvers = tuple(authorized_approvers)
+        if any(not isinstance(value, str) or not value.strip() for value in approvers):
+            raise ValueError("authorized approver ids must be non-empty strings")
+        if isinstance(known_evidence_ids, str):
+            raise ValueError("known_evidence_ids must be an iterable of ids, not a string")
+        evidence_ids = tuple(known_evidence_ids) if known_evidence_ids is not None else None
+        if evidence_ids is not None and any(not isinstance(value, str) or not value.strip() for value in evidence_ids):
+            raise ValueError("known evidence ids must be non-empty strings")
+
         self.memory = memory
         self.project = project.strip()
         self.min_canaries = min_canaries
-        self.regression_tolerance = regression_tolerance
-        self.promotion_record = dict(promotion_record) if promotion_record is not None else None
+        self.regression_tolerance = float(regression_tolerance)
+        self.promotion_record = deepcopy(dict(promotion_record)) if promotion_record is not None else None
         self.expected_repository = expected_repository
         self.expected_head = expected_head
-        self.authorized_approvers = frozenset(authorized_approvers)
-        self.known_evidence_ids = (
-            frozenset(known_evidence_ids) if known_evidence_ids is not None else None
-        )
+        self.authorized_approvers = frozenset(approvers)
+        self.known_evidence_ids = frozenset(evidence_ids) if evidence_ids is not None else None
 
     def _rows(self, capability_id: str) -> list[dict]:
         rows = self.memory.search(self.project, capability_id, limit=256)
@@ -79,13 +93,13 @@ class CapabilityLifecycle:
         canaries = [r for r in rows if r.get("event") == "canary"]
         successful = sum(
             1 for r in canaries
-            if r.get("safe") and float(r.get("score", 0)) + self.regression_tolerance >= baseline
+            if r.get("safe") is True and float(r.get("score", 0)) + self.regression_tolerance >= baseline
         )
         return CapabilityLifecycleReceipt(
             capability_id, state, baseline, len(canaries), successful, tuple(reasons)
         )
 
-    def _promotion_errors(self) -> list[str]:
+    def _promotion_errors(self, canary_evidence_ids: Iterable[str] = ()) -> list[str]:
         if self.promotion_record is None:
             return ["promotion blocked: decision record is required"]
         if not self.expected_repository or not self.expected_head:
@@ -95,19 +109,29 @@ class CapabilityLifecycle:
         level = promotion.get("level") if isinstance(promotion, Mapping) else None
         if level not in PROMOTION_LEVELS or PROMOTION_LEVELS[level] < PROMOTION_LEVELS["verified_for_scope"]:
             return ["promotion blocked: decision record must request verified_for_scope or higher"]
-        return validate_decision_record(
+
+        errors = validate_decision_record(
             record,
             expected_repository=self.expected_repository,
             expected_head=self.expected_head,
             authorized_approvers=self.authorized_approvers,
             known_evidence_ids=self.known_evidence_ids,
         )
+        if self.known_evidence_ids is None:
+            errors.append("promotion blocked: trusted canonical evidence registry is required for canary observations")
+        else:
+            for evidence_id in canary_evidence_ids:
+                if evidence_id not in self.known_evidence_ids:
+                    errors.append(
+                        f"promotion blocked: canary evidence_id {evidence_id!r} is not in trusted canonical evidence set"
+                    )
+        return errors
 
     def begin(self, capability_id: str, *, baseline_score: float) -> CapabilityLifecycleReceipt:
         if not isinstance(capability_id, str) or not capability_id.strip():
             raise ValueError("capability_id is required")
-        if isinstance(baseline_score, bool) or not isinstance(baseline_score, (int, float)) or not 0 <= baseline_score <= 1:
-            raise ValueError("baseline_score must be between 0 and 1")
+        if isinstance(baseline_score, bool) or not isinstance(baseline_score, (int, float)) or not math.isfinite(baseline_score) or not 0 <= baseline_score <= 1:
+            raise ValueError("baseline_score must be a finite number between 0 and 1")
         existing = self._rows(capability_id)
         if any(r.get("event") == "begin" for r in existing):
             raise ValueError("capability lifecycle already exists")
@@ -134,8 +158,8 @@ class CapabilityLifecycle:
         safe: bool = True,
         metadata: Mapping[str, object] | None = None,
     ) -> CapabilityLifecycleReceipt:
-        if isinstance(score, bool) or not isinstance(score, (int, float)) or not 0 <= score <= 1:
-            raise ValueError("score must be between 0 and 1")
+        if isinstance(score, bool) or not isinstance(score, (int, float)) or not math.isfinite(score) or not 0 <= score <= 1:
+            raise ValueError("score must be a finite number between 0 and 1")
         if not isinstance(evidence_id, str) or not evidence_id.strip():
             raise ValueError("evidence_id is required")
         if type(safe) is not bool:
@@ -170,7 +194,7 @@ class CapabilityLifecycle:
         rows = self._rows(capability_id)
         canaries = [r for r in rows if r.get("event") == "canary"]
         if state != "rolled_back" and len(canaries) >= self.min_canaries:
-            errors = self._promotion_errors()
+            errors = self._promotion_errors(r.get("evidence_id", "") for r in canaries)
             if errors:
                 state = "promotion_blocked"
                 reason = "; ".join(errors)
@@ -186,13 +210,14 @@ class CapabilityLifecycle:
             raise KeyError("capability lifecycle has not started")
         baseline = float(begins[-1]["baseline_score"])
         canaries = [r for r in rows if r.get("event") == "canary"]
-        if any(not r.get("safe") or float(r.get("score", 0)) + self.regression_tolerance < baseline for r in canaries):
+        if any(r.get("safe") is not True or float(r.get("score", 0)) + self.regression_tolerance < baseline for r in canaries):
             state = "rolled_back"
         elif len(canaries) >= self.min_canaries:
-            state = "promoted" if not self._promotion_errors() else "promotion_blocked"
+            errors = self._promotion_errors(r.get("evidence_id", "") for r in canaries)
+            state = "promoted" if not errors else "promotion_blocked"
         else:
             state = "canary"
-        errors = self._promotion_errors() if state == "promotion_blocked" else []
+        errors = self._promotion_errors(r.get("evidence_id", "") for r in canaries) if state == "promotion_blocked" else []
         return self._receipt(capability_id.strip(), baseline, rows, state, errors)
 
 
