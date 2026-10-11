@@ -44,7 +44,7 @@ class IndependentArenaTests(unittest.TestCase):
     def test_result_digest_is_repeatable_but_nonce_is_bound(self):
         sealed = seal_manifest(fixture())
         policy = lambda task: 15 if task["case_id"] == "math-001" else "transient"
-        first = run_campaign(sealed, policy, policy_digest="sha256:policy-a", run_nonce="run-001")
+        first = run_campaign(sealed, policy, nonce_ledger=new_ledger(), policy_digest="sha256:policy-a", run_nonce="run-001")
         second = run_campaign(sealed, policy, policy_digest="sha256:policy-a", run_nonce="run-002")
         self.assertNotEqual(first["result_digest"], second["result_digest"])
         third = run_campaign(sealed, policy, policy_digest="sha256:policy-a", run_nonce="run-001")
@@ -54,10 +54,10 @@ class IndependentArenaTests(unittest.TestCase):
         sealed = seal_manifest(fixture())
         altered = copy.deepcopy(sealed)
         altered["manifest"]["cases"][0]["oracle"] = 16
-        receipt = run_campaign(sealed, lambda task: 15, policy_digest="p", run_nonce="n")
+        receipt = run_campaign(sealed, lambda task: 15, nonce_ledger=new_ledger(), policy_digest="p", run_nonce="n")
         self.assertFalse(verify_receipt(receipt, altered))
         with self.assertRaises(ArenaError):
-            run_campaign(altered, lambda task: 15, policy_digest="p", run_nonce="n")
+            run_campaign(altered, lambda task: 15, nonce_ledger=new_ledger(), policy_digest="p", run_nonce="n")
 
     def test_receipt_tampering_is_rejected(self):
         sealed = seal_manifest(fixture())
@@ -98,7 +98,7 @@ class IndependentArenaTests(unittest.TestCase):
         def broken(_task):
             raise RuntimeError("secret implementation detail")
 
-        receipt = run_campaign(sealed, broken, policy_digest="p", run_nonce="n")
+        receipt = run_campaign(sealed, broken, nonce_ledger=new_ledger(), policy_digest="p", run_nonce="n")
         self.assertEqual(receipt["counts"]["error"], 2)
         self.assertNotIn("secret implementation detail", str(receipt))
         self.assertTrue(verify_receipt(receipt, sealed))
