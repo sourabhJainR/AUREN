@@ -93,6 +93,11 @@ class SignedHoldoutCustodyTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "does not match"):
             self.boundary().accept(request, self.make_receipt(request))
 
+    def test_custody_operator_cannot_also_sign_the_outcome_receipt(self):
+        receipt = self.make_receipt(signer="independent-operator")
+        with self.assertRaisesRegex(ValueError, "independent of the holdout custody operator"):
+            self.boundary().accept(self.request, receipt)
+
     def test_outcome_signer_cannot_be_the_named_evaluator_or_oracle(self):
         receipt = self.make_receipt(signer="external-evaluator")
         receipt = replace(receipt, evaluator_id="external-evaluator")
