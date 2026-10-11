@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from dataclasses import replace
 
 from portable.sealed_arena_boundary import (
     ExternalOutcomeReceipt,
@@ -8,12 +9,20 @@ from portable.sealed_arena_boundary import (
     SealedCampaignRequest,
     SealedCaseEnvelope,
 )
+from portable.sealed_corpus_provenance import SealedCorpusProvenance
 
 
 class SealedArenaBoundaryTests(unittest.TestCase):
     def setUp(self) -> None:
         self.case = SealedCaseEnvelope("case-1", "task-d", "input-d", "env-d", True, ("novel-domain",))
-        self.request = SealedCampaignRequest("campaign-d", "corpus-d", (self.case,), "nonce-1")
+        base = SealedCampaignRequest("campaign-d", "corpus-d", (self.case,), "nonce-1")
+        provenance = SealedCorpusProvenance(
+            corpus_digest="corpus-d", manifest_digest=base.manifest_digest,
+            origin="https://benchmarks.example.org/holdout/v1", split="sealed_holdout",
+            contamination_status="clean", independent_operator_id="operator",
+            attestation_digest="attestation-d",
+        )
+        self.request = replace(base, provenance=provenance)
 
     def receipt(self, **overrides):
         values = {
@@ -95,7 +104,14 @@ class SealedArenaBoundaryTests(unittest.TestCase):
 
     def test_rejects_partial_campaign_receipt(self) -> None:
         second = SealedCaseEnvelope("case-2", "task-2", "input-2", "env-2", False)
-        request = SealedCampaignRequest("campaign-d", "corpus-d", (self.case, second), "nonce-1")
+        base = SealedCampaignRequest("campaign-d", "corpus-d", (self.case, second), "nonce-1")
+        provenance = SealedCorpusProvenance(
+            corpus_digest="corpus-d", manifest_digest=base.manifest_digest,
+            origin="https://benchmarks.example.org/holdout/v1", split="sealed_holdout",
+            contamination_status="clean", independent_operator_id="operator",
+            attestation_digest="attestation-d",
+        )
+        request = replace(base, provenance=provenance)
         receipt = self.receipt(results=(("case-1", True, "evidence-d"),), request_digest=request.request_digest)
         with self.assertRaisesRegex(ValueError, "incomplete"):
             SealedArenaBoundary(lambda _value: True).accept(request, receipt)
@@ -119,7 +135,14 @@ class SealedArenaBoundaryTests(unittest.TestCase):
 
     def test_rejects_receipt_for_modified_case_set(self) -> None:
         altered_case = SealedCaseEnvelope("case-1", "task-d", "changed-input", "env-d", True, ("novel-domain",))
-        altered_request = SealedCampaignRequest("campaign-d", "corpus-d", (altered_case,), "nonce-1")
+        altered_base = SealedCampaignRequest("campaign-d", "corpus-d", (altered_case,), "nonce-1")
+        altered_provenance = SealedCorpusProvenance(
+            corpus_digest="corpus-d", manifest_digest=altered_base.manifest_digest,
+            origin="https://benchmarks.example.org/holdout/v1", split="sealed_holdout",
+            contamination_status="clean", independent_operator_id="operator",
+            attestation_digest="attestation-d",
+        )
+        altered_request = replace(altered_base, provenance=altered_provenance)
         with self.assertRaisesRegex(ValueError, "request digest"):
             SealedArenaBoundary(lambda value: value.signature == "sig").accept(
                 altered_request, self.receipt()
