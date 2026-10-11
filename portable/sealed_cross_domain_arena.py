@@ -119,5 +119,24 @@ class SealedCrossDomainRunner:
         bound_request = replace(campaign.request, campaign_digest=campaign.campaign_digest)
         return self.gateway.evaluate(bound_request, command)
 
+    def run_with_report(self, campaign: CrossDomainCampaign, command: ExternalEvaluatorCommand):
+        """Run and produce capability-specific, mode-separated transfer metrics.
+
+        Every holdout must carry signed per-case metrics. Missing metrics fail
+        closed rather than being silently treated as zero or inferred.
+        """
+        if not isinstance(campaign, CrossDomainCampaign):
+            raise TypeError("a validated CrossDomainCampaign is required")
+        if not isinstance(command, ExternalEvaluatorCommand):
+            raise TypeError("an ExternalEvaluatorCommand is required")
+        if not campaign.capability_id.strip():
+            raise ValueError("capability_id is required for cross-domain transfer reporting")
+        bound_request = replace(campaign.request, campaign_digest=campaign.campaign_digest)
+        evidence = self.gateway.evaluate(bound_request, command)
+        from .cross_domain_transfer_metrics import build_cross_domain_report
+        return build_cross_domain_report(
+            campaign, evidence, expected_request_digest=bound_request.request_digest
+        )
+
 
 __all__ = ["SealedDomain", "CrossDomainCampaign", "SealedCrossDomainRunner"]
