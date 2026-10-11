@@ -199,36 +199,75 @@ def run_campaign(
 
 
 def verify_receipt(receipt: Mapping[str, Any], sealed: Mapping[str, Any]) -> bool:
-    """Verify manifest binding and receipt integrity; reject malformed evidence."""
+    """Verify receipt integrity *and* semantic consistency with the sealed manifest.
+
+    Digest checks alone are not sufficient: a caller can recompute an unkeyed
+    digest after changing fields. Re-derive case identity, outcomes, counts, and
+    domain aggregates from the evaluator-owned manifest before accepting evidence.
+    """
     if not isinstance(receipt, Mapping) or not isinstance(sealed, Mapping):
         return False
     try:
         manifest = validate_manifest(sealed["manifest"])
-        if sealed.get("manifest_digest") != digest(manifest):
+        expected_manifest_digest = digest(manifest)
+        if sealed.get("manifest_digest") != expected_manifest_digest:
             return False
-        if receipt.get("manifest_digest") != sealed["manifest_digest"]:
+        if receipt.get("manifest_digest") != expected_manifest_digest:
             return False
         if receipt.get("benchmark_id") != manifest["benchmark_id"]:
             return False
-        if (
-            receipt.get("evaluator_id") != manifest["evaluator_id"]
-            or receipt.get("runtime_id") != manifest["runtime_id"]
-        ):
+        if receipt.get("evaluator_id") != manifest["evaluator_id"] or receipt.get("runtime_id") != manifest["runtime_id"]:
             return False
         if receipt.get("schema_version") != SCHEMA_VERSION:
             return False
-        if not isinstance(receipt.get("results"), list) or len(receipt["results"]) != len(manifest["cases"]):
+        if not _require_text(receipt.get("policy_digest"), "policy_digest"):
             return False
-        if not isinstance(receipt.get("issued_at"), str) or not receipt["issued_at"]:
+        if not _require_text(receipt.get("run_nonce"), "run_nonce"):
+            return False
+        issued_at = receipt.get("issued_at")
+        if not isinstance(issued_at, str) or not issued_at:
+            return False
+        parsed_issued_at = datetime.fromisoformat(issued_at.replace("Z", "+00:00"))
+        if parsed_issued_at.tzinfo is None or parsed_issued_at.utcoffset() is None:
+            return False
+
+        results = receipt.get("results")
+        if not isinstance(results, list) or len(results) != len(manifest["cases"]):
+            return False
+        allowed_outcomes = {"pass", "fail", "error"}
+        counts = {"pass": 0, "fail": 0, "error": 0}
+        domain_scores: dict[str, dict[str, int]] = {}
+        for expected_case, row in zip(manifest["cases"], results):
+            if not isinstance(row, Mapping):
+                return False
+            if set(row) != {"case_id", "domain", "split", "outcome", "output_digest"}:
+                return False
+            if any(row.get(key) != expected_case[key] for key in ("case_id", "domain", "split")):
+                return False
+            outcome = row.get("outcome")
+            if outcome not in allowed_outcomes:
+                return False
+            output_digest = row.get("output_digest")
+            if not isinstance(output_digest, str) or len(output_digest) != 64 or any(c not in "0123456789abcdef" for c in output_digest):
+                return False
+            counts[outcome] += 1
+            stats = domain_scores.setdefault(expected_case["domain"], {"total": 0, "passed": 0})
+            stats["total"] += 1
+            stats["passed"] += int(outcome == "pass")
+
+        if receipt.get("counts") != counts or receipt.get("domain_scores") != domain_scores:
             return False
         receipt_body = dict(receipt)
         claimed_receipt_digest = receipt_body.pop("receipt_digest", None)
-        if claimed_receipt_digest != digest(receipt_body):
+        if not isinstance(claimed_receipt_digest, str) or claimed_receipt_digest != digest(receipt_body):
             return False
-        result_body = {key: receipt[key] for key in (
-            "schema_version", "benchmark_id", "manifest_digest", "evaluator_id",
-            "runtime_id", "policy_digest", "results", "counts", "domain_scores"
-        )}
+        result_body = {
+            key: receipt[key]
+            for key in (
+                "schema_version", "benchmark_id", "manifest_digest", "evaluator_id",
+                "runtime_id", "policy_digest", "results", "counts", "domain_scores",
+            )
+        }
         return receipt.get("result_digest") == digest(result_body)
-    except (ArenaError, KeyError, TypeError, ValueError):
+    except (ArenaError, KeyError, TypeError, ValueError, OverflowError):
         return False
