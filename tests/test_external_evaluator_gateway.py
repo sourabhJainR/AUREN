@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 import os
 import sys
+import threading
 import tempfile
 import time
 import unittest
@@ -97,6 +99,27 @@ class ExternalEvaluatorGatewayTests(unittest.TestCase):
             ExternalEvaluatorGateway(SealedArenaBoundary(lambda value: value.signature == "sig"), reopened, allow_test_verifier=True).evaluate(
                 self.request, ExternalEvaluatorCommand((sys.executable, "-c", script))
             )
+
+
+    def test_concurrent_replay_claims_have_exactly_one_winner(self) -> None:
+        barrier = threading.Barrier(2)
+
+        def claim() -> str:
+            barrier.wait(timeout=2)
+            try:
+                self.ledger.claim(
+                    run_nonce="parallel-nonce",
+                    campaign_digest="campaign-d",
+                    corpus_digest="corpus-d",
+                )
+                return "accepted"
+            except ReplayRejected:
+                return "rejected"
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            futures = [pool.submit(claim) for _ in range(2)]
+            results = [future.result(timeout=5) for future in futures]
+        self.assertCountEqual(results, ["accepted", "rejected"])
 
     def test_receipt_nonce_must_match_request(self) -> None:
         wrong = ExternalOutcomeReceipt("campaign-d", "corpus-d", "evaluator", "oracle", "sig", (("case-1", True, "evidence-d"),), run_nonce="wrong-nonce", request_digest=self.request.request_digest, contamination_free=True, independent_oracle=True)
