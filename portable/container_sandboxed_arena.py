@@ -14,7 +14,6 @@ import math
 import re
 import subprocess
 from collections.abc import Mapping, Sequence
-from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
@@ -34,7 +33,10 @@ def _validate_inputs(
 ) -> tuple[str, ...]:
     if not isinstance(container_runtime, str) or not container_runtime.strip():
         raise ArenaError("container_runtime must name Docker or Podman")
-    if Path(container_runtime).name not in _CONTAINER_RUNTIME_NAMES or any(ch.isspace() for ch in container_runtime):
+    runtime_basename = container_runtime.replace("\\\\", "/").rsplit("/", 1)[-1].lower()
+    if runtime_basename.endswith(".exe"):
+        runtime_basename = runtime_basename[:-4]
+    if runtime_basename not in _CONTAINER_RUNTIME_NAMES:
         raise ArenaError("container_runtime must be a Docker or Podman executable, not a command string")
     if not isinstance(image, str) or not _IMAGE_DIGEST_RE.fullmatch(image):
         raise ArenaError("container_image must be pinned by an immutable @sha256:<64 hex> digest")
