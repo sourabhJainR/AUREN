@@ -5,7 +5,13 @@ import hashlib
 import json
 from typing import Mapping
 
-_FORBIDDEN = frozenset({"case_id", "holdout", "is_holdout", "split", "manifest", "manifest_digest", "corpus_digest", "campaign_digest", "oracle_answer", "answer_key", "ground_truth", "receipt_key", "signing_key", "run_nonce"})
+_FORBIDDEN = frozenset({
+    "case_id", "holdout", "is_holdout", "split", "manifest", "manifest_digest",
+    "corpus_digest", "campaign_digest", "oracle_answer", "oracle_output",
+    "answer", "answer_key", "expected_answer", "expected_output", "correct_answer",
+    "reference_answer", "ground_truth", "solution", "gold", "gold_label", "gold_output",
+    "receipt_key", "signing_key", "run_nonce",
+})
 
 def reject_evaluator_fields(value: object) -> None:
     found: set[str] = set()
