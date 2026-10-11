@@ -38,18 +38,21 @@ class EvidenceFreshnessTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "m.db"
             g = PersistentEvidenceGraph(PersistentMemory(db, require_approval=False), "hws")
+            observations = tuple(
+                ExternalDecisionEvidence(
+                    "verifier", "planner", "agent", "agent", .95, .95, 30, 1, "c"
+                )
+                for _ in range(8)
+            )
             chain = PromotionEvidenceChain(
                 "c", "r", "x", "planner", "i", True, (),
                 attestation_evidence_digest="verified-attestation-fixture",
+                causal_evidence_ids=tuple(item.evidence_id for item in observations),
             )
             outcome = CampaignOutcome("c", .9, .95, .1, .1, .8)
             ingestor = ExternalDecisionEvidenceIngestor(g)
-            for i in range(8):
-                ingestor.ingest(
-                    chain, outcome,
-                    ExternalDecisionEvidence("verifier", "planner", "agent", "agent",
-                                             .95, .95, 30, 1, "c", evidence_id=f"fresh-{i}"),
-                )
+            for observation in observations:
+                ingestor.ingest(chain, outcome, observation)
             plan = EvidenceDrivenDecisionFabric(g).plan(
                 "verifier", "planner",
                 ({"provider": "agent", "tool_path": "agent"},),
