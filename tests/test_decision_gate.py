@@ -32,6 +32,7 @@ def valid_record() -> dict:
             "status": "passed",
             "commit_sha": HEAD,
             "evidence_id": "run-123",
+            "evaluator_type": "internal",
         }],
         "limitations": ["No independent evaluator was used"],
         "rollback_trigger": "Any required regression check fails after merge",
@@ -76,7 +77,7 @@ class DecisionGateTests(unittest.TestCase):
         self.assertTrue(any("authorized approver" in e for e in self.errors(record)))
         record["promotion"]["approved_by"] = APPROVER
         record["checks"][0]["status"] = "failed"
-        self.assertTrue(any("every recorded check passed" in e for e in self.errors(record, authorized_approvers={APPROVER})))
+        self.assertTrue(any("every recorded check passed" in e for e in self.errors(record, authorized_approvers={APPROVER}, known_evidence_ids={"run-123", "approval-1"})))
 
     def test_independent_promotion_requires_external_lineage(self) -> None:
         record = valid_record()
@@ -84,6 +85,29 @@ class DecisionGateTests(unittest.TestCase):
         errors = self.errors(record, authorized_approvers={APPROVER})
         self.assertTrue(any("external_evaluator_id" in e for e in errors))
         self.assertTrue(any("separately controlled evaluator" in e for e in errors))
+
+    def test_promotion_requires_canonical_evidence_references(self) -> None:
+        record = valid_record()
+        record["promotion"] = {"level": "verified_for_scope", "approved_by": APPROVER, "approval_evidence_id": "approval-1"}
+        self.assertTrue(any("known_evidence_ids" in e for e in self.errors(record, authorized_approvers={APPROVER})))
+        errors = self.errors(record, authorized_approvers={APPROVER}, known_evidence_ids={"approval-1"})
+        self.assertTrue(any("unknown canonical evidence_id" in e for e in errors))
+
+    def test_independent_promotion_requires_an_independent_check(self) -> None:
+        record = valid_record()
+        record["promotion"] = {
+            "level": "independently_corroborated",
+            "approved_by": APPROVER,
+            "approval_evidence_id": "approval-1",
+            "external_evaluator_id": "eval-1",
+            "corpus_owner_id": "corpus-owner-1",
+            "receipt_digest": "sha256:receipt",
+            "repeat_run_id": "repeat-1",
+            "evaluator_control": "external",
+            "corpus_control": "external",
+        }
+        errors = self.errors(record, authorized_approvers={APPROVER}, known_evidence_ids={"run-123", "approval-1"})
+        self.assertTrue(any("passing independent/external evaluator check" in e for e in errors))
 
     def test_rejects_claimed_independence_with_untrusted_control_values(self) -> None:
         record = valid_record()
