@@ -248,7 +248,6 @@ class PersistentMemory:
         # into searchable subwords. Use a substring path for non-ASCII queries.
         unicode_query = not query.isascii()
         with self._lock, self._connect() as db:
-            params: tuple[Any, ...]
             if self._fts_available and not unicode_query:
                 rows = db.execute("""SELECT m.id,m.project,m.category,m.text,m.intent_digest,m.confidence,m.verified,m.created_at
                     FROM memory AS m JOIN memory_fts AS f ON f.id=m.id
@@ -256,7 +255,6 @@ class PersistentMemory:
                     ORDER BY m.verified DESC,m.confidence DESC,m.created_at DESC LIMIT ?""",
                     (project, fts_terms, intent_digest, intent_digest, limit)).fetchall()
             else:
-                params = (project, like, intent_digest, intent_digest, limit)
                 rows = db.execute("""SELECT id,project,category,text,intent_digest,confidence,verified,created_at
                     FROM memory WHERE project=? AND (text LIKE ? OR category LIKE ? OR project LIKE ?)
                     AND (? IS NULL OR intent_digest=?)
