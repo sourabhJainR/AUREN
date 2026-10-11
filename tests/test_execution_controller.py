@@ -67,6 +67,22 @@ def test_ci_gate_policy_cannot_be_disabled_or_weakened_by_task_payload(tmp_path:
     assert controller.task(task.id).state == "failed"
 
 
+def test_reregistering_handler_without_policy_preserves_existing_gate(tmp_path: Path):
+    controller = ExecutionController(tmp_path)
+    register_protected_handler(controller)
+    # Common service restart path: handler reference is refreshed without a new policy.
+    controller.register_handler("tests.ci_gate_handler", ci_gate_handler)
+    task = controller.submit(
+        "tests.ci_gate_handler",
+        {
+            "require_ci_gate": False,
+            "result": {"success": True, "detail": "pretend verified"},
+        },
+    )
+    controller.run_once(task.id)
+    assert controller.task(task.id).state == "failed"
+
+
 def test_ci_gated_task_rejects_missing_evidence_even_if_payload_disables_gate(tmp_path: Path):
     controller = ExecutionController(tmp_path)
     register_protected_handler(controller)
