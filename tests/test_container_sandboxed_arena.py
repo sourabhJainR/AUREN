@@ -1,10 +1,11 @@
 """Security regressions for the container-backed Arena runner."""
+import io
 import json
 import subprocess
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from portable.container_sandboxed_arena import run_campaign_container_sandboxed
 from portable.independent_arena import NonceLedger, seal_manifest, verify_receipt
@@ -42,13 +43,17 @@ class ContainerSandboxedArenaTests(unittest.TestCase):
             **kwargs,
         )
 
-    @patch("portable.container_sandboxed_arena.subprocess.run")
-    def test_container_is_networkless_read_only_unprivileged_and_resource_limited(self, run):
-        run.return_value = subprocess.CompletedProcess(["docker"], 0, stdout="15\n", stderr="")
+    @patch("portable.container_sandboxed_arena.subprocess.Popen")
+    def test_container_is_networkless_read_only_unprivileged_and_resource_limited(self, popen):
+        process = popen.return_value
+        process.stdin = Mock()
+        process.stdout = io.BytesIO(b"15\n")
+        process.wait.return_value = 0
+        process.returncode = 0
         receipt = self.run_campaign()
         self.assertEqual(receipt["counts"], {"pass": 1, "fail": 0, "error": 0})
         self.assertTrue(verify_receipt(receipt, fixture()))
-        command = run.call_args.args[0]
+        command = popen.call_args.args[0]
         for flag in (
             "--network=none", "--read-only", "--cap-drop=ALL",
             "--security-opt=no-new-privileges", "--pids-limit=64",
@@ -58,33 +63,60 @@ class ContainerSandboxedArenaTests(unittest.TestCase):
             self.assertIn(flag, command)
         self.assertFalse(any(arg == "-v" or arg == "--volume" or arg.startswith("--mount") for arg in command))
         self.assertIn("--tmpfs=/tmp:rw,noexec,nosuid,nodev,size=16m", command)
-        sent_task = json.loads(run.call_args.kwargs["input"])
+        sent_task = json.loads(process.stdin.write.call_args.args[0].decode("utf-8"))
         self.assertEqual(set(sent_task), {"prompt"})
         self.assertNotIn("oracle", sent_task)
         self.assertNotIn("split", sent_task)
-        self.assertFalse(run.call_args.kwargs["shell"])
+        self.assertFalse(popen.call_args.kwargs["shell"])
 
     @patch("portable.container_sandboxed_arena.subprocess.run")
-    def test_timeout_requests_forced_container_cleanup(self, run):
-        run.side_effect = [
-            subprocess.TimeoutExpired("docker run", 0.01),
-            subprocess.CompletedProcess(["docker", "rm"], 0, stdout="", stderr=""),
-        ]
+    @patch("portable.container_sandboxed_arena.subprocess.Popen")
+    def test_timeout_requests_forced_container_cleanup(self, popen, run):
+        process = popen.return_value
+        process.stdin = Mock()
+        process.stdout = io.BytesIO(b"")
+        process.wait.side_effect = [subprocess.TimeoutExpired("docker run", 0.01), None]
+        process.returncode = -9
         receipt = self.run_campaign(timeout_seconds=0.01)
         self.assertEqual(receipt["counts"], {"pass": 0, "fail": 0, "error": 1})
-        cleanup = run.call_args_list[1].args[0]
+        cleanup = run.call_args.args[0]
         self.assertEqual(cleanup[:3], ["docker", "rm", "--force"])
         self.assertTrue(cleanup[3].startswith("auren-arena-"))
 
     @patch("portable.container_sandboxed_arena.subprocess.run")
-    def test_nonzero_policy_exit_is_not_a_pass(self, run):
-        run.return_value = subprocess.CompletedProcess(["docker"], 2, stdout="15", stderr="secret")
+    @patch("portable.container_sandboxed_arena.subprocess.Popen")
+    def test_output_overflow_is_bounded_and_requests_container_cleanup(self, popen, run):
+        process = popen.return_value
+        process.stdin = Mock()
+        process.stdout = io.BytesIO(b"x" * 100_000)
+        process.wait.return_value = 0
+        process.returncode = -9
+        run.return_value = subprocess.CompletedProcess(["docker", "rm"], 0, stdout="", stderr="")
+        receipt = self.run_campaign(max_output_bytes=128)
+        self.assertEqual(receipt["counts"], {"pass": 0, "fail": 0, "error": 1})
+        self.assertEqual(popen.call_args.kwargs["stdout"], subprocess.PIPE)
+        self.assertEqual(run.call_args.args[0][:3], ["docker", "rm", "--force"])
+        self.assertNotIn("x" * 128, json.dumps(receipt))
+
+    def test_rejects_invalid_output_limit_before_execution(self):
+        with patch("portable.container_sandboxed_arena.subprocess.Popen") as popen:
+            with self.assertRaisesRegex(ValueError, "max_output_bytes"):
+                self.run_campaign(max_output_bytes=0)
+            popen.assert_not_called()
+
+    @patch("portable.container_sandboxed_arena.subprocess.Popen")
+    def test_nonzero_policy_exit_is_not_a_pass(self, popen):
+        process = popen.return_value
+        process.stdin = io.BytesIO()
+        process.stdout = io.BytesIO(b"15")
+        process.wait.return_value = 0
+        process.returncode = 2
         receipt = self.run_campaign()
         self.assertEqual(receipt["counts"], {"pass": 0, "fail": 0, "error": 1})
         self.assertNotIn("secret", json.dumps(receipt))
 
-    @patch("portable.container_sandboxed_arena.subprocess.run")
-    def test_rejects_mutable_image_tag_and_mismatched_policy_digest_before_execution(self, run):
+    @patch("portable.container_sandboxed_arena.subprocess.Popen")
+    def test_rejects_mutable_image_tag_and_mismatched_policy_digest_before_execution(self, popen):
         with self.assertRaisesRegex(ValueError, "immutable"):
             run_campaign_container_sandboxed(
                 fixture(), container_image="example.invalid/policy:latest",
@@ -95,13 +127,17 @@ class ContainerSandboxedArenaTests(unittest.TestCase):
                 fixture(), container_image=IMAGE, policy_digest="sha256:" + "b" * 64,
                 run_nonce="bad-digest", nonce_ledger=self.ledger,
             )
-        run.assert_not_called()
+        popen.assert_not_called()
 
-    @patch("portable.container_sandboxed_arena.subprocess.run")
-    def test_accepts_windows_executable_path_with_spaces(self, run):
-        run.return_value = subprocess.CompletedProcess(["docker"], 0, stdout="15\n", stderr="")
+    @patch("portable.container_sandboxed_arena.subprocess.Popen")
+    def test_accepts_windows_executable_path_with_spaces(self, popen):
+        process = popen.return_value
+        process.stdin = io.BytesIO()
+        process.stdout = io.BytesIO(b"15\n")
+        process.wait.return_value = 0
+        process.returncode = 0
         self.run_campaign(container_runtime=r"C:\Program Files\Docker\docker.exe")
-        self.assertEqual(run.call_args.args[0][0], r"C:\Program Files\Docker\docker.exe")
+        self.assertEqual(popen.call_args.args[0][0], r"C:\Program Files\Docker\docker.exe")
 
     def test_rejects_shell_command_as_container_runtime(self):
         with self.assertRaisesRegex(ValueError, "executable"):
