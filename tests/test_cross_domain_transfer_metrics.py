@@ -7,7 +7,8 @@ from portable.sealed_arena_boundary import (
     SealedCampaignRequest,
     SealedCaseEnvelope,
 )
-from portable.sealed_cross_domain_arena import CrossDomainCampaign, SealedDomain
+from portable.sealed_cross_domain_arena import CrossDomainCampaign, SealedDomain, SealedCrossDomainRunner
+from portable.external_evaluator_gateway import ExternalEvaluatorCommand
 from portable.cross_domain_transfer_metrics import build_cross_domain_report
 
 
@@ -77,6 +78,20 @@ class CrossDomainTransferMetricsTests(unittest.TestCase):
         self.assertEqual(report.by_mode["adapted"].recovery_rate, 0.0)
         self.assertFalse(report.baseline_comparison_available)
         self.assertEqual(report.report_digest, report.as_dict()["report_digest"])
+
+    def test_runner_returns_report_from_gateway_validated_evidence(self):
+        campaign, _bound_request, _receipt, evidence = setup_campaign()
+
+        class StubGateway:
+            def evaluate(self, _request, _command):
+                return evidence
+
+        runner = SealedCrossDomainRunner(StubGateway())
+        report = runner.run_with_report(
+            campaign, ExternalEvaluatorCommand(("python", "-c", "pass"))
+        )
+        self.assertEqual(report.campaign_id, campaign.campaign_id)
+        self.assertEqual(report.target_transfer.pass_rate, 1.0)
 
     def test_missing_signed_holdout_metrics_fail_closed(self):
         campaign, bound_request, receipt, _evidence = setup_campaign()
