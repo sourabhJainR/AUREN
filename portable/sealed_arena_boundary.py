@@ -6,7 +6,7 @@ returns evidence; it has no promotion or execution authority.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import hashlib
 import json
 import math
@@ -157,8 +157,8 @@ class ExternalOutcomeReceipt:
     request_digest: str = ""
     # case_id, predicted score, realized score, uncertainty, resource cost ms, recovered
     metrics: tuple[tuple[str, float, float, float, float, bool], ...] = ()
-    issued_at_epoch: float = 0.0
-    expires_at_epoch: float = 0.0
+    issued_at_epoch: float = field(default_factory=time.time)
+    expires_at_epoch: float = field(default_factory=lambda: time.time() + 300.0)
 
     def __post_init__(self) -> None:
         for name, value in (
