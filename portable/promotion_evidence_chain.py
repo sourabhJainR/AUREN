@@ -259,7 +259,7 @@ class ArenaEvidenceObservation:
             "isolation_evidence_digest": chain.isolation_evidence_digest,
         }, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
         accepted = chain.complete
-        reasons = () if accepted else (chain.reasons or ("evidence chain is incomplete",))
+        reasons = () if accepted else (chain.reasons if chain.reasons else ("evidence chain is incomplete",))
         return cls(
             chain.campaign_digest, chain.run_receipt_digest, chain.causal_evidence_digest,
             chain.capability_id, chain.intervention_id, accepted, tuple(reasons), chain_digest,
