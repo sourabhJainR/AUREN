@@ -13,6 +13,7 @@ import json
 import math
 import re
 import subprocess
+import threading
 from collections.abc import Mapping, Sequence
 from typing import Any
 from uuid import uuid4
@@ -22,6 +23,7 @@ from .independent_arena import ArenaError, NonceLedger, run_campaign
 _IMAGE_DIGEST_RE = re.compile(r"^(?:[A-Za-z0-9][A-Za-z0-9._/:+-]*@sha256:([0-9a-f]{64})|sha256:([0-9a-f]{64}))$")
 _CONTAINER_RUNTIME_NAMES = {"docker", "podman"}
 _MAX_TIMEOUT_SECONDS = 300.0
+_DEFAULT_MAX_OUTPUT_BYTES = 65_536
 
 
 def _validate_inputs(
@@ -63,6 +65,7 @@ def _run_one_case(
     image: str,
     policy_args: tuple[str, ...],
     timeout_seconds: float,
+    max_output_bytes: int,
 ) -> Any:
     container_name = "auren-arena-" + uuid4().hex
     command = [
@@ -88,21 +91,57 @@ def _run_one_case(
         dict(task), sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
     )
     try:
-        completed = subprocess.run(
+        process = subprocess.Popen(
             command,
-            input=task_json,
-            text=True,
-            encoding="utf-8",
+            stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
-            timeout=float(timeout_seconds),
-            check=False,
+            text=False,
             shell=False,
             close_fds=True,
         )
+    except OSError as exc:
+        raise ArenaError("sandbox runtime could not be started") from exc
+
+    output = bytearray()
+    output_exceeded = threading.Event()
+    stream_error: list[BaseException] = []
+
+    def drain_stdout() -> None:
+        try:
+            assert process.stdout is not None
+            while True:
+                chunk = process.stdout.read(8192)
+                if not chunk:
+                    return
+                remaining = max_output_bytes - len(output)
+                if len(chunk) > remaining:
+                    if remaining > 0:
+                        output.extend(chunk[:remaining])
+                    output_exceeded.set()
+                    try:
+                        process.kill()
+                    except OSError:
+                        pass
+                    return
+                output.extend(chunk)
+        except (OSError, ValueError) as exc:
+            stream_error.append(exc)
+
+    reader = threading.Thread(target=drain_stdout, daemon=True)
+    reader.start()
+    try:
+        assert process.stdin is not None
+        process.stdin.write(task_json.encode("utf-8"))
+        process.stdin.close()
+        process.wait(timeout=float(timeout_seconds))
     except subprocess.TimeoutExpired as exc:
-        # The CLI process timing out does not guarantee that a daemon-side
-        # container has stopped. Explicitly request forced removal by unique name.
+        try:
+            process.kill()
+        except OSError:
+            pass
+        process.wait()
+        reader.join(timeout=1.0)
         try:
             subprocess.run(
                 [container_runtime, "rm", "--force", container_name],
@@ -117,11 +156,38 @@ def _run_one_case(
         except Exception:
             pass
         raise ArenaError("sandboxed policy exceeded its wall-clock timeout") from exc
-    if completed.returncode != 0:
+    except (BrokenPipeError, OSError) as exc:
+        try:
+            process.kill()
+        except OSError:
+            pass
+        process.wait()
+        reader.join(timeout=1.0)
+        raise ArenaError("sandbox runtime input stream failed") from exc
+
+    reader.join(timeout=1.0)
+    if output_exceeded.is_set():
+        try:
+            subprocess.run(
+                [container_runtime, "rm", "--force", container_name],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=5.0,
+                check=False,
+                shell=False,
+                close_fds=True,
+            )
+        except Exception:
+            pass
+        raise ArenaError("sandboxed policy output exceeds configured byte limit")
+    if reader.is_alive() or stream_error:
+        raise ArenaError("sandboxed policy output stream could not be read")
+    if process.returncode != 0:
         raise ArenaError("sandboxed policy returned a non-zero exit status")
     try:
-        return json.loads(completed.stdout)
-    except (json.JSONDecodeError, TypeError) as exc:
+        return json.loads(output.decode("utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError, TypeError) as exc:
         raise ArenaError("sandboxed policy did not return one valid JSON value") from exc
 
 
@@ -135,6 +201,7 @@ def run_campaign_container_sandboxed(
     policy_args: Sequence[str] = (),
     container_runtime: str = "docker",
     timeout_seconds: float = 10.0,
+    max_output_bytes: int = _DEFAULT_MAX_OUTPUT_BYTES,
 ) -> dict[str, Any]:
     """Evaluate each case in a fresh, resource-limited container.
 
@@ -147,6 +214,8 @@ def run_campaign_container_sandboxed(
     args = _validate_inputs(
         container_runtime, container_image, policy_args, timeout_seconds, policy_digest
     )
+    if type(max_output_bytes) is not int or max_output_bytes < 1:
+        raise ArenaError("max_output_bytes must be a positive integer")
 
     def policy(task: Mapping[str, str]) -> Any:
         return _run_one_case(
@@ -155,6 +224,7 @@ def run_campaign_container_sandboxed(
             image=container_image,
             policy_args=args,
             timeout_seconds=float(timeout_seconds),
+            max_output_bytes=max_output_bytes,
         )
 
     return run_campaign(
