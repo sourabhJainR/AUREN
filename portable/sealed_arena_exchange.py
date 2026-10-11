@@ -47,6 +47,15 @@ def export_campaign_request(request: SealedCampaignRequest) -> bytes:
         "corpus_digest": request.corpus_digest,
         "run_nonce": request.run_nonce,
         "cases": [case.as_dict() for case in request.cases],
+        "provenance": ({
+            "corpus_digest": request.provenance.corpus_digest,
+            "manifest_digest": request.provenance.manifest_digest,
+            "origin": request.provenance.origin,
+            "split": request.provenance.split,
+            "contamination_status": request.provenance.contamination_status,
+            "independent_operator_id": request.provenance.independent_operator_id,
+            "attestation_digest": request.provenance.attestation_digest,
+        } if request.provenance else None),
         "request_digest": request.request_digest,
     }
     return _envelope("campaign_request", payload)
@@ -56,7 +65,10 @@ def import_campaign_request(raw: bytes) -> SealedCampaignRequest:
     from .sealed_arena_boundary import SealedCaseEnvelope
     payload = _decode(raw, "campaign_request")
     cases = tuple(SealedCaseEnvelope(**{**case, "transfer_dimensions": tuple(case.get("transfer_dimensions", ()))}) for case in payload.get("cases", ()))
-    request = SealedCampaignRequest(payload["campaign_digest"], payload["corpus_digest"], cases, payload.get("run_nonce", ""))
+    from .sealed_corpus_provenance import SealedCorpusProvenance
+    provenance_payload = payload.get("provenance")
+    provenance = SealedCorpusProvenance(**provenance_payload) if isinstance(provenance_payload, dict) else None
+    request = SealedCampaignRequest(payload["campaign_digest"], payload["corpus_digest"], cases, payload.get("run_nonce", ""), provenance)
     if payload.get("request_digest") != request.request_digest:
         raise ValueError("sealed Arena request digest mismatch")
     return request

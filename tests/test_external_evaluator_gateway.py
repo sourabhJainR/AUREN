@@ -4,19 +4,23 @@ import os
 import sys
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 from portable.external_evaluator_gateway import ExternalEvaluatorCommand, ExternalEvaluatorGateway
 from portable.sealed_arena_boundary import ExternalOutcomeReceipt, SealedArenaBoundary, SealedCampaignRequest, SealedCaseEnvelope
 from portable.sealed_arena_exchange import export_outcome_receipt
 from portable.sealed_arena_replay import ReplayRejected, SealedArenaReplayLedger
+from portable.sealed_corpus_provenance import SealedCorpusProvenance
 
 
 class ExternalEvaluatorGatewayTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tempdir = tempfile.TemporaryDirectory()
         self.ledger = SealedArenaReplayLedger(Path(self.tempdir.name) / "replay.sqlite3")
-        self.request = SealedCampaignRequest("campaign-d", "corpus-d", (SealedCaseEnvelope("case-1", "task-d", "input-d", "env-d", True),), "nonce-1")
+        base = SealedCampaignRequest("campaign-d", "corpus-d", (SealedCaseEnvelope("case-1", "task-d", "input-d", "env-d", True),), "nonce-1")
+        provenance = SealedCorpusProvenance("corpus-d", base.manifest_digest, "https://benchmarks.example.org/holdout/v1", "sealed_holdout", "clean", "operator", "attestation-d")
+        self.request = replace(base, provenance=provenance)
         self.receipt = ExternalOutcomeReceipt("campaign-d", "corpus-d", "evaluator", "oracle", "sig", (("case-1", True, "evidence-d"),), run_nonce="nonce-1", request_digest=self.request.request_digest, contamination_free=True, independent_oracle=True)
 
     def tearDown(self) -> None:

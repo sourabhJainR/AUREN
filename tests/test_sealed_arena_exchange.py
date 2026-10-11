@@ -3,15 +3,24 @@ from __future__ import annotations
 import hashlib
 import json
 import unittest
+from dataclasses import replace
 
 from portable.sealed_arena_boundary import ExternalOutcomeReceipt, SealedCampaignRequest, SealedCaseEnvelope
 from portable.sealed_arena_exchange import export_campaign_request, export_outcome_receipt, import_campaign_request, import_outcome_receipt
+from portable.sealed_corpus_provenance import SealedCorpusProvenance
 
 
 class SealedArenaExchangeTests(unittest.TestCase):
     def setUp(self) -> None:
         case = SealedCaseEnvelope("case-1", "task-d", "input-d", "env-d", True)
-        self.request = SealedCampaignRequest("campaign-d", "corpus-d", (case,), "nonce-1")
+        base = SealedCampaignRequest("campaign-d", "corpus-d", (case,), "nonce-1")
+        provenance = SealedCorpusProvenance(
+            corpus_digest="corpus-d", manifest_digest=base.manifest_digest,
+            origin="https://benchmarks.example.org/holdout/v1", split="sealed_holdout",
+            contamination_status="clean", independent_operator_id="operator",
+            attestation_digest="attestation-d",
+        )
+        self.request = replace(base, provenance=provenance)
         self.receipt = ExternalOutcomeReceipt(
             "campaign-d", "corpus-d", "evaluator", "oracle", "sig",
             (("case-1", True, "evidence-d"),), run_nonce="nonce-1",
@@ -27,6 +36,7 @@ class SealedArenaExchangeTests(unittest.TestCase):
         self.assertEqual(round_trip.run_nonce, self.request.run_nonce)
         self.assertEqual(round_trip.request_digest, self.request.request_digest)
         self.assertEqual(round_trip.cases[0].transfer_dimensions, self.request.cases[0].transfer_dimensions)
+        self.assertEqual(round_trip.provenance, self.request.provenance)
 
     def test_receipt_round_trip(self) -> None:
         self.assertEqual(import_outcome_receipt(export_outcome_receipt(self.receipt)), self.receipt)

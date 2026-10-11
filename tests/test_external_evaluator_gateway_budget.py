@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 from portable.external_evaluator_gateway import ExternalEvaluatorCommand, ExternalEvaluatorGateway
@@ -14,18 +15,19 @@ from portable.sealed_arena_boundary import (
 )
 from portable.sealed_arena_exchange import export_outcome_receipt
 from portable.sealed_arena_replay import SealedArenaReplayLedger
+from portable.sealed_corpus_provenance import SealedCorpusProvenance
 
 
 class ExternalEvaluatorGatewayBudgetTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tempdir = tempfile.TemporaryDirectory()
         self.ledger = SealedArenaReplayLedger(Path(self.tempdir.name) / "replay.sqlite3")
-        self.request = SealedCampaignRequest(
-            "campaign-budget",
-            "corpus-budget",
-            (SealedCaseEnvelope("case-budget", "task-d", "input-d", "env-d", True),),
-            "nonce-budget",
+        base = SealedCampaignRequest(
+            "campaign-budget", "corpus-budget",
+            (SealedCaseEnvelope("case-budget", "task-d", "input-d", "env-d", True),), "nonce-budget",
         )
+        provenance = SealedCorpusProvenance("corpus-budget", base.manifest_digest, "https://benchmarks.example.org/holdout/v1", "sealed_holdout", "clean", "operator", "attestation-budget")
+        self.request = replace(base, provenance=provenance)
         self.receipt = ExternalOutcomeReceipt(
             "campaign-budget",
             "corpus-budget",

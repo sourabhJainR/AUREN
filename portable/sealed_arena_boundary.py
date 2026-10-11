@@ -12,6 +12,8 @@ import json
 import math
 from typing import Final, Mapping
 
+from .sealed_corpus_provenance import SealedCorpusProvenance
+
 _FORBIDDEN_PAYLOAD_KEYS: Final[frozenset[str]] = frozenset({
     "answer",
     "expected_answer",
@@ -79,6 +81,7 @@ class SealedCampaignRequest:
     corpus_digest: str
     cases: tuple[SealedCaseEnvelope, ...]
     run_nonce: str = ""
+    provenance: SealedCorpusProvenance | None = None
 
     def __post_init__(self) -> None:
         _required_text("campaign_digest", self.campaign_digest)
@@ -93,6 +96,14 @@ class SealedCampaignRequest:
             raise ValueError("sealed campaign contains duplicate case ids")
         if not any(case.holdout for case in self.cases):
             raise ValueError("sealed campaign requires at least one holdout")
+        if self.provenance is not None and not isinstance(self.provenance, SealedCorpusProvenance):
+            raise ValueError("provenance must be a SealedCorpusProvenance value")
+
+    @property
+    def manifest_digest(self) -> str:
+        payload = {"corpus_digest": self.corpus_digest, "cases": [case.as_dict() for case in self.cases]}
+        canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+        return hashlib.sha256(canonical).hexdigest()
 
     @property
     def request_digest(self) -> str:
@@ -102,6 +113,7 @@ class SealedCampaignRequest:
             "corpus_digest": self.corpus_digest,
             "run_nonce": self.run_nonce,
             "cases": [case.as_dict() for case in self.cases],
+            "provenance_digest": self.provenance.provenance_digest if self.provenance else None,
         }
         canonical = json.dumps(
             payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False
@@ -247,6 +259,14 @@ class SealedArenaBoundary:
             raise ValueError("outcome receipt request digest does not match the exact sealed case set")
         if receipt.contamination_free is not True or receipt.independent_oracle is not True:
             raise ValueError("sealed Arena rejects contaminated or non-independent outcomes")
+        if request.provenance is None:
+            raise ValueError("sealed Arena rejects missing corpus provenance")
+        request.provenance.validate_for_independent_gate(
+            expected_corpus_digest=request.corpus_digest,
+            expected_manifest_digest=request.manifest_digest,
+            evaluator_id=receipt.evaluator_id,
+            oracle_id=receipt.oracle_id,
+        )
         if not self._verify_signature(receipt):
             raise ValueError("external outcome signature is not verified")
         expected_ids = {case.case_id for case in request.cases}
