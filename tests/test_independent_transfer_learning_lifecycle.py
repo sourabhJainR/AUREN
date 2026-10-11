@@ -200,3 +200,25 @@ def test_causal_attribution_requires_randomization_and_independent_holdout():
     assert attribution.attributable
     assert attribution.treatment_effect > 0
     assert attribution.confidence > 0
+
+def test_causal_attribution_rejects_non_finite_and_boolean_scores():
+    import pytest
+    with pytest.raises(ValueError, match="finite number"):
+        CausalAttributionEstimator.estimate(
+            (.60, float("nan")), (.72, .70),
+            randomized=True, independent_holdout=True,
+        )
+    with pytest.raises(ValueError, match="finite number"):
+        CausalAttributionEstimator.estimate(
+            (.60, .62), (True, .70),
+            randomized=True, independent_holdout=True,
+        )
+
+
+def test_causal_attribution_requires_strict_boolean_evidence_flags():
+    import pytest
+    with pytest.raises(ValueError, match="must be booleans"):
+        CausalAttributionEstimator.estimate(
+            (.60, .62), (.72, .70),
+            randomized="yes", independent_holdout=True,
+        )
