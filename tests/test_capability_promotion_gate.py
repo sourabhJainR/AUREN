@@ -20,7 +20,7 @@ def record():
         "dependencies": [],
         "checks": [{"name": "regression", "command": "unittest", "status": "passed",
                     "commit_sha": HEAD, "evidence_id": "run-1", "evaluator_type": "internal"}],
-        "limitations": ["No independent campaign claimed"],
+        "limitations": ["No independent generalization campaign claimed"],
         "rollback_trigger": "Any required check fails",
         "rollback_action": "Restore last known-good capability and rerun holdout",
         "retry_history": [],
@@ -39,7 +39,7 @@ class PromotionGateIntegrationTests(unittest.TestCase):
         config = dict(
             min_canaries=1, promotion_record=decision, expected_repository=REPO,
             expected_head=HEAD, authorized_approvers={APPROVER},
-            known_evidence_ids={"run-1", "approval-1"},
+            known_evidence_ids={"run-1", "approval-1", "candidate-run"},
         )
         config.update(changes)
         return CapabilityLifecycle(
@@ -50,11 +50,19 @@ class PromotionGateIntegrationTests(unittest.TestCase):
         gate.begin(name, baseline_score=0.7)
         return gate.record_canary(name, score=0.75, evidence_id=f"{name}-run")
 
-    def test_valid_record_allows_promotion(self):
+    def test_valid_record_and_canonical_canary_evidence_allow_promotion(self):
         result = self.promote(self.gate("valid", record()), "candidate")
         self.assertEqual(result.state, "promoted")
 
-    def test_missing_record_stale_head_and_unknown_evidence_fail_closed(self):
+    def test_unknown_canary_evidence_blocks_promotion(self):
+        gate = self.gate("unknown-canary", record(), known_evidence_ids={"run-1", "approval-1"})
+        result = self.promote(gate, "candidate")
+        self.assertEqual(result.state, "promotion_blocked")
+        self.assertTrue(any("canary evidence_id" in reason and "canonical evidence set" in reason
+                            for reason in result.reasons))
+        self.assertEqual(gate.status("candidate").state, "promotion_blocked")
+
+    def test_missing_record_stale_head_and_unknown_record_evidence_fail_closed(self):
         self.assertEqual(self.promote(self.gate("missing"), "missing").state, "promotion_blocked")
         stale = record()
         stale["head_commit"] = "c" * 40
@@ -63,7 +71,10 @@ class PromotionGateIntegrationTests(unittest.TestCase):
         self.assertTrue(any("stale evidence" in reason for reason in result.reasons))
         unknown = record()
         unknown["checks"][0]["evidence_id"] = "forged"
-        result = self.promote(self.gate("unknown", unknown), "unknown")
+        result = self.promote(
+            self.gate("unknown-record", unknown, known_evidence_ids={"approval-1"}),
+            "unknown-record",
+        )
         self.assertEqual(result.state, "promotion_blocked")
         self.assertTrue(any("unknown canonical evidence_id" in reason for reason in result.reasons))
 
