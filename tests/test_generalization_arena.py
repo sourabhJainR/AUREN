@@ -49,6 +49,29 @@ class IndependentGeneralizationArenaTests(unittest.TestCase):
                     corpus_root=corpus, runtime_root=runtime, oracles={"oracle-v1": lambda _: True}
                 )
 
+    def test_in_process_policy_execution_requires_explicit_test_opt_in(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            runtime, corpus = root / "runtime", root / "sealed"
+            runtime.mkdir()
+            corpus.mkdir()
+            self._corpus(corpus)
+            arena = IndependentGeneralizationArena(
+                corpus_root=corpus,
+                runtime_root=runtime,
+                oracles={"oracle-v1": lambda observed: True},
+            )
+            called = False
+
+            def runner(task):
+                nonlocal called
+                called = True
+                return task
+
+            with self.assertRaisesRegex(RuntimeError, "in-process policy runners are disabled"):
+                arena.evaluate(runners={"case-0": runner})
+            self.assertFalse(called)
+
     def test_sealed_external_corpus_evaluates_holdout(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -60,6 +83,7 @@ class IndependentGeneralizationArenaTests(unittest.TestCase):
                 corpus_root=corpus,
                 runtime_root=runtime,
                 oracles={"oracle-v1": lambda observed: observed["answer"] >= 0},
+                allow_in_process_runners=True,
             )
             report = arena.evaluate(
                 runners={f"case-{i}": (lambda task: task) for i in range(6)}
@@ -118,6 +142,7 @@ class IndependentGeneralizationArenaTests(unittest.TestCase):
                 corpus_root=corpus,
                 runtime_root=runtime,
                 oracles={"oracle-v1": lambda observed: observed["answer"] >= 0},
+                allow_in_process_runners=True,
             )
             mutated = False
 
@@ -145,6 +170,7 @@ class IndependentGeneralizationArenaTests(unittest.TestCase):
                 corpus_root=corpus,
                 runtime_root=runtime,
                 oracles={"oracle-v1": lambda observed: observed["answer"] >= 0},
+                allow_in_process_runners=True,
             ).evaluate(runners={})
             self.assertFalse(report.gate_passed)
             self.assertTrue(any(result.error for result in report.results))
