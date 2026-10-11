@@ -23,6 +23,7 @@ class AttestationTests(unittest.TestCase):
         verifier = SeparationAwareAttestor(
             lambda a: a.signature == "sig",
             AttestationTrustPolicy(frozenset({"external-evaluator"})),
+            lambda principal, role: (role == "evaluator" and principal in {"runtime-evaluator", "runtime-A", "runtime-B"}) or (role == "oracle" and principal in {"oracle-service"}),
         )
         result = verifier.verify(
             self.att(),
