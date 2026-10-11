@@ -1,8 +1,8 @@
 """Freshness and replay protection for external Arena attestations.
 
 This layer wraps an existing attestation rather than changing the wire format.
-It binds an issuance timestamp and one-time-use identity to the verified
-attestation digest. Principal authentication is injected and must be explicit.
+It binds issuance time, freshness policy, and one-time-use outcome to the
+verified evidence digest. Principal authentication is injected and explicit.
 """
 from __future__ import annotations
 
@@ -21,6 +21,8 @@ class FreshEvaluationAttestation:
     issued_at: int
 
     def __post_init__(self) -> None:
+        if not isinstance(self.attestation, EvaluationAttestation):
+            raise TypeError("EvaluationAttestation is required")
         if type(self.issued_at) is not int or self.issued_at < 0:
             raise ValueError("issued_at must be a non-negative integer")
 
@@ -82,6 +84,8 @@ class FreshnessAwareAttestor:
         replay_registry: AttestationReplayRegistry | None = None,
         verify_principal: Callable[[str, str], bool] | None = None,
     ) -> None:
+        if not isinstance(freshness_policy, AttestationFreshnessPolicy):
+            raise TypeError("AttestationFreshnessPolicy is required")
         self._attestor = SeparationAwareAttestor(verify_signature, policy, verify_principal)
         self.freshness_policy = freshness_policy
         self.replay_registry = replay_registry or AttestationReplayRegistry()
@@ -110,20 +114,34 @@ class FreshnessAwareAttestor:
             contamination_detected=contamination_detected,
         )
         fresh, freshness_reasons = self.freshness_policy.validate(attestation, now=now)
-        replay_ok = self.replay_registry.claim(attestation.attestation_id) if fresh else False
-        reasons = tuple(
-            (*base.reasons, *freshness_reasons)
-            if replay_ok
-            else (*base.reasons, *freshness_reasons, "attestation has already been consumed or is not fresh")
-        )
+        # Invalid signatures/lineage must not consume the one-time replay slot:
+        # otherwise an unauthenticated request could preempt a valid attestation.
+        replay_ok = self.replay_registry.claim(attestation.attestation_id) if fresh and base.trustworthy else False
+        reasons = list((*base.reasons, *freshness_reasons))
+        if fresh and base.trustworthy and not replay_ok:
+            reasons.append("attestation has already been consumed")
         trustworthy = base.trustworthy and fresh and replay_ok
+        evidence_payload = {
+            "base_evidence_digest": base.evidence_digest,
+            "attestation_id": attestation.attestation_id,
+            "issued_at": attestation.issued_at,
+            "verified_at": now,
+            "max_age_seconds": self.freshness_policy.max_age_seconds,
+            "max_future_skew_seconds": self.freshness_policy.max_future_skew_seconds,
+            "fresh": fresh,
+            "replay_accepted": replay_ok,
+            "trustworthy": trustworthy,
+        }
+        evidence_digest = hashlib.sha256(
+            json.dumps(evidence_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
         return AttestedEvaluation(
             base.attestation,
             trustworthy,
             base.independent,
             base.contamination_free,
-            reasons,
-            base.evidence_digest,
+            tuple(reasons),
+            evidence_digest,
         )
 
 
