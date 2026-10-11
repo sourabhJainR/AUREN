@@ -70,11 +70,18 @@ def make_campaign(**overrides):
     return ExternalEvaluationCampaign(**values)
 
 
-def make_attested_campaign(campaign, *, signature=None):
+def make_attested_campaign(campaign, receipt=None, *, signature=None, issued_at_epoch=None, expires_at_epoch=None, run_id=None, receipt_digest=None, runtime_digest=None):
     signature = campaign.external_attestation if signature is None else signature
+    receipt = make_receipt(campaign) if receipt is None else receipt
+    now = time.time()
     attestation = EvaluationAttestation(
         campaign.campaign_digest, campaign.corpus_digest, campaign.oracle_digest,
         campaign.evaluator_version, "external-signer", signature,
+        run_id=receipt.run_id if run_id is None else run_id,
+        receipt_digest=receipt.receipt_digest if receipt_digest is None else receipt_digest,
+        runtime_digest=receipt.runtime_snapshot if runtime_digest is None else runtime_digest,
+        issued_at_epoch=now - 10 if issued_at_epoch is None else issued_at_epoch,
+        expires_at_epoch=now + 300 if expires_at_epoch is None else expires_at_epoch,
     )
     verifier = SeparationAwareAttestor(
         lambda value: value.signature == campaign.external_attestation,
@@ -192,6 +199,35 @@ class PromotionEvidenceChainTests(unittest.TestCase):
         self.assertFalse(chain.complete)
         self.assertTrue(any("not independently verified" in reason for reason in chain.reasons))
 
+
+    def test_chain_rejects_attestation_bound_to_another_receipt_or_runtime(self):
+        campaign = make_campaign()
+        receipt = make_receipt(campaign)
+        causal = make_causal(receipt)
+        decision = CausalCapabilityPromotionGate().evaluate(causal)
+        attestation = make_attested_campaign(campaign, receipt, receipt_digest="wrong-receipt")
+        chain = PromotionEvidenceChainBuilder().build(
+            campaign, receipt, causal, decision,
+            attested_campaign=attestation, **isolation_kwargs(campaign, receipt),
+        )
+        self.assertFalse(chain.complete)
+        self.assertTrue(any("receipt digest does not match" in reason for reason in chain.reasons))
+
+    def test_chain_rejects_expired_or_future_attestation(self):
+        campaign = make_campaign()
+        receipt = make_receipt(campaign)
+        causal = make_causal(receipt)
+        decision = CausalCapabilityPromotionGate().evaluate(causal)
+        now = time.time()
+        expired = make_attested_campaign(
+            campaign, receipt, issued_at_epoch=now - 100, expires_at_epoch=now - 1
+        )
+        chain = PromotionEvidenceChainBuilder().build(
+            campaign, receipt, causal, decision, attested_campaign=expired,
+            attestation_now=now, **isolation_kwargs(campaign, receipt),
+        )
+        self.assertFalse(chain.complete)
+        self.assertTrue(any("attestation has expired" in reason for reason in chain.reasons))
 
     def test_chain_blocks_missing_isolation_attestation(self):
         campaign = make_campaign()

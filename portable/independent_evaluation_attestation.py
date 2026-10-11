@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import hashlib
 import json
+import math
 from typing import Callable
 
 
@@ -26,6 +27,11 @@ class EvaluationAttestation:
     evaluator_version: str
     signer_id: str
     signature: str
+    run_id: str = ""
+    receipt_digest: str = ""
+    runtime_digest: str = ""
+    issued_at_epoch: float = 0.0
+    expires_at_epoch: float = 0.0
 
     def __post_init__(self) -> None:
         for name, value in (
@@ -37,6 +43,16 @@ class EvaluationAttestation:
             ("signature", self.signature),
         ):
             _required_text(name, value)
+        for name in ("run_id", "receipt_digest", "runtime_digest"):
+            value = getattr(self, name)
+            if not isinstance(value, str):
+                raise ValueError(f"{name} must be a string")
+        for name in ("issued_at_epoch", "expires_at_epoch"):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0:
+                raise ValueError(f"{name} must be a finite non-negative timestamp")
+        if self.expires_at_epoch and self.issued_at_epoch and self.expires_at_epoch <= self.issued_at_epoch:
+            raise ValueError("expires_at_epoch must be later than issued_at_epoch")
 
     @property
     def attestation_digest(self) -> str:
@@ -46,6 +62,11 @@ class EvaluationAttestation:
             "oracle_digest": self.oracle_digest,
             "evaluator_version": self.evaluator_version,
             "signer_id": self.signer_id,
+            "run_id": self.run_id,
+            "receipt_digest": self.receipt_digest,
+            "runtime_digest": self.runtime_digest,
+            "issued_at_epoch": self.issued_at_epoch,
+            "expires_at_epoch": self.expires_at_epoch,
         }
         return hashlib.sha256(
             json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")

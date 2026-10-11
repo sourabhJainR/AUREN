@@ -6,6 +6,7 @@ to reference the exact causal evidence and run receipt. It never mutates state.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 import time
 from typing import Callable
 
@@ -87,6 +88,7 @@ class PromotionEvidenceChainBuilder:
         policy_runtime_id: str = "",
         trusted_isolation_signers: frozenset[str] | None = None,
         isolation_now: float | None = None,
+        attestation_now: float | None = None,
     ) -> PromotionEvidenceChain:
         if not isinstance(campaign, ExternalEvaluationCampaign):
             raise TypeError("ExternalEvaluationCampaign is required")
@@ -126,6 +128,22 @@ class PromotionEvidenceChainBuilder:
         if not attested_campaign.trustworthy:
             reasons.append("external campaign attestation is not independently verified")
         attestation = attested_campaign.attestation
+        now = time.time() if attestation_now is None else attestation_now
+        if isinstance(now, bool) or not isinstance(now, (int, float)) or not math.isfinite(now) or now < 0:
+            reasons.append("attestation verification time is invalid")
+        if not attestation.run_id or attestation.run_id != receipt.run_id:
+            reasons.append("attestation run id does not match receipt")
+        if not attestation.receipt_digest or attestation.receipt_digest != receipt.receipt_digest:
+            reasons.append("attestation receipt digest does not match receipt")
+        if not attestation.runtime_digest or attestation.runtime_digest != receipt.runtime_snapshot:
+            reasons.append("attestation runtime digest does not match receipt")
+        if not attestation.issued_at_epoch or not attestation.expires_at_epoch:
+            reasons.append("attestation freshness timestamps are required")
+        elif isinstance(now, (int, float)) and not isinstance(now, bool) and math.isfinite(now):
+            if attestation.issued_at_epoch > now:
+                reasons.append("attestation was issued in the future")
+            if attestation.expires_at_epoch <= now:
+                reasons.append("attestation has expired")
         if attestation.campaign_digest != campaign.campaign_digest:
             reasons.append("attestation and campaign digests differ")
         if attestation.corpus_digest != campaign.corpus_digest:
