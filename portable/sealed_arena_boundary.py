@@ -305,6 +305,12 @@ class SealedArenaBoundary:
             oracle_id=receipt.oracle_id,
         )
         if self._verify_custody_signature is not None:
+            verify_custody_attestation(
+                request.provenance,
+                self._verify_custody_signature,
+                evaluator_id=receipt.evaluator_id,
+                oracle_id=receipt.oracle_id,
+            )
             # In the Ed25519 production profile, the receipt signature is encoded
             # as signer-id.base64url-signature. Keep outcome attestation separate
             # from corpus custody: one trusted identity must not certify both.
@@ -313,12 +319,6 @@ class SealedArenaBoundary:
                 raise ValueError("signed outcome receipt is missing its signer identity")
             if outcome_signer == request.provenance.attestation_signer_id:
                 raise ValueError("outcome signer must be independent of the holdout custody operator")
-            verify_custody_attestation(
-                request.provenance,
-                self._verify_custody_signature,
-                evaluator_id=receipt.evaluator_id,
-                oracle_id=receipt.oracle_id,
-            )
         if not self._verify_signature(receipt):
             raise ValueError("external outcome signature is not verified")
         expected_ids = {case.case_id for case in request.cases}
