@@ -47,7 +47,13 @@ class CrewDefinition:
         ):
             if not isinstance(values, tuple) or any(not isinstance(v, str) or not v.strip() for v in values):
                 raise ValueError(f"{name} must be a tuple of non-empty strings")
-        forbidden = _FORBIDDEN_CREW_AUTHORITIES.intersection(x.strip().lower() for x in self.allowed_authorities)
+        normalized_authorities = {x.strip().lower().replace("-", "_").replace(" ", "_") for x in self.allowed_authorities}
+        forbidden = {
+            authority for authority in normalized_authorities
+            if authority in _FORBIDDEN_CREW_AUTHORITIES
+            or authority.startswith(("merge_", "promote_", "approve_", "disable_guard", "disable_rollback", "forge_attestation", "rewrite_evidence"))
+            or "bypass_review" in authority
+        }
         if forbidden:
             raise ValueError("crew cannot be granted supervisor-only authority: " + ", ".join(sorted(forbidden)))
         if type(self.always_on) is not bool or type(self.independent_review_required) is not bool:
