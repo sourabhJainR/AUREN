@@ -84,7 +84,8 @@ class AutonomousCampaignLearningTests(unittest.TestCase):
             self.assertEqual(result.selected_task_ids, ("c", "a", "b"))
             self.assertEqual(result.holdout_task_ids, ("c", "a", "b"))
             self.assertEqual(len(result.observations), 3)
-            self.assertEqual(result.rollout.state, "promoted")
+            self.assertEqual(result.rollout.state, "promotion_blocked")
+            self.assertTrue(any("decision record is required" in reason for reason in result.rollout.reasons))
 
     def test_learned_domain_score_calibrates_from_persisted_observations(self):
         with tempfile.TemporaryDirectory() as tmp:
