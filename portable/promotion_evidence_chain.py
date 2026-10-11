@@ -15,18 +15,42 @@ from .independent_evaluation_attestation import AttestedEvaluation
 
 @dataclass(frozen=True, slots=True)
 class PromotionEvidenceChain:
+    # Keep the original positional field order for compatibility with existing
+    # consumers; the verified attestation digest is an additional required
+    # structural condition for a chain to be complete.
     campaign_digest: str
-    attestation_evidence_digest: str
     run_receipt_digest: str
     causal_evidence_digest: str
     capability_id: str
     intervention_id: str
     eligible: bool
     reasons: tuple[str, ...]
+    attestation_evidence_digest: str = ""
+
+    def __post_init__(self) -> None:
+        for name, value in (
+            ("campaign_digest", self.campaign_digest),
+            ("run_receipt_digest", self.run_receipt_digest),
+            ("causal_evidence_digest", self.causal_evidence_digest),
+            ("capability_id", self.capability_id),
+            ("intervention_id", self.intervention_id),
+        ):
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"{name} must be a non-empty string")
+        if type(self.eligible) is not bool:
+            raise ValueError("eligible must be a boolean")
+        if not isinstance(self.reasons, tuple) or any(not isinstance(reason, str) or not reason.strip() for reason in self.reasons):
+            raise ValueError("reasons must be a tuple of non-empty strings")
+        if not isinstance(self.attestation_evidence_digest, str):
+            raise ValueError("attestation_evidence_digest must be a string")
 
     @property
     def complete(self) -> bool:
-        return self.eligible is True and not self.reasons
+        return (
+            self.eligible is True
+            and not self.reasons
+            and bool(self.attestation_evidence_digest.strip())
+        )
 
 
 class PromotionEvidenceChainBuilder:
@@ -99,14 +123,14 @@ class PromotionEvidenceChainBuilder:
         if causal.contamination_detected is not False:
             reasons.append("causal evidence reports contamination")
         return PromotionEvidenceChain(
-            campaign.campaign_digest,
-            attested_campaign.evidence_digest,
-            receipt.receipt_digest,
-            causal.evidence_digest,
-            causal.capability_id,
-            causal.intervention_id,
-            not reasons,
-            tuple(dict.fromkeys(reasons)),
+            campaign_digest=campaign.campaign_digest,
+            run_receipt_digest=receipt.receipt_digest,
+            causal_evidence_digest=causal.evidence_digest,
+            capability_id=causal.capability_id,
+            intervention_id=causal.intervention_id,
+            eligible=not reasons,
+            reasons=tuple(dict.fromkeys(reasons)),
+            attestation_evidence_digest=attested_campaign.evidence_digest,
         )
 
 
