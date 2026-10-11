@@ -148,6 +148,15 @@ class IndependentArenaTests(unittest.TestCase):
         receipt["domain_scores"]["arithmetic"]["passed"] = 99
         self.assertFalse(verify_receipt(rehash_receipt(receipt), sealed))
 
+    def test_rejects_unknown_receipt_fields_even_when_digests_are_recomputed(self):
+        sealed = seal_manifest(fixture())
+        receipt = run_campaign(
+            sealed, lambda task: 15 if task["prompt"] == "What is 7 + 8?" else "transient",
+            nonce_ledger=new_ledger(), policy_digest="p", run_nonce="unknown-field-test",
+        )
+        receipt["promotion_authorized"] = True
+        self.assertFalse(verify_receipt(rehash_receipt(receipt), sealed))
+
     def test_rejects_naive_timestamp_even_when_receipt_digest_is_recomputed(self):
         sealed = seal_manifest(fixture())
         receipt = run_campaign(sealed, lambda task: 15, nonce_ledger=new_ledger(),

@@ -208,6 +208,15 @@ def verify_receipt(receipt: Mapping[str, Any], sealed: Mapping[str, Any]) -> boo
     if not isinstance(receipt, Mapping) or not isinstance(sealed, Mapping):
         return False
     try:
+        expected_fields = {
+            "schema_version", "benchmark_id", "manifest_digest", "evaluator_id",
+            "runtime_id", "policy_digest", "run_nonce", "results", "counts",
+            "domain_scores", "result_digest", "issued_at", "receipt_digest",
+        }
+        # Closed-world receipt schema prevents downstream consumers from silently
+        # accepting unrecognized fields with unclear trust or promotion semantics.
+        if set(receipt) != expected_fields:
+            return False
         manifest = validate_manifest(sealed["manifest"])
         expected_manifest_digest = digest(manifest)
         if sealed.get("manifest_digest") != expected_manifest_digest:
