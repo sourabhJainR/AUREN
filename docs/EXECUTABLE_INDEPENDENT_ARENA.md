@@ -6,7 +6,8 @@
 ## Minimal use
 
 ```python
-from portable.independent_arena import seal_manifest, run_campaign, verify_receipt
+from pathlib import Path
+from portable.independent_arena import NonceLedger, seal_manifest, run_campaign, verify_receipt
 
 # This manifest belongs to the evaluator. Do not place it in the policy's workspace.
 manifest = {
@@ -24,6 +25,7 @@ manifest = {
     ],
 }
 sealed = seal_manifest(manifest)
+ledger = NonceLedger(Path.home() / ".auren" / "arena" / "nonces.sqlite3")
 
 def candidate(task):
     # Receives only case_id, domain and prompt; no oracle or split is supplied.
@@ -34,6 +36,7 @@ receipt = run_campaign(
     candidate,
     policy_digest="sha256:<digest-of-the-exact-runtime-and-policy>",
     run_nonce="unique-operator-generated-run-id",
+    nonce_ledger=ledger,
 )
 assert verify_receipt(receipt, sealed)
 ```
@@ -43,6 +46,7 @@ The example above is a protocol smoke test, **not** an independent evaluation: i
 ## Protocol guarantees and limits
 
 - Canonical JSON and SHA-256 bind the benchmark manifest, policy identity, run nonce, results and receipt.
+- A persistent SQLite nonce ledger atomically claims each run nonce before execution. Reusing a nonce is rejected across ledger instances/restarts when they share the same database path; keep this database evaluator-owned and durable.
 - Duplicate case IDs, unknown splits, missing fields, shared evaluator/runtime identity, and manifest tampering fail closed.
 - The policy callback receives only `case_id`, `domain`, and `prompt`; expected labels and split metadata are withheld.
 - Exceptions become opaque `error` outcomes rather than leaking exception text into the receipt.
@@ -52,4 +56,4 @@ The example above is a protocol smoke test, **not** an independent evaluation: i
 
 ## Current acceptance status
 
-The unit tests exercise task-only projection, manifest tampering, receipt tampering, evaluator/runtime separation, policy exceptions, and repeatable result digests. Passing these tests establishes only the local protocol contract. It does not establish external independence, generalization, coding capability, or AGI. The first campaign remains blocked until an independent operator provides and retains the corpus/oracle and signs or otherwise independently attests to the receipt.
+The unit tests exercise task-only projection, manifest tampering, receipt tampering, evaluator/runtime separation, policy exceptions, repeatable result digests, and nonce replay rejection across ledger instances. Passing these tests establishes only the local protocol contract. It does not establish external independence, generalization, coding capability, or AGI. The first campaign remains blocked until an independent operator provides and retains the corpus/oracle and signs or otherwise independently attests to the receipt.
