@@ -16,6 +16,7 @@ from typing import Any, Callable, Mapping
 from uuid import uuid4
 
 from .autonomous_company import AutonomousCompany, TrustScore
+from .engineering_recovery import verify_ci_gate
 
 Handler = Callable[[Mapping[str, Any]], Any]
 
@@ -44,20 +45,32 @@ class ExecutionController:
             CREATE TABLE IF NOT EXISTS sessions(
               session_id TEXT PRIMARY KEY, work_unit_id TEXT NOT NULL, goal TEXT NOT NULL, updated_at TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS handlers(
-              name TEXT PRIMARY KEY, reference TEXT NOT NULL, updated_at TEXT NOT NULL);
+              name TEXT PRIMARY KEY, reference TEXT NOT NULL, updated_at TEXT NOT NULL,
+              ci_gate_policy_json TEXT NOT NULL DEFAULT '{}');
             CREATE TABLE IF NOT EXISTS tasks(
               id TEXT PRIMARY KEY, handler TEXT NOT NULL, payload TEXT NOT NULL,
               state TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0,
               work_unit_id TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, heartbeat_at TEXT, lease_until TEXT);
             """)
+            handler_columns = {row[1] for row in db.execute("PRAGMA table_info(handlers)").fetchall()}
+            if "ci_gate_policy_json" not in handler_columns:
+                db.execute("ALTER TABLE handlers ADD COLUMN ci_gate_policy_json TEXT NOT NULL DEFAULT '{}'")
             columns = {row[1] for row in db.execute("PRAGMA table_info(tasks)").fetchall()}
             for column in ("heartbeat_at", "lease_until"):
                 if column not in columns:
                     db.execute(f"ALTER TABLE tasks ADD COLUMN {column} TEXT")
 
 
-    def register_handler(self, name: str, handler: Handler | str) -> str:
-        """Persist an importable handler reference; callable handlers use module:qualname."""
+    def register_handler(
+        self, name: str, handler: Handler | str, *,
+        ci_gate_policy: Mapping[str, Any] | None = None,
+    ) -> str:
+        """Register a handler and optional trusted CI gate policy.
+
+        CI policy is set by the service/operator at handler registration, never by
+        task payload. A protected handler's tasks cannot disable the gate or
+        replace the expected SHA/required checks in their input.
+        """
         if not name.strip():
             raise ValueError("handler name is required")
         if isinstance(handler, str):
@@ -68,11 +81,52 @@ class ExecutionController:
             if not module or not qualname or "<locals>" in qualname:
                 raise ValueError("durable handlers must be importable module-level callables")
             reference = f"{module}:{qualname}"
+        policy = dict(ci_gate_policy or {})
+        if policy:
+            expected_sha = policy.get("expected_head_sha")
+            required_checks = policy.get("required_checks")
+            evidence_handler = policy.get("evidence_handler")
+            if not isinstance(expected_sha, str) or not expected_sha.strip():
+                raise ValueError("CI gate policy requires a trusted expected_head_sha")
+            if (not isinstance(required_checks, (list, tuple)) or not required_checks
+                    or not all(isinstance(item, str) and item.strip() for item in required_checks)):
+                raise ValueError("CI gate policy requires non-empty trusted required_checks")
+            if not isinstance(evidence_handler, str) or not evidence_handler.strip():
+                raise ValueError("CI gate policy requires a trusted evidence_handler")
+            # Resolve the provider at registration time; it is service policy, not task input.
+            self._load_handler(evidence_handler)
+            policy = {
+                "expected_head_sha": expected_sha,
+                "required_checks": list(dict.fromkeys(required_checks)),
+                "evidence_handler": evidence_handler,
+            }
         with sqlite3.connect(self.db_path) as db:
-            db.execute("INSERT INTO handlers(name,reference,updated_at) VALUES(?,?,?) "
-                       "ON CONFLICT(name) DO UPDATE SET reference=excluded.reference,updated_at=excluded.updated_at",
-                       (name, reference, _now()))
+            # Re-registering a handler after restart must not silently remove its
+            # trusted policy when the caller omits the policy or passes an empty
+            # mapping. Gate removal must be a separate, explicit administrative API.
+            if not policy:
+                prior = db.execute(
+                    "SELECT ci_gate_policy_json FROM handlers WHERE name=?", (name,)
+                ).fetchone()
+                if prior:
+                    policy = json.loads(prior[0] or "{}")
+            db.execute(
+                "INSERT INTO handlers(name,reference,updated_at,ci_gate_policy_json) VALUES(?,?,?,?) "
+                "ON CONFLICT(name) DO UPDATE SET reference=excluded.reference,updated_at=excluded.updated_at,"
+                "ci_gate_policy_json=excluded.ci_gate_policy_json",
+                (name, reference, _now(), json.dumps(policy, sort_keys=True)),
+            )
         return reference
+
+    def _handler_ci_gate_policy(self, name: str) -> dict[str, Any]:
+        with sqlite3.connect(self.db_path) as db:
+            row = db.execute("SELECT ci_gate_policy_json FROM handlers WHERE name=?", (name,)).fetchone()
+        if not row:
+            raise KeyError(f"unknown durable handler: {name}")
+        policy = json.loads(row[0] or "{}")
+        if not isinstance(policy, dict):
+            raise ValueError(f"invalid persisted CI gate policy for handler: {name}")
+        return policy
 
     def _load_handler(self, name: str) -> Handler:
         with sqlite3.connect(self.db_path) as db:
@@ -152,6 +206,52 @@ class ExecutionController:
                 detail = str(result.get("detail", "handler completed"))
             else:
                 success, detail = True, "handler completed"
+
+            # The trusted handler registration owns gate policy. Task payload cannot
+            # disable the gate, lower required checks, or substitute the expected SHA.
+            gate_policy = self._handler_ci_gate_policy(task.handler)
+            if gate_policy:
+                # Obtain CI evidence from a separately registered trusted provider.
+                # Never accept a handler/task result as proof of its own CI success.
+                evidence_provider = self._load_handler(gate_policy["evidence_handler"])
+                gate = evidence_provider({
+                    "expected_head_sha": gate_policy["expected_head_sha"],
+                    "required_checks": list(gate_policy["required_checks"]),
+                })
+                if not isinstance(gate, Mapping):
+                    success = False
+                    detail = "trusted CI evidence provider returned no valid evidence"
+                    evidence.append("ci-gate:missing")
+                else:
+                    try:
+                        passed_checks = gate.get("passed_checks", ())
+                        skipped_checks = gate.get("skipped_checks", ())
+                        if not all(isinstance(items, (list, tuple)) and all(isinstance(x, str) for x in items)
+                                   for items in (passed_checks, skipped_checks)):
+                            raise ValueError("check lists must be arrays of strings")
+                        verdict = verify_ci_gate(
+                            expected_head_sha=gate_policy["expected_head_sha"],
+                            ci_head_sha=str(gate.get("head_sha", "")),
+                            status=str(gate.get("status", "")),
+                            conclusion=str(gate.get("conclusion", "")) or None,
+                            required_checks=gate_policy["required_checks"],
+                            passed_checks=passed_checks,
+                            skipped_checks=skipped_checks,
+                        )
+                    except (KeyError, TypeError, ValueError) as gate_error:
+                        verdict = None
+                        gate_reason = f"malformed exact-head CI evidence: {gate_error}"
+                    if verdict is None:
+                        success = False
+                        detail = gate_reason
+                    elif not verdict.accepted:
+                        success = False
+                        detail = f"exact-head CI gate rejected task: {verdict.reason}"
+                    else:
+                        evidence.append(f"ci-head:{gate.get('head_sha')}")
+                        evidence.append("ci-gate:required-checks-passed")
+                        detail = f"{detail}; {verdict.reason}"
+
             self.company.record(task.work_unit_id, "execution", "completed" if success else "failed", detail, evidence)
             state = "completed" if success else "failed"
             with sqlite3.connect(self.db_path) as db:
