@@ -10,6 +10,7 @@ def request():
             SealedCaseEnvelope("c2","t2","i2","e2",True),
             SealedCaseEnvelope("c3","t3","i3","e3",False),
         ),
+        run_nonce="cross-domain-test-nonce",
     )
 
 
@@ -23,7 +24,6 @@ def test_requires_two_domains_and_holdout_per_domain():
         "oracle", "evaluator",
     )
     assert campaign.campaign_digest
-
 
 
 def test_rejects_unassigned_sealed_case():
