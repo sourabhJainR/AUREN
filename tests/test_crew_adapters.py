@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import unittest
 
-from portable.orchestration import Node, NodeKind, RunStatus\nfrom portable.state_graph import GraphAgentTeam, StateGraph\nfrom portable.crew_adapters import (
+from portable.orchestration import Node, NodeKind, RunStatus
+from portable.state_graph import GraphAgentTeam, StateGraph
+from portable.crew_adapters import (
     ApprovedTool,
     ApprovedToolCrewAdapter,
     ApprovedToolRegistry,
