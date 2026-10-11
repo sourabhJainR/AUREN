@@ -9,6 +9,7 @@ def campaign():
     req = SealedCampaignRequest(
         "campaign", "corpus",
         tuple(SealedCaseEnvelope(f"c{i}", f"t{i}", f"i{i}", f"e{i}", True) for i in range(1, 7)),
+        run_nonce="transfer-evidence-test-nonce",
     )
     return CrossDomainCampaign(
         "x", req,
