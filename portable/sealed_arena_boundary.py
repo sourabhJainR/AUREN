@@ -253,10 +253,14 @@ class SealedArenaEvidence:
 class SealedArenaBoundary:
     """Accept externally attested outcomes without importing the oracle."""
 
-    def __init__(self, verify_signature) -> None:
-        if not callable(verify_signature):
-            raise TypeError("verify_signature must be callable")
+    def __init__(self, verify_signature, *, clock: Callable[[], float] = time.time, max_future_skew_seconds: float = 30.0) -> None:
+        if not callable(verify_signature) or not callable(clock):
+            raise TypeError("signature verifier and clock must be callable")
+        if isinstance(max_future_skew_seconds, bool) or not isinstance(max_future_skew_seconds, (int, float)) or not math.isfinite(max_future_skew_seconds) or max_future_skew_seconds < 0:
+            raise ValueError("max_future_skew_seconds must be finite and non-negative")
         self._verify_signature = verify_signature
+        self._clock = clock
+        self._max_future_skew_seconds = float(max_future_skew_seconds)
 
     def accept(self, request: SealedCampaignRequest, receipt: ExternalOutcomeReceipt) -> SealedArenaEvidence:
         if not isinstance(request, SealedCampaignRequest) or not isinstance(receipt, ExternalOutcomeReceipt):
