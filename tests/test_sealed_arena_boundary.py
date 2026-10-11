@@ -47,6 +47,12 @@ class SealedArenaBoundaryTests(unittest.TestCase):
         self.assertEqual(evidence.holdout_pass_rate, 1.0)
         self.assertEqual(evidence.result_case_count, 1)
 
+    def test_boundary_rejects_unknown_contamination_provenance(self) -> None:
+        contaminated = replace(self.request, provenance=replace(self.request.provenance, contamination_status="unknown"))
+        receipt = self.receipt(request_digest=contaminated.request_digest)
+        with self.assertRaisesRegex(ValueError, "rejects contaminated"):
+            SealedArenaBoundary(lambda _value: True).accept(contaminated, receipt)
+
     def test_rejects_missing_corpus_provenance(self) -> None:
         request = SealedCampaignRequest("campaign-d", "corpus-d", (self.case,), "nonce-1")
         receipt = self.receipt(request_digest=request.request_digest)
