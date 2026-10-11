@@ -219,19 +219,31 @@ class CausalAttributionEstimator:
 
     @staticmethod
     def estimate(control_scores: Sequence[float], treatment_scores: Sequence[float], *, randomized: bool, independent_holdout: bool) -> CausalAttribution:
-        if not control_scores or not treatment_scores:
-            raise ValueError("control and treatment observations are required")
-        values = tuple(control_scores) + tuple(treatment_scores)
-        if any(not 0.0 <= float(x) <= 1.0 for x in values):
-            raise ValueError("scores must be between 0 and 1")
-        control_mean = sum(control_scores) / len(control_scores)
-        treatment_mean = sum(treatment_scores) / len(treatment_scores)
+        if not isinstance(control_scores, Sequence) or isinstance(control_scores, (str, bytes)) or not control_scores:
+            raise ValueError("control observations are required")
+        if not isinstance(treatment_scores, Sequence) or isinstance(treatment_scores, (str, bytes)) or not treatment_scores:
+            raise ValueError("treatment observations are required")
+        if type(randomized) is not bool or type(independent_holdout) is not bool:
+            raise ValueError("randomized and independent_holdout must be booleans")
+        def validated_scores(name: str, scores: Sequence[float]) -> tuple[float, ...]:
+            values = []
+            for index, score in enumerate(scores):
+                if isinstance(score, bool) or not isinstance(score, (int, float)) or not math.isfinite(score):
+                    raise ValueError(f"{name}[{index}] must be a finite number between 0 and 1")
+                if not 0.0 <= score <= 1.0:
+                    raise ValueError(f"{name}[{index}] must be between 0 and 1")
+                values.append(float(score))
+            return tuple(values)
+        control = validated_scores("control_scores", control_scores)
+        treatment = validated_scores("treatment_scores", treatment_scores)
+        control_mean = sum(control) / len(control)
+        treatment_mean = sum(treatment) / len(treatment)
         effect = treatment_mean - control_mean
-        def variance(values, mean_value):
-            return sum((float(x) - mean_value) ** 2 for x in values) / max(1, len(values) - 1)
-        standard_error = (variance(control_scores, control_mean) / len(control_scores) + variance(treatment_scores, treatment_mean) / len(treatment_scores)) ** 0.5
+        def variance(values: tuple[float, ...], mean_value: float) -> float:
+            return sum((x - mean_value) ** 2 for x in values) / max(1, len(values) - 1)
+        standard_error = (variance(control, control_mean) / len(control) + variance(treatment, treatment_mean) / len(treatment)) ** 0.5
         signal = min(1.0, abs(effect) / max(standard_error, 0.02))
-        sample_confidence = min(1.0, (len(control_scores) + len(treatment_scores)) / 20.0)
+        sample_confidence = min(1.0, (len(control) + len(treatment)) / 20.0)
         confidence = round(signal * sample_confidence, 4)
         return CausalAttribution(round(control_mean, 4), round(treatment_mean, 4), round(effect, 4), round(standard_error, 4), confidence, randomized, independent_holdout, randomized and independent_holdout and effect > 0.0)
 
