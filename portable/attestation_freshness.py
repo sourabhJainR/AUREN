@@ -1,14 +1,14 @@
 """Freshness and replay protection for external Arena attestations.
 
-This layer wraps an existing attestation rather than changing the wire format.
-It binds issuance time, freshness policy, and one-time-use outcome to the
-verified evidence digest. Principal authentication is injected and explicit.
+This layer binds issuance time, freshness policy, and one-time-use outcome to
+the verified evidence digest. Principal authentication is injected and explicit.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
 import hashlib
 import json
+import threading
 from typing import Callable
 
 from .attestation_key_separation import AttestationTrustPolicy, SeparationAwareAttestor
@@ -59,18 +59,25 @@ class AttestationFreshnessPolicy:
 
 
 class AttestationReplayRegistry:
-    """One-time-use registry; production deployments can inject durable storage."""
+    """Thread-safe process-local one-time-use registry.
+
+    Production deployments should inject durable, transactional storage shared
+    by all verifier workers; this in-memory implementation only prevents
+    concurrent replay inside one process.
+    """
 
     def __init__(self, seen: set[str] | None = None) -> None:
         self._seen = set(seen or ())
+        self._lock = threading.Lock()
 
     def claim(self, attestation_id: str) -> bool:
         if not isinstance(attestation_id, str) or not attestation_id.strip():
             raise ValueError("attestation_id is required")
-        if attestation_id in self._seen:
-            return False
-        self._seen.add(attestation_id)
-        return True
+        with self._lock:
+            if attestation_id in self._seen:
+                return False
+            self._seen.add(attestation_id)
+            return True
 
 
 class FreshnessAwareAttestor:
