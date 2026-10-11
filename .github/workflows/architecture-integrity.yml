@@ -26,6 +26,8 @@ jobs:
         run: python -m unittest tests.test_sealed_cross_domain_lineage -v
       - name: Run independent attestation and key separation regressions
         run: python -m unittest tests.test_independent_evaluation_attestation tests.test_attestation_key_separation tests.test_attested_cross_project_transfer tests.test_attestation_freshness -v
+      - name: Run external campaign attestation regressions
+        run: python -m unittest tests.test_external_evaluation_campaign tests.test_external_generalization_runner -v
       - name: Run causal promotion and evidence-chain regressions
         run: python -m unittest tests.test_causal_capability_promotion tests.test_promotion_evidence_chain tests.test_arena_run_receipt -v
       - name: Compile dependency-free portable runtime
