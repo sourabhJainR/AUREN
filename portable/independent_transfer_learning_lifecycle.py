@@ -298,6 +298,7 @@ class LifecycleResult:
     retest: CampaignRetestContract
     promotion: LifecyclePromotionRecord | None
     rolled_back: bool
+    retest_passed: bool = False
 
 
 class IndependentTransferLearningLifecycle:
@@ -345,6 +346,17 @@ class IndependentTransferLearningLifecycle:
             raise ValueError("run receipt contains an unsealed holdout case")
         if not run_receipt.trustworthy:
             raise ValueError("run receipt is not trustworthy")
+        if not run_receipt.campaign_digest:
+            raise ValueError("promotion evaluation requires a campaign-bound run receipt")
+        if run_receipt.campaign_digest == prior_campaign_digest:
+            raise ValueError("fresh holdout retest must use a campaign distinct from the prior campaign")
+        retest_holdouts = set(run_receipt.holdout_case_ids)
+        if not retest_holdouts:
+            raise ValueError("promotion evaluation requires at least one sealed retest holdout")
+        retest_passed = (
+            retest_holdouts <= set(run_receipt.passed_case_ids)
+            and retest_holdouts <= set(run_receipt.verified_case_ids)
+        )
         if not randomized_assignment:
             raise ValueError("causal attribution requires randomized treatment assignment")
         if control_scores is not None or treatment_scores is not None:
@@ -370,7 +382,7 @@ class IndependentTransferLearningLifecycle:
         )
         promotion = None
         rolled_back = False
-        if decision.eligible and transfer.valid:
+        if decision.eligible and transfer.valid and retest_passed:
             promotion = self.promotions.promote(
                 capability_id, version, evidence.evidence_digest
             )
