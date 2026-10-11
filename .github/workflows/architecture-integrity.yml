@@ -25,7 +25,7 @@ jobs:
       - name: Run default execution controller promotion gate regressions
         run: python -m unittest tests.test_execution_controller_promotion_gate -v
       - name: Run executable and isolated Arena kernel regressions
-        run: python -m unittest tests.test_independent_arena tests.test_isolated_arena_runner -v
+        run: python -m unittest tests.test_independent_arena tests.test_isolated_arena_runner tests.test_container_sandboxed_arena -v
       - name: Run sealed Arena boundary, exchange, gateway, and replay regressions
         run: python -m unittest tests.test_sealed_arena_boundary tests.test_sealed_arena_exchange tests.test_external_evaluator_gateway tests.test_external_evaluator_gateway_budget tests.test_sealed_arena_replay_concurrency -v
       - name: Run cross-domain campaign lineage regressions
