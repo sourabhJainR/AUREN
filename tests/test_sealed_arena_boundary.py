@@ -59,6 +59,22 @@ class SealedArenaBoundaryTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "missing corpus provenance"):
             SealedArenaBoundary(lambda _value: True).accept(request, receipt)
 
+
+    def test_rejects_expired_receipt(self) -> None:
+        expired = self.receipt(issued_at_epoch=100.0, expires_at_epoch=199.0)
+        with self.assertRaisesRegex(ValueError, "stale or expired"):
+            SealedArenaBoundary(lambda _value: True, clock=lambda: 200.0).accept(self.request, expired)
+
+    def test_rejects_receipt_issued_too_far_in_future(self) -> None:
+        future = self.receipt(issued_at_epoch=250.0, expires_at_epoch=400.0)
+        with self.assertRaisesRegex(ValueError, "issued in the future"):
+            SealedArenaBoundary(lambda _value: True, clock=lambda: 200.0, max_future_skew_seconds=10.0).accept(self.request, future)
+
+    def test_accepts_fresh_receipt_with_injected_clock(self) -> None:
+        fresh = self.receipt(issued_at_epoch=190.0, expires_at_epoch=220.0)
+        evidence = SealedArenaBoundary(lambda _value: True, clock=lambda: 200.0).accept(self.request, fresh)
+        self.assertEqual(evidence.holdout_pass_rate, 1.0)
+
     def test_rejects_missing_or_blank_run_nonce(self) -> None:
         with self.assertRaisesRegex(ValueError, "run_nonce"):
             SealedCampaignRequest("campaign-d", "corpus-d", (self.case,))
