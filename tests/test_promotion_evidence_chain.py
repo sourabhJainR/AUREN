@@ -1,6 +1,9 @@
 import hashlib
 import unittest
 import time
+import tempfile
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from dataclasses import replace
 
 from portable.arena_run_receipt import ArenaRunReceipt, oracle_registry_digest
@@ -390,6 +393,51 @@ class PromotionEvidenceChainTests(unittest.TestCase):
         conflicting = replace(chain, eligible=False, reasons=("conflicting evidence",))
         with self.assertRaisesRegex(ValueError, "conflicting Arena observations"):
             ledger.record(conflicting)
+
+
+    def test_durable_ledger_survives_restart_and_rejects_replay(self):
+        campaign = make_campaign()
+        receipt = make_receipt(campaign)
+        causal = make_causal(receipt)
+        decision = CausalCapabilityPromotionGate().evaluate(causal)
+        chain = PromotionEvidenceChainBuilder().build(
+            campaign, receipt, causal, decision,
+            attested_campaign=make_attested_campaign(campaign, receipt),
+            **isolation_kwargs(campaign, receipt),
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            database = Path(directory) / "evidence.sqlite3"
+            first = ArenaEvidenceObservationLedger(database)
+            record = first.record(chain)
+            reopened = ArenaEvidenceObservationLedger(database)
+            self.assertEqual(reopened.records, (record,))
+            self.assertEqual(reopened.learning_inputs, (record,))
+            with self.assertRaisesRegex(ValueError, "replayed Arena receipt evidence"):
+                reopened.record(chain)
+
+    def test_durable_ledger_allows_only_one_concurrent_receipt_claim(self):
+        campaign = make_campaign()
+        receipt = make_receipt(campaign)
+        causal = make_causal(receipt)
+        decision = CausalCapabilityPromotionGate().evaluate(causal)
+        chain = PromotionEvidenceChainBuilder().build(
+            campaign, receipt, causal, decision,
+            attested_campaign=make_attested_campaign(campaign, receipt),
+            **isolation_kwargs(campaign, receipt),
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            database = Path(directory) / "evidence.sqlite3"
+            def record(_):
+                try:
+                    ArenaEvidenceObservationLedger(database).record(chain)
+                    return "accepted"
+                except ValueError:
+                    return "rejected"
+            with ThreadPoolExecutor(max_workers=8) as pool:
+                results = list(pool.map(record, range(8)))
+            self.assertEqual(results.count("accepted"), 1)
+            self.assertEqual(results.count("rejected"), 7)
+            self.assertEqual(len(ArenaEvidenceObservationLedger(database).records), 1)
 
 if __name__ == "__main__":
     unittest.main()

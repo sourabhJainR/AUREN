@@ -9,7 +9,10 @@ from dataclasses import dataclass
 import hashlib
 import json
 import math
+import sqlite3
 import time
+from pathlib import Path
+from datetime import datetime, timezone
 from typing import Callable
 
 from .arena_run_receipt import ArenaRunReceipt
@@ -267,35 +270,98 @@ class ArenaEvidenceObservation:
 
 
 class ArenaEvidenceObservationLedger:
-    """Append-only in-memory ledger; only accepted observations are learning inputs.
+    """Append-only evidence ledger; only accepted observations are learning inputs.
 
-    Persistence and trust-root custody belong to the deployment's external
-    evidence store. This class prevents accidental duplicate/conflicting
-    receipt ingestion within the current ledger instance.
+    With a database path, SQLite provides durable storage and unique receipt
+    enforcement across restarts and concurrent writers. Without one, the
+    ledger is process-local and intended only for unit tests.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, database_path: str | Path | None = None) -> None:
+        self.database_path = None if database_path is None else str(database_path)
         self._by_receipt: dict[str, ArenaEvidenceObservation] = {}
         self._records: list[ArenaEvidenceObservation] = []
+        if self.database_path is not None:
+            if not self.database_path.strip() or self.database_path == ":memory:":
+                raise ValueError("durable evidence ledger requires a persistent database path")
+            Path(self.database_path).parent.mkdir(parents=True, exist_ok=True)
+            with sqlite3.connect(self.database_path, timeout=10) as connection:
+                connection.execute("PRAGMA busy_timeout = 30000")
+                connection.execute(
+                    """CREATE TABLE IF NOT EXISTS arena_evidence_observations (
+                        run_receipt_digest TEXT PRIMARY KEY,
+                        observation_digest TEXT NOT NULL,
+                        payload_json TEXT NOT NULL,
+                        accepted INTEGER NOT NULL CHECK (accepted IN (0, 1)),
+                        recorded_at TEXT NOT NULL
+                    )"""
+                )
+
+    @staticmethod
+    def _payload(observation: ArenaEvidenceObservation) -> dict[str, object]:
+        return {
+            "campaign_digest": observation.campaign_digest,
+            "run_receipt_digest": observation.run_receipt_digest,
+            "causal_evidence_digest": observation.causal_evidence_digest,
+            "capability_id": observation.capability_id,
+            "intervention_id": observation.intervention_id,
+            "accepted": observation.accepted,
+            "reasons": observation.reasons,
+            "chain_digest": observation.chain_digest,
+            "observation_digest": observation.observation_digest,
+        }
 
     def record(self, chain: PromotionEvidenceChain) -> ArenaEvidenceObservation:
         observation = ArenaEvidenceObservation.from_chain(chain)
-        prior = self._by_receipt.get(observation.run_receipt_digest)
-        if prior is not None:
-            if prior.observation_digest == observation.observation_digest:
-                raise ValueError("replayed Arena receipt evidence")
-            raise ValueError("conflicting Arena observations for receipt digest")
-        self._by_receipt[observation.run_receipt_digest] = observation
-        self._records.append(observation)
+        if self.database_path is None:
+            prior = self._by_receipt.get(observation.run_receipt_digest)
+            if prior is not None:
+                if prior.observation_digest == observation.observation_digest:
+                    raise ValueError("replayed Arena receipt evidence")
+                raise ValueError("conflicting Arena observations for receipt digest")
+            self._by_receipt[observation.run_receipt_digest] = observation
+            self._records.append(observation)
+            return observation
+        payload_json = json.dumps(self._payload(observation), sort_keys=True, separators=(",", ":"))
+        try:
+            with sqlite3.connect(self.database_path, timeout=10) as connection:
+                connection.execute(
+                    "INSERT INTO arena_evidence_observations VALUES (?, ?, ?, ?, ?)",
+                    (
+                        observation.run_receipt_digest, observation.observation_digest,
+                        payload_json, int(observation.accepted),
+                        datetime.now(timezone.utc).isoformat(),
+                    ),
+                )
+        except sqlite3.IntegrityError as exc:
+            with sqlite3.connect(self.database_path, timeout=10) as connection:
+                row = connection.execute(
+                    "SELECT observation_digest FROM arena_evidence_observations WHERE run_receipt_digest = ?",
+                    (observation.run_receipt_digest,),
+                ).fetchone()
+            if row and row[0] == observation.observation_digest:
+                raise ValueError("replayed Arena receipt evidence") from exc
+            raise ValueError("conflicting Arena observations for receipt digest") from exc
         return observation
 
     @property
     def records(self) -> tuple[ArenaEvidenceObservation, ...]:
-        return tuple(self._records)
+        if self.database_path is None:
+            return tuple(self._records)
+        with sqlite3.connect(self.database_path, timeout=10) as connection:
+            rows = connection.execute(
+                "SELECT payload_json FROM arena_evidence_observations ORDER BY rowid"
+            ).fetchall()
+        result = []
+        for (payload_json,) in rows:
+            payload = json.loads(payload_json)
+            payload["reasons"] = tuple(payload["reasons"])
+            result.append(ArenaEvidenceObservation(**payload))
+        return tuple(result)
 
     @property
     def learning_inputs(self) -> tuple[ArenaEvidenceObservation, ...]:
-        return tuple(record for record in self._records if record.accepted)
+        return tuple(record for record in self.records if record.accepted)
 
 
 __all__ = ["PromotionEvidenceChain", "PromotionEvidenceChainBuilder", "ArenaEvidenceObservation", "ArenaEvidenceObservationLedger"]
