@@ -33,18 +33,18 @@ class IndependentArenaTests(unittest.TestCase):
 
         def policy(task):
             observed.append(dict(task))
-            if task["case_id"] == "math-001":
+            if task["prompt"] == "What is 7 + 8?":
                 return 15
             return "transient"
 
         receipt = run_campaign(sealed, policy, nonce_ledger=new_ledger(), policy_digest="sha256:policy-a", run_nonce="run-001")
-        self.assertTrue(all(set(item) == {"case_id", "domain", "prompt"} for item in observed))
+        self.assertTrue(all(set(item) == {"prompt"} for item in observed))
         self.assertEqual(receipt["counts"], {"pass": 2, "fail": 0, "error": 0})
         self.assertTrue(verify_receipt(receipt, sealed))
 
     def test_result_digest_is_repeatable_but_nonce_is_bound(self):
         sealed = seal_manifest(fixture())
-        policy = lambda task: 15 if task["case_id"] == "math-001" else "transient"
+        policy = lambda task: 15 if task["prompt"] == "What is 7 + 8?" else "transient"
         first = run_campaign(sealed, policy, nonce_ledger=new_ledger(), policy_digest="sha256:policy-a", run_nonce="run-001")
         second = run_campaign(sealed, policy, nonce_ledger=new_ledger(), policy_digest="sha256:policy-a", run_nonce="run-002")
         self.assertEqual(first["result_digest"], second["result_digest"])
