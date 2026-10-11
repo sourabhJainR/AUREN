@@ -47,7 +47,7 @@ class AttestationKeySeparationTests(unittest.TestCase):
         self.assertTrue(any("identity is not authenticated" in reason for reason in result.reasons))
 
     def test_unknown_signer_fails_closed(self):
-        result = SeparationAwareAttestor(lambda _a: True, self.policy()).verify(
+        result = SeparationAwareAttestor(lambda _a: True, self.policy(), self.verify_identity).verify(
             self.att("unknown"), evaluator_id="evaluator", oracle_id="oracle-principal",
             expected_campaign_digest="camp", expected_corpus_digest="corpus", expected_oracle_digest="oracle")
         self.assertFalse(result.trustworthy)
