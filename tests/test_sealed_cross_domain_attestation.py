@@ -51,7 +51,7 @@ class SignedTargetDomainProvenanceTests(unittest.TestCase):
         self.assertTrue(self.verifier(self.provenance))
 
     def test_tampered_no_overlap_claim_is_rejected(self):
-        altered = replace(self.provenance, development_overlap_status="overlap")
+        altered = replace(self.provenance, overlap_attestation_digest="attacker-replaced-overlap-evidence")
         self.assertFalse(self.verifier(altered))
 
     def test_signer_must_match_named_operator(self):
