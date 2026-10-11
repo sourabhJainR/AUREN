@@ -28,7 +28,7 @@ class ExternalEvaluatorCommand:
 
     def __post_init__(self) -> None:
         if not isinstance(self.argv, tuple) or not self.argv or any(
-            not isinstance(part, str) or not part.strip() or "\\x00" in part for part in self.argv
+            not isinstance(part, str) or not part.strip() or chr(0) in part for part in self.argv
         ):
             raise ValueError("external evaluator argv must be a non-empty tuple of non-empty strings")
         if (
