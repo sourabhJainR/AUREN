@@ -34,7 +34,8 @@ jobs:
       - name: Configure Pages
         uses: actions/configure-pages@v5
         with:
-          enablement: true
+          token: ${{ secrets.PAGES_SETUP_TOKEN || github.token }}
+          enablement: ${{ secrets.PAGES_SETUP_TOKEN != '' }}
 
       - name: Validate Pages entrypoints
         run: |
