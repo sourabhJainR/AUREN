@@ -97,6 +97,12 @@ class ContainerSandboxedArenaTests(unittest.TestCase):
             )
         run.assert_not_called()
 
+    @patch("portable.container_sandboxed_arena.subprocess.run")
+    def test_accepts_windows_executable_path_with_spaces(self, run):
+        run.return_value = subprocess.CompletedProcess(["docker"], 0, stdout="15\\n", stderr="")
+        self.run_campaign(container_runtime=r"C:\\Program Files\\Docker\\docker.exe")
+        self.assertEqual(run.call_args.args[0][0], r"C:\\Program Files\\Docker\\docker.exe")
+
     def test_rejects_shell_command_as_container_runtime(self):
         with self.assertRaisesRegex(ValueError, "executable"):
             self.run_campaign(container_runtime="docker; echo unsafe")
