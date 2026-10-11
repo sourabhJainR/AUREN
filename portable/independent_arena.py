@@ -49,8 +49,11 @@ def validate_manifest(manifest: Mapping[str, Any]) -> dict[str, Any]:
     if not isinstance(manifest, Mapping):
         raise ArenaError("manifest must be an object")
     manifest_fields = {"benchmark_id", "evaluator_id", "runtime_id", "cases"}
-    if set(manifest) != manifest_fields:
+    supplied_fields = set(manifest)
+    if supplied_fields not in (manifest_fields, manifest_fields | {"schema_version"}):
         raise ArenaError("manifest has unknown or missing fields")
+    if "schema_version" in manifest and manifest["schema_version"] != SCHEMA_VERSION:
+        raise ArenaError("unsupported Arena manifest schema version")
     benchmark_id = _require_text(manifest["benchmark_id"], "benchmark_id")
     evaluator_id = _require_text(manifest["evaluator_id"], "evaluator_id")
     runtime_id = _require_text(manifest["runtime_id"], "runtime_id")
