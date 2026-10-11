@@ -24,6 +24,8 @@ def target_provenance(domain_id, manifest_digest):
         overlap_attestation_digest="overlap-verified:" + domain_id,
         independent_operator_id="independent-operator",
         attestation_digest="verified:" + domain_id,
+        attestation_signer_id="independent-operator",
+        attestation_signature="fixture-signature",
     )
 
 
@@ -113,7 +115,7 @@ class CrossDomainTransferMetricsTests(unittest.TestCase):
             def evaluate(self, _request, _command):
                 return evidence
 
-        runner = SealedCrossDomainRunner(StubGateway(), target_provenance_verifier=lambda value: value.attestation_digest.startswith("verified:"))
+        runner = SealedCrossDomainRunner(StubGateway(), target_provenance_verifier=lambda value: value.attestation_digest.startswith("verified:"), trusted_target_operator_ids=frozenset({"independent-operator"}))
         report = runner.run_with_report(
             campaign, ExternalEvaluatorCommand(("python", "-c", "pass"))
         )
@@ -162,7 +164,8 @@ class CrossDomainTransferMetricsTests(unittest.TestCase):
                 campaign, ExternalEvaluatorCommand(("python", "-c", "pass"))
             )
         runner = SealedCrossDomainRunner(
-            StubGateway(), target_provenance_verifier=lambda _value: False
+            StubGateway(), target_provenance_verifier=lambda _value: False,
+            trusted_target_operator_ids=frozenset({"independent-operator"}),
         )
         with self.assertRaisesRegex(ValueError, "not verified"):
             runner.run_with_report(campaign, ExternalEvaluatorCommand(("python", "-c", "pass")))
