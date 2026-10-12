@@ -12,7 +12,7 @@ from portable.attestation_key_separation import AttestationTrustPolicy, Separati
 from portable.causal_capability_promotion import CausalCapabilityPromotionGate, CausalPromotionEvidence
 from portable.external_evaluation_campaign import ExternalEvaluationCampaign
 from portable.independent_evaluation_attestation import AttestedEvaluation, EvaluationAttestation
-from portable.promotion_evidence_chain import ArenaEvidenceObservationLedger, PromotionEvidenceChainBuilder
+from portable.promotion_evidence_chain import ArenaEvidenceObservationLedger, PromotionEvidenceChain, PromotionEvidenceChainBuilder
 
 
 _REQUIRED_ISOLATION_CONTROLS = (
@@ -421,6 +421,28 @@ class PromotionEvidenceChainTests(unittest.TestCase):
         self.assertTrue(any("missing required controls" in reason for reason in chain.reasons))
 
 
+
+    def test_structurally_forged_chain_cannot_become_learning_input(self):
+        # Constructing a dataclass with plausible digest strings is not proof
+        # that the campaign/receipt/attestation/isolation chain was verified.
+        forged = PromotionEvidenceChain(
+            campaign_digest="campaign-digest",
+            run_receipt_digest="receipt-digest",
+            causal_evidence_digest="causal-digest",
+            capability_id="planner",
+            intervention_id="intervention",
+            eligible=True,
+            reasons=(),
+            attestation_evidence_digest="attestation-digest",
+            causal_evidence_ids=("receipt-digest",),
+            isolation_evidence_digest="isolation-digest",
+        )
+        self.assertTrue(forged.complete)
+        self.assertFalse(forged.builder_verified)
+        ledger = ArenaEvidenceObservationLedger()
+        observation = ledger.record(forged)
+        self.assertFalse(observation.accepted)
+        self.assertEqual(ledger.learning_inputs, ())
 
     def test_accepted_evidence_is_immutable_and_replay_is_rejected(self):
         campaign = make_campaign()

@@ -5,7 +5,7 @@ to reference the exact causal evidence and run receipt. It never mutates state.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import hashlib
 import json
 import math
@@ -23,6 +23,11 @@ from .external_evaluation_campaign import ExternalEvaluationCampaign
 from .independent_evaluation_attestation import AttestedEvaluation
 
 
+# In-process provenance marker: only the evidence-chain builder may mark a
+# chain complete. Structural field values alone are not verification evidence.
+_VERIFIED_CHAIN_SEAL = object()
+
+
 @dataclass(frozen=True, slots=True)
 class PromotionEvidenceChain:
     # Keep the original positional field order for compatibility with existing
@@ -38,6 +43,7 @@ class PromotionEvidenceChain:
     attestation_evidence_digest: str = ""
     causal_evidence_ids: tuple[str, ...] = ()
     isolation_evidence_digest: str = ""
+    _verification_seal: object = field(default=None, init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         for name, value in (
@@ -73,6 +79,11 @@ class PromotionEvidenceChain:
             and bool(self.causal_evidence_ids)
             and bool(self.isolation_evidence_digest.strip())
         )
+
+    @property
+    def builder_verified(self) -> bool:
+        """True only for a chain produced by the in-process evidence verifier."""
+        return self._verification_seal is _VERIFIED_CHAIN_SEAL and self.complete
 
 
 class PromotionEvidenceChainBuilder:
@@ -200,7 +211,7 @@ class PromotionEvidenceChainBuilder:
             reasons.append("causal evidence lacks an independent oracle")
         if causal.contamination_detected is not False:
             reasons.append("causal evidence reports contamination")
-        return PromotionEvidenceChain(
+        chain = PromotionEvidenceChain(
             campaign_digest=campaign.campaign_digest,
             run_receipt_digest=receipt.receipt_digest,
             causal_evidence_digest=causal.evidence_digest,
@@ -212,6 +223,8 @@ class PromotionEvidenceChainBuilder:
             causal_evidence_ids=causal.evidence_ids,
             isolation_evidence_digest=isolation_digest,
         )
+        object.__setattr__(chain, "_verification_seal", _VERIFIED_CHAIN_SEAL)
+        return chain
 
 
 @dataclass(frozen=True, slots=True)
@@ -274,7 +287,7 @@ class ArenaEvidenceObservation:
             "causal_evidence_ids": chain.causal_evidence_ids,
             "isolation_evidence_digest": chain.isolation_evidence_digest,
         }, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
-        accepted = chain.complete
+        accepted = chain.complete and chain.builder_verified
         reasons = () if accepted else (chain.reasons if chain.reasons else ("evidence chain is incomplete",))
         return cls(
             chain.campaign_digest, chain.run_receipt_digest, chain.causal_evidence_digest,
