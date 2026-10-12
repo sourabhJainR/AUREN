@@ -94,6 +94,10 @@ class PromotionEvidenceChainBuilder:
         trusted_isolation_signers: frozenset[str] | None = None,
         isolation_now: float | None = None,
         attestation_now: float | None = None,
+        expected_sandbox_identity: str = "",
+        revoked_isolation_signers: frozenset[str] | None = None,
+        campaign_started_at_epoch: float | None = None,
+        campaign_ended_at_epoch: float | None = None,
     ) -> PromotionEvidenceChain:
         if not isinstance(campaign, ExternalEvaluationCampaign):
             raise TypeError("ExternalEvaluationCampaign is required")
@@ -123,6 +127,10 @@ class PromotionEvidenceChainBuilder:
                     policy_runtime_id=policy_runtime_id,
                     trusted_signer_ids=trusted_isolation_signers,
                     now=time.time() if isolation_now is None else isolation_now,
+                    expected_sandbox_identity=expected_sandbox_identity,
+                    revoked_signer_ids=revoked_isolation_signers,
+                    campaign_started_at_epoch=campaign_started_at_epoch,
+                    campaign_ended_at_epoch=campaign_ended_at_epoch,
                 )
             except (TypeError, ValueError) as exc:
                 reasons.append("sandbox isolation attestation invalid: " + str(exc))

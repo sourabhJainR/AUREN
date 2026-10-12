@@ -36,6 +36,9 @@ class ArenaIsolationAttestation:
     issued_at_epoch: float
     expires_at_epoch: float
     controls: tuple[str, ...]
+    observed_host_identity: str = ""
+    observation_started_at_epoch: float = 0.0
+    observation_ended_at_epoch: float = 0.0
 
     def __post_init__(self) -> None:
         for name in ("campaign_digest", "run_receipt_digest", "image_digest", "sandbox_id", "signer_id", "signature"):
@@ -50,6 +53,14 @@ class ArenaIsolationAttestation:
                 raise ValueError(f"{name} must be a finite positive Unix timestamp")
         if self.issued_at_epoch >= self.expires_at_epoch:
             raise ValueError("isolation attestation expiry must follow issuance")
+        if not isinstance(self.observed_host_identity, str) or not self.observed_host_identity.strip():
+            raise ValueError("observed_host_identity must be a non-empty externally observed identity")
+        for name in ("observation_started_at_epoch", "observation_ended_at_epoch"):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0:
+                raise ValueError(f"{name} must be a finite positive Unix timestamp")
+        if self.observation_started_at_epoch >= self.observation_ended_at_epoch:
+            raise ValueError("isolation observation window must have positive duration")
         if not isinstance(self.controls, tuple) or any(not isinstance(x, str) or not x.strip() for x in self.controls):
             raise ValueError("controls must be a tuple of non-empty control identifiers")
         if len(set(self.controls)) != len(self.controls):
@@ -66,6 +77,9 @@ class ArenaIsolationAttestation:
             "issued_at_epoch": self.issued_at_epoch,
             "expires_at_epoch": self.expires_at_epoch,
             "controls": self.controls,
+            "observed_host_identity": self.observed_host_identity,
+            "observation_started_at_epoch": self.observation_started_at_epoch,
+            "observation_ended_at_epoch": self.observation_ended_at_epoch,
         }
         return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")
 
@@ -86,6 +100,10 @@ def verify_arena_isolation_attestation(
     policy_runtime_id: str,
     trusted_signer_ids: frozenset[str] | None,
     now: float,
+    expected_sandbox_identity: str | None = None,
+    revoked_signer_ids: frozenset[str] | None = None,
+    campaign_started_at_epoch: float | None = None,
+    campaign_ended_at_epoch: float | None = None,
     max_future_skew_seconds: float = 30.0,
 ) -> str:
     """Return the attestation digest only when the signed report is valid and bound."""
@@ -109,6 +127,23 @@ def verify_arena_isolation_attestation(
             raise ValueError(f"{name} must be a non-empty string")
     if not _IMAGE_DIGEST_RE.fullmatch(expected_image_digest):
         raise ValueError("expected_image_digest must be an immutable sha256 digest")
+    if not isinstance(expected_sandbox_identity, str) or not expected_sandbox_identity.strip():
+        raise ValueError("externally observed expected sandbox identity is required")
+    if attestation.observed_host_identity != expected_sandbox_identity:
+        raise ValueError("isolation attestation observed sandbox identity mismatch")
+    if not isinstance(revoked_signer_ids, frozenset):
+        raise ValueError("out-of-band revoked signer identity policy is required")
+    if attestation.signer_id in revoked_signer_ids:
+        raise ValueError("isolation attestation signer is revoked")
+    for name, value in (("campaign_started_at_epoch", campaign_started_at_epoch), ("campaign_ended_at_epoch", campaign_ended_at_epoch)):
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0:
+            raise ValueError(f"{name} must be a finite positive Unix timestamp")
+    if campaign_started_at_epoch >= campaign_ended_at_epoch:
+        raise ValueError("campaign observation interval must have positive duration")
+    if attestation.observation_started_at_epoch < campaign_started_at_epoch or attestation.observation_ended_at_epoch > campaign_ended_at_epoch:
+        raise ValueError("isolation observation window falls outside the campaign run interval")
+    if attestation.observation_ended_at_epoch > now + max_future_skew_seconds:
+        raise ValueError("isolation observation window ends in the future")
     if attestation.campaign_digest != expected_campaign_digest:
         raise ValueError("isolation attestation campaign digest mismatch")
     if attestation.run_receipt_digest != expected_run_receipt_digest:
