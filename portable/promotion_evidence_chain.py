@@ -73,13 +73,17 @@ class PromotionEvidenceChain:
     @property
     def complete(self) -> bool:
         return (
-            self._verification_seal is _VERIFIED_CHAIN_SEAL
-            and self.eligible is True
+            self.eligible is True
             and not self.reasons
             and bool(self.attestation_evidence_digest.strip())
             and bool(self.causal_evidence_ids)
             and bool(self.isolation_evidence_digest.strip())
         )
+
+    @property
+    def builder_verified(self) -> bool:
+        """True only for a chain produced by the in-process evidence verifier."""
+        return self._verification_seal is _VERIFIED_CHAIN_SEAL and self.complete
 
 
 class PromotionEvidenceChainBuilder:
@@ -283,7 +287,7 @@ class ArenaEvidenceObservation:
             "causal_evidence_ids": chain.causal_evidence_ids,
             "isolation_evidence_digest": chain.isolation_evidence_digest,
         }, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
-        accepted = chain.complete
+        accepted = chain.complete and chain.builder_verified
         reasons = () if accepted else (chain.reasons if chain.reasons else ("evidence chain is incomplete",))
         return cls(
             chain.campaign_digest, chain.run_receipt_digest, chain.causal_evidence_digest,
