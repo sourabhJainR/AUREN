@@ -157,6 +157,27 @@ class ExecutionControllerPromotionGateTests(unittest.TestCase):
         self.assertEqual(self.controller.task(task.id).state, "failed")
         self.assertEqual(_PROMOTION_SIDE_EFFECTS, [])
 
+    def test_missing_rollback_action_blocks_high_risk_promotion(self):
+        _PROMOTION_CONTEXT["decision_record"].pop("rollback_action")
+        task = self.submit()
+        self.controller.run_once(task.id)
+        self.assertEqual(self.controller.task(task.id).state, "failed")
+        self.assertEqual(_PROMOTION_SIDE_EFFECTS, [])
+
+    def test_skipped_required_check_blocks_promotion(self):
+        _PROMOTION_CONTEXT["decision_record"]["checks"][0]["status"] = "skipped"
+        task = self.submit()
+        self.controller.run_once(task.id)
+        self.assertEqual(self.controller.task(task.id).state, "failed")
+        self.assertEqual(_PROMOTION_SIDE_EFFECTS, [])
+
+    def test_unknown_approval_evidence_blocks_promotion(self):
+        _PROMOTION_CONTEXT["known_evidence_ids"] = ["run-1"]
+        task = self.submit()
+        self.controller.run_once(task.id)
+        self.assertEqual(self.controller.task(task.id).state, "failed")
+        self.assertEqual(_PROMOTION_SIDE_EFFECTS, [])
+
     def test_missing_rollback_anchor_blocks_high_risk_promotion(self):
         _PROMOTION_CONTEXT["decision_record"].pop("last_known_good_commit")
         task = self.submit()
