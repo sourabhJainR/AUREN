@@ -39,6 +39,9 @@ def isolation_kwargs(campaign, receipt):
         issued_at_epoch=now - 10,
         expires_at_epoch=now + 300,
         controls=_REQUIRED_ISOLATION_CONTROLS,
+        observed_host_identity="host-audit-17",
+        observation_started_at_epoch=now - 9,
+        observation_ended_at_epoch=now - 8,
     )
     signature = "signed:" + hashlib.sha256(unsigned.signing_message()).hexdigest()
     attestation = replace(unsigned, signature=signature)
@@ -58,6 +61,10 @@ def isolation_kwargs(campaign, receipt):
         policy_runtime_id="policy-runtime",
         trusted_isolation_signers=frozenset({"independent-sandbox-auditor"}),
         isolation_now=now,
+        expected_sandbox_identity="host-audit-17",
+        revoked_signer_ids=frozenset(),
+        campaign_started_at_epoch=now - 30,
+        campaign_ended_at_epoch=now - 1,
     )
 
 
