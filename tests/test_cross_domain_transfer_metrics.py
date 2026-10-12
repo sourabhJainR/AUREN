@@ -34,6 +34,7 @@ def setup_campaign(capability_id="planner-v1"):
         "campaign-base", "corpus-v1",
         (
             SealedCaseEnvelope("source-case", "task-s", "input-s", "env-s", True, ("source",)),
+            SealedCaseEnvelope("zero-case", "task-z", "input-z", "env-z", True, ("novel",)),
             SealedCaseEnvelope("few-case", "task-f", "input-f", "env-f", True, ("novel",)),
             SealedCaseEnvelope("adapted-case", "task-a", "input-a", "env-a", True, ("novel",)),
         ),
@@ -54,6 +55,8 @@ def setup_campaign(capability_id="planner-v1"):
         request,
         (
             SealedDomain("source", ("source-case",), False, "zero_shot"),
+            SealedDomain("target-zero-shot", ("zero-case",), True, "zero_shot",
+                         target_provenance("target-zero-shot", request.manifest_digest)),
             SealedDomain("target-few-shot", ("few-case",), True, "few_shot",
                          target_provenance("target-few-shot", request.manifest_digest)),
             SealedDomain("target-adapted", ("adapted-case",), True, "adapted",
@@ -72,6 +75,7 @@ def setup_campaign(capability_id="planner-v1"):
         "signed",
         (
             ("source-case", False, "evidence-source"),
+            ("zero-case", True, "evidence-zero"),
             ("few-case", True, "evidence-few"),
             ("adapted-case", True, "evidence-adapted"),
         ),
@@ -81,6 +85,7 @@ def setup_campaign(capability_id="planner-v1"):
         independent_oracle=True,
         metrics=(
             ("source-case", 0.80, 0.70, 0.20, 100.0, True),
+            ("zero-case", 0.90, 0.90, 0.05, 80.0, True),
             ("few-case", 0.60, 0.90, 0.30, 250.0, True),
             ("adapted-case", 0.90, 0.80, 0.10, 300.0, False),
         ),
@@ -100,7 +105,10 @@ class CrossDomainTransferMetricsTests(unittest.TestCase):
         self.assertEqual(report.capability_id, "planner-v1")
         self.assertEqual(report.source_regression.pass_rate, 0.0)
         self.assertEqual(report.target_transfer.pass_rate, 1.0)
-        self.assertEqual(report.by_mode["zero_shot"].pass_rate, 0.0)
+        # Mode-specific values are target-only: source-case failed, but the
+        # unseen target zero-shot case passed and must not be mixed with source.
+        self.assertEqual(report.by_mode["zero_shot"].pass_rate, 1.0)
+        self.assertEqual(report.by_mode["zero_shot"].cases, 1)
         self.assertEqual(report.by_mode["few_shot"].pass_rate, 1.0)
         self.assertEqual(report.by_mode["adapted"].pass_rate, 1.0)
         self.assertEqual(report.by_mode["few_shot"].mean_resource_cost_ms, 250.0)
