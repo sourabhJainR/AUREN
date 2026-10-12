@@ -82,6 +82,28 @@ class DecisionGateTests(unittest.TestCase):
         record["checks"][0]["status"] = "failed"
         self.assertTrue(any("every recorded check passed" in e for e in self.errors(record, authorized_approvers={APPROVER}, known_evidence_ids={"run-123", "approval-1"})))
 
+    def test_promotion_requires_a_rollback_runbook_and_canonical_rehearsal_evidence(self) -> None:
+        record = valid_record()
+        record["promotion"] = {
+            "level": "verified_for_scope",
+            "approved_by": APPROVER,
+            "approval_evidence_id": "approval-1",
+        }
+        errors = self.errors(
+            record, authorized_approvers={APPROVER},
+            known_evidence_ids={"run-123", "approval-1"},
+        )
+        self.assertTrue(any("rollback_procedure_ref" in error for error in errors))
+        self.assertTrue(any("rollback_test_evidence_id" in error for error in errors))
+
+        record["rollback_procedure_ref"] = "runbook://rollback"
+        record["rollback_test_evidence_id"] = "rollback-test-1"
+        errors = self.errors(
+            record, authorized_approvers={APPROVER},
+            known_evidence_ids={"run-123", "approval-1"},
+        )
+        self.assertTrue(any("rollback_test_evidence_id is not in the canonical evidence ledger" in error for error in errors))
+
     def test_independent_promotion_requires_external_lineage(self) -> None:
         record = valid_record()
         record["promotion"] = {"level": "independently_corroborated", "approved_by": APPROVER, "approval_evidence_id": "approval-1"}
