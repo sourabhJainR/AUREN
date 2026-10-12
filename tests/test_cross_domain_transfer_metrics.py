@@ -181,7 +181,11 @@ class CrossDomainTransferMetricsTests(unittest.TestCase):
     def test_report_rejects_missing_or_development_overlapping_target_provenance(self):
         campaign, bound_request, _receipt, evidence = setup_campaign()
         missing_domain = replace(campaign.domains[1], provenance=None)
-        missing = replace(campaign, domains=(campaign.domains[0], missing_domain, campaign.domains[2]))
+        missing_domains = tuple(
+            missing_domain if index == 1 else domain
+            for index, domain in enumerate(campaign.domains)
+        )
+        missing = replace(campaign, domains=missing_domains)
         with self.assertRaisesRegex(ValueError, "lacks held-out provenance"):
             build_cross_domain_report(missing, evidence, expected_request_digest=bound_request.request_digest)
         bad_provenance = replace(
@@ -189,7 +193,11 @@ class CrossDomainTransferMetricsTests(unittest.TestCase):
             development_corpus_digest=campaign.request.corpus_digest,
         )
         bad_domain = replace(campaign.domains[1], provenance=bad_provenance)
-        overlapping = replace(campaign, domains=(campaign.domains[0], bad_domain, campaign.domains[2]))
+        overlapping_domains = tuple(
+            bad_domain if index == 1 else domain
+            for index, domain in enumerate(campaign.domains)
+        )
+        overlapping = replace(campaign, domains=overlapping_domains)
         with self.assertRaisesRegex(ValueError, "reuses the development corpus"):
             build_cross_domain_report(overlapping, evidence, expected_request_digest=bound_request.request_digest)
 
