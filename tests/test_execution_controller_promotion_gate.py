@@ -53,6 +53,8 @@ def valid_record(head=HEAD_SHA):
         "limitations": ["External generalization remains unproven"],
         "rollback_trigger": "Any required check or canary fails",
         "rollback_action": "Restore last known-good revision",
+        "rollback_procedure_ref": "runbook://release-rollback",
+        "rollback_test_evidence_id": "rollback-test-1",
         "last_known_good_commit": BASE_SHA,
         "retry_history": [],
         "promotion": {
@@ -69,7 +71,7 @@ def valid_context():
         "expected_repository": REPOSITORY,
         "expected_head": HEAD_SHA,
         "authorized_approvers": [APPROVER],
-        "known_evidence_ids": ["run-1", "approval-1"],
+        "known_evidence_ids": ["run-1", "approval-1", "rollback-test-1"],
     }
 
 
