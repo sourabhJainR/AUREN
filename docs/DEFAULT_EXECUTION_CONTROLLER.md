@@ -18,7 +18,7 @@ The existing maintenance service calls resume_tasks() before its maintenance cyc
 
 ## Durable handlers
 
-Register an importable module-level handler with `runtime.register_task_handler(name, handler)`. Consequential promotion/merge handlers must register an operator-owned `promotion_gate_policy={"context_handler": "trusted-provider-name"}`; release workflows may also register `ci_gate_policy` with an exact head, required check names, and a separate trusted evidence provider. Submit with `runtime.submit_task(name, payload)` and resume with `runtime.resume_tasks()`. The context provider receives task identity only, not task payload, and must resolve repository/head/approver/canonical evidence from trusted live sources. Gate policy is persisted separately from task payload and re-registration cannot silently remove it.
+Register an importable module-level handler with `runtime.register_task_handler(name, handler)`. The controller now fails closed at registration for names containing consequential tokens (`promote`, `promotion`, `merge`, `release`, `deploy`, `publish`, and related forms): promotion-capable handlers require an operator-owned `promotion_gate_policy={"context_handler": "trusted-provider-name"}`, and merge/release/deploy/publish handlers additionally require an exact-head `ci_gate_policy` with required checks and a separate trusted evidence provider. Re-registering an existing handler without passing policy does not remove previously persisted gates. Name-based detection is a safety net, not a security boundary; deployments must explicitly gate every consequential handler, including those with neutral names. Submit with `runtime.submit_task(name, payload)` and resume with `runtime.resume_tasks()`. The context provider receives task identity only, not task payload, and must resolve repository/head/approver/canonical evidence from trusted live sources. Gate policy is persisted separately from task payload and re-registration cannot silently remove it.
 
 Handlers are stored as module:qualname, not serialized Python objects. This makes them reconstructable by a new process.
 
@@ -39,3 +39,8 @@ The existing service now resumes pending/running durable execution tasks before 
 ## Repository-level merge protection boundary
 
 The runtime gate protects handlers registered with an operator-owned gate policy. It cannot intercept a merge performed directly through GitHub UI/API or an alternate automation identity. Repository owners/admins must configure and verify branch protection or rulesets that require the exact-head checks and appropriate review. Until those settings are independently confirmed, report this as an external blocker rather than claiming every merge path is protected.
+
+
+## Mandatory-gate rollout and rollback
+
+The registration guard intentionally rejects previously unguarded consequential handlers. Roll out by registering a separate trusted context provider and exact-head CI evidence provider first, then register the protected handler with its policies. If a deployment is blocked, do not rename the handler to bypass the guard; inspect the provider configuration and exact-head evidence. Rollback is a clean revert of the controller change, but reverting weakens this fail-closed guard and does not undo any already executed external side effect. Repository branch protection remains a separate owner/admin setting.

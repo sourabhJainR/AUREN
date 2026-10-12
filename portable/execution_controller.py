@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import importlib
 import json
+import re
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -20,6 +21,15 @@ from .decision_gate import require_valid_decision_record
 from .engineering_recovery import verify_ci_gate
 
 Handler = Callable[[Mapping[str, Any]], Any]
+
+# Naming is a fail-closed safety net, not a substitute for operator-owned
+# registration policy or repository branch protection.
+_PROMOTION_HANDLER_TOKENS = frozenset({"promote", "promotion", "promoter", "merge", "merger", "release", "deploy", "deployment", "publish"})
+_EXACT_HEAD_CI_HANDLER_TOKENS = frozenset({"merge", "merger", "release", "deploy", "deployment", "publish"})
+
+
+def _handler_tokens(name: str) -> frozenset[str]:
+    return frozenset(token for token in re.split(r"[^a-z0-9]+", name.lower()) if token)
 
 
 def _now() -> str:
@@ -93,6 +103,30 @@ class ExecutionController:
             if not module or not qualname or "<locals>" in qualname:
                 raise ValueError("durable handlers must be importable module-level callables")
             reference = f"{module}:{qualname}"
+
+        tokens = _handler_tokens(name)
+        requires_promotion_gate = bool(tokens & _PROMOTION_HANDLER_TOKENS)
+        requires_exact_head_ci = bool(tokens & _EXACT_HEAD_CI_HANDLER_TOKENS)
+        if requires_promotion_gate and not promotion_gate_policy:
+            # A prior trusted policy is retained on re-registration below. For
+            # a new handler, require the caller to declare the gate explicitly.
+            with sqlite3.connect(self.db_path) as db:
+                prior = db.execute(
+                    "SELECT promotion_gate_policy_json FROM handlers WHERE name=?", (name,)
+                ).fetchone()
+            if not prior or not json.loads(prior[0] or "{}"):
+                raise ValueError(
+                    f"consequential handler {name!r} requires an operator-owned promotion_gate_policy"
+                )
+        if requires_exact_head_ci and not ci_gate_policy:
+            with sqlite3.connect(self.db_path) as db:
+                prior = db.execute(
+                    "SELECT ci_gate_policy_json FROM handlers WHERE name=?", (name,)
+                ).fetchone()
+            if not prior or not json.loads(prior[0] or "{}"):
+                raise ValueError(
+                    f"consequential handler {name!r} requires an exact-head ci_gate_policy"
+                )
 
         ci_policy = dict(ci_gate_policy or {})
         if ci_policy:

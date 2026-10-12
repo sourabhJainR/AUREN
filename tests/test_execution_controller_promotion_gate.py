@@ -121,6 +121,19 @@ class ExecutionControllerPromotionGateTests(unittest.TestCase):
         self.assertEqual(self.controller.task(task.id).state, "failed")
         self.assertEqual(_PROMOTION_SIDE_EFFECTS, [])
 
+    def test_consequential_handler_cannot_be_registered_without_promotion_gate(self):
+        with self.assertRaisesRegex(ValueError, "requires an operator-owned promotion_gate_policy"):
+            self.controller.register_handler("promote-without-policy", protected_promotion_handler)
+
+    def test_merge_handler_requires_exact_head_ci_and_promotion_gates(self):
+        with self.assertRaisesRegex(ValueError, "requires an operator-owned promotion_gate_policy"):
+            self.controller.register_handler("merge-pull-request", protected_promotion_handler)
+        with self.assertRaisesRegex(ValueError, "requires an exact-head ci_gate_policy"):
+            self.controller.register_handler(
+                "merge-pull-request", protected_promotion_handler,
+                promotion_gate_policy={"context_handler": "trusted-context"},
+            )
+
     def test_gate_policy_requires_registered_trusted_context_provider(self):
         with self.assertRaisesRegex(KeyError, "unknown durable handler"):
             self.controller.register_handler(
