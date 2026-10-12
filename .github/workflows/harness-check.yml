@@ -148,7 +148,7 @@ jobs:
         if: always()
         uses: ./.github/actions/publish-ci-artifacts
         with:
-          artifact-name: auren-harness-results
+          artifact-name: auren-harness-results-py${{ matrix.python-version }}
           path: ci-artifacts/
           retention-days: '14'
       - name: Publish AUREN CLI link
