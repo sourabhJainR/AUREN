@@ -167,9 +167,15 @@ def build_cross_domain_report(
     if not target_ids:
         raise ValueError("novel target-domain holdout is required to report transfer")
 
+    # Mode-specific transfer scores must be computed on novel target domains.
+    # Source-domain zero-shot regression is already reported separately above;
+    # mixing it into by_mode would mislabel source performance as target transfer.
     by_mode = {
         mode: _aggregate(
-            tuple(sorted(case_id for case_id in holdouts if domain_by_case[case_id].evaluation_mode == mode)),
+            tuple(sorted(
+                case_id for case_id in target_ids
+                if domain_by_case[case_id].evaluation_mode == mode
+            )),
             result_map,
             metric_map,
         )
