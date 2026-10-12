@@ -35,6 +35,7 @@ def isolation_kwargs(campaign, receipt):
         image_digest=_TEST_IMAGE_DIGEST,
         sandbox_id="external-sandbox-17",
         signer_id="independent-sandbox-auditor",
+        signer_key_id="sandbox-auditor-key-v3",
         signature="placeholder",
         issued_at_epoch=now - 10,
         expires_at_epoch=now + 300,
@@ -60,6 +61,8 @@ def isolation_kwargs(campaign, receipt):
         oracle_id="independent-oracle",
         policy_runtime_id="policy-runtime",
         trusted_isolation_signers=frozenset({"independent-sandbox-auditor"}),
+        trusted_isolation_signer_key_ids=frozenset({"sandbox-auditor-key-v3"}),
+        revoked_isolation_signer_key_ids=frozenset(),
         isolation_now=now,
         expected_sandbox_identity="host-audit-17",
         revoked_isolation_signers=frozenset(),
@@ -327,6 +330,34 @@ class PromotionEvidenceChainTests(unittest.TestCase):
         )
         self.assertFalse(chain.complete)
         self.assertTrue(any("signer is revoked" in reason for reason in chain.reasons))
+
+    def test_chain_rejects_revoked_isolation_signer_key_id(self):
+        campaign = make_campaign()
+        receipt = make_receipt(campaign)
+        causal = make_causal(receipt)
+        decision = CausalCapabilityPromotionGate().evaluate(causal)
+        kwargs = isolation_kwargs(campaign, receipt)
+        kwargs["revoked_isolation_signer_key_ids"] = frozenset({"sandbox-auditor-key-v3"})
+        chain = PromotionEvidenceChainBuilder().build(
+            campaign, receipt, causal, decision,
+            attested_campaign=make_attested_campaign(campaign), **kwargs
+        )
+        self.assertFalse(chain.complete)
+        self.assertTrue(any("signer key ID is revoked" in reason for reason in chain.reasons))
+
+    def test_chain_rejects_missing_trusted_isolation_signer_key_policy(self):
+        campaign = make_campaign()
+        receipt = make_receipt(campaign)
+        causal = make_causal(receipt)
+        decision = CausalCapabilityPromotionGate().evaluate(causal)
+        kwargs = isolation_kwargs(campaign, receipt)
+        kwargs["trusted_isolation_signer_key_ids"] = None
+        chain = PromotionEvidenceChainBuilder().build(
+            campaign, receipt, causal, decision,
+            attested_campaign=make_attested_campaign(campaign), **kwargs
+        )
+        self.assertFalse(chain.complete)
+        self.assertTrue(any("trusted isolation signer key-ID allowlist is required" in reason for reason in chain.reasons))
 
     def test_chain_rejects_mismatched_observed_sandbox_identity(self):
         campaign = make_campaign()

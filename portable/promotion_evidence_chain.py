@@ -92,6 +92,8 @@ class PromotionEvidenceChainBuilder:
         oracle_id: str = "",
         policy_runtime_id: str = "",
         trusted_isolation_signers: frozenset[str] | None = None,
+        trusted_isolation_signer_key_ids: frozenset[str] | None = None,
+        revoked_isolation_signer_key_ids: frozenset[str] | None = None,
         isolation_now: float | None = None,
         attestation_now: float | None = None,
         expected_sandbox_identity: str = "",
@@ -129,6 +131,8 @@ class PromotionEvidenceChainBuilder:
                     now=time.time() if isolation_now is None else isolation_now,
                     expected_sandbox_identity=expected_sandbox_identity,
                     revoked_signer_ids=revoked_isolation_signers,
+                    trusted_signer_key_ids=trusted_isolation_signer_key_ids,
+                    revoked_signer_key_ids=revoked_isolation_signer_key_ids,
                     campaign_started_at_epoch=campaign_started_at_epoch,
                     campaign_ended_at_epoch=campaign_ended_at_epoch,
                 )
