@@ -476,6 +476,31 @@ class PromotionEvidenceChainTests(unittest.TestCase):
             ledger.record(conflicting)
 
 
+    def test_in_memory_ledger_allows_only_one_concurrent_receipt_claim(self):
+        campaign = make_campaign()
+        receipt = make_receipt(campaign)
+        causal = make_causal(receipt)
+        decision = CausalCapabilityPromotionGate().evaluate(causal)
+        chain = PromotionEvidenceChainBuilder().build(
+            campaign, receipt, causal, decision,
+            attested_campaign=make_attested_campaign(campaign, receipt),
+            **isolation_kwargs(campaign, receipt),
+        )
+        ledger = ArenaEvidenceObservationLedger()
+
+        def record(_):
+            try:
+                ledger.record(chain)
+                return "accepted"
+            except ValueError:
+                return "rejected"
+
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            results = list(pool.map(record, range(8)))
+        self.assertEqual(results.count("accepted"), 1)
+        self.assertEqual(results.count("rejected"), 7)
+        self.assertEqual(len(ledger.records), 1)
+
     def test_durable_ledger_survives_restart_and_rejects_replay(self):
         campaign = make_campaign()
         receipt = make_receipt(campaign)
