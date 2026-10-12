@@ -48,6 +48,11 @@ class ApprovedToolRegistry:
     def names(self) -> tuple[str, ...]:
         return tuple(sorted(self._tools))
 
+    def description(self, name: str) -> str:
+        if name not in self._tools:
+            raise KeyError(name)
+        return self._tools[name].description
+
     def invoke(self, name: str, arguments: Mapping[str, Any]) -> Any:
         if name not in self._tools:
             raise PermissionError(f"tool is not approved for this adapter: {name}")
@@ -101,6 +106,21 @@ class ApprovedToolCrewAdapter:
         self._allowed_tools = frozenset(allowed_tools)
         self._finalizer = finalizer
         self._max_tool_calls = max_tool_calls
+
+    @property
+    def configuration_digest(self) -> str:
+        """Stable digest of the adapter's bounded tool scope, not callable identity."""
+        payload = {
+            "schema_version": "auren-approved-tool-crew-adapter-v1",
+            "crew_id": self.crew_id,
+            "allowed_tools": [
+                {"name": name, "description": self._tools.description(name)}
+                for name in sorted(self._allowed_tools)
+            ],
+            "max_tool_calls": self._max_tool_calls,
+            "has_finalizer": self._finalizer is not None,
+        }
+        return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
 
     def propose(self, request: Mapping[str, Any]) -> Mapping[str, Any]:
         if not isinstance(request, Mapping) or request.get("crew_id") != self.crew_id:

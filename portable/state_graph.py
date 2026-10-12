@@ -68,6 +68,7 @@ class CrewAssignment:
     matched_triggers: tuple[str, ...]
     agent_registered: bool
     contract_digest: str
+    agent_config_digest: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -279,7 +280,17 @@ class GraphAgentTeam:
                     "independent_review_required": crew.independent_review_required,
                 }
                 contract_digest = hashlib.sha256(json.dumps(contract, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
-                selected.append(CrewAssignment(crew.crew_id, matched, crew.crew_id in self.agents, contract_digest))
+                agent = self.agents.get(crew.crew_id)
+                agent_config_digest = getattr(agent, "configuration_digest", "") if agent is not None else ""
+                if not isinstance(agent_config_digest, str):
+                    agent_config_digest = ""
+                selected.append(CrewAssignment(
+                    crew_id=crew.crew_id,
+                    matched_triggers=matched,
+                    agent_registered=agent is not None,
+                    contract_digest=contract_digest,
+                    agent_config_digest=agent_config_digest,
+                ))
         # Keep routing deterministic even when callers register custom crews in a different order.
         selected.sort(key=lambda item: (0 if self.crews[item.crew_id].always_on else 1, item.crew_id))
         return CrewPlan(
