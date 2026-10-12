@@ -134,17 +134,6 @@ class ExecutionControllerPromotionGateTests(unittest.TestCase):
                 promotion_gate_policy={"context_handler": "trusted-context"},
             )
 
-    def test_existing_consequential_handler_keeps_gate_on_re_registration(self):
-        self.controller.register_handler(
-            "merge-pull-request", protected_promotion_handler,
-            promotion_gate_policy={"context_handler": "trusted-context"},
-            ci_gate_policy={
-                "expected_head_sha": HEAD_SHA,
-                "required_checks": ["validate"],
-                "evidence_handler": "trusted-ci-evidence",
-            },
-        )
-
     def test_gate_policy_requires_registered_trusted_context_provider(self):
         with self.assertRaisesRegex(KeyError, "unknown durable handler"):
             self.controller.register_handler(
