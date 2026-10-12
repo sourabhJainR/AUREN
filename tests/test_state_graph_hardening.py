@@ -52,11 +52,11 @@ class StateGraphHardeningTests(unittest.TestCase):
         self.assertEqual(calls["count"], 1)
 
     def test_timeout_returns_without_waiting_for_worker(self) -> None:
-        graph = StateGraph().add_node("slow", lambda state: (time.sleep(0.05), {"ok": True})[1]).add_edge(StateGraph.START, "slow").add_edge("slow", StateGraph.END).compile()
+        graph = StateGraph().add_node("slow", lambda state: (time.sleep(0.2), {"ok": True})[1]).add_edge(StateGraph.START, "slow").add_edge("slow", StateGraph.END).compile()
         started = time.monotonic()
         with self.assertRaises(TimeoutError):
             graph.invoke({}, node_timeout_seconds=0.001)
-        self.assertLess(time.monotonic() - started, 0.03)
+        self.assertLess(time.monotonic() - started, 0.1)
 
 
 if __name__ == "__main__":
