@@ -373,8 +373,10 @@ class SealedArenaBoundary:
         if not observed_ids <= expected_ids:
             raise ValueError("outcome receipt contains an unknown case")
         if observed_ids != expected_ids:
-            missing = sorted(expected_ids - observed_ids)
-            raise ValueError(f"outcome receipt is incomplete; missing cases: {missing}")
+            # Never disclose sealed case identifiers through exceptions or logs.
+            # Report only aggregate completeness to the caller outside the evaluator.
+            missing_count = len(expected_ids - observed_ids)
+            raise ValueError(f"outcome receipt is incomplete; missing case count: {missing_count}")
         holdouts = {case.case_id for case in request.cases if case.holdout is True}
         holdout_results = [row for row in receipt.results if row[0] in holdouts]
         if len(holdout_results) != len(holdouts):

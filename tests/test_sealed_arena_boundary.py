@@ -144,8 +144,10 @@ class SealedArenaBoundaryTests(unittest.TestCase):
         )
         request = replace(base, provenance=provenance)
         receipt = self.receipt(results=(("case-1", True, "evidence-d"),), request_digest=request.request_digest)
-        with self.assertRaisesRegex(ValueError, "incomplete"):
+        with self.assertRaisesRegex(ValueError, "incomplete") as caught:
             SealedArenaBoundary(lambda _value: True).accept(request, receipt)
+        self.assertNotIn("case-2", str(caught.exception))
+        self.assertIn("missing case count: 1", str(caught.exception))
 
     def test_rejects_non_boolean_outcome(self) -> None:
         with self.assertRaisesRegex(ValueError, "must be booleans"):
