@@ -191,6 +191,62 @@ class ExecutionControllerPromotionGateTests(unittest.TestCase):
         self.assertEqual(self.controller.task(task.id).state, "failed")
         self.assertEqual(_PROMOTION_SIDE_EFFECTS, [])
 
+    def test_merge_allows_side_effect_only_after_matching_exact_head_ci(self):
+        self.controller.register_handler("trusted-ci", trusted_ci_evidence)
+        _CI_CONTEXT.update({
+            "head_sha": HEAD_SHA,
+            "status": "completed",
+            "conclusion": "success",
+            "passed_checks": ["required-ci"],
+            "skipped_checks": [],
+        })
+        self.controller.register_handler(
+            "merge-pull-request",
+            protected_promotion_handler,
+            promotion_gate_policy={"context_handler": "trusted-context"},
+            ci_gate_policy={
+                "expected_head_sha": HEAD_SHA,
+                "required_checks": ["required-ci"],
+                "evidence_handler": "trusted-ci",
+            },
+        )
+        task = self.controller.submit("merge-pull-request", {"operation": "merge"})
+        self.controller.run_once(task.id)
+        self.assertEqual(self.controller.task(task.id).state, "completed")
+        self.assertEqual(_PROMOTION_SIDE_EFFECTS, ["merge"])
+
+    def test_merge_rejects_in_progress_ci_even_if_payload_claims_success(self):
+        self.controller.register_handler("trusted-ci", trusted_ci_evidence)
+        _CI_CONTEXT.update({
+            "head_sha": HEAD_SHA,
+            "status": "in_progress",
+            "conclusion": None,
+            "passed_checks": ["required-ci"],
+            "skipped_checks": [],
+        })
+        self.controller.register_handler(
+            "merge-pull-request",
+            protected_promotion_handler,
+            promotion_gate_policy={"context_handler": "trusted-context"},
+            ci_gate_policy={
+                "expected_head_sha": HEAD_SHA,
+                "required_checks": ["required-ci"],
+                "evidence_handler": "trusted-ci",
+            },
+        )
+        task = self.controller.submit(
+            "merge-pull-request",
+            {
+                "operation": "merge",
+                "ci_status": "completed",
+                "ci_conclusion": "success",
+                "passed_checks": ["required-ci"],
+            },
+        )
+        self.controller.run_once(task.id)
+        self.assertEqual(self.controller.task(task.id).state, "failed")
+        self.assertEqual(_PROMOTION_SIDE_EFFECTS, [])
+
     def test_merge_blocks_when_ci_sha_differs_from_live_promotion_head(self):
         self.controller.register_handler("trusted-ci", trusted_ci_evidence)
         _CI_CONTEXT.update({
