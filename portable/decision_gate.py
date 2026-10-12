@@ -38,7 +38,7 @@ def validate_decision_record(
         "schema_version", "task_id", "repository", "base_commit", "head_commit",
         "risk_level", "acceptance_criteria", "selected_option", "selection_rationale",
         "alternatives", "dependencies", "checks", "limitations", "rollback_trigger",
-        "rollback_action", "last_known_good_commit", "retry_history", "promotion",
+        "rollback_action", "rollback_procedure_ref", "rollback_test_evidence_id", "last_known_good_commit", "retry_history", "promotion",
     }
     unknown_fields = set(record) - allowed_fields
     if unknown_fields:
@@ -62,6 +62,11 @@ def validate_decision_record(
     required_text("rollback_trigger")
     required_text("rollback_action")
     risk_level = required_text("risk_level")
+    rollback_procedure_ref = record.get("rollback_procedure_ref")
+    if risk_level in {"high", "critical"} and (not isinstance(rollback_procedure_ref, str) or not rollback_procedure_ref.strip()):
+        errors.append("high/critical risk requires rollback_procedure_ref")
+    elif rollback_procedure_ref is not None and (not isinstance(rollback_procedure_ref, str) or not rollback_procedure_ref.strip()):
+        errors.append("rollback_procedure_ref must be a non-empty string when provided")
     last_known_good = record.get("last_known_good_commit")
     if risk_level in {"high", "critical"}:
         if not isinstance(last_known_good, str) or not COMMIT_RE.fullmatch(last_known_good):
@@ -172,6 +177,13 @@ def validate_decision_record(
         level = "none"
     known = set(known_evidence_ids) if known_evidence_ids is not None else None
     if PROMOTION_LEVELS[level] > 0:
+        if not isinstance(rollback_procedure_ref, str) or not rollback_procedure_ref.strip():
+            errors.append("promotion requires rollback_procedure_ref")
+        rollback_test_evidence_id = record.get("rollback_test_evidence_id")
+        if not isinstance(rollback_test_evidence_id, str) or not rollback_test_evidence_id.strip():
+            errors.append("promotion requires rollback_test_evidence_id proving a rollback rehearsal")
+        elif known is not None and rollback_test_evidence_id not in known:
+            errors.append("rollback_test_evidence_id is not in the canonical evidence ledger")
         if known is None:
             errors.append("promotion requires a trusted canonical known_evidence_ids set")
         else:
