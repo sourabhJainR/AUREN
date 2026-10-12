@@ -437,7 +437,8 @@ class PromotionEvidenceChainTests(unittest.TestCase):
             causal_evidence_ids=("receipt-digest",),
             isolation_evidence_digest="isolation-digest",
         )
-        self.assertFalse(forged.complete)
+        self.assertTrue(forged.complete)
+        self.assertFalse(forged.builder_verified)
         ledger = ArenaEvidenceObservationLedger()
         observation = ledger.record(forged)
         self.assertFalse(observation.accepted)
