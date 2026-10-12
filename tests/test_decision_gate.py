@@ -52,6 +52,8 @@ class DecisionGateTests(unittest.TestCase):
         self.assertEqual(schema["properties"]["schema_version"]["const"], "1.0")
         self.assertTrue({"base_commit", "head_commit", "acceptance_criteria", "checks", "rollback_action", "promotion"}.issubset(schema["required"]))
         self.assertTrue(any("last_known_good_commit" in rule.get("then", {}).get("required", []) for rule in schema.get("allOf", [])))
+        self.assertIn("rollback_procedure_ref", schema["properties"])
+        self.assertIn("rollback_test_evidence_id", schema["properties"])
 
     def test_accepts_well_formed_unpromoted_record(self) -> None:
         self.assertEqual(self.errors(valid_record()), [])
@@ -80,6 +82,28 @@ class DecisionGateTests(unittest.TestCase):
         record["checks"][0]["status"] = "failed"
         self.assertTrue(any("every recorded check passed" in e for e in self.errors(record, authorized_approvers={APPROVER}, known_evidence_ids={"run-123", "approval-1"})))
 
+    def test_promotion_requires_a_rollback_runbook_and_canonical_rehearsal_evidence(self) -> None:
+        record = valid_record()
+        record["promotion"] = {
+            "level": "verified_for_scope",
+            "approved_by": APPROVER,
+            "approval_evidence_id": "approval-1",
+        }
+        errors = self.errors(
+            record, authorized_approvers={APPROVER},
+            known_evidence_ids={"run-123", "approval-1"},
+        )
+        self.assertTrue(any("rollback_procedure_ref" in error for error in errors))
+        self.assertTrue(any("rollback_test_evidence_id" in error for error in errors))
+
+        record["rollback_procedure_ref"] = "runbook://rollback"
+        record["rollback_test_evidence_id"] = "rollback-test-1"
+        errors = self.errors(
+            record, authorized_approvers={APPROVER},
+            known_evidence_ids={"run-123", "approval-1"},
+        )
+        self.assertTrue(any("rollback_test_evidence_id is not in the canonical evidence ledger" in error for error in errors))
+
     def test_independent_promotion_requires_external_lineage(self) -> None:
         record = valid_record()
         record["promotion"] = {"level": "independently_corroborated", "approved_by": APPROVER, "approval_evidence_id": "approval-1"}
@@ -91,7 +115,9 @@ class DecisionGateTests(unittest.TestCase):
         record = valid_record()
         record["promotion"] = {"level": "verified_for_scope", "approved_by": APPROVER, "approval_evidence_id": "approval-1"}
         self.assertTrue(any("known_evidence_ids" in e for e in self.errors(record, authorized_approvers={APPROVER})))
-        errors = self.errors(record, authorized_approvers={APPROVER}, known_evidence_ids={"approval-1"})
+        record["rollback_procedure_ref"] = "runbook://rollback"
+        record["rollback_test_evidence_id"] = "rollback-test-1"
+        errors = self.errors(record, authorized_approvers={APPROVER}, known_evidence_ids={"approval-1", "rollback-test-1"})
         self.assertTrue(any("unknown canonical evidence_id" in e for e in errors))
 
     def test_independent_promotion_requires_an_independent_check(self) -> None:
@@ -156,6 +182,7 @@ class DecisionGateTests(unittest.TestCase):
             errors = self.errors(record)
             self.assertTrue(any("last_known_good_commit" in error for error in errors))
             record["last_known_good_commit"] = BASE
+            record["rollback_procedure_ref"] = "runbook://rollback"
             self.assertEqual(self.errors(record), [])
             record["last_known_good_commit"] = HEAD
             self.assertTrue(any("must differ from the candidate head" in error for error in self.errors(record)))

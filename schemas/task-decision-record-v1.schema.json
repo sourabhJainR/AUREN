@@ -158,6 +158,14 @@
       "type": "string",
       "minLength": 1
     },
+    "rollback_procedure_ref": {
+      "type": "string",
+      "minLength": 1
+    },
+    "rollback_test_evidence_id": {
+      "type": "string",
+      "minLength": 1
+    },
     "retry_history": {
       "type": "array",
       "items": {
@@ -258,7 +266,34 @@
       },
       "then": {
         "required": [
-          "last_known_good_commit"
+          "last_known_good_commit",
+          "rollback_procedure_ref"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "promotion": {
+            "properties": {
+              "level": {
+                "enum": [
+                  "provisional",
+                  "verified_for_scope",
+                  "repeatedly_reliable",
+                  "independently_corroborated"
+                ]
+              }
+            },
+            "required": ["level"]
+          }
+        },
+        "required": ["promotion"]
+      },
+      "then": {
+        "required": [
+          "rollback_procedure_ref",
+          "rollback_test_evidence_id"
         ]
       }
     }

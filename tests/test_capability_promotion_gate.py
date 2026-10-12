@@ -23,6 +23,8 @@ def record():
         "limitations": ["No independent generalization campaign claimed"],
         "rollback_trigger": "Any required check fails",
         "rollback_action": "Restore last known-good capability and rerun holdout",
+        "rollback_procedure_ref": "runbook://capability-rollback",
+        "rollback_test_evidence_id": "rollback-test-1",
         "last_known_good_commit": BASE,
         "retry_history": [],
         "promotion": {"level": "verified_for_scope", "approved_by": APPROVER,
@@ -40,7 +42,7 @@ class PromotionGateIntegrationTests(unittest.TestCase):
         config = dict(
             min_canaries=1, promotion_record=decision, expected_repository=REPO,
             expected_head=HEAD, authorized_approvers={APPROVER},
-            known_evidence_ids={"run-1", "approval-1", "candidate-run"},
+            known_evidence_ids={"run-1", "approval-1", "candidate-run", "rollback-test-1"},
         )
         config.update(changes)
         return CapabilityLifecycle(
