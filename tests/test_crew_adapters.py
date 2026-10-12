@@ -66,6 +66,41 @@ class ApprovedCrewAdapterTests(unittest.TestCase):
         self.assertEqual(len(calls), len(SPECIALIST_CREW_IDS))
         self.assertEqual({call["crew_id"] for call in calls}, set(SPECIALIST_CREW_IDS))
 
+    def test_core_adapter_factory_wires_into_graph_agent_team_dispatch(self):
+        calls = []
+        registry = ApprovedToolRegistry([
+            ApprovedTool("read_context", lambda args: calls.append(dict(args)) or {"read": True}, "Read-only context lookup")
+        ])
+        planners = {
+            crew_id: lambda request: {
+                "tool_calls": [{"name": "read_context", "arguments": {"crew_id": request["crew_id"]}}],
+                "proposal": proposal(request),
+            }
+            for crew_id in SPECIALIST_CREW_IDS
+        }
+        adapters = build_specialist_crew_adapters(
+            planners=planners,
+            tools=registry,
+            allowed_tools_by_crew={crew_id: ("read_context",) for crew_id in SPECIALIST_CREW_IDS},
+        )
+        observed = {}
+
+        def graph_node(state):
+            observed["proposal"] = state["auren_crew_dispatch"](
+                "frontend_ui", "Implement keyboard-accessible login UI",
+                {"requirement": "keyboard navigation"},
+            )
+            return "done"
+
+        graph = StateGraph.from_nodes([
+            Node("graph-owned-dispatch", NodeKind.DETERMINISTIC, graph_node, evaluator=lambda output: output == "done")
+        ])
+        result = GraphAgentTeam(graph, agents=adapters).run("crew-integration", "frontend UI")
+        self.assertEqual(result.status, RunStatus.ACCEPTED)
+        self.assertTrue(observed["proposal"]["review_required"])
+        self.assertEqual(observed["proposal"]["review_status"], "pending")
+        self.assertEqual(calls, [{"crew_id": "frontend_ui"}])
+
     def test_factory_fails_closed_when_a_core_planner_is_missing(self):
         registry = ApprovedToolRegistry([
             ApprovedTool("read_context", lambda _args: {}, "Read-only context lookup")
