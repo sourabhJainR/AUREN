@@ -11,6 +11,7 @@ import json
 import math
 import sqlite3
 import time
+import threading
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import Callable
@@ -293,6 +294,7 @@ class ArenaEvidenceObservationLedger:
         self.database_path = None if database_path is None else str(database_path)
         self._by_receipt: dict[str, ArenaEvidenceObservation] = {}
         self._records: list[ArenaEvidenceObservation] = []
+        self._lock = threading.RLock()
         if self.database_path is not None:
             if not self.database_path.strip() or self.database_path == ":memory:":
                 raise ValueError("durable evidence ledger requires a persistent database path")
@@ -324,6 +326,11 @@ class ArenaEvidenceObservationLedger:
         }
 
     def record(self, chain: PromotionEvidenceChain) -> ArenaEvidenceObservation:
+        """Atomically enforce one receipt claim in both in-memory and durable modes."""
+        with self._lock:
+            return self._record_unlocked(chain)
+
+    def _record_unlocked(self, chain: PromotionEvidenceChain) -> ArenaEvidenceObservation:
         observation = ArenaEvidenceObservation.from_chain(chain)
         if self.database_path is None:
             prior = self._by_receipt.get(observation.run_receipt_digest)
@@ -358,6 +365,10 @@ class ArenaEvidenceObservationLedger:
 
     @property
     def records(self) -> tuple[ArenaEvidenceObservation, ...]:
+        with self._lock:
+            return self._records_unlocked()
+
+    def _records_unlocked(self) -> tuple[ArenaEvidenceObservation, ...]:
         if self.database_path is None:
             return tuple(self._records)
         with sqlite3.connect(self.database_path, timeout=10) as connection:
