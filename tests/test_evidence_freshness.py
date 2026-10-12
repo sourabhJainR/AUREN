@@ -9,7 +9,11 @@ from portable.external_decision_evidence_ingestion import ExternalDecisionEviden
 from portable.external_evaluation_campaign import CampaignOutcome
 from portable.persistent_evidence_graph import PersistentEvidenceGraph
 from portable.persistent_memory import PersistentMemory
-from portable.promotion_evidence_chain import PromotionEvidenceChain
+from portable.promotion_evidence_chain import PromotionEvidenceChainBuilder
+from portable.causal_capability_promotion import CausalCapabilityPromotionGate
+from tests.test_promotion_evidence_chain import (
+    make_campaign, make_receipt, make_causal, make_attested_campaign, isolation_kwargs,
+)
 
 
 class EvidenceFreshnessTests(unittest.TestCase):
@@ -38,19 +42,26 @@ class EvidenceFreshnessTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "m.db"
             g = PersistentEvidenceGraph(PersistentMemory(db, require_approval=False), "hws")
+            campaign = make_campaign()
+            receipt = make_receipt(campaign)
             observations = tuple(
                 ExternalDecisionEvidence(
-                    "verifier", "planner", "agent", "agent", .95, .95, 30 + i, 1, "c"
+                    "verifier", "planner", "agent", "agent", .95, .95, 30 + i, 1,
+                    campaign.campaign_digest,
                 )
                 for i in range(8)
             )
-            chain = PromotionEvidenceChain(
-                "c", "r", "x", "planner", "i", True, (),
-                attestation_evidence_digest="verified-attestation-fixture",
-                causal_evidence_ids=tuple(item.evidence_id for item in observations),
-                isolation_evidence_digest="verified-isolation-fixture",
+            causal = make_causal(
+                receipt,
+                evidence_ids=(receipt.receipt_digest, *(item.evidence_id for item in observations)),
             )
-            outcome = CampaignOutcome("c", .9, .95, .1, .1, .8)
+            decision = CausalCapabilityPromotionGate().evaluate(causal)
+            chain = PromotionEvidenceChainBuilder().build(
+                campaign, receipt, causal, decision,
+                attested_campaign=make_attested_campaign(campaign, receipt),
+                **isolation_kwargs(campaign, receipt),
+            )
+            outcome = CampaignOutcome(chain.campaign_digest, .9, .95, .1, .1, .8)
             ingestor = ExternalDecisionEvidenceIngestor(g)
             for observation in observations:
                 ingestor.ingest(chain, outcome, observation)
