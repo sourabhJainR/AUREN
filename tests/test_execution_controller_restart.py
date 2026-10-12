@@ -1,8 +1,68 @@
 from pathlib import Path
 import sqlite3
 from datetime import datetime, timedelta, timezone
+import json
+import os
+import subprocess
+import sys
 
 from portable.execution_controller import ExecutionController
+
+def test_process_death_running_task_recovers_in_fresh_process(tmp_path: Path):
+    repo_root = Path(__file__).resolve().parents[1]
+    seed_script = r"""
+import sys
+from pathlib import Path
+from portable.execution_controller import ExecutionController
+from tests.test_execution_controller import durable_handler
+root = Path(sys.argv[1])
+controller = ExecutionController(root)
+controller.register_handler("tests.test_execution_controller.durable_handler", durable_handler)
+task = controller.submit("tests.test_execution_controller.durable_handler", {"id": "process-death"})
+claimed = controller._claim(task.id)
+assert claimed is not None and claimed.state == "running"
+print(task.id)
+"""
+    seeded = subprocess.run(
+        [sys.executable, "-c", seed_script, str(tmp_path)],
+        cwd=repo_root, text=True, capture_output=True, check=True, timeout=10,
+    )
+    task_id = seeded.stdout.strip()
+    assert task_id
+
+    recovery_script = r"""
+import json, sqlite3, sys
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from portable.execution_controller import ExecutionController
+root = Path(sys.argv[1])
+task_id = sys.argv[2]
+controller = ExecutionController(root)
+live_lease_results = controller.resume_pending()
+assert live_lease_results == [], "a fresh process must not steal a live worker lease"
+expired = (datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat()
+with sqlite3.connect(controller.db_path) as db:
+    db.execute("UPDATE tasks SET lease_until=?, heartbeat_at=? WHERE id=?", (expired, expired, task_id))
+recovered = controller.resume_pending()
+task = controller.task(task_id)
+print(json.dumps({
+    "live_lease_results": len(live_lease_results),
+    "recovered_results": len(recovered),
+    "state": task.state,
+    "attempts": task.attempts,
+}))
+"""
+    recovered = subprocess.run(
+        [sys.executable, "-c", recovery_script, str(tmp_path), task_id],
+        cwd=repo_root, text=True, capture_output=True, check=True, timeout=10,
+    )
+    result = json.loads(recovered.stdout.strip().splitlines()[-1])
+    assert result == {
+        "live_lease_results": 0,
+        "recovered_results": 1,
+        "state": "completed",
+        "attempts": 2,
+    }
 
 def test_resume_pending_task_after_controller_restart(tmp_path: Path):
     first = ExecutionController(tmp_path)
