@@ -323,20 +323,40 @@ class ExecutionController:
         return task
 
     def _claim(self, task_id: str) -> DurableTask | None:
-        with sqlite3.connect(self.db_path) as db:
+        # Claim under a write lock so two controllers cannot both observe
+        # "pending" and execute the same side-effecting handler.
+        with sqlite3.connect(self.db_path, timeout=10) as db:
+            db.execute("BEGIN IMMEDIATE")
             row = db.execute(
-                "SELECT id,handler,payload,state,attempts,work_unit_id FROM tasks WHERE id=?",
+                "SELECT id,handler,payload,state,attempts,work_unit_id,lease_until FROM tasks WHERE id=?",
                 (task_id,),
             ).fetchone()
             if not row or row[3] in {"completed", "failed", "cancelled"}:
                 return None
+            now_dt = datetime.now(timezone.utc)
+            now = now_dt.isoformat()
+            if row[3] == "running":
+                # A live lease belongs to another worker. Missing lease metadata
+                # is ambiguous and must be recovered explicitly, not stolen.
+                if not row[6]:
+                    return None
+                try:
+                    current_lease = datetime.fromisoformat(str(row[6]))
+                except ValueError:
+                    return None
+                if current_lease.tzinfo is None:
+                    return None
+                if current_lease > now_dt:
+                    return None
             attempts = int(row[4]) + 1
-            now = _now()
-            lease = (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat()
-            db.execute(
-                "UPDATE tasks SET state='running',attempts=?,updated_at=?,heartbeat_at=?,lease_until=? WHERE id=?",
+            lease = (now_dt + timedelta(minutes=5)).isoformat()
+            cursor = db.execute(
+                "UPDATE tasks SET state='running',attempts=?,updated_at=?,heartbeat_at=?,lease_until=? "
+                "WHERE id=? AND state IN ('pending','running')",
                 (attempts, now, now, lease, task_id),
             )
+            if cursor.rowcount != 1:
+                return None
         return DurableTask(row[0], row[1], json.loads(row[2]), "running", attempts, row[5])
 
     def run_once(self, task_id: str) -> TrustScore | None:
