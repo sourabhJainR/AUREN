@@ -62,7 +62,7 @@ def isolation_kwargs(campaign, receipt):
         trusted_isolation_signers=frozenset({"independent-sandbox-auditor"}),
         isolation_now=now,
         expected_sandbox_identity="host-audit-17",
-        revoked_signer_ids=frozenset(),
+        revoked_isolation_signers=frozenset(),
         campaign_started_at_epoch=now - 30,
         campaign_ended_at_epoch=now - 1,
     )
@@ -313,6 +313,48 @@ class PromotionEvidenceChainTests(unittest.TestCase):
         )
         self.assertFalse(chain.complete)
         self.assertTrue(any("out-of-band trusted isolation signer allowlist is required" in reason for reason in chain.reasons))
+
+    def test_chain_rejects_revoked_isolation_signer(self):
+        campaign = make_campaign()
+        receipt = make_receipt(campaign)
+        causal = make_causal(receipt)
+        decision = CausalCapabilityPromotionGate().evaluate(causal)
+        kwargs = isolation_kwargs(campaign, receipt)
+        kwargs["revoked_isolation_signers"] = frozenset({"independent-sandbox-auditor"})
+        chain = PromotionEvidenceChainBuilder().build(
+            campaign, receipt, causal, decision,
+            attested_campaign=make_attested_campaign(campaign), **kwargs
+        )
+        self.assertFalse(chain.complete)
+        self.assertTrue(any("signer is revoked" in reason for reason in chain.reasons))
+
+    def test_chain_rejects_mismatched_observed_sandbox_identity(self):
+        campaign = make_campaign()
+        receipt = make_receipt(campaign)
+        causal = make_causal(receipt)
+        decision = CausalCapabilityPromotionGate().evaluate(causal)
+        kwargs = isolation_kwargs(campaign, receipt)
+        kwargs["expected_sandbox_identity"] = "different-host"
+        chain = PromotionEvidenceChainBuilder().build(
+            campaign, receipt, causal, decision,
+            attested_campaign=make_attested_campaign(campaign), **kwargs
+        )
+        self.assertFalse(chain.complete)
+        self.assertTrue(any("observed sandbox identity mismatch" in reason for reason in chain.reasons))
+
+    def test_chain_rejects_observation_outside_campaign_window(self):
+        campaign = make_campaign()
+        receipt = make_receipt(campaign)
+        causal = make_causal(receipt)
+        decision = CausalCapabilityPromotionGate().evaluate(causal)
+        kwargs = isolation_kwargs(campaign, receipt)
+        kwargs["campaign_started_at_epoch"] = kwargs["isolation_now"] - 5
+        chain = PromotionEvidenceChainBuilder().build(
+            campaign, receipt, causal, decision,
+            attested_campaign=make_attested_campaign(campaign), **kwargs
+        )
+        self.assertFalse(chain.complete)
+        self.assertTrue(any("outside the campaign run interval" in reason for reason in chain.reasons))
 
     def test_chain_rejects_expired_isolation_attestation(self):
         campaign = make_campaign()
