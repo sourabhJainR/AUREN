@@ -9,6 +9,8 @@ from portable.crew_adapters import (
     ApprovedToolCrewAdapter,
     ApprovedToolRegistry,
     GraphHandoffController,
+    SPECIALIST_CREW_IDS,
+    build_specialist_crew_adapters,
     rollback_readiness,
 )
 
@@ -29,6 +31,53 @@ def proposal(request):
 
 
 class ApprovedCrewAdapterTests(unittest.TestCase):
+    def test_factory_registers_all_core_specialists_with_scoped_read_only_tools(self):
+        calls = []
+        registry = ApprovedToolRegistry([
+            ApprovedTool("read_context", lambda args: calls.append(dict(args)) or {"read": True}, "Read-only approved context lookup")
+        ])
+        planners = {
+            crew_id: lambda request: {
+                "tool_calls": [{"name": "read_context", "arguments": {"crew_id": request["crew_id"]}}],
+                "proposal": proposal(request),
+            }
+            for crew_id in SPECIALIST_CREW_IDS
+        }
+        scopes = {crew_id: ("read_context",) for crew_id in SPECIALIST_CREW_IDS}
+        adapters = build_specialist_crew_adapters(
+            planners=planners, tools=registry, allowed_tools_by_crew=scopes
+        )
+        self.assertEqual(set(adapters), set(SPECIALIST_CREW_IDS))
+        for crew_id, adapter in adapters.items():
+            result = adapter.propose({
+                "crew_id": crew_id,
+                "specialty": crew_id,
+                "instructions": "Propose only; do not mutate or self-approve.",
+                "task": "Review bounded change",
+                "evidence": [],
+                "required_artifacts": ["proposal"],
+                "acceptance_checks": ["independent review"],
+                "allowed_authorities": ["propose_changes"],
+                "graph_digest": "graph-digest",
+                "crew_plan_digest": "plan-digest",
+                "secret": "must not cross boundary",
+            })
+            self.assertEqual(result["schema_version"], "auren-crew-proposal-v1")
+        self.assertEqual(len(calls), len(SPECIALIST_CREW_IDS))
+        self.assertEqual({call["crew_id"] for call in calls}, set(SPECIALIST_CREW_IDS))
+
+    def test_factory_fails_closed_when_a_core_planner_is_missing(self):
+        registry = ApprovedToolRegistry([
+            ApprovedTool("read_context", lambda _args: {}, "Read-only context lookup")
+        ])
+        planners = {crew_id: (lambda request: {"tool_calls": [], "proposal": proposal(request)})
+                    for crew_id in SPECIALIST_CREW_IDS[:-1]}
+        scopes = {crew_id: ("read_context",) for crew_id in SPECIALIST_CREW_IDS}
+        with self.assertRaisesRegex(ValueError, "missing specialist proposal planners"):
+            build_specialist_crew_adapters(
+                planners=planners, tools=registry, allowed_tools_by_crew=scopes
+            )
+
     def test_adapter_invokes_only_explicit_read_only_tools(self):
         calls = []
         registry = ApprovedToolRegistry([

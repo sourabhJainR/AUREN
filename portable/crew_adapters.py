@@ -151,6 +151,69 @@ class ApprovedToolCrewAdapter:
         return dict(proposal)
 
 
+# These core crews have explicit, graph-routed proposal contracts. Provider
+# planners remain injected so credentials and model clients stay outside this
+# module and only the approved read-only tool registry crosses the boundary.
+SPECIALIST_CREW_IDS = (
+    "backend_api",
+    "database_schema",
+    "dotnet",
+    "end_user_validation",
+    "frontend_ui",
+    "product_pm",
+    "qa_reviewer",
+    "security_privacy",
+)
+
+
+def build_specialist_crew_adapters(
+    *,
+    planners: Mapping[str, Callable[[Mapping[str, Any]], Mapping[str, Any]]],
+    tools: ApprovedToolRegistry,
+    allowed_tools_by_crew: Mapping[str, Sequence[str]],
+    finalizers: Mapping[str, Callable[[Mapping[str, Any]], Mapping[str, Any]]] | None = None,
+    max_tool_calls: int = 4,
+) -> dict[str, ApprovedToolCrewAdapter]:
+    """Build the eight core specialist adapters with explicit per-crew tool scopes.
+
+    Missing or unknown core registrations are rejected instead of silently
+    installing placeholders. The returned adapters still only propose; graph
+    execution, acceptance, review, promotion, and rollback remain supervisor-owned.
+    """
+    if not isinstance(tools, ApprovedToolRegistry):
+        raise TypeError("tools must be an ApprovedToolRegistry")
+    if not isinstance(planners, Mapping):
+        raise TypeError("planners must be a mapping of crew IDs to proposal planners")
+    if not isinstance(allowed_tools_by_crew, Mapping):
+        raise TypeError("allowed_tools_by_crew must be a mapping")
+    finalizers = {} if finalizers is None else finalizers
+    if not isinstance(finalizers, Mapping):
+        raise TypeError("finalizers must be a mapping")
+    expected = set(SPECIALIST_CREW_IDS)
+    planner_ids = set(planners)
+    tool_scope_ids = set(allowed_tools_by_crew)
+    unknown = (planner_ids | tool_scope_ids | set(finalizers)) - expected
+    if unknown:
+        raise ValueError("unknown core specialist crew IDs: " + ", ".join(sorted(unknown)))
+    missing_planners = expected - planner_ids
+    missing_scopes = expected - tool_scope_ids
+    if missing_planners:
+        raise ValueError("missing specialist proposal planners: " + ", ".join(sorted(missing_planners)))
+    if missing_scopes:
+        raise ValueError("missing specialist tool scopes: " + ", ".join(sorted(missing_scopes)))
+    return {
+        crew_id: ApprovedToolCrewAdapter(
+            crew_id,
+            planners[crew_id],
+            tools,
+            allowed_tools=allowed_tools_by_crew[crew_id],
+            finalizer=finalizers.get(crew_id),
+            max_tool_calls=max_tool_calls,
+        )
+        for crew_id in SPECIALIST_CREW_IDS
+    }
+
+
 @dataclass(frozen=True, slots=True)
 class CrewHandoff:
     source_crew: str
