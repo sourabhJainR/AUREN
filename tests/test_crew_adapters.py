@@ -101,6 +101,34 @@ class ApprovedCrewAdapterTests(unittest.TestCase):
         self.assertEqual(observed["proposal"]["review_status"], "pending")
         self.assertEqual(calls, [{"crew_id": "frontend_ui"}])
 
+    def test_tool_scope_changes_change_stable_graph_crew_plan_digest(self):
+        registry = ApprovedToolRegistry([
+            ApprovedTool("read_context", lambda _args: {}, "Read-only task context"),
+            ApprovedTool("read_docs", lambda _args: {}, "Read-only documentation"),
+        ])
+        planners = {
+            crew_id: lambda request: {"tool_calls": [], "proposal": proposal(request)}
+            for crew_id in SPECIALIST_CREW_IDS
+        }
+        scopes_a = {crew_id: ("read_context",) for crew_id in SPECIALIST_CREW_IDS}
+        scopes_b = dict(scopes_a)
+        scopes_b["frontend_ui"] = ("read_docs",)
+        graph = StateGraph.from_nodes([
+            Node("work", NodeKind.DETERMINISTIC, lambda _state: "done", evaluator=lambda output: output == "done")
+        ])
+        team_a = GraphAgentTeam(graph, agents=build_specialist_crew_adapters(
+            planners=planners, tools=registry, allowed_tools_by_crew=scopes_a
+        ))
+        team_b = GraphAgentTeam(graph, agents=build_specialist_crew_adapters(
+            planners=planners, tools=registry, allowed_tools_by_crew=scopes_b
+        ))
+        plan_a = team_a.plan_crews("frontend UI")
+        plan_b = team_b.plan_crews("frontend UI")
+        self.assertNotEqual(plan_a.digest, plan_b.digest)
+        frontend_a = next(item for item in plan_a.assignments if item.crew_id == "frontend_ui")
+        frontend_b = next(item for item in plan_b.assignments if item.crew_id == "frontend_ui")
+        self.assertNotEqual(frontend_a.agent_config_digest, frontend_b.agent_config_digest)
+
     def test_factory_fails_closed_when_a_core_planner_is_missing(self):
         registry = ApprovedToolRegistry([
             ApprovedTool("read_context", lambda _args: {}, "Read-only context lookup")
