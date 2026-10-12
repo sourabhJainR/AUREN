@@ -12,6 +12,7 @@ HEAD_SHA = "b" * 40
 APPROVER = "release-manager"
 _PROMOTION_CONTEXT = {}
 _PROMOTION_SIDE_EFFECTS = []
+_CI_CONTEXT = {}
 
 
 def trusted_promotion_context(request):
@@ -22,6 +23,10 @@ def trusted_promotion_context(request):
 def protected_promotion_handler(payload):
     _PROMOTION_SIDE_EFFECTS.append(payload.get("operation", "promote"))
     return {"success": True, "detail": "promotion handler ran", "evidence": ["promotion-action"]}
+
+
+def trusted_ci_evidence(request):
+    return copy.deepcopy(_CI_CONTEXT)
 
 
 def valid_record(head=HEAD_SHA):
@@ -73,6 +78,7 @@ class ExecutionControllerPromotionGateTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         _PROMOTION_SIDE_EFFECTS.clear()
+        _CI_CONTEXT.clear()
         _PROMOTION_CONTEXT.clear()
         _PROMOTION_CONTEXT.update(valid_context())
         self.controller = ExecutionController(Path(self.temp.name))
@@ -184,6 +190,31 @@ class ExecutionControllerPromotionGateTests(unittest.TestCase):
         self.controller.run_once(task.id)
         self.assertEqual(self.controller.task(task.id).state, "failed")
         self.assertEqual(_PROMOTION_SIDE_EFFECTS, [])
+
+    def test_merge_blocks_when_ci_sha_differs_from_live_promotion_head(self):
+        self.controller.register_handler("trusted-ci", trusted_ci_evidence)
+        _CI_CONTEXT.update({
+            "head_sha": BASE_SHA,
+            "status": "completed",
+            "conclusion": "success",
+            "passed_checks": ["required-ci"],
+            "skipped_checks": [],
+        })
+        self.controller.register_handler(
+            "merge-pull-request",
+            protected_promotion_handler,
+            promotion_gate_policy={"context_handler": "trusted-context"},
+            ci_gate_policy={
+                "expected_head_sha": BASE_SHA,
+                "required_checks": ["required-ci"],
+                "evidence_handler": "trusted-ci",
+            },
+        )
+        task = self.controller.submit("merge-pull-request", {"operation": "merge"})
+        self.controller.run_once(task.id)
+        self.assertEqual(self.controller.task(task.id).state, "failed")
+        self.assertEqual(_PROMOTION_SIDE_EFFECTS, [])
+
 
 
 if __name__ == "__main__":
