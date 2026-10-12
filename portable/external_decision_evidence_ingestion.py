@@ -95,8 +95,8 @@ class ExternalDecisionEvidenceIngestor:
         outcome: CampaignOutcome,
         evidence: ExternalDecisionEvidence,
     ) -> EvidenceIngestionResult:
-        if not chain.complete:
-            raise ValueError("promotion evidence chain is incomplete")
+        if not chain.complete or not chain.builder_verified:
+            raise ValueError("promotion evidence chain is incomplete or lacks builder verification")
         if outcome.campaign_digest != chain.campaign_digest:
             raise ValueError("campaign outcome does not match evidence chain")
         if not outcome.evidence_eligible:
