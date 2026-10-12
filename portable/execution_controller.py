@@ -217,6 +217,7 @@ class ExecutionController:
     def _preflight_gates(self, task: DurableTask) -> tuple[bool, str, tuple[str, ...]]:
         """Validate promotion and exact-head CI gates before invoking a handler."""
         evidence: list[str] = []
+        promotion_expected_head: str | None = None
         try:
             promotion_policy = self._handler_promotion_gate_policy(task.handler)
             if promotion_policy:
@@ -233,6 +234,7 @@ class ExecutionController:
                 record = context.get("decision_record")
                 expected_repository = context.get("expected_repository")
                 expected_head = context.get("expected_head")
+                promotion_expected_head = expected_head if isinstance(expected_head, str) else None
                 approvers = context.get("authorized_approvers")
                 evidence_ids = context.get("known_evidence_ids")
                 if not isinstance(record, Mapping):
@@ -252,6 +254,8 @@ class ExecutionController:
 
             ci_policy = self._handler_ci_gate_policy(task.handler)
             if ci_policy:
+                if promotion_policy and ci_policy["expected_head_sha"] != promotion_expected_head:
+                    return False, "exact-head CI policy does not match the live promotion candidate", tuple((*evidence, "ci-gate:rejected"))
                 provider = self._load_handler(ci_policy["evidence_handler"])
                 gate = provider({
                     "expected_head_sha": ci_policy["expected_head_sha"],
