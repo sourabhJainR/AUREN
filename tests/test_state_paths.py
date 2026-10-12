@@ -76,6 +76,35 @@ class AurenStatePathsTests(unittest.TestCase):
             finally:
                 writer.close()
 
+    def test_interrupted_copy_before_manifest_commit_recovers_idempotently(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            legacy, canonical = base / ".aer", base / ".auren"
+            source = legacy / "sessions" / "interrupted.json"
+            source.parent.mkdir(parents=True)
+            source.write_text('{"session_id":"interrupted","stage":"resume"}\n', encoding="utf-8")
+            target = canonical / "sessions" / "interrupted.json"
+
+            # Simulate process interruption after atomic target replacement but
+            # before the migration manifest records the completed copy.
+            with patch.object(AurenStatePaths, "_write_manifest", side_effect=OSError("simulated crash")):
+                with self.assertRaisesRegex(OSError, "simulated crash"):
+                    AurenStatePaths.prepare(canonical, legacy)
+
+            self.assertTrue(target.is_file())
+            self.assertEqual(target.read_bytes(), source.read_bytes())
+            self.assertTrue(source.is_file(), "legacy source must remain available for rollback")
+            self.assertFalse((canonical / ".state-migration.json").exists())
+
+            # Restart must recognize the identical target, record it, and not
+            # overwrite either side or leave temporary files behind.
+            paths = AurenStatePaths.prepare(canonical, legacy)
+            self.assertTrue(paths.migration_manifest.is_file())
+            manifest = json.loads(paths.migration_manifest.read_text(encoding="utf-8"))
+            self.assertIn("sessions/interrupted.json", manifest["files"])
+            self.assertEqual(target.read_bytes(), source.read_bytes())
+            self.assertFalse(list(canonical.rglob("*.tmp")))
+
     def test_migration_is_idempotent_after_canonical_state_advances(self):
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
