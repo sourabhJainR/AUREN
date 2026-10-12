@@ -448,15 +448,46 @@ class ExecutionController:
             ).fetchall()
         return [DurableTask(r[0], r[1], json.loads(r[2]), r[3], int(r[4]), r[5]) for r in rows]
 
-    def recover_stale(self, task_id: str, *, reason: str) -> None:
-        task = self.task(task_id)
-        if task is None:
-            return
-        self.company.record(task.work_unit_id, "recovery", "detected", reason, (f"task:{task.id}",))
-        with sqlite3.connect(self.db_path) as db:
-            db.execute(
-                "UPDATE tasks SET state='pending',updated_at=?,lease_until=NULL WHERE id=? AND state='running'",
+    def recover_stale(
+        self, task_id: str, *, reason: str, stale_after_seconds: int = 900
+    ) -> None:
+        """Return a running task to pending only when its lease and heartbeat are stale."""
+        cutoff = datetime.now(timezone.utc) - timedelta(seconds=max(1, stale_after_seconds))
+        now_dt = datetime.now(timezone.utc)
+        recovered: tuple[str, str] | None = None
+        with sqlite3.connect(self.db_path, timeout=10) as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute(
+                "SELECT state,heartbeat_at,lease_until,work_unit_id FROM tasks WHERE id=?",
+                (task_id,),
+            ).fetchone()
+            if not row or row[0] != "running":
+                return
+            heartbeat_at, lease_until = row[1], row[2]
+            if lease_until:
+                try:
+                    lease_time = datetime.fromisoformat(str(lease_until))
+                except ValueError:
+                    return
+                if lease_time.tzinfo is None or lease_time > now_dt:
+                    return
+            if heartbeat_at:
+                try:
+                    heartbeat_time = datetime.fromisoformat(str(heartbeat_at))
+                except ValueError:
+                    return
+                if heartbeat_time.tzinfo is None or heartbeat_time > cutoff:
+                    return
+            cursor = db.execute(
+                "UPDATE tasks SET state='pending',updated_at=?,lease_until=NULL "
+                "WHERE id=? AND state='running'",
                 (_now(), task_id),
+            )
+            if cursor.rowcount == 1:
+                recovered = (task_id, str(row[3]))
+        if recovered is not None:
+            self.company.record(
+                recovered[1], "recovery", "detected", reason, (f"task:{recovered[0]}",)
             )
 
     def generate_alternate_plans(self, task_id: str, reason: str) -> tuple[str, ...]:
