@@ -39,12 +39,15 @@ class ArenaIsolationAttestation:
     observed_host_identity: str = ""
     observation_started_at_epoch: float = 0.0
     observation_ended_at_epoch: float = 0.0
+    signer_key_id: str = "legacy-unspecified"
 
     def __post_init__(self) -> None:
         for name in ("campaign_digest", "run_receipt_digest", "image_digest", "sandbox_id", "signer_id", "signature"):
             value = getattr(self, name)
             if not isinstance(value, str) or not value.strip():
                 raise ValueError(f"{name} must be a non-empty string")
+        if not isinstance(self.signer_key_id, str) or not self.signer_key_id.strip():
+            raise ValueError("signer_key_id must be a non-empty key identifier")
         if not _IMAGE_DIGEST_RE.fullmatch(self.image_digest):
             raise ValueError("image_digest must be an immutable sha256 digest")
         for name in ("issued_at_epoch", "expires_at_epoch"):
@@ -74,6 +77,7 @@ class ArenaIsolationAttestation:
             "image_digest": self.image_digest,
             "sandbox_id": self.sandbox_id,
             "signer_id": self.signer_id,
+            "signer_key_id": self.signer_key_id,
             "issued_at_epoch": self.issued_at_epoch,
             "expires_at_epoch": self.expires_at_epoch,
             "controls": self.controls,
@@ -102,6 +106,8 @@ def verify_arena_isolation_attestation(
     now: float,
     expected_sandbox_identity: str | None = None,
     revoked_signer_ids: frozenset[str] | None = None,
+    trusted_signer_key_ids: frozenset[str] | None = None,
+    revoked_signer_key_ids: frozenset[str] | None = None,
     campaign_started_at_epoch: float | None = None,
     campaign_ended_at_epoch: float | None = None,
     max_future_skew_seconds: float = 30.0,
@@ -135,6 +141,16 @@ def verify_arena_isolation_attestation(
         raise ValueError("out-of-band revoked signer identity policy is required")
     if attestation.signer_id in revoked_signer_ids:
         raise ValueError("isolation attestation signer is revoked")
+    if not isinstance(trusted_signer_key_ids, frozenset) or not trusted_signer_key_ids:
+        raise ValueError("out-of-band trusted isolation signer key-ID allowlist is required")
+    if any(not isinstance(item, str) or not item.strip() for item in trusted_signer_key_ids):
+        raise ValueError("trusted isolation signer key IDs must be non-empty strings")
+    if not isinstance(revoked_signer_key_ids, frozenset):
+        raise ValueError("out-of-band revoked signer key-ID policy is required")
+    if attestation.signer_key_id in revoked_signer_key_ids:
+        raise ValueError("isolation attestation signer key ID is revoked")
+    if attestation.signer_key_id not in trusted_signer_key_ids:
+        raise ValueError("isolation attestation signer key ID is not in the out-of-band trusted key-ID allowlist")
     for name, value in (("campaign_started_at_epoch", campaign_started_at_epoch), ("campaign_ended_at_epoch", campaign_ended_at_epoch)):
         if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0:
             raise ValueError(f"{name} must be a finite positive Unix timestamp")
