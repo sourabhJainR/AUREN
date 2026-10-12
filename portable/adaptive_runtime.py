@@ -202,9 +202,24 @@ class AdaptiveRuntime:
         project_key = self.session_store.project_key(project_root)
         return AdaptiveTuner(self.persistent_memory, project_key).current_policy(scope)
 
-    def register_task_handler(self, name: str, handler: Any) -> str:
-        """Register a restart-safe module-level task handler."""
-        return self.execution_controller.register_handler(name, handler)
+    def register_task_handler(
+        self,
+        name: str,
+        handler: Any,
+        *,
+        ci_gate_policy: Mapping[str, Any] | None = None,
+        promotion_gate_policy: Mapping[str, Any] | None = None,
+    ) -> str:
+        """Register a restart-safe handler with optional operator-owned preflight gates.
+
+        Consequential promotion/merge handlers must supply a trusted promotion
+        context provider. Gate policies are persisted separately from task
+        payloads and cannot be disabled by a submitted task.
+        """
+        return self.execution_controller.register_handler(
+            name, handler, ci_gate_policy=ci_gate_policy,
+            promotion_gate_policy=promotion_gate_policy,
+        )
 
     def submit_task(self, handler: str, payload: Mapping[str, Any], *, goal: str | None = None) -> Any:
         """Persist a task so the service can resume it after a restart."""

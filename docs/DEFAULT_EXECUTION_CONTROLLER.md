@@ -18,9 +18,7 @@ The existing maintenance service calls resume_tasks() before its maintenance cyc
 
 ## Durable handlers
 
-Register an importable module-level handler with runtime.register_task_handler(name, handler, project_root=project_root).
-Submit with runtime.submit_task(name, payload, project_root=project_root).
-Resume with runtime.resume_tasks(project_root=project_root).
+Register an importable module-level handler with `runtime.register_task_handler(name, handler)`. Consequential promotion/merge handlers must register an operator-owned `promotion_gate_policy={"context_handler": "trusted-provider-name"}`; release workflows may also register `ci_gate_policy` with an exact head, required check names, and a separate trusted evidence provider. Submit with `runtime.submit_task(name, payload)` and resume with `runtime.resume_tasks()`. The context provider receives task identity only, not task payload, and must resolve repository/head/approver/canonical evidence from trusted live sources. Gate policy is persisted separately from task payload and re-registration cannot silently remove it.
 
 Handlers are stored as module:qualname, not serialized Python objects. This makes them reconstructable by a new process.
 
@@ -37,3 +35,7 @@ A failed graph execution is recorded as a supervisor failure. The existing defau
 ## Service behavior
 
 The existing service now resumes pending/running durable execution tasks before processing adaptive-learning maintenance. It remains under the platform's existing restart-on-failure service policy.
+
+## Repository-level merge protection boundary
+
+The runtime gate protects handlers registered with an operator-owned gate policy. It cannot intercept a merge performed directly through GitHub UI/API or an alternate automation identity. Repository owners/admins must configure and verify branch protection or rulesets that require the exact-head checks and appropriate review. Until those settings are independently confirmed, report this as an external blocker rather than claiming every merge path is protected.
