@@ -48,6 +48,34 @@ class AurenStatePathsTests(unittest.TestCase):
             self.assertEqual(json.loads(target_session.read_text(encoding="utf-8"))["stage"], "resume")
             self.assertTrue(paths.migration_manifest.is_file())
 
+    def test_migration_preserves_uncheckpointed_wal_contents(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            legacy, canonical = base / ".aer", base / ".auren"
+            source = legacy / "memory" / "memory.db"
+            source.parent.mkdir(parents=True)
+            writer = sqlite3.connect(source)
+            try:
+                mode = writer.execute("PRAGMA journal_mode=WAL").fetchone()[0]
+                self.assertEqual(mode.lower(), "wal")
+                writer.execute("CREATE TABLE values_table (value TEXT NOT NULL)")
+                writer.execute("INSERT INTO values_table(value) VALUES('checkpointed')")
+                writer.commit()
+                writer.execute("INSERT INTO values_table(value) VALUES('wal-only')")
+                writer.commit()
+                wal_file = Path(str(source) + "-wal")
+                self.assertTrue(wal_file.is_file())
+                self.assertGreater(wal_file.stat().st_size, 0)
+
+                AurenStatePaths.prepare(canonical, legacy)
+                target = canonical / "memory" / "memory.db"
+                with sqlite3.connect(target) as db:
+                    values = {row[0] for row in db.execute("SELECT value FROM values_table")}
+                self.assertEqual(values, {"checkpointed", "wal-only"})
+                self.assertTrue(source.is_file(), "legacy SQLite source must remain available for rollback")
+            finally:
+                writer.close()
+
     def test_migration_is_idempotent_after_canonical_state_advances(self):
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
