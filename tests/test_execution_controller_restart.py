@@ -34,5 +34,25 @@ def test_resume_waits_for_live_lease_and_reclaims_expired_running_task(tmp_path:
     assert second.task(task.id).attempts == 2
 
 
+def test_recover_stale_respects_live_lease_and_only_resets_stale_task(tmp_path: Path):
+    first = ExecutionController(tmp_path)
+    first.register_handler("tests.test_execution_controller.durable_handler", durable_handler)
+    task = first.submit("tests.test_execution_controller.durable_handler", {"id": "stale-recovery"})
+    assert first._claim(task.id) is not None
+
+    second = ExecutionController(tmp_path)
+    second.recover_stale(task.id, reason="race with live worker")
+    assert second.task(task.id).state == "running"
+
+    stale = (datetime.now(timezone.utc) - timedelta(minutes=20)).isoformat()
+    with sqlite3.connect(second.db_path) as db:
+        db.execute(
+            "UPDATE tasks SET heartbeat_at=?, lease_until=? WHERE id=?",
+            (stale, stale, task.id),
+        )
+    second.recover_stale(task.id, reason="confirmed stale worker")
+    assert second.task(task.id).state == "pending"
+
+
 def durable_handler(payload):
     return {"success": True, "evidence": [payload["id"]]}
