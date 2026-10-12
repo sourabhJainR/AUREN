@@ -49,11 +49,16 @@ on:
 jobs:
   harness:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.11', '3.12']
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
-          python-version: '3.11'
+          python-version: ${{ matrix.python-version }}
       - name: Prepare CI artifacts
         if: always()
         run: |
@@ -159,11 +164,16 @@ jobs:
 
   examples:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.11', '3.12']
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
-          python-version: '3.11'
+          python-version: ${{ matrix.python-version }}
       - name: Validate reference applications
         run: |
           python -m unittest discover -s examples/habit-tracker/tests -v
@@ -172,11 +182,16 @@ jobs:
 
   evaluations:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.11', '3.12']
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
-          python-version: '3.11'
+          python-version: ${{ matrix.python-version }}
       - name: Run deterministic routing eval suite
         run: python scripts/run_evals.py
       - name: Run deterministic P0 contract eval suite
