@@ -95,6 +95,13 @@ class EngineeringDesignGuard:
         DesignDimension.COMPATIBILITY: (
             "compatibility", "rollout", "migration", "contract", "usage_compatibility",
         ),
+        DesignDimension.SECURITY: ("security", "threat_model", "authorization", "least_privilege", "input_validation", "secrets", "privacy", "tool_permissions"),
+        DesignDimension.PERFORMANCE: ("performance", "benchmark", "performance_budget", "latency", "resource_budget", "profiling"),
+        DesignDimension.CONCURRENCY: ("concurrency", "ownership", "synchronization", "cancellation", "deadlock", "race_test", "parallelism"),
+        DesignDimension.DISTRIBUTED: ("distributed", "consistency", "cap_tradeoff", "pacelc", "idempotency", "ordering", "quorum", "split_brain"),
+        DesignDimension.CORRECTNESS: ("correctness", "invariant", "transaction", "isolation", "migration", "source_of_truth", "reconciliation"),
+        DesignDimension.OPERATIONS: ("operations", "observability", "rollback", "recovery", "slo", "rto_rpo", "rollout"),
+        DesignDimension.AI_AGENT: ("ai_agent", "agent_safety", "tool_permissions", "human_approval", "evaluation", "provenance", "autonomy_budget", "prompt_injection"),
     }
 
     _PATH_RULES = (
