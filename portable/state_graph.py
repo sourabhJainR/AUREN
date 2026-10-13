@@ -469,8 +469,24 @@ class GraphAgentTeam:
                 personas.insert(personas.index("backend") + 1, persona)
         return tuple(dict.fromkeys(personas))
 
-    def run(self, task_id: str, intent: str, context: Mapping[str, Any] | None = None) -> OrchestrationRun:
+    def run(
+        self,
+        task_id: str,
+        intent: str,
+        context: Mapping[str, Any] | None = None,
+        *,
+        handoff_checkpoint_writer: Callable[[str, Mapping[str, Any]], None] | None = None,
+        require_durable_handoffs: bool | None = None,
+    ) -> OrchestrationRun:
         plan = self.plan_crews(intent)
+        checkpoint_writer = self.handoff_checkpoint_writer if handoff_checkpoint_writer is None else handoff_checkpoint_writer
+        require_persistence = self.require_durable_handoffs if require_durable_handoffs is None else require_durable_handoffs
+        if type(require_persistence) is not bool:
+            raise ValueError("require_durable_handoffs must be a boolean")
+        if checkpoint_writer is not None and not callable(checkpoint_writer):
+            raise TypeError("handoff_checkpoint_writer must be callable")
+        if require_persistence and checkpoint_writer is None:
+            raise ValueError("durable handoff checkpoint writer is required by task policy")
         state = dict(context or {})
         supervisor_envelope = state.pop("auren_supervisor_checkpoint_envelope", None)
         if supervisor_envelope is not None:
@@ -531,8 +547,8 @@ class GraphAgentTeam:
         def persist_handoff_checkpoint(snapshot: Mapping[str, Any]) -> None:
             state["auren_crew_handoff_checkpoint_data"] = dict(snapshot)
             state["auren_retry_budget"] = retry_budget.snapshot()
-            if self.handoff_checkpoint_writer is not None:
-                self.handoff_checkpoint_writer(task_id, {
+            if checkpoint_writer is not None:
+                checkpoint_writer(task_id, {
                     "schema_version": "auren-task-handoff-envelope-v1",
                     "handoff_checkpoint": dict(snapshot),
                     "retry_budget": retry_budget.snapshot(),
@@ -541,16 +557,16 @@ class GraphAgentTeam:
                     "crew_plan_digest": plan.digest,
                 })
 
-        persist_callback = persist_handoff_checkpoint if self.handoff_checkpoint_writer is not None else None
+        persist_callback = persist_handoff_checkpoint if checkpoint_writer is not None else None
         handoffs = (
             GraphHandoffController.resume(
                 checkpoint, retry_budget=retry_budget, persist=persist_callback,
-                require_persistence=self.require_durable_handoffs,
+                require_persistence=require_persistence,
             )
             if checkpoint is not None
             else GraphHandoffController(
                 max_attempts=3, retry_budget=retry_budget, persist=persist_callback,
-                require_persistence=self.require_durable_handoffs,
+                require_persistence=require_persistence,
             )
         )
 
