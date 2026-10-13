@@ -81,7 +81,7 @@ def mutation_test(root: Path, task_id: str, cfg: dict[str, Any]) -> dict[str, An
     elif task_id in {"BC-04", "BC-05", "BC-06", "BC-10"}: mutations = [("behavior_break", original.replace("return ", "return None # MUTATION\n    # ", 1))]
     else: return {"applicable": False, "killed": True, "reason": "no safe deterministic mutation defined"}
     outcomes = []
-    with tempfile.TemporaryDirectory(prefix="aer-mut-") as td:
+    with tempfile.TemporaryDirectory(prefix="auren-mut-") as td:
         mutant = Path(td) / "checkout"; shutil.copytree(root, mutant)
         for name, code in mutations:
             target = mutant / rel; target.write_text(code, encoding="utf-8")
