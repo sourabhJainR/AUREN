@@ -34,6 +34,10 @@ def trusted_ci_evidence(request):
     return copy.deepcopy(_CI_CONTEXT)
 
 
+def unclassified_worker(payload):
+    return dict(payload)
+
+
 def valid_record(head=HEAD_SHA):
     return {
         "schema_version": "1.0",
@@ -133,7 +137,7 @@ class ExecutionControllerPromotionGateTests(unittest.TestCase):
 
     def test_new_handler_requires_explicit_execution_class(self):
         with self.assertRaisesRegex(ValueError, "requires an explicit execution_class"):
-            self.controller.register_handler("unclassified-worker", lambda payload: payload)
+            self.controller.register_handler("unclassified-worker", unclassified_worker)
 
     def test_valid_decision_record_allows_handler(self):
         task = self.submit()
