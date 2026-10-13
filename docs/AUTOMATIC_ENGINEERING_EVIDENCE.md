@@ -128,8 +128,9 @@ trusted verifier and independently controlled signing keys for external claims.
 - Recovery adapters should record the selected retry/alternate-plan/rollback
   category and a digest of the hypothesis or plan, not private chain-of-thought or
   raw prompt content.
-- External evaluator/oracle/corpus/isolation evidence is only marked
-  `signature_verified=true` through signed-envelope ingestion.
+- External evaluator/oracle/corpus/isolation evidence is only treated as verified
+  when its signed envelope has been checked by the trusted verifier and retained in
+  the dedicated signed-receipt store; caller-supplied event metadata cannot assert it.
 
 ## Limits and acceptance gates
 
