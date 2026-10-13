@@ -37,7 +37,7 @@ def _path(value: Path | str | None, default: Path) -> Path:
     return (Path(value).expanduser().resolve() if value is not None else default.expanduser().resolve())
 
 
-def _default_aer_home() -> Path:
+def _default_auren_home() -> Path:
     return Path.home() / ".auren"
 
 
