@@ -1,3 +1,5 @@
+name: AUREN Portable Bundle
+
 on:
   push:
     branches: [main]
