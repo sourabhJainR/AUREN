@@ -18,6 +18,7 @@ import sqlite3
 from typing import Any, Callable, Mapping
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+from urllib.parse import urlparse
 from uuid import uuid4
 
 from .canonical_evidence_ledger import CanonicalEvidenceLedger
@@ -186,6 +187,11 @@ class EvidenceCapture:
                 safe_metadata[key] = value
             else:
                 safe_metadata[key] = _text(value, key, 512) if isinstance(value, str) else value
+                if isinstance(safe_metadata[key], str) and re.search(
+                    r"(?i)(api[_-]?key|password|secret|bearer\\s|authorization|oracle[_ -]?answer|private[_ -]?key|token=|prompt=)",
+                    safe_metadata[key],
+                ):
+                    raise ValueError(f"{key} appears to contain secret or raw task content")
                 if not isinstance(safe_metadata[key], (str, bool, int, float, type(None))):
                     raise ValueError(f"{key} must be a scalar safe metadata value")
                 if isinstance(safe_metadata[key], float) and not math.isfinite(safe_metadata[key]):
@@ -200,6 +206,10 @@ class EvidenceCapture:
                 raise ValueError(f"{field} must be a lowercase SHA-256 digest")
         if evidence_uri and not evidence_uri.startswith(("https://", "file:", "urn:")):
             raise ValueError("evidence_uri must use https, file, or urn")
+        if evidence_uri.startswith("https://"):
+            parsed_uri = urlparse(evidence_uri)
+            if parsed_uri.username or parsed_uri.password or parsed_uri.query:
+                raise ValueError("evidence_uri must not embed credentials or query-string secrets")
         base = {
             "event_id": _text(event_id or uuid4().hex, "event_id"),
             "event_type": event_type,
@@ -526,6 +536,9 @@ class HttpsEvidenceSink:
         url = _text(url, "sink URL", 2048)
         if not url.startswith("https://"):
             raise ValueError("evidence sink must use HTTPS")
+        parsed_url = urlparse(url)
+        if parsed_url.username or parsed_url.password or parsed_url.query:
+            raise ValueError("evidence sink URL must not embed credentials or query-string secrets")
         if not bearer_token:
             raise ValueError("evidence sink bearer token is required")
         if timeout_seconds <= 0 or timeout_seconds > 30:
