@@ -62,12 +62,12 @@ Before deleting `~/.auren`, uninstall any service that was installed:
 
 ~~~bash
 python ~/.auren/current/portable/maintenance_service.py --scope user uninstall
-rm -rf ~/.auren
+rm -rf ~/.aer
 ~~~
 
 For a system-scoped service use `--scope system` with the required privileges.
 
-Older installations may have left `~/.auren`; remove that directory only after any legacy service has been stopped/uninstalled:
+Older installations may have left `~/.aer`; remove that directory only after any legacy service has been stopped/uninstalled:
 
 ~~~bash
 rm -rf ~/.auren
