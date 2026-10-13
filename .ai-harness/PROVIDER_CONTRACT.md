@@ -1,12 +1,12 @@
 # Provider Contract
 
-A provider is an execution adapter, not the orchestration brain. AER owns task intent, routing, context selection, budgets, safety, verification, learning and promotion. Providers supply model inference and native tool/agent capabilities.
+A provider is an execution adapter, not the orchestration brain. AUREN owns task intent, routing, context selection, budgets, safety, verification, learning and promotion. Providers supply model inference and native tool/agent capabilities.
 
 ## Supported provider surfaces
 
-AER must distinguish the provider from the product surface used to invoke it:
+AUREN must distinguish the provider from the product surface used to invoke it:
 
-| Provider | Primary surfaces | Repository instruction surface | AER integration |
+| Provider | Primary surfaces | Repository instruction surface | AUREN integration |
 |---|---|---|---|
 | Claude | Claude Code CLI / IDE / Desktop / Web | `CLAUDE.md` + Agent Skills + hooks | Native skill/plugin + CLI adapter |
 | Codex | Codex CLI / IDE / Desktop / Web | `AGENTS.md` + supported skills | CLI adapter + Codex/ChatGPT plugin surface |
@@ -48,16 +48,16 @@ plan -> tool/action -> observation -> verify -> continue/stop
 
 A tool result is an observation, not a completion signal. A model statement such as `done`, `verified`, or `no regression` is not proof without repository evidence.
 
-When a provider exposes intermediate tool calls, the adapter preserves order, tool name, duration, status and compact result digest. When it does not, AER records a phase-level observation instead of inventing tool telemetry.
+When a provider exposes intermediate tool calls, the adapter preserves order, tool name, duration, status and compact result digest. When it does not, AUREN records a phase-level observation instead of inventing tool telemetry.
 
 ## Instruction-surface contract
 
-AER maintains one canonical engineering contract but projects it into each provider's native instruction mechanism:
+AUREN maintains one canonical engineering contract but projects it into each provider's native instruction mechanism:
 
-- Claude: keep `CLAUDE.md` lean and stable; use Agent Skills for reusable workflows and hooks for deterministic lifecycle actions. Do not duplicate the full AER policy into every prompt.
+- Claude: keep `CLAUDE.md` lean and stable; use Agent Skills for reusable workflows and hooks for deterministic lifecycle actions. Do not duplicate the full AUREN policy into every prompt.
 - Codex: `AGENTS.md` is the repository-wide entry point. Preserve hierarchical/nearest-scope behavior and keep injected context bounded.
 - Gemini: `GEMINI.md` is the native context file. Prefer a small root contract and let Gemini's hierarchical/JIT context loading discover narrower instructions as files are touched.
-- ChatGPT: use the connected repository/app/project or Codex surface as the execution substrate. AER policy must be exposed through the supported instruction/app/skill mechanism; ordinary ChatGPT chat is not assumed to execute local commands.
+- ChatGPT: use the connected repository/app/project or Codex surface as the execution substrate. AUREN policy must be exposed through the supported instruction/app/skill mechanism; ordinary ChatGPT chat is not assumed to execute local commands.
 
 The same intent digest, boundaries, acceptance criteria and safety rules must survive projection. Provider-specific syntax must not change semantics.
 
@@ -71,7 +71,7 @@ Stable context should be reused where the provider supports prefix/prompt cachin
 
 ## Tool / MCP contract
 
-MCP is a capability transport, not a provider-specific orchestration layer. AER may expose narrowly scoped MCP tools to Claude, Codex/ChatGPT, Gemini or another compatible client. Tool discovery is progressive: advertise metadata first, activate only tools justified by the current phase, and enforce read/write/permission boundaries outside model instructions.
+MCP is a capability transport, not a provider-specific orchestration layer. AUREN may expose narrowly scoped MCP tools to Claude, Codex/ChatGPT, Gemini or another compatible client. Tool discovery is progressive: advertise metadata first, activate only tools justified by the current phase, and enforce read/write/permission boundaries outside model instructions.
 
 For each tool invocation retain:
 `tool_id | provider | phase | input_digest | permission_mode | started | duration | status | output_digest`.
@@ -99,7 +99,7 @@ permissions
 error
 ```
 
-`cache` distinguishes AER page/cache reuse from provider-side prompt/KV-cache hits. `permissions` distinguishes requested, granted and actually used capabilities.
+`cache` distinguishes AUREN page/cache reuse from provider-side prompt/KV-cache hits. `permissions` distinguishes requested, granted and actually used capabilities.
 
 ## Capability negotiation
 
@@ -115,7 +115,7 @@ A provider failure must not automatically become an application-code failure. Co
 
 ## Cross-provider parity
 
-AER's conformance suite should run the same representative task contracts against every available provider surface. Parity means equivalent safety, scope, evidence and acceptance behavior, not identical text or tool sequences.
+AUREN's conformance suite should run the same representative task contracts against every available provider surface. Parity means equivalent safety, scope, evidence and acceptance behavior, not identical text or tool sequences.
 
 At minimum test:
 
