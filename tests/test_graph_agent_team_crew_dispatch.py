@@ -18,6 +18,7 @@ class _ProposalAdapter:
     def __init__(self, crew_id: str, calls: list[dict]):
         self.crew_id = crew_id
         self.configuration_digest = f"test-config:{crew_id}"
+        self.implementation_version = "test-v1"
         self.calls = calls
         self.definition = next(
             item for item in default_crew_definitions() if item.crew_id == crew_id
@@ -141,6 +142,7 @@ class HarnessCrewDispatchTests(unittest.TestCase):
             second_calls = []
             second_adapter = _ProposalAdapter("frontend_ui", second_calls)
             second_adapter.configuration_digest = "changed-adapter-config"
+            second_adapter.implementation_version = "test-v2"
             changed_team = GraphAgentTeam(
                 [AgentSpec("planner", "planner")],
                 crew_adapters={"frontend_ui": second_adapter},
