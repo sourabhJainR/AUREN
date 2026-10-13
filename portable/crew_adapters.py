@@ -448,22 +448,25 @@ class GraphHandoffController:
 
     def retry(self, handoff: CrewHandoff, *, retryable: bool) -> CrewHandoff | None:
         with self._lock:
+            handoff_id = handoff.handoff_id or self._handoff_id(
+                handoff.source_crew, handoff.target_crew, handoff.task, handoff.source_plan_digest
+            )
             if not retryable or handoff.attempt + 1 >= self.max_attempts:
-                self._in_flight.pop(handoff.handoff_id, None)
+                self._in_flight.pop(handoff_id, None)
                 self._persist()
                 return None
             if self.retry_budget is not None and not self.retry_budget.consume(
                 component="crew_handoff",
-                operation_key=f"handoff:{handoff.handoff_id}:retry:{handoff.attempt + 1}",
+                operation_key=f"handoff:{handoff_id}:retry:{handoff.attempt + 1}",
             ):
-                self._in_flight.pop(handoff.handoff_id, None)
+                self._in_flight.pop(handoff_id, None)
                 self._persist()
                 return None
             retry = CrewHandoff(
                 handoff.source_crew, handoff.target_crew, handoff.task,
-                handoff.source_plan_digest, handoff.attempt + 1, handoff.handoff_id,
+                handoff.source_plan_digest, handoff.attempt + 1, handoff_id,
             )
-            self._in_flight.pop(handoff.handoff_id, None)
+            self._in_flight.pop(handoff_id, None)
             self._queue.append(retry)
             self._persist()
             return retry
