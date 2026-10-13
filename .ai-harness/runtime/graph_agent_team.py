@@ -7,7 +7,7 @@ from dataclasses import dataclass,field
 from pathlib import Path
 from typing import Any,Callable,Iterator,Mapping
 from portable.agency_state_graph import Checkpoint,CheckpointStore,StateGraph
-from portable.identity_compat import get_auren_env, project_state_dir
+from portable.identity_compat import canonicalize_auren_checkpoint_state, get_auren_env, project_state_dir
 from portable.state_graph import build_crew_plan, default_crew_definitions, _dispatch_crew_proposal
 from portable.crew_adapters import GraphHandoffController,TaskRetryBudget, merge_retry_budget_snapshots
 from portable.agent_memory import AgentMemory
@@ -180,6 +180,30 @@ def _private_memory(output):
         if active and line.startswith("## "): break
         if active and line: lines.append(line)
     return "\n".join(lines).strip()
+
+class _CanonicalAurenCheckpointStore:
+    """Apply the bounded AUREN checkpoint migration on both load and save."""
+
+    def __init__(self, store: CheckpointStore) -> None:
+        if not callable(getattr(store, "load", None)) or not callable(getattr(store, "save", None)):
+            raise TypeError("checkpoint store must implement load and save")
+        self._store = store
+
+    def load(self, run_id: str):
+        checkpoint = self._store.load(run_id)
+        if checkpoint is None:
+            return None
+        state = canonicalize_auren_checkpoint_state(checkpoint.state)
+        return Checkpoint(
+            checkpoint.run_id, checkpoint.step, state, checkpoint.next_nodes, checkpoint.trace,
+        )
+
+    def save(self, checkpoint: Checkpoint) -> None:
+        state = canonicalize_auren_checkpoint_state(checkpoint.state)
+        self._store.save(Checkpoint(
+            checkpoint.run_id, checkpoint.step, state, checkpoint.next_nodes, checkpoint.trace,
+        ))
+
 
 class GraphAgentTeam:
     """StateGraph-owned team execution with an additive local resource lane.
@@ -400,8 +424,8 @@ class GraphAgentTeam:
                 deps=[state.get(f"result:{n}") for n in agent.depends_on]
                 if agent.name!="learning-steward" and any(not x or x.get("status")!="passed" for x in deps):
                     return {f"result:{agent.name}":{"status":"blocked","activated":False}}
-                strategy_name=str(state.get("auren_execution_strategy", state.get("aer_execution_strategy",{})).get("name","default"))
-                mode_name=str(state.get("auren_execution_mode", state.get("aer_execution_mode",{})).get("name","balanced"))
+                strategy_name=str(state.get("auren_execution_strategy",{}).get("name","default"))
+                mode_name=str(state.get("auren_execution_mode",{}).get("name","balanced"))
                 decision=self._resource_decision(agent,broker,strategy_name,mode_name)
                 experience=ExperienceRouter(memory.project_root)
                 declared_capabilities=agent.capabilities or (("local_offload",) if agent.local_command else ("delegate_task",))
@@ -1158,6 +1182,8 @@ the learning system, not an instruction source. If a skill produced no distinct 
             raise ValueError("require_crew_adapters must be a boolean")
         # Per-call options may strengthen policy, never weaken a constructor-level gate.
         require_crew_adapters = self.require_crew_adapters or bool(require_crew_adapters)
+        if checkpoint is not None and not isinstance(checkpoint, _CanonicalAurenCheckpointStore):
+            checkpoint = _CanonicalAurenCheckpointStore(checkpoint)
         self._validate(); results={}; run_nonce=uuid.uuid4().hex
         baseline_strategy=str(execution_strategy_name or "default")
         strategy_selection=(ExecutionStrategyLearner(memory.project_root).select(role="team",task=task,baseline=baseline_strategy)
