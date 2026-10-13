@@ -1,6 +1,6 @@
 # Canonical agent-pattern composition
 
-AER uses the following composition rule for agentic work:
+AUREN uses the following composition rule for agentic work:
 
 ```text
 Intent / Contract
@@ -41,9 +41,10 @@ Evidence-backed learning / one-change improvement
 ## Ownership rules
 
 - `portable.agent_capabilities` remains the canonical capability and durable-memory owner.
-- `portable.agency_state_graph` remains the canonical low-level graph executor.
 - `portable.task_planner.TaskPlan` remains the canonical dependency contract for agent work.
-- `.ai-harness/runtime/graph_agent_team.py` remains the high-level role orchestration layer.
+- `portable.agency_state_graph.StateGraph` is the checkpointable graph kernel used by the resource-aware harness team; `portable.orchestration.Graph/Orchestrator` is the default adaptive-runtime execution path. They are distinct today and must not be treated as interchangeable.
+- `portable.crew_adapters` owns the typed, scoped proposal-adapter contract; `portable.state_graph.GraphAgentTeam` exposes that contract on the portable facade.
+- `.ai-harness/runtime/graph_agent_team.py` is the resource-aware harness team strategy. It does not yet dispatch through the portable crew adapters; this integration gap is tracked in [issue #438](https://github.com/sourabhJainR/AUREN).
 - `portable.agent_patterns` contains deterministic algorithms only. It does not own providers, tools, durable memory, graph execution, or promotion policy.
 - Compatibility modules may adapt APIs but must not create parallel runtime owners.
 
@@ -69,4 +70,7 @@ Scope checking is advisory. Dependency and CI/configuration changes are surfaced
 
 ## Why this composition
 
-The source patterns that inspired this layer are useful because they improve decomposition, parallelism, specialization, synthesis and iterative quality. AER adapts those ideas as small deterministic contracts instead of introducing another agent framework. This keeps the existing state graph, capability fabric, evidence lineage, verification gates and release controls as the single execution and safety backbone.
+The source patterns that inspired this layer are useful because they improve decomposition, parallelism, specialization, synthesis and iterative quality. AUREN adapts those ideas as small deterministic contracts instead of introducing another agent framework. This keeps the existing state graph, capability fabric, evidence lineage, verification gates and release controls as the single execution and safety backbone.
+
+
+For the full current owner map, control flow, and acceptance invariants, see [`UNIFIED_GRAPH_CREW_RUNTIME.md`](UNIFIED_GRAPH_CREW_RUNTIME.md). Do not describe the crew adapter and harness team as fully integrated until the default harness path has end-to-end coverage.
