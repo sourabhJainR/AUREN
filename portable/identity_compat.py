@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Mapping
+from typing import Any, Mapping
 
 LEGACY_HOME_NAME = ".aer"
 CANONICAL_HOME_NAME = ".auren"
@@ -15,7 +15,7 @@ CANONICAL_HOME_NAME = ".auren"
 
 def get_auren_env(
     suffix: str,
-    default: str | None = None,
+    default: Any = None,
     *,
     environ: Mapping[str, str] | None = None,
     legacy_names: tuple[str, ...] = (),
