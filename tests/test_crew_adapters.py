@@ -66,40 +66,83 @@ class ApprovedCrewAdapterTests(unittest.TestCase):
         self.assertEqual(len(calls), len(SPECIALIST_CREW_IDS))
         self.assertEqual({call["crew_id"] for call in calls}, set(SPECIALIST_CREW_IDS))
 
-    def test_core_adapter_factory_wires_into_graph_agent_team_dispatch(self):
+    def test_core_adapter_factory_wires_every_specialist_through_graph_dispatch(self):
         calls = []
         registry = ApprovedToolRegistry([
-            ApprovedTool("read_context", lambda args: calls.append(dict(args)) or {"read": True}, "Read-only context lookup")
+            ApprovedTool(
+                f"read_{crew_id}",
+                lambda args, crew_id=crew_id: calls.append((crew_id, dict(args))) or {"read": crew_id},
+                f"Read-only context lookup scoped to {crew_id}",
+            )
+            for crew_id in SPECIALIST_CREW_IDS
         ])
         planners = {
-            crew_id: lambda request: {
-                "tool_calls": [{"name": "read_context", "arguments": {"crew_id": request["crew_id"]}}],
-                "proposal": proposal(request),
-            }
+            crew_id: (
+                lambda request, crew_id=crew_id: {
+                    "tool_calls": [{
+                        "name": f"read_{crew_id}",
+                        "arguments": {"crew_id": request["crew_id"], "task": request["task"]},
+                    }],
+                    "proposal": proposal(request),
+                }
+            )
             for crew_id in SPECIALIST_CREW_IDS
         }
         adapters = build_specialist_crew_adapters(
             planners=planners,
             tools=registry,
-            allowed_tools_by_crew={crew_id: ("read_context",) for crew_id in SPECIALIST_CREW_IDS},
+            allowed_tools_by_crew={
+                crew_id: (f"read_{crew_id}",) for crew_id in SPECIALIST_CREW_IDS
+            },
         )
         observed = {}
+        intent = (
+            "product requirements backend API frontend UI database schema migration "
+            "C# dotnet security privacy QA reviewer end user validation"
+        )
 
         def graph_node(state):
-            observed["proposal"] = state["auren_crew_dispatch"](
-                "frontend_ui", "Implement keyboard-accessible login UI",
-                {"requirement": "keyboard navigation"},
-            )
+            plan_ids = {
+                assignment["crew_id"]
+                for assignment in state["auren_crew_plan"]["assignments"]
+            }
+            self.assertTrue(set(SPECIALIST_CREW_IDS) <= plan_ids)
+            for crew_id in SPECIALIST_CREW_IDS:
+                observed[crew_id] = state["auren_crew_dispatch"](
+                    crew_id,
+                    f"Exercise {crew_id} through the real graph dispatcher",
+                    {"requirement": f"bounded evidence for {crew_id}"},
+                )
             return "done"
 
         graph = StateGraph.from_nodes([
-            Node("graph-owned-dispatch", NodeKind.DETERMINISTIC, graph_node, evaluator=lambda output: output == "done")
+            Node(
+                "graph-owned-dispatch",
+                NodeKind.DETERMINISTIC,
+                graph_node,
+                evaluator=lambda output: output == "done",
+            )
         ])
-        result = GraphAgentTeam(graph, agents=adapters).run("crew-integration", "frontend UI")
+        result = GraphAgentTeam(graph, agents=adapters).run(
+            "crew-integration-all-specialists",
+            intent,
+            {"secret": "must not be forwarded implicitly"},
+        )
+
         self.assertEqual(result.status, RunStatus.ACCEPTED)
-        self.assertTrue(observed["proposal"]["review_required"])
-        self.assertEqual(observed["proposal"]["review_status"], "pending")
-        self.assertEqual(calls, [{"crew_id": "frontend_ui"}])
+        self.assertEqual(set(observed), set(SPECIALIST_CREW_IDS))
+        for crew_id in SPECIALIST_CREW_IDS:
+            dispatched = observed[crew_id]
+            self.assertEqual(dispatched["crew_id"], crew_id)
+            self.assertTrue(dispatched["review_required"])
+            self.assertEqual(dispatched["review_status"], "pending")
+            self.assertTrue(dispatched["self_attested_acceptance_is_not_authoritative"])
+        self.assertEqual({tool_name for tool_name, _args in calls}, {
+            f"read_{crew_id}" for crew_id in SPECIALIST_CREW_IDS
+        })
+        self.assertEqual(len(calls), len(SPECIALIST_CREW_IDS))
+        self.assertEqual({args["crew_id"] for _tool_name, args in calls}, set(SPECIALIST_CREW_IDS))
+        self.assertTrue(all("secret" not in args for _tool_name, args in calls))
 
     def test_tool_scope_changes_change_stable_graph_crew_plan_digest(self):
         registry = ApprovedToolRegistry([
