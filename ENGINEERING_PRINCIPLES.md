@@ -34,6 +34,51 @@ This is the compact root contract for all assigned work in AUREN. It is applied 
 | AI/agent systems | Independent holdouts, data-leakage prevention, model/prompt versioning, RAG grounding, citation checks, prompt-injection defense, tool permissions, human approval, drift monitoring, provenance, bounded autonomy, deterministic validation | Any AI/ML/agent/model, retrieval, tool-execution, or learned-policy work |
 | Product quality | Accessibility, usability, interoperability, portability, reliability, availability, maintainability, operability, recoverability, resource efficiency | User-facing features, product contracts, and system-level quality decisions |
 
+## Extended reference inventory
+
+The catalogue below preserves the broader engineering concepts available for task-time selection. It is a reference, not a requirement to use every item.
+
+### Object-oriented concepts
+
+Class/object, interface/abstract class, inheritance, encapsulation, abstraction, polymorphism, overloading/overriding, association/aggregation/composition/dependency, access modifiers, static/instance members, generics, delegates/events, extension methods, records/value objects, equality/identity, lifecycle/disposal, covariance/contravariance, reflection/attributes, pattern matching, mutable/immutable state.
+
+### Design patterns
+
+- **Creational:** Factory Method, Abstract Factory, Builder, Prototype, Singleton.
+- **Structural:** Adapter, Bridge, Composite, Decorator, Facade, Flyweight, Proxy.
+- **Behavioral:** Chain of Responsibility, Command, Interpreter, Iterator, Mediator, Memento, Observer, State, Strategy, Template Method, Visitor.
+- **Application/architectural:** Dependency Injection, Repository, Unit of Work, Specification, Options, Null Object, Object Pool, Service Layer, DTO, MVC, MVVM, Front Controller, Plugin Architecture, Hexagonal Architecture. Select only when the design forces justify the added structure.
+
+### Architecture styles and DDD
+
+Layered, Clean, Onion, Hexagonal/Ports-and-Adapters, Modular Monolith, Microservices, SOA, Event-Driven, Serverless, Microkernel/Plugins, Pipe-and-Filter, Peer-to-Peer, Client-Server, Space-Based, CQRS, Event Sourcing, Data-Centric architecture. DDD concepts: Ubiquitous Language, Domain Model, Entity, Value Object, Aggregate/Aggregate Root, Repository, Domain/Application Service, Domain Event, Bounded Context, Context Mapping, Anti-Corruption Layer, Shared Kernel, Customer-Supplier, Open Host Service, Published Language, Factory, invariant enforcement, strategic/tactical DDD. Avoid domain ceremony for simple CRUD.
+
+### API, integration, and distributed systems
+
+REST/resource-oriented design, statelessness, idempotency, API versioning/backward compatibility, consumer-driven contracts, OpenAPI, pagination/filtering/sorting, rate limits, retry/backoff, timeout/deadline propagation, circuit breaker, bulkhead, correlation IDs, distributed tracing, API Gateway, BFF, webhooks, message-based integration, schema evolution, graceful degradation. Distributed concepts: CAP/PACELC, strong/eventual/read-your-writes consistency, quorum, leader election, replication, sharding/partitioning, load balancing, service discovery, health checks, Saga, transactional outbox, inbox/deduplication, idempotent consumers, dead-letter queues, compensating transactions, backpressure, queue-based load leveling, graceful shutdown, split-brain prevention, and exactly-once processing limitations.
+
+### Data and database engineering
+
+Normalization/denormalization, ACID/BASE trade-offs, referential integrity, primary/foreign keys, indexing/query optimization, optimistic/pessimistic concurrency, transaction isolation, deadlock handling, connection pooling, database-per-service, schema/zero-downtime migrations, CQRS read models, materialized views, CDC, partitioning, retention/archival, lineage/quality validation, polyglot persistence, cache invalidation, multi-tenant isolation, soft/hard delete.
+
+### Security and privacy
+
+Zero Trust, defense in depth, least privilege, secure-by-default, fail securely, authentication/authorization separation, RBAC/ABAC, separation of duties, threat modeling, input validation/output encoding, parameterized queries, secrets management, encryption in transit/at rest, key rotation, secure sessions, audit logging, SBOM/supply-chain controls, dependency scanning, complete mediation, secure error handling, data minimization, privacy by design, security testing.
+
+### Testing and code quality
+
+TDD, BDD, ATDD, unit/integration/contract/component/E2E/regression/smoke/sanity/exploratory testing, property-based, mutation, fuzz, differential, snapshot, golden-master, boundary-value, equivalence partitioning, pairwise, risk-based testing, test pyramid/isolation, mocks/stubs/fakes/spies, coverage, performance/load/chaos/accessibility testing. Code practices: readable names, focused methods, formatting, explicit errors, strong types, avoid primitive obsession/magic numbers/global state/unnecessary side effects/boolean mode flags, deterministic functions where useful, no premature optimization, continuous refactoring, static analysis, linting, code review, dependency hygiene, dead-code removal, make invalid states hard to represent, document why.
+
+### Concurrency, performance, and operations
+
+Thread safety, shared-state immutability, synchronization/mutual exclusion, locks/semaphores, atomic operations, lock-free/wait-free algorithms, producer-consumer, task-based async, structured concurrency, cancellation/timeouts, deadlock/race prevention, bounded queues, backpressure, concurrency versus parallelism, thread-pool/resource ownership, async/await. Performance: Big-O, measure before optimizing, cache-aside/write-through/write-behind, lazy/eager loading, batching, streaming/pagination, horizontal/vertical scaling, load shedding, pooling, allocation control, N+1 prevention, compression/CDN, capacity planning, performance budgets, profiling, tail latency, Little's Law. Delivery/operations: CI/CD, infrastructure/configuration as code, immutable infrastructure, GitOps, trunk-based/feature-branch workflows, feature flags, blue-green/canary/rolling deployment, rollback, shift-left test/security, deployment gates, environment parity, reproducible builds, artifact versioning/provenance, secrets rotation, backup/restore, disaster recovery, RTO/RPO, runbooks, release readiness.
+
+### Observability, team, product, and AI engineering
+
+Observability: logs/metrics/traces, OpenTelemetry, SLIs/SLOs/SLAs, error budgets, alerting on user impact, health/readiness/liveness probes, structured logging, cardinality awareness, incident response, root-cause analysis, blameless postmortems, saturation monitoring, synthetic monitoring, production smoke tests. Team practices: Scrum/Kanban, iterative/incremental delivery, Definition of Ready/Done, feedback loops, small PRs, peer review, pair/mob programming, collective ownership, ADRs/RFCs/design reviews, technical spikes, risk-based prioritization, continuous improvement, documentation as delivery. Product qualities: user-centered design, accessibility, progressive disclosure, consistency, visible system status, error prevention/recovery, backward compatibility, extensibility, portability, interoperability, maintainability, reliability, availability, scalability, testability, observability, recoverability, operability, privacy, resource efficiency.
+
+AI/ML/agent engineering: data/model versioning, reproducible experiments, training-serving consistency, model evaluation, independent holdouts, data-leakage prevention, prompt/model versioning, RAG, embedding/vector search, grounding/citation verification, hallucination evaluation, prompt-injection defense, tool permission boundaries, human review, drift monitoring, offline/online evaluation, A/B testing, feedback loops, output validation, fallback/degradation, cost/latency budgets, dataset governance, adversarial testing, privacy-preserving handling, provenance/evidence tracking, deterministic checks around probabilistic outputs, agent state/memory, bounded autonomy/approval gates, isolated tool execution, auditability/reproducibility.
+
 ## Task-time evidence record
 
 For each assigned task, the canonical task context should capture:
