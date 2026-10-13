@@ -1,50 +1,6 @@
-name: AI Harness Check
-
 on:
   push:
-    paths:
-      - '.github/workflows/**'
-      - '.github/actions/publish-ci-artifacts/**'
-      - '.ai-harness/**'
-      - '.agents/**'
-      - '.claude-plugin/**'
-      - 'skills/**'
-      - 'scripts/**'
-      - 'portable/**'
-      - 'auren_cli.py'
-      - 'docs/**'
-      - '.claude/**'
-      - 'AGENTS.md'
-      - 'CLAUDE.md'
-      - 'GEMINI.md'
-      - 'CODEOWNERS'
-      - 'PLUGIN.md'
-      - 'install.sh'
-      - 'state/**'
-      - 'tests/**'
-      - 'examples/**'
   pull_request:
-    paths:
-      - '.github/workflows/**'
-      - '.ai-harness/**'
-      - '.agents/**'
-      - '.claude-plugin/**'
-      - 'skills/**'
-      - 'scripts/**'
-      - 'portable/**'
-      - 'auren_cli.py'
-      - 'docs/**'
-      - '.claude/**'
-      - 'AGENTS.md'
-      - 'CLAUDE.md'
-      - 'GEMINI.md'
-      - 'CODEOWNERS'
-      - 'PLUGIN.md'
-      - 'install.sh'
-      - 'state/**'
-      - 'tests/**'
-      - 'examples/**'
-      - '.github/actions/publish-ci-artifacts/**'
 
 jobs:
   impact:
@@ -60,13 +16,14 @@ jobs:
         id: detect
         env:
           EVENT_NAME: ${{ github.event_name }}
+          GITHUB_REF: ${{ github.ref }}
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           python - <<'PY'
           import fnmatch, os, subprocess
           event = os.environ['EVENT_NAME']
-          if event == 'workflow_dispatch':
+          if event == 'workflow_dispatch' or os.environ.get('GITHUB_REF', '').startswith('refs/tags/'):
               required = True
               changed = []
           else:
