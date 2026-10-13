@@ -269,7 +269,7 @@ class ContractAlignmentTests(unittest.TestCase):
             "portable/engineering_design_guard.py",
             "portable/agency_runtime.py",
             "portable/local_offload.py",
-            "portable/safe_provider.py",
+            ".ai-harness/safe_provider.py",
             "scripts/provider_conformance.py",
             "scripts/sync_agency_agents.py",
             ".ai-harness/PROVIDER_CONFORMANCE.md",
