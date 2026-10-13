@@ -52,6 +52,12 @@ class EvidenceArchiveTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "unknown fields"):
             self.archive.ingest(unknown, authenticated_principal="test-service")
 
+        nested = dict(event)
+        nested["metadata"] = dict(event["metadata"])
+        nested["metadata"]["handler"] = {"prompt": "must never be retained"}
+        with self.assertRaisesRegex(ValueError, "must be a scalar"):
+            self.archive.ingest(nested, authenticated_principal="test-service")
+
     def test_event_id_cannot_be_reused_for_different_content(self):
         self.archive.ingest(self.event(), authenticated_principal="test-service")
         with self.assertRaises(ArchiveConflict):
