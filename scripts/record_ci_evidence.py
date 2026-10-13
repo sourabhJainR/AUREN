@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+from typing import Mapping
 import sys
 
 from portable.engineering_evidence_capture import EvidenceCapture
@@ -13,7 +14,7 @@ from portable.engineering_evidence_capture import EvidenceCapture
 _TRUTHY = {"1", "true", "yes", "on"}
 
 
-def _external_sink_policy(environ: dict[str, str] | os._Environ[str]) -> tuple[bool, bool]:
+def _external_sink_policy(environ: Mapping[str, str]) -> tuple[bool, bool]:
     url = environ.get("AUREN_EVIDENCE_SINK_URL", "").strip()
     token = environ.get("AUREN_EVIDENCE_SINK_TOKEN", "")
     if bool(url) != bool(token):
