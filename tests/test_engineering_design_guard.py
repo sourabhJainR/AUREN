@@ -131,6 +131,7 @@ def test_complete_domain_data_and_refactoring_contract_is_ready():
             "performance": "preserve query count and allocation profile; no new per-item work",
             "db_access": "reuse existing repository query path and batch existing reads",
             "query_pattern": "single existing query path; no N+1 or duplicate round trips",
+            "schema_evolution": "not_applicable: no schema or persisted-format changes are proposed",
         },
     )
 
