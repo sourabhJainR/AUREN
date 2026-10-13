@@ -214,31 +214,44 @@ def test_ci_gate_policy_requires_expected_sha_checks_and_provider(tmp_path: Path
             raise AssertionError(f"invalid CI policy should reject {expected_message}")
 
 
+def trusted_missing_promotion_context(_context):
+    return {
+        "expected_repository": "owner/project",
+        "expected_head": "b" * 40,
+        "decision_record": None,
+        "authorized_approvers": [],
+        "known_evidence_ids": [],
+    }
+
+
+def trusted_malformed_promotion_context(_context):
+    return {
+        "expected_repository": "owner/project",
+        "expected_head": "b" * 40,
+        "decision_record": {"schema_version": "1.0"},
+        "authorized_approvers": "not-a-trusted-approver-list",
+        "known_evidence_ids": [],
+    }
+
+
+def protected_side_effect_handler(payload):
+    payload["calls"].append("side-effect")
+    return {"success": True}
+
 
 def test_promotion_gate_rejects_missing_trusted_record_before_handler_side_effect(tmp_path: Path):
     controller = ExecutionController(tmp_path)
-    calls = []
-
-    def trusted_context(_context):
-        return {
-            "expected_repository": "owner/project",
-            "expected_head": "b" * 40,
-            "decision_record": None,
-            "authorized_approvers": [],
-            "known_evidence_ids": [],
-        }
-
-    def protected_merge(_payload):
-        calls.append("side-effect")
-        return {"success": True}
-
-    controller.register_handler("tests.promotion_context", trusted_context)
+    controller.register_handler("tests.promotion_context", trusted_missing_promotion_context)
     controller.register_handler(
         "tests.merge_handler",
-        protected_merge,
+        protected_side_effect_handler,
         promotion_gate_policy={"context_handler": "tests.promotion_context"},
     )
-    task = controller.submit("tests.merge_handler", {"decision_record": {"self_authorized": True}})
+    calls = []
+    task = controller.submit(
+        "tests.merge_handler",
+        {"calls": calls, "decision_record": {"self_authorized": True}},
+    )
 
     controller.run_once(task.id)
 
@@ -248,30 +261,20 @@ def test_promotion_gate_rejects_missing_trusted_record_before_handler_side_effec
 
 def test_promotion_gate_rejects_malformed_trusted_context_before_handler_side_effect(tmp_path: Path):
     controller = ExecutionController(tmp_path)
-    calls = []
-
-    def trusted_context(_context):
-        return {
-            "expected_repository": "owner/project",
-            "expected_head": "b" * 40,
-            "decision_record": {"schema_version": "1.0"},
-            "authorized_approvers": "not-a-trusted-approver-list",
-            "known_evidence_ids": [],
-        }
-
-    def protected_publish(_payload):
-        calls.append("side-effect")
-        return {"success": True}
-
-    controller.register_handler("tests.promotion_context", trusted_context)
+    controller.register_handler("tests.promotion_context", trusted_malformed_promotion_context)
     controller.register_handler(
         "tests.publish_handler",
-        protected_publish,
+        protected_side_effect_handler,
         promotion_gate_policy={"context_handler": "tests.promotion_context"},
     )
+    calls = []
     task = controller.submit(
         "tests.publish_handler",
-        {"authorized_approvers": ["attacker"], "decision_record": {"promotion": {"approved_by": "attacker"}}},
+        {
+            "calls": calls,
+            "authorized_approvers": ["attacker"],
+            "decision_record": {"promotion": {"approved_by": "attacker"}},
+        },
     )
 
     controller.run_once(task.id)
