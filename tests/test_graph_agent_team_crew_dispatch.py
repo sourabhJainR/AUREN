@@ -107,6 +107,7 @@ class HarnessCrewDispatchTests(unittest.TestCase):
                 base_prompt="base instructions",
                 memory=memory,
                 invoke_agent=invoke,
+                require_crew_adapters=False,
             )
 
             self.assertFalse(result["accepted"])
