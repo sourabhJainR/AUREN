@@ -263,6 +263,14 @@ class ContractAlignmentTests(unittest.TestCase):
         self.assertIn("require_durable_handoffs", graph_contract)
         self.assertIn("auren_crew_handoff_checkpoint_data", graph_contract)
 
+    def test_identity_allowlist_is_limited_to_docs_tests_and_named_compatibility_files(self) -> None:
+        from scripts.validate_auren_identity import LEGACY_ALLOWED, _is_approved_allowlist_path
+
+        self.assertTrue(all(_is_approved_allowlist_path(path) for path in LEGACY_ALLOWED))
+        self.assertNotIn("portable/state_graph.py", LEGACY_ALLOWED)
+        self.assertNotIn(".ai-harness/runtime/graph_agent_team.py", LEGACY_ALLOWED)
+        self.assertNotIn("portable/orchestration.py", LEGACY_ALLOWED)
+
     def test_active_identity_audit_uses_narrow_runtime_compatibility_exceptions(self) -> None:
         audit = (ROOT / "scripts" / "validate_auren_identity.py").read_text(encoding="utf-8")
         self.assertNotIn('"portable/state_graph.py"', audit)
