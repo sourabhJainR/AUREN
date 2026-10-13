@@ -60,6 +60,37 @@ class AurenStatePathsTests(unittest.TestCase):
             self.assertEqual(json.loads(target_session.read_text(encoding="utf-8"))["stage"], "resume")
             self.assertTrue(paths.migration_manifest.is_file())
 
+    def test_legacy_orchestration_and_observability_files_are_copied_non_destructively(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            legacy, canonical = base / ".aer", base / ".auren"
+            sources = {
+                "orchestration/active.py": "PLAN_VERSION = 1\n",
+                "orchestration/previous.py": "PLAN_VERSION = 0\n",
+                "orchestration/promotion.jsonl": '{"event":"promoted"}\n',
+                "observability/traces.jsonl": '{"trace_id":"legacy-trace"}\n',
+                "history.jsonl": '{"event":"installed"}\n',
+                "active.json": '{"version":"1.0"}\n',
+            }
+            for relative, payload in sources.items():
+                path = legacy / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(payload, encoding="utf-8")
+
+            paths = AurenStatePaths.prepare(canonical, legacy)
+            manifest = json.loads(paths.migration_manifest.read_text(encoding="utf-8"))
+            for relative, payload in sources.items():
+                self.assertEqual((canonical / relative).read_text(encoding="utf-8"), payload)
+                self.assertEqual((legacy / relative).read_text(encoding="utf-8"), payload)
+                self.assertIn(relative, manifest["files"])
+
+            # Reruns verify source identity and preserve canonical writes.
+            with (canonical / "orchestration" / "active.py").open("a", encoding="utf-8") as stream:
+                stream.write("# canonical update\n")
+            AurenStatePaths.prepare(canonical, legacy)
+            self.assertIn("# canonical update", (canonical / "orchestration" / "active.py").read_text(encoding="utf-8"))
+            self.assertEqual((legacy / "orchestration" / "active.py").read_text(encoding="utf-8"), sources["orchestration/active.py"])
+
     def test_migration_preserves_uncheckpointed_wal_contents(self):
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
