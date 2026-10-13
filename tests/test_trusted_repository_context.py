@@ -1,4 +1,5 @@
 """Live Git context provider must ignore caller-supplied repository/head claims."""
+from datetime import datetime, timezone
 import json
 import subprocess
 import tempfile
@@ -6,6 +7,7 @@ import unittest
 from pathlib import Path
 
 from portable.canonical_evidence_ledger import CanonicalEvidenceLedger
+from portable.engineering_evidence_capture import EvidenceCapture
 from portable.trusted_repository_context import TrustedRepositoryContextProvider
 
 
@@ -14,6 +16,11 @@ def git(root, *args):
         ["git", "-C", str(root), *args], check=True,
         capture_output=True, text=True, timeout=5,
     ).stdout.strip()
+
+
+class StubVerifier:
+    def verify_detached(self, signer_id, signature, message):
+        return signer_id == "test-signer" and signature == "test-signature" and bool(message)
 
 
 class TrustedRepositoryContextTests(unittest.TestCase):
@@ -36,16 +43,36 @@ class TrustedRepositoryContextTests(unittest.TestCase):
         self.approvers = self.base / "approvers.json"
         self.approvers.write_text(json.dumps(["release-manager"]), encoding="utf-8")
         self.ledger = CanonicalEvidenceLedger(self.base / "evidence.sqlite3")
-        for evidence_id, evidence_type in (("ci-run-1", "ci_check"), ("approval-1", "approval"), ("rollback-1", "rollback_rehearsal")):
-            self.ledger.record(
-                evidence_id=evidence_id,
-                repository="owner/project",
-                head_sha=self.head,
-                evidence_type=evidence_type,
-                status="verified",
-                source_uri="urn:auren:test:" + evidence_id,
-                payload_digest="a" * 64,
-                signer_id="test-signer",
+        self.capture = EvidenceCapture(self.base / "engineering.sqlite3", evidence_ledger=self.ledger)
+        self.verifier = StubVerifier()
+        for evidence_id, evidence_type, status, source_type in (
+            ("ci-run-1", "ci_check", "passed", "ci"),
+            ("approval-1", "approval", "verified", "operator"),
+            ("rollback-1", "rollback_rehearsal", "verified", "operator"),
+        ):
+            payload = {
+                "evidence_id": evidence_id,
+                "repository": "owner/project",
+                "head_sha": self.head,
+                "evidence_type": evidence_type,
+                "status": status,
+                "source_uri": "https://evidence.example.invalid/" + evidence_id,
+                "payload_digest": "a" * 64,
+                "source_type": source_type,
+                "issued_at": datetime.now(timezone.utc).isoformat(),
+                "run_id": evidence_id,
+            }
+            if evidence_type == "rollback_rehearsal":
+                payload.update({
+                    "operator_id": "release-manager",
+                    "target_id": "staging-cluster-a",
+                    "rollback_plan_digest": "d" * 64,
+                    "last_known_good_commit": "0" * 40,
+                    "recovered_head_sha": "0" * 40,
+                })
+            self.capture.ingest_signed_external_evidence(
+                {"payload": payload, "signer_id": "test-signer", "signature": "test-signature"},
+                verifier=self.verifier, expected_repository="owner/project", expected_head=self.head,
             )
         self.record = {
             "schema_version": "1.0",
@@ -80,7 +107,7 @@ class TrustedRepositoryContextTests(unittest.TestCase):
         self.provider = TrustedRepositoryContextProvider(
             self.repo, expected_repository="owner/project",
             decision_record_dir=self.records, authorized_approvers_file=self.approvers,
-            evidence_ledger=self.ledger,
+            evidence_ledger=self.ledger, evidence_capture=self.capture, receipt_verifier=self.verifier,
         )
 
     def test_live_repository_and_head_override_spoofed_request_fields(self):
