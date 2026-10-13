@@ -1,0 +1,3 @@
+.env.archive
+trusted-public-keys.json
+revoked-signers.json
