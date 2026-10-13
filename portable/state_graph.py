@@ -264,7 +264,7 @@ def build_crew_plan(
     return CrewPlan(graph_digest=graph_digest, intent_digest=intent_digest, assignments=tuple(selected))
 
 
-def dispatch_crew_proposal(
+def _dispatch_crew_proposal(
     crew_id: str,
     task: str,
     evidence: Mapping[str, Any] | None,
@@ -454,7 +454,7 @@ class GraphAgentTeam:
         dispatch_active = {"value": True}
 
         def dispatch_crew(crew_id: str, task: str, evidence: Mapping[str, Any] | None = None) -> dict[str, Any]:
-            return dispatch_crew_proposal(
+            return _dispatch_crew_proposal(
                 crew_id, task, evidence,
                 active=dispatch_active["value"],
                 plan=plan,
@@ -550,5 +550,5 @@ class GraphAgentTeam:
 
 __all__ = [
     "StateGraph", "StateTransition", "CrewDefinition", "CrewAssignment", "CrewPlan", "GraphAgentTeam",
-    "default_crew_definitions", "build_crew_plan", "dispatch_crew_proposal",
+    "default_crew_definitions", "build_crew_plan",
 ]
