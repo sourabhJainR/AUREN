@@ -212,6 +212,8 @@ class GraphAgentTeam:
             or not isinstance(independent_handoff_reviewer_version, str) or not independent_handoff_reviewer_version.strip()
         ):
             raise ValueError("independent handoff reviewer ID and version are required")
+        if reviewer_configured and independent_handoff_reviewer_id in self.crew_definitions:
+            raise ValueError("independent reviewer identity must be distinct from every specialist crew")
         if not reviewer_configured and (independent_handoff_reviewer_id or independent_handoff_reviewer_version):
             raise ValueError("reviewer ID/version cannot be set without a reviewer")
         self.independent_handoff_reviewer=independent_handoff_reviewer
