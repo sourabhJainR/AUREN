@@ -7,6 +7,7 @@ can reconstruct them after a restart. Handler state and outcomes live in SQLite.
 from __future__ import annotations
 
 import importlib
+import inspect
 import json
 import re
 import sqlite3
@@ -67,7 +68,8 @@ class ExecutionController:
               name TEXT PRIMARY KEY, reference TEXT NOT NULL, updated_at TEXT NOT NULL,
               ci_gate_policy_json TEXT NOT NULL DEFAULT '{}',
               promotion_gate_policy_json TEXT NOT NULL DEFAULT '{}',
-              execution_class TEXT NOT NULL DEFAULT 'unclassified');
+              execution_class TEXT NOT NULL DEFAULT 'unclassified',
+              implementation_digest TEXT NOT NULL DEFAULT '');
             CREATE TABLE IF NOT EXISTS tasks(
               id TEXT PRIMARY KEY, handler TEXT NOT NULL, payload TEXT NOT NULL,
               state TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0,
@@ -81,6 +83,8 @@ class ExecutionController:
                 db.execute("ALTER TABLE handlers ADD COLUMN promotion_gate_policy_json TEXT NOT NULL DEFAULT '{}'")
             if "execution_class" not in handler_columns:
                 db.execute("ALTER TABLE handlers ADD COLUMN execution_class TEXT NOT NULL DEFAULT 'unclassified'")
+            if "implementation_digest" not in handler_columns:
+                db.execute("ALTER TABLE handlers ADD COLUMN implementation_digest TEXT NOT NULL DEFAULT ''")
             columns = {row[1] for row in db.execute("PRAGMA table_info(tasks)").fetchall()}
             for column in ("heartbeat_at", "lease_until"):
                 if column not in columns:
@@ -123,6 +127,11 @@ class ExecutionController:
                 raise ValueError("durable handlers must be importable module-level callables")
             reference = f"{module}:{qualname}"
 
+        resolved_handler = self._resolve_reference(reference) if isinstance(handler, str) else handler
+        if not callable(resolved_handler):
+            raise TypeError(f"durable handler is not callable: {reference}")
+        implementation_digest = self._implementation_digest(resolved_handler)
+
         name_tokens = _handler_tokens(name)
         if isinstance(handler, str):
             handler_identity = handler.split(":", 1)[-1]
@@ -135,15 +144,20 @@ class ExecutionController:
 
         with sqlite3.connect(self.db_path) as db:
             prior_registration = db.execute(
-                "SELECT reference, execution_class FROM handlers WHERE name=?", (name,)
+                "SELECT reference, execution_class, implementation_digest FROM handlers WHERE name=?", (name,)
             ).fetchone()
         prior_reference = str(prior_registration[0]) if prior_registration else None
         prior_class = str(prior_registration[1]) if prior_registration else None
+        prior_digest = str(prior_registration[2]) if prior_registration else ""
         if execution_class is None and prior_class is not None:
             execution_class = prior_class
         if prior_class is not None and prior_class != "unclassified" and prior_reference != reference:
             raise ValueError(
                 "registered handler reference is immutable; use a new handler identity for a different implementation"
+            )
+        if prior_class is not None and prior_class != "unclassified" and prior_digest and prior_digest != implementation_digest:
+            raise ValueError(
+                "registered handler implementation digest is immutable; use a new handler identity for changed code"
             )
         if (
             prior_class is not None
@@ -237,14 +251,15 @@ class ExecutionController:
             if not promotion_policy and prior:
                 promotion_policy = json.loads(prior[1] or "{}")
             db.execute(
-                "INSERT INTO handlers(name,reference,updated_at,ci_gate_policy_json,promotion_gate_policy_json,execution_class) "
-                "VALUES(?,?,?,?,?,?) ON CONFLICT(name) DO UPDATE SET "
+                "INSERT INTO handlers(name,reference,updated_at,ci_gate_policy_json,promotion_gate_policy_json,execution_class,implementation_digest) "
+                "VALUES(?,?,?,?,?,?,?) ON CONFLICT(name) DO UPDATE SET "
                 "reference=excluded.reference,updated_at=excluded.updated_at,"
                 "ci_gate_policy_json=excluded.ci_gate_policy_json,"
                 "promotion_gate_policy_json=excluded.promotion_gate_policy_json,"
-                "execution_class=excluded.execution_class",
+                "execution_class=excluded.execution_class,"
+                "implementation_digest=excluded.implementation_digest",
                 (name, reference, _now(), json.dumps(ci_policy, sort_keys=True),
-                 json.dumps(promotion_policy, sort_keys=True), execution_class),
+                 json.dumps(promotion_policy, sort_keys=True), execution_class, implementation_digest),
             )
         return reference
 
@@ -276,17 +291,41 @@ class ExecutionController:
             raise ValueError(f"invalid persisted promotion gate policy for handler: {name}")
         return policy
 
-    def _load_handler(self, name: str) -> Handler:
-        with sqlite3.connect(self.db_path) as db:
-            row = db.execute("SELECT reference FROM handlers WHERE name=?", (name,)).fetchone()
-        if not row:
-            raise KeyError(f"unknown durable handler: {name}")
-        module_name, qualname = str(row[0]).split(":", 1)
+    @staticmethod
+    def _resolve_reference(reference: str) -> Any:
+        module_name, qualname = reference.split(":", 1)
         obj: Any = importlib.import_module(module_name)
         for part in qualname.split("."):
             obj = getattr(obj, part)
+        return obj
+
+    @staticmethod
+    def _implementation_digest(handler: Handler) -> str:
+        try:
+            source = inspect.getsource(handler)
+        except (OSError, TypeError) as exc:
+            raise ValueError(
+                "durable handler implementation source cannot be fingerprinted"
+            ) from exc
+        return hashlib.sha256(source.encode("utf-8")).hexdigest()
+
+    def _load_handler(self, name: str) -> Handler:
+        with sqlite3.connect(self.db_path) as db:
+            row = db.execute(
+                "SELECT reference, implementation_digest, execution_class FROM handlers WHERE name=?", (name,)
+            ).fetchone()
+        if not row:
+            raise KeyError(f"unknown durable handler: {name}")
+        reference, expected_digest, execution_class = str(row[0]), str(row[1] or ""), str(row[2])
+        obj = self._resolve_reference(reference)
         if not callable(obj):
-            raise TypeError(f"durable handler is not callable: {row[0]}")
+            raise TypeError(f"durable handler is not callable: {reference}")
+        if execution_class != "unclassified":
+            if not expected_digest:
+                raise ValueError(f"classified durable handler has no implementation digest: {name}")
+            actual_digest = self._implementation_digest(obj)
+            if actual_digest != expected_digest:
+                raise ValueError(f"durable handler implementation digest mismatch: {name}")
         return obj
 
     def _preflight_gates(self, task: DurableTask) -> tuple[bool, str, tuple[str, ...]]:
