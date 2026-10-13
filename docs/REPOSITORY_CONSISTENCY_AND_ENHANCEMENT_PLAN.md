@@ -22,12 +22,12 @@ This is a deep review of the main architectural and release surfaces, not a clai
 
 | Priority | Finding | Current status | Completion evidence |
 |---|---|---|---|
-| P0 | Runtime state root mismatch: README documents `~/.auren`; `portable/adaptive_runtime.py` still uses `~/.aer`, and passes `~/.aer/executive` to a controller that appends its own `.auren` directory. | Tracked in [#379](https://github.com/sourabhJainR/AUREN/issues/379). Do not move data manually. | One canonical path contract, safe migration/compatibility logic, collision and restart tests, rollback evidence. |
+| P0 | Runtime state root mismatch: README documents `~/.auren`; `portable/adaptive_runtime.py` still uses `~/.auren`, and passes `~/.auren/executive` to a controller that appends its own `.auren` directory. | Tracked in [#379](https://github.com/sourabhJainR/AUREN/issues/379). Do not move data manually. | One canonical path contract, safe migration/compatibility logic, collision and restart tests, rollback evidence. |
 | P0 | `EngineeringRecoveryLedger` is implemented and unit-tested, but the reviewed default `AdaptiveRuntime → ExecutionController → AutonomousCompany` path does not directly use it. Existing supervisor retries and the new ledger could otherwise enforce separate budgets. | [#377](https://github.com/sourabhJainR/AUREN/issues/377) remains open pending real runtime integration. | Integration tests prove durable attempt limits, changed-hypothesis recovery, exact-head CI gates, resume and safe termination through the default runtime. |
 | P0 | There are two different `StateGraph` classes: `portable.state_graph.StateGraph` is a supervisor-facing facade over `Graph/Orchestrator`; `portable.agency_state_graph.StateGraph` is a separate checkpointable graph runtime. Documentation had incorrectly claimed no `StateGraph` class existed. | README and controller docs corrected in this review PR; further runtime unification is not assumed safe. | Explicit API ownership, adapters where needed, and tests showing which path the default runtime actually uses. |
 | P0 | The Arena is still the main product evidence gap: target contracts exist, but the first fully independent sealed campaign is not yet demonstrated. | Existing [#368](https://github.com/sourabhJainR/AUREN/issues/368) is the canonical roadmap. | Executable sealed runner, independent oracle, content-addressed receipt, holdout controls, repeatability and negative tests. |
 | P1 | GitHub repository metadata reports Pages disabled (`has_pages=false`) despite a configured Actions deployment workflow and homepage URL. | Tracked in [#380](https://github.com/sourabhJainR/AUREN/issues/380); repository settings must be enabled and the live URL verified. | Successful Pages deployment plus external homepage and 404 smoke checks. |
-| P1 | Several active docs and source comments still use the retired AER identity; one integration note also claims a separate `21.0.0 → 22.0.0` version jump that conflicts with the canonical `VERSION` contract. | The Arena and skills-integration docs and selected active comments are corrected in this review PR; regression checks prevent these specific docs from drifting again. | Extend identity checks to additional maintained surfaces, preserving only explicitly documented compatibility identifiers. |
+| P1 | Several active docs and source comments still use the retired AUREN identity; one integration note also claims a separate `21.0.0 → 22.0.0` version jump that conflicts with the canonical `VERSION` contract. | The Arena and skills-integration docs and selected active comments are corrected in this review PR; regression checks prevent these specific docs from drifting again. | Extend identity checks to additional maintained surfaces, preserving only explicitly documented compatibility identifiers. |
 | P1 | Several validation/fix branches are stale and diverged from main; some contain useful tests absent from main. They should not be merged wholesale. | Not merged by this review. | Inspect each test against current APIs, port useful regression cases onto a fresh branch, and run current CI. |
 
 ## Enhancement completion sequence
@@ -44,7 +44,7 @@ This is a deep review of the main architectural and release surfaces, not a clai
 ### Gate 1 — State ownership and migration ([#379](https://github.com/sourabhJainR/AUREN/issues/379))
 
 - Define machine-scoped vs project-scoped state explicitly.
-- Introduce one path resolver and a tested migration strategy for legacy `.aer` data.
+- Introduce one path resolver and a tested migration strategy for legacy `.auren` data.
 - If both old and new roots exist, never silently overwrite or shadow one; preserve both and require a deterministic safe resolution.
 - Test memory, scheduler, session, execution ledger, restart/resume, installation, update and rollback using isolated temporary home directories.
 
@@ -133,7 +133,7 @@ This section supersedes earlier "pending implementation" statements only where t
 
 ### Revalidated state and recovery work
 
-- `portable.adaptive_runtime.AdaptiveRuntime` now resolves the canonical machine state root through `AurenStatePaths` at `~/.auren`, and passes the legacy `~/.aer` root through the guarded migration path. The earlier table statement that the current runtime still initializes all stores under `~/.aer` is stale.
+- `portable.adaptive_runtime.AdaptiveRuntime` now resolves the canonical machine state root through `AurenStatePaths` at `~/.auren`, and passes the legacy `~/.auren` root through the guarded migration path. The earlier table statement that the current runtime still initializes all stores under `~/.auren` is stale.
 - `AdaptiveRuntime.run()` now directly uses `EngineeringRecoveryLedger` for bounded attempts, alternate hypotheses, and checkpoints. The earlier statement that the default runtime does not use the ledger is stale.
 - Issues [#379](https://github.com/sourabhJainR/AUREN/issues/379) and [#377](https://github.com/sourabhJainR/AUREN/issues/377) remain open for live/operational acceptance: representative legacy-state upgrade and rollback rehearsal, process-death restart/resume, unrelated work proceeding around blocked dependencies, and exact-head CI/last-known-good evidence. Do not close them based only on unit tests.
 
@@ -151,7 +151,7 @@ The current owner map is documented in [`docs/UNIFIED_GRAPH_CREW_RUNTIME.md`](UN
 
 ### Documentation drift found
 
-The current-main search also found active AER-era naming and paths in console, orchestration, agent-capability, provider, second-brain, learning, offload, and adaptation documents. This PR aligns the active graph/crew contract surfaces and selected runtime docs, fixes the console commands and canonical state path, and adds regression checks for the changed active docs. Historical/version-specific notes and explicit legacy identifiers (for example, the `.aer` migration source or `AER_*` compatibility environment variables) must remain labeled as legacy rather than being blindly renamed.
+The current-main search also found active AUREN-era naming and paths in console, orchestration, agent-capability, provider, second-brain, learning, offload, and adaptation documents. This PR aligns the active graph/crew contract surfaces and selected runtime docs, fixes the console commands and canonical state path, and adds regression checks for the changed active docs. Historical/version-specific notes and explicit legacy identifiers (for example, the `.auren` migration source or `AER_*` compatibility environment variables) must remain labeled as legacy rather than being blindly renamed.
 
 ### Next acceptance sequence
 
