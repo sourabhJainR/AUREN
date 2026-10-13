@@ -62,6 +62,8 @@ class TrustedRepositoryContextTests(unittest.TestCase):
                 "issued_at": datetime.now(timezone.utc).isoformat(),
                 "run_id": evidence_id,
             }
+            if evidence_type == "approval":
+                payload["operator_id"] = "release-manager"
             if evidence_type == "rollback_rehearsal":
                 payload.update({
                     "operator_id": "release-manager",
