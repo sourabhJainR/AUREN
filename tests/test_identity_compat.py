@@ -32,7 +32,7 @@ class IdentityCompatibilityTests(unittest.TestCase):
             self.assertEqual(auren_home(home=root, environ={}), root / ".auren")
             self.assertEqual(
                 auren_home(home=root, environ={"AUREN_HOME": "~/chosen", "AER_HOME": "~/legacy"}),
-                Path("~/chosen"),
+                (Path.home() / "chosen").resolve(),
             )
 
     def test_project_state_prefers_canonical_then_legacy_without_moving_it(self) -> None:
