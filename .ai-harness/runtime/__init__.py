@@ -35,6 +35,9 @@ def register_crew_adapters(adapters: dict[str, Any], *, replace: bool = False) -
             raise ValueError(f"unknown crew id: {crew_id}")
         if getattr(adapter, "crew_id", None) != crew_id or not callable(getattr(adapter, "propose", None)):
             raise ValueError(f"invalid proposal adapter for crew {crew_id}")
+        version = getattr(adapter, "implementation_version", None)
+        if not isinstance(version, str) or not version.strip() or version.strip().lower() == "unversioned":
+            raise ValueError(f"crew adapter {crew_id} needs an explicit implementation_version")
         digest = getattr(adapter, "configuration_digest", None)
         if not isinstance(digest, str) or not digest.strip():
             raise ValueError(f"crew adapter {crew_id} needs a stable configuration digest")
