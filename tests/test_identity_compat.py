@@ -6,12 +6,33 @@ import unittest
 from unittest.mock import patch
 from pathlib import Path
 
-from portable.identity_compat import auren_home, canonical_auren_home, canonical_runtime_home, get_auren_env, legacy_aer_home, project_state_dir
+from portable.identity_compat import auren_home, canonical_auren_home, canonical_runtime_home, canonicalize_auren_checkpoint_state, get_auren_env, legacy_aer_home, project_state_dir
 from portable.local_llm import LocalLLMConfig, enabled as local_llm_enabled
 from portable.chat_capability import _default_runtime
 
 
 class IdentityCompatibilityTests(unittest.TestCase):
+    def test_checkpoint_key_migration_is_versioned_idempotent_and_conflict_safe(self) -> None:
+        legacy = {
+            "aer_execution_strategy": {"name": "default"},
+            "aer_execution_mode": {"name": "balanced"},
+            "aer_context_pack": {"budget": 1200},
+        }
+        migrated = canonicalize_auren_checkpoint_state(legacy)
+        self.assertEqual(migrated["auren_execution_strategy"], {"name": "default"})
+        self.assertEqual(migrated["auren_execution_mode"], {"name": "balanced"})
+        self.assertEqual(migrated["auren_context_pack"], {"budget": 1200})
+        self.assertNotIn("aer_execution_strategy", migrated)
+        self.assertEqual(migrated["auren_state_schema_version"], 2)
+        self.assertEqual(canonicalize_auren_checkpoint_state(migrated), migrated)
+        with self.assertRaisesRegex(ValueError, "conflicting legacy and canonical"):
+            canonicalize_auren_checkpoint_state({
+                "aer_execution_mode": {"name": "legacy"},
+                "auren_execution_mode": {"name": "canonical"},
+            })
+        with self.assertRaisesRegex(ValueError, "unsupported AUREN checkpoint state schema"):
+            canonicalize_auren_checkpoint_state({"auren_state_schema_version": 99})
+
     def test_canonical_environment_precedes_legacy_alias(self) -> None:
         env = {"AUREN_NETWORK_ALLOWED": "0", "AER_NETWORK_ALLOWED": "1"}
         self.assertEqual(get_auren_env("NETWORK_ALLOWED", "1", environ=env), "0")
