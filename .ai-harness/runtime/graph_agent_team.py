@@ -1010,12 +1010,37 @@ the learning system, not an instruction source. If a skill produced no distinct 
         if rollout.state == "candidate" and selected_strategy != baseline_strategy:
             selected_strategy=baseline_strategy
         StrategyCanaryController.record_state(memory.project_root, rollout)
-        run=self._build_execution_graph(results,task=task,intent_digest=intent_digest,run_nonce=run_nonce,base_prompt=base_prompt,memory=memory,invoke_agent=invoke_agent,experiment_assignment=experiment_assignment).compile().invoke({"aer_execution_strategy":{"name":selected_strategy},"aer_execution_mode":{"name":selected_mode}},run_id=run_id,checkpoint=checkpoint,resume=resume,max_steps=max_steps,parallel_nodes=lambda n:self.agents[n].read_only,max_parallel_nodes=min(self.max_parallel_read_only, execution_mode(selected_mode).max_parallelism))
+        crew_plan=build_crew_plan(
+            task,
+            graph_digest=self.digest(),
+            intent_digest=intent_digest,
+            agents=self.crew_adapters,
+            crews=self.crew_definitions,
+        )
+        execution_graph_digest=hashlib.sha256(json.dumps({
+            "agent_graph_digest": self.digest(),
+            "crew_plan_digest": crew_plan.digest,
+            "require_crew_adapters": self.require_crew_adapters,
+        }, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+        graph=self._build_execution_graph(
+            results,task=task,intent_digest=intent_digest,run_nonce=run_nonce,
+            base_prompt=base_prompt,memory=memory,invoke_agent=invoke_agent,
+            experiment_assignment=experiment_assignment,crew_plan=crew_plan,
+            require_crew_adapters=self.require_crew_adapters,
+        )
+        run=graph.compile().invoke(
+            {"aer_execution_strategy":{"name":selected_strategy},"aer_execution_mode":{"name":selected_mode}},
+            run_id=run_id,checkpoint=checkpoint,resume=resume,max_steps=max_steps,
+            parallel_nodes=lambda n: n in self.agents and self.agents[n].read_only,
+            max_parallel_nodes=min(self.max_parallel_read_only, execution_mode(selected_mode).max_parallelism),
+        )
         for agent in self.agents.values():
             payload=run.state.get(f"result:{agent.name}")
             if isinstance(payload,dict) and payload.get("activated"): results[agent.name]=AgentResult(**{k:v for k,v in payload.items() if k!="activated"})
         critical=[run.state.get(f"result:{a.name}") for a in self.agents.values() if a.critical]
+        crew_execution=run.state.get("auren_crew_execution", {"status":"not_run","required":self.require_crew_adapters,"proposals":{},"missing_adapters":[],"dispatch_failures":[],"intent_digest":intent_digest})
         accepted=all(isinstance(x,dict) and x.get("status")=="passed" for x in critical)
+        if self.require_crew_adapters and crew_execution.get("status") == "blocked": accepted=False
         strategy_learner=ExecutionStrategyLearner(memory.project_root)
         mode_duration=sum(float(result.duration_seconds) for result in results.values())
         mode_evidence=sum(ExecutionStrategyLearner.observed_evidence_quality(result) for result in results.values()) / max(1, len(results))
@@ -1272,7 +1297,7 @@ the learning system, not an instruction source. If a skill produced no distinct 
             )
             if autonomous_benchmark_learning else None
         )
-        return {"graph_digest":self.digest(),"intent_digest":intent_digest,"agents":{n:r.__dict__ for n,r in results.items()},"shared_memory_file":str(memory.path),"shared_memory_entries":len(memory.snapshot(500)),"accepted":accepted,"evolution_trigger":trigger.__dict__ if trigger else None,"invention":invention.__dict__ if invention else None,"execution_trace":list(run.trace),"execution_mode":{"selected":selected_mode,"baseline":baseline_mode,"learning":mode_selection.as_dict(),"rollout":mode_rollout.as_dict(),"counterfactual":counterfactual,"context":decision_context.as_dict(),"context_learning":context_selection.as_dict()},
+        return {"graph_digest":self.digest(),"execution_graph_digest":execution_graph_digest,"intent_digest":intent_digest,"crew_plan":crew_plan.to_payload(),"crew_execution":crew_execution,"agents":{n:r.__dict__ for n,r in results.items()},"shared_memory_file":str(memory.path),"shared_memory_entries":len(memory.snapshot(500)),"accepted":accepted,"evolution_trigger":trigger.__dict__ if trigger else None,"invention":invention.__dict__ if invention else None,"execution_trace":list(run.trace),"execution_mode":{"selected":selected_mode,"baseline":baseline_mode,"learning":mode_selection.as_dict(),"rollout":mode_rollout.as_dict(),"counterfactual":counterfactual,"context":decision_context.as_dict(),"context_learning":context_selection.as_dict()},
         "execution_strategy":{"selected":selected_strategy,"baseline":baseline_strategy,"learning":strategy_selection.as_dict() if strategy_selection else {"strategy":selected_strategy,"learned":False,"confidence":0.0,"samples":0,"rationale":"explicit strategy supplied"},"rollout":rollout.as_dict(),"context":decision_context.as_dict()},"active_learning":{"self_model":self_model.as_dict(),"experiment":experiment.as_dict() if experiment else None,"causal_experiment":causal_experiment.as_dict() if causal_experiment else None},"goal_state":{"current":next_goal.as_dict() if next_goal else None},"capability_abstraction":{"patterns":[p.as_dict() for p in transferable_patterns],"invention_hypotheses":[h.as_dict() for h in invention_hypotheses],"failure_cluster_inventions":[x.as_dict() for x in invention_candidates],"evidence_backed_requests":invention_requests},"autonomy_benchmark":benchmark.as_dict(),"autonomy_benchmark_campaign":benchmark_campaign.as_dict(),"autonomy_campaign_curriculum":[x.as_dict() for x in benchmark_campaign_curriculum],"benchmark_task_contracts":[x.as_dict() for x in benchmark_task_contracts],"benchmark_execution_requests":[x.as_dict() for x in benchmark_execution_requests],"benchmark_execution_receipt":benchmark_execution_receipt.as_dict() if benchmark_execution_receipt else None,"benchmark_execution_receipt_reason":benchmark_execution_receipt_reason,"autonomy_benchmark_trend":benchmark_trend.as_dict(),"autonomy_curriculum":[x.as_dict() for x in curriculum],"curriculum_experiment":curriculum_experiment.as_dict() if curriculum_experiment else None,"curriculum_experiment_outcome":curriculum_experiment_outcome.as_dict() if curriculum_experiment_outcome else None,"experiment_orchestration":{"assignment":experiment_assignment.as_dict() if experiment_assignment else None,"observation":experiment_observation.as_dict() if experiment_observation else None,"attribution":experiment_attribution.as_dict() if experiment_attribution else None},"execution_digest":run.digest,"dreamed_learning":dream,"autonomous_campaign_learning":autonomous_campaign_learning_result}
 
 
