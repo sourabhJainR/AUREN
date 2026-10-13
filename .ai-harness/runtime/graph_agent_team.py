@@ -6,10 +6,10 @@ from contextlib import contextmanager
 from dataclasses import dataclass,field
 from pathlib import Path
 from typing import Any,Callable,Iterator,Mapping
-from portable.agency_state_graph import CheckpointStore,StateGraph
+from portable.agency_state_graph import Checkpoint,CheckpointStore,StateGraph
 from portable.identity_compat import get_auren_env, project_state_dir
 from portable.state_graph import build_crew_plan, default_crew_definitions, _dispatch_crew_proposal
-from portable.crew_adapters import TaskRetryBudget, merge_retry_budget_snapshots
+from portable.crew_adapters import CrewHandoff,GraphHandoffController,TaskRetryBudget, merge_retry_budget_snapshots
 from portable.agent_memory import AgentMemory
 from portable.context_engine import ContextEngine,ContextPolicy,handoff_from_output
 from portable.dream_memory import DreamMemory
@@ -372,7 +372,7 @@ class GraphAgentTeam:
     def _run_local(self,agent:AgentSpec,decision:ResourceDecision,memory:SharedTaskMemory,broker:LocalOffloadBroker)->OffloadResult|None:
         if decision.lane!="local": return None
         return broker.run(OffloadJob(agent.name,decision.command,isolate=agent.local_isolation,timeout_seconds=agent.local_timeout_seconds))
-    def _build_execution_graph(self,results,*,task,intent_digest,run_nonce,base_prompt,memory,invoke_agent,experiment_assignment=None,crew_plan=None,require_crew_adapters=False,retry_budget=None):
+    def _build_execution_graph(self,results,*,task,intent_digest,run_nonce,base_prompt,memory,invoke_agent,experiment_assignment=None,crew_plan=None,require_crew_adapters=False,retry_budget=None,checkpoint_store=None,run_id="graph-agent-team",saved_handoff_checkpoint=None):
         if retry_budget is None:
             raise ValueError("a task-scoped retry budget is required")
         graph=StateGraph(reducers={"auren_retry_budget": merge_retry_budget_snapshots})
@@ -915,11 +915,64 @@ the learning system, not an instruction source. If a skill produced no distinct 
                             "error_type": type(exc).__name__,
                             "reason": "proposal adapter failed validation or execution",
                         })
-                blocked = bool(require_crew_adapters and (missing or failures))
+                handoff_receipts = []
+                handoff_checkpoint_data = state.get("auren_crew_handoff_checkpoint_data", saved_handoff_checkpoint)
+                handoff_requests = []
+                for source_crew, record in sorted(proposals.items()):
+                    raw_proposal = record.get("proposal", {}) if isinstance(record, Mapping) else {}
+                    for request in raw_proposal.get("handoff_requests", []) if isinstance(raw_proposal, Mapping) else []:
+                        handoff_requests.append((source_crew, request))
+                handoff_status = "not_requested"
+                if handoff_requests:
+                    if checkpoint_store is None or not callable(getattr(checkpoint_store, "save", None)):
+                        failures.append({"crew_id": "handoff-controller", "error_type": "DurabilityUnavailable", "reason": "handoff requests require the canonical graph checkpoint store"})
+                        handoff_status = "blocked"
+                    else:
+                        def persist_handoff(snapshot):
+                            durable_state = dict(state)
+                            durable_state["auren_crew_handoff_checkpoint_data"] = dict(snapshot)
+                            checkpoint_store.save(Checkpoint(
+                                run_id=run_id, step=0, state=durable_state,
+                                next_nodes=("crew-proposals",), trace=(),
+                            ))
+                        try:
+                            if isinstance(handoff_checkpoint_data, Mapping):
+                                handoffs = GraphHandoffController.resume(
+                                    handoff_checkpoint_data, retry_budget=retry_budget,
+                                    persist=persist_handoff, require_persistence=True,
+                                )
+                            else:
+                                handoffs = GraphHandoffController(
+                                    max_attempts=3, retry_budget=retry_budget,
+                                    persist=persist_handoff, require_persistence=True,
+                                )
+                            selected_crews = tuple(assignment.crew_id for assignment in crew_plan.assignments)
+                            for source_crew, request in handoff_requests:
+                                if not isinstance(request, Mapping):
+                                    raise ValueError("handoff request must be a mapping")
+                                definition = self.crew_definitions[source_crew]
+                                target_crew = request["target_crew"]
+                                handoff_task = request["task"]
+                                item = handoffs.enqueue(
+                                    source_crew=source_crew, target_crew=target_crew, task=handoff_task,
+                                    source_plan_digest=crew_plan.digest,
+                                    allowed_handoffs=definition.handoffs_to,
+                                    selected_crews=selected_crews,
+                                )
+                                handoff_receipts.append({
+                                    "handoff_id": item.handoff_id, "source_crew": item.source_crew,
+                                    "target_crew": item.target_crew, "task_digest": hashlib.sha256(item.task.encode("utf-8")).hexdigest(),
+                                    "attempt": item.attempt, "status": "queued",
+                                })
+                            handoff_checkpoint_data = handoffs.snapshot()
+                            handoff_status = "queued"
+                        except Exception as exc:
+                            failures.append({"crew_id": "handoff-controller", "error_type": type(exc).__name__, "reason": "handoff validation or durable checkpoint failed"})
+                            handoff_status = "blocked"
+                blocked = bool(require_crew_adapters and (missing or failures)) or handoff_status == "blocked"
                 status = "blocked" if blocked else "complete" if not missing and not failures else "partial"
-                # Bind adapter outputs to the canonical graph state as a deterministic,
-                # tamper-evident evidence envelope. This is a receipt, not proof that a
-                # proposal is correct: independent QA and Guard remain authoritative.
+                # Bind adapter outputs and queued handoffs to canonical graph state.
+                # Receipts establish lineage, not correctness or independent acceptance.
                 evidence_payload = {
                     "schema_version": "auren-crew-evidence-envelope-v1",
                     "intent_digest": intent_digest,
@@ -932,6 +985,9 @@ the learning system, not an instruction source. If a skill produced no distinct 
                     "missing_adapters": sorted(missing),
                     "dispatch_failures": failures,
                     "retry_budget": state.get("auren_retry_budget", retry_budget.snapshot()),
+                    "handoff_receipts": handoff_receipts,
+                    "handoff_status": handoff_status,
+                    "handoff_checkpoint_digest": handoff_checkpoint_data.get("digest") if isinstance(handoff_checkpoint_data, Mapping) else None,
                 }
                 evidence_digest = hashlib.sha256(
                     json.dumps(evidence_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
@@ -953,8 +1009,9 @@ the learning system, not an instruction source. If a skill produced no distinct 
                     "intent_digest": intent_digest,
                     "crew_plan_digest": crew_plan.digest,
                     "evidence_envelope": {**evidence_payload, "digest": evidence_digest},
-                    "handoff_receipts": [],
-                    "handoff_status": "not_requested",
+                    "handoff_receipts": handoff_receipts,
+                    "handoff_status": handoff_status,
+                    "handoff_checkpoint_data": dict(handoff_checkpoint_data) if isinstance(handoff_checkpoint_data, Mapping) else None,
                 }
                 return {
                     "auren_crew_plan": crew_plan.to_payload(),
@@ -1094,6 +1151,9 @@ the learning system, not an instruction source. If a skill produced no distinct 
             experiment_assignment=experiment_assignment,crew_plan=crew_plan,
             require_crew_adapters=require_crew_adapters,
             retry_budget=retry_budget,
+            checkpoint_store=checkpoint,
+            run_id=run_id,
+            saved_handoff_checkpoint=saved_state.get("auren_crew_handoff_checkpoint_data") if isinstance(saved_state, Mapping) else None,
         )
         run=graph.compile().invoke(
             {
@@ -1102,6 +1162,7 @@ the learning system, not an instruction source. If a skill produced no distinct 
                 "auren_crew_plan":crew_plan.to_payload(),
                 "auren_execution_graph_digest":execution_graph_digest,
                 "auren_retry_budget":retry_budget.snapshot(),
+                "auren_crew_handoff_checkpoint_data": saved_state.get("auren_crew_handoff_checkpoint_data") if isinstance(saved_state, Mapping) else None,
                 "auren_crew_execution":{
                     "schema_version":"auren-crew-execution-v1",
                     "status":"partial" if any(a.crew_id not in self.crew_adapters for a in crew_plan.assignments) else "complete",
