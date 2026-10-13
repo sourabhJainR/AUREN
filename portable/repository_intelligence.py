@@ -1,6 +1,6 @@
-"""Canonical repository-intelligence facade for AER.
+"""Canonical repository-intelligence facade for AUREN.
 
-There is intentionally one repository/code graph store in AER: ``CodebaseIndex``
+There is intentionally one repository/code graph store in AUREN: ``CodebaseIndex``
 from ``agency_codebase_context``.  This module is the task-facing facade over
 that store.  Packing, retrieval, callers/callees, impact, affected tests and
 change awareness all consume the same snapshot instead of building competing
@@ -339,7 +339,7 @@ def _is_test(path: str) -> bool:
 
 
 def render_compact(answer: RepositoryAnswer) -> str:
-    lines = [f"AER-REPO-MAP v{answer.schema_version}", f"SNAPSHOT {answer.snapshot}", f"MODE {answer.mode}"]
+    lines = [f"AUREN-REPO-MAP v{answer.schema_version}", f"SNAPSHOT {answer.snapshot}", f"MODE {answer.mode}"]
     for path in answer.files:
         lines.append(f"FILE {path}")
     for edge in answer.edges:
