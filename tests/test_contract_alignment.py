@@ -291,7 +291,7 @@ class ContractAlignmentTests(unittest.TestCase):
             "skills/engineering/prototype/SKILL.md",
             "PROBLEM_SOLVING_FRAMEWORKS.md",
         )
-        stale_brand = re.compile(r"\\bAER\\b")
+        stale_brand = re.compile(r"\bAER\b")
         for relative in active_paths:
             with self.subTest(path=relative):
                 content = (ROOT / relative).read_text(encoding="utf-8")
