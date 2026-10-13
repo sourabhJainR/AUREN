@@ -11,11 +11,11 @@ rejected-edit buffer, and slow/meta update.
 
 | Hat | Finding | HWS action |
 |---|---|---|
-| Architecture | HWS already owns evidence, memory, regression, shadow, canary, capability and promotion policy. SkillOpt should not become a second control plane. | Added a maintenance-lane SkillOptimizer behind existing AER ownership boundaries. |
+| Architecture | HWS already owns evidence, memory, regression, shadow, canary, capability and promotion policy. SkillOpt should not become a second control plane. | Added a maintenance-lane SkillOptimizer behind existing AUREN ownership boundaries. |
 | Senior implementation | SkillOpt has an explicit skill-document state and bounded edit representation; HWS had SkillGraph and learning but no equivalent candidate skill epoch. | Added SkillEdit, SkillScore, SkillOptimizationResult and SkillOptimizer. |
 | Quality/security/performance | Training data must not overlap the validation set; malformed/unmatched edits must be visible; rejected changes must not enter the live artifact. | Disjoint train/holdout check, bounded edit budget, unmatched-edit reporting, rejected buffer, no live mutation. |
 | End user | Skill improvement should be explainable and reversible rather than silently changing behavior. | Result exposes baseline/candidate scores, exact accepted/rejected edits, holdout IDs and a deterministic digest. |
-| Product/stakeholder | SkillOpt optimizes a compact deployable skill artifact; HWS must preserve its stronger evidence/promotion controls. | Candidate skill remains a maintenance artifact; activation still requires normal AER regression/shadow/canary/promotion gates. |
+| Product/stakeholder | SkillOpt optimizes a compact deployable skill artifact; HWS must preserve its stronger evidence/promotion controls. | Candidate skill remains a maintenance artifact; activation still requires normal AUREN regression/shadow/canary/promotion gates. |
 | Learning/science | A single observed improvement is insufficient; the useful SkillOpt pattern is train/reflection -> bounded update -> disjoint holdout gate. | Epoch requires separate train and holdout IDs and strict improvement on the configured gate metric. |
 | Operations | SkillOpt-Sleep separates offline harvesting/replay/consolidation from live execution. HWS already has deferred learning and DreamMemory. | Added optimize_skill to AdaptiveLearningStore so SkillOpt-style epochs run only through the deferred maintenance lane. |
 
@@ -85,9 +85,9 @@ baseline -> candidate holdout scoring
   |       |
 reject   candidate artifact
   |       |
-negative  AER regression
+negative  AUREN regression
 buffer    -> shadow -> canary -> promote
 ```
 
-This preserves the useful SkillOpt learning mechanism while keeping AER's
+This preserves the useful SkillOpt learning mechanism while keeping AUREN's
 evidence and safety architecture authoritative.
