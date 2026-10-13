@@ -48,6 +48,12 @@ class DurableTask:
     state: str
     attempts: int
     work_unit_id: str
+    lease_generation: int = 0
+    lease_token: str | None = None
+
+
+class LeaseLostError(RuntimeError):
+    """Raised when a stale worker attempts to renew or finalize a task lease."""
 
 
 class ExecutionController:
@@ -75,7 +81,8 @@ class ExecutionController:
               id TEXT PRIMARY KEY, handler TEXT NOT NULL, payload TEXT NOT NULL,
               state TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0,
               work_unit_id TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
-              heartbeat_at TEXT, lease_until TEXT);
+              heartbeat_at TEXT, lease_until TEXT,
+              lease_generation INTEGER NOT NULL DEFAULT 0, lease_token TEXT);
             """)
             handler_columns = {row[1] for row in db.execute("PRAGMA table_info(handlers)").fetchall()}
             if "ci_gate_policy_json" not in handler_columns:
@@ -90,6 +97,10 @@ class ExecutionController:
             for column in ("heartbeat_at", "lease_until"):
                 if column not in columns:
                     db.execute(f"ALTER TABLE tasks ADD COLUMN {column} TEXT")
+            if "lease_generation" not in columns:
+                db.execute("ALTER TABLE tasks ADD COLUMN lease_generation INTEGER NOT NULL DEFAULT 0")
+            if "lease_token" not in columns:
+                db.execute("ALTER TABLE tasks ADD COLUMN lease_token TEXT")
         self.evidence_ledger = CanonicalEvidenceLedger(
             self.root / ".auren" / "canonical-evidence.sqlite3"
         )
@@ -497,11 +508,13 @@ class ExecutionController:
 
     def _claim(self, task_id: str) -> DurableTask | None:
         # Claim under a write lock so two controllers cannot both observe
-        # "pending" and execute the same side-effecting handler.
+        # "pending" and execute the same side-effecting handler. Each claim
+        # increments a fencing generation and receives a fresh unguessable token.
         with sqlite3.connect(self.db_path, timeout=10) as db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute(
-                "SELECT id,handler,payload,state,attempts,work_unit_id,lease_until FROM tasks WHERE id=?",
+                "SELECT id,handler,payload,state,attempts,work_unit_id,lease_until,lease_generation "
+                "FROM tasks WHERE id=?",
                 (task_id,),
             ).fetchone()
             if not row or row[3] in {"completed", "failed", "cancelled"}:
@@ -522,15 +535,34 @@ class ExecutionController:
                 if current_lease > now_dt:
                     return None
             attempts = int(row[4]) + 1
+            generation = int(row[7] or 0) + 1
+            token = uuid4().hex
             lease = (now_dt + timedelta(minutes=5)).isoformat()
             cursor = db.execute(
-                "UPDATE tasks SET state='running',attempts=?,updated_at=?,heartbeat_at=?,lease_until=? "
-                "WHERE id=? AND state IN ('pending','running')",
-                (attempts, now, now, lease, task_id),
+                "UPDATE tasks SET state='running',attempts=?,updated_at=?,heartbeat_at=?,lease_until=?,"
+                "lease_generation=?,lease_token=? WHERE id=? AND state IN ('pending','running') AND lease_generation=?",
+                (attempts, now, now, lease, generation, token, task_id, int(row[7] or 0)),
             )
             if cursor.rowcount != 1:
                 return None
-        return DurableTask(row[0], row[1], json.loads(row[2]), "running", attempts, row[5])
+        return DurableTask(
+            row[0], row[1], json.loads(row[2]), "running", attempts, row[5],
+            lease_generation=generation, lease_token=token,
+        )
+
+    def _finalize_claim(self, task: DurableTask, state: str) -> bool:
+        if state not in {"completed", "failed", "cancelled"}:
+            raise ValueError("task final state is invalid")
+        if not task.lease_token or task.lease_generation < 1:
+            raise LeaseLostError("task claim has no fencing token")
+        now = _now()
+        with sqlite3.connect(self.db_path, timeout=10) as db:
+            cursor = db.execute(
+                "UPDATE tasks SET state=?,updated_at=?,heartbeat_at=?,lease_until=NULL,lease_token=NULL "
+                "WHERE id=? AND state='running' AND lease_token=? AND lease_generation=?",
+                (state, now, now, task.id, task.lease_token, task.lease_generation),
+            )
+        return cursor.rowcount == 1
 
     def run_once(self, task_id: str) -> TrustScore | None:
         task = self._claim(task_id)
@@ -538,7 +570,7 @@ class ExecutionController:
             return None
         self._capture_event("task_attempt_started", task, status="running", metadata={"handler": task.handler})
         try:
-            self.heartbeat(task.id)
+            self.heartbeat(task)
             gates_passed, gate_detail, gate_evidence = self._preflight_gates(task)
             if not gates_passed:
                 evidence = [f"handler:{task.handler}", *gate_evidence]
@@ -602,14 +634,19 @@ class ExecutionController:
                 scores.append(score)
         return scores
 
-    def heartbeat(self, task_id: str, *, lease_seconds: int = 300) -> None:
+    def heartbeat(self, task: DurableTask, *, lease_seconds: int = 300) -> None:
+        if not isinstance(task, DurableTask) or not task.lease_token or task.lease_generation < 1:
+            raise LeaseLostError("heartbeat requires the current durable task fencing token")
         now = datetime.now(timezone.utc)
         lease = (now + timedelta(seconds=max(1, lease_seconds))).isoformat()
-        with sqlite3.connect(self.db_path) as db:
-            db.execute(
-                "UPDATE tasks SET heartbeat_at=?,lease_until=?,updated_at=? WHERE id=? AND state='running'",
-                (now.isoformat(), lease, now.isoformat(), task_id),
+        with sqlite3.connect(self.db_path, timeout=10) as db:
+            cursor = db.execute(
+                "UPDATE tasks SET heartbeat_at=?,lease_until=?,updated_at=? "
+                "WHERE id=? AND state='running' AND lease_token=? AND lease_generation=?",
+                (now.isoformat(), lease, now.isoformat(), task.id, task.lease_token, task.lease_generation),
             )
+        if cursor.rowcount != 1:
+            raise LeaseLostError("task lease was lost; stale worker cannot renew it")
 
     def detect_stale(self, stale_after_seconds: int = 900) -> list[DurableTask]:
         cutoff = (datetime.now(timezone.utc) - timedelta(seconds=max(1, stale_after_seconds))).isoformat()
