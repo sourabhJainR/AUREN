@@ -46,5 +46,5 @@ def test_callers_and_affected_tests(tmp_path):
 def test_compact_output_is_machine_readable(tmp_path):
     answer = RepositoryMap.build(_repo(tmp_path)).answer("process")
     rendered = render_compact(answer)
-    assert rendered.startswith("AER-REPO-MAP v1")
+    assert rendered.startswith("AUREN-REPO-MAP v1")
     assert "FILE app.py" in rendered
