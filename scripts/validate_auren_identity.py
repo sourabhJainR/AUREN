@@ -60,6 +60,9 @@ LEGACY_ALLOWED_LINE_PATTERNS = {
     ".ai-harness/runtime/context_broker.py": (
         re.compile(r'AER_CONTEXT_BROKER_TELEMETRY'),
     ),
+    ".ai-harness/runtime/lsp_server.py": (
+        re.compile(r'".aer"'),
+    ),
     ".ai-harness/CORE_RUNTIME_SERVICES.md": (
         re.compile(r'AER_SANDBOX_NETWORK|AER_COMPACTION_DIGEST'),
     ),
