@@ -319,8 +319,19 @@ def _dispatch_crew_proposal(
         "schema_version", "recommendation", "artifacts", "evidence_refs",
         "uncertainty", "blockers", "acceptance_check_results",
     }
-    if set(proposal) != required_fields:
+    proposal_fields = set(proposal)
+    if proposal_fields not in (required_fields, required_fields | {"handoff_requests"}):
         raise ValueError("crew proposal fields do not match the required structured schema")
+    handoff_requests = proposal.get("handoff_requests", [])
+    if not isinstance(handoff_requests, list) or len(handoff_requests) > 8:
+        raise ValueError("crew proposal handoff_requests must be a list with at most 8 items")
+    for request in handoff_requests:
+        if not isinstance(request, Mapping) or set(request) != {"target_crew", "task"}:
+            raise ValueError("each handoff request must contain only target_crew and task")
+        if any(not isinstance(request.get(key), str) or not request[key].strip() for key in ("target_crew", "task")):
+            raise ValueError("handoff request target_crew and task must be non-empty text")
+        if len(request["task"]) > 2000:
+            raise ValueError("handoff request task exceeds the 2000 character limit")
     if proposal.get("schema_version") != "auren-crew-proposal-v1":
         raise ValueError("unsupported crew proposal schema version")
     if not isinstance(proposal.get("recommendation"), str) or not proposal["recommendation"].strip():
