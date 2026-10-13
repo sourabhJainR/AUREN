@@ -1,36 +1,36 @@
-# Hermes capability parity for AER
+# Hermes capability parity for AUREN
 
-AER is not a fork of Hermes Agent. It adopts the strongest agent-runtime patterns from Hermes while keeping AER's repository-first engineering controls authoritative.
+AUREN is not a fork of Hermes Agent. It adopts the strongest agent-runtime patterns from Hermes while keeping AUREN's repository-first engineering controls authoritative.
 
-Hermes provides a broad autonomous-agent surface: multiple model providers, persistent memory and session recall, procedural skills, scheduled automation, delegation and parallel work, programmatic tool calling, MCP, multiple terminal backends, messaging gateways, voice/multimodal tools, security controls and research/trajectory workflows. The upstream project documents these as first-class capabilities. AER maps the useful engineering parts into a smaller, testable control plane. 
+Hermes provides a broad autonomous-agent surface: multiple model providers, persistent memory and session recall, procedural skills, scheduled automation, delegation and parallel work, programmatic tool calling, MCP, multiple terminal backends, messaging gateways, voice/multimodal tools, security controls and research/trajectory workflows. The upstream project documents these as first-class capabilities. AUREN maps the useful engineering parts into a smaller, testable control plane. 
 
 ## Capability contract
 
-| Capability | AER implementation | Policy owner |
+| Capability | AUREN implementation | Policy owner |
 |---|---|---|
-| Provider/model switching | `portable.hermes_runtime.ProviderRouter` | AER provider contract |
-| Provider capability discovery | `ProviderSpec.capabilities` | AER routing |
-| Profiles | Profile-scoped durable state | AER session policy |
-| Persistent memory | SQLite memories with confidence/source | AER learning policy |
-| Cross-session recall | SQLite FTS5 message index | AER context policy |
-| Skills/procedural memory | `SkillRegistry` plus `.agents/skills` | AER skill contract |
-| Tool registry/toolsets | `ToolRegistry` with tags and risk | AER execution policy |
-| Approval/security | `ApprovalPolicy`, fail closed | AER security policy |
-| Local execution | `LocalExecutor` | AER sandbox boundary |
-| Parallel delegation | `DelegationCoordinator` | AER graph/ownership rules |
-| Durable sessions | `SessionState` + SQLite | AER recovery policy |
-| Scheduled work | SQLite job records | AER workflow scheduler |
-| MCP | adapter boundary | AER permission and verification rules |
+| Provider/model switching | `portable.hermes_runtime.ProviderRouter` | AUREN provider contract |
+| Provider capability discovery | `ProviderSpec.capabilities` | AUREN routing |
+| Profiles | Profile-scoped durable state | AUREN session policy |
+| Persistent memory | SQLite memories with confidence/source | AUREN learning policy |
+| Cross-session recall | SQLite FTS5 message index | AUREN context policy |
+| Skills/procedural memory | `SkillRegistry` plus `.agents/skills` | AUREN skill contract |
+| Tool registry/toolsets | `ToolRegistry` with tags and risk | AUREN execution policy |
+| Approval/security | `ApprovalPolicy`, fail closed | AUREN security policy |
+| Local execution | `LocalExecutor` | AUREN sandbox boundary |
+| Parallel delegation | `DelegationCoordinator` | AUREN graph/ownership rules |
+| Durable sessions | `SessionState` + SQLite | AUREN recovery policy |
+| Scheduled work | SQLite job records | AUREN workflow scheduler |
+| MCP | adapter boundary | AUREN permission and verification rules |
 | Messaging gateways | adapter boundary | external gateway implementations |
 | Voice/multimodal | provider adapter boundary | model/provider capabilities |
-| Docker/SSH/Modal/etc. | existing AER environment abstraction | AER sandbox policy |
-| Verification and learning | existing AER verification, regression and promotion gates | AER, never model/provider |
+| Docker/SSH/Modal/etc. | existing AUREN environment abstraction | AUREN sandbox policy |
+| Verification and learning | existing AUREN verification, regression and promotion gates | AUREN, never model/provider |
 
 ## Design rule
 
 Do not copy Hermes implementation wholesale. Keep the useful behavior and remove unnecessary coupling:
 
-1. **AER owns the engineering contract.** Repository rules, permissions, acceptance criteria, verification and promotion gates cannot be weakened by a provider, skill or learned strategy.
+1. **AUREN owns the engineering contract.** Repository rules, permissions, acceptance criteria, verification and promotion gates cannot be weakened by a provider, skill or learned strategy.
 2. **Providers are replaceable.** A provider exposes capabilities; it does not define task semantics.
 3. **Tools are explicit.** Every tool has a name, description, risk level and approval requirement. MCP and gateway tools enter through the same registry boundary.
 4. **Memory is evidence, not truth.** Stored memories have provenance and confidence. They are retrieved as context and never silently become repository facts.
@@ -65,7 +65,7 @@ User request
 
 ## Quality gates
 
-A task is not complete merely because the model returned a plausible answer. AER should require, where applicable:
+A task is not complete merely because the model returned a plausible answer. AUREN should require, where applicable:
 
 - repository instructions inspected;
 - current state and dependencies identified;
@@ -90,8 +90,8 @@ from portable.hermes_runtime import (
 )
 ```
 
-Use these primitives from AER orchestration code. Do not make `hermes_runtime.py` the owner of AER policy. This separation keeps the implementation easier to test, replace and extend.
+Use these primitives from AUREN orchestration code. Do not make `hermes_runtime.py` the owner of AUREN policy. This separation keeps the implementation easier to test, replace and extend.
 
 ## Upstream reference
 
-Hermes Agent is MIT licensed and documents its architecture and capabilities publicly. AER should track capability changes from upstream, but implement only the parts that improve repository engineering quality and can be protected by deterministic tests. See the upstream repository and documentation before adding new adapters.
+Hermes Agent is MIT licensed and documents its architecture and capabilities publicly. AUREN should track capability changes from upstream, but implement only the parts that improve repository engineering quality and can be protected by deterministic tests. See the upstream repository and documentation before adding new adapters.
