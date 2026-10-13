@@ -2,6 +2,7 @@
 import copy
 import tempfile
 import sys
+import sqlite3
 from unittest.mock import patch
 import unittest
 from pathlib import Path
@@ -132,7 +133,7 @@ class ExecutionControllerPromotionGateTests(unittest.TestCase):
             )
 
     def test_classified_legacy_handler_without_digest_fails_closed(self):
-        with __import__("sqlite3").connect(self.controller.db_path) as db:
+        with sqlite3.connect(self.controller.db_path) as db:
             db.execute(
                 "UPDATE handlers SET implementation_digest='' WHERE name=?",
                 ("promote-capability",),
