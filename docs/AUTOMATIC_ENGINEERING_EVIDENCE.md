@@ -129,6 +129,7 @@ module-level adapter as the execution controller's context handler:
 controller.register_handler(
     "trusted-context-provider",
     "portable.trusted_repository_context:trusted_repository_context",
+    execution_class="context_provider",
 )
 # Then use promotion_gate_policy={"context_handler": "trusted-context-provider"}
 # when registering each consequential handler.
@@ -148,6 +149,30 @@ receipts may be retained for up to 90 days, subject to key revocation and the
 operator's risk policy. Restrict operator files and databases with OS/service-account
 ACLs. The SQLite ledger is not a cryptographic signature; external claims rely on
 trusted public keys and independently controlled signing identities.
+
+## Handler effect classification rollout
+
+Every durable handler must now declare an operator-owned `execution_class` at
+registration:
+
+- `read_only`: no consequential external side effects; caller is responsible for
+  code review and least-privilege credentials.
+- `context_provider`: internal-only trusted context/evidence lookup. These handlers
+  may be invoked by preflight gates but cannot be submitted as user tasks.
+- `ci_gated`: a bounded action that requires exact-head CI evidence.
+- `consequential`: promotion/merge/release/deploy/publish or other consequential
+  engineering action; both decision-record authorization and exact-head CI gates
+  are mandatory.
+
+The classification is persisted outside task payloads and cannot be downgraded by
+re-registering an existing handler. Action-like handler names or callable identities
+cannot be classified read-only. Old database rows are migrated to
+`unclassified` and fail closed until an operator explicitly re-registers each
+handler with its reviewed class and required gate policies. Do not bulk-mark unknown
+handlers read-only to bypass the migration. Inventory every registered handler,
+review its side effects, and classify it deliberately before enabling production
+workers. This is a compatibility/security migration: unclassified legacy tasks
+will not execute.
 
 ## Regression and iteration evidence
 
