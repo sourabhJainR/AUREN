@@ -54,7 +54,7 @@ class GraphAgentTeamTests(unittest.TestCase):
             memory = SharedTaskMemory(Path(tmp) / "memory.jsonl", "principle-gate")
             team = GraphAgentTeam([
                 AgentSpec("planner", "planner", read_only=True),
-                AgentSpec("builder", "builder", depends_on=("planner",), critical=True),
+                AgentSpec("builder", "builder", depends_on=("planner",), read_only=False, critical=True),
             ])
             result = team.execute(
                 task="Change authorization handling in an API",
