@@ -32,6 +32,34 @@ def proposal(request):
 
 
 class ApprovedCrewAdapterTests(unittest.TestCase):
+    def test_checkpoint_write_failure_poison_controller_and_blocks_duplicate_dispatch(self):
+        writes = []
+
+        def fail_checkpoint(snapshot):
+            writes.append(snapshot)
+            raise OSError("checkpoint store unavailable")
+
+        controller = GraphHandoffController(
+            persist=fail_checkpoint,
+            require_persistence=True,
+        )
+        kwargs = {
+            "source_crew": "frontend_ui",
+            "target_crew": "qa_reviewer",
+            "task": "Review accessible UI",
+            "source_plan_digest": "plan-digest",
+            "allowed_handoffs": ("qa_reviewer",),
+            "selected_crews": ("frontend_ui", "qa_reviewer"),
+        }
+        with self.assertRaisesRegex(OSError, "checkpoint store unavailable"):
+            controller.enqueue(**kwargs)
+        self.assertEqual(len(writes), 1)
+        with self.assertRaisesRegex(RuntimeError, "fail-closed"):
+            controller.enqueue(**kwargs)
+        with self.assertRaisesRegex(RuntimeError, "fail-closed"):
+            controller.claim_next(graph_node_active=True)
+
+
     def test_factory_registers_all_core_specialists_with_scoped_read_only_tools(self):
         calls = []
         registry = ApprovedToolRegistry([
