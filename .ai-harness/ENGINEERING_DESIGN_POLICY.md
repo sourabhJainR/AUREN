@@ -1,10 +1,10 @@
 # Engineering Design Policy
 
-This policy distills the engineering intent of the 14 rule sets in `mattpocock/agent-rules-books` into one repository-native operating model. It is guidance for the AER system, not copied book text and not a substitute for the books.
+This policy distills the engineering intent of the 14 rule sets in `mattpocock/agent-rules-books` into one repository-native operating model. It is guidance for the AUREN system, not copied book text and not a substitute for the books.
 
 ## Source coverage
 
-| Source | Constructive contribution to AER |
+| Source | Constructive contribution to AUREN |
 | --- | --- |
 | A Philosophy of Software Design | Minimize cognitive load; prefer deep modules, information hiding, precise interfaces, localized complexity, and meaningful names. |
 | Clean Architecture | Keep policy independent from frameworks and details; enforce inward dependencies and humble adapters. |
@@ -39,7 +39,7 @@ Use `not_applicable: reason` only when the dimension truly does not apply. Do no
 
 ## One integrated model
 
-AER should not load all 14 sources as equal instructions on every task. They are capability lenses selected by task shape. The default integrated model is:
+AUREN should not load all 14 sources as equal instructions on every task. They are capability lenses selected by task shape. The default integrated model is:
 
 ```text
 INTENT
@@ -168,3 +168,12 @@ Principle selection is risk-based: low-risk tasks keep the contract lightweight;
 `portable/engineering_design_guard.py` provides the deterministic design-contract and curated-change gate. It infers relevant dimensions from intent and changed paths, validates declared design evidence, emits findings, and creates a content-addressed receipt suitable for the existing evidence/provenance chain.
 
 The guard remains advisory for lower-risk work and blocks higher-risk work when safety-critical evidence is missing. It never executes target code or grants permissions. The orchestrator invokes it before graph nodes can perform side effects, records its receipt in the existing run evidence, and blocks code-task acceptance unless verification names the exact final code revision. The gate does not replace tests, independent evaluation, or approval controls.
+
+
+## Canonical 12-family task selection
+
+Use the 12-family taxonomy in [ENGINEERING_PRINCIPLES.md](../ENGINEERING_PRINCIPLES.md) as the shared vocabulary: fundamental design; security/privacy; performance/cost; concurrency; distributed systems; reliability/recovery; data/correctness; API/integration; testing/verification; delivery/operations; observability/governance; AI/autonomous systems. The catalogue is not a parallel policy engine. The EngineeringDesignGuard remains the deterministic declaration gate; tests, reviewer judgment, approval gates, and independent evidence remain necessary to prove behavior.
+
+For distributed work, require explicit consistency and CAP/PACELC choices only where replicas, partitions, remote dependencies, or multiple writers make them meaningful. Record a single-writer/local-state boundary when that is the real model. Do not claim consensus, quorum, ACID, exactly-once effects, SLOs, or recovery guarantees unless the runtime/store and evidence support them.
+
+For every applicable task, the lifecycle is: classify task/risk; select principle families; record risks, authority, invariants, ownership, side effects and recovery; implement proportionately; verify with suitable tests or evidence; bind evidence to the exact final revision; and preserve rollback/forward recovery for risky changes. A declared principle or design receipt is a contract to verify, not proof that the implementation satisfies it.
