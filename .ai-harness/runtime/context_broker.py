@@ -2,8 +2,14 @@
 """Runtime Context Broker: demand-driven, scored, bounded context discovery."""
 from __future__ import annotations
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Callable, Iterable, Any
-import hashlib, json, re, time
+import hashlib, json, re, sys, time
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+if (_REPO_ROOT / "portable" / "identity_compat.py").is_file() and str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
 from portable.identity_compat import get_auren_env
 
 @dataclass(frozen=True, slots=True)
