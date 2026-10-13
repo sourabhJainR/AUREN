@@ -65,7 +65,7 @@ class ExternalSignedEvidenceTests(unittest.TestCase):
         record = self.ledger.resolve("external:run-42", repository=REPOSITORY, head_sha=HEAD)
         self.assertEqual(record["signer_id"], "custody-authority")
         event = self.capture.events()[-1]
-        self.assertTrue(event["metadata"]["signature_verified"])
+        self.assertNotIn("signature_verified", event["metadata"])
         self.assertEqual(event["metadata"]["receipt_digest"], result["receipt_digest"])
 
     def test_tampered_signature_stale_head_and_stale_timestamp_fail_closed(self):
@@ -87,7 +87,7 @@ class ExternalSignedEvidenceTests(unittest.TestCase):
             self.ingest(envelope)
 
     def test_unverified_source_cannot_mark_signature_verified(self):
-        with self.assertRaisesRegex(ValueError, "only be set"):
+        with self.assertRaisesRegex(ValueError, "derived from the verified receipt store"):
             self.capture.record(
                 "external_evidence_observed", work_unit_id="w", task_id="t",
                 status="verified", source_type="external_evaluator",
