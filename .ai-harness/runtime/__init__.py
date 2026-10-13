@@ -19,7 +19,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 if (_REPO_ROOT / "portable" / "identity_compat.py").is_file() and str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-from portable.identity_compat import get_auren_env
+from auren_env_compat import get_auren_env
 from typing import Any
 
 
