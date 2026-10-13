@@ -385,6 +385,8 @@ class GraphHandoffController:
             raise ValueError("require_persistence must be a boolean")
         if persist is not None and not callable(persist):
             raise TypeError("persist must be callable")
+        if require_persistence and persist is None:
+            raise ValueError("durable handoff checkpoint writer is required by task policy")
         self.max_attempts = max_attempts
         self.retry_budget = retry_budget
         self._persist_callback = persist
