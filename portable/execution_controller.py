@@ -156,7 +156,11 @@ class ExecutionController:
             raise ValueError(
                 "registered handler reference is immutable; use a new handler identity for a different implementation"
             )
-        if prior_class is not None and prior_class != "unclassified" and prior_digest and prior_digest != implementation_digest:
+        if prior_class is not None and prior_class != "unclassified" and not prior_digest:
+            raise ValueError(
+                "classified legacy handler has no implementation digest; migrate it under a new handler identity"
+            )
+        if prior_class is not None and prior_class != "unclassified" and prior_digest != implementation_digest:
             raise ValueError(
                 "registered handler implementation digest is immutable; use a new handler identity for changed code"
             )
