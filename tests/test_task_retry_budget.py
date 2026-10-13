@@ -9,7 +9,7 @@ class TaskRetryBudgetTests(unittest.TestCase):
     def test_budget_is_bounded_and_idempotent(self) -> None:
         budget = TaskRetryBudget(max_retries=2)
         self.assertTrue(budget.consume(component="agent", operation_key="agent-a:retry-1"))
-        self.assertTrue(budget.consume(component="agent", operation_key="agent-a:retry-1"))
+        self.assertFalse(budget.consume(component="agent", operation_key="agent-a:retry-1"))
         self.assertEqual(budget.used, 1)
         self.assertTrue(budget.consume(component="crew", operation_key="crew-ui:retry-1"))
         self.assertFalse(budget.consume(component="supervisor", operation_key="supervisor:retry-1"))
