@@ -1247,15 +1247,21 @@ the learning system, not an instruction source. If a skill produced no distinct 
         if resume and checkpoint is not None:
             loader = getattr(checkpoint, "load", None)
             saved_checkpoint = loader(run_id) if callable(loader) else None
-        crew_graph_digest=hashlib.sha256(json.dumps({
+        crew_graph_payload = {
             "agent_graph_digest": self.digest(),
             "crew_dispatch_enabled": bool(self.crew_adapters or require_crew_adapters),
             "require_crew_adapters": require_crew_adapters,
-            "independent_handoff_reviewer": {
+        }
+        # Preserve pre-reviewer checkpoint digests for installations that have no
+        # reviewer configured; bind identity/version when a trusted reviewer exists.
+        if self.independent_handoff_reviewer is not None:
+            crew_graph_payload["independent_handoff_reviewer"] = {
                 "reviewer_id": self.independent_handoff_reviewer_id,
                 "implementation_version": self.independent_handoff_reviewer_version,
-            },
-        }, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+            }
+        crew_graph_digest=hashlib.sha256(json.dumps(
+            crew_graph_payload, sort_keys=True, separators=(",", ":")
+        ).encode()).hexdigest()
         crew_plan=build_crew_plan(
             task,
             graph_digest=crew_graph_digest,
