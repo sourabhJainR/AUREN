@@ -235,7 +235,7 @@ def trusted_malformed_promotion_context(_context):
 
 
 def protected_side_effect_handler(payload):
-    payload["calls"].append("side-effect")
+    Path(payload["side_effect_path"]).write_text("side-effect", encoding="utf-8")
     return {"success": True}
 
 
@@ -247,16 +247,16 @@ def test_promotion_gate_rejects_missing_trusted_record_before_handler_side_effec
         protected_side_effect_handler,
         promotion_gate_policy={"context_handler": "tests.promotion_context"},
     )
-    calls = []
+    side_effect_path = tmp_path / "merge-ran.txt"
     task = controller.submit(
         "tests.merge_handler",
-        {"calls": calls, "decision_record": {"self_authorized": True}},
+        {"side_effect_path": str(side_effect_path), "decision_record": {"self_authorized": True}},
     )
 
     controller.run_once(task.id)
 
     assert controller.task(task.id).state == "failed"
-    assert calls == []
+    assert not side_effect_path.exists()
 
 
 def test_promotion_gate_rejects_malformed_trusted_context_before_handler_side_effect(tmp_path: Path):
@@ -267,11 +267,11 @@ def test_promotion_gate_rejects_malformed_trusted_context_before_handler_side_ef
         protected_side_effect_handler,
         promotion_gate_policy={"context_handler": "tests.promotion_context"},
     )
-    calls = []
+    side_effect_path = tmp_path / "publish-ran.txt"
     task = controller.submit(
         "tests.publish_handler",
         {
-            "calls": calls,
+            "side_effect_path": str(side_effect_path),
             "authorized_approvers": ["attacker"],
             "decision_record": {"promotion": {"approved_by": "attacker"}},
         },
@@ -280,4 +280,4 @@ def test_promotion_gate_rejects_malformed_trusted_context_before_handler_side_ef
     controller.run_once(task.id)
 
     assert controller.task(task.id).state == "failed"
-    assert calls == []
+    assert not side_effect_path.exists()
