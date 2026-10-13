@@ -156,7 +156,7 @@ class EvidenceCapture:
             "duration_ms", "retry_action", "external_system", "run_id",
             "evaluator_id", "oracle_id", "corpus_digest", "isolation_profile",
             "signature_verified", "signature_key_id", "rollback_plan_digest",
-            "previous_head_sha", "result_category",
+            "previous_head_sha", "result_category", "receipt_digest",
         }
         if set(metadata) - allowed_metadata:
             raise ValueError("metadata contains fields outside the safe evidence allowlist")
@@ -334,11 +334,6 @@ class EvidenceCapture:
         source_uri = _text(payload["source_uri"], "source_uri", 2048)
         digest = _text(payload["payload_digest"], "payload_digest", 64)
         receipt_digest = sha256_bytes(_canonical(envelope))
-        with sqlite3.connect(self.path, timeout=10) as db:
-            db.execute(
-                "INSERT OR IGNORE INTO external_signed_receipts(receipt_digest,evidence_id,signer_id,envelope_json,retained_at) VALUES(?,?,?,?,?)",
-                (receipt_digest, evidence_id, signer_id, json.dumps(envelope, sort_keys=True), datetime.now(timezone.utc).isoformat()),
-            )
         self.evidence_ledger.record(
             evidence_id=evidence_id,
             repository=str(payload["repository"]),
@@ -349,6 +344,11 @@ class EvidenceCapture:
             payload_digest=digest,
             signer_id=signer_id,
         )
+        with sqlite3.connect(self.path, timeout=10) as db:
+            db.execute(
+                "INSERT OR IGNORE INTO external_signed_receipts(receipt_digest,evidence_id,signer_id,envelope_json,retained_at) VALUES(?,?,?,?,?)",
+                (receipt_digest, evidence_id, signer_id, json.dumps(envelope, sort_keys=True), datetime.now(timezone.utc).isoformat()),
+            )
         metadata: dict[str, Any] = {
             "external_system": _text(payload.get("external_system", payload["source_type"]), "external_system"),
             "run_id": _text(payload["run_id"], "run_id"),
