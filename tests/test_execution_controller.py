@@ -73,6 +73,7 @@ def register_protected_handler(controller, provider=trusted_ci_success):
             "required_checks": ["tests", "lint"],
             "evidence_handler": "tests.ci_provider",
         },
+        execution_class="ci_gated",
     )
 
 
