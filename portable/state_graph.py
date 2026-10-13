@@ -276,6 +276,10 @@ def _dispatch_crew_proposal(
     crews: Mapping[str, CrewDefinition],
 ) -> dict[str, Any]:
     """Validate and invoke one selected proposal adapter without granting execution authority."""
+    if type(active) is not bool:
+        raise ValueError("active must be a boolean")
+    if not isinstance(plan, CrewPlan):
+        raise TypeError("plan must be a CrewPlan")
     if not active:
         raise RuntimeError("crew dispatch is only available during graph execution")
     selected_ids = {assignment.crew_id for assignment in plan.assignments}
