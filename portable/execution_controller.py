@@ -108,9 +108,18 @@ class ExecutionController:
                 raise ValueError("durable handlers must be importable module-level callables")
             reference = f"{module}:{qualname}"
 
-        tokens = _handler_tokens(name)
-        requires_promotion_gate = bool(tokens & _PROMOTION_HANDLER_TOKENS)
-        requires_exact_head_ci = bool(tokens & _EXACT_HEAD_CI_HANDLER_TOKENS)
+        name_tokens = _handler_tokens(name)
+        if isinstance(handler, str):
+            handler_identity = handler.split(":", 1)[-1]
+        else:
+            handler_identity = str(getattr(handler, "__qualname__", ""))
+        identity_tokens = _handler_tokens(handler_identity)
+        tokens = name_tokens | identity_tokens
+        neutral_provider_tokens = {"context", "provider", "gate", "evidence", "validator", "verifier"}
+        explicit_action_tokens = {"promote", "promoter", "merge", "merger", "release", "deploy", "deployment", "publish"}
+        is_context_or_evidence_provider = bool(tokens & neutral_provider_tokens) and not bool(tokens & explicit_action_tokens)
+        requires_promotion_gate = bool(tokens & _PROMOTION_HANDLER_TOKENS) and not is_context_or_evidence_provider
+        requires_exact_head_ci = bool(tokens & _EXACT_HEAD_CI_HANDLER_TOKENS) and not is_context_or_evidence_provider
         if requires_promotion_gate and not promotion_gate_policy:
             # A prior trusted policy is retained on re-registration below. For
             # a new handler, require the caller to declare the gate explicitly.
