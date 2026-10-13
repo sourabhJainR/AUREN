@@ -498,16 +498,36 @@ class GraphHandoffController:
             self._persist()
             return retry
 
+    def validate_claimed(self, handoff: CrewHandoff) -> None:
+        """Require a completion/review request to match an active claimed handoff."""
+        with self._lock:
+            self._ensure_healthy()
+            handoff_id = handoff.handoff_id or self._handoff_id(
+                handoff.source_crew, handoff.target_crew, handoff.task, handoff.source_plan_digest
+            )
+            claimed = self._in_flight.get(handoff_id)
+            if claimed is None:
+                raise ValueError("handoff must be claimed before independent review or completion")
+            if (
+                claimed.source_crew != handoff.source_crew
+                or claimed.target_crew != handoff.target_crew
+                or claimed.task != handoff.task
+                or claimed.source_plan_digest != handoff.source_plan_digest
+                or claimed.attempt != handoff.attempt
+            ):
+                raise ValueError("handoff completion record does not match the claimed handoff")
+
     def mark_completed(self, handoff: CrewHandoff, *, independent_review_passed: bool) -> None:
         if not independent_review_passed:
             raise PermissionError("handoff cannot complete before independent review passes")
         with self._lock:
             self._ensure_healthy()
-            key = (handoff.source_crew, handoff.target_crew, hashlib.sha256(handoff.task.encode()).hexdigest())
-            self._completed.add(key)
             handoff_id = handoff.handoff_id or self._handoff_id(
                 handoff.source_crew, handoff.target_crew, handoff.task, handoff.source_plan_digest
             )
+            self.validate_claimed(handoff)
+            key = (handoff.source_crew, handoff.target_crew, hashlib.sha256(handoff.task.encode()).hexdigest())
+            self._completed.add(key)
             self._in_flight.pop(handoff_id, None)
             self._seen_ids.add(handoff_id)
             self._persist()

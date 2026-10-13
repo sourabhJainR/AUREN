@@ -7,6 +7,7 @@ from portable.state_graph import GraphAgentTeam, StateGraph
 from portable.crew_adapters import (
     ApprovedTool,
     ApprovedToolCrewAdapter,
+    CrewHandoff,
     ApprovedToolRegistry,
     GraphHandoffController,
     TaskRetryBudget,
@@ -59,6 +60,72 @@ class ApprovedCrewAdapterTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "fail-closed"):
             controller.claim_next(graph_node_active=True)
 
+
+    def test_handoff_cannot_complete_without_a_claimed_matching_record(self):
+        controller = GraphHandoffController()
+        kwargs = {
+            "source_crew": "frontend_ui",
+            "target_crew": "qa_reviewer",
+            "task": "Review accessible UI",
+            "source_plan_digest": "plan-digest",
+            "allowed_handoffs": ("qa_reviewer",),
+            "selected_crews": ("frontend_ui", "qa_reviewer"),
+        }
+        queued = controller.enqueue(**kwargs)
+        with self.assertRaisesRegex(ValueError, "must be claimed"):
+            controller.mark_completed(queued, independent_review_passed=True)
+
+        claimed = controller.claim_next(graph_node_active=True)
+        mismatched = CrewHandoff(
+            claimed.source_crew, claimed.target_crew, "different task",
+            claimed.source_plan_digest, claimed.attempt, claimed.handoff_id,
+        )
+        with self.assertRaisesRegex(ValueError, "does not match"):
+            controller.mark_completed(mismatched, independent_review_passed=True)
+
+    def test_graph_node_cannot_self_assert_independent_handoff_review(self):
+        observed = {}
+
+        def node(state):
+            record = state["auren_crew_handoff_enqueue"](
+                "frontend_ui", "qa_reviewer", "Review frontend accessibility"
+            )
+            claimed = state["auren_crew_handoff_claim"]()
+            with self.assertRaises(TypeError):
+                state["auren_crew_handoff_complete"](claimed, True)
+            try:
+                state["auren_crew_handoff_complete"](claimed)
+            except RuntimeError as exc:
+                observed["error"] = str(exc)
+            return {"queued": bool(record), "claimed": bool(claimed)}
+
+        graph = StateGraph.from_nodes([Node("work", NodeKind.DETERMINISTIC, node)])
+        team = GraphAgentTeam(graph)
+        result = team.run("task-review", "frontend UI accessibility", {})
+        self.assertEqual(result.status, RunStatus.ACCEPTED)
+        self.assertEqual(observed.get("error"), "independent handoff reviewer is not configured")
+
+    def test_host_injected_independent_reviewer_controls_handoff_completion(self):
+        reviewed = []
+
+        def node(state):
+            state["auren_crew_handoff_enqueue"](
+                "frontend_ui", "qa_reviewer", "Review frontend accessibility"
+            )
+            claimed = state["auren_crew_handoff_claim"]()
+            state["auren_crew_handoff_complete"](claimed)
+            return {"done": True}
+
+        graph = StateGraph.from_nodes([Node("work", NodeKind.DETERMINISTIC, node)])
+        team = GraphAgentTeam(
+            graph,
+            independent_handoff_reviewer=lambda handoff: reviewed.append(handoff.handoff_id) or True,
+            independent_handoff_reviewer_id="qa-reviewer-v1",
+        )
+        result = team.run("task-reviewed", "frontend UI accessibility", {})
+        self.assertEqual(result.status, RunStatus.ACCEPTED)
+        self.assertEqual(len(reviewed), 1)
+        self.assertTrue(reviewed[0])
 
     def test_factory_registers_all_core_specialists_with_scoped_read_only_tools(self):
         calls = []
@@ -306,7 +373,17 @@ class ApprovedCrewAdapterTests(unittest.TestCase):
         self.assertIsNone(controller.retry(retry, retryable=True))
         with self.assertRaisesRegex(PermissionError, "independent review"):
             controller.mark_completed(handoff, independent_review_passed=False)
-        controller.mark_completed(handoff, independent_review_passed=True)
+        completion_controller = GraphHandoffController(max_attempts=2)
+        completed_candidate = completion_controller.enqueue(
+            source_crew="frontend_ui", target_crew="qa_reviewer", task="Review UI completion",
+            source_plan_digest="abc", allowed_handoffs=("qa_reviewer",),
+            selected_crews=("frontend_ui", "qa_reviewer"),
+        )
+        claimed_candidate = completion_controller.claim_next(graph_node_active=True)
+        self.assertEqual(claimed_candidate.task, completed_candidate.task)
+        with self.assertRaisesRegex(PermissionError, "independent review"):
+            completion_controller.mark_completed(claimed_candidate, independent_review_passed=False)
+        completion_controller.mark_completed(claimed_candidate, independent_review_passed=True)
 
     def test_completed_handoff_cannot_be_enqueued_again(self):
         controller = GraphHandoffController(max_attempts=2)
