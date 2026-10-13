@@ -10,6 +10,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -93,6 +94,13 @@ class EvidenceCapture:
                 event_digest TEXT NOT NULL,
                 signer_id TEXT NOT NULL,
                 signature TEXT NOT NULL
+            )""")
+            db.execute("""CREATE TABLE IF NOT EXISTS external_signed_receipts(
+                receipt_digest TEXT PRIMARY KEY,
+                evidence_id TEXT NOT NULL,
+                signer_id TEXT NOT NULL,
+                envelope_json TEXT NOT NULL,
+                retained_at TEXT NOT NULL
             )""")
             db.execute("""CREATE TABLE IF NOT EXISTS engineering_event_outbox(
                 event_id TEXT PRIMARY KEY,
@@ -300,8 +308,9 @@ class EvidenceCapture:
             raise ValueError("issued_at is invalid") from exc
         if (
             isinstance(max_age_seconds, bool) or not isinstance(max_age_seconds, (int, float))
-            or max_age_seconds < 0 or isinstance(clock_skew_seconds, bool)
-            or not isinstance(clock_skew_seconds, (int, float)) or clock_skew_seconds < 0
+            or not math.isfinite(max_age_seconds) or max_age_seconds < 0
+            or isinstance(clock_skew_seconds, bool) or not isinstance(clock_skew_seconds, (int, float))
+            or not math.isfinite(clock_skew_seconds) or clock_skew_seconds < 0
         ):
             raise ValueError("freshness bounds must be non-negative numbers")
         if age > max_age_seconds or age < -clock_skew_seconds:
@@ -316,12 +325,20 @@ class EvidenceCapture:
         if verified is not True:
             raise ValueError("external evidence signature verification failed")
 
+        if "corpus_digest" in payload and not _SHA_RE.fullmatch(str(payload["corpus_digest"])):
+            raise ValueError("corpus_digest must be a lowercase SHA-256 digest")
         status = _text(payload["status"], "status", 64)
         if status not in {"passed", "failed", "skipped", "unknown", "verified"}:
             raise ValueError("external evidence status is invalid")
         evidence_id = _text(payload["evidence_id"], "evidence_id")
         source_uri = _text(payload["source_uri"], "source_uri", 2048)
         digest = _text(payload["payload_digest"], "payload_digest", 64)
+        receipt_digest = sha256_bytes(_canonical(envelope))
+        with sqlite3.connect(self.path, timeout=10) as db:
+            db.execute(
+                "INSERT OR IGNORE INTO external_signed_receipts(receipt_digest,evidence_id,signer_id,envelope_json,retained_at) VALUES(?,?,?,?,?)",
+                (receipt_digest, evidence_id, signer_id, json.dumps(envelope, sort_keys=True), datetime.now(timezone.utc).isoformat()),
+            )
         self.evidence_ledger.record(
             evidence_id=evidence_id,
             repository=str(payload["repository"]),
@@ -337,6 +354,7 @@ class EvidenceCapture:
             "run_id": _text(payload["run_id"], "run_id"),
             "signature_verified": True,
             "signature_key_id": signer_id,
+            "receipt_digest": receipt_digest,
             "result_category": status,
             "phase": "external_evidence_ingestion",
         }
@@ -364,9 +382,24 @@ class EvidenceCapture:
         return {
             "evidence_id": evidence_id,
             "event_digest": event["event_digest"],
-            "receipt_digest": sha256_bytes(_canonical(envelope)),
+            "receipt_digest": receipt_digest,
             "signature_verified": True,
         }
+
+    def signed_receipts(self, *, evidence_id: str | None = None) -> tuple[dict[str, Any], ...]:
+        """Return retained signed envelopes, never sealed corpus/oracle contents."""
+        query = "SELECT receipt_digest,evidence_id,signer_id,envelope_json,retained_at FROM external_signed_receipts"
+        args: tuple[Any, ...] = ()
+        if evidence_id is not None:
+            query += " WHERE evidence_id=?"
+            args = (evidence_id,)
+        query += " ORDER BY retained_at"
+        with sqlite3.connect(self.path, timeout=10) as db:
+            rows = db.execute(query, args).fetchall()
+        return tuple({
+            "receipt_digest": row[0], "evidence_id": row[1], "signer_id": row[2],
+            "envelope": json.loads(row[3]), "retained_at": row[4],
+        } for row in rows)
 
     def pending_exports(self) -> int:
         with sqlite3.connect(self.path, timeout=10) as db:
