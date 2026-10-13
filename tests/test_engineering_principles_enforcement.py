@@ -94,6 +94,7 @@ def test_data_integrity_contract_accepts_explicit_schema_non_applicability():
         design={
             "source_of_truth": "database remains authoritative",
             "consistency": "writes commit transactionally",
+            "query_pattern": "reuse bounded batch reads and avoid N+1 round trips",
             "schema_evolution": "not_applicable: schema and persisted format remain unchanged",
             "architecture": "repository remains behind a stable storage boundary",
             "responsibility": "storage adapter owns persistence invariants",
