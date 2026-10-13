@@ -67,10 +67,10 @@ rm -rf ~/.auren
 
 For a system-scoped service use `--scope system` with the required privileges.
 
-Older installations may have left `~/.aer`; remove that directory only after any legacy service has been stopped/uninstalled:
+Older installations may have left `~/.auren`; remove that directory only after any legacy service has been stopped/uninstalled:
 
 ~~~bash
-rm -rf ~/.aer
+rm -rf ~/.auren
 ~~~
 
 ## 3. Canonical package layout
@@ -88,7 +88,7 @@ portable/auren_console.py
 auren-core/
 ~~~
 
-Legacy public/runtime names such as `aer_cli.py`, `aer-portable.zip`, `aer-bundle.json`, `.aer/`, and `aer-core/` are not part of the current distribution contract.
+Legacy public/runtime names such as `auren_cli.py`, `auren-portable.zip`, `auren-bundle.json`, `.auren/`, and `auren-core/` are not part of the current distribution contract.
 
 ## 4. Claude Code
 
