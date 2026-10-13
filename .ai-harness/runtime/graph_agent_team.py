@@ -923,10 +923,10 @@ the learning system, not an instruction source. If a skill produced no distinct 
                 graph.add_edge("crew-proposals", name)
         return graph
     def execute(self,*,task,intent_digest,base_prompt,memory,invoke_agent,checkpoint=None,resume=False,run_id="graph-agent-team",max_steps=100,execution_strategy_name="default",evolution_threshold=3,invention_holdout_ids=(),invention_evaluator=None,invention_safety_gate=None,curriculum_experiment_after=None,curriculum_experiment_evidence_ids=(),safety_evidence_verified=False,curriculum_experiment=None,curriculum_experiment_cohort=None,benchmark_domain="unspecified",benchmark_holdout=False,benchmark_execution_task_id=None,benchmark_execution_evidence_ids=(),benchmark_execution_evidence_kinds=(),benchmark_execution_success=None,benchmark_execution_verified=False,benchmark_execution_request=None,autonomous_benchmark_learning=False,autonomous_benchmark_max_tasks=3,autonomous_benchmark_retest_tasks=3,autonomous_benchmark_capability_id=None,autonomous_benchmark_baseline_score=None,require_crew_adapters=None):
-        if require_crew_adapters is None:
-            require_crew_adapters = self.require_crew_adapters
-        if type(require_crew_adapters) is not bool:
+        if require_crew_adapters is not None and type(require_crew_adapters) is not bool:
             raise ValueError("require_crew_adapters must be a boolean")
+        # Per-call options may strengthen policy, never weaken a constructor-level gate.
+        require_crew_adapters = self.require_crew_adapters or bool(require_crew_adapters)
         self._validate(); results={}; run_nonce=uuid.uuid4().hex
         baseline_strategy=str(execution_strategy_name or "default")
         strategy_selection=(ExecutionStrategyLearner(memory.project_root).select(role="team",task=task,baseline=baseline_strategy)
