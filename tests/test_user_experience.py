@@ -13,13 +13,13 @@ class UserExperienceTests(unittest.TestCase):
             project = Path(temp) / "project"
             project.mkdir()
             (project / ".git").mkdir()
-            checks, exit_code = run_doctor(project, aer_home=Path(temp) / ".aer")
+            checks, exit_code = run_doctor(project, aer_home=Path(temp) / ".auren")
             self.assertEqual(exit_code, 0)
             self.assertTrue(any(c.name == "installation" and c.status == "WARN" for c in checks))
 
     def test_status_is_read_only_when_aer_home_does_not_exist(self):
         with tempfile.TemporaryDirectory() as temp:
-            aer_home = Path(temp) / ".aer"
+            aer_home = Path(temp) / ".auren"
             snapshot = build_status(aer_home=aer_home, project_root=Path(temp))
             self.assertFalse(aer_home.exists())
             self.assertEqual(snapshot["installation"]["installed"], False)
@@ -43,7 +43,7 @@ class UserExperienceTests(unittest.TestCase):
 
     def test_status_exposes_provider_and_skill_readiness(self):
         with tempfile.TemporaryDirectory() as temp:
-            snapshot = build_status(aer_home=Path(temp) / ".aer", project_root=Path(temp))
+            snapshot = build_status(aer_home=Path(temp) / ".auren", project_root=Path(temp))
             self.assertIn("providers", snapshot)
             self.assertIn("skills", snapshot)
             self.assertEqual(set(snapshot["providers"]), {"claude", "codex", "gemini"})
