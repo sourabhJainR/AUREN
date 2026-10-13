@@ -12,6 +12,7 @@ import inspect
 import json
 import re
 import sqlite3
+from threading import Event, Thread
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -58,6 +59,8 @@ class LeaseLostError(RuntimeError):
 
 class ExecutionController:
     """Durable supervisor used as the default owner of graph/team execution."""
+
+    _LEASE_HEARTBEAT_INTERVAL_SECONDS = 30
 
     def __init__(
         self, root: str | Path, *, company: AutonomousCompany | None = None,
@@ -564,6 +567,41 @@ class ExecutionController:
             )
         return cursor.rowcount == 1
 
+    def _invoke_with_lease_heartbeat(self, task: DurableTask, handler: Handler) -> Any:
+        """Renew the current lease while a handler runs; reject results after lease loss."""
+        stop = Event()
+        lease_errors: list[BaseException] = []
+
+        def renew() -> None:
+            while not stop.wait(self._LEASE_HEARTBEAT_INTERVAL_SECONDS):
+                try:
+                    self.heartbeat(task)
+                except BaseException as exc:
+                    lease_errors.append(exc)
+                    stop.set()
+                    return
+
+        thread = Thread(target=renew, name=f"auren-lease-{task.id[:8]}", daemon=True)
+        thread.start()
+        result: Any = None
+        handler_error: BaseException | None = None
+        try:
+            result = handler(task.payload)
+        except BaseException as exc:
+            handler_error = exc
+        finally:
+            stop.set()
+            thread.join(timeout=2)
+        if lease_errors:
+            raise LeaseLostError(
+                "task lease was lost while handler was running; result cannot be committed"
+            ) from (handler_error or lease_errors[0])
+        if handler_error is not None:
+            raise handler_error
+        # Verify ownership once more before the caller can finalize the result.
+        self.heartbeat(task)
+        return result
+
     def run_once(self, task_id: str) -> TrustScore | None:
         task = self._claim(task_id)
         if task is None:
@@ -585,10 +623,7 @@ class ExecutionController:
                 return self.company.finish(task.work_unit_id, success=False, reason=gate_detail, evidence=evidence)
 
             handler = self._load_handler(task.handler)
-            result = handler(task.payload)
-            # A worker that lost its lease while a handler was running cannot
-            # renew or finalize the task after another generation reclaimed it.
-            self.heartbeat(task)
+            result = self._invoke_with_lease_heartbeat(task, handler)
         except LeaseLostError:
             raise
         except Exception as exc:
