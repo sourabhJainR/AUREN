@@ -130,7 +130,8 @@ class ExecutionController:
             handler_identity = str(getattr(handler, "__qualname__", ""))
         identity_tokens = _handler_tokens(handler_identity)
         tokens = name_tokens | identity_tokens
-        explicit_action_tokens = {"promote", "promoter", "merge", "merger", "release", "deploy", "deployment", "publish"}
+        explicit_action_tokens = {"promote", "promotion", "promoter", "merge", "merger", "release", "deploy", "deployment", "publish"}
+        provider_action_exceptions = {"merge", "merger", "release", "deploy", "deployment", "publish", "promote", "promoter"}
 
         with sqlite3.connect(self.db_path) as db:
             prior_class_row = db.execute(
@@ -151,9 +152,14 @@ class ExecutionController:
                 "handler registration requires an explicit execution_class: "
                 "read_only, context_provider, ci_gated, or consequential"
             )
-        if tokens & explicit_action_tokens and execution_class != "consequential":
-            raise ValueError("merge/release/deploy/publish handlers must be classified consequential")
-        if execution_class == "context_provider" and tokens & explicit_action_tokens:
+        is_trusted_provider_identity = (
+            execution_class == "context_provider"
+            and bool(tokens & {"context", "provider", "evidence", "validator", "verifier"})
+            and not bool(tokens & provider_action_exceptions)
+        )
+        if tokens & explicit_action_tokens and execution_class != "consequential" and not is_trusted_provider_identity:
+            raise ValueError("promotion/merge/release/deploy/publish handlers must be classified consequential")
+        if execution_class == "context_provider" and tokens & provider_action_exceptions:
             raise ValueError("context providers cannot be consequential action handlers")
         requires_promotion_gate = execution_class == "consequential"
         requires_exact_head_ci = execution_class in {"ci_gated", "consequential"}
