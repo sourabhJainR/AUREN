@@ -21,6 +21,22 @@ This policy distills the engineering intent of the 14 rule sets in `mattpocock/a
 | The Pragmatic Programmer | Keep one source of truth, automate repeatable work, shorten feedback loops, own outcomes, and keep volatile choices reversible. |
 | Working Effectively with Legacy Code | Gain control before redesign: characterize behavior, create small seams, break blocking dependencies, then change and refactor locally. |
 
+## Expanded deterministic contract dimensions
+
+The canonical `portable.engineering_design_guard.EngineeringDesignGuard` is the single deterministic declaration gate. The catalogue is broad; the guard selects dimensions from task intent, changed paths, and risk. Declarations are a contract for subsequent tests/review, not proof that the implementation is safe.
+
+| Dimension | Evidence expected when applicable | High-risk behavior |
+|---|---|---|
+| Security and privacy | Trust boundary/threat model; authorization and least-privilege/tool authority; input handling, secrets and sensitive-data decisions | Block acceptance when material trust/authority contracts are missing |
+| Performance and resources | Measurable budget or baseline, workload/scale assumptions, benchmark/profile evidence where warranted, bounded resource use | Block missing evidence for high-risk hot paths/resource limits; never invent benchmark results |
+| Concurrency | State ownership, synchronization or immutability/message passing, cancellation/lifecycle, race/deadlock verification | Block when ownership or safety/liveness contract is absent |
+| Distributed systems | Consistency choice and CAP/PACELC trade-off where partitions/replicas apply; duplicate delivery/idempotency, ordering, quorum/split-brain and recovery as relevant | Block missing consistency/failure semantics for high-risk distributed work |
+| Data correctness | Invariants, source of truth, transaction/isolation behavior, migration compatibility, reconciliation/recovery | Block missing correctness contracts for high-risk data changes |
+| Operations and recovery | Observability, rollout/rollback, recovery and SLO/RTO/RPO where relevant | Block high-risk changes without a recovery path |
+| AI/agent authority | Tool permissions, bounded autonomy, approval boundary, evaluation and evidence provenance | Block high-risk autonomous/tool-execution work without authority and evaluation contracts |
+
+Use `not_applicable: reason` only when the dimension truly does not apply. Do not label a dimension N/A merely because evidence is inconvenient to obtain. CAP is a partition-time trade-off; PACELC additionally makes normal-operation latency/consistency trade-offs explicit. Never claim a system can guarantee all CAP properties during a partition.
+
 ## One integrated model
 
 AER should not load all 14 sources as equal instructions on every task. They are capability lenses selected by task shape. The default integrated model is:
