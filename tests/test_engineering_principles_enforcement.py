@@ -140,3 +140,35 @@ def test_reasoned_not_applicable_is_allowed_for_concurrency_contract():
     )
     assert not any("shared-state ownership" in message for message in _messages(receipt))
     assert not any("cancellation/synchronization" in message for message in _messages(receipt))
+
+# Keep the suite runnable by the repository's unittest-based CI entrypoint.
+import unittest
+
+
+class EngineeringPrincipleEnforcementTests(unittest.TestCase):
+    def test_security_is_inferred_and_high_risk_missing_contract_blocks_case(self):
+        test_security_is_inferred_and_high_risk_missing_contract_blocks()
+
+    def test_security_contract_requires_authority_boundary_case(self):
+        test_security_contract_requires_authority_boundary_not_only_security_label()
+
+    def test_performance_contract_accepts_measurable_budget_case(self):
+        test_performance_contract_accepts_measurable_budget()
+
+    def test_concurrency_requires_ownership_and_race_safety_case(self):
+        test_concurrency_requires_ownership_and_race_safety_contract()
+
+    def test_distributed_contract_requires_consistency_and_duplicate_handling_case(self):
+        test_distributed_contract_requires_consistency_and_duplicate_handling()
+
+    def test_distributed_contract_accepts_consistency_and_delivery_case(self):
+        test_distributed_contract_can_record_consistency_and_delivery_semantics()
+
+    def test_data_correctness_requires_invariant_case(self):
+        test_data_correctness_contract_requires_invariant_or_transaction_semantics()
+
+    def test_ai_agent_requires_authority_and_evaluation_case(self):
+        test_ai_agent_contract_requires_authority_and_evaluation()
+
+    def test_reasoned_not_applicable_case(self):
+        test_reasoned_not_applicable_is_allowed_for_concurrency_contract()
