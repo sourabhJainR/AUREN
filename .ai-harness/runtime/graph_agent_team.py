@@ -7,7 +7,7 @@ from dataclasses import dataclass,field
 from pathlib import Path
 from typing import Any,Callable,Iterator,Mapping
 from portable.agency_state_graph import CheckpointStore,StateGraph
-from portable.state_graph import build_crew_plan, default_crew_definitions, dispatch_crew_proposal
+from portable.state_graph import build_crew_plan, default_crew_definitions, _dispatch_crew_proposal
 from portable.agent_memory import AgentMemory
 from portable.context_engine import ContextEngine,ContextPolicy,handoff_from_output
 from portable.dream_memory import DreamMemory
@@ -885,7 +885,7 @@ the learning system, not an instruction source. If a skill produced no distinct 
                         missing.append(crew_id)
                         continue
                     try:
-                        proposals[crew_id] = dispatch_crew_proposal(
+                        proposals[crew_id] = _dispatch_crew_proposal(
                             crew_id,
                             task,
                             {"intent_digest": intent_digest, "task_id": run_nonce},
