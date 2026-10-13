@@ -35,6 +35,22 @@ LEGACY_ALLOWED_LINE_PATTERNS = {
         re.compile(r'state\.get\("auren_execution_mode",\s*state\.get\("aer_execution_mode",\{\}\)\)'),
     ),
 }
+LEGACY_ALLOWED_CODE_FILES = {
+    "portable/identity_compat.py",
+    "scripts/conformance_oracles.py",
+    "scripts/validate_auren_identity.py",
+}
+
+
+def _is_approved_allowlist_path(path: str) -> bool:
+    """Prevent the legacy allowlist from expanding into active runtime code."""
+    return (
+        path.startswith("tests/")
+        or path.startswith("docs/LEGACY_")
+        or path in LEGACY_ALLOWED_CODE_FILES
+    )
+
+
 PATTERNS = (
     re.compile(r"\bAER\b"),
     re.compile(r"\baer_cli\.py\b"),
@@ -49,6 +65,9 @@ def main() -> int:
         ["git", "ls-files", "-z"], cwd=ROOT, check=True, capture_output=True
     ).stdout.split(b"\0")
     findings: list[str] = []
+    for allowed_path in sorted(LEGACY_ALLOWED):
+        if not _is_approved_allowlist_path(allowed_path):
+            findings.append(f"{allowed_path}: unsafe broad legacy allowlist entry")
     for raw_path in tracked:
         if not raw_path:
             continue
