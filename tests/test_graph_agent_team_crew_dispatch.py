@@ -93,7 +93,10 @@ class HarnessCrewDispatchTests(unittest.TestCase):
                 return 0, "should not execute", 0.01
 
             team = GraphAgentTeam(
-                [AgentSpec("planner", "planner")],
+                [
+                    AgentSpec("planner", "planner", read_only=True),
+                    AgentSpec("builder", "builder", depends_on=("planner",), read_only=False),
+                ],
                 require_crew_adapters=True,
             )
             result = team.execute(
@@ -107,7 +110,8 @@ class HarnessCrewDispatchTests(unittest.TestCase):
             self.assertFalse(result["accepted"])
             self.assertEqual(result["crew_execution"]["status"], "blocked")
             self.assertTrue(result["crew_execution"]["missing_adapters"])
-            self.assertEqual(calls, [])
+            self.assertEqual(calls, ["planner"])
+            self.assertNotIn("builder", calls)
 
     def test_no_adapter_configuration_preserves_legacy_agent_graph_trace(self):
         with tempfile.TemporaryDirectory() as tmp:
