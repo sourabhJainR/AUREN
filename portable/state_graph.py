@@ -502,9 +502,12 @@ class GraphAgentTeam:
         if checkpoint is not None and not isinstance(checkpoint, Mapping):
             raise ValueError("crew handoff checkpoint must be a serialized mapping")
         saved_budget = state.get("auren_retry_budget")
-        retry_budget = TaskRetryBudget.resume(saved_budget) if isinstance(saved_budget, Mapping) else TaskRetryBudget(
-            max_retries=state.get("auren_retry_budget_limit", 3)
-        )
+        if isinstance(saved_budget, Mapping):
+            retry_budget = TaskRetryBudget.resume(saved_budget)
+        elif isinstance(checkpoint, Mapping) and isinstance(checkpoint.get("retry_budget"), Mapping):
+            retry_budget = TaskRetryBudget.resume(checkpoint["retry_budget"])
+        else:
+            retry_budget = TaskRetryBudget(max_retries=state.get("auren_retry_budget_limit", 3))
 
         def persist_handoff_checkpoint(snapshot: Mapping[str, Any]) -> None:
             state["auren_crew_handoff_checkpoint_data"] = dict(snapshot)
