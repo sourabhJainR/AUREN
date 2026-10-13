@@ -22,7 +22,7 @@ class EvidenceArchiveTests(unittest.TestCase):
         self.archive = EvidenceArchive(self.base / "archive.sqlite3", receipt_verifier=StubVerifier())
 
     def event(self, *, event_id="event-1", status="success"):
-        capture = EvidenceCapture(self.base / (event_id.replace("/", "_") + ".sqlite3"))
+        capture = EvidenceCapture(self.base / (event_id.replace("/", "_") + "-" + status + ".sqlite3"))
         return capture.record(
             "task_completed" if status == "success" else "task_failed",
             work_unit_id="work-1", task_id=event_id, iteration=1, status=status,
