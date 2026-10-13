@@ -118,6 +118,12 @@ class TrustedRepositoryContextTests(unittest.TestCase):
         context = self.provider({"task_id": "task-1"})
         self.assertNotIn("stale-evidence", context["known_evidence_ids"])
 
+    def test_wrong_evidence_role_cannot_satisfy_a_passed_ci_check(self):
+        self.record["checks"][0]["evidence_id"] = "rollback-1"
+        (self.records / "task-1.json").write_text(json.dumps(self.record), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "incompatible evidence type"):
+            self.provider({"task_id": "task-1"})
+
 
 if __name__ == "__main__":
     unittest.main()
