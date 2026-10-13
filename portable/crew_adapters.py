@@ -113,7 +113,7 @@ class ApprovedToolCrewAdapter:
 
     @property
     def configuration_digest(self) -> str:
-        """Stable digest of the adapter's bounded tool scope, not callable identity."""
+        """Stable digest of tool scope and declared implementation version, not callable identity."""
         payload = {
             "schema_version": "auren-approved-tool-crew-adapter-v1",
             "crew_id": self.crew_id,
