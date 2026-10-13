@@ -50,3 +50,46 @@ The runtime gate protects handlers registered with an operator-owned gate policy
 The registration guard intentionally rejects unknown and previously unclassified handlers. Roll out by inventorying each registered handler, reviewing its side effects, registering trusted context and exact-head CI evidence providers first, and then registering consequential handlers with both gate policies. Preserve a database backup and the last-known-good application artifact before rollout. If a deployment is blocked, do not relabel or rename the handler to bypass the guard; inspect the provider configuration and exact-head evidence.
 
 **Rollback:** drain and stop workers, revoke privileged merge/deploy credentials from worker identities, preserve the evidence and execution databases, and restore the last-known-good application artifact only in a non-privileged/read-only mode until it supports the same gate contract. A code revert alone weakens this guard and does not undo external side effects; never re-enable privileged credentials on a reverted controller without independently enforced branch/environment protection. Re-run the negative bypass suite before restoring normal service. Repository branch protection remains a separate owner/admin setting.
+
+
+## Issue #411: operator acceptance checklist
+
+Do not mark the consequential-promotion gate complete from repository CI alone. The runtime decision gate is only one layer; the repository must also prevent alternate direct merge paths, and the deployed rollback path must be exercised.
+
+### 1. Configure the default-branch ruleset
+
+Open **Repository Settings → Rules → Rulesets → `mainBranchRule`** and configure the active ruleset for the default branch to require:
+
+- Pull requests before merging.
+- At least one approval from an authorized reviewer; dismiss stale approvals when the candidate changes.
+- Required status checks on the exact candidate commit: `Architecture Integrity`, `AI Harness Check`, `Production AI Harness Hardening`, `Runtime Resilience Matrix`, and `AUREN Portable Bundle`. Select the exact check names shown by GitHub for the current workflows.
+- No bypass actors for routine promotion; keep deletion and non-fast-forward protections enabled.
+- If the repository uses a code-owner policy, require the designated owner review for the protected paths.
+
+After saving, retrieve the ruleset through GitHub's ruleset API and retain the returned JSON with the acceptance evidence. Verify that the rules include pull-request and required-status-check requirements, not only deletion/non-fast-forward rules. The current audited ruleset `mainBranchRule` (ID `24066603`) has only those latter two rules; it is **not sufficient** to prevent direct pushes.
+
+### 2. Prove direct-write rejection safely
+
+Do not test this by pushing a speculative commit to `main` while the ruleset is unverified: a missing rule could allow the write. Use a disposable repository or a protected test branch with equivalent rules and a normal writer identity (not an administrator/bypass actor). Attempt a direct ref update and retain the GitHub rejection response. Separately verify that a PR with a missing required check and a PR with stale approval cannot merge. Re-run after any ruleset edit.
+
+### 3. Run the deployed rollback rehearsal
+
+Use a non-production deployment with the same handler inventory, credential scopes, evidence providers, persistence backend, and deployment mechanism as production.
+
+1. Record the candidate SHA and a distinct last-known-good SHA. Back up the execution and evidence databases and identify the restore artifact before starting.
+2. Attempt promotion with a missing or stale decision record and with a failed/skipped exact-head check. Confirm the consequential handler is not invoked and no external side effect occurs.
+3. Run a controlled promotion/canary, trigger the documented rollback condition, and verify the operator's rollback action restores the recorded last-known-good artifact. Confirm a stale worker cannot overwrite the final task outcome and repeat delivery does not duplicate external effects.
+4. Retain the signed operator receipt with candidate SHA, last-known-good SHA, trigger, action, observed outcome, operator identity, timestamp, and evidence digests. Export it to the independently controlled evidence sink and verify the retained receipt, not merely the local outbox entry.
+
+### 4. Required closure bundle
+
+Attach or link all of the following to [issue #411](https://github.com/sourabhJainR/AUREN/issues/411):
+
+- The effective ruleset JSON and timestamp.
+- The negative direct-write rejection plus stale/missing-check merge rejection evidence.
+- The reviewed consequential-handler inventory and trusted provider configuration version/digest (never credentials).
+- Exact-head workflow results for the tested deployment.
+- The signed rollback rehearsal receipt and verified external-retention receipt.
+- Confirmation that the negative bypass tests still pass after rollback.
+
+Until this bundle exists, keep #411 open and treat repository-level promotion as partially guarded. Do not proceed to claim external Arena acceptance on the strength of these local controls.
