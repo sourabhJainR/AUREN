@@ -8,7 +8,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 import hashlib
 import json
+import sqlite3
 import threading
+from contextlib import closing
+from pathlib import Path
 from typing import Callable
 
 from .attestation_key_separation import AttestationTrustPolicy, SeparationAwareAttestor
@@ -77,6 +80,63 @@ class AttestationReplayRegistry:
             if attestation_id in self._seen:
                 return False
             self._seen.add(attestation_id)
+            return True
+
+
+class SQLiteAttestationReplayRegistry:
+    """Durable one-time-use registry shared by verifier processes on one host.
+
+    Each claim takes a SQLite write lock and inserts a primary-keyed attestation
+    ID in one transaction. A duplicate ID is rejected, including after process
+    restart or when multiple registry instances race. For multi-host deployments,
+    use a shared transactional store with equivalent uniqueness semantics.
+    """
+
+    def __init__(self, database_path: str | Path, *, timeout_seconds: float = 10.0) -> None:
+        if not isinstance(database_path, (str, Path)) or not str(database_path).strip():
+            raise ValueError("database_path is required")
+        if isinstance(timeout_seconds, bool) or not isinstance(timeout_seconds, (int, float)) or timeout_seconds <= 0:
+            raise ValueError("timeout_seconds must be positive")
+        self.database_path = str(database_path)
+        if self.database_path == ":memory:":
+            raise ValueError("SQLiteAttestationReplayRegistry requires a durable file path")
+        Path(self.database_path).parent.mkdir(parents=True, exist_ok=True)
+        self.timeout_seconds = float(timeout_seconds)
+        with closing(self._connect()) as connection:
+            connection.execute("PRAGMA journal_mode=WAL")
+            connection.execute(
+                "CREATE TABLE IF NOT EXISTS consumed_attestations ("
+                "attestation_id TEXT PRIMARY KEY, claimed_at_epoch INTEGER NOT NULL)"
+            )
+
+    def _connect(self) -> sqlite3.Connection:
+        connection = sqlite3.connect(
+            self.database_path,
+            timeout=self.timeout_seconds,
+            isolation_level=None,
+        )
+        connection.execute("PRAGMA busy_timeout = %d" % int(self.timeout_seconds * 1000))
+        return connection
+
+    def claim(self, attestation_id: str) -> bool:
+        if not isinstance(attestation_id, str) or not attestation_id.strip():
+            raise ValueError("attestation_id is required")
+        import time
+
+        with closing(self._connect()) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                connection.execute(
+                    "INSERT INTO consumed_attestations(attestation_id, claimed_at_epoch) VALUES (?, ?)",
+                    (attestation_id, int(time.time())),
+                )
+            except sqlite3.IntegrityError:
+                connection.execute("ROLLBACK")
+                return False
+            except Exception:
+                connection.execute("ROLLBACK")
+                raise
+            connection.execute("COMMIT")
             return True
 
 
@@ -156,5 +216,6 @@ __all__ = [
     "FreshEvaluationAttestation",
     "AttestationFreshnessPolicy",
     "AttestationReplayRegistry",
+    "SQLiteAttestationReplayRegistry",
     "FreshnessAwareAttestor",
 ]
