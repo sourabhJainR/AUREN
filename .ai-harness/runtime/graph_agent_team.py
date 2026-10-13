@@ -376,7 +376,7 @@ class GraphAgentTeam:
         for agent in self.agents.values():
             def run(state,agent=agent):
                 crew_state=state.get("auren_crew_execution", {})
-                if require_crew_adapters and crew_state.get("status") == "blocked":
+                if require_crew_adapters and crew_state.get("status") == "blocked" and not agent.read_only:
                     return {f"result:{agent.name}":{"status":"blocked","activated":False,"reason":"required specialist crew adapter or proposal evidence is missing"}}
                 deps=[state.get(f"result:{n}") for n in agent.depends_on]
                 if agent.name!="learning-steward" and any(not x or x.get("status")!="passed" for x in deps):
