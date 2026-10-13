@@ -10,6 +10,7 @@ import hashlib
 import json
 import sqlite3
 import threading
+from contextlib import closing
 from pathlib import Path
 from typing import Callable
 
@@ -101,7 +102,7 @@ class SQLiteAttestationReplayRegistry:
             raise ValueError("SQLiteAttestationReplayRegistry requires a durable file path")
         Path(self.database_path).parent.mkdir(parents=True, exist_ok=True)
         self.timeout_seconds = float(timeout_seconds)
-        with self._connect() as connection:
+        with closing(self._connect()) as connection:
             connection.execute("PRAGMA journal_mode=WAL")
             connection.execute(
                 "CREATE TABLE IF NOT EXISTS consumed_attestations ("
@@ -122,7 +123,7 @@ class SQLiteAttestationReplayRegistry:
             raise ValueError("attestation_id is required")
         import time
 
-        with self._connect() as connection:
+        with closing(self._connect()) as connection:
             connection.execute("BEGIN IMMEDIATE")
             try:
                 connection.execute(
