@@ -1,7 +1,7 @@
 """Runtime package bootstrap.
 
-The graph-team integration is enabled by default. Set AER_GRAPH_TEAM=0 to
-fall back to the legacy single-provider phase execution for diagnostics.
+The graph-team integration is enabled by default. Set AUREN_GRAPH_TEAM=0 to
+fall back to the legacy single-provider phase execution for diagnostics. AER_GRAPH_TEAM remains a legacy alias.
 
 Every provider-driven lifecycle phase gets a phase-appropriate dependency DAG.
 Deterministic harness-owned operations remain authoritative, while all model
@@ -128,7 +128,7 @@ def _phase_team(route: dict[str, Any], phase: str, graph_types):
 
 
 def _install_graph_team_bridge() -> None:
-    if os.environ.get("AER_GRAPH_TEAM", "1").strip().lower() in {"0", "false", "off", "no"}:
+    if os.environ.get("AUREN_GRAPH_TEAM", os.environ.get("AER_GRAPH_TEAM", "1")).strip().lower() in {"0", "false", "off", "no"}:
         return
     try:
         import engine
