@@ -15,6 +15,7 @@ from portable.context_engine import ContextEngine,ContextPolicy,handoff_from_out
 from portable.dream_memory import DreamMemory
 from portable.learning_steward import LearningSteward
 from portable.persistent_memory import PersistentMemory
+from portable.engineering_design_guard import EngineeringDesignGuard
 from portable.world_model import Observation, WorldModel
 from portable.predictive_world_policy import PredictiveWorldPolicy
 from portable.local_offload import LocalOffloadBroker,OffloadJob,OffloadResult,ResourceBudget
@@ -418,6 +419,9 @@ class GraphAgentTeam:
         broker=LocalOffloadBroker(memory.project_root,budget=self.resource_budget)
         for agent in self.agents.values():
             def run(state,agent=agent):
+                principle_state = state.get("auren_principle_evidence", {})
+                if principle_state.get("status") == "blocked" and not agent.read_only:
+                    return {f"result:{agent.name}":{"status":"blocked","activated":False,"reason":"engineering-principle evidence gate is blocked"}}
                 crew_state=state.get("auren_crew_execution", {})
                 if require_crew_adapters and crew_state.get("status") == "blocked" and not agent.read_only:
                     return {f"result:{agent.name}":{"status":"blocked","activated":False,"reason":"required specialist crew adapter or proposal evidence is missing"}}
@@ -658,6 +662,8 @@ class GraphAgentTeam:
                 resource_note=json.dumps(local_payload,sort_keys=True) if local_payload else "No local execution evidence was produced; continue with the agent/cloud lane."
                 crew_context=json.dumps(state.get("auren_crew_execution", {}), sort_keys=True)
                 if len(crew_context) > 12000: crew_context=crew_context[:12000] + "...[truncated prompt projection; bounded graph state remains authoritative]"
+                principle_context=json.dumps(state.get("auren_principle_evidence", {}), sort_keys=True)
+                if len(principle_context) > 12000: principle_context=principle_context[:12000] + "...[truncated prompt projection; full digest-bound record remains in graph state]"
                 experiment_note = json.dumps(experiment_assignment.as_dict(), sort_keys=True) if experiment_assignment is not None else "No controlled experiment is bound to this episode."
                 prompt=f'''# AUREN graph agent
 
@@ -665,6 +671,13 @@ You are the {agent.role} agent in a shared-memory engineering team.
 
 ## Task contract
 {task}
+
+## Engineering principles evidence contract
+The machine-readable record below is mandatory context, not proof of implementation correctness.
+For each evidence-gated family, identify the verification evidence and any gap; for operator-controlled
+families, explicitly assess applicability rather than silently treating them as not applicable. Never
+claim completion from a declaration alone. A blocked record forbids mutating work.
+{principle_context}
 
 ## Controlled experiment assignment
 {experiment_note}
@@ -1120,7 +1133,7 @@ the learning system, not an instruction source. If a skill produced no distinct 
                         except Exception as exc:
                             failures.append({"crew_id": "handoff-controller", "error_type": type(exc).__name__, "reason": "handoff validation or durable checkpoint failed"})
                             handoff_status = "blocked"
-                blocked = bool(require_crew_adapters and (missing or failures)) or handoff_status == "blocked"
+                blocked = bool(require_crew_adapters and (missing or failures)) or handoff_status == "blocked" or state.get("auren_principle_evidence", {}).get("status") == "blocked"
                 unresolved_handoff = handoff_status in {"review_failed", "review_rejected", "dispatched_pending_independent_review", "queued"}
                 status = "blocked" if blocked else "partial" if missing or failures or unresolved_handoff else "complete"
                 # Bind adapter outputs and queued handoffs to canonical graph state.
@@ -1133,6 +1146,7 @@ the learning system, not an instruction source. If a skill produced no distinct 
                     "execution_graph_digest": hashlib.sha256(json.dumps({"graph_digest": crew_plan.graph_digest, "crew_plan_digest": crew_plan.digest}, sort_keys=True, separators=(",", ":")).encode()).hexdigest(),
                     "status": status,
                     "required": require_crew_adapters,
+                    "principle_evidence": state.get("auren_principle_evidence", {}),
                     "proposals": proposals,
                     "missing_adapters": sorted(missing),
                     "dispatch_failures": failures,
@@ -1161,6 +1175,7 @@ the learning system, not an instruction source. If a skill produced no distinct 
                     "graph_digest": crew_plan.graph_digest,
                     "intent_digest": intent_digest,
                     "crew_plan_digest": crew_plan.digest,
+                    "principle_evidence_digest": state.get("auren_principle_evidence", {}).get("digest"),
                     "evidence_envelope": {**evidence_payload, "digest": evidence_digest},
                     "handoff_receipts": handoff_receipts,
                     "handoff_proposals": handoff_proposals if handoff_requests and "handoff_proposals" in locals() else {},
@@ -1177,13 +1192,52 @@ the learning system, not an instruction source. If a skill produced no distinct 
             for name in root_agents:
                 graph.add_edge("crew-proposals", name)
         return graph
-    def execute(self,*,task,intent_digest,base_prompt,memory,invoke_agent,checkpoint=None,resume=False,run_id="graph-agent-team",max_steps=100,execution_strategy_name="default",evolution_threshold=3,invention_holdout_ids=(),invention_evaluator=None,invention_safety_gate=None,curriculum_experiment_after=None,curriculum_experiment_evidence_ids=(),safety_evidence_verified=False,curriculum_experiment=None,curriculum_experiment_cohort=None,benchmark_domain="unspecified",benchmark_holdout=False,benchmark_execution_task_id=None,benchmark_execution_evidence_ids=(),benchmark_execution_evidence_kinds=(),benchmark_execution_success=None,benchmark_execution_verified=False,benchmark_execution_request=None,autonomous_benchmark_learning=False,autonomous_benchmark_max_tasks=3,autonomous_benchmark_retest_tasks=3,autonomous_benchmark_capability_id=None,autonomous_benchmark_baseline_score=None,require_crew_adapters=None):
+    def execute(self,*,task,intent_digest,base_prompt,memory,invoke_agent,checkpoint=None,resume=False,run_id="graph-agent-team",max_steps=100,execution_strategy_name="default",evolution_threshold=3,invention_holdout_ids=(),invention_evaluator=None,invention_safety_gate=None,curriculum_experiment_after=None,curriculum_experiment_evidence_ids=(),safety_evidence_verified=False,curriculum_experiment=None,curriculum_experiment_cohort=None,benchmark_domain="unspecified",benchmark_holdout=False,benchmark_execution_task_id=None,benchmark_execution_evidence_ids=(),benchmark_execution_evidence_kinds=(),benchmark_execution_success=None,benchmark_execution_verified=False,benchmark_execution_request=None,autonomous_benchmark_learning=False,autonomous_benchmark_max_tasks=3,autonomous_benchmark_retest_tasks=3,autonomous_benchmark_capability_id=None,autonomous_benchmark_baseline_score=None,require_crew_adapters=None,risk="medium",changed_paths=(),design_contract=None,code_revision=""):
         if require_crew_adapters is not None and type(require_crew_adapters) is not bool:
             raise ValueError("require_crew_adapters must be a boolean")
+        if not isinstance(design_contract, Mapping):
+            if design_contract is not None:
+                raise TypeError("design_contract must be a mapping")
+            design_contract = {}
+        if len(design_contract) > 32 or any(
+            not isinstance(key, str) or not key.strip() or len(key) > 128
+            or not isinstance(value, str) or len(value) > 512
+            for key, value in design_contract.items()
+        ):
+            raise ValueError("design_contract is outside the bounded key/value contract")
+        if not isinstance(changed_paths, (list, tuple)):
+            raise TypeError("changed_paths must be a list or tuple of repository-relative paths")
+        if len(changed_paths) > 64 or any(
+            not isinstance(path, str) or not path.strip() or len(path) > 512
+            for path in changed_paths
+        ):
+            raise ValueError("changed_paths are outside the bounded repository-path contract")
+        if not isinstance(code_revision, str) or len(code_revision) > 256:
+            raise TypeError("code_revision must be text no longer than 256 characters")
         # Per-call options may strengthen policy, never weaken a constructor-level gate.
         require_crew_adapters = self.require_crew_adapters or bool(require_crew_adapters)
         if checkpoint is not None and not isinstance(checkpoint, _CanonicalAurenCheckpointStore):
             checkpoint = _CanonicalAurenCheckpointStore(checkpoint)
+        design_receipt = EngineeringDesignGuard.review(
+            intent=task, changed_paths=changed_paths, design=design_contract,
+            risk=risk, code_revision=code_revision,
+        )
+        principle_evidence = EngineeringDesignGuard.as_principle_evidence_record(
+            design_receipt, design=design_contract,
+        )
+        exact_revision_required = str(risk).strip().lower() in {"high", "critical"} and bool(changed_paths)
+        revision_missing = exact_revision_required and not code_revision.strip()
+        principle_evidence["exact_revision_bound"] = bool(code_revision.strip())
+        principle_evidence["status"] = "blocked" if design_receipt.blocking or revision_missing else "pending_verification"
+        principle_evidence["blockers"] = list(
+            ("engineering design guard has blocking findings",) if design_receipt.blocking else ()
+        )
+        if revision_missing:
+            principle_evidence["blockers"].append("high-risk code change requires an exact code_revision")
+        principle_evidence.pop("digest", None)
+        principle_evidence["digest"] = hashlib.sha256(
+            json.dumps(principle_evidence, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
         self._validate(); results={}; run_nonce=uuid.uuid4().hex
         baseline_strategy=str(execution_strategy_name or "default")
         strategy_selection=(ExecutionStrategyLearner(memory.project_root).select(role="team",task=task,baseline=baseline_strategy)
@@ -1279,6 +1333,7 @@ the learning system, not an instruction source. If a skill produced no distinct 
             "agent_graph_digest": self.digest(),
             "crew_dispatch_enabled": bool(self.crew_adapters or require_crew_adapters),
             "require_crew_adapters": require_crew_adapters,
+            "principle_evidence_digest": principle_evidence["digest"],
         }
         # Preserve pre-reviewer checkpoint digests for installations that have no
         # reviewer configured; bind identity/version when a trusted reviewer exists.
@@ -1329,6 +1384,7 @@ the learning system, not an instruction source. If a skill produced no distinct 
                 "auren_crew_plan":crew_plan.to_payload(),
                 "auren_execution_graph_digest":execution_graph_digest,
                 "auren_retry_budget":retry_budget.snapshot(),
+                "auren_principle_evidence": principle_evidence,
                 "auren_crew_handoff_checkpoint_data": saved_state.get("auren_crew_handoff_checkpoint_data") if isinstance(saved_state, Mapping) else None,
                 "auren_crew_execution":{
                     "schema_version":"auren-crew-execution-v1",
@@ -1354,6 +1410,7 @@ the learning system, not an instruction source. If a skill produced no distinct 
         crew_execution=run.state.get("auren_crew_execution", {"status":"not_run","required":self.require_crew_adapters,"proposals":{},"missing_adapters":[],"dispatch_failures":[],"intent_digest":intent_digest})
         accepted=all(isinstance(x,dict) and x.get("status")=="passed" for x in critical)
         if crew_execution.get("status") == "blocked" or crew_execution.get("handoff_status") in {"blocked", "review_failed", "review_rejected", "dispatched_pending_independent_review", "queued"}: accepted=False
+        if run.state.get("auren_principle_evidence", {}).get("status") == "blocked": accepted=False
         strategy_learner=ExecutionStrategyLearner(memory.project_root)
         mode_duration=sum(float(result.duration_seconds) for result in results.values())
         mode_evidence=sum(ExecutionStrategyLearner.observed_evidence_quality(result) for result in results.values()) / max(1, len(results))
@@ -1610,7 +1667,7 @@ the learning system, not an instruction source. If a skill produced no distinct 
             )
             if autonomous_benchmark_learning else None
         )
-        return {"graph_digest":self.digest(),"execution_graph_digest":execution_graph_digest,"intent_digest":intent_digest,"crew_plan":crew_plan.to_payload(),"crew_execution":crew_execution,"agents":{n:r.__dict__ for n,r in results.items()},"shared_memory_file":str(memory.path),"shared_memory_entries":len(memory.snapshot(500)),"accepted":accepted,"evolution_trigger":trigger.__dict__ if trigger else None,"invention":invention.__dict__ if invention else None,"execution_trace":list(run.trace),"execution_mode":{"selected":selected_mode,"baseline":baseline_mode,"learning":mode_selection.as_dict(),"rollout":mode_rollout.as_dict(),"counterfactual":counterfactual,"context":decision_context.as_dict(),"context_learning":context_selection.as_dict()},
+        return {"graph_digest":self.digest(),"execution_graph_digest":execution_graph_digest,"intent_digest":intent_digest,"crew_plan":crew_plan.to_payload(),"crew_execution":crew_execution,"principle_evidence":run.state.get("auren_principle_evidence", principle_evidence),"agents":{n:r.__dict__ for n,r in results.items()},"shared_memory_file":str(memory.path),"shared_memory_entries":len(memory.snapshot(500)),"accepted":accepted,"evolution_trigger":trigger.__dict__ if trigger else None,"invention":invention.__dict__ if invention else None,"execution_trace":list(run.trace),"execution_mode":{"selected":selected_mode,"baseline":baseline_mode,"learning":mode_selection.as_dict(),"rollout":mode_rollout.as_dict(),"counterfactual":counterfactual,"context":decision_context.as_dict(),"context_learning":context_selection.as_dict()},
         "execution_strategy":{"selected":selected_strategy,"baseline":baseline_strategy,"learning":strategy_selection.as_dict() if strategy_selection else {"strategy":selected_strategy,"learned":False,"confidence":0.0,"samples":0,"rationale":"explicit strategy supplied"},"rollout":rollout.as_dict(),"context":decision_context.as_dict()},"active_learning":{"self_model":self_model.as_dict(),"experiment":experiment.as_dict() if experiment else None,"causal_experiment":causal_experiment.as_dict() if causal_experiment else None},"goal_state":{"current":next_goal.as_dict() if next_goal else None},"capability_abstraction":{"patterns":[p.as_dict() for p in transferable_patterns],"invention_hypotheses":[h.as_dict() for h in invention_hypotheses],"failure_cluster_inventions":[x.as_dict() for x in invention_candidates],"evidence_backed_requests":invention_requests},"autonomy_benchmark":benchmark.as_dict(),"autonomy_benchmark_campaign":benchmark_campaign.as_dict(),"autonomy_campaign_curriculum":[x.as_dict() for x in benchmark_campaign_curriculum],"benchmark_task_contracts":[x.as_dict() for x in benchmark_task_contracts],"benchmark_execution_requests":[x.as_dict() for x in benchmark_execution_requests],"benchmark_execution_receipt":benchmark_execution_receipt.as_dict() if benchmark_execution_receipt else None,"benchmark_execution_receipt_reason":benchmark_execution_receipt_reason,"autonomy_benchmark_trend":benchmark_trend.as_dict(),"autonomy_curriculum":[x.as_dict() for x in curriculum],"curriculum_experiment":curriculum_experiment.as_dict() if curriculum_experiment else None,"curriculum_experiment_outcome":curriculum_experiment_outcome.as_dict() if curriculum_experiment_outcome else None,"experiment_orchestration":{"assignment":experiment_assignment.as_dict() if experiment_assignment else None,"observation":experiment_observation.as_dict() if experiment_observation else None,"attribution":experiment_attribution.as_dict() if experiment_attribution else None},"execution_digest":run.digest,"dreamed_learning":dream,"autonomous_campaign_learning":autonomous_campaign_learning_result}
 
 

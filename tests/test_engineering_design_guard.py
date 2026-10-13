@@ -58,6 +58,36 @@ def test_receipt_digest_binds_canonical_changed_paths_and_risk():
     assert evidence["code_revision"] == ""
 
 
+def test_principle_evidence_record_covers_all_families_and_binds_revision():
+    import hashlib
+    import json
+
+    receipt = EngineeringDesignGuard.review(
+        intent="Update project metadata",
+        changed_paths=["README.md", "VERSION"],
+        risk="medium",
+        code_revision="commit-abc123",
+        design={"security": "not_applicable: documentation-only change"},
+    )
+    record = EngineeringDesignGuard.as_principle_evidence_record(
+        receipt, design={"security": "not_applicable: documentation-only change"}
+    )
+    assert record["schema_version"] == "auren-engineering-principle-evidence-v1"
+    assert record["code_revision"] == "commit-abc123"
+    assert len(record["families"]) == 12
+    assert record["families"]["security_privacy"]["status"] == "not_applicable"
+    assert record["families"]["security_privacy"]["reason"] == "documentation-only change"
+    assert all(
+        family["status"] in {"enforced", "evidence_gated", "operator_controlled", "not_applicable"}
+        for family in record["families"].values()
+    )
+    supplied_digest = record.pop("digest")
+    expected_digest = hashlib.sha256(
+        json.dumps(record, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    assert supplied_digest == expected_digest
+
+
 def test_unknown_risk_classification_fails_closed():
     import pytest
 

@@ -363,6 +363,90 @@ class EngineeringDesignGuard:
             tuple(findings), status, digest, paths, normalized_risk, normalized_revision,
         )
 
+    @classmethod
+    def as_principle_evidence_record(
+        cls,
+        receipt: DesignReviewReceipt,
+        *,
+        design: Mapping[str, str] | None = None,
+    ) -> dict[str, object]:
+        """Map the guard receipt to the canonical 12-family task evidence contract.
+
+        This record is an applicability/evidence-routing receipt, not proof that
+        the implementation is correct. Families not selected by the deterministic
+        classifier remain operator-controlled rather than being silently marked N/A.
+        """
+        if not isinstance(receipt, DesignReviewReceipt):
+            raise TypeError("receipt must be a DesignReviewReceipt")
+        declared = {str(key): str(value).strip() for key, value in (design or {}).items() if str(value).strip()}
+        family_dimensions = {
+            "fundamental_design": (DesignDimension.COMPLEXITY, DesignDimension.ARCHITECTURE, DesignDimension.DOMAIN),
+            "security_privacy": (DesignDimension.SECURITY,),
+            "performance_cost": (DesignDimension.PERFORMANCE,),
+            "concurrency": (DesignDimension.CONCURRENCY,),
+            "distributed_systems": (DesignDimension.DISTRIBUTED,),
+            "reliability_recovery": (DesignDimension.RESILIENCE,),
+            "data_correctness": (DesignDimension.DATA, DesignDimension.CORRECTNESS),
+            "api_integration": (DesignDimension.COMPATIBILITY,),
+            "testing_verification": (DesignDimension.CONSTRUCTION, DesignDimension.CORRECTNESS),
+            "delivery_operations": (DesignDimension.OPERATIONS, DesignDimension.COMPATIBILITY),
+            "observability_governance": (DesignDimension.OPERATIONS, DesignDimension.RESILIENCE),
+            "ai_autonomous_systems": (DesignDimension.AI_AGENT,),
+        }
+        selected = set(receipt.dimensions)
+        families: dict[str, dict[str, object]] = {}
+        for family, dimensions in family_dimensions.items():
+            selected_dimensions = [dimension for dimension in dimensions if dimension.value in selected]
+            na_reasons: list[str] = []
+            enforced_dimensions: list[str] = []
+            for dimension in dimensions:
+                keys = cls._DIMENSION_KEYS[dimension]
+                match = next((key for key in keys if key in declared), None)
+                value = declared.get(match, "") if match else ""
+                if value.lower().startswith("not_applicable") and (":" in value or " - " in value):
+                    na_reasons.append(value.split(":", 1)[1].strip() if ":" in value else value.split(" - ", 1)[1].strip())
+                elif dimension in selected_dimensions:
+                    enforced_dimensions.append(dimension.value)
+            if selected_dimensions and not enforced_dimensions and na_reasons:
+                families[family] = {
+                    "status": "not_applicable",
+                    "reason": "; ".join(sorted(set(na_reasons))),
+                    "guard_dimensions": [dimension.value for dimension in selected_dimensions],
+                }
+            elif selected_dimensions:
+                families[family] = {
+                    "status": "evidence_gated",
+                    "reason": "EngineeringDesignGuard selected these dimensions; declarations are contracts, not behavioral proof.",
+                    "guard_dimensions": [dimension.value for dimension in selected_dimensions],
+                }
+            elif na_reasons:
+                families[family] = {
+                    "status": "not_applicable",
+                    "reason": "; ".join(sorted(set(na_reasons))),
+                    "guard_dimensions": [],
+                }
+            else:
+                families[family] = {
+                    "status": "operator_controlled",
+                    "reason": "The deterministic classifier did not select this family; the final reviewer/operator must assess applicability.",
+                    "guard_dimensions": [],
+                }
+        payload: dict[str, object] = {
+            "schema_version": "auren-engineering-principle-evidence-v1",
+            "intent_digest": receipt.intent_digest,
+            "code_revision": receipt.code_revision,
+            "changed_paths": list(receipt.changed_paths),
+            "risk": receipt.risk,
+            "guard_status": receipt.status,
+            "guard_receipt_digest": receipt.receipt_digest,
+            "guard_receipt": cls.as_evidence(receipt),
+            "families": families,
+        }
+        payload["digest"] = hashlib.sha256(
+            json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+        return payload
+
     @staticmethod
     def as_evidence(receipt: DesignReviewReceipt) -> dict[str, object]:
         """Return a provenance-friendly projection without mutable receipt state."""
