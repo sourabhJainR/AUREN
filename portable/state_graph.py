@@ -550,24 +550,28 @@ class GraphAgentTeam:
                 allowed_handoffs=source.handoffs_to,
                 selected_crews=tuple(selected_ids),
             )
+            refresh_checkpoint_state()
             return {
                 "source_crew": item.source_crew,
                 "target_crew": item.target_crew,
                 "task": item.task,
                 "source_plan_digest": item.source_plan_digest,
                 "attempt": item.attempt,
+                "handoff_id": item.handoff_id,
             }
 
         def claim_handoff() -> dict[str, Any] | None:
             item = handoffs.claim_next(graph_node_active=dispatch_active["value"])
             if item is None:
                 return None
+            refresh_checkpoint_state()
             return {
                 "source_crew": item.source_crew,
                 "target_crew": item.target_crew,
                 "task": item.task,
                 "source_plan_digest": item.source_plan_digest,
                 "attempt": item.attempt,
+                "handoff_id": item.handoff_id,
             }
 
         def retry_handoff(record: Mapping[str, Any], retryable: bool) -> dict[str, Any] | None:
@@ -576,10 +580,11 @@ class GraphAgentTeam:
             item = handoffs.retry(
                 CrewHandoff(
                     record["source_crew"], record["target_crew"], record["task"],
-                    record["source_plan_digest"], record.get("attempt", 0),
+                    record["source_plan_digest"], record.get("attempt", 0), record.get("handoff_id", ""),
                 ),
                 retryable=retryable,
             )
+            refresh_checkpoint_state()
             if item is None:
                 return None
             return {
@@ -588,6 +593,7 @@ class GraphAgentTeam:
                 "task": item.task,
                 "source_plan_digest": item.source_plan_digest,
                 "attempt": item.attempt,
+                "handoff_id": item.handoff_id,
             }
 
         def complete_handoff(record: Mapping[str, Any], independent_review_passed: bool) -> None:
@@ -595,8 +601,9 @@ class GraphAgentTeam:
                 raise RuntimeError("handoff completion is only available during graph execution")
             handoffs.mark_completed(CrewHandoff(
                 record["source_crew"], record["target_crew"], record["task"],
-                record["source_plan_digest"], record.get("attempt", 0),
+                record["source_plan_digest"], record.get("attempt", 0), record.get("handoff_id", ""),
             ), independent_review_passed=independent_review_passed)
+            refresh_checkpoint_state()
 
         # Only graph nodes receive scoped functions. Adapter/tool objects are never
         # placed into graph state; the graph node remains the sole execution authority.
@@ -605,6 +612,8 @@ class GraphAgentTeam:
         state["auren_crew_handoff_claim"] = claim_handoff
         state["auren_crew_handoff_retry"] = retry_handoff
         state["auren_crew_handoff_complete"] = complete_handoff
+        state["auren_crew_handoff_checkpoint_data"] = handoffs.snapshot()
+        state["auren_retry_budget"] = retry_budget.snapshot()
         state["auren_crew_handoff_checkpoint"] = handoffs.snapshot
         state["auren_crew_rollback_readiness"] = rollback_readiness
         try:
