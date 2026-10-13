@@ -12,7 +12,6 @@ import os
 from pathlib import Path
 import shutil
 import tempfile
-from typing import Iterable
 
 
 @dataclass(frozen=True)
@@ -56,10 +55,10 @@ def inspect_state_migration(source: str | Path, destination: str | Path) -> Migr
     src, dst = Path(source).expanduser().resolve(), Path(destination).expanduser().resolve()
     if not src.is_dir():
         raise ValueError(f"legacy state root does not exist: {src}")
-    _, digest, total = _manifest(src)
+    entries, digest, total = _manifest(src)
     if dst.exists():
-        return MigrationResult(src, dst, "destination_exists", digest, len(_manifest(src)[0]), total)
-    return MigrationResult(src, dst, "ready", digest, len(_manifest(src)[0]), total)
+        return MigrationResult(src, dst, "destination_exists", digest, len(entries), total)
+    return MigrationResult(src, dst, "ready", digest, len(entries), total)
 
 
 def migrate_state_root(
@@ -70,16 +69,23 @@ def migrate_state_root(
 ) -> MigrationResult:
     """Copy and verify legacy state; retain the source as rollback material.
 
-    Existing destinations are never overwritten. A dry run only returns the
-    verified source manifest. The destination must not be inside the source.
+    Existing destinations are never overwritten. If a destination already
+    matches the source manifest, a rerun is idempotently accepted. A dry run
+    changes neither root. The destination must not be inside the source.
     """
     plan = inspect_state_migration(source, destination)
-    if plan.status == "destination_exists":
-        raise FileExistsError(f"refusing to overwrite existing state root: {plan.destination}")
     if plan.source == plan.destination or plan.source in plan.destination.parents:
         raise ValueError("destination must not be the source or a child of the source")
     if plan.destination in plan.source.parents:
         raise ValueError("destination must not contain the legacy source")
+    if plan.status == "destination_exists":
+        _, destination_digest, destination_bytes = _manifest(plan.destination)
+        if destination_digest == plan.manifest_sha256 and destination_bytes == plan.byte_count:
+            return MigrationResult(
+                plan.source, plan.destination, "already_migrated_verified",
+                destination_digest, plan.file_count, destination_bytes
+            )
+        raise FileExistsError(f"refusing to overwrite conflicting state root: {plan.destination}")
     if dry_run:
         return MigrationResult(
             plan.source, plan.destination, "dry_run", plan.manifest_sha256,
@@ -89,21 +95,30 @@ def migrate_state_root(
     parent = plan.destination.parent
     parent.mkdir(parents=True, exist_ok=True)
     staging: Path | None = None
+    lock_path = parent / f".{plan.destination.name}.migration.lock"
+    lock_fd: int | None = None
     try:
+        # Cooperating migration processes cannot race the final destination switch.
+        lock_fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        os.write(lock_fd, f"source={plan.source}\n".encode("utf-8"))
         staging = Path(tempfile.mkdtemp(prefix=f".{plan.destination.name}.migration-", dir=parent))
         staging.rmdir()
         shutil.copytree(plan.source, staging, copy_function=shutil.copy2, symlinks=True)
         _, copied_digest, copied_bytes = _manifest(staging)
         if copied_digest != plan.manifest_sha256 or copied_bytes != plan.byte_count:
             raise IOError("state migration verification failed; original state was preserved")
-        # Recheck immediately before the final switch; never intentionally overwrite.
         if plan.destination.exists():
+            _, current_digest, current_bytes = _manifest(plan.destination)
+            if current_digest == plan.manifest_sha256 and current_bytes == plan.byte_count:
+                return MigrationResult(
+                    plan.source, plan.destination, "already_migrated_verified",
+                    current_digest, plan.file_count, current_bytes
+                )
             raise FileExistsError(f"destination appeared during migration: {plan.destination}")
         os.rename(staging, plan.destination)
         staging = None
         _, final_digest, final_bytes = _manifest(plan.destination)
         if final_digest != plan.manifest_sha256 or final_bytes != plan.byte_count:
-            # Preserve both copies and surface the discrepancy for operator recovery.
             raise IOError("destination verification failed after switch; inspect both state roots")
         return MigrationResult(
             plan.source, plan.destination, "copied_verified_source_retained",
@@ -112,6 +127,12 @@ def migrate_state_root(
     finally:
         if staging is not None and staging.exists():
             shutil.rmtree(staging, ignore_errors=True)
+        if lock_fd is not None:
+            os.close(lock_fd)
+            try:
+                lock_path.unlink()
+            except FileNotFoundError:
+                pass
 
 
 __all__ = ["MigrationResult", "inspect_state_migration", "migrate_state_root"]
