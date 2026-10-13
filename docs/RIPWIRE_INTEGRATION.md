@@ -1,10 +1,10 @@
 # Repository Intelligence Design Lineage
 
-AER incorporates selected engineering ideas observed in Red Hat's `ripwire` repository. This is a design adaptation, not a code dependency or code copy.
+AUREN incorporates selected engineering ideas observed in Red Hat's `ripwire` repository. This is a design adaptation, not a code dependency or code copy.
 
 ## Canonical ownership rule
 
-AER has **one repository/code graph store**: `portable.agency_codebase_context.CodebaseIndex`.
+AUREN has **one repository/code graph store**: `portable.agency_codebase_context.CodebaseIndex`.
 
 `portable.repository_intelligence.RepositoryIntelligence` is the task-facing facade over that store. Retrieval, callers, callees, impact, affected-test discovery, change awareness and deterministic packing all consume the same `CodebaseIndex` snapshot.
 
@@ -14,7 +14,7 @@ This rule also applies to future Graphify, Repowise, Aider-map or other code-map
 
 ## Adopted concepts
 
-| Ripwire concept | AER adaptation | Why it matters |
+| Ripwire concept | AUREN adaptation | Why it matters |
 | --- | --- | --- |
 | Deterministic repository crawl | `CodebaseIndex.build()` sorts directories/files, ignores generated/build trees and records a stable snapshot | Identical repository state produces the same graph and digest |
 | One shared graph for many questions | Search, callers, callees, impact, affected-test candidates, situational change context and task packing read the same `CodebaseIndex` | Prevents each agent feature from inventing its own repository model |
@@ -68,7 +68,7 @@ When another code-map implementation is evaluated:
           one snapshot / digest
 ```
 
-## AER-specific lifecycle
+## AUREN-specific lifecycle
 
 ```text
 intent
