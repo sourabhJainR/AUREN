@@ -14,6 +14,8 @@ import hashlib
 import json
 import os
 from pathlib import Path
+
+from portable.identity_compat import get_auren_env
 from typing import Any
 
 
@@ -162,7 +164,7 @@ def _phase_team(route: dict[str, Any], phase: str, graph_types):
 
 
 def _install_graph_team_bridge() -> None:
-    if os.environ.get("AUREN_GRAPH_TEAM", os.environ.get("AER_GRAPH_TEAM", "1")).strip().lower() in {"0", "false", "off", "no"}:
+    if str(get_auren_env("GRAPH_TEAM", "1") or "").strip().lower() in {"0", "false", "off", "no"}:
         return
     try:
         import engine
