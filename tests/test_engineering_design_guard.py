@@ -34,11 +34,28 @@ def test_receipt_digest_binds_canonical_changed_paths_and_risk():
 
     assert base.receipt_digest == reordered.receipt_digest
     assert base.changed_paths == ("README.md", "VERSION")
+    different_revision = EngineeringDesignGuard.review(
+        intent="Update project metadata",
+        changed_paths=["README.md", "VERSION"],
+        risk="medium",
+        code_revision="abc1234",
+        design={"architecture": "documentation and version metadata only"},
+    )
+    bound_revision = EngineeringDesignGuard.review(
+        intent="Update project metadata",
+        changed_paths=["README.md", "VERSION"],
+        risk="medium",
+        code_revision="def5678",
+        design={"architecture": "documentation and version metadata only"},
+    )
+
     assert base.receipt_digest != different_scope.receipt_digest
     assert base.receipt_digest != different_risk.receipt_digest
+    assert different_revision.receipt_digest != bound_revision.receipt_digest
     evidence = EngineeringDesignGuard.as_evidence(base)
     assert evidence["changed_paths"] == ["README.md", "VERSION"]
     assert evidence["risk"] == "medium"
+    assert evidence["code_revision"] == ""
 
 
 def test_unknown_risk_classification_fails_closed():
