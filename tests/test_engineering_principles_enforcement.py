@@ -25,6 +25,51 @@ def test_architecture_contract_requires_owner_and_dependency_direction():
     assert any("dependency direction" in message for message in blocking)
 
 
+
+def test_resilience_contract_requires_timeout_retry_budget_and_recovery():
+    receipt = EngineeringDesignGuard.review(
+        intent="Add resilient retry behavior to outbound service API",
+        changed_paths=["portable/client.py"],
+        risk="high",
+        design={"resilience": "Handle failures safely"},
+    )
+    blocking = _messages(receipt, FindingSeverity.BLOCKING)
+    assert receipt.status == "blocked"
+    assert any("deadline and timeout budget" in message for message in blocking)
+    assert any("bounded retry budget" in message for message in blocking)
+    assert any("failure containment and recovery" in message for message in blocking)
+
+
+def test_resilience_contract_accepts_explicit_bounded_controls():
+    receipt = EngineeringDesignGuard.review(
+        intent="Add resilient retry behavior to outbound service API",
+        changed_paths=["portable/client.py"],
+        risk="high",
+        design={
+            "resilience": "Remote dependency uses bounded failure handling",
+            "timeout_budget": "5-second total deadline propagated through nested calls",
+            "retry_budget": "at most two retries with exponential backoff and jitter",
+            "recovery": "circuit breaker, bounded concurrency bulkhead, and readiness probe",
+            "architecture": "client remains behind the outbound adapter",
+            "responsibility": "client adapter owns remote-call policy",
+            "dependency_direction": "application depends on client interface, implementation points outward",
+            "threat_model": "no credentials are passed to untrusted response handlers",
+            "authorization": "least-privilege service identity",
+            "performance_budget": "p95 latency and max concurrency are measured",
+            "reuse": "reuse existing HTTP client",
+            "regression": "timeout, retry, and breaker fault-injection tests",
+            "exception_handling": "preserve typed errors and close resources",
+            "logging": "record correlation IDs without request secrets",
+            "usage_compatibility": "preserve existing API and error contract",
+        },
+    )
+    assert not any(
+        phrase in message
+        for phrase in ("deadline and timeout budget", "bounded retry budget", "failure containment and recovery")
+        for message in _messages(receipt, FindingSeverity.BLOCKING)
+    )
+
+
 def test_security_is_inferred_and_high_risk_missing_contract_blocks():
     receipt = EngineeringDesignGuard.review(
         intent="Change authentication and authorization for external tool execution",
@@ -160,6 +205,12 @@ import unittest
 
 
 class EngineeringPrincipleEnforcementTests(unittest.TestCase):
+    def test_resilience_contract_requires_timeout_retry_and_recovery_case(self):
+        test_resilience_contract_requires_timeout_retry_budget_and_recovery()
+
+    def test_resilience_contract_accepts_bounded_controls_case(self):
+        test_resilience_contract_accepts_explicit_bounded_controls()
+
     def test_security_is_inferred_and_high_risk_missing_contract_blocks_case(self):
         test_security_is_inferred_and_high_risk_missing_contract_blocks()
 
