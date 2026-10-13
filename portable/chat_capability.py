@@ -12,7 +12,7 @@ if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from portable.adaptive_runtime import AdaptiveRuntime
-from portable.identity_compat import auren_home
+from portable.identity_compat import canonical_runtime_home
 from portable.adaptive_trigger import AdaptiveTrigger
 from portable.agent_capabilities import AutomationScheduler
 from portable.orchestration import Graph
@@ -101,7 +101,7 @@ def invoke(runtime: AdaptiveRuntime, arguments: Mapping[str, Any]):
 
 def _default_runtime() -> AdaptiveRuntime:
     """Build a process-local runtime using the canonical AUREN automation store."""
-    state = auren_home()
+    state = canonical_runtime_home()
     scheduler = AutomationScheduler(state / "automation" / "automation.db")
     return AdaptiveRuntime(Graph([]), automation_scheduler=scheduler)
 
