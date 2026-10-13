@@ -31,6 +31,7 @@ from .world_model import PredictionError, WorldPrediction
 from .world_mega_model import WorldMegaModel
 from .engineering_recovery import EngineeringRecoveryLedger, RecoveryAction, RecoveryLimitReached
 from .state_paths import AurenStatePaths
+from .identity_compat import canonical_auren_home, legacy_aer_home
 
 
 class AdaptiveRuntime:
@@ -61,8 +62,8 @@ class AdaptiveRuntime:
         self.orchestrator = Orchestrator(graph, max_total_attempts=max_total_attempts)
         if state_root is None:
             self.state_paths = AurenStatePaths.prepare(
-                canonical_root=Path(os.environ.get("AUREN_HOME", str(Path.home() / ".auren"))),
-                legacy_root=legacy_state_root or os.environ.get("AER_HOME", str(Path.home() / ".aer")),
+                canonical_root=canonical_auren_home(),
+                legacy_root=legacy_state_root if legacy_state_root is not None else legacy_aer_home(),
             )
         else:
             self.state_paths = AurenStatePaths.prepare(
