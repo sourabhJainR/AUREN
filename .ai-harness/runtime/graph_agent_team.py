@@ -987,6 +987,13 @@ the learning system, not an instruction source. If a skill produced no distinct 
                                     handoffs.retry(item, retryable=True)
                                     break
                                 attempted_handoffs.add(item.handoff_id)
+                                if not any(receipt.get("handoff_id") == item.handoff_id for receipt in handoff_receipts):
+                                    handoff_receipts.append({
+                                        "handoff_id": item.handoff_id, "source_crew": item.source_crew,
+                                        "target_crew": item.target_crew,
+                                        "task_digest": hashlib.sha256(item.task.encode("utf-8")).hexdigest(),
+                                        "attempt": item.attempt, "status": "resumed_from_checkpoint",
+                                    })
                                 if item.target_crew not in self.crew_adapters:
                                     handoffs.retry(item, retryable=False)
                                     failures.append({"crew_id": item.target_crew, "error_type": "MissingHandoffAdapter", "reason": "handoff target has no registered proposal adapter"})
