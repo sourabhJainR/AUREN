@@ -1,7 +1,7 @@
 """Runtime package bootstrap.
 
 The graph-team integration is enabled by default. Set AUREN_GRAPH_TEAM=0 to
-fall back to the legacy single-provider phase execution for diagnostics. AER_GRAPH_TEAM remains a legacy alias.
+fall back to the legacy single-provider phase execution for diagnostics. The old graph-team toggle remains a compatibility alias.
 
 Every provider-driven lifecycle phase gets a phase-appropriate dependency DAG.
 Deterministic harness-owned operations remain authoritative, while all model
@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 from pathlib import Path
 
 from portable.identity_compat import get_auren_env
