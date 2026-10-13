@@ -56,6 +56,23 @@ Guard-controlled canary / promotion / rollback
 Outcome evidence -> advisory learning -> future task policy
 ```
 
+## Trusted adapter bootstrap
+
+The runtime does not invent provider-backed crew adapters. A trusted host creates each `ApprovedToolCrewAdapter` with an explicit read-only `ApprovedToolRegistry`, then registers the configured mapping before task execution:
+
+```python
+from runtime import register_crew_adapters
+
+register_crew_adapters({
+    "frontend_ui": frontend_adapter,
+    "backend_api": backend_adapter,
+    "qa_reviewer": qa_adapter,
+    "security_privacy": security_adapter,
+})
+```
+
+The example names illustrate the registration shape; the variables must be real, reviewed adapter instances. Registration rejects unknown crew IDs, mismatched adapter IDs, missing `propose(request)`, and missing stable configuration digests. A per-task option cannot disable a constructor-level crew requirement. High/critical or sensitive mutation/review phases fail closed for missing selected adapters; read-only planning can continue. The crew node is marked external, and graph node execution is bounded by the configured resource timeout.
+
 ## Required invariants
 
 1. A single immutable intent digest follows every graph node, crew proposal, handoff, retry, checkpoint, evidence item, and final report.
@@ -63,7 +80,7 @@ Outcome evidence -> advisory learning -> future task policy
 3. Crew selection is deterministic and bounded. Only selected, registered crews can be dispatched; tool allow-lists are per crew and read-only during proposal.
 4. Crew output is a proposal. A successful proposal or its self-reported acceptance checks cannot satisfy independent verification, reviewer independence, exact-head CI, decision records, or Guard authorization.
 5. Read-only independent nodes may run in bounded parallel waves. Mutations with shared resources are serialized behind dependencies. Failed dependencies block only dependent work.
-6. Checkpoint/resume preserves graph state, task identity, crew-plan digest, handoff queue, attempts, evidence references, and last-known-good revision. Stale or mismatched state fails closed.
+6. Checkpoint/resume preserves graph state, task identity, crew-plan digest, attempts, evidence references, and last-known-good revision. When crew dispatch is enabled, the execution-graph digest is checked against the saved checkpoint before resume; a changed crew/adapter configuration fails closed. Durable cross-crew handoff persistence remains an open gate.
 7. One recovery budget governs retries across graph nodes, crew handoffs, and supervisor recovery. No layer silently starts its own unbounded retry loop.
 8. Durable memory and evidence have one implementation/owner; working memory and projections are scoped views, not competing sources of truth.
 9. Runtime configuration and code must agree with this document. A documented future adapter is not counted as an implemented adapter.
