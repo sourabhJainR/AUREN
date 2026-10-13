@@ -4,7 +4,7 @@ import threading
 import unittest
 from pathlib import Path
 
-from portable.agency_state_graph import InMemoryCheckpointStore
+from portable.agency_state_graph import Checkpoint, InMemoryCheckpointStore
 from portable.task_planner import TaskPlan
 from portable.benchmark_task_dispatch import BenchmarkExecutionRequest
 
@@ -17,6 +17,37 @@ from runtime.graph_agent_team import AgentSpec, GraphAgentTeam, SharedTaskMemory
 
 
 class GraphAgentTeamTests(unittest.TestCase):
+    def test_resume_migrates_legacy_checkpoint_keys_before_runtime_reads_and_writes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            checkpoint = InMemoryCheckpointStore()
+            checkpoint.save(Checkpoint(
+                run_id="legacy-key-migration",
+                step=0,
+                state={
+                    "aer_execution_strategy": {"name": "default"},
+                    "aer_execution_mode": {"name": "balanced"},
+                },
+                next_nodes=("planner",),
+            ))
+            memory = SharedTaskMemory(Path(tmp) / "memory.jsonl", "legacy-key-migration")
+            team = GraphAgentTeam([AgentSpec("planner", "planner")])
+            team.execute(
+                task="Resume legacy checkpoint safely",
+                intent_digest="legacy-key-migration",
+                base_prompt="base",
+                memory=memory,
+                invoke_agent=lambda agent, prompt: (0, "planning complete", 0.01),
+                checkpoint=checkpoint,
+                resume=True,
+                run_id="legacy-key-migration",
+            )
+            saved = checkpoint.load("legacy-key-migration")
+            self.assertNotIn("aer_execution_strategy", saved.state)
+            self.assertNotIn("aer_execution_mode", saved.state)
+            self.assertEqual(saved.state["auren_execution_strategy"], {"name": "default"})
+            self.assertEqual(saved.state["auren_execution_mode"], {"name": "balanced"})
+            self.assertEqual(saved.state["auren_state_schema_version"], 2)
+
     def test_autonomous_campaign_learning_is_runtime_bound_and_bounded(self):
         with tempfile.TemporaryDirectory() as tmp:
             memory = SharedTaskMemory(Path(tmp) / "memory.jsonl", "intent-a")
