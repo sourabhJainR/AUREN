@@ -378,10 +378,10 @@ rm -rf ~/.auren
 
 For a system-scoped service, use `--scope system` with the privileges required by the host before removing `~/.auren`.
 
-A legacy `.aer` installation, if one exists from an older release, can be removed after its service is stopped:
+A legacy `.auren` installation, if one exists from an older release, can be removed after its service is stopped:
 
 ~~~bash
-rm -rf ~/.aer
+rm -rf ~/.auren
 ~~~
 
 AUREN does not install into or modify the target repository merely by being installed.
