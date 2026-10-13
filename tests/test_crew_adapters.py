@@ -335,13 +335,8 @@ class ApprovedCrewAdapterTests(unittest.TestCase):
         self.assertEqual(replayed.task, claimed.task)
 
     def test_required_durable_handoffs_fail_closed_without_checkpoint_writer(self):
-        controller = GraphHandoffController(require_persistence=True)
-        with self.assertRaisesRegex(RuntimeError, "checkpoint writer"):
-            controller.enqueue(
-                source_crew="backend_api", target_crew="qa_reviewer", task="Review endpoint",
-                source_plan_digest="plan-digest", allowed_handoffs=("qa_reviewer",),
-                selected_crews=("backend_api", "qa_reviewer"),
-            )
+        with self.assertRaisesRegex(ValueError, "checkpoint writer"):
+            GraphHandoffController(require_persistence=True)
 
     def test_stategraph_controls_handoff_retry_resume_and_rollback_gate(self):
         observed = {}
