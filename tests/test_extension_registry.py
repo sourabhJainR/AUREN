@@ -28,7 +28,7 @@ class ExtensionRegistryTests(unittest.TestCase):
 
     def test_aer_is_not_a_core_extension(self):
         entry = extension_registry.REGISTRY.read_text(encoding="utf-8")
-        self.assertNotIn("[extensions.auren]", entry)
+        self.assertNotIn("[extensions.aer]", entry)
         self.assertNotIn("github.com/sourabhJainR/AUREN", entry)
 
     def test_skill_discovery_is_read_only(self):
