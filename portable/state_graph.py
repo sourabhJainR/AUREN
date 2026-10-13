@@ -496,13 +496,45 @@ class GraphAgentTeam:
                 crews=self.crews,
             )
 
-        # Resume only from an explicitly supplied, schema-validated supervisor checkpoint.
-        checkpoint = state.get("auren_crew_handoff_checkpoint")
-        handoffs = (
-            GraphHandoffController.resume(checkpoint)
-            if checkpoint is not None
-            else GraphHandoffController(max_attempts=3)
+        # Handoffs and retry charges live in the supervisor-owned checkpoint,
+        # not in a separate queue database.
+        checkpoint = state.get("auren_crew_handoff_checkpoint_data", state.get("auren_crew_handoff_checkpoint"))
+        if checkpoint is not None and not isinstance(checkpoint, Mapping):
+            raise ValueError("crew handoff checkpoint must be a serialized mapping")
+        saved_budget = state.get("auren_retry_budget")
+        retry_budget = TaskRetryBudget.resume(saved_budget) if isinstance(saved_budget, Mapping) else TaskRetryBudget(
+            max_retries=state.get("auren_retry_budget_limit", 3)
         )
+
+        def persist_handoff_checkpoint(snapshot: Mapping[str, Any]) -> None:
+            state["auren_crew_handoff_checkpoint_data"] = dict(snapshot)
+            state["auren_retry_budget"] = retry_budget.snapshot()
+            if self.handoff_checkpoint_writer is not None:
+                self.handoff_checkpoint_writer(task_id, {
+                    "schema_version": "auren-task-handoff-envelope-v1",
+                    "handoff_checkpoint": dict(snapshot),
+                    "retry_budget": retry_budget.snapshot(),
+                    "task_id": task_id,
+                    "intent_digest": plan.intent_digest,
+                    "crew_plan_digest": plan.digest,
+                })
+
+        persist_callback = persist_handoff_checkpoint if self.handoff_checkpoint_writer is not None else None
+        handoffs = (
+            GraphHandoffController.resume(
+                checkpoint, retry_budget=retry_budget, persist=persist_callback,
+                require_persistence=self.require_durable_handoffs,
+            )
+            if checkpoint is not None
+            else GraphHandoffController(
+                max_attempts=3, retry_budget=retry_budget, persist=persist_callback,
+                require_persistence=self.require_durable_handoffs,
+            )
+        )
+
+        def refresh_checkpoint_state() -> None:
+            state["auren_crew_handoff_checkpoint_data"] = handoffs.snapshot()
+            state["auren_retry_budget"] = retry_budget.snapshot()
 
         def enqueue_handoff(source_crew: str, target_crew: str, task: str) -> dict[str, Any]:
             if not dispatch_active["value"]:
