@@ -61,3 +61,24 @@ jobs:
         run: python -m unittest tests.test_engineering_design_guard tests.test_engineering_principles_enforcement tests.test_orchestration_engineering_guard -v
       - name: Compile dependency-free portable runtime
         run: python -m compileall -q portable scripts
+      - name: Record exact-head CI evidence
+        if: always()
+        env:
+          AUREN_CI_REPOSITORY: ${{ github.repository }}
+          AUREN_CI_HEAD_SHA: ${{ github.sha }}
+          AUREN_CI_RUN_ID: ${{ github.run_id }}
+          AUREN_CI_ATTEMPT: ${{ github.run_attempt }}
+          AUREN_CI_JOB: ${{ github.job }}
+          AUREN_CI_WORKFLOW: ${{ github.workflow }}
+          AUREN_CI_STATUS: ${{ job.status }}
+          AUREN_EVIDENCE_SINK_URL: ${{ secrets.AUREN_EVIDENCE_SINK_URL }}
+          AUREN_EVIDENCE_SINK_TOKEN: ${{ secrets.AUREN_EVIDENCE_SINK_TOKEN }}
+        run: python scripts/record_ci_evidence.py
+      - name: Retain exact-head CI evidence artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: auren-engineering-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .auren/ci-engineering-evidence.json
+          retention-days: 90
+          if-no-files-found: warn
