@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, Sequence
+from portable.identity_compat import get_auren_env
 from .skill_set_evolution import AdaptiveSkillSetEvolver
 
 CAPABILITIES = (
@@ -509,8 +510,8 @@ class CapabilityExecutioner:
 
         Skills are discovered from conventional directories and only their
         front matter/first bounded description is read. MCP/plugin capability
-        descriptors may be supplied as JSON through AER_MCP_CAPABILITIES and
-        AER_PLUGIN_CAPABILITIES. Invalid or missing sources are ignored.
+        descriptors may be supplied as JSON through AUREN_MCP_CAPABILITIES and
+        AUREN_PLUGIN_CAPABILITIES. Invalid or missing sources are ignored.
         """
         root = Path(project_root or ".").expanduser().resolve()
         options: list[CapabilityOption] = []
@@ -519,7 +520,7 @@ class CapabilityExecutioner:
             root / ".ai-harness" / "skills",
             root / "skills",
         ]
-        configured = os.environ.get("AER_SKILLS_PATH", "")
+        configured = get_auren_env("SKILLS_PATH", "")
         if configured:
             skill_roots.extend(Path(item).expanduser() for item in configured.split(os.pathsep) if item.strip())
         seen: set[str] = set()
@@ -566,8 +567,8 @@ class CapabilityExecutioner:
                 ))
                 seen.add(directory.name)
         for source, payload in (
-            ("mcp", os.environ.get("AER_MCP_CAPABILITIES", "")),
-            ("plugin", os.environ.get("AER_PLUGIN_CAPABILITIES", "")),
+            ("mcp", get_auren_env("MCP_CAPABILITIES", "")),
+            ("plugin", get_auren_env("PLUGIN_CAPABILITIES", "")),
         ):
             try:
                 options.extend(self._host_options(source, payload))
