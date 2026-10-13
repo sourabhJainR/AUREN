@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import importlib.util
+import os
+import tempfile
 from pathlib import Path
 import sys
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 MODULE = ROOT / ".ai-harness" / "runtime" / "context_broker.py"
@@ -45,6 +48,28 @@ class ContextBrokerTests(unittest.TestCase):
         events = broker.telemetry()["events"]
         self.assertEqual(events[-1]["event"], "release")
         self.assertEqual(events[-1]["digest"], digest)
+
+    def test_canonical_telemetry_path_precedes_legacy_alias(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            canonical = root / "canonical.jsonl"
+            legacy = root / "legacy.jsonl"
+            with patch.dict(os.environ, {
+                "AUREN_CONTEXT_BROKER_TELEMETRY": str(canonical),
+                "AER_CONTEXT_BROKER_TELEMETRY": str(legacy),
+            }, clear=True):
+                broker = self.module.ContextBroker()
+                broker._emit({"event": "test"})
+            self.assertTrue(canonical.exists())
+            self.assertFalse(legacy.exists())
+
+    def test_legacy_telemetry_path_remains_fallback(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            legacy = Path(tmp) / "legacy.jsonl"
+            with patch.dict(os.environ, {"AER_CONTEXT_BROKER_TELEMETRY": str(legacy)}, clear=True):
+                broker = self.module.ContextBroker()
+                broker._emit({"event": "test"})
+            self.assertTrue(legacy.exists())
 
     def test_required_context_cannot_silently_overflow_budget(self):
         broker = self.module.ContextBroker(budget_chars=20)
