@@ -58,6 +58,9 @@ def test_explicit_security_not_applicable_reason_does_not_block():
             "engineering_design": {
                 "security": "not_applicable: documentation-only change with no runtime trust boundary changes",
                 "least_privilege": "not_applicable: no permissions or tool authority are modified",
+                "architecture": "not_applicable: documentation-only change; no module or dependency boundaries change",
+                "compatibility": "not_applicable: no runtime contract or caller behavior changes",
+                "resilience": "not_applicable: no runtime dependency, timeout, retry, or recovery behavior changes",
             },
         },
     )
