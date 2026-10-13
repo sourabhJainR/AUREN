@@ -113,9 +113,14 @@ and dirty worktrees, reads the
 decision record by the controller-provided task ID, and supplies evidence IDs only
 from the ledger for the exact live repository/head.
 
-Restrict these operator files and the evidence database with OS/service-account
-ACLs. A local file or SQLite database is not a cryptographic signature; use a
-trusted verifier and independently controlled signing keys for external claims.
+Every evidence ID used by a passed check, approval, or rollback requirement must
+resolve to a retained signed receipt. The provider rechecks signer trust, signature,
+receipt digest, freshness, repository/head, status, and evidence role at promotion
+time. Ordinary evidence defaults to a seven-day freshness window; rollback rehearsal
+receipts may be retained for up to 90 days, subject to key revocation and the
+operator's risk policy. Restrict operator files and databases with OS/service-account
+ACLs. The SQLite ledger is not a cryptographic signature; external claims rely on
+trusted public keys and independently controlled signing identities.
 
 ## Regression and iteration evidence
 
