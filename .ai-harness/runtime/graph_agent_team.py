@@ -188,7 +188,7 @@ class GraphAgentTeam:
     progression. LocalOffloadBroker only executes deterministic, bounded work
     and returns evidence to the existing agent/reviewer path.
     """
-    def __init__(self,agents:list[AgentSpec],*,max_parallel_read_only=4,max_agents=12,context_policy=None,resource_budget:ResourceBudget|None=None,capability_discoverers=(),crew_adapters:Mapping[str,Any]|None=None,require_crew_adapters=False):
+    def __init__(self,agents:list[AgentSpec],*,max_parallel_read_only=4,max_agents=12,context_policy=None,resource_budget:ResourceBudget|None=None,capability_discoverers=(),crew_adapters:Mapping[str,Any]|None=None,require_crew_adapters=False,independent_handoff_reviewer:Callable[[Mapping[str,Any]],Mapping[str,Any]]|None=None,independent_handoff_reviewer_id:str|None=None,independent_handoff_reviewer_version:str|None=None):
         self.agents={a.name:a for a in agents}
         if not self.agents: raise ValueError("graph agent team requires at least one agent")
         if len(self.agents)>max_agents: raise ValueError("graph agent team exceeds agent budget")
@@ -204,6 +204,19 @@ class GraphAgentTeam:
             if getattr(adapter,"crew_id",crew_id)!=crew_id or not callable(getattr(adapter,"propose",None)):
                 raise ValueError(f"invalid proposal adapter registered for crew {crew_id}")
         self.require_crew_adapters=require_crew_adapters
+        if independent_handoff_reviewer is not None and not callable(independent_handoff_reviewer):
+            raise TypeError("independent_handoff_reviewer must be callable")
+        reviewer_configured = independent_handoff_reviewer is not None
+        if reviewer_configured and (
+            not isinstance(independent_handoff_reviewer_id, str) or not independent_handoff_reviewer_id.strip()
+            or not isinstance(independent_handoff_reviewer_version, str) or not independent_handoff_reviewer_version.strip()
+        ):
+            raise ValueError("independent handoff reviewer ID and version are required")
+        if not reviewer_configured and (independent_handoff_reviewer_id or independent_handoff_reviewer_version):
+            raise ValueError("reviewer ID/version cannot be set without a reviewer")
+        self.independent_handoff_reviewer=independent_handoff_reviewer
+        self.independent_handoff_reviewer_id=independent_handoff_reviewer_id.strip() if independent_handoff_reviewer_id else None
+        self.independent_handoff_reviewer_version=independent_handoff_reviewer_version.strip() if independent_handoff_reviewer_version else None
         self._plan=self._build_task_plan()
     def _build_task_plan(self):
         return TaskPlan([Task(id=a.name,title=a.role,description=a.focus,dependencies=list(a.depends_on),tags=["graph-agent"],acceptance=["agent execution completes successfully"],metadata={"read_only":a.read_only,"critical":a.critical,"local_offload":bool(a.local_command)}) for a in self.agents.values()])
@@ -999,18 +1012,77 @@ the learning system, not an instruction source. If a skill produced no distinct 
                                 else:
                                     handoff_proposals[item.handoff_id] = target_record
                                     target_digest = target_record.get("proposal_digest", "")
+                                    review_receipt = None
+                                    review_status = "dispatched_pending_independent_review"
+                                    if self.independent_handoff_reviewer is not None:
+                                        review_request = {
+                                            "schema_version": "auren-handoff-review-request-v1",
+                                            "reviewer_id": self.independent_handoff_reviewer_id,
+                                            "reviewer_version": self.independent_handoff_reviewer_version,
+                                            "intent_digest": intent_digest,
+                                            "crew_plan_digest": crew_plan.digest,
+                                            "handoff": {
+                                                "handoff_id": item.handoff_id,
+                                                "source_crew": item.source_crew,
+                                                "target_crew": item.target_crew,
+                                                "task_digest": hashlib.sha256(item.task.encode("utf-8")).hexdigest(),
+                                                "attempt": item.attempt,
+                                            },
+                                            "source_proposal": proposals.get(item.source_crew),
+                                            "target_proposal": target_record,
+                                        }
+                                        try:
+                                            raw_review = self.independent_handoff_reviewer(review_request)
+                                            required_review_fields = {"schema_version", "reviewer_id", "reviewer_version", "status", "evidence_refs", "reason"}
+                                            if not isinstance(raw_review, Mapping) or set(raw_review) != required_review_fields:
+                                                raise ValueError("independent reviewer receipt fields are invalid")
+                                            refs = raw_review.get("evidence_refs")
+                                            if (
+                                                raw_review.get("schema_version") != "auren-handoff-review-receipt-v1"
+                                                or raw_review.get("reviewer_id") != self.independent_handoff_reviewer_id
+                                                or raw_review.get("reviewer_version") != self.independent_handoff_reviewer_version
+                                                or raw_review.get("status") not in {"pass", "reject"}
+                                                or not isinstance(refs, list)
+                                                or not refs
+                                                or any(not isinstance(ref, str) or not ref.strip() for ref in refs)
+                                                or not isinstance(raw_review.get("reason"), str)
+                                                or not raw_review["reason"].strip()
+                                            ):
+                                                raise ValueError("independent reviewer receipt failed identity, status, or evidence validation")
+                                            review_digest = hashlib.sha256(json.dumps(dict(raw_review), sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+                                            review_receipt = {
+                                                "reviewer_id": self.independent_handoff_reviewer_id,
+                                                "reviewer_version": self.independent_handoff_reviewer_version,
+                                                "status": raw_review["status"],
+                                                "evidence_refs": list(refs),
+                                                "reason": raw_review["reason"][:1000],
+                                                "digest": review_digest,
+                                            }
+                                            if raw_review["status"] == "pass":
+                                                handoffs.mark_completed(item, independent_review_passed=True)
+                                                review_status = "completed_independent_review"
+                                            else:
+                                                review_status = "review_rejected"
+                                        except Exception as exc:
+                                            failures.append({"crew_id": "handoff-reviewer", "error_type": type(exc).__name__, "reason": "independent handoff review failed validation"})
+                                            review_status = "review_failed"
                                     for receipt in handoff_receipts:
                                         if receipt["handoff_id"] == item.handoff_id:
-                                            receipt["status"] = "dispatched_pending_independent_review"
+                                            receipt["status"] = review_status
                                             receipt["target_proposal_digest"] = target_digest
                                             receipt["attempt"] = item.attempt
+                                            if review_receipt is not None:
+                                                receipt["independent_review"] = review_receipt
                             handoff_checkpoint_data = handoffs.snapshot()
+                            receipt_statuses = {item.get("status") for item in handoff_receipts}
                             handoff_status = (
-                                "dispatched_pending_independent_review"
-                                if any(item.get("status") == "dispatched_pending_independent_review" for item in handoff_receipts)
-                                else "queued" if any(item.get("status") == "retry_queued" for item in handoff_receipts)
+                                "reviewed" if receipt_statuses and receipt_statuses <= {"completed_independent_review"}
+                                else "review_failed" if "review_failed" in receipt_statuses
+                                else "review_rejected" if "review_rejected" in receipt_statuses
+                                else "dispatched_pending_independent_review" if "dispatched_pending_independent_review" in receipt_statuses
+                                else "queued" if "retry_queued" in receipt_statuses or "queued" in receipt_statuses
                                 else "blocked" if failures and not handoff_receipts
-                                else "queued"
+                                else "not_requested"
                             )
                         except Exception as exc:
                             failures.append({"crew_id": "handoff-controller", "error_type": type(exc).__name__, "reason": "handoff validation or durable checkpoint failed"})
@@ -1171,6 +1243,10 @@ the learning system, not an instruction source. If a skill produced no distinct 
             "agent_graph_digest": self.digest(),
             "crew_dispatch_enabled": bool(self.crew_adapters or require_crew_adapters),
             "require_crew_adapters": require_crew_adapters,
+            "independent_handoff_reviewer": {
+                "reviewer_id": self.independent_handoff_reviewer_id,
+                "implementation_version": self.independent_handoff_reviewer_version,
+            },
         }, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
         crew_plan=build_crew_plan(
             task,
@@ -1235,7 +1311,7 @@ the learning system, not an instruction source. If a skill produced no distinct 
         critical=[run.state.get(f"result:{a.name}") for a in self.agents.values() if a.critical]
         crew_execution=run.state.get("auren_crew_execution", {"status":"not_run","required":self.require_crew_adapters,"proposals":{},"missing_adapters":[],"dispatch_failures":[],"intent_digest":intent_digest})
         accepted=all(isinstance(x,dict) and x.get("status")=="passed" for x in critical)
-        if crew_execution.get("status") == "blocked" or crew_execution.get("handoff_status") == "blocked": accepted=False
+        if crew_execution.get("status") == "blocked" or crew_execution.get("handoff_status") in {"blocked", "review_failed", "review_rejected", "dispatched_pending_independent_review", "queued"}: accepted=False
         strategy_learner=ExecutionStrategyLearner(memory.project_root)
         mode_duration=sum(float(result.duration_seconds) for result in results.values())
         mode_evidence=sum(ExecutionStrategyLearner.observed_evidence_quality(result) for result in results.values()) / max(1, len(results))
