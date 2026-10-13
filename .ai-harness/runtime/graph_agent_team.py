@@ -964,8 +964,54 @@ the learning system, not an instruction source. If a skill produced no distinct 
                                     "target_crew": item.target_crew, "task_digest": hashlib.sha256(item.task.encode("utf-8")).hexdigest(),
                                     "attempt": item.attempt, "status": "queued",
                                 })
+                            handoff_proposals = {}
+                            attempted_handoffs = set()
+                            for _ in range(min(8, len(handoff_requests) + 1)):
+                                item = handoffs.claim_next(graph_node_active=True)
+                                if item is None:
+                                    break
+                                if item.handoff_id in attempted_handoffs:
+                                    handoffs.retry(item, retryable=True)
+                                    break
+                                attempted_handoffs.add(item.handoff_id)
+                                if item.target_crew not in self.crew_adapters:
+                                    handoffs.retry(item, retryable=False)
+                                    failures.append({"crew_id": item.target_crew, "error_type": "MissingHandoffAdapter", "reason": "handoff target has no registered proposal adapter"})
+                                    for receipt in handoff_receipts:
+                                        if receipt["handoff_id"] == item.handoff_id:
+                                            receipt["status"] = "blocked_missing_adapter"
+                                    continue
+                                try:
+                                    target_record = _dispatch_crew_proposal(
+                                        item.target_crew, item.task,
+                                        {"intent_digest": intent_digest, "task_id": run_nonce,
+                                         "handoff_id": item.handoff_id, "source_crew": item.source_crew},
+                                        active=True, plan=crew_plan, graph_digest=crew_plan.graph_digest,
+                                        agents=self.crew_adapters, crews=self.crew_definitions,
+                                    )
+                                except Exception as exc:
+                                    retry = handoffs.retry(item, retryable=True)
+                                    failures.append({"crew_id": item.target_crew, "error_type": type(exc).__name__, "reason": "handoff target proposal failed validation or execution"})
+                                    for receipt in handoff_receipts:
+                                        if receipt["handoff_id"] == item.handoff_id:
+                                            receipt["status"] = "retry_queued" if retry is not None else "failed_retry_budget_exhausted"
+                                            receipt["attempt"] = item.attempt
+                                else:
+                                    handoff_proposals[item.handoff_id] = target_record
+                                    target_digest = target_record.get("proposal_digest", "")
+                                    for receipt in handoff_receipts:
+                                        if receipt["handoff_id"] == item.handoff_id:
+                                            receipt["status"] = "dispatched_pending_independent_review"
+                                            receipt["target_proposal_digest"] = target_digest
+                                            receipt["attempt"] = item.attempt
                             handoff_checkpoint_data = handoffs.snapshot()
-                            handoff_status = "queued"
+                            handoff_status = (
+                                "dispatched_pending_independent_review"
+                                if any(item.get("status") == "dispatched_pending_independent_review" for item in handoff_receipts)
+                                else "queued" if any(item.get("status") == "retry_queued" for item in handoff_receipts)
+                                else "blocked" if failures and not handoff_receipts
+                                else "queued"
+                            )
                         except Exception as exc:
                             failures.append({"crew_id": "handoff-controller", "error_type": type(exc).__name__, "reason": "handoff validation or durable checkpoint failed"})
                             handoff_status = "blocked"
@@ -986,6 +1032,7 @@ the learning system, not an instruction source. If a skill produced no distinct 
                     "dispatch_failures": failures,
                     "retry_budget": state.get("auren_retry_budget", retry_budget.snapshot()),
                     "handoff_receipts": handoff_receipts,
+                    "handoff_proposals": handoff_proposals if handoff_requests and "handoff_proposals" in locals() else {},
                     "handoff_status": handoff_status,
                     "handoff_checkpoint_digest": handoff_checkpoint_data.get("digest") if isinstance(handoff_checkpoint_data, Mapping) else None,
                 }
@@ -1010,12 +1057,14 @@ the learning system, not an instruction source. If a skill produced no distinct 
                     "crew_plan_digest": crew_plan.digest,
                     "evidence_envelope": {**evidence_payload, "digest": evidence_digest},
                     "handoff_receipts": handoff_receipts,
+                    "handoff_proposals": handoff_proposals if handoff_requests and "handoff_proposals" in locals() else {},
                     "handoff_status": handoff_status,
                     "handoff_checkpoint_data": dict(handoff_checkpoint_data) if isinstance(handoff_checkpoint_data, Mapping) else None,
                 }
                 return {
                     "auren_crew_plan": crew_plan.to_payload(),
                     "auren_crew_execution": crew_execution,
+                    "auren_crew_handoff_checkpoint_data": dict(handoff_checkpoint_data) if isinstance(handoff_checkpoint_data, Mapping) else None,
                 }
             graph.add_node("crew-proposals", dispatch_crews, effect="external")
             graph.add_edge(StateGraph.START, "crew-proposals")
@@ -1186,7 +1235,7 @@ the learning system, not an instruction source. If a skill produced no distinct 
         critical=[run.state.get(f"result:{a.name}") for a in self.agents.values() if a.critical]
         crew_execution=run.state.get("auren_crew_execution", {"status":"not_run","required":self.require_crew_adapters,"proposals":{},"missing_adapters":[],"dispatch_failures":[],"intent_digest":intent_digest})
         accepted=all(isinstance(x,dict) and x.get("status")=="passed" for x in critical)
-        if self.require_crew_adapters and crew_execution.get("status") == "blocked": accepted=False
+        if crew_execution.get("status") == "blocked" or crew_execution.get("handoff_status") == "blocked": accepted=False
         strategy_learner=ExecutionStrategyLearner(memory.project_root)
         mode_duration=sum(float(result.duration_seconds) for result in results.values())
         mode_evidence=sum(ExecutionStrategyLearner.observed_evidence_quality(result) for result in results.values()) / max(1, len(results))
