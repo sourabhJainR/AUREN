@@ -1081,14 +1081,15 @@ the learning system, not an instruction source. If a skill produced no distinct 
                                 else "review_rejected" if "review_rejected" in receipt_statuses
                                 else "dispatched_pending_independent_review" if "dispatched_pending_independent_review" in receipt_statuses
                                 else "queued" if "retry_queued" in receipt_statuses or "queued" in receipt_statuses
-                                else "blocked" if failures and not handoff_receipts
+                                else "blocked" if failures or any(str(status).startswith(("blocked", "failed")) for status in receipt_statuses)
                                 else "not_requested"
                             )
                         except Exception as exc:
                             failures.append({"crew_id": "handoff-controller", "error_type": type(exc).__name__, "reason": "handoff validation or durable checkpoint failed"})
                             handoff_status = "blocked"
                 blocked = bool(require_crew_adapters and (missing or failures)) or handoff_status == "blocked"
-                status = "blocked" if blocked else "complete" if not missing and not failures else "partial"
+                unresolved_handoff = handoff_status in {"review_failed", "review_rejected", "dispatched_pending_independent_review", "queued"}
+                status = "blocked" if blocked else "partial" if missing or failures or unresolved_handoff else "complete"
                 # Bind adapter outputs and queued handoffs to canonical graph state.
                 # Receipts establish lineage, not correctness or independent acceptance.
                 evidence_payload = {
