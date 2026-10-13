@@ -265,7 +265,7 @@ def build_status(
     auren_home: Path | str | None = None,
     project_root: Path | str | None = None,
 ) -> dict[str, object]:
-    home = _path(auren_home, _default_aer_home())
+    home = _path(auren_home, _default_auren_home())
     project = _path(project_root, Path.cwd())
     return {
         "schema_version": 1,
@@ -285,7 +285,7 @@ def run_doctor(
     *,
     auren_home: Path | str | None = None,
 ) -> tuple[list[CheckResult], int]:
-    home = _path(auren_home, _default_aer_home())
+    home = _path(auren_home, _default_auren_home())
     project = _path(project_root, Path.cwd())
     checks: list[CheckResult] = []
 
