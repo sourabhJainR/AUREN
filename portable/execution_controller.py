@@ -161,6 +161,10 @@ class ExecutionController:
             raise ValueError("promotion/merge/release/deploy/publish handlers must be classified consequential")
         if execution_class == "context_provider" and tokens & provider_action_exceptions:
             raise ValueError("context providers cannot be consequential action handlers")
+        if execution_class == "context_provider" and not is_trusted_provider_identity:
+            raise ValueError(
+                "context_provider handlers must have a context/evidence/provider/validator/verifier identity"
+            )
         requires_promotion_gate = execution_class == "consequential"
         requires_exact_head_ci = execution_class in {"ci_gated", "consequential"}
         if requires_promotion_gate and not promotion_gate_policy:

@@ -135,6 +135,12 @@ class ExecutionControllerPromotionGateTests(unittest.TestCase):
                 "safe-helper", protected_promotion_handler, execution_class="read_only"
             )
 
+    def test_arbitrary_handler_cannot_be_registered_as_internal_context_provider(self):
+        with self.assertRaisesRegex(ValueError, "must have a context/evidence/provider"):
+            self.controller.register_handler(
+                "innocent-helper", unclassified_worker, execution_class="context_provider"
+            )
+
     def test_new_handler_requires_explicit_execution_class(self):
         with self.assertRaisesRegex(ValueError, "requires an explicit execution_class"):
             self.controller.register_handler("unclassified-worker", unclassified_worker)
