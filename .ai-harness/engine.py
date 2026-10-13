@@ -123,8 +123,23 @@ def diff_summary() -> str:
 
 
 def changed_files() -> list[str]:
-    code, output = run_capture(["git", "diff", "--name-only"])
-    return sorted(set(output.splitlines())) if code == 0 else []
+    """Return working-tree, staged, and untracked paths for evidence binding.
+
+    A failed git query is not equivalent to an empty change set: fail closed so
+    callers cannot accidentally skip change-sensitive engineering gates.
+    """
+    commands = (
+        ["git", "diff", "--name-only"],
+        ["git", "diff", "--cached", "--name-only"],
+        ["git", "ls-files", "--others", "--exclude-standard"],
+    )
+    paths: set[str] = set()
+    for command in commands:
+        code, output = run_capture(command)
+        if code != 0:
+            raise RuntimeError(f"cannot determine repository changes: {command!r}: {output}")
+        paths.update(line.strip() for line in output.splitlines() if line.strip())
+    return sorted(paths)
 
 
 def diff_check() -> tuple[bool, str]:

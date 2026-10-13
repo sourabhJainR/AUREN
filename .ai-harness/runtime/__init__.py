@@ -59,6 +59,40 @@ def _requires_crew_contract(route: dict[str, Any], phase: str) -> bool:
     ))
 
 
+def _principle_context_inputs(
+    route: dict[str, Any],
+    manifest: dict[str, Any],
+    *,
+    changed_paths: list[str] | tuple[str, ...] = (),
+) -> dict[str, Any]:
+    """Project trusted runtime observations into the task-level principle guard.
+
+    Only observed working-tree paths are supplied as changed paths; scope/allow
+    lists are not evidence that a file actually changed. A code revision is
+    supplied only when the task manifest carries an explicit revision binding.
+    """
+    risk = str(route.get("risk", "low")).strip().lower()
+    if risk not in {"low", "medium", "high", "critical"}:
+        risk = "low"
+    observed_paths = sorted({
+        path.strip()
+        for path in changed_paths
+        if isinstance(path, str) and path.strip()
+    })
+    design_contract = manifest.get("design_contract", {})
+    if not isinstance(design_contract, dict):
+        design_contract = {}
+    code_revision = manifest.get("code_revision", "")
+    if not isinstance(code_revision, str):
+        code_revision = ""
+    return {
+        "risk": risk,
+        "changed_paths": observed_paths,
+        "design_contract": design_contract,
+        "code_revision": code_revision.strip(),
+    }
+
+
 def _phase_team(route: dict[str, Any], phase: str, graph_types):
     AgentSpec, GraphAgentTeam = graph_types
     risk = str(route.get("risk", "low"))
@@ -201,8 +235,13 @@ def _install_graph_team_bridge() -> None:
                 agent_prompt.write_text(prompt, encoding="utf-8")
                 return original_invoke(provider, agent_prompt, f"graph-{phase}-{agent.name}", run_dir, timeout, dry_run, logger)
 
-            result = team.execute(task=task, intent_digest=intent_digest, base_prompt=base_prompt,
-                                  memory=memory, invoke_agent=invoke_agent)
+            principle_inputs = _principle_context_inputs(
+                route, manifest, changed_paths=engine.changed_files()
+            )
+            result = team.execute(
+                task=task, intent_digest=intent_digest, base_prompt=base_prompt,
+                memory=memory, invoke_agent=invoke_agent, **principle_inputs
+            )
             result["phase"] = phase
             result["duration_seconds"] = round(engine.time.monotonic() - started, 3)
             result["provider"] = provider.get("name")
