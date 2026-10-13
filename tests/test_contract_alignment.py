@@ -271,6 +271,13 @@ class ContractAlignmentTests(unittest.TestCase):
         self.assertNotIn(".ai-harness/runtime/graph_agent_team.py", LEGACY_ALLOWED)
         self.assertNotIn("portable/orchestration.py", LEGACY_ALLOWED)
 
+    def test_identity_audit_detects_legacy_env_names_and_state_roots(self) -> None:
+        from scripts.validate_auren_identity import PATTERNS
+
+        for sample in ("AER_HOME", "AER_LOCAL_LLM_ENABLED", "~/.aer/memory.db", "aer_execution_mode"):
+            with self.subTest(sample=sample):
+                self.assertTrue(any(pattern.search(sample) for pattern in PATTERNS), sample)
+
     def test_active_identity_audit_uses_narrow_runtime_compatibility_exceptions(self) -> None:
         audit = (ROOT / "scripts" / "validate_auren_identity.py").read_text(encoding="utf-8")
         self.assertNotIn('"portable/state_graph.py"', audit)
