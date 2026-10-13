@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import sys
 import tempfile
 import unittest
 from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / ".ai-harness"))
 
 from portable.state_graph import default_crew_definitions
 from runtime.graph_agent_team import AgentSpec, GraphAgentTeam, SharedTaskMemory
