@@ -67,7 +67,7 @@ or oracle answers.
 
 ## Production retention requirements
 
-This is a single-node receiver, **not** a managed WORM service. The SQLite volume is
+This is a single-node receiver, **not a managed WORM service**. The SQLite volume is
 mutable by a privileged host administrator. Before treating it as production evidence:
 
 - replicate and back up the archive to a separately administered immutable/WORM
