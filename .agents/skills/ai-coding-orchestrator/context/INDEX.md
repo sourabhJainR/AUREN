@@ -1,4 +1,4 @@
-# AER Orchestrator Context Index
+# AUREN Orchestrator Context Index
 
 This directory is a **progressive-discovery context pack**. `SKILL.md` is the only always-loaded contract. Do not preload these packs.
 
