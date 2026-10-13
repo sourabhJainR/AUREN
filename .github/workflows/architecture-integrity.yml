@@ -73,7 +73,7 @@ jobs:
           AUREN_CI_STATUS: ${{ job.status }}
           AUREN_EVIDENCE_SINK_URL: ${{ secrets.AUREN_EVIDENCE_SINK_URL }}
           AUREN_EVIDENCE_SINK_TOKEN: ${{ secrets.AUREN_EVIDENCE_SINK_TOKEN }}
-        run: python scripts/record_ci_evidence.py
+        run: python -m scripts.record_ci_evidence
       - name: Retain exact-head CI evidence artifact
         if: always()
         uses: actions/upload-artifact@v4
