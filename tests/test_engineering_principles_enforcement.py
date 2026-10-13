@@ -318,7 +318,9 @@ def test_reasoned_not_applicable_is_allowed_for_concurrency_contract():
         risk="medium",
         design={
             "concurrency": "not_applicable: change only documents a synchronous config format",
+            "shared_state_owner": "not_applicable: no mutable runtime state is changed",
             "ownership": "not_applicable: no mutable runtime state is changed",
+            "race_test": "not_applicable: no concurrent execution is introduced",
             "synchronization": "not_applicable: no concurrent execution is introduced",
         },
     )
