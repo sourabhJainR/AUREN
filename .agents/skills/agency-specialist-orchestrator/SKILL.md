@@ -9,7 +9,7 @@ Use this skill when a task benefits from domain specialization, multiple viewpoi
 
 ## Operating rule
 
-Treat the upstream agency library as a specialist knowledge base. Treat AER as the control plane. A specialist can recommend, create or review artifacts, but AER acceptance, security, verification and promotion rules remain authoritative.
+Treat the upstream agency library as a specialist knowledge base. Treat AUREN as the control plane. A specialist can recommend, create or review artifacts, but AUREN acceptance, security, verification and promotion rules remain authoritative.
 
 ## Route
 

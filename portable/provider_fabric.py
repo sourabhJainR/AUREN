@@ -1,6 +1,6 @@
-"""Provider-native capability discovery and routing for AER.
+"""Provider-native capability discovery and routing for AUREN.
 
-The fabric keeps AER provider-neutral while preferring capabilities that a
+The fabric keeps AUREN provider-neutral while preferring capabilities that a
 local coding agent already exposes. It never assumes a provider has a feature:
 capabilities are discovered from explicit environment/command evidence and can
 be overridden by a provider manifest. The result is a small routing contract
@@ -100,7 +100,7 @@ class ProviderFabric:
             if capability and capability.supports(request.capability):
                 return RoutingDecision(name, request.capability, True, "native provider capability discovered", capability.command)
         if request.allow_fallback:
-            return RoutingDecision("aer", request.capability, False, "no native capability discovered; use AER fallback")
+            return RoutingDecision("aer", request.capability, False, "no native capability discovered; use AUREN fallback")
         raise RuntimeError(f"no provider supports capability: {request.capability}")
 
     def persist(self, providers: Mapping[str, ProviderCapability]) -> Path:

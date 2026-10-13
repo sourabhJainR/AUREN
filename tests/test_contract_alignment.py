@@ -211,5 +211,117 @@ class ContractAlignmentTests(unittest.TestCase):
         self.assertEqual(contract["automatic_update_downgrade"], "forbidden")
 
 
+    def test_engineering_principles_cover_the_canonical_families_and_runtime_lenses(self) -> None:
+        catalogue = (ROOT / "ENGINEERING_PRINCIPLES.md").read_text(encoding="utf-8")
+        policy = (ROOT / ".ai-harness" / "ENGINEERING_DESIGN_POLICY.md").read_text(encoding="utf-8")
+        guard = (ROOT / "portable" / "engineering_design_guard.py").read_text(encoding="utf-8")
+        for token in (
+            "Canonical 12-family taxonomy",
+            "Fundamental design",
+            "Security and privacy",
+            "Performance and cost",
+            "Concurrency",
+            "Distributed systems",
+            "Reliability and recovery",
+            "Data and correctness",
+            "API and integration",
+            "Testing and verification",
+            "Delivery and operations",
+            "Observability and governance",
+            "AI and autonomous systems",
+            "CAP",
+            "PACELC",
+            "split brain",
+            "idempotency",
+            "backoff/jitter",
+            "liveness",
+            "readiness",
+            "preconditions/postconditions",
+            "optimistic concurrency",
+            "schema evolution",
+            "provenance",
+            "independent holdout",
+            "rollback",
+            "Required task lifecycle",
+            "exact final head",
+        ):
+            self.assertIn(token.lower(), catalogue.lower(), f"principle catalogue missing: {token}")
+        self.assertIn("Canonical 12-family task selection", policy)
+        for token in ("DesignDimension.DISTRIBUTED", "DesignDimension.RESILIENCE", "DesignDimension.CORRECTNESS", "DesignDimension.AI_AGENT"):
+            self.assertIn(token, guard)
+
+    def test_active_runtime_and_user_facing_docs_use_canonical_auren_identity(self) -> None:
+        import re
+
+        active_paths = (
+            "dashboard/index.html",
+            "portable/dashboard_server.py",
+            "portable/user_experience.py",
+            "portable/provider_fabric.py",
+            "portable/local_llm.py",
+            "portable/output_quality.py",
+            "portable/lifecycle_hooks.py",
+            "portable/chat_capability.py",
+            "portable/persistent_memory.py",
+            "portable/capability_fabric.py",
+            "portable/cognitive_runtime.py",
+            "portable/repo_intelligence.py",
+            "portable/engineering_design_guard.py",
+            "portable/agency_runtime.py",
+            "portable/local_offload.py",
+            ".ai-harness/safe_provider.py",
+            "scripts/provider_conformance.py",
+            "scripts/sync_agency_agents.py",
+            ".ai-harness/PROVIDER_CONFORMANCE.md",
+            ".ai-harness/BEHAVIORAL_CONFORMANCE.md",
+            ".ai-harness/SELF_IMPROVEMENT_POLICY.md",
+            ".ai-harness/HERMES_CAPABILITY_CONTRACT.md",
+            ".ai-harness/ENGINEERING_DESIGN_POLICY.md",
+            "docs/AI_AGENT_BOOK_V2_ALIGNMENT.md",
+            "docs/CAPABILITY_AWARE_EXECUTION.md",
+            "docs/LLM_CHAT_TRIGGER.md",
+            "docs/CAPABILITY_MEMORY_OWNERSHIP.md",
+            "docs/SELF_IMPROVING_CONTROL_PLANE.md",
+            "docs/AI_CODING_RESEARCH_ADAPTATION.md",
+            "docs/RECURSIVE_AGENCY_AND_SYSTEM_ONE.md",
+            "docs/LEARNING_ENGINE_V2.md",
+            "docs/AWESOME_LLM_APPS_PATTERN_ADAPTATION.md",
+            "docs/JEV_TYPED_DECISION_ALIGNMENT.md",
+            "skills/engineering/research/SKILL.md",
+            "skills/engineering/prototype/SKILL.md",
+            "PROBLEM_SOLVING_FRAMEWORKS.md",
+            ".ai-harness/resilient_provider.py",
+            "scripts/behavioral_conformance.py",
+            "portable/curiosity.py",
+            "portable/hermes_runtime.py",
+            "portable/agi_evaluation.py",
+            ".agents/skills/agency-specialist-orchestrator/SKILL.md",
+            "docs/TWELVE_PHASE_ENGINEERING_EVOLUTION.md",
+            "docs/CANONICAL_ENGINEERING_EVIDENCE_ENVELOPE.md",
+            ".ai-harness/QUALITY_GOVERNANCE.md",
+            "docs/EPISODE_SKILL_EVOLUTION.md",
+            ".ai-harness/runtime/tool_runner.py",
+            "portable/agency_regression_loop.py",
+            "portable/causal_experiment.py",
+            ".ai-harness/runtime/feedback_loop.py",
+            "portable/goal_directed_planning.py",
+            "portable/information_planner.py",
+            ".ai-harness/runtime/regression_replay.py",
+            "portable/causal_model.py",
+            "skills/engineering/interactive-documentation/SKILL.md",
+            "skills/engineering/resolving-merge-conflicts/SKILL.md",
+            "skills/ai-coding-orchestrator/references/EXTENSIONS.md",
+        )
+        stale_brand = re.compile(r"\bAER\b")
+        for relative in active_paths:
+            with self.subTest(path=relative):
+                content = (ROOT / relative).read_text(encoding="utf-8")
+                self.assertIsNone(stale_brand.search(content), f"stale AER product name in active file: {relative}")
+        compatibility = (ROOT / "docs" / "LEGACY_NAME_COMPATIBILITY.md").read_text(encoding="utf-8")
+        self.assertIn("AER_GRAPH_TEAM", compatibility)
+        self.assertIn("Historical lineage", compatibility)
+        self.assertIn("Adversarial test fixture", compatibility)
+
+
 if __name__ == "__main__":
     unittest.main()

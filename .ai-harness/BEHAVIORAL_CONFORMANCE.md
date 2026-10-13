@@ -1,4 +1,4 @@
-# AER Behavioral Conformance Suite
+# AUREN Behavioral Conformance Suite
 
 The Behavioral Conformance Suite measures engineering behavior, not prompt-answer quality.
 
@@ -56,4 +56,4 @@ Behavioral release readiness is live-only: every requested provider must complet
 
 ## Safety
 
-Execution uses a disposable checkout. Reports are written only with `--write-report`. Secret material must never be printed. Benchmark evidence is not permission to activate AER self-modification; normal regression, safety, shadow/canary, promotion and rollback gates remain authoritative.
+Execution uses a disposable checkout. Reports are written only with `--write-report`. Secret material must never be printed. Benchmark evidence is not permission to activate AUREN self-modification; normal regression, safety, shadow/canary, promotion and rollback gates remain authoritative.

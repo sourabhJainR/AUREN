@@ -1,4 +1,4 @@
-"""Resource-aware local work offload for AER.
+"""Resource-aware local work offload for AUREN.
 
 This is an additive execution layer. It does not replace the existing graph,
 planner, memory, verification, or policy owners. It gives those layers a small
@@ -96,7 +96,7 @@ class OffloadResult:
 
 
 class LocalOffloadBroker:
-    """Run bounded independent local jobs without owning AER orchestration."""
+    """Run bounded independent local jobs without owning AUREN orchestration."""
 
     def __init__(
         self,
@@ -277,7 +277,7 @@ class LocalOffloadBroker:
     def _truncate(output: str, limit: int) -> str:
         if len(output) <= limit:
             return output
-        return output[:max(0, limit - 64)] + "\n...[output truncated by AER local offload]"
+        return output[:max(0, limit - 64)] + "\n...[output truncated by AUREN local offload]"
 
     @staticmethod
     def _copy_workspace(source: Path, target: Path) -> None:
@@ -295,7 +295,7 @@ class LocalOffloadBroker:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Run bounded local AER offload jobs.")
+    parser = argparse.ArgumentParser(description="Run bounded local AUREN offload jobs.")
     parser.add_argument("--project-root", default=".")
     parser.add_argument("--workers", type=int, default=0)
     parser.add_argument("--timeout", type=float, default=300)

@@ -99,7 +99,7 @@ def invoke(runtime: AdaptiveRuntime, arguments: Mapping[str, Any]):
 
 
 def _default_runtime() -> AdaptiveRuntime:
-    """Build a process-local runtime using the canonical AER automation store."""
+    """Build a process-local runtime using the canonical AUREN automation store."""
     state = Path(os.environ.get("AER_HOME", Path.home() / ".aer")).expanduser()
     scheduler = AutomationScheduler(state / "automation" / "automation.db")
     return AdaptiveRuntime(Graph([]), automation_scheduler=scheduler)

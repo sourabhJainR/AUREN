@@ -1,12 +1,12 @@
 # AI Coding Research Adaptation
 
-AER should learn from the engineering system around the model, not only from model outputs. This note records the research/practice bytes currently adapted into the runtime and skill.
+AUREN should learn from the engineering system around the model, not only from model outputs. This note records the research/practice bytes currently adapted into the runtime and skill.
 
 ## Evidence lanes
 
 ### 1. System reliability, not model score alone
 
-Recent reliability synthesis treats coding agents as systems composed of model, harness, execution state, retrieval, memory, permissions, evaluation and observability. AER therefore records trajectory, graph digest, environment fingerprint, evidence and evaluator outcomes and uses layered gates.
+Recent reliability synthesis treats coding agents as systems composed of model, harness, execution state, retrieval, memory, permissions, evaluation and observability. AUREN therefore records trajectory, graph digest, environment fingerprint, evidence and evaluator outcomes and uses layered gates.
 
 Adapted:
 - durable execution trajectory
@@ -17,7 +17,7 @@ Adapted:
 
 ### 2. Continual learning
 
-SWE-Bench-CL frames software engineering as an evolving stream rather than isolated tasks and recommends measuring forgetting, forward/backward transfer and tool-use efficiency. AER therefore keeps regression families and learning signals instead of optimizing only the latest task.
+SWE-Bench-CL frames software engineering as an evolving stream rather than isolated tasks and recommends measuring forgetting, forward/backward transfer and tool-use efficiency. AUREN therefore keeps regression families and learning signals instead of optimizing only the latest task.
 
 Adapted:
 - learning signal per run
@@ -28,7 +28,7 @@ Adapted:
 
 ### 3. Continuous integration and maintenance
 
-SWE-CI evaluates agents over long repository evolution and repeated CI rounds. AER therefore treats regression replay and repository-native validation as durable parts of the learning loop rather than a final test pass.
+SWE-CI evaluates agents over long repository evolution and repeated CI rounds. AUREN therefore treats regression replay and repository-native validation as durable parts of the learning loop rather than a final test pass.
 
 Adapted:
 - repeated regression replay
@@ -38,7 +38,7 @@ Adapted:
 
 ### 4. Realistic requests
 
-RealSWE reports that real user prompts are often short and informal and that desired behavior and motivation can materially affect performance. AER therefore builds a minimal task contract and preserves desired behavior/motivation instead of stuffing every available repository detail into context.
+RealSWE reports that real user prompts are often short and informal and that desired behavior and motivation can materially affect performance. AUREN therefore builds a minimal task contract and preserves desired behavior/motivation instead of stuffing every available repository detail into context.
 
 Adapted:
 - GOAL / REQUIREMENTS / ACCEPTANCE contract
@@ -48,7 +48,7 @@ Adapted:
 
 ### 5. Refactoring and repository-scale work
 
-Recent benchmark work emphasizes large refactoring, integration and maintenance because one-shot issue resolution can hide failures. AER therefore evaluates graph-level changes, compatibility, regression paths and structure, not just whether one test passes.
+Recent benchmark work emphasizes large refactoring, integration and maintenance because one-shot issue resolution can hide failures. AUREN therefore evaluates graph-level changes, compatibility, regression paths and structure, not just whether one test passes.
 
 Adapted:
 - graph digest
@@ -58,7 +58,7 @@ Adapted:
 
 ### 6. Environment and sandbox controls
 
-Current coding-agent practice puts substantial weight on sandboxing, constrained execution, telemetry and explicit boundaries. AER follows the same separation: candidate source is statically inspected without execution; candidate behavior must execute inside the designated evaluation boundary before promotion.
+Current coding-agent practice puts substantial weight on sandboxing, constrained execution, telemetry and explicit boundaries. AUREN follows the same separation: candidate source is statically inspected without execution; candidate behavior must execute inside the designated evaluation boundary before promotion.
 
 Adapted:
 - side-effect-free static candidate validation
@@ -69,7 +69,7 @@ Adapted:
 
 ## Self-improvement rule
 
-AER is allowed to improve its own executable orchestration:
+AUREN is allowed to improve its own executable orchestration:
 
 `Outcome -> Learning Signal -> Candidate -> Static Validation -> Regression -> Safety -> Shadow -> Canary -> Promote -> Monitor -> Rollback`
 
@@ -87,4 +87,4 @@ The learning engine may change routing, graph topology, node selection, retry/re
 - OpenAI, *The next evolution of the Agents SDK* (Apr 2026).
 - OpenAI, *How OpenAI uses Codex*, including plan-first, structured issue-style requests, environment iteration and Best-of-N practices.
 
-Research is used as engineering input, not as a claim that a particular technique is universally optimal. AER should continue to re-evaluate these practices against its own regression corpus and production outcomes.
+Research is used as engineering input, not as a claim that a particular technique is universally optimal. AUREN should continue to re-evaluate these practices against its own regression corpus and production outcomes.

@@ -1,4 +1,4 @@
-"""Bounded causal experiment selection for the AER cognitive loop.
+"""Bounded causal experiment selection for the AUREN cognitive loop.
 
 The module does not execute interventions. It ranks safe, observable probes
 using existing world-model calibration and current decision uncertainty.

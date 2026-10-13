@@ -13,26 +13,24 @@ This is the compact root contract for all assigned work in AUREN. It is applied 
 7. Re-evaluate after fixes on the exact final commit. Missing, stale, queued, skipped, or failed evidence is not a pass. Use bounded retries, change approach when a repeated hypothesis fails, and preserve the last verified state and rollback path.
 8. Learn from verified outcomes only. Never silently modify permanent rules, credentials, permissions, approval gates, or safety controls.
 
-## Principle catalogue and when to apply it
+## Canonical 12-family taxonomy
 
-| Principle family | Consider these | Apply when |
-|---|---|---|
-| Fundamental design | SOLID (SRP, OCP, LSP, ISP, DIP), DRY, KISS, YAGNI, SoC, SLAP, Law of Demeter, POLA, fail-fast, explicit failure, information hiding, encapsulation, abstraction, immutability, least privilege | Every task considers simplicity, clarity, ownership, and safety; use specific principles where design choices arise |
-| Responsibility and collaboration | GRASP (Information Expert, Creator, Controller, Low Coupling, High Cohesion, Polymorphism, Pure Fabrication, Indirection, Protected Variations) | Object-oriented responsibility allocation, service boundaries, and collaboration design |
-| Object and design patterns | Factory, Abstract Factory, Builder, Prototype, Singleton; Adapter, Bridge, Composite, Decorator, Facade, Flyweight, Proxy; Chain of Responsibility, Command, Iterator, Mediator, Observer, State, Strategy, Template Method, Visitor; Repository, Unit of Work, Specification, DTO, Null Object, DI | Only when they address a real construction, structure, behavior, persistence, or dependency problem; avoid pattern-by-decoration |
-| Domain and architecture | DDD, entities, value objects, aggregates/invariants, bounded contexts, domain events, Clean/Onion/Hexagonal, layered architecture, modular monolith, microservices, plugin architecture, ports/adapters | Domain complexity, module ownership, dependency direction, deployment boundaries, or extensibility warrant them |
-| API and integration | REST/resource design, statelessness, idempotency, versioning, backward compatibility, consumer-driven contracts, schema evolution, API gateway/BFF, webhooks, anti-corruption layer | Public APIs, service integration, or external contracts change |
-| Distributed systems | CAP/PACELC trade-offs, consistency, replication, partitioning, quorum, leader election, saga, outbox/inbox, deduplication, dead-letter queue, backpressure, retries/timeouts, circuit breaker, bulkhead, graceful degradation | Network, queue, multi-process, asynchronous, or partial-failure behavior exists |
-| Data | Normalization/denormalization, ACID/isolation, keys/indexes, optimistic/pessimistic concurrency, query plans, batching, caching, CDC, migrations, data lineage, retention, multi-tenant isolation | Persisted data, queries, data contracts, tenant boundaries, or data lifecycle changes |
-| Security and privacy | Zero Trust, defense in depth, secure defaults/failure, authentication vs authorization, RBAC/ABAC, threat modeling, input validation, output encoding, secret handling, encryption, audit, SBOM/supply chain, data minimization, privacy by design | Always consider trust boundaries; increase evidence for sensitive or externally reachable paths |
-| Testing and quality | TDD/BDD/ATDD, unit/integration/contract/E2E, regression, property-based, mutation, fuzz, differential, golden-master, boundary analysis, deterministic tests, test doubles, risk-based testing | Choose tests based on behavior, failure modes, risk, and the existing test architecture; coverage alone is insufficient |
-| Code health | Readability, naming, small focused functions, strong types, explicit errors, few side effects, no magic values, static analysis, refactoring, code review, technical-debt management | Every code change |
-| Concurrency and performance | Thread safety, atomicity, structured concurrency, cancellation, resource ownership, bounded queues, algorithmic complexity, profiling, caching, batching, pooling, tail latency, load shedding | Parallel/asynchronous work or material latency, throughput, memory, CPU, I/O, or capacity concerns |
-| Delivery and operations | CI/CD, IaC, GitOps, reproducible builds, feature flags, blue-green/canary/rolling releases, deployment gates, rollback, backup/restore, RTO/RPO, runbooks | Build, release, runtime, migration, infrastructure, or recovery changes |
-| Observability | Structured logs, metrics, traces, correlation IDs, OpenTelemetry, SLIs/SLOs/SLAs, error budgets, health/readiness probes, alerts, incident reviews | Runtime behavior, operations, external calls, asynchronous processing, or failure diagnosis changes |
-| Team practice | Small PRs, peer review, pair programming, ADR/RFC, definition of done, incremental delivery, risk-based prioritization, documentation | Shared ownership, significant design choices, or delivery coordination |
-| AI/agent systems | Independent holdouts, data-leakage prevention, model/prompt versioning, RAG grounding, citation checks, prompt-injection defense, tool permissions, human approval, drift monitoring, provenance, bounded autonomy, deterministic validation | Any AI/ML/agent/model, retrieval, tool-execution, or learned-policy work |
-| Product quality | Accessibility, usability, interoperability, portability, reliability, availability, maintainability, operability, recoverability, resource efficiency | User-facing features, product contracts, and system-level quality decisions |
+Use these 12 families to classify task risk and select detailed principles. Security, correctness, testing, observability, and recovery remain cross-cutting requirements whenever relevant.
+
+| # | Family | Representative principles | Apply when |
+|---:|---|---|---|
+| 01 | Fundamental design | SOLID, DRY, KISS, YAGNI, GRASP, DDD, cohesion/coupling, composition, design patterns | Every change; choose the smallest design that fits the real problem |
+| 02 | Security and privacy | Zero Trust, threat modeling, least privilege, complete mediation, privacy by design, defense in depth, supply-chain security | Every trust boundary; increase assurance for sensitive or externally reachable paths |
+| 03 | Performance and cost | Complexity, profiling, capacity, resource/cost budgets, batching, caching, load shedding, tail latency | Material CPU, memory, I/O, throughput, latency, or cost impact |
+| 04 | Concurrency | Race freedom, ownership, synchronization, structured concurrency, cancellation, deadlock prevention, bounded queues | Parallel/asynchronous execution or shared mutable state |
+| 05 | Distributed systems | CAP, PACELC, consistency, quorum, consensus, split-brain prevention, idempotency, delivery semantics, sagas, outbox/inbox | Network, multi-process, queue, replica, remote tool, or partial-failure behavior |
+| 06 | Reliability and recovery | Fault containment, graceful degradation, timeout budgets, retries with backoff/jitter, health/readiness, checkpoints, RTO/RPO, SLOs, chaos tests | Any dependency, persistent task, background worker, deployment, or recoverable workflow |
+| 07 | Data and correctness | ACID where supported, invariants, pre/postconditions, referential integrity, optimistic concurrency, schema evolution, provenance, reconciliation | Persistent state, transactions, evidence, migrations, or correctness-sensitive transformations |
+| 08 | API and integration | Explicit contracts, versioning, compatibility, consumer-driven contracts, ports/adapters, bounded dependencies, anti-corruption layers | Public/internal interfaces, providers, plugins, adapters, or service boundaries |
+| 09 | Testing and verification | Test pyramid, property/fuzz/mutation/differential/contract testing, fault injection, independent holdouts, rollback verification | Every behavior change; select techniques based on risk and failure modes |
+| 10 | Delivery and operations | CI/CD, reproducible builds, artifact provenance, feature flags, safe rollout, migration safety, rollback/forward recovery | Build, packaging, release, infrastructure, schema, or deployment changes |
+| 11 | Observability and governance | Structured logs, metrics, traces, audit trails, SLIs/SLOs, error budgets, evidence integrity, decision records | Runtime behavior, autonomous actions, production operation, or review/promotion decisions |
+| 12 | AI and autonomous systems | Authority before action, least-privilege tools, human approval, uncertainty, bounded autonomy, safe learning, memory provenance, independent transfer, promotion/rollback | Model, agent, memory, tool use, learning, or autonomous execution |
 
 ## Extended reference inventory
 
@@ -91,3 +89,59 @@ For each assigned task, the canonical task context should capture:
 - explicit `not_applicable: reason` for material dimensions that do not apply.
 
 The existing `EngineeringDesignGuard` remains the deterministic contract check for implementation work. Guard and Arena retain their authority; this document does not create permissions, approve risky actions, or replace tests, independent evaluation, human approval, or post-merge verification.
+
+
+## Runtime applicability and enforcement details
+
+The principle is selected based on the actual deployment and storage model. Do not claim a guarantee that the implementation or provider cannot provide.
+
+### Distributed systems: CAP and PACELC
+
+- **CAP:** during a network partition, a distributed system must choose which operations can succeed consistently and which can remain available. Partition tolerance is a condition the system must handle, not a third property that can simply be switched off.
+- **PACELC:** during a partition, state the availability/consistency choice; otherwise state the latency/consistency choice.
+- For every shared-state subsystem, record its consistency model (strong, eventual, causal, read-your-writes/session, or local/single-writer), authority/source of truth, and convergence or reconciliation rule.
+- Use quorum and a proven consensus protocol only when replicas must agree on values or leadership. If a component is single-process or single-writer, state that boundary instead of adding unnecessary distributed machinery.
+- Prevent split brain with explicit ownership and fencing/generation tokens where multiple workers/controllers can compete. Wall-clock timestamps alone do not prove causal order.
+- Assume at-least-once delivery can duplicate work; use stable idempotency keys, deduplication, and persisted effect receipts. At-most-once delivery may lose work. Transport alone does not guarantee exactly-once effects.
+- Use a transactional outbox/inbox only where a durable state change and event publication must be coordinated. Use sagas and compensating actions only for multi-step workflows that cannot use one atomic transaction.
+- Bound queues and dependency pools; apply bulkheads, circuit breakers, deadline propagation, and backpressure where they protect independent work. Reconcile intended state against observed state after uncertain failures.
+
+### Reliability, resilience, and fault tolerance
+
+- Design for process, dependency, network, worker, provider, and agent failure; isolate the blast radius and preserve safe read-only or degraded operation where possible.
+- Distinguish liveness (the process is running) from readiness (it can safely accept work).
+- Retries must be bounded, use backoff/jitter where appropriate, respect one task-level budget, and avoid replaying irreversible effects without idempotency protection. Exhaustion triggers diagnosis, replanning, or escalation.
+- Persist task ownership, progress, and effect receipts before treating them as recoverable. Resume only from validated checkpoints; use fencing or generation checks to reject stale workers.
+- Define recovery-time and recovery-point objectives for important workflows where the deployment can measure them. Propose SLOs/error budgets for critical paths instead of inventing unsupported reliability claims.
+- Inject controlled timeouts, crashes, stale checkpoints, provider failures, duplicate messages, and corrupted state in tests where those failure modes exist.
+- Never report completion when work is incomplete, degraded, unverified, or missing required evidence.
+
+### Correctness, data integrity, and transactions
+
+- State invariants and preconditions/postconditions for critical state transitions. Keep referential links valid and reject conflicting updates using version checks, compare-and-swap, locking, or the store's equivalent.
+- Require ACID or serializable behavior only where the underlying store/transaction boundary actually provides it. Do not imply cross-file, cross-database, or remote-service atomicity without a real protocol.
+- Version schemas and use expand/migrate/contract or another compatible migration plan; verify data before and after, and define rollback or forward-recovery.
+- Choose event sourcing and CQRS only when audit/replay or read/write workload separation justifies their complexity.
+- Preserve provenance across intent, task/owner, tool effect, artifact, test/evaluator result, and exact source revision. Evidence must not be reused for a different head or silently overwritten.
+
+### Architecture, verification, and autonomous execution
+
+- Separate policy from mechanism; depend on stable interfaces and ports/adapters. Keep high cohesion and low coupling, version interfaces, and avoid splitting a modular system into services without deployment, scaling, isolation, or ownership benefit.
+- Add architecture fitness tests for canonical graph/planner/state/memory/retry/evidence ownership and permitted dependency directions.
+- Use fast unit tests, focused integration/contract tests, and a smaller number of end-to-end tests. Add property, fuzz, mutation, differential, fault-injection, supply-chain/provenance, independent holdout, and rollback tests when the risk justifies them.
+- Bind build artifacts to controlled inputs, source revision, dependency set, and build evidence. Independent holdouts must not feed tuning or development feedback.
+- Every agent action is checked against explicit authority and least-privilege tool scope before side effects. High-impact or irreversible actions use configured human-approval gates.
+- Bound each task by deadline, resource/token/cost budget, stop condition, retry budget, and escalation rule. Record uncertainty separately from observations; only verified outcomes can become durable learning.
+- Isolate untrusted/new capabilities. Promotion requires independent evaluation and exact-head evidence; preserve the last trusted version and a measurable rollback trigger.
+- Record plans, ownership, tool calls, resource usage, evidence, and terminal state. Cross-domain generalization claims require evaluation outside the development domain.
+
+## Required task lifecycle
+
+1. **Classify:** task type, risk, affected boundaries, acceptance criteria, non-goals, and stopping condition.
+2. **Select:** applicable principle families and cross-cutting security/correctness/testing/observability/recovery requirements.
+3. **Model:** authority, invariants, state ownership, side effects, failure modes, resource budgets, and recovery/rollback.
+4. **Implement proportionately:** reuse existing owners and abstractions; record not_applicable: reason for material dimensions that genuinely do not apply.
+5. **Verify:** run relevant tests, static/contract checks, benchmarks, threat checks, fault simulations, or independent review. A declaration is not evidence of behavior.
+6. **Bind evidence:** link outcomes to the exact final revision and preserve provenance.
+7. **Recheck and recover:** after any fix, re-evaluate the exact final head; stale or unavailable checks are not passes. Document rollback or forward recovery for risky changes.
+8. **Learn safely:** retain only verified outcomes and never silently broaden authority, permissions, or safety policy.

@@ -4,7 +4,7 @@ description: Conduct bounded engineering research using repository evidence, ext
 disable-model-invocation: true
 ---
 
-# AER Research
+# AUREN Research
 
 Use this skill for unfamiliar technology, architecture, dependency, framework, or implementation research before coding.
 
@@ -42,7 +42,7 @@ Return:
 - question and scope;
 - evidence and sources;
 - options considered;
-- compatibility with current AER contracts;
+- compatibility with current AUREN contracts;
 - unknowns and risks;
 - recommended next experiment or implementation slice;
 - evidence/provenance identifiers for downstream work.

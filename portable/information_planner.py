@@ -1,4 +1,4 @@
-"""Deterministic active-information selection for AER reasoning loops.
+"""Deterministic active-information selection for AUREN reasoning loops.
 
 The planner chooses what to inspect or test next using expected uncertainty
 reduction per unit cost. It proposes work only; existing capability, security

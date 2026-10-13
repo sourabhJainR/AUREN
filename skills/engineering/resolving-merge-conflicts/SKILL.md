@@ -4,7 +4,7 @@ description: Resolve an in-progress git merge or rebase conflict using repositor
 disable-model-invocation: true
 ---
 
-# AER Merge Conflict Resolution
+# AUREN Merge Conflict Resolution
 
 Use this skill only when a merge or rebase is already in progress and conflicts must be resolved.
 
@@ -25,6 +25,6 @@ Use this skill only when a merge or rebase is already in progress and conflicts 
 
 Do not silently discard one side. If intent cannot be established from evidence, stop at the ambiguity and ask for a decision. Do not rewrite history outside the active merge/rebase operation.
 
-## AER integration
+## AUREN integration
 
 Use `RepositoryMap`, `CodebaseIndex`, `ContextEvidence`, impact analysis and existing verification gates. This skill owns conflict resolution procedure only; it does not create another merge state, evidence ledger or repository graph.

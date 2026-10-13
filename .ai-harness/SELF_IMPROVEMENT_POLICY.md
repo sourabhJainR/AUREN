@@ -1,6 +1,6 @@
-# AER Self-Improvement Policy
+# AUREN Self-Improvement Policy
 
-AER is a self-improving coding control plane when improvement is treated as a measured feedback loop, not unrestricted self-modification.
+AUREN is a self-improving coding control plane when improvement is treated as a measured feedback loop, not unrestricted self-modification.
 
 ## Closed loop
 
@@ -19,9 +19,9 @@ Intent
   -> Next run
 ```
 
-## What AER learns
+## What AUREN learns
 
-AER may learn from verified outcomes:
+AUREN may learn from verified outcomes:
 
 - recurring failure classes and missing verification steps;
 - retrieval sources that improve correctness for a workflow;
@@ -32,7 +32,7 @@ AER may learn from verified outcomes:
 - repository-specific engineering patterns;
 - provider/model performance by task class.
 
-## What AER must never learn automatically
+## What AUREN must never learn automatically
 
 - permission escalation;
 - credential or secret handling rules;

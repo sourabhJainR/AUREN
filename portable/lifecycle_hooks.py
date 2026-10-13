@@ -1,7 +1,7 @@
-"""Provider-neutral lifecycle hooks for AER.
+"""Provider-neutral lifecycle hooks for AUREN.
 
 Hooks are intentionally small and composable. Providers may map their native
-hook system onto these phases, while AER can always run the same hooks itself.
+hook system onto these phases, while AUREN can always run the same hooks itself.
 A hook can observe or veto an action, but a non-authoritative hook cannot weaken
 security, verification, or promotion policy.
 """
