@@ -180,6 +180,32 @@ class AutonomousCampaignLearningTests(unittest.TestCase):
             self.assertEqual(result.rollout.state, "promoted")
             self.assertEqual(result.rollout.canary_count, 3)
 
+
+    def test_holdout_cohort_below_promotion_threshold_cannot_promote(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            controller = AutonomousCampaignController(
+                root,
+                max_tasks=3,
+                lifecycle_canaries=3,
+                minimum_holdout_score=.75,
+                minimum_promotion_score=.80,
+            )
+            requests = tuple(_request(x, d) for x, d in (
+                ("a", "coding"), ("b", "research"), ("c", "analysis")
+            ))
+            predictions = {r.task_id: CampaignPrediction(r.task_id, True, .8) for r in requests}
+            result = controller.run(
+                "campaign-below-promotion-threshold",
+                requests,
+                execute=lambda request: (_receipt(request), .77),
+                predictions=predictions,
+                capability_id="candidate-capability",
+                baseline_score=.70,
+            )
+            self.assertEqual(result.rollout.state, "rolled_back")
+            self.assertTrue(any("safety gate failed" in reason for reason in result.rollout.reasons))
+
     def test_learned_domain_score_calibrates_from_persisted_observations(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
