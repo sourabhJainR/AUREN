@@ -29,6 +29,9 @@ LEGACY_ALLOWED = {
     "tests/test_identity_compat.py",
     "tests/test_legacy_name_compatibility.py",
 }
+LEGACY_ALLOWED_LINE_PATTERNS = {
+    "portable/orchestration.py": (re.compile(r'\bstate\.get\("auren_adaptive_policy", state\.get\("aer_adaptive_policy"\)\)'),),
+}
 PATTERNS = (
     re.compile(r"\bAER\b"),
     re.compile(r"\baer_cli\.py\b"),
@@ -57,6 +60,8 @@ def main() -> int:
         except (UnicodeDecodeError, OSError):
             continue
         for line_no, line in enumerate(content.splitlines(), 1):
+            if any(pattern.search(line) for pattern in LEGACY_ALLOWED_LINE_PATTERNS.get(path, ())):
+                continue
             for pattern in PATTERNS:
                 if pattern.search(line):
                     findings.append(f"{path}:{line_no}: stale AER identity: {line.strip()[:180]}")
