@@ -21,7 +21,7 @@ import time
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from portable.identity_compat import auren_home
+from portable.identity_compat import canonical_runtime_home
 from typing import Any, Callable, Mapping
 from .execution_strategy import ExecutionStrategy, execution_strategy
 from .engineering_design_guard import EngineeringDesignGuard
@@ -173,7 +173,7 @@ class SelfModificationEngine:
     _FORBIDDEN_CALLS = {"eval", "exec", "compile", "__import__", "system", "popen"}
 
     def __init__(self, active_dir: Path | str | None = None) -> None:
-        self.active_dir = Path(active_dir or (auren_home() / "orchestration"))
+        self.active_dir = Path(active_dir or (canonical_runtime_home() / "orchestration"))
         self.active_file = self.active_dir / "active.py"
         self.previous_file = self.active_dir / "previous.py"
         self.journal_file = self.active_dir / "promotion.jsonl"
