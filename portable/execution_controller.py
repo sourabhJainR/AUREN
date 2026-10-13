@@ -224,6 +224,13 @@ class ExecutionController:
         promotion_expected_head: str | None = None
         try:
             promotion_policy = self._handler_promotion_gate_policy(task.handler)
+            if promotion_policy and self.evidence_capture.sink is not None:
+                pending_exports = self.evidence_capture.pending_exports()
+                if pending_exports:
+                    return False, (
+                        f"promotion gate rejected task: {pending_exports} engineering evidence export(s) "
+                        "are pending in the configured external retention sink"
+                    ), ("evidence-export:pending", "promotion-gate:rejected")
             if promotion_policy:
                 provider = self._load_handler(promotion_policy["context_handler"])
                 # Do not pass task payload: the provider must resolve live repository/head
