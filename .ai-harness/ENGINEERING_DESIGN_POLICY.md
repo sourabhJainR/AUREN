@@ -126,6 +126,27 @@ For substantial or risk-sensitive changes, the run should capture only the evide
 
 A missing dimension is acceptable when the guard records `not_applicable` with a reason. Silent omission is not treated as evidence.
 
+## Task-time applicability contract
+
+Every assigned task uses this policy through the existing task planner, engineering-design guard, verification/review lifecycle, and evidence chain. The planner must select applicable lenses before work begins and retain concise decisions/evidence in the canonical task context; it must not create a second policy engine or parallel evidence store. For each material lens, state the design decision and its evidence, or state `not_applicable: reason`. An unmentioned dimension is not the same as an explicit non-applicability decision.
+
+| Task shape / trigger | Required lenses to consider | Minimum evidence when applicable |
+|---|---|---|
+| Any task | Correctness, acceptance criteria, KISS, YAGNI, least surprise, evidence over assumption, source of truth | Goal, boundaries, acceptance checks, non-goals, stop condition, and verified outcome |
+| Code, feature, or bug fix | SOLID, DRY, cohesion/coupling, encapsulation, composition, reuse-first, fail-fast | Existing implementation search, ownership/boundaries, focused change, failure/boundary tests, regression evidence |
+| Architecture or refactor | GRASP, SoC, dependency direction, information hiding, locality of change, reversible decisions | Responsibility assignment, dependency impact, behavior delta, compatibility and rollback/roll-forward plan |
+| Domain-heavy business logic | DDD, invariants, value objects/entities/aggregates, bounded contexts, domain events when warranted | Domain language, invariant owner, consistency/transaction boundary; justify when simple CRUD needs no DDD ceremony |
+| Data, persistence, or integration | Single source of truth, ACID/consistency, idempotency, ordering, schema evolution, DRY, avoid N+1 | Read/write ownership, query/request counts where material, durability/replay/repair, migration and data recovery plan |
+| Distributed or async work | Timeouts, bounded retries, backoff, cancellation, bulkheads, circuit breakers, backpressure, graceful degradation | Failure modes, resource bounds, duplicate handling, observability, recovery behavior |
+| Security or privacy | Least privilege, defense in depth, secure defaults, input validation, secret/data minimization, threat modeling | Trust boundaries, authorization checks, sensitive-data handling, negative tests, auditability |
+| Tests or quality tooling | TDD/BDD when useful, test pyramid, deterministic tests, contract/regression/property/fuzz/mutation tests when appropriate | Test selection rationale, affected behavior, reproducible result; coverage alone is not proof |
+| Performance-sensitive work | Measure before optimize, algorithmic complexity, batching/caching/pooling where warranted, tail latency | Baseline or reasoned expectation, resource/query impact, benchmark/profile when static reasoning is insufficient |
+| Release, CI/CD, or operations | Reproducible builds, least privilege, deployment gates, observability, rollback, backup/restore, SLO/RTO/RPO as relevant | Exact-head checks, artifact/provenance, rollout gates, health signals, recovery and rollback verification |
+| AI/agent/model work | Independent holdouts, provenance, prompt/tool boundaries, bounded autonomy, deterministic checks around probabilistic outputs | Evaluation dataset separation, evidence lineage, tool permissions/isolation, uncertainty/failure handling, regression and rollback gates |
+| Documentation or research | Accuracy, source provenance, least astonishment, actionable output, no unsupported claims | Sources or repository evidence, scope and uncertainty, next action; no code-only checklist forced where irrelevant |
+
+Principle selection is risk-based: low-risk tasks keep the contract lightweight; cross-cutting, security-sensitive, data-changing, production, irreversible, or repeated-failure tasks receive deeper review and fail closed when required evidence is absent. A principle may be marked not applicable only with a specific reason. Recommendations and model confidence never substitute for test results, source evidence, or user approval.
+
 ## Enforcement
 
 `portable/engineering_design_guard.py` provides the deterministic design-contract and curated-change gate. It infers relevant dimensions from intent and changed paths, validates declared design evidence, emits findings, and creates a content-addressed receipt suitable for the existing evidence/provenance chain.
