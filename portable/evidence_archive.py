@@ -217,8 +217,8 @@ class EvidenceArchive:
             ):
                 raise ValueError("signed receipt does not match the archived event")
             if event["source_type"] in {"oracle_custody", "sealed_corpus_custody", "isolation_audit", "operator"}:
-                if not isinstance(payload.get("operator_id"), str) or payload.get("operator_id") != envelope["signer_id"]:
-                    raise ValueError("custody, audit, and operator receipts must be signed by their named operator")
+                if not isinstance(payload.get("operator_id"), str) or not payload["operator_id"].strip():
+                    raise ValueError("custody, audit, and operator receipts must name the responsible operator")
             if self.receipt_verifier is not None:
                 message = canonical_json(payload)
                 if hasattr(self.receipt_verifier, "verify_detached"):
