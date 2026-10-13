@@ -464,6 +464,43 @@ class Orchestrator:
                 run.stop_reason = "global attempt budget exhausted"
                 return run
 
+        # Code-changing runs are accepted only when verification names the
+        # exact final revision. A successful node graph alone is not evidence
+        # that the final source head was tested.
+        if EngineeringDesignGuard._is_code_change(tuple(changed_paths)):
+            final_revision = str(state.get("final_code_revision", "")).strip()
+            verified_revision = str(state.get("verified_code_revision", "")).strip()
+            if not final_revision or final_revision != verified_revision:
+                run.status = RunStatus.BLOCKED
+                run.stop_reason = "exact final code revision verification missing or stale"
+                payload = {
+                    "kind": "exact_head_verification",
+                    "status": "blocked",
+                    "expected_final_revision": final_revision,
+                    "verified_revision": verified_revision,
+                    "intent_digest": run.intent_digest,
+                }
+                run.record(Evidence(
+                    "exact-head-verification",
+                    json.dumps(payload, sort_keys=True, separators=(",", ":")),
+                    "portable.orchestration",
+                ))
+                run.trajectory.append({"event": "exact_head_verification", **payload})
+                return run
+            payload = {
+                "kind": "exact_head_verification",
+                "status": "passed",
+                "final_revision": final_revision,
+                "verified_revision": verified_revision,
+                "intent_digest": run.intent_digest,
+            }
+            run.record(Evidence(
+                "exact-head-verification",
+                json.dumps(payload, sort_keys=True, separators=(",", ":")),
+                "portable.orchestration",
+            ))
+            run.trajectory.append({"event": "exact_head_verification", **payload})
+
         run.status = RunStatus.ACCEPTED
         run.stop_reason = "all critical graph nodes passed"
         if self.allow_self_improvement:
