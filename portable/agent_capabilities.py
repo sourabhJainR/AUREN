@@ -1,6 +1,6 @@
 """Unified, provider-neutral agent capabilities for AUREN.
 
-The module is stdlib-only and owns task-facing capability semantics. AER remains
+The module is stdlib-only and owns task-facing capability semantics. AUREN remains
 the authority for policy, sandboxing, verification and promotion.
 """
 from __future__ import annotations
@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, Sequence
+from portable.identity_compat import get_auren_env
 from .skill_set_evolution import AdaptiveSkillSetEvolver
 
 CAPABILITIES = (
