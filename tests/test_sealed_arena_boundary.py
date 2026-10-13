@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import tempfile
 import unittest
 from dataclasses import replace
+from pathlib import Path
 
 from portable.sealed_arena_boundary import (
     ExternalOutcomeReceipt,
@@ -10,6 +12,7 @@ from portable.sealed_arena_boundary import (
     SealedCaseEnvelope,
 )
 from portable.sealed_corpus_provenance import SealedCorpusProvenance
+from portable.sealed_arena_replay import ReplayRejected, SealedArenaReplayLedger
 
 
 class SealedArenaBoundaryTests(unittest.TestCase):
@@ -186,6 +189,26 @@ class SealedArenaBoundaryTests(unittest.TestCase):
             SealedArenaBoundary(lambda _value: True).accept(
                 self.request, self.receipt(run_nonce="other-nonce")
             )
+
+    def test_persistent_ledger_rejects_replay_after_boundary_restart(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            ledger_path = Path(directory) / "sealed-replay.sqlite3"
+            first_ledger = SealedArenaReplayLedger(ledger_path)
+            first = SealedArenaBoundary(
+                lambda value: value.signature == "sig",
+                replay_ledger=first_ledger,
+            )
+            accepted = first.accept(self.request, self.receipt())
+            self.assertEqual(accepted.request_digest, self.request.request_digest)
+
+            # A newly constructed boundary simulates process restart. The replay
+            # decision must come from durable operator-owned state, not RAM.
+            second = SealedArenaBoundary(
+                lambda value: value.signature == "sig",
+                replay_ledger=SealedArenaReplayLedger(ledger_path),
+            )
+            with self.assertRaisesRegex(ReplayRejected, "already been used"):
+                second.accept(self.request, self.receipt())
 
 
 if __name__ == "__main__":
