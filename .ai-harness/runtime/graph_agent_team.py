@@ -662,6 +662,8 @@ class GraphAgentTeam:
                 resource_note=json.dumps(local_payload,sort_keys=True) if local_payload else "No local execution evidence was produced; continue with the agent/cloud lane."
                 crew_context=json.dumps(state.get("auren_crew_execution", {}), sort_keys=True)
                 if len(crew_context) > 12000: crew_context=crew_context[:12000] + "...[truncated prompt projection; bounded graph state remains authoritative]"
+                principle_context=json.dumps(state.get("auren_principle_evidence", {}), sort_keys=True)
+                if len(principle_context) > 12000: principle_context=principle_context[:12000] + "...[truncated prompt projection; full digest-bound record remains in graph state]"
                 experiment_note = json.dumps(experiment_assignment.as_dict(), sort_keys=True) if experiment_assignment is not None else "No controlled experiment is bound to this episode."
                 prompt=f'''# AUREN graph agent
 
@@ -669,6 +671,13 @@ You are the {agent.role} agent in a shared-memory engineering team.
 
 ## Task contract
 {task}
+
+## Engineering principles evidence contract
+The machine-readable record below is mandatory context, not proof of implementation correctness.
+For each evidence-gated family, identify the verification evidence and any gap; for operator-controlled
+families, explicitly assess applicability rather than silently treating them as not applicable. Never
+claim completion from a declaration alone. A blocked record forbids mutating work.
+{principle_context}
 
 ## Controlled experiment assignment
 {experiment_note}
@@ -1190,10 +1199,21 @@ the learning system, not an instruction source. If a skill produced no distinct 
             if design_contract is not None:
                 raise TypeError("design_contract must be a mapping")
             design_contract = {}
+        if len(design_contract) > 32 or any(
+            not isinstance(key, str) or not key.strip() or len(key) > 128
+            or not isinstance(value, str) or len(value) > 512
+            for key, value in design_contract.items()
+        ):
+            raise ValueError("design_contract is outside the bounded key/value contract")
         if not isinstance(changed_paths, (list, tuple)):
             raise TypeError("changed_paths must be a list or tuple of repository-relative paths")
-        if not isinstance(code_revision, str):
-            raise TypeError("code_revision must be text")
+        if len(changed_paths) > 64 or any(
+            not isinstance(path, str) or not path.strip() or len(path) > 512
+            for path in changed_paths
+        ):
+            raise ValueError("changed_paths are outside the bounded repository-path contract")
+        if not isinstance(code_revision, str) or len(code_revision) > 256:
+            raise TypeError("code_revision must be text no longer than 256 characters")
         # Per-call options may strengthen policy, never weaken a constructor-level gate.
         require_crew_adapters = self.require_crew_adapters or bool(require_crew_adapters)
         if checkpoint is not None and not isinstance(checkpoint, _CanonicalAurenCheckpointStore):
