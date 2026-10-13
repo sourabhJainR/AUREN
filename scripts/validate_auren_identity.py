@@ -64,12 +64,6 @@ LEGACY_ALLOWED_LINE_PATTERNS = {
         re.compile(r'AER_LOCAL_LLM_FALLBACK'),
         re.compile(r'"AER_(?:SANDBOX|COMPACTION_DIGEST)"'),
     ),
-    ".ai-harness/runtime/__init__.py": (
-        re.compile(r'AER_GRAPH_TEAM'),
-    ),
-    ".ai-harness/runtime/context_broker.py": (
-        re.compile(r'AER_CONTEXT_BROKER_TELEMETRY'),
-    ),
     ".ai-harness/runtime/lsp_server.py": (
         re.compile(r'".aer"'),
     ),
