@@ -23,6 +23,17 @@ LEGACY_ALLOWED = {
     "tests/test_state_paths.py",
     "tests/test_identity_compat.py",
     "tests/test_legacy_name_compatibility.py",
+    # These suites intentionally exercise documented legacy inputs or adversarial fixtures.
+    "tests/test_context_broker.py",
+    "tests/test_extension_registry.py",
+    "tests/test_user_experience.py",
+    "tests/test_agent_capabilities.py",
+    "tests/test_provider_conformance.py",
+    "tests/test_engineering_evolution.py",
+    "tests/test_adaptive_runtime_recovery_integration.py",
+    "tests/portable/test_adaptive_learning.py",
+    "tests/test_graph_agent_evidence_decision.py",
+    "tests/test_state_migration.py",
 }
 LEGACY_ALLOWED_LINE_PATTERNS = {
     "portable/orchestration.py": (
@@ -33,6 +44,48 @@ LEGACY_ALLOWED_LINE_PATTERNS = {
     ".ai-harness/runtime/graph_agent_team.py": (
         re.compile(r'state\.get\("auren_execution_strategy",\s*state\.get\("aer_execution_strategy",\{\}\)\)'),
         re.compile(r'state\.get\("auren_execution_mode",\s*state\.get\("aer_execution_mode",\{\}\)\)'),
+    ),
+    # Canonical markers are emitted alongside these legacy protocol aliases
+    # only while downstream consumers still require them.
+    ".ai-harness/runtime/sandbox.py": (
+        re.compile(r'env\["AER_SANDBOX(?:_NETWORK)?"]'),
+    ),
+    ".ai-harness/safe_provider.py": (
+        re.compile(r'AER_LOCAL_LLM_FALLBACK'),
+        re.compile(r'"AER_(?:SANDBOX|COMPACTION_DIGEST)"'),
+    ),
+    ".ai-harness/runtime/__init__.py": (
+        re.compile(r'AER_GRAPH_TEAM'),
+    ),
+    ".ai-harness/runtime/context_broker.py": (
+        re.compile(r'AER_CONTEXT_BROKER_TELEMETRY'),
+    ),
+    ".ai-harness/CORE_RUNTIME_SERVICES.md": (
+        re.compile(r'AER_SANDBOX_NETWORK|AER_COMPACTION_DIGEST'),
+    ),
+    ".ai-harness/BEHAVIORAL_CONFORMANCE.md": (
+        re.compile(r'AER_CONTEXT_BROKER_TELEMETRY'),
+    ),
+    "scripts/provider_conformance.py": (
+        re.compile(r'AER_CONFORMANCE_(?:OK|PROBE)'),
+    ),
+    "scripts/behavioral_conformance_ground_truth.py": (
+        re.compile(r'AER_(?:CONFORMANCE_BEHAVIORAL|CONFORMANCE_TASK|CONFORMANCE_TRACE|CONTEXT_BROKER_TELEMETRY)'),
+    ),
+    "scripts/behavioral_conformance.py": (
+        re.compile(r'AER_(?:CONFORMANCE_BEHAVIORAL|CONFORMANCE_TASK|CONFORMANCE_TRACE)'),
+    ),
+    "scripts/benchmark_oracles.py": (
+        re.compile(r'AER_BC07_API_KEY'),
+    ),
+    "README.md": (
+        re.compile(r'(?i)(?:legacy.*\.aer|~/.aer)'),
+    ),
+    "docs/USAGE_AND_PLATFORM_INTEGRATION.md": (
+        re.compile(r'(?i)(?:legacy.*\.aer|~/.aer)'),
+    ),
+    "docs/REPOSITORY_CONSISTENCY_AND_ENHANCEMENT_PLAN.md": (
+        re.compile(r'AER_\*|\.aer'),
     ),
 }
 LEGACY_ALLOWED_CODE_FILES = {
@@ -53,6 +106,8 @@ def _is_approved_allowlist_path(path: str) -> bool:
 
 PATTERNS = (
     re.compile(r"\bAER\b"),
+    re.compile(r"\bAER_[A-Z][A-Z0-9_]*\b"),
+    re.compile(r"(?i)\.aer(?:/|\\|\b)"),
     re.compile(r"\baer_cli\.py\b"),
     re.compile(r"\baer-portable\b"),
     re.compile(r"\baer_[a-z][A-Za-z0-9_]*\b"),
