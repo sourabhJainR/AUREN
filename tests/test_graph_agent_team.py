@@ -48,6 +48,33 @@ class GraphAgentTeamTests(unittest.TestCase):
             self.assertEqual(saved.state["auren_execution_mode"], {"name": "balanced"})
             self.assertEqual(saved.state["auren_state_schema_version"], 2)
 
+    def test_high_risk_task_requires_exact_revision_and_emits_principle_record(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            invoked = []
+            memory = SharedTaskMemory(Path(tmp) / "memory.jsonl", "principle-gate")
+            team = GraphAgentTeam([
+                AgentSpec("planner", "planner", read_only=True),
+                AgentSpec("builder", "builder", depends_on=("planner",), critical=True),
+            ])
+            result = team.execute(
+                task="Change authorization handling in an API",
+                intent_digest="principle-gate",
+                base_prompt="base",
+                memory=memory,
+                invoke_agent=lambda agent, prompt: (invoked.append(agent.name) or 0, "evidence", 0.01),
+                risk="high",
+                changed_paths=["portable/auth.py"],
+                design_contract={"architecture": "reuse the existing authorization boundary"},
+            )
+            record = result["principle_evidence"]
+            self.assertEqual(record["schema_version"], "auren-engineering-principle-evidence-v1")
+            self.assertEqual(len(record["families"]), 12)
+            self.assertEqual(record["status"], "blocked")
+            self.assertFalse(record["exact_revision_bound"])
+            self.assertIn("high-risk code change requires an exact code_revision", record["blockers"])
+            self.assertNotIn("builder", invoked)
+            self.assertFalse(result["accepted"])
+
     def test_autonomous_campaign_learning_is_runtime_bound_and_bounded(self):
         with tempfile.TemporaryDirectory() as tmp:
             memory = SharedTaskMemory(Path(tmp) / "memory.jsonl", "intent-a")
