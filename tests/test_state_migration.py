@@ -45,7 +45,11 @@ class StateMigrationTests(unittest.TestCase):
             )
             self.assertEqual(result.manifest_sha256, inspect_state_migration(source, destination).manifest_sha256)
 
-    def test_existing_destination_is_never_overwritten(self) -> None:
+            rerun = migrate_state_root(source, destination, dry_run=False)
+            self.assertEqual(rerun.status, "already_migrated_verified")
+            self.assertEqual(rerun.manifest_sha256, result.manifest_sha256)
+
+    def test_existing_conflicting_destination_is_never_overwritten(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             source = root / ".aer"
