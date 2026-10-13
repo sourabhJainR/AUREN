@@ -94,7 +94,7 @@ def serve(root: Path) -> None:
             target = names[0] if names else ""
             matches = []
             for candidate in root.rglob("*"):
-                if not candidate.is_file() or any(part in {".git", ".auren", "node_modules", "__pycache__"} for part in candidate.parts):
+                if not candidate.is_file() or any(part in {".git", ".aer", ".auren", "node_modules", "__pycache__"} for part in candidate.parts):
                     continue
                 try:
                     for index, content in enumerate(candidate.read_text(encoding="utf-8", errors="replace").splitlines()):
