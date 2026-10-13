@@ -77,7 +77,8 @@ The important architectural boundary is that **execution remains bounded and pol
 | Default graph orchestration | `portable.orchestration.Graph` / `Orchestrator` |
 | Supervisor-facing graph/team facade | `portable.state_graph.StateGraph` / `GraphAgentTeam` |
 | Standalone checkpointable graph runtime | `portable.agency_state_graph.StateGraph` |
-| Agent-team orchestration | `portable.state_graph.GraphAgentTeam` plus the harness adapter in `.ai-harness/runtime/graph_agent_team.py` |
+| Specialist proposal contract and routing | `portable.state_graph.GraphAgentTeam` + `portable.crew_adapters` |
+| Resource-aware harness team strategy | `.ai-harness/runtime/graph_agent_team.py` over `portable.agency_state_graph.StateGraph` |
 | Capability semantics and routing | `portable.agent_capabilities` / `CapabilityFabric` |
 | Durable memory | `portable.agent_capabilities.PersistentMemory` |
 | Repository retrieval | `portable.agency_codebase_context.CodebaseIndex` and `portable.repo_intelligence.RepositoryMap` |
@@ -87,7 +88,7 @@ The important architectural boundary is that **execution remains bounded and pol
 | OS service lifecycle | `portable.maintenance_service` |
 | Local bounded execution | `portable.local_offload.LocalOffloadBroker` |
 
-Compatibility surfaces should adapt to these owners instead of maintaining independent state. The supervisor-facing `portable.state_graph` API wraps the existing `Graph`/`Orchestrator` path; `portable.agency_state_graph` is a distinct lower-level graph runtime. Keep their contracts explicit and add integration tests before assuming the two graph APIs are interchangeable.
+Compatibility surfaces should adapt to these owners instead of maintaining independent state. The supervisor-facing `portable.state_graph` API wraps the existing `Graph`/`Orchestrator` path; `portable.agency_state_graph` is a distinct lower-level graph runtime. Keep their contracts explicit and add integration tests before assuming the two graph APIs are interchangeable. The current harness team and portable crew facade are not yet one integrated dispatch path: the harness team does not currently invoke `portable.crew_adapters`. Track this convergence in [issue #438](https://github.com/sourabhJainR/AUREN/issues/438); do not claim typed crews run automatically on every default task until the harness-path integration tests pass. See [`docs/UNIFIED_GRAPH_CREW_RUNTIME.md`](docs/UNIFIED_GRAPH_CREW_RUNTIME.md) for the owner map and end-to-end invariants.
 
 See [`docs/CAPABILITY_MEMORY_OWNERSHIP.md`](docs/CAPABILITY_MEMORY_OWNERSHIP.md) for the capability/memory contract and [`docs/RIPWIRE_INTEGRATION.md`](docs/RIPWIRE_INTEGRATION.md) for repository-intelligence design lineage.
 
@@ -111,6 +112,8 @@ The map provides deterministic file ordering and SHA-256 identity, symbol/import
 Repository intelligence accelerates context discovery; verification, policy, review, regression, permissions, and release gates remain authoritative.
 
 ## Graph orchestration and agent teams
+
+The intended composition is one task contract and evidence chain with explicit graph adapters, not parallel task engines. The default adaptive supervisor path uses `portable.orchestration.Graph/Orchestrator`; the resource-aware harness team uses the checkpointable `portable.agency_state_graph.StateGraph`. Their API boundary and the remaining crew-dispatch integration gap are documented in [`docs/UNIFIED_GRAPH_CREW_RUNTIME.md`](docs/UNIFIED_GRAPH_CREW_RUNTIME.md).
 
 AUREN includes a dependency-free `StateGraph` runtime inspired by durable agent-graph patterns without taking a LangGraph runtime dependency. It provides state snapshots, reducers, conditional routing, bounded retries, checkpoints, interrupts, deterministic traces, bounded supersteps, and explicit parallel-safety controls.
 
