@@ -1,6 +1,6 @@
 """Unified, provider-neutral agent capabilities for AUREN.
 
-The module is stdlib-only and owns task-facing capability semantics. AER remains
+The module is stdlib-only and owns task-facing capability semantics. AUREN remains
 the authority for policy, sandboxing, verification and promotion.
 """
 from __future__ import annotations
@@ -292,7 +292,7 @@ class DelegationPool:
     def __init__(self, max_workers: int = 4) -> None:
         if not 1 <= max_workers <= 16:
             raise ValueError("max_workers must be 1..16")
-        self._pool = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="aer-agent")
+        self._pool = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="auren-agent")
 
     def submit(self, task_id: str, fn: Callable[[], Any]) -> tuple[DelegationReceipt, Future[Any]]:
         receipt = DelegationReceipt(uuid.uuid4().hex, task_id, "running", _utc().isoformat(), None, None, None)
@@ -456,7 +456,7 @@ class CapabilityExecutioner:
     """Select the smallest safe capability set for the current execution.
 
     External skills/plugins/MCP/providers are optional discovery inputs. They
-    cannot bypass AER's risk, sandbox, network, failure and stopping policy.
+    cannot bypass AUREN's risk, sandbox, network, failure and stopping policy.
     The selector is deterministic when history is absent and bounded when
     history is present, preventing one successful path from becoming a hard
     dependency.
