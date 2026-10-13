@@ -352,6 +352,8 @@ class ApprovedCrewAdapterTests(unittest.TestCase):
     def test_retry_budget_checkpoint_rejects_tampered_payload(self):
         checkpoint = TaskRetryBudget(max_retries=2).snapshot()
         checkpoint["charges"] = [{"operation_key": "forged", "component": "qa_reviewer"}]
+        # Keep the structural count consistent so digest validation catches tampering.
+        checkpoint["used_retries"] = 1
         with self.assertRaisesRegex(ValueError, "digest mismatch"):
             TaskRetryBudget.resume(checkpoint)
 
