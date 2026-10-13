@@ -17,11 +17,6 @@ LEGACY_ALLOWED = {
     "docs/LEGACY_NAME_COMPATIBILITY.md",
     "docs/LEGACY_LINEAGE_CONFORMANCE.md",
     "portable/identity_compat.py",
-    "portable/state_paths.py",
-    "portable/session_state.py",
-    ".ai-harness/runtime/legacy_compatibility.py",
-    ".ai-harness/runtime/graph_agent_team.py",
-    "portable/state_graph.py",
     "scripts/conformance_oracles.py",
     "scripts/validate_auren_identity.py",
     "tests/test_contract_alignment.py",
@@ -30,7 +25,15 @@ LEGACY_ALLOWED = {
     "tests/test_legacy_name_compatibility.py",
 }
 LEGACY_ALLOWED_LINE_PATTERNS = {
-    "portable/orchestration.py": (re.compile(r'\bstate\.get\("auren_adaptive_policy", state\.get\("aer_adaptive_policy"\)\)'),),
+    "portable/orchestration.py": (
+        re.compile(r'\bstate\.get\("auren_adaptive_policy", state\.get\("aer_adaptive_policy"\)\)'),
+    ),
+    # The active graph-team runtime may read these two old checkpoint keys as
+    # compatibility fallbacks, but no other stale identity is allowed there.
+    ".ai-harness/runtime/graph_agent_team.py": (
+        re.compile(r'state\.get\("auren_execution_strategy",\s*state\.get\("aer_execution_strategy",\{\}\)\)'),
+        re.compile(r'state\.get\("auren_execution_mode",\s*state\.get\("aer_execution_mode",\{\}\)\)'),
+    ),
 }
 PATTERNS = (
     re.compile(r"\bAER\b"),
