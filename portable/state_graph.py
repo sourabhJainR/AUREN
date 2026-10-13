@@ -416,14 +416,26 @@ class GraphAgentTeam:
         *,
         handoff_checkpoint_writer: Callable[[str, Mapping[str, Any]], None] | None = None,
         require_durable_handoffs: bool = False,
+        independent_handoff_reviewer: Callable[[CrewHandoff], bool] | None = None,
+        independent_handoff_reviewer_id: str | None = None,
     ) -> None:
         if handoff_checkpoint_writer is not None and not callable(handoff_checkpoint_writer):
             raise TypeError("handoff_checkpoint_writer must be callable")
         if type(require_durable_handoffs) is not bool:
             raise ValueError("require_durable_handoffs must be a boolean")
+        if independent_handoff_reviewer is not None and not callable(independent_handoff_reviewer):
+            raise TypeError("independent_handoff_reviewer must be callable")
+        if independent_handoff_reviewer is not None and (
+            not isinstance(independent_handoff_reviewer_id, str) or not independent_handoff_reviewer_id.strip()
+        ):
+            raise ValueError("independent_handoff_reviewer_id is required when a reviewer is configured")
+        if independent_handoff_reviewer is None and independent_handoff_reviewer_id not in (None, ""):
+            raise ValueError("reviewer id cannot be set without an independent handoff reviewer")
         self.graph = graph
         self.handoff_checkpoint_writer = handoff_checkpoint_writer
         self.require_durable_handoffs = require_durable_handoffs
+        self.independent_handoff_reviewer = independent_handoff_reviewer
+        self.independent_handoff_reviewer_id = independent_handoff_reviewer_id.strip() if independent_handoff_reviewer_id else "unconfigured"
         self.agents = dict(agents or {})
         self.crews = {crew.crew_id: crew for crew in _default_crews()}
         for crew_id, crew in (crews or {}).items():
@@ -442,9 +454,13 @@ class GraphAgentTeam:
         self.crews[crew.crew_id] = crew
 
     def plan_crews(self, goal: str) -> CrewPlan:
+        graph_contract_digest = hashlib.sha256(json.dumps({
+            "graph_digest": self.graph.digest(),
+            "independent_handoff_reviewer_id": self.independent_handoff_reviewer_id,
+        }, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
         return build_crew_plan(
             goal,
-            graph_digest=self.graph.digest(),
+            graph_digest=graph_contract_digest,
             intent_digest=hashlib.sha256(goal.strip().encode("utf-8")).hexdigest() if isinstance(goal, str) else "",
             agents=self.agents,
             crews=self.crews,
@@ -634,13 +650,23 @@ class GraphAgentTeam:
                 "handoff_id": item.handoff_id,
             }
 
-        def complete_handoff(record: Mapping[str, Any], independent_review_passed: bool) -> None:
+        def complete_handoff(record: Mapping[str, Any]) -> None:
             if not dispatch_active["value"]:
                 raise RuntimeError("handoff completion is only available during graph execution")
-            handoffs.mark_completed(CrewHandoff(
+            handoff = CrewHandoff(
                 record["source_crew"], record["target_crew"], record["task"],
                 record["source_plan_digest"], record.get("attempt", 0), record.get("handoff_id", ""),
-            ), independent_review_passed=independent_review_passed)
+            )
+            handoffs.validate_claimed(handoff)
+            reviewer = self.independent_handoff_reviewer
+            if reviewer is None:
+                raise RuntimeError("independent handoff reviewer is not configured")
+            passed = reviewer(handoff)
+            if type(passed) is not bool:
+                raise TypeError("independent handoff reviewer must return a boolean")
+            if not passed:
+                raise PermissionError("independent handoff review did not pass")
+            handoffs.mark_completed(handoff, independent_review_passed=True)
             refresh_checkpoint_state()
 
         # Only graph nodes receive scoped functions. Adapter/tool objects are never
