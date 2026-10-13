@@ -1,4 +1,4 @@
-# Legacy Name and Compatibility Register
+| `AER_GRAPH_TEAM` | Legacy crew/graph configuration alias | Resolve through the canonical configuration resolver; new configuration and emitted state use `AUREN_GRAPH_TEAM`. |\n# Legacy Name and Compatibility Register
 
 AUREN is the current product identity. New code, user-facing UI, active documentation, examples, and current operational guidance must use **AUREN**.
 
