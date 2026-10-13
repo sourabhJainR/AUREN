@@ -1,7 +1,7 @@
 """Optional Rust-kernel bridge.
 
 Python remains authoritative for orchestration and policy. Deterministic
-kernels may be delegated to the optional aer-core worker.
+kernels may be delegated to the optional auren-core worker.
 """
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ def executable() -> str | None:
     configured = get_auren_env("CORE_BIN")
     if configured:
         return configured if shutil.which(configured) or os.path.isfile(configured) else None
-    return shutil.which("aer-core")
+    return shutil.which("auren-core")
 
 
 def available() -> bool:
