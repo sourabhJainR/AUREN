@@ -159,7 +159,8 @@ class EvidenceCapture:
             "duration_ms", "retry_action", "external_system", "run_id",
             "evaluator_id", "oracle_id", "corpus_digest", "isolation_profile",
             "signature_verified", "signature_key_id", "rollback_plan_digest",
-            "previous_head_sha", "result_category", "receipt_digest",
+            "previous_head_sha", "result_category", "receipt_digest", "operator_id",
+            "target_id", "last_known_good_commit", "recovered_head_sha",
         }
         if set(metadata) - allowed_metadata:
             raise ValueError("metadata contains fields outside the safe evidence allowlist")
@@ -286,7 +287,8 @@ class EvidenceCapture:
         }
         allowed = required | {
             "evaluator_id", "oracle_id", "runtime_id", "corpus_digest",
-            "isolation_profile", "external_system",
+            "isolation_profile", "external_system", "operator_id", "target_id",
+            "rollback_plan_digest", "last_known_good_commit", "recovered_head_sha",
         }
         if required - set(payload) or set(payload) - allowed:
             raise ValueError("external evidence payload has missing or unknown fields")
@@ -305,6 +307,21 @@ class EvidenceCapture:
             str(payload.get("runtime_id", "")),
         }:
             raise ValueError("evaluated runtime, evaluator, and oracle cannot self-attest this envelope")
+        if payload["source_type"] == "operator" and payload["evidence_type"] == "rollback_rehearsal":
+            required_rollback = {
+                "operator_id", "target_id", "rollback_plan_digest",
+                "last_known_good_commit", "recovered_head_sha",
+            }
+            if required_rollback - set(payload):
+                raise ValueError("operator rollback receipt is missing required rehearsal fields")
+            if not _COMMIT_RE.fullmatch(str(payload["last_known_good_commit"])):
+                raise ValueError("last_known_good_commit must be a full commit SHA")
+            if not _COMMIT_RE.fullmatch(str(payload["recovered_head_sha"])):
+                raise ValueError("recovered_head_sha must be a full commit SHA")
+            if payload["status"] in {"passed", "verified"} and payload["recovered_head_sha"] != payload["last_known_good_commit"]:
+                raise ValueError("successful rollback receipt must prove recovery to last-known-good")
+            if not _SHA_RE.fullmatch(str(payload["rollback_plan_digest"])):
+                raise ValueError("rollback_plan_digest must be a SHA-256 digest")
         try:
             issued = datetime.fromisoformat(str(payload["issued_at"]).replace("Z", "+00:00"))
             if issued.tzinfo is None or issued.utcoffset() is None:
@@ -364,9 +381,11 @@ class EvidenceCapture:
             "result_category": status,
             "phase": "external_evidence_ingestion",
         }
-        for key in ("evaluator_id", "oracle_id", "isolation_profile"):
+        for key in ("evaluator_id", "oracle_id", "isolation_profile", "operator_id", "target_id", "last_known_good_commit", "recovered_head_sha"):
             if key in payload:
                 metadata[key] = _text(payload[key], key)
+        if "rollback_plan_digest" in payload:
+            metadata["rollback_plan_digest"] = _text(payload["rollback_plan_digest"], "rollback_plan_digest", 64)
         if "corpus_digest" in payload:
             metadata["corpus_digest"] = _text(payload["corpus_digest"], "corpus_digest", 64)
             if not _SHA_RE.fullmatch(metadata["corpus_digest"]):
