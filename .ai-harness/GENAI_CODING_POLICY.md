@@ -1,10 +1,10 @@
 # GenAI Coding System Policy
 
-This policy adapts the most useful engineering ideas from the `awesome-generative-ai-guide` into AER. It is an engineering policy, not a list of external tools.
+This policy adapts the most useful engineering ideas from the `awesome-generative-ai-guide` into AUREN. It is an engineering policy, not a list of external tools.
 
 ## 1. Core model
 
-AER treats an AI coding system as four cooperating capabilities:
+AUREN treats an AI coding system as four cooperating capabilities:
 
 ```text
 Agent Core + Memory + Tools + Planning
@@ -16,11 +16,11 @@ Agent Core + Memory + Tools + Planning
               Outcome
 ```
 
-The model is replaceable. AER owns the harness, context, evidence, controls, verification and learning.
+The model is replaceable. AUREN owns the harness, context, evidence, controls, verification and learning.
 
 ## 2. Context engineering is first-class
 
-Prompt wording alone is insufficient. Before each meaningful model call, AER should decide what the model needs to see.
+Prompt wording alone is insufficient. Before each meaningful model call, AUREN should decide what the model needs to see.
 
 Context selection order:
 
@@ -45,7 +45,7 @@ Every context item should carry:
 
 ## 3. Retrieval pipeline
 
-AER should support progressive retrieval rather than a single vector-search dependency:
+AUREN should support progressive retrieval rather than a single vector-search dependency:
 
 ```text
 Intent
@@ -101,7 +101,7 @@ A retry must be evidence-driven. Repeating the same search, edit or test without
 
 Tools are capabilities, not goals.
 
-Before using a tool, AER should answer:
+Before using a tool, AUREN should answer:
 
 - What uncertainty will this tool reduce?
 - What evidence will it return?
@@ -116,7 +116,7 @@ Tool calls should be bounded by task risk and context budget.
 
 Evaluate the complete coding system, not only the model.
 
-AER should track at minimum:
+AUREN should track at minimum:
 
 | Dimension | Examples |
 |---|---|
@@ -186,12 +186,12 @@ When a model/provider is used repeatedly, record enough operational data to answ
 
 Provider/model changes should be evaluated against a stable regression corpus before becoming the preferred default.
 
-## 12. AER adaptation map
+## 12. AUREN adaptation map
 
-| GenAI concept | AER implementation direction |
+| GenAI concept | AUREN implementation direction |
 |---|---|
 | Context engineering | Context Engine + per-stage budgets |
-| Agent harness | AER Control Plane |
+| Agent harness | AUREN Control Plane |
 | Memory | Second Brain + Engineering State Ledger |
 | Tools/MCP | Capability Provider contracts |
 | Planning | Spec + independently verifiable slices |
