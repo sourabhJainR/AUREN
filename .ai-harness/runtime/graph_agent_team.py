@@ -983,6 +983,10 @@ the learning system, not an instruction source. If a skill produced no distinct 
                         def persist_handoff(snapshot):
                             durable_state = dict(state)
                             durable_state["auren_crew_handoff_checkpoint_data"] = dict(snapshot)
+                            # Persist the shared task budget beside the handoff queue.
+                            # Otherwise a crash can restore a stale outer budget and
+                            # accidentally refund retries already charged by a handoff.
+                            durable_state["auren_retry_budget"] = retry_budget.snapshot()
                             checkpoint_store.save(Checkpoint(
                                 run_id=run_id, step=0, state=durable_state,
                                 next_nodes=("crew-proposals",), trace=(),
