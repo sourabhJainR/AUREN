@@ -5,6 +5,70 @@ from portable.engineering_design_guard import (
 )
 
 
+
+def test_receipt_digest_binds_canonical_changed_paths_and_risk():
+    base = EngineeringDesignGuard.review(
+        intent="Update project metadata",
+        changed_paths=["README.md", "VERSION"],
+        risk="medium",
+        design={"architecture": "documentation and version metadata only"},
+    )
+    reordered = EngineeringDesignGuard.review(
+        intent="Update project metadata",
+        changed_paths=["VERSION", "README.md", "README.md"],
+        risk=" MEDIUM ",
+        design={"architecture": "documentation and version metadata only"},
+    )
+    different_scope = EngineeringDesignGuard.review(
+        intent="Update project metadata",
+        changed_paths=["README.md", "VERSION.json"],
+        risk="medium",
+        design={"architecture": "documentation and version metadata only"},
+    )
+    different_risk = EngineeringDesignGuard.review(
+        intent="Update project metadata",
+        changed_paths=["README.md", "VERSION"],
+        risk="low",
+        design={"architecture": "documentation and version metadata only"},
+    )
+
+    assert base.receipt_digest == reordered.receipt_digest
+    assert base.changed_paths == ("README.md", "VERSION")
+    different_revision = EngineeringDesignGuard.review(
+        intent="Update project metadata",
+        changed_paths=["README.md", "VERSION"],
+        risk="medium",
+        code_revision="abc1234",
+        design={"architecture": "documentation and version metadata only"},
+    )
+    bound_revision = EngineeringDesignGuard.review(
+        intent="Update project metadata",
+        changed_paths=["README.md", "VERSION"],
+        risk="medium",
+        code_revision="def5678",
+        design={"architecture": "documentation and version metadata only"},
+    )
+
+    assert base.receipt_digest != different_scope.receipt_digest
+    assert base.receipt_digest != different_risk.receipt_digest
+    assert different_revision.receipt_digest != bound_revision.receipt_digest
+    evidence = EngineeringDesignGuard.as_evidence(base)
+    assert evidence["changed_paths"] == ["README.md", "VERSION"]
+    assert evidence["risk"] == "medium"
+    assert evidence["code_revision"] == ""
+
+
+def test_unknown_risk_classification_fails_closed():
+    import pytest
+
+    with pytest.raises(ValueError, match="risk must be one of"):
+        EngineeringDesignGuard.review(
+            intent="Change request handling behavior",
+            changed_paths=["portable/request_handler.py"],
+            risk="very-high",
+            design={"architecture": "reuse existing handler boundary"},
+        )
+
 def test_high_risk_external_change_requires_resilience_contract():
     receipt = EngineeringDesignGuard.review(
         intent="Add retry handling to outbound payment API",

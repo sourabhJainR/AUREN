@@ -376,16 +376,16 @@ class Orchestrator:
             key=lambda value: {"low": 0, "medium": 1, "high": 2, "critical": 3}.get(value, 1),
             default="medium",
         ))
+        code_revision = str(state.get("code_revision", ""))
         receipt = EngineeringDesignGuard.review(
             intent=intent,
             changed_paths=changed_paths,
             design=design,
             risk=risk,
+            code_revision=code_revision,
         )
+        # Do not mutate digest-bound receipt fields after projection.
         evidence_payload = EngineeringDesignGuard.as_evidence(receipt)
-        evidence_payload["risk"] = risk
-        evidence_payload["changed_paths"] = list(changed_paths)
-        evidence_payload["code_revision"] = str(state.get("code_revision", ""))
         state["engineering_design_review"] = evidence_payload
         run.record(Evidence(
             "engineering-design-review",
@@ -399,7 +399,7 @@ class Orchestrator:
             "dimensions": list(receipt.dimensions),
             "receipt_digest": receipt.receipt_digest,
             "intent_digest": receipt.intent_digest,
-            "code_revision": str(state.get("code_revision", "")),
+            "code_revision": receipt.code_revision,
         })
         if receipt.blocking:
             run.status = RunStatus.BLOCKED

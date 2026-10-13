@@ -56,6 +56,9 @@ class DesignReviewReceipt:
     findings: tuple[DesignFinding, ...]
     status: str
     receipt_digest: str
+    changed_paths: tuple[str, ...] = ()
+    risk: str = "medium"
+    code_revision: str = ""
 
     @property
     def blocking(self) -> bool:
@@ -142,6 +145,8 @@ class EngineeringDesignGuard:
 
     @staticmethod
     def intent_digest(intent: str) -> str:
+        if not isinstance(intent, str) or not intent.strip():
+            raise ValueError("engineering design intent must be non-empty text")
         return hashlib.sha256(intent.strip().encode("utf-8")).hexdigest()
 
     @classmethod
@@ -194,18 +199,30 @@ class EngineeringDesignGuard:
         changed_paths: Iterable[str] = (),
         design: Mapping[str, str] | None = None,
         risk: str = "medium",
+        code_revision: str = "",
         blocking_dimensions: Iterable[DesignDimension] = (
             DesignDimension.RESILIENCE, DesignDimension.SECURITY, DesignDimension.DATA,
             DesignDimension.CONCURRENCY, DesignDimension.DISTRIBUTED,
             DesignDimension.CORRECTNESS, DesignDimension.AI_AGENT,
         ),
     ) -> DesignReviewReceipt:
-        paths = tuple(changed_paths)
-        dimensions = cls.infer_dimensions(intent, paths, risk)
+        if not isinstance(risk, str) or risk.strip().lower() not in {"low", "medium", "high", "critical"}:
+            raise ValueError("risk must be one of: low, medium, high, critical")
+        normalized_risk = risk.strip().lower()
+        if not isinstance(code_revision, str):
+            raise ValueError("code_revision must be text")
+        normalized_revision = code_revision.strip()
+        raw_paths = tuple(changed_paths)
+        if any(not isinstance(path, str) or not path.strip() for path in raw_paths):
+            raise ValueError("changed paths must be non-empty strings")
+        # Canonical path identity makes the receipt stable across input ordering
+        # and binds the exact scope reviewed to its digest.
+        paths = tuple(sorted(set(path.strip().replace("\\", "/") for path in raw_paths)))
+        dimensions = cls.infer_dimensions(intent, paths, normalized_risk)
         declared = {str(k): str(v).strip() for k, v in (design or {}).items() if str(v).strip()}
         blocking_set = set(blocking_dimensions)
         findings: list[DesignFinding] = []
-        high_risk = risk.lower() in cls._HIGH_RISK
+        high_risk = normalized_risk in cls._HIGH_RISK
 
         def is_not_applicable(dimension: DesignDimension, *keys: str) -> bool:
             names = keys or cls._DIMENSION_KEYS[dimension]
@@ -309,11 +326,17 @@ class EngineeringDesignGuard:
             "intent_digest": cls.intent_digest(intent),
             "dimensions": [d.value for d in dimensions],
             "declared": dict(sorted(declared.items())),
+            "changed_paths": list(paths),
+            "risk": normalized_risk,
+            "code_revision": normalized_revision,
             "findings": [f.__dict__ | {"dimension": f.dimension.value, "severity": f.severity.value} for f in findings],
             "status": status,
         }
         digest = hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode("utf-8")).hexdigest()
-        return DesignReviewReceipt(cls.intent_digest(intent), tuple(d.value for d in dimensions), declared, tuple(findings), status, digest)
+        return DesignReviewReceipt(
+            cls.intent_digest(intent), tuple(d.value for d in dimensions), declared,
+            tuple(findings), status, digest, paths, normalized_risk, normalized_revision,
+        )
 
     @staticmethod
     def as_evidence(receipt: DesignReviewReceipt) -> dict[str, object]:
@@ -322,6 +345,9 @@ class EngineeringDesignGuard:
             "kind": "engineering_design_review",
             "digest": receipt.receipt_digest,
             "intent_digest": receipt.intent_digest,
+            "changed_paths": list(receipt.changed_paths),
+            "risk": receipt.risk,
+            "code_revision": receipt.code_revision,
             "dimensions": list(receipt.dimensions),
             "status": receipt.status,
             "findings": [
