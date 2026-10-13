@@ -94,6 +94,37 @@ class ExternalSignedEvidenceTests(unittest.TestCase):
                 metadata={"signature_verified": True},
             )
 
+    def test_operator_rollback_receipt_binds_target_and_last_known_good(self):
+        envelope = self.envelope(
+            source_type="operator",
+            evidence_type="rollback_rehearsal",
+            operator_id="release-operator",
+            target_id="staging-cluster-a",
+            rollback_plan_digest="d" * 64,
+            last_known_good_commit="c" * 40,
+            recovered_head_sha="c" * 40,
+        )
+        result = self.ingest(envelope)
+        self.assertTrue(result["signature_verified"])
+        self.assertEqual(self.ledger.resolve(
+            "external:run-42", repository=REPOSITORY, head_sha=HEAD
+        )["evidence_type"], "rollback_rehearsal")
+        self.assertEqual(self.capture.events()[-1]["metadata"]["operator_id"], "release-operator")
+
+    def test_successful_rollback_receipt_cannot_claim_wrong_recovered_head(self):
+        envelope = self.envelope(
+            source_type="operator",
+            evidence_type="rollback_rehearsal",
+            operator_id="release-operator",
+            target_id="staging-cluster-a",
+            rollback_plan_digest="d" * 64,
+            last_known_good_commit="c" * 40,
+            recovered_head_sha="d" * 40,
+        )
+        with self.assertRaisesRegex(ValueError, "last-known-good"):
+            self.ingest(envelope)
+        self.assertEqual(self.capture.signed_receipts(), ())
+
     def test_unknown_fields_and_wrong_repository_are_rejected(self):
         with self.assertRaisesRegex(ValueError, "unknown fields"):
             self.ingest(self.envelope(unexpected="payload"))
