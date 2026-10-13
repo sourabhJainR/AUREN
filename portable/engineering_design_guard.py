@@ -25,6 +25,13 @@ class DesignDimension(str, Enum):
     LEGACY = "legacy"
     CONSTRUCTION = "construction"
     COMPATIBILITY = "compatibility"
+    SECURITY = "security"
+    PERFORMANCE = "performance"
+    CONCURRENCY = "concurrency"
+    DISTRIBUTED = "distributed"
+    CORRECTNESS = "correctness"
+    OPERATIONS = "operations"
+    AI_AGENT = "ai_agent"
 
 
 class FindingSeverity(str, Enum):
@@ -166,7 +173,11 @@ class EngineeringDesignGuard:
         changed_paths: Iterable[str] = (),
         design: Mapping[str, str] | None = None,
         risk: str = "medium",
-        blocking_dimensions: Iterable[DesignDimension] = (DesignDimension.RESILIENCE,),
+        blocking_dimensions: Iterable[DesignDimension] = (
+            DesignDimension.RESILIENCE, DesignDimension.SECURITY, DesignDimension.DATA,
+            DesignDimension.CONCURRENCY, DesignDimension.DISTRIBUTED,
+            DesignDimension.CORRECTNESS, DesignDimension.AI_AGENT,
+        ),
     ) -> DesignReviewReceipt:
         paths = tuple(changed_paths)
         dimensions = cls.infer_dimensions(intent, paths, risk)
@@ -204,6 +215,53 @@ class EngineeringDesignGuard:
         if DesignDimension.RESILIENCE in dimensions and not is_not_applicable(DesignDimension.RESILIENCE) and not any(k in declared for k in ("timeout", "retry", "recovery", "performance", "resilience")):
             severity = FindingSeverity.BLOCKING if high_risk else FindingSeverity.WARNING
             findings.append(DesignFinding(DesignDimension.RESILIENCE, severity, "External/asynchronous/performance-sensitive work should state timeout, retry, recovery, and performance behavior"))
+
+        # These dimensions require a concrete contract, not a broad declaration
+        # that merely repeats the dimension name. Alternatives keep the policy
+        # adaptable to different architectures while ensuring key failure modes
+        # are considered explicitly.
+        required_contracts = {
+            DesignDimension.SECURITY: (
+                (("threat_model", "security"), "State the trust boundary and security threat/mitigation, or an explicit not_applicable reason"),
+                (("authorization", "least_privilege", "tool_permissions"), "State authorization and least-privilege/tool authority boundaries, or an explicit not_applicable reason"),
+            ),
+            DesignDimension.PERFORMANCE: (
+                (("performance_budget", "benchmark", "profiling", "latency", "resource_budget", "performance"), "State a measurable performance/resource expectation or explain why measurement is not applicable"),
+            ),
+            DesignDimension.CONCURRENCY: (
+                (("ownership", "concurrency"), "State shared-state ownership and concurrency model, or an explicit not_applicable reason"),
+                (("cancellation", "synchronization", "race_test", "deadlock", "parallelism"), "State cancellation/synchronization and race/deadlock verification, or an explicit not_applicable reason"),
+            ),
+            DesignDimension.DISTRIBUTED: (
+                (("consistency", "cap_tradeoff", "pacelc", "distributed"), "State consistency and CAP/PACELC trade-offs where partitions or replicas matter, or an explicit not_applicable reason"),
+                (("idempotency", "ordering", "quorum", "split_brain"), "State duplicate delivery, ordering, quorum, or split-brain controls as applicable, or an explicit not_applicable reason"),
+            ),
+            DesignDimension.CORRECTNESS: (
+                (("invariant", "correctness", "transaction", "source_of_truth"), "State critical invariants, transaction/source-of-truth semantics, or an explicit not_applicable reason"),
+            ),
+            DesignDimension.OPERATIONS: (
+                (("rollback", "recovery", "rollout", "operations"), "State rollback/recovery and rollout behavior, or an explicit not_applicable reason"),
+            ),
+            DesignDimension.AI_AGENT: (
+                (("agent_safety", "tool_permissions", "human_approval"), "State agent authority, tool permission and approval boundaries, or an explicit not_applicable reason"),
+                (("evaluation", "provenance", "autonomy_budget"), "State evaluation/evidence provenance and bounded-autonomy criteria, or an explicit not_applicable reason"),
+            ),
+        }
+        for dimension, groups in required_contracts.items():
+            if dimension not in dimensions:
+                continue
+            for alternatives, message in groups:
+                if any(key in declared and declared[key].lower().startswith("not_applicable") for key in alternatives):
+                    reasoned = any(
+                        key in declared and (":" in declared[key] or " - " in declared[key])
+                        for key in alternatives
+                    )
+                    if not reasoned:
+                        findings.append(DesignFinding(dimension, FindingSeverity.WARNING, "not_applicable must include a reason", alternatives[0]))
+                    continue
+                if not any(key in declared and not declared[key].lower().startswith("not_applicable") for key in alternatives):
+                    severity = FindingSeverity.BLOCKING if high_risk and dimension in blocking_set else FindingSeverity.WARNING
+                    findings.append(DesignFinding(dimension, severity, message, None))
 
         if cls._is_code_change(paths):
             for key, dimension, message in cls._UNIVERSAL_QUALITY:
