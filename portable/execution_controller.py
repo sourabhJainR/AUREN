@@ -578,6 +578,10 @@ class ExecutionController:
             findings.append(f"failed_tasks={failed}")
         if stale:
             findings.append(f"stale_tasks={stale}")
+        if self.evidence_capture.sink is not None:
+            delivery = self.evidence_capture.flush_pending(limit=100)
+            if delivery["pending"]:
+                findings.append(f"evidence_exports_pending={delivery['pending']}")
         return tuple(findings)
 
     def task(self, task_id: str) -> DurableTask | None:
