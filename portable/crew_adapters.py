@@ -433,7 +433,9 @@ class GraphHandoffController:
                 return self._in_flight[handoff_id]
             handoff = CrewHandoff(source_crew, target_crew, task.strip(), source_plan_digest, 0, handoff_id)
             if handoff_id in self._seen_ids:
-                return handoff
+                raise ValueError(
+                    "handoff was already claimed or completed; duplicate dispatch is blocked"
+                )
             self._queue.append(handoff)
             self._seen_ids.add(handoff_id)
             self._persist()
