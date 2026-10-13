@@ -280,6 +280,23 @@ class ApprovedCrewAdapterTests(unittest.TestCase):
             controller.mark_completed(handoff, independent_review_passed=False)
         controller.mark_completed(handoff, independent_review_passed=True)
 
+    def test_completed_handoff_cannot_be_enqueued_again(self):
+        controller = GraphHandoffController(max_attempts=2)
+        kwargs = {
+            "source_crew": "backend_api",
+            "target_crew": "qa_reviewer",
+            "task": "Review endpoint",
+            "source_plan_digest": "plan-digest",
+            "allowed_handoffs": ("qa_reviewer",),
+            "selected_crews": ("backend_api", "qa_reviewer"),
+        }
+        handoff = controller.enqueue(**kwargs)
+        claimed = controller.claim_next(graph_node_active=True)
+        self.assertEqual(claimed.handoff_id, handoff.handoff_id)
+        controller.mark_completed(claimed, independent_review_passed=True)
+        with self.assertRaisesRegex(ValueError, "already claimed or completed"):
+            controller.enqueue(**kwargs)
+
     def test_handoff_checkpoint_resumes_queued_work(self):
         controller = GraphHandoffController(max_attempts=3)
         controller.enqueue(
