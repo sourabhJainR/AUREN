@@ -420,32 +420,64 @@ class GraphHandoffController:
             raise PermissionError(f"handoff target crew is not assigned to the graph plan: {target_crew}")
         if not task.strip() or not source_plan_digest.strip():
             raise ValueError("handoff task and source plan digest are required")
-        handoff = CrewHandoff(source_crew, target_crew, task.strip(), source_plan_digest)
-        self._queue.append(handoff)
-        return handoff
+        handoff_id = self._handoff_id(source_crew, target_crew, task, source_plan_digest)
+        with self._lock:
+            for queued in self._queue:
+                if queued.handoff_id == handoff_id:
+                    return queued
+            if handoff_id in self._in_flight:
+                return self._in_flight[handoff_id]
+            handoff = CrewHandoff(source_crew, target_crew, task.strip(), source_plan_digest, 0, handoff_id)
+            if handoff_id in self._seen_ids:
+                return handoff
+            self._queue.append(handoff)
+            self._seen_ids.add(handoff_id)
+            self._persist()
+            return handoff
 
     def claim_next(self, *, graph_node_active: bool) -> CrewHandoff | None:
         if not graph_node_active:
             raise RuntimeError("handoffs may only be claimed by an active graph node")
-        if not self._queue:
-            return None
-        return self._queue.pop(0)
+        with self._lock:
+            if not self._queue:
+                return None
+            item = self._queue.pop(0)
+            self._in_flight[item.handoff_id] = item
+            self._persist()
+            return item
 
     def retry(self, handoff: CrewHandoff, *, retryable: bool) -> CrewHandoff | None:
-        if not retryable or handoff.attempt + 1 >= self.max_attempts:
-            return None
-        retry = CrewHandoff(
-            handoff.source_crew, handoff.target_crew, handoff.task,
-            handoff.source_plan_digest, handoff.attempt + 1,
-        )
-        self._queue.append(retry)
-        return retry
+        with self._lock:
+            if not retryable or handoff.attempt + 1 >= self.max_attempts:
+                self._in_flight.pop(handoff.handoff_id, None)
+                self._persist()
+                return None
+            if self.retry_budget is not None and not self.retry_budget.consume(
+                component="crew_handoff",
+                operation_key=f"handoff:{handoff.handoff_id}:retry:{handoff.attempt + 1}",
+            ):
+                self._in_flight.pop(handoff.handoff_id, None)
+                self._persist()
+                return None
+            retry = CrewHandoff(
+                handoff.source_crew, handoff.target_crew, handoff.task,
+                handoff.source_plan_digest, handoff.attempt + 1, handoff.handoff_id,
+            )
+            self._in_flight.pop(handoff.handoff_id, None)
+            self._queue.append(retry)
+            self._persist()
+            return retry
 
     def mark_completed(self, handoff: CrewHandoff, *, independent_review_passed: bool) -> None:
         if not independent_review_passed:
             raise PermissionError("handoff cannot complete before independent review passes")
-        key = (handoff.source_crew, handoff.target_crew, hashlib.sha256(handoff.task.encode()).hexdigest())
-        self._completed.add(key)
+        with self._lock:
+            key = (handoff.source_crew, handoff.target_crew, hashlib.sha256(handoff.task.encode()).hexdigest())
+            self._completed.add(key)
+            if handoff.handoff_id:
+                self._in_flight.pop(handoff.handoff_id, None)
+                self._seen_ids.add(handoff.handoff_id)
+            self._persist()
 
     def snapshot(self) -> dict[str, Any]:
         """JSON-safe checkpoint for a supervisor-owned durable store."""
