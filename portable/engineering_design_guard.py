@@ -58,6 +58,7 @@ class DesignReviewReceipt:
     receipt_digest: str
     changed_paths: tuple[str, ...] = ()
     risk: str = "medium"
+    code_revision: str = ""
 
     @property
     def blocking(self) -> bool:
@@ -198,6 +199,7 @@ class EngineeringDesignGuard:
         changed_paths: Iterable[str] = (),
         design: Mapping[str, str] | None = None,
         risk: str = "medium",
+        code_revision: str = "",
         blocking_dimensions: Iterable[DesignDimension] = (
             DesignDimension.RESILIENCE, DesignDimension.SECURITY, DesignDimension.DATA,
             DesignDimension.CONCURRENCY, DesignDimension.DISTRIBUTED,
@@ -207,6 +209,9 @@ class EngineeringDesignGuard:
         if not isinstance(risk, str) or risk.strip().lower() not in {"low", "medium", "high", "critical"}:
             raise ValueError("risk must be one of: low, medium, high, critical")
         normalized_risk = risk.strip().lower()
+        if not isinstance(code_revision, str):
+            raise ValueError("code_revision must be text")
+        normalized_revision = code_revision.strip()
         raw_paths = tuple(changed_paths)
         if any(not isinstance(path, str) or not path.strip() for path in raw_paths):
             raise ValueError("changed paths must be non-empty strings")
@@ -323,13 +328,14 @@ class EngineeringDesignGuard:
             "declared": dict(sorted(declared.items())),
             "changed_paths": list(paths),
             "risk": normalized_risk,
+            "code_revision": normalized_revision,
             "findings": [f.__dict__ | {"dimension": f.dimension.value, "severity": f.severity.value} for f in findings],
             "status": status,
         }
         digest = hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode("utf-8")).hexdigest()
         return DesignReviewReceipt(
             cls.intent_digest(intent), tuple(d.value for d in dimensions), declared,
-            tuple(findings), status, digest, paths, normalized_risk,
+            tuple(findings), status, digest, paths, normalized_risk, normalized_revision,
         )
 
     @staticmethod
@@ -341,6 +347,7 @@ class EngineeringDesignGuard:
             "intent_digest": receipt.intent_digest,
             "changed_paths": list(receipt.changed_paths),
             "risk": receipt.risk,
+            "code_revision": receipt.code_revision,
             "dimensions": list(receipt.dimensions),
             "status": receipt.status,
             "findings": [
