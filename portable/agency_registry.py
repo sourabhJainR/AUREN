@@ -1,4 +1,4 @@
-"""AER specialist registry and deterministic, explainable routing helpers."""
+"""AUREN specialist registry and deterministic, explainable routing helpers."""
 from __future__ import annotations
 
 import json
