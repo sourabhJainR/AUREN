@@ -131,6 +131,25 @@ class ExecutionControllerPromotionGateTests(unittest.TestCase):
                 "promote-capability", protected_promotion_handler, execution_class="read_only"
             )
 
+    def test_classified_legacy_handler_without_digest_fails_closed(self):
+        with __import__("sqlite3").connect(self.controller.db_path) as db:
+            db.execute(
+                "UPDATE handlers SET implementation_digest='' WHERE name=?",
+                ("promote-capability",),
+            )
+        with self.assertRaisesRegex(ValueError, "has no implementation digest"):
+            self.controller.register_handler(
+                "promote-capability",
+                protected_promotion_handler,
+                execution_class="consequential",
+                ci_gate_policy={
+                    "expected_head_sha": HEAD_SHA,
+                    "required_checks": ["required-ci"],
+                    "evidence_handler": "trusted-ci",
+                },
+                promotion_gate_policy={"context_handler": "trusted-context"},
+            )
+
     def test_loaded_handler_source_must_match_registered_implementation_digest(self):
         self.controller._load_handler("promote-capability")
         module = sys.modules[protected_promotion_handler.__module__]
