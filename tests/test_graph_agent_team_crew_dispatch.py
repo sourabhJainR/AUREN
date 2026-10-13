@@ -191,6 +191,15 @@ class HarnessCrewDispatchTests(unittest.TestCase):
             self.assertEqual(len(saved.state["auren_crew_handoff_checkpoint_data"]["completed"]), 1)
             self.assertEqual(saved.state["auren_crew_handoff_checkpoint_data"]["in_flight"], [])
 
+    def test_independent_reviewer_cannot_reuse_a_specialist_crew_identity(self):
+        with self.assertRaisesRegex(ValueError, "distinct from every specialist crew"):
+            GraphAgentTeam(
+                [AgentSpec("planner", "planner")],
+                independent_handoff_reviewer=lambda _request: {},
+                independent_handoff_reviewer_id="qa_reviewer",
+                independent_handoff_reviewer_version="reviewer-v1",
+            )
+
     def test_handoff_request_fails_closed_without_canonical_checkpoint_store(self):
         with tempfile.TemporaryDirectory() as tmp:
             memory = SharedTaskMemory(Path(tmp) / "memory.jsonl", "intent-handoff-no-store")
