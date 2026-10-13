@@ -17,7 +17,7 @@ pre{overflow:auto;background:#050b14;border:1px solid var(--line);border-radius:
 </style>
 </head>
 <body>
-<nav><div class="wrap inner"><strong>AUREN</strong><span><a href="#system">System</a><a href="#demo">Demo</a><a href="#results">Results</a><a href="#deploy">Deploy</a><a href="https://github.com/sourabhJainR/AUREN">GitHub</a></span></div></nav>
+<nav><div class="wrap inner"><strong>AUREN</strong><span><a href="#system">System</a><a href="#demo">Demo</a><a href="#results">Results</a><a href="#latest">Latest</a><a href="#deploy">Deploy</a><a href="https://github.com/sourabhJainR/AUREN">GitHub</a></span></div></nav>
 <header class="hero wrap">
 <div class="eyebrow">Autonomous Unified Reasoning &amp; Engineering Network · v1.0.4</div>
 <h1>AI engineering that learns from evidence.</h1>
@@ -79,6 +79,26 @@ and report open risks.</code></pre>
 <tr><td>Promotion condition</td><td><strong>Pass all gates</strong></td><td>Sealed receipt + randomized attribution + fresh holdout + transfer validity + evidence.</td></tr>
 </tbody></table>
 <div class="note"><strong>How to compare AUREN fairly:</strong> run the same task corpus with a baseline agent and AUREN, keep evaluation/oracle ownership independent, seal the holdout, randomize treatment assignment, report source and target performance, and publish the complete evidence lineage. AUREN should not get credit merely for producing a plausible answer.</div>
+
+<section id="latest"><div class="wrap">
+<h2>Latest implementation and verification</h2>
+<p class="lead">Repository status checked on 13 October 2026 against <code>main</code> at <code>baae7a7</code>. These are implementation and CI results—not a claim of independently verified general intelligence.</p>
+<div class="grid">
+<div class="card"><h3>Specialists dispatched through the graph</h3><p>Integration coverage exercises eight specialist roles through the real <code>GraphAgentTeam → StateGraph → auren_crew_dispatch → adapter → approved tool registry</code> path, with per-specialist tool scopes, pending independent review and secret-boundary assertions. <a href="https://github.com/sourabhJainR/AUREN/pull/515">Implementation PR</a></p></div>
+<div class="card"><h3>Cross-platform runtime resilience</h3><p>The runtime resilience matrix passes on Ubuntu and Windows with Python 3.11 and 3.12. It covers durable state, SQLite handle closure, evidence ingestion, concurrent claims and graph timeout/retry contracts. <a href="https://github.com/sourabhJainR/AUREN/pull/513">CI hardening PR</a></p></div>
+<div class="card"><h3>Durable replay protection</h3><p>A SQLite-backed attestation replay registry provides durable, transactionally claimed one-time IDs across processes sharing the same database file. <a href="https://github.com/sourabhJainR/AUREN/pull/514">Implementation PR</a></p></div>
+</div>
+<h3>Evidence status: what is—and is not—verified</h3>
+<table class="table">
+<thead><tr><th>Gate</th><th>Current status</th><th>Evidence boundary</th></tr></thead>
+<tbody>
+<tr><td>Repository CI on <code>main</code></td><td><strong class="good">Passed</strong></td><td>Current main's AI Harness, architecture, bundle, runtime resilience, traceability and cleanup workflows report success.</td></tr>
+<tr><td>Public Pages deployment workflow</td><td><strong class="good">Passed</strong></td><td>GitHub Actions build and deploy jobs completed successfully for the current main revision.</td></tr>
+<tr><td>Independent external corpus and evaluator</td><td><strong>Pending</strong></td><td>Requires an independently controlled sealed corpus, oracle, signed campaign results and fresh holdout. <a href="https://github.com/sourabhJainR/AUREN/issues/404">Track issue #404</a>.</td></tr>
+<tr><td>Independent sandbox-isolation audit</td><td><strong>Pending</strong></td><td>Requires an external operator/auditor and independently verified audit evidence. <a href="https://github.com/sourabhJainR/AUREN/issues/471">Track issue #471</a>.</td></tr>
+<tr><td>Live migration and rollback rehearsal</td><td><strong>Pending</strong></td><td>Repository CI does not test a user's real installation state. <a href="https://github.com/sourabhJainR/AUREN/issues/379">Track issue #379</a>.</td></tr>
+</tbody></table>
+<p class="small">The transfer scores below are values from checked-in test fixtures only. They are not externally measured AUREN performance and should not be presented as such.</p>
 </div></section>
 
 <section><div class="wrap">
