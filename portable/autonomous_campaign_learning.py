@@ -127,12 +127,17 @@ class AutonomousCampaignController:
         minimum_holdout_score: float = 0.75,
         minimum_promotion_score: float = 0.80,
         lifecycle_canaries: int = 3,
+        capability_lifecycle_factory: Callable[[Path, str, int], CapabilityLifecycle] | None = None,
     ) -> None:
         self.root = Path(root)
         self.max_tasks = max(1, min(8, int(max_tasks)))
         self.minimum_holdout_score = max(0.0, min(1.0, float(minimum_holdout_score)))
         self.minimum_promotion_score = max(0.0, min(1.0, float(minimum_promotion_score)))
         self.lifecycle_canaries = max(1, int(lifecycle_canaries))
+        # A host may inject a lifecycle configured with trusted repository/head,
+        # canonical evidence IDs, authorized approvers, and a decision record.
+        # The default remains fail-closed when that authority is not configured.
+        self.capability_lifecycle_factory = capability_lifecycle_factory
 
     def select(self, requests: Iterable[BenchmarkExecutionRequest], *, max_tasks: int | None = None) -> tuple[BenchmarkExecutionRequest, ...]:
         limit = self.max_tasks if max_tasks is None else max(1, min(self.max_tasks, int(max_tasks)))
@@ -378,10 +383,17 @@ class AutonomousCampaignController:
 
         rollout = None
         if capability_id and baseline_score is not None:
-            lifecycle = CapabilityLifecycle(
-                _persistent_memory(self.root), "autonomous-campaign",
-                min_canaries=self.lifecycle_canaries,
-            )
+            if self.capability_lifecycle_factory is None:
+                lifecycle = CapabilityLifecycle(
+                    _persistent_memory(self.root), "autonomous-campaign",
+                    min_canaries=self.lifecycle_canaries,
+                )
+            else:
+                lifecycle = self.capability_lifecycle_factory(
+                    self.root, "autonomous-campaign", self.lifecycle_canaries
+                )
+                if not isinstance(lifecycle, CapabilityLifecycle):
+                    raise TypeError("capability_lifecycle_factory must return CapabilityLifecycle")
             try:
                 lifecycle.begin(capability_id, baseline_score=float(baseline_score))
             except ValueError:
@@ -393,16 +405,27 @@ class AutonomousCampaignController:
             for index, observation in enumerate(
                 x for x in observations if x.task_id in holdout_ids
             ):
+                evidence_ids = tuple(observation.evidence_ids)
+                # Bind the canary to real execution evidence. Missing evidence
+                # creates an explicitly unsafe canary, never a promotable one.
+                evidence_id = (
+                    evidence_ids[0]
+                    if evidence_ids
+                    else f"missing-evidence:{campaign_id}:{observation.task_id}"
+                )
                 rollout = lifecycle.record_canary(
                     capability_id, score=observation.realized_score,
-                    evidence_id=f"{campaign_id}:holdout:{index}",
+                    evidence_id=evidence_id,
                     safe=(
-                        observation.failure_class != "safety"
+                        bool(evidence_ids)
+                        and observation.failure_class != "safety"
                         and observation.realized_success
                     ),
                     metadata={
                         "campaign_id": campaign_id,
                         "holdout_score_gate": self.minimum_holdout_score,
+                        "evidence_ids": list(evidence_ids),
+                        "evidence_missing": not bool(evidence_ids),
                     },
                 )
                 if rollout.state == "rolled_back":
