@@ -55,6 +55,33 @@ WORM retention, retention/deletion policy, audit logging, and encrypted backups.
 AUREN's generic HTTPS adapter cannot guarantee those server-side properties; they
 must be validated for the actual external service.
 
+## Run the included receiver
+
+AUREN includes `portable.evidence_archive.EvidenceArchive` and
+`scripts/evidence_archive_server.py` as a minimal receiver. It authenticates the
+bearer token, verifies the event digest, rejects conflicting reuse of an event ID,
+stores signed receipt envelopes, and independently verifies receipt signatures
+using a trusted public-key file.
+
+1. Create a JSON file outside the repository mapping trusted signer IDs to base64url
+   Ed25519 public keys, and optionally a JSON list of revoked signer IDs.
+2. Inject `AUREN_ARCHIVE_TOKEN` (at least 32 characters) from your secret manager,
+   `AUREN_ARCHIVE_TRUSTED_PUBLIC_KEYS_FILE`, and optionally
+   `AUREN_ARCHIVE_REVOKED_SIGNERS_FILE`.
+3. Run `python -m scripts.evidence_archive_server` on a dedicated service account.
+   The default listener is `127.0.0.1:8765`; keep it on loopback and configure a
+   trusted TLS reverse proxy for `https://your-approved-host/v1/auren/events`.
+4. Configure AUREN clients with that HTTPS URL and the matching sink token.
+5. Restrict archive DB access and back it up to an independently controlled
+   immutable/WORM store. Test restore, retention, access revocation, and alerting.
+
+The included receiver is a small single-node archive, not a managed WORM service:
+it provides authenticated ingestion and immutable event-ID semantics, but OS-level
+administrators can still rewrite its SQLite file. Production deployments must use
+independent backups/WORM retention, access logging, key rotation/revocation, and
+tenant isolation. Never expose the built-in plain-HTTP listener directly to the
+public network.
+
 The Architecture Integrity workflow now records its exact-head outcome automatically
 and retains a 90-day GitHub Actions artifact. The local outbox retries delivery when
 new events are recorded. The durable supervisor also retries delivery during health
