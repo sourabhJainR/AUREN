@@ -42,6 +42,13 @@ def register_crew_adapters(adapters: dict[str, Any], *, replace: bool = False) -
     _CREW_ADAPTERS.update(adapters)
 
 
+def _requires_crew_contract(route: dict[str, Any], phase: str) -> bool:
+    return (
+        str(route.get("risk", "low")).strip().lower() in {"high", "critical"}
+        and phase in {"poc", "debug", "execute", "repair", "review"}
+    )
+
+
 def _phase_team(route: dict[str, Any], phase: str, graph_types):
     AgentSpec, GraphAgentTeam = graph_types
     risk = str(route.get("risk", "low"))
@@ -103,7 +110,11 @@ def _phase_team(route: dict[str, Any], phase: str, graph_types):
 
     final_deps = tuple(a.name for a in agents if a.name in review_names) or (agents[-1].name,)
     agents.append(AgentSpec("synthesizer", "team synthesizer", depends_on=final_deps, read_only=True, focus="Synthesize evidence, decisions, unresolved risks and the recommended next action for this phase."))
-    return GraphAgentTeam(agents)
+    return GraphAgentTeam(
+        agents,
+        crew_adapters=_CREW_ADAPTERS,
+        require_crew_adapters=_requires_crew_contract(route, phase),
+    )
 
 
 def _install_graph_team_bridge() -> None:
