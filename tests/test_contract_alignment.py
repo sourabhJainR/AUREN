@@ -142,7 +142,7 @@ class ContractAlignmentTests(unittest.TestCase):
             "portable.state_graph.GraphAgentTeam",
             "portable.crew_adapters",
             "issue #438",
-            "does not import or invoke",
+            "host registers adapters at bootstrap",
             "Guard authorization",
         ):
             self.assertIn(token, contract)
