@@ -127,7 +127,7 @@ class AurenStatePathsTests(unittest.TestCase):
             target = canonical / "memory" / "memory.db"
             _database(target, "new-canonical-write")
             AurenStatePaths.prepare(canonical, legacy)
-            with sqlite3.connect(target) as db:
+            with _closed_connection(target) as db:
                 values = {row[0] for row in db.execute("SELECT value FROM values_table")}
             self.assertEqual(values, {"legacy", "new-canonical-write"})
 
@@ -142,7 +142,7 @@ class AurenStatePathsTests(unittest.TestCase):
                 AurenStatePaths.prepare(canonical, legacy)
             with _closed_connection(source) as db:
                 self.assertEqual(db.execute("SELECT value FROM values_table").fetchone()[0], "legacy")
-            with sqlite3.connect(target) as db:
+            with _closed_connection(target) as db:
                 self.assertEqual(db.execute("SELECT value FROM values_table").fetchone()[0], "canonical")
 
     def test_migration_rejects_changed_legacy_copy_after_initial_migration(self):
