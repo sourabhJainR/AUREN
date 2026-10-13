@@ -21,7 +21,7 @@ from .repository_intelligence import (
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="AER canonical repository intelligence facade")
+    parser = argparse.ArgumentParser(description="AUREN canonical repository intelligence facade")
     parser.add_argument("root", nargs="?", default=".")
     parser.add_argument("--for", dest="query", default="repository orientation")
     parser.add_argument("--mode", default="search", choices=("search", "callers", "callees", "impact", "tests", "situ", "pack-task"))

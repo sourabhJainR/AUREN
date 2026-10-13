@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""AER provider conformance harness.
+"""AUREN provider conformance harness.
 
 Static mode validates the cross-provider contract without requiring provider
 credentials. Live mode is opt-in and probes installed local CLIs read-only.
@@ -161,7 +161,7 @@ def run(live: bool = False, write_report: bool = False) -> dict[str, Any]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Run AER cross-provider conformance checks")
+    parser = argparse.ArgumentParser(description="Run AUREN cross-provider conformance checks")
     parser.add_argument("--live", action="store_true", help="run read-only probes against installed provider CLIs")
     parser.add_argument("--write-report", action="store_true", help="persist the JSON report under .ai-harness")
     parser.add_argument("--json", action="store_true", help="emit machine-readable output")

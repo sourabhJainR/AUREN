@@ -1,6 +1,6 @@
 # Adaptive Problem-Solving Frameworks
 
-AER uses seven complementary problem-solving frameworks as a routing layer for every engineering task.
+AUREN uses seven complementary problem-solving frameworks as a routing layer for every engineering task.
 
 Every non-trivial task passes through: `INTAKE -> OBSERVE/ORIENT -> CLASSIFY -> SELECT FRAMEWORK(S) -> PLAN -> EXECUTE -> MEASURE/VERIFY -> LEARN`.
 
