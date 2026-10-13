@@ -61,7 +61,7 @@ class AdaptiveRuntime:
         if state_root is None:
             self.state_paths = AurenStatePaths.prepare(
                 canonical_root=Path.home() / ".auren",
-                legacy_root=legacy_state_root or (Path.home() / ".auren"),
+                legacy_root=legacy_state_root or (Path.home() / ".aer"),
             )
         else:
             self.state_paths = AurenStatePaths.prepare(
