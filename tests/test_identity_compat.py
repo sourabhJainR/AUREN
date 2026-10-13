@@ -8,6 +8,7 @@ from pathlib import Path
 
 from portable.identity_compat import auren_home, get_auren_env, project_state_dir
 from portable.local_llm import LocalLLMConfig, enabled as local_llm_enabled
+from portable.chat_capability import _default_runtime
 
 
 class IdentityCompatibilityTests(unittest.TestCase):
@@ -54,6 +55,21 @@ class IdentityCompatibilityTests(unittest.TestCase):
             auren_home(environ={"AUREN_HOME": "", "AER_HOME": "/tmp/legacy"})
         with self.assertRaisesRegex(ValueError, "legacy AER_HOME must not be empty"):
             auren_home(environ={"AER_HOME": ""})
+
+    def test_chat_runtime_honors_canonical_home_over_legacy_alias(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            canonical = root / "canonical"
+            legacy = root / "legacy"
+            with patch.dict(os.environ, {
+                "AUREN_HOME": str(canonical),
+                "AER_HOME": str(legacy),
+            }, clear=True):
+                with patch("portable.chat_capability.AutomationScheduler") as scheduler, patch(
+                    "portable.chat_capability.AdaptiveRuntime"
+                ):
+                    _default_runtime()
+            scheduler.assert_called_once_with(canonical / "automation" / "automation.db")
 
     def test_project_state_prefers_canonical_then_legacy_without_moving_it(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
