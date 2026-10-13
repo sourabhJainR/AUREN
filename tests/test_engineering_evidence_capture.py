@@ -55,6 +55,15 @@ class EngineeringEvidenceCaptureTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "SHA-256"):
             self.record(capture, artifact_digest="not-a-digest")
 
+    def test_secret_like_values_and_credential_bearing_urls_are_rejected(self):
+        capture = EvidenceCapture(self.path)
+        with self.assertRaisesRegex(ValueError, "secret or raw task content"):
+            self.record(capture, metadata={"handler": "worker password=hunter2"})
+        with self.assertRaisesRegex(ValueError, "query-string secrets"):
+            self.record(capture, evidence_uri="https://evidence.invalid/receipt?token=secret")
+        with self.assertRaisesRegex(ValueError, "query-string secrets"):
+            HttpsEvidenceSink("https://collector.invalid/events?token=secret", "token")
+
     def test_remote_export_is_queued_and_retriable_without_losing_local_event(self):
         capture = EvidenceCapture(self.path, sink=failing_sink)
         self.record(capture)
