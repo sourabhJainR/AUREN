@@ -22,6 +22,7 @@ LEGACY_ALLOWED = {
     ".ai-harness/runtime/legacy_compatibility.py",
     ".ai-harness/runtime/graph_agent_team.py",
     "portable/state_graph.py",
+    "scripts/conformance_oracles.py",
     "tests/test_state_paths.py",
     "tests/test_identity_compat.py",
     "tests/test_legacy_name_compatibility.py",
