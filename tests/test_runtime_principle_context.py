@@ -29,6 +29,28 @@ class RuntimePrincipleContextTests(unittest.TestCase):
         self.assertEqual(inputs["design_contract"], {"security": "reuse existing authorization boundary"})
         self.assertEqual(inputs["code_revision"], "candidate-revision-123")
 
+    def test_changed_file_inventory_includes_worktree_staged_and_untracked(self):
+        import engine
+        from unittest.mock import patch
+
+        with patch("engine.run_capture", side_effect=[
+            (0, "portable/worktree.py\\nshared.py"),
+            (0, "portable/staged.py\\nshared.py"),
+            (0, "tests/new_test.py\\n"),
+        ]):
+            self.assertEqual(
+                engine.changed_files(),
+                ["portable/staged.py", "portable/worktree.py", "shared.py", "tests/new_test.py"],
+            )
+
+    def test_changed_file_inventory_fails_closed_when_git_cannot_report_changes(self):
+        import engine
+        from unittest.mock import patch
+
+        with patch("engine.run_capture", return_value=(128, "not a repository")):
+            with self.assertRaisesRegex(RuntimeError, "cannot determine repository changes"):
+                engine.changed_files()
+
     def test_runtime_does_not_invent_revision_or_design_contract(self):
         inputs = _principle_context_inputs(
             {"risk": "unrecognized"},
