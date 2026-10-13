@@ -9,7 +9,7 @@ This register intentionally distinguishes compatibility from stale branding. Do 
 | Reference | Classification | Required treatment |
 |---|---|---|
 | `AER_*` environment variables (including `AER_HOME`, `AER_CORE_BIN`, `AER_LOCAL_LLM_*`, and `AER_OBSERVABILITY`) | Legacy environment aliases | Canonical `AUREN_*` settings take precedence; legacy names are read only as fallback through `portable.identity_compat`. Do not introduce direct reads of legacy names in new runtime code. |
-| `AER_GRAPH_TEAM` | Legacy crew/graph configuration alias | Resolve through the canonical configuration resolver; new configuration and emitted state use `AUREN_GRAPH_TEAM`. |
+| `AER_GRAPH_TEAM` | Legacy graph/crew configuration alias | Canonical `AUREN_GRAPH_TEAM` takes precedence; the legacy alias is read only through the compatibility resolver. |
 | `AER_GRAPH_TEAM` | Legacy crew/graph configuration alias | Resolve through the canonical configuration resolver; new configuration and emitted state use `AUREN_GRAPH_TEAM`. |
 | `aer_execution_strategy`, `aer_execution_mode` in old graph checkpoints | Legacy serialized state keys | Read only as fallback when the corresponding `auren_*` key is absent; new graph state must write only canonical `auren_*` keys. |
 | `aer_cli.py`, `aer-portable.zip`, `aer-bundle.json`, `aer-core` | Retired entry-point, distribution, manifest, and native-worker names | Use `auren_cli.py`, `auren-portable.zip`, `auren-bundle.json`, and `auren-core` for current installs. Mention old names only when documenting migration or historical artifacts. |
