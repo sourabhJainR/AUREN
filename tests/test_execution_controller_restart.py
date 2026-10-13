@@ -65,6 +65,29 @@ print(json.dumps({
         "attempts": 2,
     }
 
+def test_legacy_task_schema_adds_fencing_columns_without_losing_rows(tmp_path: Path):
+    state_dir = tmp_path / ".auren"
+    state_dir.mkdir(parents=True)
+    db_path = state_dir / "execution.sqlite3"
+    with sqlite3.connect(db_path) as db:
+        db.execute(
+            "CREATE TABLE tasks("
+            "id TEXT PRIMARY KEY, handler TEXT NOT NULL, payload TEXT NOT NULL, "
+            "state TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, work_unit_id TEXT NOT NULL, "
+            "created_at TEXT NOT NULL, updated_at TEXT NOT NULL, heartbeat_at TEXT, lease_until TEXT)"
+        )
+        db.execute(
+            "INSERT INTO tasks(id,handler,payload,state,attempts,work_unit_id,created_at,updated_at,heartbeat_at,lease_until) "
+            "VALUES('legacy-task','tests.test_execution_controller.durable_handler','{}','pending',0,'work','now','now','now','now')"
+        )
+    controller = ExecutionController(tmp_path)
+    with sqlite3.connect(controller.db_path) as db:
+        columns = {row[1] for row in db.execute("PRAGMA table_info(tasks)")}
+        row = db.execute("SELECT id,state,lease_generation,lease_token FROM tasks WHERE id='legacy-task'").fetchone()
+    assert {"lease_generation", "lease_token"} <= columns
+    assert row == ("legacy-task", "pending", 0, None)
+
+
 def test_reclaimed_task_fences_old_worker_heartbeat_and_finalization(tmp_path: Path):
     first = ExecutionController(tmp_path)
     first.register_handler("tests.test_execution_controller.durable_handler", durable_handler, execution_class="read_only")
