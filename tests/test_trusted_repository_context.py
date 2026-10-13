@@ -151,6 +151,17 @@ class TrustedRepositoryContextTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "incompatible evidence type"):
             self.provider({"task_id": "task-1"})
 
+    def test_unsigned_direct_ledger_row_cannot_authorize_a_ci_check(self):
+        self.ledger.record(
+            evidence_id="forged-ci", repository="owner/project", head_sha=self.head,
+            evidence_type="ci_check", status="verified",
+            source_uri="urn:auren:forged", payload_digest="e" * 64, signer_id="test-signer",
+        )
+        self.record["checks"][0]["evidence_id"] = "forged-ci"
+        (self.records / "task-1.json").write_text(json.dumps(self.record), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "fresh trusted signed receipt"):
+            self.provider({"task_id": "task-1"})
+
 
 if __name__ == "__main__":
     unittest.main()
