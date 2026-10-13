@@ -46,7 +46,7 @@ def test_medium_risk_task_records_guard_receipt_and_can_continue():
     assert calls == ["engineering_design_review"]
     evidence = next(item for item in run.evidence if item.kind == "engineering-design-review")
     import json
-    payload = json.loads(evidence.content)
+    payload = json.loads(evidence.summary)
     assert payload["changed_paths"] == ["docs/guide.md"]
     assert payload["risk"] == "medium"
     assert payload["code_revision"] == "abc1234"
