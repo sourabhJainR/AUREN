@@ -290,12 +290,37 @@ class ContractAlignmentTests(unittest.TestCase):
             "skills/engineering/research/SKILL.md",
             "skills/engineering/prototype/SKILL.md",
             "PROBLEM_SOLVING_FRAMEWORKS.md",
+            ".ai-harness/resilient_provider.py",
+            "scripts/behavioral_conformance.py",
+            "portable/curiosity.py",
+            "portable/hermes_runtime.py",
+            "portable/agi_evaluation.py",
+            ".agents/skills/agency-specialist-orchestrator/SKILL.md",
+            "docs/TWELVE_PHASE_ENGINEERING_EVOLUTION.md",
+            "docs/CANONICAL_ENGINEERING_EVIDENCE_ENVELOPE.md",
+            ".ai-harness/QUALITY_GOVERNANCE.md",
+            "docs/EPISODE_SKILL_EVOLUTION.md",
+            ".ai-harness/runtime/tool_runner.py",
+            "portable/agency_regression_loop.py",
+            "portable/causal_experiment.py",
+            ".ai-harness/runtime/feedback_loop.py",
+            "portable/goal_directed_planning.py",
+            "portable/information_planner.py",
+            ".ai-harness/runtime/regression_replay.py",
+            "portable/causal_model.py",
+            "skills/engineering/interactive-documentation/SKILL.md",
+            "skills/engineering/resolving-merge-conflicts/SKILL.md",
+            "skills/ai-coding-orchestrator/references/EXTENSIONS.md",
         )
         stale_brand = re.compile(r"\bAER\b")
         for relative in active_paths:
             with self.subTest(path=relative):
                 content = (ROOT / relative).read_text(encoding="utf-8")
                 self.assertIsNone(stale_brand.search(content), f"stale AER product name in active file: {relative}")
+        compatibility = (ROOT / "docs" / "LEGACY_NAME_COMPATIBILITY.md").read_text(encoding="utf-8")
+        self.assertIn("AER_GRAPH_TEAM", compatibility)
+        self.assertIn("Historical lineage", compatibility)
+        self.assertIn("Adversarial test fixture", compatibility)
 
 
 if __name__ == "__main__":
