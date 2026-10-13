@@ -4,9 +4,10 @@ from datetime import datetime, timedelta, timezone
 import json
 import os
 import subprocess
+import pytest
 import sys
 
-from portable.execution_controller import ExecutionController
+from portable.execution_controller import ExecutionController, LeaseLostError
 
 def test_process_death_running_task_recovers_in_fresh_process(tmp_path: Path):
     repo_root = Path(__file__).resolve().parents[1]
@@ -63,6 +64,31 @@ print(json.dumps({
         "state": "completed",
         "attempts": 2,
     }
+
+def test_reclaimed_task_fences_old_worker_heartbeat_and_finalization(tmp_path: Path):
+    first = ExecutionController(tmp_path)
+    first.register_handler("tests.test_execution_controller.durable_handler", durable_handler, execution_class="read_only")
+    task = first.submit("tests.test_execution_controller.durable_handler", {"id": "fenced-owner"})
+    old_claim = first._claim(task.id)
+    assert old_claim is not None
+
+    expired = (datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat()
+    with sqlite3.connect(first.db_path) as db:
+        db.execute("UPDATE tasks SET lease_until=? WHERE id=?", (expired, task.id))
+
+    second = ExecutionController(tmp_path)
+    new_claim = second._claim(task.id)
+    assert new_claim is not None
+    assert new_claim.lease_generation > old_claim.lease_generation
+    assert new_claim.lease_token != old_claim.lease_token
+
+    with pytest.raises(LeaseLostError, match="lease was lost"):
+        first.heartbeat(old_claim)
+    assert not first._finalize_claim(old_claim, "completed")
+    second.heartbeat(new_claim)
+    assert second._finalize_claim(new_claim, "completed")
+    assert second.task(task.id).state == "completed"
+
 
 def test_resume_pending_task_after_controller_restart(tmp_path: Path):
     first = ExecutionController(tmp_path)
