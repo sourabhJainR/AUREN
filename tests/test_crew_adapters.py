@@ -373,14 +373,17 @@ class ApprovedCrewAdapterTests(unittest.TestCase):
         self.assertIsNone(controller.retry(retry, retryable=True))
         with self.assertRaisesRegex(PermissionError, "independent review"):
             controller.mark_completed(handoff, independent_review_passed=False)
-        completed_candidate = controller.enqueue(
+        completion_controller = GraphHandoffController(max_attempts=2)
+        completed_candidate = completion_controller.enqueue(
             source_crew="frontend_ui", target_crew="qa_reviewer", task="Review UI completion",
             source_plan_digest="abc", allowed_handoffs=("qa_reviewer",),
             selected_crews=("frontend_ui", "qa_reviewer"),
         )
-        claimed_candidate = controller.claim_next(graph_node_active=True)
-        self.assertEqual(claimed_candidate, completed_candidate)
-        controller.mark_completed(claimed_candidate, independent_review_passed=True)
+        claimed_candidate = completion_controller.claim_next(graph_node_active=True)
+        self.assertEqual(claimed_candidate.task, completed_candidate.task)
+        with self.assertRaisesRegex(PermissionError, "independent review"):
+            completion_controller.mark_completed(claimed_candidate, independent_review_passed=False)
+        completion_controller.mark_completed(claimed_candidate, independent_review_passed=True)
 
     def test_completed_handoff_cannot_be_enqueued_again(self):
         controller = GraphHandoffController(max_attempts=2)
