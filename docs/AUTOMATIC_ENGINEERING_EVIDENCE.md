@@ -55,9 +55,11 @@ WORM retention, retention/deletion policy, audit logging, and encrypted backups.
 AUREN's generic HTTPS adapter cannot guarantee those server-side properties; they
 must be validated for the actual external service.
 
-The local outbox retries delivery when new events are recorded. A supervisor can
-also call `EvidenceCapture.flush_pending()` periodically. If a promotion gate is
-configured and remote export is enabled, pending evidence exports block promotion.
+The Architecture Integrity workflow now records its exact-head outcome automatically
+and retains a 90-day GitHub Actions artifact. The local outbox retries delivery when
+new events are recorded. The durable supervisor also retries delivery during health
+checks. If a promotion gate is configured and remote export is enabled, pending
+evidence exports block promotion.
 Do not configure a remote sink unless it is approved to receive the allowlisted
 metadata and signed attestation envelopes.
 
@@ -106,6 +108,7 @@ trusted verifier and independently controlled signing keys for external claims.
 ## Regression and iteration evidence
 
 - Every durable controller attempt is recorded automatically.
+- Architecture Integrity CI emits a safe exact-head workflow outcome and stores it as a CI artifact; configure the external sink secrets to also deliver it to centralized retention.
 - Gate rejections and failures remain in the trail; successful retries do not erase
   earlier failures.
 - CI adapters should call `record("regression_passed", ...)` or `record("regression_failed", ...)`
