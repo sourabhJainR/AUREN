@@ -117,6 +117,33 @@ def test_data_integrity_contract_accepts_explicit_schema_non_applicability():
     )
 
 
+
+def test_compatibility_contract_requires_caller_and_rollout_decisions():
+    receipt = EngineeringDesignGuard.review(
+        intent="Change a public API contract and migration behavior",
+        changed_paths=["portable/api/client.py"],
+        risk="high",
+        design={"compatibility": "Keep compatibility in mind"},
+    )
+    blocking = _messages(receipt, FindingSeverity.BLOCKING)
+    assert receipt.status == "blocked"
+    assert any("existing callers" in message for message in blocking)
+    assert any("migration/rollout/rollback" in message for message in blocking)
+
+
+def test_legacy_contract_requires_characterization_and_safe_seam():
+    receipt = EngineeringDesignGuard.review(
+        intent="Replace a legacy adapter and migrate callers",
+        changed_paths=["portable/legacy/adapter.py"],
+        risk="high",
+        design={"legacy": "Replace old implementation"},
+    )
+    blocking = _messages(receipt, FindingSeverity.BLOCKING)
+    assert receipt.status == "blocked"
+    assert any("characterization/regression" in message for message in blocking)
+    assert any("seam/dependency break" in message for message in blocking)
+
+
 def test_security_is_inferred_and_high_risk_missing_contract_blocks():
     receipt = EngineeringDesignGuard.review(
         intent="Change authentication and authorization for external tool execution",
@@ -263,6 +290,12 @@ class EngineeringPrincipleEnforcementTests(unittest.TestCase):
 
     def test_data_integrity_accepts_schema_non_applicability_case(self):
         test_data_integrity_contract_accepts_explicit_schema_non_applicability()
+
+    def test_compatibility_requires_caller_and_rollout_decisions_case(self):
+        test_compatibility_contract_requires_caller_and_rollout_decisions()
+
+    def test_legacy_requires_characterization_and_safe_seam_case(self):
+        test_legacy_contract_requires_characterization_and_safe_seam()
 
     def test_security_is_inferred_and_high_risk_missing_contract_blocks_case(self):
         test_security_is_inferred_and_high_risk_missing_contract_blocks()
