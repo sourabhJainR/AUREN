@@ -347,9 +347,29 @@ def _dispatch_crew_proposal(
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     if len(encoded) > 32_000:
         raise ValueError("crew proposal exceeds the 32 KB structured proposal limit")
+    adapter_digest = str(getattr(agent, "configuration_digest", ""))
+    implementation_version = str(getattr(agent, "implementation_version", "unversioned"))
+    digest_payload = {
+        "crew_id": crew_id,
+        "proposal": payload,
+        "adapter_configuration_digest": adapter_digest,
+        "implementation_version": implementation_version,
+        "graph_digest": graph_digest,
+        "intent_digest": plan.intent_digest,
+        "crew_plan_digest": plan.digest,
+    }
+    proposal_digest = hashlib.sha256(
+        json.dumps(digest_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
     return {
         "crew_id": crew_id,
         "proposal": payload,
+        "proposal_digest": proposal_digest,
+        "adapter_configuration_digest": adapter_digest,
+        "implementation_version": implementation_version,
+        "graph_digest": graph_digest,
+        "intent_digest": plan.intent_digest,
+        "crew_plan_digest": plan.digest,
         "review_required": True,
         "review_status": "pending",
         "acceptance_checks": list(definition.acceptance_checks),
