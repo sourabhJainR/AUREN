@@ -480,17 +480,31 @@ class GraphHandoffController:
             self._persist()
 
     def snapshot(self) -> dict[str, Any]:
-        """JSON-safe checkpoint for a supervisor-owned durable store."""
-        return {
-            "schema_version": "auren-crew-handoff-checkpoint-v1",
-            "max_attempts": self.max_attempts,
-            "queued": [
-                {"source_crew": h.source_crew, "target_crew": h.target_crew,
-                 "task": h.task, "source_plan_digest": h.source_plan_digest, "attempt": h.attempt}
-                for h in self._queue
-            ],
-            "completed": [list(key) for key in sorted(self._completed)],
-        }
+        """JSON-safe checkpoint for the supervisor's canonical task store."""
+        with self._lock:
+            payload = {
+                "schema_version": "auren-crew-handoff-checkpoint-v2",
+                "max_attempts": self.max_attempts,
+                "queued": [
+                    {"source_crew": h.source_crew, "target_crew": h.target_crew,
+                     "task": h.task, "source_plan_digest": h.source_plan_digest,
+                     "attempt": h.attempt, "handoff_id": h.handoff_id}
+                    for h in self._queue
+                ],
+                "in_flight": [
+                    {"source_crew": h.source_crew, "target_crew": h.target_crew,
+                     "task": h.task, "source_plan_digest": h.source_plan_digest,
+                     "attempt": h.attempt, "handoff_id": h.handoff_id}
+                    for h in sorted(self._in_flight.values(), key=lambda item: item.handoff_id)
+                ],
+                "seen_ids": sorted(self._seen_ids),
+                "completed": [list(key) for key in sorted(self._completed)],
+                "retry_budget": self.retry_budget.snapshot() if self.retry_budget is not None else None,
+            }
+            payload["digest"] = hashlib.sha256(
+                json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+            ).hexdigest()
+            return payload
 
     @classmethod
     def resume(cls, checkpoint: Mapping[str, Any]) -> "GraphHandoffController":
