@@ -6,10 +6,28 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from scripts.record_ci_evidence import main
+from scripts.record_ci_evidence import _external_sink_policy, main
 
 
 class RecordCiEvidenceTests(unittest.TestCase):
+    def test_external_sink_policy_warns_by_default_and_can_be_required(self):
+        self.assertEqual(_external_sink_policy({}), (False, False))
+        self.assertEqual(
+            _external_sink_policy({"AUREN_REQUIRE_EXTERNAL_EVIDENCE_SINK": "true"}),
+            (False, True),
+        )
+        self.assertEqual(
+            _external_sink_policy({
+                "AUREN_EVIDENCE_SINK_URL": "https://archive.example/v1/auren/events",
+                "AUREN_EVIDENCE_SINK_TOKEN": "token",
+            }),
+            (True, False),
+        )
+
+    def test_partial_external_sink_configuration_fails_closed(self):
+        with self.assertRaisesRegex(ValueError, "must be configured together"):
+            _external_sink_policy({"AUREN_EVIDENCE_SINK_URL": "https://archive.example/v1/auren/events"})
+
     def test_successful_ci_writes_safe_exact_head_receipt(self):
         with tempfile.TemporaryDirectory() as temp:
             env = {

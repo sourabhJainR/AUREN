@@ -5,9 +5,22 @@ import hashlib
 import json
 import os
 from pathlib import Path
+from typing import Mapping
 import sys
 
 from portable.engineering_evidence_capture import EvidenceCapture
+
+
+_TRUTHY = {"1", "true", "yes", "on"}
+
+
+def _external_sink_policy(environ: Mapping[str, str]) -> tuple[bool, bool]:
+    url = environ.get("AUREN_EVIDENCE_SINK_URL", "").strip()
+    token = environ.get("AUREN_EVIDENCE_SINK_TOKEN", "")
+    if bool(url) != bool(token):
+        raise ValueError("AUREN_EVIDENCE_SINK_URL and AUREN_EVIDENCE_SINK_TOKEN must be configured together")
+    required = environ.get("AUREN_REQUIRE_EXTERNAL_EVIDENCE_SINK", "").strip().lower() in _TRUTHY
+    return bool(url and token), required
 
 
 def main() -> int:
@@ -23,6 +36,7 @@ def main() -> int:
     if job_status not in {"success", "failure", "cancelled", "skipped"}:
         job_status = "unknown"
 
+    sink_configured, sink_required = _external_sink_policy(os.environ)
     manifest = {
         "repository": repository,
         "head_sha": head_sha,
@@ -62,6 +76,15 @@ def main() -> int:
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(event, sort_keys=True, indent=2) + "\n", encoding="utf-8")
     print(f"Recorded {event_type} for {repository}@{head_sha}; event digest {event['event_digest']}")
+    if not sink_configured:
+        print(
+            "WARNING: external evidence sink is not configured; this run is retained only in local/CI artifacts. "
+            "Configure AUREN_EVIDENCE_SINK_URL and AUREN_EVIDENCE_SINK_TOKEN for durable external retention.",
+            file=sys.stderr,
+        )
+        if sink_required:
+            print("External evidence sink is required by policy; failing this evidence gate.", file=sys.stderr)
+            return 2
     if capture.sink is not None and capture.pending_exports():
         print("Configured external evidence retention has pending exports", file=sys.stderr)
         return 2

@@ -59,6 +59,8 @@ Configure the AUREN worker/service environment (not individual tasks):
 - `AUREN_EVIDENCE_SINK_TOKEN` from the same secret manager value as
   `AUREN_ARCHIVE_TOKEN`
 
+GitHub Actions records a local privacy-minimized CI evidence artifact automatically. If the sink is not configured, the recorder now emits an explicit warning that retention is limited to local/CI artifacts. For protected release or promotion workflows, set `AUREN_REQUIRE_EXTERNAL_EVIDENCE_SINK=true` so the evidence-recording step fails when external retention is not configured. Provision the URL/token as repository or organization secrets only after the archive is deployed and authenticated; do not commit them or place them in task payloads.
+
 AUREN's retryable outbox sends allowlisted lifecycle/iteration events. Verified
 external receipts are sent as a `signed_receipt` envelope. Failed, skipped, and
 unknown outcomes remain evidence and cannot become passing gates. AUREN does not
