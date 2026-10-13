@@ -138,6 +138,14 @@ class ExecutionController:
             ).fetchone()
         if execution_class is None and prior_class_row:
             execution_class = str(prior_class_row[0])
+        if (
+            prior_class_row
+            and prior_class_row[0] != "unclassified"
+            and execution_class != prior_class_row[0]
+        ):
+            raise ValueError(
+                "registered execution_class is immutable; use a new handler identity for a different effect class"
+            )
         if execution_class not in {"read_only", "context_provider", "ci_gated", "consequential"}:
             raise ValueError(
                 "handler registration requires an explicit execution_class: "
