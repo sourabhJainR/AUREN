@@ -8,6 +8,7 @@ ledger for that exact repository/head.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import re
 import subprocess
@@ -119,4 +120,34 @@ class TrustedRepositoryContextProvider:
         }
 
 
-__all__ = ["TrustedRepositoryContextProvider"]
+def trusted_repository_context(request: Mapping[str, Any]) -> dict[str, Any]:
+    """Importable, environment-configured adapter for ExecutionController.
+
+    Set deployment paths and repository identity in service configuration. This
+    module-level function is durable across controller restarts; task payload
+    values are never used to select the repository, head, decision file, or policy.
+    """
+    root = os.environ.get("AUREN_REPOSITORY_ROOT", "").strip()
+    repository = os.environ.get("AUREN_REPOSITORY_SLUG", "").strip()
+    record_dir = os.environ.get("AUREN_DECISION_RECORD_DIR", "").strip()
+    approvers_file = os.environ.get("AUREN_AUTHORIZED_APPROVERS_FILE", "").strip()
+    ledger_path = os.environ.get("AUREN_CANONICAL_EVIDENCE_DB", "").strip()
+    if not all((root, repository, record_dir, approvers_file)):
+        raise ValueError(
+            "trusted context requires AUREN_REPOSITORY_ROOT, AUREN_REPOSITORY_SLUG, "
+            "AUREN_DECISION_RECORD_DIR, and AUREN_AUTHORIZED_APPROVERS_FILE"
+        )
+    ledger = CanonicalEvidenceLedger(
+        ledger_path or str(Path(root).expanduser().resolve() / ".auren" / "canonical-evidence.sqlite3")
+    )
+    provider = TrustedRepositoryContextProvider(
+        root,
+        expected_repository=repository,
+        decision_record_dir=record_dir,
+        authorized_approvers_file=approvers_file,
+        evidence_ledger=ledger,
+    )
+    return provider(request)
+
+
+__all__ = ["TrustedRepositoryContextProvider", "trusted_repository_context"]
