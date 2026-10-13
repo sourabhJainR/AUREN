@@ -917,19 +917,48 @@ the learning system, not an instruction source. If a skill produced no distinct 
                         })
                 blocked = bool(require_crew_adapters and (missing or failures))
                 status = "blocked" if blocked else "complete" if not missing and not failures else "partial"
+                # Bind adapter outputs to the canonical graph state as a deterministic,
+                # tamper-evident evidence envelope. This is a receipt, not proof that a
+                # proposal is correct: independent QA and Guard remain authoritative.
+                evidence_payload = {
+                    "schema_version": "auren-crew-evidence-envelope-v1",
+                    "intent_digest": intent_digest,
+                    "graph_digest": crew_plan.graph_digest,
+                    "crew_plan_digest": crew_plan.digest,
+                    "execution_graph_digest": execution_graph_digest,
+                    "status": status,
+                    "required": require_crew_adapters,
+                    "proposals": proposals,
+                    "missing_adapters": sorted(missing),
+                    "dispatch_failures": failures,
+                    "retry_budget": state.get("auren_retry_budget", retry_budget.snapshot()),
+                }
+                evidence_digest = hashlib.sha256(
+                    json.dumps(evidence_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+                ).hexdigest()
+                crew_execution = {
+                    "schema_version": "auren-crew-execution-v1",
+                    "status": status,
+                    "required": require_crew_adapters,
+                    "proposals": proposals,
+                    "proposal_receipts": {
+                        crew_id: hashlib.sha256(
+                            json.dumps(proposal, sort_keys=True, separators=(",", ":")).encode("utf-8")
+                        ).hexdigest()
+                        for crew_id, proposal in sorted(proposals.items())
+                    },
+                    "missing_adapters": sorted(missing),
+                    "dispatch_failures": failures,
+                    "graph_digest": crew_plan.graph_digest,
+                    "intent_digest": intent_digest,
+                    "crew_plan_digest": crew_plan.digest,
+                    "evidence_envelope": {**evidence_payload, "digest": evidence_digest},
+                    "handoff_receipts": [],
+                    "handoff_status": "not_requested",
+                }
                 return {
                     "auren_crew_plan": crew_plan.to_payload(),
-                    "auren_crew_execution": {
-                        "schema_version": "auren-crew-execution-v1",
-                        "status": status,
-                        "required": require_crew_adapters,
-                        "proposals": proposals,
-                        "missing_adapters": sorted(missing),
-                        "dispatch_failures": failures,
-                        "graph_digest": crew_plan.graph_digest,
-                        "intent_digest": intent_digest,
-                        "crew_plan_digest": crew_plan.digest,
-                    },
+                    "auren_crew_execution": crew_execution,
                 }
             graph.add_node("crew-proposals", dispatch_crews, effect="external")
             graph.add_edge(StateGraph.START, "crew-proposals")
