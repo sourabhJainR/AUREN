@@ -36,11 +36,21 @@ def test_medium_risk_task_records_guard_receipt_and_can_continue():
         Node("inspect", NodeKind.DETERMINISTIC, lambda state: calls.append(state.get("engineering_design_review", {}).get("kind")) or {"ok": True})
     ])
 
-    run = Orchestrator(graph).run("docs-task", "Clarify the project documentation", context={"changed_paths": ["docs/guide.md"]})
+    run = Orchestrator(graph).run(
+        "docs-task",
+        "Clarify the project documentation",
+        context={"changed_paths": ["docs/guide.md"], "code_revision": "abc1234"},
+    )
 
     assert run.status == RunStatus.ACCEPTED
     assert calls == ["engineering_design_review"]
-    assert any(item.kind == "engineering-design-review" for item in run.evidence)
+    evidence = next(item for item in run.evidence if item.kind == "engineering-design-review")
+    import json
+    payload = json.loads(evidence.content)
+    assert payload["changed_paths"] == ["docs/guide.md"]
+    assert payload["risk"] == "medium"
+    assert payload["code_revision"] == "abc1234"
+    assert payload["digest"]
     assert any(item.get("event") == "engineering_design_review" for item in run.trajectory)
 
 
