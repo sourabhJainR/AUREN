@@ -13,7 +13,11 @@ def _manifest(root: Path) -> dict[str, str]:
     result: dict[str, str] = {}
     if not root.exists():
         return result
-    for path in sorted(p for p in root.rglob("*") if p.is_file()):
+    for path in sorted(root.rglob("*")):
+        if path.is_symlink():
+            raise ValueError(f"state migration does not follow symlinks: {path.relative_to(root)}")
+        if not path.is_file():
+            continue
         relative = path.relative_to(root).as_posix()
         digest = hashlib.sha256(path.read_bytes()).hexdigest()
         result[relative] = digest
