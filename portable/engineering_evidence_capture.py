@@ -90,6 +90,14 @@ class EvidenceCapture:
                 signer_id TEXT NOT NULL,
                 signature TEXT NOT NULL
             )""")
+            db.execute("""CREATE TABLE IF NOT EXISTS engineering_event_outbox(
+                event_id TEXT PRIMARY KEY,
+                event_json TEXT NOT NULL,
+                delivery_state TEXT NOT NULL DEFAULT 'pending',
+                attempts INTEGER NOT NULL DEFAULT 0,
+                last_error TEXT NOT NULL DEFAULT '',
+                updated_at TEXT NOT NULL
+            )""")
 
     @classmethod
     def from_environment(cls, database_path: str | Path) -> "EvidenceCapture":
@@ -213,11 +221,51 @@ class EvidenceCapture:
             )
         event = {**unsigned, "event_digest": event_digest, "signer_id": signer_id, "signature": signature}
         if self.sink:
-            # Sink errors are not swallowed: production deployments must choose
-            # whether export failure blocks consequential promotion. The runtime
-            # should fail closed for promotion if required evidence cannot export.
-            self.sink(event)
+            with sqlite3.connect(self.path, timeout=10) as db:
+                db.execute(
+                    "INSERT OR IGNORE INTO engineering_event_outbox(event_id,event_json,delivery_state,attempts,last_error,updated_at) VALUES(?,?,'pending',0,'',?)",
+                    (base["event_id"], json.dumps(event, sort_keys=True), datetime.now(timezone.utc).isoformat()),
+                )
+            # Delivery is retriable and does not change the execution result. A
+            # deployment that requires remote durability must gate promotion on
+            # pending_exports() == 0 and configure external retention/WORM storage.
+            self.flush_pending(limit=10)
         return event
+
+    def pending_exports(self) -> int:
+        with sqlite3.connect(self.path, timeout=10) as db:
+            return int(db.execute(
+                "SELECT COUNT(*) FROM engineering_event_outbox WHERE delivery_state='pending'"
+            ).fetchone()[0])
+
+    def flush_pending(self, *, limit: int = 100) -> dict[str, int]:
+        if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
+            raise ValueError("limit must be a positive integer")
+        if self.sink is None:
+            return {"sent": 0, "pending": self.pending_exports()}
+        with sqlite3.connect(self.path, timeout=10) as db:
+            rows = db.execute(
+                "SELECT event_id,event_json FROM engineering_event_outbox WHERE delivery_state='pending' ORDER BY updated_at LIMIT ?",
+                (limit,),
+            ).fetchall()
+        sent = 0
+        for event_id, event_json in rows:
+            try:
+                self.sink(json.loads(event_json))
+            except Exception as exc:
+                with sqlite3.connect(self.path, timeout=10) as db:
+                    db.execute(
+                        "UPDATE engineering_event_outbox SET attempts=attempts+1,last_error=?,updated_at=? WHERE event_id=?",
+                        (type(exc).__name__, datetime.now(timezone.utc).isoformat(), event_id),
+                    )
+            else:
+                with sqlite3.connect(self.path, timeout=10) as db:
+                    db.execute(
+                        "UPDATE engineering_event_outbox SET delivery_state='sent',attempts=attempts+1,last_error='',updated_at=? WHERE event_id=?",
+                        (datetime.now(timezone.utc).isoformat(), event_id),
+                    )
+                sent += 1
+        return {"sent": sent, "pending": self.pending_exports()}
 
     def events(self, *, task_id: str | None = None) -> tuple[dict[str, Any], ...]:
         query = "SELECT event_id,event_type,source_type,occurred_at,work_unit_id,task_id,iteration,status,repository,head_sha,artifact_digest,evidence_uri,metadata_json,previous_digest,event_digest,signer_id,signature FROM engineering_events"
