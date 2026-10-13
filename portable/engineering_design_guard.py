@@ -202,7 +202,9 @@ class EngineeringDesignGuard:
         risk: str = "medium",
         code_revision: str = "",
         blocking_dimensions: Iterable[DesignDimension] = (
-            DesignDimension.RESILIENCE, DesignDimension.SECURITY, DesignDimension.DATA,
+            DesignDimension.ARCHITECTURE, DesignDimension.RESILIENCE,
+            DesignDimension.SECURITY, DesignDimension.DATA, DesignDimension.OPERATIONS,
+            DesignDimension.COMPATIBILITY, DesignDimension.LEGACY,
             DesignDimension.CONCURRENCY, DesignDimension.DISTRIBUTED,
             DesignDimension.CORRECTNESS, DesignDimension.AI_AGENT,
         ),
