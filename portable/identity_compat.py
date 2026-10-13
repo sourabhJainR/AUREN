@@ -50,9 +50,15 @@ def auren_home(
     """
     source = os.environ if environ is None else environ
     if "AUREN_HOME" in source:
-        return Path(source["AUREN_HOME"]).expanduser()
+        value = source["AUREN_HOME"]
+        if not value.strip():
+            raise ValueError("AUREN_HOME must not be empty")
+        return Path(value).expanduser()
     if "AER_HOME" in source:
-        return Path(source["AER_HOME"]).expanduser()
+        value = source["AER_HOME"]
+        if not value.strip():
+            raise ValueError("legacy AER_HOME must not be empty")
+        return Path(value).expanduser()
     base = Path(home).expanduser() if home is not None else Path.home()
     canonical = base / CANONICAL_HOME_NAME
     legacy = base / LEGACY_HOME_NAME
