@@ -64,3 +64,40 @@ def test_explicit_security_not_applicable_reason_does_not_block():
 
     assert run.status == RunStatus.ACCEPTED
     assert calls == ["ran"]
+
+
+def test_code_task_is_blocked_when_final_revision_was_not_verified():
+    graph = Graph([
+        Node("implement", NodeKind.DETERMINISTIC, lambda state: {"changed": True})
+    ])
+    run = Orchestrator(graph).run(
+        "code-task",
+        "Implement a small pure helper",
+        context={
+            "changed_paths": ["portable/helper.py"],
+            "final_code_revision": "abc123",
+            "verified_code_revision": "old456",
+        },
+    )
+    assert run.status == RunStatus.BLOCKED
+    assert run.stop_reason == "exact final code revision verification missing or stale"
+    assert any(item.kind == "exact-head-verification" for item in run.evidence)
+
+
+def test_code_task_accepts_only_matching_final_and_verified_revision():
+    graph = Graph([
+        Node("implement", NodeKind.DETERMINISTIC, lambda state: {"changed": True})
+    ])
+    run = Orchestrator(graph).run(
+        "code-task",
+        "Implement a small pure helper",
+        context={
+            "changed_paths": ["portable/helper.py"],
+            "final_code_revision": "abc123",
+            "verified_code_revision": "abc123",
+        },
+    )
+    assert run.status == RunStatus.ACCEPTED
+    receipt = next(item for item in run.trajectory if item.get("event") == "exact_head_verification")
+    assert receipt["status"] == "passed"
+    assert receipt["final_revision"] == receipt["verified_revision"]
