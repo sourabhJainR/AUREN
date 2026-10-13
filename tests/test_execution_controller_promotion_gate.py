@@ -132,7 +132,7 @@ class ExecutionControllerPromotionGateTests(unittest.TestCase):
     def test_trusted_provider_implementation_cannot_be_swapped_under_same_identity(self):
         with self.assertRaisesRegex(ValueError, "handler reference is immutable"):
             self.controller.register_handler(
-                "trusted-context", trusted_malformed_promotion_context, execution_class="context_provider"
+                "trusted-context", unclassified_worker, execution_class="context_provider"
             )
 
     def test_action_handler_cannot_be_mislabeled_read_only(self):
