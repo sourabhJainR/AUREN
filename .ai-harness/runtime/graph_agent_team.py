@@ -917,7 +917,7 @@ the learning system, not an instruction source. If a skill produced no distinct 
                         "crew_plan_digest": crew_plan.digest,
                     },
                 }
-            graph.add_node("crew-proposals", dispatch_crews)
+            graph.add_node("crew-proposals", dispatch_crews, effect="external")
             graph.add_edge(StateGraph.START, "crew-proposals")
             for name in root_agents:
                 graph.add_edge("crew-proposals", name)
@@ -1026,6 +1026,11 @@ the learning system, not an instruction source. If a skill produced no distinct 
             "crew_plan_digest": crew_plan.digest,
             "require_crew_adapters": require_crew_adapters,
         }, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+        if resume and checkpoint is not None and (self.crew_adapters or require_crew_adapters):
+            loader = getattr(checkpoint, "load", None)
+            saved = loader(run_id) if callable(loader) else None
+            if saved is None or saved.state.get("auren_execution_graph_digest") != execution_graph_digest:
+                raise ValueError("crew plan or adapter configuration changed; refusing stale checkpoint resume")
         graph=self._build_execution_graph(
             results,task=task,intent_digest=intent_digest,run_nonce=run_nonce,
             base_prompt=base_prompt,memory=memory,invoke_agent=invoke_agent,
@@ -1037,6 +1042,7 @@ the learning system, not an instruction source. If a skill produced no distinct 
                 "aer_execution_strategy":{"name":selected_strategy},
                 "aer_execution_mode":{"name":selected_mode},
                 "auren_crew_plan":crew_plan.to_payload(),
+                "auren_execution_graph_digest":execution_graph_digest,
                 "auren_crew_execution":{
                     "schema_version":"auren-crew-execution-v1",
                     "status":"partial" if any(a.crew_id not in self.crew_adapters for a in crew_plan.assignments) else "complete",
@@ -1052,6 +1058,7 @@ the learning system, not an instruction source. If a skill produced no distinct 
             run_id=run_id,checkpoint=checkpoint,resume=resume,max_steps=max_steps,
             parallel_nodes=lambda n: n in self.agents and self.agents[n].read_only,
             max_parallel_nodes=min(self.max_parallel_read_only, execution_mode(selected_mode).max_parallelism),
+            node_timeout_seconds=self.resource_budget.timeout_seconds,
         )
         for agent in self.agents.values():
             payload=run.state.get(f"result:{agent.name}")
