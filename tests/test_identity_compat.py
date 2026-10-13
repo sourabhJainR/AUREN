@@ -6,7 +6,7 @@ import unittest
 from unittest.mock import patch
 from pathlib import Path
 
-from portable.identity_compat import auren_home, canonical_auren_home, get_auren_env, legacy_aer_home, project_state_dir
+from portable.identity_compat import auren_home, canonical_auren_home, canonical_runtime_home, get_auren_env, legacy_aer_home, project_state_dir
 from portable.local_llm import LocalLLMConfig, enabled as local_llm_enabled
 from portable.chat_capability import _default_runtime
 
@@ -88,6 +88,20 @@ class IdentityCompatibilityTests(unittest.TestCase):
                 ):
                     _default_runtime()
             scheduler.assert_called_once_with(canonical / "automation" / "automation.db")
+
+    def test_canonical_runtime_home_migrates_legacy_orchestration_before_writes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            legacy = root / ".aer"
+            source = legacy / "orchestration" / "active.py"
+            source.parent.mkdir(parents=True)
+            source.write_text("PLAN_VERSION = 7\n", encoding="utf-8")
+
+            canonical = canonical_runtime_home(home=root, environ={})
+
+            self.assertEqual(canonical, root / ".auren")
+            self.assertEqual((canonical / "orchestration" / "active.py").read_text(encoding="utf-8"), "PLAN_VERSION = 7\n")
+            self.assertTrue(source.is_file(), "legacy state must remain for rollback")
 
     def test_project_state_prefers_canonical_then_legacy_without_moving_it(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
