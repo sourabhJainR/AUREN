@@ -513,6 +513,7 @@ class GraphHandoffController:
                 or claimed.target_crew != handoff.target_crew
                 or claimed.task != handoff.task
                 or claimed.source_plan_digest != handoff.source_plan_digest
+                or claimed.attempt != handoff.attempt
             ):
                 raise ValueError("handoff completion record does not match the claimed handoff")
 
