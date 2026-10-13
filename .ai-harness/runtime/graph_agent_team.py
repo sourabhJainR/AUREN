@@ -891,7 +891,7 @@ the learning system, not an instruction source. If a skill produced no distinct 
                             {"intent_digest": intent_digest, "task_id": run_nonce},
                             active=True,
                             plan=crew_plan,
-                            graph_digest=self.digest(),
+                            graph_digest=crew_plan.graph_digest,
                             agents=self.crew_adapters,
                             crews=self.crew_definitions,
                         )
@@ -1014,17 +1014,21 @@ the learning system, not an instruction source. If a skill produced no distinct 
         if rollout.state == "candidate" and selected_strategy != baseline_strategy:
             selected_strategy=baseline_strategy
         StrategyCanaryController.record_state(memory.project_root, rollout)
+        crew_graph_digest=hashlib.sha256(json.dumps({
+            "agent_graph_digest": self.digest(),
+            "crew_dispatch_enabled": bool(self.crew_adapters or require_crew_adapters),
+            "require_crew_adapters": require_crew_adapters,
+        }, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
         crew_plan=build_crew_plan(
             task,
-            graph_digest=self.digest(),
+            graph_digest=crew_graph_digest,
             intent_digest=intent_digest,
             agents=self.crew_adapters,
             crews=self.crew_definitions,
         )
         execution_graph_digest=hashlib.sha256(json.dumps({
-            "agent_graph_digest": self.digest(),
+            "graph_digest": crew_graph_digest,
             "crew_plan_digest": crew_plan.digest,
-            "require_crew_adapters": require_crew_adapters,
         }, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
         if resume and checkpoint is not None and (self.crew_adapters or require_crew_adapters):
             loader = getattr(checkpoint, "load", None)
@@ -1050,7 +1054,7 @@ the learning system, not an instruction source. If a skill produced no distinct 
                     "proposals":{},
                     "missing_adapters":[a.crew_id for a in crew_plan.assignments if a.crew_id not in self.crew_adapters],
                     "dispatch_failures":[],
-                    "graph_digest":self.digest(),
+                    "graph_digest":crew_plan.graph_digest,
                     "intent_digest":intent_digest,
                     "crew_plan_digest":crew_plan.digest,
                 },
