@@ -1,4 +1,6 @@
 import unittest
+import tempfile
+from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 
 from portable.attestation_freshness import (
@@ -6,6 +8,7 @@ from portable.attestation_freshness import (
     AttestationReplayRegistry,
     FreshEvaluationAttestation,
     FreshnessAwareAttestor,
+    SQLiteAttestationReplayRegistry,
 )
 from portable.attestation_key_separation import AttestationTrustPolicy
 from portable.independent_evaluation_attestation import EvaluationAttestation
@@ -101,6 +104,27 @@ class AttestationFreshnessTests(unittest.TestCase):
         with ThreadPoolExecutor(max_workers=16) as pool:
             results = list(pool.map(registry.claim, ["same-attestation"] * 64))
         self.assertEqual(sum(results), 1)
+
+    def test_sqlite_registry_rejects_replay_after_restart(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "attestation-replay.sqlite3"
+            first_process = SQLiteAttestationReplayRegistry(path)
+            self.assertTrue(first_process.claim("attestation-1"))
+            restarted_process = SQLiteAttestationReplayRegistry(path)
+            self.assertFalse(restarted_process.claim("attestation-1"))
+            self.assertTrue(restarted_process.claim("attestation-2"))
+
+    def test_sqlite_registry_allows_exactly_one_cross_instance_claim(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "attestation-replay.sqlite3"
+            registries = [SQLiteAttestationReplayRegistry(path) for _ in range(12)]
+            with ThreadPoolExecutor(max_workers=12) as pool:
+                results = list(pool.map(lambda registry: registry.claim("same-attestation"), registries))
+            self.assertEqual(sum(results), 1)
+
+    def test_sqlite_registry_rejects_memory_database(self):
+        with self.assertRaisesRegex(ValueError, "durable file path"):
+            SQLiteAttestationReplayRegistry(":memory:")
 
     def test_boolean_timestamp_is_rejected(self):
         with self.assertRaisesRegex(ValueError, "non-negative integer"):
