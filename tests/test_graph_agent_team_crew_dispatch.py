@@ -66,7 +66,7 @@ class HarnessCrewDispatchTests(unittest.TestCase):
             self.assertTrue(result["accepted"])
             self.assertEqual(len(adapter_calls), 1)
             self.assertEqual(adapter_calls[0]["crew_id"], "frontend_ui")
-            self.assertEqual(adapter_calls[0]["intent_digest"], "intent-ui")
+            self.assertEqual(adapter_calls[0]["evidence"]["intent_digest"], "intent-ui")
             self.assertEqual(
                 result["crew_execution"]["proposals"]["frontend_ui"]["review_status"],
                 "pending",
