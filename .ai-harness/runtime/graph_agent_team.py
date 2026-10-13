@@ -9,7 +9,7 @@ from typing import Any,Callable,Iterator,Mapping
 from portable.agency_state_graph import Checkpoint,CheckpointStore,StateGraph
 from portable.identity_compat import get_auren_env, project_state_dir
 from portable.state_graph import build_crew_plan, default_crew_definitions, _dispatch_crew_proposal
-from portable.crew_adapters import CrewHandoff,GraphHandoffController,TaskRetryBudget, merge_retry_budget_snapshots
+from portable.crew_adapters import GraphHandoffController,TaskRetryBudget, merge_retry_budget_snapshots
 from portable.agent_memory import AgentMemory
 from portable.context_engine import ContextEngine,ContextPolicy,handoff_from_output
 from portable.dream_memory import DreamMemory
