@@ -16,7 +16,7 @@ import time
 import uuid
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from portable.identity_compat import auren_home, get_auren_env
+from portable.identity_compat import canonical_runtime_home, get_auren_env
 from typing import Any, Callable, Iterable, Mapping
 
 _SECRET = re.compile(r"(?i)(api[_-]?key|token|password|secret|authorization)")
@@ -123,7 +123,7 @@ class LocalExporter:
 
     def __init__(self, path: Path | None = None, enabled: bool | None = None) -> None:
         self.enabled = (get_auren_env("OBSERVABILITY", "0") == "1") if enabled is None else enabled
-        self.path = (path or auren_home() / "observability" / "traces.jsonl").expanduser()
+        self.path = (path or canonical_runtime_home() / "observability" / "traces.jsonl").expanduser()
 
     def export(self, trace: Trace) -> None:
         if not self.enabled:
