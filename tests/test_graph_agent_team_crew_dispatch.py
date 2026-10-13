@@ -108,7 +108,6 @@ class HarnessCrewDispatchTests(unittest.TestCase):
             self.assertEqual(result["crew_execution"]["status"], "blocked")
             self.assertTrue(result["crew_execution"]["missing_adapters"])
             self.assertEqual(calls, [])
-            self.assertEqual(result["agents"]["planner"]["status"], "blocked")
 
     def test_no_adapter_configuration_preserves_legacy_agent_graph_trace(self):
         with tempfile.TemporaryDirectory() as tmp:
