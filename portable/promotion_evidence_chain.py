@@ -6,6 +6,7 @@ to reference the exact causal evidence and run receipt. It never mutates state.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from contextlib import contextmanager
 import hashlib
 import json
 import math
