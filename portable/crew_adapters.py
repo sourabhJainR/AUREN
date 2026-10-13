@@ -80,6 +80,23 @@ class TaskRetryBudget:
             ).hexdigest()
             return payload
 
+    def merge_snapshot(self, snapshot: Mapping[str, Any]) -> dict[str, Any]:
+        """Monotonically reconcile a persisted budget into this task-owned ledger."""
+        incoming = self.resume(snapshot)
+        with self._lock:
+            if incoming.max_retries != self.max_retries:
+                raise ValueError("cannot merge retry budgets with different limits")
+            merged = dict(self._charges)
+            for key, component in incoming._charges.items():
+                previous = merged.get(key)
+                if previous is not None and previous != component:
+                    raise ValueError("conflicting retry budget charge across task checkpoints")
+                merged[key] = component
+            if len(merged) > self.max_retries:
+                raise ValueError("merged retry budget exceeds task limit")
+            self._charges = merged
+            return self.snapshot()
+
     @classmethod
     def resume(cls, snapshot: Mapping[str, Any]) -> "TaskRetryBudget":
         if not isinstance(snapshot, Mapping) or snapshot.get("schema_version") != cls.SCHEMA_VERSION:
@@ -584,8 +601,14 @@ class GraphHandoffController:
                 raise ValueError("handoff checkpoint digest mismatch")
         shared_budget = retry_budget
         saved_budget = checkpoint.get("retry_budget")
-        if shared_budget is None and isinstance(saved_budget, Mapping):
-            shared_budget = TaskRetryBudget.resume(saved_budget)
+        if isinstance(saved_budget, Mapping):
+            if shared_budget is None:
+                shared_budget = TaskRetryBudget.resume(saved_budget)
+            else:
+                # The outer graph checkpoint is canonical for the task, but a
+                # handoff snapshot may contain newer retry charges. Merge
+                # monotonically so neither checkpoint can refund consumed budget.
+                shared_budget.merge_snapshot(saved_budget)
         controller = cls(
             max_attempts=checkpoint.get("max_attempts", 3),
             retry_budget=shared_budget,
