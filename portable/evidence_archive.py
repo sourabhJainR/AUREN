@@ -89,7 +89,7 @@ class EvidenceArchive:
             raise ValueError("event metadata contains unknown or unsafe fields")
         for key, value in event["metadata"].items():
             if isinstance(value, str) and (
-                len(value) > 512 or "\\n" in value or "\\r" in value
+                len(value) > 512 or any(ord(ch) < 32 for ch in value)
                 or any(marker in value.lower() for marker in _SECRET_MARKERS)
             ):
                 raise ValueError(f"event metadata field {key} appears unsafe")
