@@ -55,7 +55,9 @@ class TaskRetryBudget:
             if existing is not None:
                 if existing != component:
                     raise ValueError("retry operation key was reused by a different component")
-                return True
+                # A previously charged attempt must not be executed again after
+                # resume; it is already spent, even if its completion is unknown.
+                return False
             if len(self._charges) >= self.max_retries:
                 return False
             self._charges[operation_key] = component
