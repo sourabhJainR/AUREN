@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 import json
 import os
 import subprocess
+import time
 import sys
 
 from portable.execution_controller import ExecutionController, LeaseLostError
@@ -63,6 +64,37 @@ print(json.dumps({
         "state": "completed",
         "attempts": 2,
     }
+
+def slow_durable_handler(payload):
+    time.sleep(float(payload.get("sleep_seconds", 0.08)))
+    return {"success": True, "evidence": ["slow-handler"]}
+
+
+def test_supervisor_renews_lease_while_handler_runs(tmp_path: Path):
+    controller = ExecutionController(tmp_path)
+    controller._LEASE_HEARTBEAT_INTERVAL_SECONDS = 0.01
+    controller.register_handler(
+        "tests.test_execution_controller_restart.slow_durable_handler",
+        slow_durable_handler,
+        execution_class="read_only",
+    )
+    task = controller.submit(
+        "tests.test_execution_controller_restart.slow_durable_handler",
+        {"sleep_seconds": 0.08},
+    )
+    heartbeat_calls = []
+    original_heartbeat = controller.heartbeat
+
+    def count_heartbeat(claim, *, lease_seconds=300):
+        heartbeat_calls.append(claim.lease_generation)
+        return original_heartbeat(claim, lease_seconds=lease_seconds)
+
+    controller.heartbeat = count_heartbeat
+    score = controller.run_once(task.id)
+    assert score is not None
+    assert len(heartbeat_calls) >= 3
+    assert controller.task(task.id).state == "completed"
+
 
 def test_legacy_task_schema_adds_fencing_columns_without_losing_rows(tmp_path: Path):
     state_dir = tmp_path / ".auren"
