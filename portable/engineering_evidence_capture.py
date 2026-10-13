@@ -7,7 +7,7 @@ configured HTTPS sink; independent claims require verified external attestations
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import os
@@ -18,6 +18,8 @@ from typing import Any, Callable, Mapping
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 from uuid import uuid4
+
+from .canonical_evidence_ledger import CanonicalEvidenceLedger
 
 
 _EVENT_TYPES = frozenset({
@@ -63,11 +65,13 @@ class EvidenceCapture:
         *,
         sink: Callable[[Mapping[str, Any]], None] | None = None,
         signer: Callable[[bytes], Mapping[str, str]] | None = None,
+        evidence_ledger: CanonicalEvidenceLedger | None = None,
     ) -> None:
         self.path = Path(database_path).expanduser().resolve()
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.sink = sink
         self.signer = signer
+        self.evidence_ledger = evidence_ledger
         with sqlite3.connect(self.path, timeout=10) as db:
             db.execute("PRAGMA journal_mode=WAL")
             db.execute("""CREATE TABLE IF NOT EXISTS engineering_events(
@@ -126,6 +130,7 @@ class EvidenceCapture:
         source_type: str = "auren_runtime",
         metadata: Mapping[str, Any] | None = None,
         event_id: str | None = None,
+        _verified_attestation: bool = False,
     ) -> dict[str, Any]:
         if event_type not in _EVENT_TYPES:
             raise ValueError("unsupported engineering event type")
@@ -147,6 +152,8 @@ class EvidenceCapture:
         }
         if set(metadata) - allowed_metadata:
             raise ValueError("metadata contains fields outside the safe evidence allowlist")
+        if metadata.get("signature_verified") is True and not _verified_attestation:
+            raise ValueError("signature_verified can only be set by verified external-attestation ingestion")
         safe_metadata: dict[str, Any] = {}
         for key, value in metadata.items():
             if key.endswith("_digest"):
@@ -231,6 +238,135 @@ class EvidenceCapture:
             # pending_exports() == 0 and configure external retention/WORM storage.
             self.flush_pending(limit=10)
         return event
+
+    def ingest_signed_external_evidence(
+        self,
+        envelope: Mapping[str, Any],
+        *,
+        verifier: Any,
+        expected_repository: str,
+        expected_head: str,
+        max_age_seconds: float = 86_400.0,
+        clock_skew_seconds: float = 300.0,
+    ) -> dict[str, Any]:
+        """Verify and index an externally signed evidence envelope.
+
+        The signed payload is a reference/attestation, not a place to upload raw
+        holdout cases or oracle answers. source_uri must point to the external
+        system's retained signed receipt. The caller supplies a verifier backed
+        by operator-trusted public keys; this method never accepts a public key
+        from the envelope itself.
+        """
+        if self.evidence_ledger is None:
+            raise ValueError("a canonical evidence ledger is required for external evidence")
+        if not isinstance(envelope, Mapping) or set(envelope) != {"payload", "signer_id", "signature"}:
+            raise ValueError("external envelope must contain exactly payload, signer_id, and signature")
+        payload = envelope.get("payload")
+        if not isinstance(payload, Mapping):
+            raise ValueError("external evidence payload must be an object")
+        signer_id = _text(envelope.get("signer_id"), "signer_id")
+        signature = _text(envelope.get("signature"), "signature", 4096)
+        required = {
+            "evidence_id", "repository", "head_sha", "evidence_type", "status",
+            "source_uri", "payload_digest", "source_type", "issued_at", "run_id",
+        }
+        allowed = required | {
+            "evaluator_id", "oracle_id", "runtime_id", "corpus_digest",
+            "isolation_profile", "external_system",
+        }
+        if required - set(payload) or set(payload) - allowed:
+            raise ValueError("external evidence payload has missing or unknown fields")
+        if payload["source_type"] not in {
+            "ci", "external_evaluator", "oracle_custody",
+            "sealed_corpus_custody", "isolation_audit", "operator",
+        }:
+            raise ValueError("external evidence source_type is not an approved external source")
+        if payload["repository"] != expected_repository:
+            raise ValueError("external evidence repository does not match live trusted context")
+        if payload["head_sha"] != expected_head or not _COMMIT_RE.fullmatch(str(expected_head)):
+            raise ValueError("external evidence is stale or does not match the live candidate head")
+        if signer_id in {
+            str(payload.get("evaluator_id", "")),
+            str(payload.get("oracle_id", "")),
+            str(payload.get("runtime_id", "")),
+        }:
+            raise ValueError("evaluated runtime, evaluator, and oracle cannot self-attest this envelope")
+        try:
+            issued = datetime.fromisoformat(str(payload["issued_at"]).replace("Z", "+00:00"))
+            if issued.tzinfo is None or issued.utcoffset() is None:
+                raise ValueError("issued_at must include a timezone")
+            age = (datetime.now(timezone.utc) - issued.astimezone(timezone.utc)).total_seconds()
+        except (TypeError, OverflowError) as exc:
+            raise ValueError("issued_at is invalid") from exc
+        if (
+            isinstance(max_age_seconds, bool) or not isinstance(max_age_seconds, (int, float))
+            or max_age_seconds < 0 or isinstance(clock_skew_seconds, bool)
+            or not isinstance(clock_skew_seconds, (int, float)) or clock_skew_seconds < 0
+        ):
+            raise ValueError("freshness bounds must be non-negative numbers")
+        if age > max_age_seconds or age < -clock_skew_seconds:
+            raise ValueError("external evidence is stale or issued too far in the future")
+        message = _canonical(payload)
+        if hasattr(verifier, "verify_detached"):
+            verified = verifier.verify_detached(signer_id, signature, message)
+        elif callable(verifier):
+            verified = verifier(signer_id, signature, message)
+        else:
+            raise ValueError("verifier must be a trusted callable or detached-signature verifier")
+        if verified is not True:
+            raise ValueError("external evidence signature verification failed")
+
+        status = _text(payload["status"], "status", 64)
+        if status not in {"passed", "failed", "skipped", "unknown", "verified"}:
+            raise ValueError("external evidence status is invalid")
+        evidence_id = _text(payload["evidence_id"], "evidence_id")
+        source_uri = _text(payload["source_uri"], "source_uri", 2048)
+        digest = _text(payload["payload_digest"], "payload_digest", 64)
+        self.evidence_ledger.record(
+            evidence_id=evidence_id,
+            repository=str(payload["repository"]),
+            head_sha=str(payload["head_sha"]),
+            evidence_type=_text(payload["evidence_type"], "evidence_type"),
+            status=status,
+            source_uri=source_uri,
+            payload_digest=digest,
+            signer_id=signer_id,
+        )
+        metadata: dict[str, Any] = {
+            "external_system": _text(payload.get("external_system", payload["source_type"]), "external_system"),
+            "run_id": _text(payload["run_id"], "run_id"),
+            "signature_verified": True,
+            "signature_key_id": signer_id,
+            "result_category": status,
+            "phase": "external_evidence_ingestion",
+        }
+        for key in ("evaluator_id", "oracle_id", "isolation_profile"):
+            if key in payload:
+                metadata[key] = _text(payload[key], key)
+        if "corpus_digest" in payload:
+            metadata["corpus_digest"] = _text(payload["corpus_digest"], "corpus_digest", 64)
+            if not _SHA_RE.fullmatch(metadata["corpus_digest"]):
+                raise ValueError("corpus_digest must be a lowercase SHA-256 digest")
+        event = self.record(
+            "external_evidence_observed",
+            work_unit_id="external:" + evidence_id,
+            task_id="external:" + evidence_id,
+            iteration=0,
+            status=status,
+            repository=str(payload["repository"]),
+            head_sha=str(payload["head_sha"]),
+            artifact_digest=digest,
+            evidence_uri=source_uri,
+            source_type=str(payload["source_type"]),
+            metadata=metadata,
+            _verified_attestation=True,
+        )
+        return {
+            "evidence_id": evidence_id,
+            "event_digest": event["event_digest"],
+            "receipt_digest": sha256_bytes(_canonical(envelope)),
+            "signature_verified": True,
+        }
 
     def pending_exports(self) -> int:
         with sqlite3.connect(self.path, timeout=10) as db:
