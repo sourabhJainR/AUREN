@@ -10,6 +10,7 @@ import json, os, urllib.error, urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from threading import RLock
+from portable.identity_compat import get_auren_env
 
 @dataclass(frozen=True)
 class LocalLLMConfig:
@@ -33,29 +34,29 @@ class LocalLLMConfig:
     @classmethod
     def from_env(cls) -> "LocalLLMConfig":
         return cls(
-            endpoint=os.environ.get("AER_LOCAL_LLM_ENDPOINT", cls.endpoint),
-            model=os.environ.get("AER_LOCAL_LLM_MODEL", cls.model),
-            model_path=os.environ.get("AER_LOCAL_LLM_MODEL_PATH", cls.model_path),
-            backend=os.environ.get("AER_LOCAL_LLM_BACKEND", cls.backend).strip().lower(),
-            timeout_seconds=max(5.0, float(os.environ.get("AER_LOCAL_LLM_TIMEOUT", cls.timeout_seconds))),
-            num_ctx=max(512, int(os.environ.get("AER_LOCAL_LLM_CONTEXT", cls.num_ctx))),
-            num_predict=max(64, int(os.environ.get("AER_LOCAL_LLM_MAX_TOKENS", cls.num_predict))),
-            temperature=max(0.0, min(1.0, float(os.environ.get("AER_LOCAL_LLM_TEMPERATURE", cls.temperature)))),
-            top_p=max(0.1, min(1.0, float(os.environ.get("AER_LOCAL_LLM_TOP_P", cls.top_p)))),
-            repeat_penalty=max(0.8, min(1.5, float(os.environ.get("AER_LOCAL_LLM_REPEAT_PENALTY", cls.repeat_penalty)))),
-            reasoning_effort=os.environ.get("AER_LOCAL_LLM_REASONING", cls.reasoning_effort).strip().lower(),
-            prompt_matrix=os.environ.get("AER_LOCAL_LLM_MATRIX", "1").strip().lower() not in {"0", "false", "off", "no"},
-            coding_mode=os.environ.get("AER_LOCAL_LLM_CODING", "1").strip().lower() not in {"0", "false", "off", "no"},
-            seed=int(os.environ.get("AER_LOCAL_LLM_SEED", cls.seed)),
-            context_budget=max(512, int(os.environ.get("AER_LOCAL_LLM_CONTEXT_BUDGET", cls.context_budget))),
-            max_output_chars=max(1024, int(os.environ.get("AER_LOCAL_LLM_MAX_OUTPUT_CHARS", cls.max_output_chars))),
+            endpoint=get_auren_env("LOCAL_LLM_ENDPOINT", cls.endpoint),
+            model=get_auren_env("LOCAL_LLM_MODEL", cls.model),
+            model_path=get_auren_env("LOCAL_LLM_MODEL_PATH", cls.model_path),
+            backend=get_auren_env("LOCAL_LLM_BACKEND", cls.backend).strip().lower(),
+            timeout_seconds=max(5.0, float(get_auren_env("LOCAL_LLM_TIMEOUT", cls.timeout_seconds))),
+            num_ctx=max(512, int(get_auren_env("LOCAL_LLM_CONTEXT", cls.num_ctx))),
+            num_predict=max(64, int(get_auren_env("LOCAL_LLM_MAX_TOKENS", cls.num_predict))),
+            temperature=max(0.0, min(1.0, float(get_auren_env("LOCAL_LLM_TEMPERATURE", cls.temperature)))),
+            top_p=max(0.1, min(1.0, float(get_auren_env("LOCAL_LLM_TOP_P", cls.top_p)))),
+            repeat_penalty=max(0.8, min(1.5, float(get_auren_env("LOCAL_LLM_REPEAT_PENALTY", cls.repeat_penalty)))),
+            reasoning_effort=get_auren_env("LOCAL_LLM_REASONING", cls.reasoning_effort).strip().lower(),
+            prompt_matrix=get_auren_env("LOCAL_LLM_MATRIX", "1").strip().lower() not in {"0", "false", "off", "no"},
+            coding_mode=get_auren_env("LOCAL_LLM_CODING", "1").strip().lower() not in {"0", "false", "off", "no"},
+            seed=int(get_auren_env("LOCAL_LLM_SEED", cls.seed)),
+            context_budget=max(512, int(get_auren_env("LOCAL_LLM_CONTEXT_BUDGET", cls.context_budget))),
+            max_output_chars=max(1024, int(get_auren_env("LOCAL_LLM_MAX_OUTPUT_CHARS", cls.max_output_chars))),
         )
 
 class LocalLLMError(RuntimeError):
     pass
 
 def enabled() -> bool:
-    return os.environ.get("AER_LOCAL_LLM_ENABLED", "0").strip().lower() in {"1","true","yes","on"}
+    return get_auren_env("LOCAL_LLM_ENABLED", "0").strip().lower() in {"1","true","yes","on"}
 
 def available(config: LocalLLMConfig | None = None) -> bool:
     """Return availability for the selected backend, including embedded mode."""
