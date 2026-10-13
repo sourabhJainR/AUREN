@@ -10,7 +10,7 @@ def durable_handler(payload):
 
 def test_handler_registration_submit_and_resume(tmp_path: Path):
     controller = ExecutionController(tmp_path)
-    controller.register_handler("tests.durable_handler", durable_handler)
+    controller.register_handler("tests.durable_handler", durable_handler, execution_class="read_only")
     task = controller.submit("tests.durable_handler", {"id": "e1"})
     score = controller.run_once(task.id)
     assert score is not None
@@ -64,7 +64,7 @@ def trusted_ci_missing(_policy):
 
 
 def register_protected_handler(controller, provider=trusted_ci_success):
-    controller.register_handler("tests.ci_provider", provider)
+    controller.register_handler("tests.ci_provider", provider, execution_class="context_provider")
     controller.register_handler(
         "tests.ci_gate_handler",
         ci_gate_handler,
@@ -160,7 +160,7 @@ def test_ci_gate_uses_trusted_sha_and_required_checks_not_task_overrides(tmp_pat
 def test_reregistering_handler_without_policy_preserves_existing_gate(tmp_path: Path):
     controller = ExecutionController(tmp_path)
     register_protected_handler(controller, trusted_ci_stale)
-    controller.register_handler("tests.ci_gate_handler", ci_gate_handler)
+    controller.register_handler("tests.ci_gate_handler", ci_gate_handler, execution_class="ci_gated")
     task = controller.submit(
         "tests.ci_gate_handler",
         {"require_ci_gate": False, "result": {"success": True}},
@@ -172,7 +172,7 @@ def test_reregistering_handler_without_policy_preserves_existing_gate(tmp_path: 
 def test_reregistering_handler_with_empty_policy_preserves_existing_gate(tmp_path: Path):
     controller = ExecutionController(tmp_path)
     register_protected_handler(controller, trusted_ci_stale)
-    controller.register_handler("tests.ci_gate_handler", ci_gate_handler, ci_gate_policy={})
+    controller.register_handler("tests.ci_gate_handler", ci_gate_handler, ci_gate_policy={}, execution_class="ci_gated")
     task = controller.submit(
         "tests.ci_gate_handler",
         {"require_ci_gate": False, "result": {"success": True}},
@@ -183,7 +183,7 @@ def test_reregistering_handler_with_empty_policy_preserves_existing_gate(tmp_pat
 
 def test_ci_gate_policy_requires_expected_sha_checks_and_provider(tmp_path: Path):
     controller = ExecutionController(tmp_path)
-    controller.register_handler("tests.ci_provider", trusted_ci_success)
+    controller.register_handler("tests.ci_provider", trusted_ci_success, execution_class="context_provider")
 
     invalid_policies = [
         (
@@ -206,7 +206,7 @@ def test_ci_gate_policy_requires_expected_sha_checks_and_provider(tmp_path: Path
     for policy, expected_message in invalid_policies:
         try:
             controller.register_handler(
-                "tests.ci_gate_handler", ci_gate_handler, ci_gate_policy=policy,
+                "tests.ci_gate_handler", ci_gate_handler, ci_gate_policy=policy, execution_class="ci_gated",
             )
         except ValueError as error:
             assert expected_message in str(error)
@@ -241,7 +241,7 @@ def protected_side_effect_handler(payload):
 
 def test_promotion_gate_rejects_missing_trusted_record_before_handler_side_effect(tmp_path: Path):
     controller = ExecutionController(tmp_path)
-    controller.register_handler("tests.promotion_context", trusted_missing_promotion_context)
+    controller.register_handler("tests.promotion_context", trusted_missing_promotion_context, execution_class="context_provider")
     controller.register_handler(
         "tests.merge_handler",
         protected_side_effect_handler,
@@ -261,7 +261,7 @@ def test_promotion_gate_rejects_missing_trusted_record_before_handler_side_effec
 
 def test_promotion_gate_rejects_malformed_trusted_context_before_handler_side_effect(tmp_path: Path):
     controller = ExecutionController(tmp_path)
-    controller.register_handler("tests.promotion_context", trusted_malformed_promotion_context)
+    controller.register_handler("tests.promotion_context", trusted_malformed_promotion_context, execution_class="context_provider")
     controller.register_handler(
         "tests.publish_handler",
         protected_side_effect_handler,
