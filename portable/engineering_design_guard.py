@@ -254,7 +254,7 @@ class EngineeringDesignGuard:
                 (("cancellation", "synchronization", "race_test", "deadlock", "parallelism"), "State cancellation/synchronization and race/deadlock verification, or an explicit not_applicable reason"),
             ),
             DesignDimension.DISTRIBUTED: (
-                (("consistency", "cap_tradeoff", "pacelc", "distributed"), "State consistency and CAP/PACELC trade-offs where partitions or replicas matter, or an explicit not_applicable reason"),
+                (("consistency", "cap_tradeoff", "pacelc"), "State consistency and CAP/PACELC trade-offs where partitions or replicas matter, or an explicit not_applicable reason"),
                 (("idempotency", "ordering", "quorum", "split_brain"), "State duplicate delivery, ordering, quorum, or split-brain controls as applicable, or an explicit not_applicable reason"),
             ),
             DesignDimension.CORRECTNESS: (
