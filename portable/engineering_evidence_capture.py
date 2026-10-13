@@ -147,6 +147,8 @@ class EvidenceCapture:
             raise ValueError("unsupported evidence source type")
         if isinstance(iteration, bool) or not isinstance(iteration, int) or iteration < 0:
             raise ValueError("iteration must be a non-negative integer")
+        if metadata is None:
+            metadata = {}
         if not isinstance(metadata, Mapping):
             raise ValueError("metadata must be a mapping of non-sensitive structured values")
         # Allowlist prevents raw task payloads, prompts, test output, secrets, and
@@ -181,6 +183,8 @@ class EvidenceCapture:
                 safe_metadata[key] = _text(value, key, 512) if isinstance(value, str) else value
                 if not isinstance(safe_metadata[key], (str, bool, int, float, type(None))):
                     raise ValueError(f"{key} must be a scalar safe metadata value")
+                if isinstance(safe_metadata[key], float) and not math.isfinite(safe_metadata[key]):
+                    raise ValueError(f"{key} must be a finite number")
         repository = repository.strip()
         head_sha = head_sha.strip()
         artifact_digest = artifact_digest.strip()
