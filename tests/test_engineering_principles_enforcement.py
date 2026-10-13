@@ -70,6 +70,52 @@ def test_resilience_contract_accepts_explicit_bounded_controls():
     )
 
 
+
+def test_data_integrity_contract_requires_schema_evolution_decision():
+    receipt = EngineeringDesignGuard.review(
+        intent="Change persistent storage and data integrity handling",
+        changed_paths=["portable/storage/repository.py"],
+        risk="high",
+        design={
+            "source_of_truth": "database remains authoritative",
+            "consistency": "writes commit transactionally",
+        },
+    )
+    blocking = _messages(receipt, FindingSeverity.BLOCKING)
+    assert receipt.status == "blocked"
+    assert any("schema/format evolution" in message for message in blocking)
+
+
+def test_data_integrity_contract_accepts_explicit_schema_non_applicability():
+    receipt = EngineeringDesignGuard.review(
+        intent="Change persistent storage and data integrity handling",
+        changed_paths=["portable/storage/repository.py"],
+        risk="high",
+        design={
+            "source_of_truth": "database remains authoritative",
+            "consistency": "writes commit transactionally",
+            "schema_evolution": "not_applicable: schema and persisted format remain unchanged",
+            "architecture": "repository remains behind a stable storage boundary",
+            "responsibility": "storage adapter owns persistence invariants",
+            "dependency_direction": "application depends on storage interface only",
+            "resilience": "storage operation is bounded and recoverable",
+            "timeout_budget": "5-second database operation deadline",
+            "retry_budget": "no retries for non-idempotent transaction failures",
+            "recovery": "rollback transaction on failed write",
+            "reuse": "reuse existing transaction manager",
+            "regression": "transaction rollback and data integrity tests",
+            "exception_handling": "rollback and preserve typed storage errors",
+            "logging": "record correlation ID without row contents",
+            "performance": "query count remains bounded",
+            "usage_compatibility": "repository contract and caller behavior remain stable",
+        },
+    )
+    assert not any(
+        "schema/format evolution" in message
+        for message in _messages(receipt, FindingSeverity.BLOCKING)
+    )
+
+
 def test_security_is_inferred_and_high_risk_missing_contract_blocks():
     receipt = EngineeringDesignGuard.review(
         intent="Change authentication and authorization for external tool execution",
@@ -210,6 +256,12 @@ class EngineeringPrincipleEnforcementTests(unittest.TestCase):
 
     def test_resilience_contract_accepts_bounded_controls_case(self):
         test_resilience_contract_accepts_explicit_bounded_controls()
+
+    def test_data_integrity_requires_schema_evolution_decision_case(self):
+        test_data_integrity_contract_requires_schema_evolution_decision()
+
+    def test_data_integrity_accepts_schema_non_applicability_case(self):
+        test_data_integrity_contract_accepts_explicit_schema_non_applicability()
 
     def test_security_is_inferred_and_high_risk_missing_contract_blocks_case(self):
         test_security_is_inferred_and_high_risk_missing_contract_blocks()
