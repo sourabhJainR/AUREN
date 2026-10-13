@@ -79,3 +79,17 @@ This runbook is an operator handoff, not evidence that a campaign has run. Keep 
 8. Independent reviewer sign-off and a sanitized reproducible report.
 
 Do not mark the campaign complete from unit tests, test signatures, internal fixtures, or a self-reported isolation manifest. If an independent operator or required artifact is unavailable, keep promotion blocked and #404 open.
+
+
+## Production signer lifecycle
+
+Construct the production boundary with an operator-managed public-key registry and
+persistent replay ledger. The production constructor accepts `revoked_signers`
+and per-key `key_validity` windows; these controls apply to both the external
+outcome signature and the corpus-custody signature. Keep the registry, revocation
+list, validity windows, and replay database under evaluator/operator control and
+outside the evaluated runtime. Rotate signer IDs when keys rotate, revoke compromised
+IDs promptly, and retain the key policy used for each campaign with the external
+receipt archive. Unit tests prove local verification behavior only; deployment
+must verify that key updates and replay state survive restart and are operated by
+a principal separate from the evaluated runtime.
