@@ -49,6 +49,12 @@ class IdentityCompatibilityTests(unittest.TestCase):
                 Path.home() / "chosen",
             )
 
+    def test_empty_configured_home_fails_closed(self) -> None:
+        with self.assertRaisesRegex(ValueError, "AUREN_HOME must not be empty"):
+            auren_home(environ={"AUREN_HOME": "", "AER_HOME": "/tmp/legacy"})
+        with self.assertRaisesRegex(ValueError, "legacy AER_HOME must not be empty"):
+            auren_home(environ={"AER_HOME": ""})
+
     def test_project_state_prefers_canonical_then_legacy_without_moving_it(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
