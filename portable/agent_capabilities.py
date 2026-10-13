@@ -566,8 +566,8 @@ class CapabilityExecutioner:
                 ))
                 seen.add(directory.name)
         for source, payload in (
-            ("mcp", os.environ.get("AER_MCP_CAPABILITIES", "")),
-            ("plugin", os.environ.get("AER_PLUGIN_CAPABILITIES", "")),
+            ("mcp", get_auren_env("MCP_CAPABILITIES", "")),
+            ("plugin", get_auren_env("PLUGIN_CAPABILITIES", "")),
         ):
             try:
                 options.extend(self._host_options(source, payload))
