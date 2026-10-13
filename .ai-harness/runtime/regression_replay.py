@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Deterministic replay gate for proposed AER policies."""
+"""Deterministic replay gate for proposed AUREN policies."""
 from __future__ import annotations
 
 from dataclasses import dataclass
