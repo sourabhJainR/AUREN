@@ -17,7 +17,7 @@ from portable.execution_controller import ExecutionController
 from tests.test_execution_controller import durable_handler
 root = Path(sys.argv[1])
 controller = ExecutionController(root)
-controller.register_handler("tests.test_execution_controller.durable_handler", durable_handler)
+controller.register_handler("tests.test_execution_controller.durable_handler", durable_handler, execution_class="read_only")
 task = controller.submit("tests.test_execution_controller.durable_handler", {"id": "process-death"})
 claimed = controller._claim(task.id)
 assert claimed is not None and claimed.state == "running"
@@ -66,7 +66,7 @@ print(json.dumps({
 
 def test_resume_pending_task_after_controller_restart(tmp_path: Path):
     first = ExecutionController(tmp_path)
-    first.register_handler("tests.test_execution_controller.durable_handler", durable_handler)
+    first.register_handler("tests.test_execution_controller.durable_handler", durable_handler, execution_class="read_only")
     task = first.submit("tests.test_execution_controller.durable_handler", {"id": "restart"})
     second = ExecutionController(tmp_path)
     scores = second.resume_pending()
@@ -75,7 +75,7 @@ def test_resume_pending_task_after_controller_restart(tmp_path: Path):
 
 def test_resume_waits_for_live_lease_and_reclaims_expired_running_task(tmp_path: Path):
     first = ExecutionController(tmp_path)
-    first.register_handler("tests.test_execution_controller.durable_handler", durable_handler)
+    first.register_handler("tests.test_execution_controller.durable_handler", durable_handler, execution_class="read_only")
     task = first.submit("tests.test_execution_controller.durable_handler", {"id": "lease-restart"})
     claimed = first._claim(task.id)
     assert claimed is not None and claimed.state == "running"
@@ -96,7 +96,7 @@ def test_resume_waits_for_live_lease_and_reclaims_expired_running_task(tmp_path:
 
 def test_recover_stale_respects_live_lease_and_only_resets_stale_task(tmp_path: Path):
     first = ExecutionController(tmp_path)
-    first.register_handler("tests.test_execution_controller.durable_handler", durable_handler)
+    first.register_handler("tests.test_execution_controller.durable_handler", durable_handler, execution_class="read_only")
     task = first.submit("tests.test_execution_controller.durable_handler", {"id": "stale-recovery"})
     assert first._claim(task.id) is not None
 
