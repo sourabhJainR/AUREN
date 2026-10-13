@@ -1,4 +1,4 @@
-"""Bounded hypothesis and belief-update primitives for AER.
+"""Bounded hypothesis and belief-update primitives for AUREN.
 
 The engine records competing hypotheses and separates supporting evidence from
 contradicting evidence. It never turns confidence into permission to act;
