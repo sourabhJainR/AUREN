@@ -465,7 +465,7 @@ class AdaptiveRuntime:
                         current_value=cognitive_current_value, beliefs=cognitive_beliefs,
                         belief_limit=cognitive_belief_limit, context=effective_context,
                     )
-                    cognitive_plan_payload = dict(effective_context.get("auren_cognitive_plan", effective_context.get("aer_cognitive_plan", {})))  # type: ignore[arg-type]
+                    cognitive_plan_payload = dict(effective_context.get("auren_cognitive_plan", {}))  # type: ignore[arg-type]
                     self.last_cognitive_plan = dict(cognitive_plan_payload)
                     cognitive_loop.observe(episode, {
                         "event": "cognitive_plan_created",

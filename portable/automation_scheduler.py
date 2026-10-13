@@ -1,4 +1,4 @@
-"""Public facade for durable AER scheduling.
+"""Public facade for durable AUREN scheduling.
 
 Compatibility methods here adapt the earlier receipt-oriented API to the
 unified claim-before-run scheduler without duplicating scheduler state.

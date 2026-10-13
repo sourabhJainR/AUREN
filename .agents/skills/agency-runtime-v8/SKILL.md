@@ -18,7 +18,7 @@ Select one primary specialist whenever possible. Add support/reviewer specialist
 Every material claim must have evidence or be explicitly marked uncertain. Record source, claim, and locator where available. Do not place secrets or sensitive payloads in provenance details.
 
 ## Verification
-Use the normal AER order:
+Use the normal AUREN order:
 `syntax/static -> focused tests -> integration/system -> regression replay -> security/policy -> final diff review`.
 The orchestrator must report incomplete checks instead of converting them into success.
 

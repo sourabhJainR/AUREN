@@ -136,7 +136,7 @@ def create_isolated_checkout(destination):
 
 def run_task(provider,task,timeout):
     started=time.monotonic()
-    with tempfile.TemporaryDirectory(prefix=f"aer-{task['id']}-") as temp:
+    with tempfile.TemporaryDirectory(prefix=f"auren-{task['id']}-") as temp:
         root=Path(temp); checkout=root/"checkout"; checkout.mkdir(); create_isolated_checkout(checkout)
         baseline_secrets=secret_facts(checkout)
         trace=root/"commands.jsonl"; bindir=root/"bin"; bindir.mkdir(); install_trace_wrappers(bindir,trace)

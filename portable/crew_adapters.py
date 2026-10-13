@@ -10,6 +10,123 @@ from dataclasses import dataclass
 import hashlib
 import json
 from typing import Any, Callable, Mapping, Sequence
+from threading import RLock
+
+
+class TaskRetryBudget:
+    """Thread-safe task-scoped retry budget with checkpointable idempotent charges.
+
+    This is a value object owned by the task graph/supervisor, not a second
+    persistence layer. Its snapshot belongs in the graph's canonical checkpoint.
+    """
+
+    SCHEMA_VERSION = "auren-task-retry-budget-v1"
+
+    def __init__(self, max_retries: int = 3, *, charges: Mapping[str, str] | None = None) -> None:
+        if type(max_retries) is not int or not 0 <= max_retries <= 100:
+            raise ValueError("max_retries must be an integer between 0 and 100")
+        self.max_retries = max_retries
+        self._charges = dict(charges or {})
+        if any(not isinstance(k, str) or not k.strip() or not isinstance(v, str) or not v.strip()
+               for k, v in self._charges.items()):
+            raise ValueError("retry budget charges must map non-empty operation keys to components")
+        if len(self._charges) > self.max_retries:
+            raise ValueError("checkpoint charges exceed retry budget")
+        self._lock = RLock()
+
+    @property
+    def used(self) -> int:
+        with self._lock:
+            return len(self._charges)
+
+    @property
+    def remaining(self) -> int:
+        with self._lock:
+            return max(0, self.max_retries - len(self._charges))
+
+    def consume(self, *, component: str, operation_key: str) -> bool:
+        """Charge a retry once; duplicate charge keys do not consume budget twice."""
+        if not isinstance(component, str) or not component.strip():
+            raise ValueError("retry component is required")
+        if not isinstance(operation_key, str) or not operation_key.strip():
+            raise ValueError("retry operation_key is required")
+        with self._lock:
+            existing = self._charges.get(operation_key)
+            if existing is not None:
+                if existing != component:
+                    raise ValueError("retry operation key was reused by a different component")
+                # A previously charged attempt must not be executed again after
+                # resume; it is already spent, even if its completion is unknown.
+                return False
+            if len(self._charges) >= self.max_retries:
+                return False
+            self._charges[operation_key] = component
+            return True
+
+    def snapshot(self) -> dict[str, Any]:
+        with self._lock:
+            charges = [
+                {"operation_key": key, "component": value}
+                for key, value in sorted(self._charges.items())
+            ]
+            payload = {
+                "schema_version": self.SCHEMA_VERSION,
+                "max_retries": self.max_retries,
+                "used_retries": len(charges),
+                "charges": charges,
+            }
+            payload["digest"] = hashlib.sha256(
+                json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+            ).hexdigest()
+            return payload
+
+    @classmethod
+    def resume(cls, snapshot: Mapping[str, Any]) -> "TaskRetryBudget":
+        if not isinstance(snapshot, Mapping) or snapshot.get("schema_version") != cls.SCHEMA_VERSION:
+            raise ValueError("unsupported task retry budget checkpoint")
+        raw_charges = snapshot.get("charges")
+        if not isinstance(raw_charges, list):
+            raise ValueError("retry budget charges must be a list")
+        charges: dict[str, str] = {}
+        for item in raw_charges:
+            if not isinstance(item, Mapping):
+                raise ValueError("invalid retry budget charge")
+            key, component = item.get("operation_key"), item.get("component")
+            if not isinstance(key, str) or not key.strip() or not isinstance(component, str) or not component.strip():
+                raise ValueError("invalid retry budget charge fields")
+            if key in charges and charges[key] != component:
+                raise ValueError("conflicting retry budget charge")
+            charges[key] = component
+        budget = cls(snapshot.get("max_retries", 3), charges=charges)
+        if snapshot.get("used_retries") != budget.used:
+            raise ValueError("retry budget used count does not match charge ledger")
+        supplied_digest = snapshot.get("digest")
+        if supplied_digest is not None:
+            expected = budget.snapshot()["digest"]
+            if supplied_digest != expected:
+                raise ValueError("retry budget checkpoint digest mismatch")
+        return budget
+
+
+def merge_retry_budget_snapshots(current: Any, incoming: Any) -> dict[str, Any]:
+    """Monotonic reducer for concurrent graph-node budget snapshots."""
+    if current is None:
+        return TaskRetryBudget.resume(incoming).snapshot()
+    if incoming is None:
+        return TaskRetryBudget.resume(current).snapshot()
+    left = TaskRetryBudget.resume(current)
+    right = TaskRetryBudget.resume(incoming)
+    if left.max_retries != right.max_retries:
+        raise ValueError("cannot merge retry budgets with different limits")
+    merged = {item["operation_key"]: item["component"] for item in left.snapshot()["charges"]}
+    for item in right.snapshot()["charges"]:
+        previous = merged.get(item["operation_key"])
+        if previous is not None and previous != item["component"]:
+            raise ValueError("conflicting retry budget charge across graph branches")
+        merged[item["operation_key"]] = item["component"]
+    if len(merged) > left.max_retries:
+        raise ValueError("merged retry budget exceeds task limit")
+    return TaskRetryBudget(left.max_retries, charges=merged).snapshot()
 
 
 @dataclass(frozen=True, slots=True)
@@ -251,17 +368,45 @@ class CrewHandoff:
     task: str
     source_plan_digest: str
     attempt: int = 0
+    handoff_id: str = ""
 
 
 class GraphHandoffController:
     """Create/claim handoffs for graph nodes; never invokes a crew itself."""
 
-    def __init__(self, *, max_attempts: int = 3) -> None:
+    def __init__(
+        self, *, max_attempts: int = 3, retry_budget: TaskRetryBudget | None = None,
+        persist: Callable[[Mapping[str, Any]], None] | None = None,
+        require_persistence: bool = False,
+    ) -> None:
         if type(max_attempts) is not int or max_attempts < 1 or max_attempts > 10:
             raise ValueError("max_attempts must be between 1 and 10")
+        if type(require_persistence) is not bool:
+            raise ValueError("require_persistence must be a boolean")
+        if persist is not None and not callable(persist):
+            raise TypeError("persist must be callable")
+        if require_persistence and persist is None:
+            raise ValueError("durable handoff checkpoint writer is required by task policy")
         self.max_attempts = max_attempts
+        self.retry_budget = retry_budget
+        self._persist_callback = persist
+        self.require_persistence = require_persistence
         self._queue: list[CrewHandoff] = []
+        self._in_flight: dict[str, CrewHandoff] = {}
+        self._seen_ids: set[str] = set()
         self._completed: set[tuple[str, str, str]] = set()
+        self._lock = RLock()
+
+    @staticmethod
+    def _handoff_id(source_crew: str, target_crew: str, task: str, source_plan_digest: str) -> str:
+        payload = [source_crew, target_crew, task.strip(), source_plan_digest]
+        return hashlib.sha256(json.dumps(payload, separators=(",", ":")).encode("utf-8")).hexdigest()
+
+    def _persist(self) -> None:
+        if self.require_persistence and self._persist_callback is None:
+            raise RuntimeError("durable handoff checkpoint writer is required by task policy")
+        if self._persist_callback is not None:
+            self._persist_callback(self.snapshot())
 
     def enqueue(
         self,
@@ -279,71 +424,177 @@ class GraphHandoffController:
             raise PermissionError(f"handoff target crew is not assigned to the graph plan: {target_crew}")
         if not task.strip() or not source_plan_digest.strip():
             raise ValueError("handoff task and source plan digest are required")
-        handoff = CrewHandoff(source_crew, target_crew, task.strip(), source_plan_digest)
-        self._queue.append(handoff)
-        return handoff
+        handoff_id = self._handoff_id(source_crew, target_crew, task, source_plan_digest)
+        with self._lock:
+            for queued in self._queue:
+                if queued.handoff_id == handoff_id:
+                    return queued
+            if handoff_id in self._in_flight:
+                return self._in_flight[handoff_id]
+            handoff = CrewHandoff(source_crew, target_crew, task.strip(), source_plan_digest, 0, handoff_id)
+            if handoff_id in self._seen_ids:
+                return handoff
+            self._queue.append(handoff)
+            self._seen_ids.add(handoff_id)
+            self._persist()
+            return handoff
 
     def claim_next(self, *, graph_node_active: bool) -> CrewHandoff | None:
         if not graph_node_active:
             raise RuntimeError("handoffs may only be claimed by an active graph node")
-        if not self._queue:
-            return None
-        return self._queue.pop(0)
+        with self._lock:
+            if not self._queue:
+                return None
+            item = self._queue.pop(0)
+            self._in_flight[item.handoff_id] = item
+            self._persist()
+            return item
 
     def retry(self, handoff: CrewHandoff, *, retryable: bool) -> CrewHandoff | None:
-        if not retryable or handoff.attempt + 1 >= self.max_attempts:
-            return None
-        retry = CrewHandoff(
-            handoff.source_crew, handoff.target_crew, handoff.task,
-            handoff.source_plan_digest, handoff.attempt + 1,
-        )
-        self._queue.append(retry)
-        return retry
+        with self._lock:
+            handoff_id = handoff.handoff_id or self._handoff_id(
+                handoff.source_crew, handoff.target_crew, handoff.task, handoff.source_plan_digest
+            )
+            if not retryable or handoff.attempt + 1 >= self.max_attempts:
+                self._in_flight.pop(handoff_id, None)
+                self._persist()
+                return None
+            if self.retry_budget is not None and not self.retry_budget.consume(
+                component="crew_handoff",
+                operation_key=f"handoff:{handoff_id}:retry:{handoff.attempt + 1}",
+            ):
+                self._in_flight.pop(handoff_id, None)
+                self._persist()
+                return None
+            retry = CrewHandoff(
+                handoff.source_crew, handoff.target_crew, handoff.task,
+                handoff.source_plan_digest, handoff.attempt + 1, handoff_id,
+            )
+            self._in_flight.pop(handoff_id, None)
+            self._queue.append(retry)
+            self._persist()
+            return retry
 
     def mark_completed(self, handoff: CrewHandoff, *, independent_review_passed: bool) -> None:
         if not independent_review_passed:
             raise PermissionError("handoff cannot complete before independent review passes")
-        key = (handoff.source_crew, handoff.target_crew, hashlib.sha256(handoff.task.encode()).hexdigest())
-        self._completed.add(key)
+        with self._lock:
+            key = (handoff.source_crew, handoff.target_crew, hashlib.sha256(handoff.task.encode()).hexdigest())
+            self._completed.add(key)
+            handoff_id = handoff.handoff_id or self._handoff_id(
+                handoff.source_crew, handoff.target_crew, handoff.task, handoff.source_plan_digest
+            )
+            self._in_flight.pop(handoff_id, None)
+            self._seen_ids.add(handoff_id)
+            self._persist()
 
     def snapshot(self) -> dict[str, Any]:
-        """JSON-safe checkpoint for a supervisor-owned durable store."""
-        return {
-            "schema_version": "auren-crew-handoff-checkpoint-v1",
-            "max_attempts": self.max_attempts,
-            "queued": [
-                {"source_crew": h.source_crew, "target_crew": h.target_crew,
-                 "task": h.task, "source_plan_digest": h.source_plan_digest, "attempt": h.attempt}
-                for h in self._queue
-            ],
-            "completed": [list(key) for key in sorted(self._completed)],
-        }
+        """JSON-safe checkpoint for the supervisor's canonical task store."""
+        with self._lock:
+            payload = {
+                "schema_version": "auren-crew-handoff-checkpoint-v2",
+                "max_attempts": self.max_attempts,
+                "queued": [
+                    {"source_crew": h.source_crew, "target_crew": h.target_crew,
+                     "task": h.task, "source_plan_digest": h.source_plan_digest,
+                     "attempt": h.attempt, "handoff_id": h.handoff_id}
+                    for h in self._queue
+                ],
+                "in_flight": [
+                    {"source_crew": h.source_crew, "target_crew": h.target_crew,
+                     "task": h.task, "source_plan_digest": h.source_plan_digest,
+                     "attempt": h.attempt, "handoff_id": h.handoff_id}
+                    for h in sorted(self._in_flight.values(), key=lambda item: item.handoff_id)
+                ],
+                "seen_ids": sorted(self._seen_ids),
+                "completed": [list(key) for key in sorted(self._completed)],
+                "retry_budget": self.retry_budget.snapshot() if self.retry_budget is not None else None,
+            }
+            payload["digest"] = hashlib.sha256(
+                json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+            ).hexdigest()
+            return payload
 
     @classmethod
-    def resume(cls, checkpoint: Mapping[str, Any]) -> "GraphHandoffController":
-        if not isinstance(checkpoint, Mapping) or checkpoint.get("schema_version") != "auren-crew-handoff-checkpoint-v1":
+    def resume(
+        cls,
+        checkpoint: Mapping[str, Any],
+        *,
+        retry_budget: TaskRetryBudget | None = None,
+        persist: Callable[[Mapping[str, Any]], None] | None = None,
+        require_persistence: bool = False,
+    ) -> "GraphHandoffController":
+        if not isinstance(checkpoint, Mapping) or checkpoint.get("schema_version") not in {
+            "auren-crew-handoff-checkpoint-v1", "auren-crew-handoff-checkpoint-v2"
+        }:
             raise ValueError("unsupported handoff checkpoint")
-        controller = cls(max_attempts=checkpoint.get("max_attempts", 3))
+        supplied_digest = checkpoint.get("digest")
+        if supplied_digest is not None:
+            payload = {key: value for key, value in checkpoint.items() if key != "digest"}
+            expected_digest = hashlib.sha256(
+                json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+            ).hexdigest()
+            if supplied_digest != expected_digest:
+                raise ValueError("handoff checkpoint digest mismatch")
+        shared_budget = retry_budget
+        saved_budget = checkpoint.get("retry_budget")
+        if shared_budget is None and isinstance(saved_budget, Mapping):
+            shared_budget = TaskRetryBudget.resume(saved_budget)
+        controller = cls(
+            max_attempts=checkpoint.get("max_attempts", 3),
+            retry_budget=shared_budget,
+            persist=persist,
+            require_persistence=require_persistence,
+        )
         queued = checkpoint.get("queued")
         completed = checkpoint.get("completed")
-        if not isinstance(queued, list) or not isinstance(completed, list):
-            raise ValueError("checkpoint queue and completed records must be lists")
+        in_flight = checkpoint.get("in_flight", [])
+        if not isinstance(queued, list) or not isinstance(completed, list) or not isinstance(in_flight, list):
+            raise ValueError("checkpoint queue, in_flight, and completed records must be lists")
+
+        def restore(raw: Mapping[str, Any]) -> CrewHandoff:
+            source = raw.get("source_crew")
+            target = raw.get("target_crew")
+            task = raw.get("task")
+            plan_digest = raw.get("source_plan_digest")
+            attempt = raw.get("attempt", 0)
+            if any(not isinstance(value, str) or not value.strip() for value in (source, target, task, plan_digest)):
+                raise ValueError("invalid handoff checkpoint fields")
+            if type(attempt) is not int or not 0 <= attempt < controller.max_attempts:
+                raise ValueError("checkpoint handoff attempt is outside retry budget")
+            expected_id = cls._handoff_id(source, target, task, plan_digest)
+            handoff_id = raw.get("handoff_id", expected_id)
+            if handoff_id != expected_id:
+                raise ValueError("handoff checkpoint ID does not match its payload")
+            return CrewHandoff(source, target, task, plan_digest, attempt, expected_id)
+
         for raw in queued:
             if not isinstance(raw, Mapping):
                 raise ValueError("invalid queued handoff")
-            handoff = CrewHandoff(
-                raw["source_crew"], raw["target_crew"], raw["task"],
-                raw["source_plan_digest"], raw["attempt"],
-            )
-            if not 0 <= handoff.attempt < controller.max_attempts:
-                raise ValueError("checkpoint handoff attempt is outside retry budget")
-            controller._queue.append(handoff)
+            item = restore(raw)
+            if item.handoff_id in controller._seen_ids:
+                raise ValueError("duplicate handoff ID in checkpoint queue")
+            controller._queue.append(item)
+            controller._seen_ids.add(item.handoff_id)
+        for raw in in_flight:
+            if not isinstance(raw, Mapping):
+                raise ValueError("invalid in-flight handoff")
+            item = restore(raw)
+            if item.handoff_id in controller._seen_ids:
+                raise ValueError("duplicate handoff ID in checkpoint in-flight records")
+            # Specialist proposal adapters are read-only; an interrupted claim
+            # can be requeued with the same idempotency key without repeating effects.
+            controller._queue.append(item)
+            controller._seen_ids.add(item.handoff_id)
+        saved_seen = checkpoint.get("seen_ids", [])
+        if not isinstance(saved_seen, list) or any(not isinstance(value, str) or not value.strip() for value in saved_seen):
+            raise ValueError("invalid handoff seen_ids")
+        controller._seen_ids.update(saved_seen)
         for item in completed:
-            if not isinstance(item, list) or len(item) != 3 or any(not isinstance(v, str) for v in item):
+            if not isinstance(item, list) or len(item) != 3 or any(not isinstance(value, str) for value in item):
                 raise ValueError("invalid completed handoff key")
             controller._completed.add(tuple(item))
         return controller
-
 
 def rollback_readiness(
     *,

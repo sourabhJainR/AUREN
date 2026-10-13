@@ -457,7 +457,7 @@ class CapabilityExecutioner:
     """Select the smallest safe capability set for the current execution.
 
     External skills/plugins/MCP/providers are optional discovery inputs. They
-    cannot bypass AER's risk, sandbox, network, failure and stopping policy.
+    cannot bypass AUREN's risk, sandbox, network, failure and stopping policy.
     The selector is deterministic when history is absent and bounded when
     history is present, preventing one successful path from becoming a hard
     dependency.

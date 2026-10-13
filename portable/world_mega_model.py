@@ -1,4 +1,4 @@
-"""World Mega Model control plane for AER.
+"""World Mega Model control plane for AUREN.
 
 This is a bounded, evidence-first world-model facade: it unifies durable
 world state, beliefs, goals, causal reasoning, self-calibration, pathway
@@ -111,7 +111,7 @@ class MegaPromotion:
 class WorldMegaModel:
     """Project-scoped world-and-self model with bounded self-evolution.
 
-    The facade composes existing AER primitives rather than replacing them.
+    The facade composes existing AUREN primitives rather than replacing them.
     It can observe the world, reason about uncertainty, discover pathways,
     detect repeated capability gaps, validate transfer, and gate promotion.
     It never directly grants execution authority to learned content.

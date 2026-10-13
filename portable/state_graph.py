@@ -8,7 +8,7 @@ import re
 from typing import Any, Callable, Mapping
 
 from .orchestration import Graph, Node, NodeKind, NodeStatus, OrchestrationRun, Orchestrator
-from .crew_adapters import CrewHandoff, GraphHandoffController, rollback_readiness
+from .crew_adapters import CrewHandoff, GraphHandoffController, TaskRetryBudget, rollback_readiness
 
 _FORBIDDEN_CREW_AUTHORITIES = frozenset({
     "merge", "promote", "self_approve", "approve_own_work", "bypass_review",
@@ -413,8 +413,17 @@ class GraphAgentTeam:
         graph: StateGraph,
         agents: Mapping[str, Any] | None = None,
         crews: Mapping[str, CrewDefinition] | None = None,
+        *,
+        handoff_checkpoint_writer: Callable[[str, Mapping[str, Any]], None] | None = None,
+        require_durable_handoffs: bool = False,
     ) -> None:
+        if handoff_checkpoint_writer is not None and not callable(handoff_checkpoint_writer):
+            raise TypeError("handoff_checkpoint_writer must be callable")
+        if type(require_durable_handoffs) is not bool:
+            raise ValueError("require_durable_handoffs must be a boolean")
         self.graph = graph
+        self.handoff_checkpoint_writer = handoff_checkpoint_writer
+        self.require_durable_handoffs = require_durable_handoffs
         self.agents = dict(agents or {})
         self.crews = {crew.crew_id: crew for crew in _default_crews()}
         for crew_id, crew in (crews or {}).items():
@@ -487,13 +496,48 @@ class GraphAgentTeam:
                 crews=self.crews,
             )
 
-        # Resume only from an explicitly supplied, schema-validated supervisor checkpoint.
-        checkpoint = state.get("auren_crew_handoff_checkpoint")
+        # Handoffs and retry charges live in the supervisor-owned checkpoint,
+        # not in a separate queue database.
+        checkpoint = state.get("auren_crew_handoff_checkpoint_data", state.get("auren_crew_handoff_checkpoint"))
+        if checkpoint is not None and not isinstance(checkpoint, Mapping):
+            raise ValueError("crew handoff checkpoint must be a serialized mapping")
+        saved_budget = state.get("auren_retry_budget")
+        if isinstance(saved_budget, Mapping):
+            retry_budget = TaskRetryBudget.resume(saved_budget)
+        elif isinstance(checkpoint, Mapping) and isinstance(checkpoint.get("retry_budget"), Mapping):
+            retry_budget = TaskRetryBudget.resume(checkpoint["retry_budget"])
+        else:
+            retry_budget = TaskRetryBudget(max_retries=state.get("auren_retry_budget_limit", 3))
+
+        def persist_handoff_checkpoint(snapshot: Mapping[str, Any]) -> None:
+            state["auren_crew_handoff_checkpoint_data"] = dict(snapshot)
+            state["auren_retry_budget"] = retry_budget.snapshot()
+            if self.handoff_checkpoint_writer is not None:
+                self.handoff_checkpoint_writer(task_id, {
+                    "schema_version": "auren-task-handoff-envelope-v1",
+                    "handoff_checkpoint": dict(snapshot),
+                    "retry_budget": retry_budget.snapshot(),
+                    "task_id": task_id,
+                    "intent_digest": plan.intent_digest,
+                    "crew_plan_digest": plan.digest,
+                })
+
+        persist_callback = persist_handoff_checkpoint if self.handoff_checkpoint_writer is not None else None
         handoffs = (
-            GraphHandoffController.resume(checkpoint)
+            GraphHandoffController.resume(
+                checkpoint, retry_budget=retry_budget, persist=persist_callback,
+                require_persistence=self.require_durable_handoffs,
+            )
             if checkpoint is not None
-            else GraphHandoffController(max_attempts=3)
+            else GraphHandoffController(
+                max_attempts=3, retry_budget=retry_budget, persist=persist_callback,
+                require_persistence=self.require_durable_handoffs,
+            )
         )
+
+        def refresh_checkpoint_state() -> None:
+            state["auren_crew_handoff_checkpoint_data"] = handoffs.snapshot()
+            state["auren_retry_budget"] = retry_budget.snapshot()
 
         def enqueue_handoff(source_crew: str, target_crew: str, task: str) -> dict[str, Any]:
             if not dispatch_active["value"]:
@@ -509,24 +553,28 @@ class GraphAgentTeam:
                 allowed_handoffs=source.handoffs_to,
                 selected_crews=tuple(selected_ids),
             )
+            refresh_checkpoint_state()
             return {
                 "source_crew": item.source_crew,
                 "target_crew": item.target_crew,
                 "task": item.task,
                 "source_plan_digest": item.source_plan_digest,
                 "attempt": item.attempt,
+                "handoff_id": item.handoff_id,
             }
 
         def claim_handoff() -> dict[str, Any] | None:
             item = handoffs.claim_next(graph_node_active=dispatch_active["value"])
             if item is None:
                 return None
+            refresh_checkpoint_state()
             return {
                 "source_crew": item.source_crew,
                 "target_crew": item.target_crew,
                 "task": item.task,
                 "source_plan_digest": item.source_plan_digest,
                 "attempt": item.attempt,
+                "handoff_id": item.handoff_id,
             }
 
         def retry_handoff(record: Mapping[str, Any], retryable: bool) -> dict[str, Any] | None:
@@ -535,10 +583,11 @@ class GraphAgentTeam:
             item = handoffs.retry(
                 CrewHandoff(
                     record["source_crew"], record["target_crew"], record["task"],
-                    record["source_plan_digest"], record.get("attempt", 0),
+                    record["source_plan_digest"], record.get("attempt", 0), record.get("handoff_id", ""),
                 ),
                 retryable=retryable,
             )
+            refresh_checkpoint_state()
             if item is None:
                 return None
             return {
@@ -547,6 +596,7 @@ class GraphAgentTeam:
                 "task": item.task,
                 "source_plan_digest": item.source_plan_digest,
                 "attempt": item.attempt,
+                "handoff_id": item.handoff_id,
             }
 
         def complete_handoff(record: Mapping[str, Any], independent_review_passed: bool) -> None:
@@ -554,8 +604,9 @@ class GraphAgentTeam:
                 raise RuntimeError("handoff completion is only available during graph execution")
             handoffs.mark_completed(CrewHandoff(
                 record["source_crew"], record["target_crew"], record["task"],
-                record["source_plan_digest"], record.get("attempt", 0),
+                record["source_plan_digest"], record.get("attempt", 0), record.get("handoff_id", ""),
             ), independent_review_passed=independent_review_passed)
+            refresh_checkpoint_state()
 
         # Only graph nodes receive scoped functions. Adapter/tool objects are never
         # placed into graph state; the graph node remains the sole execution authority.
@@ -564,6 +615,8 @@ class GraphAgentTeam:
         state["auren_crew_handoff_claim"] = claim_handoff
         state["auren_crew_handoff_retry"] = retry_handoff
         state["auren_crew_handoff_complete"] = complete_handoff
+        state["auren_crew_handoff_checkpoint_data"] = handoffs.snapshot()
+        state["auren_retry_budget"] = retry_budget.snapshot()
         state["auren_crew_handoff_checkpoint"] = handoffs.snapshot
         state["auren_crew_rollback_readiness"] = rollback_readiness
         try:

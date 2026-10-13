@@ -31,7 +31,7 @@ PHASES = (
     "canonical_engineering_evidence_envelope",
     "end_to_end_evidence_graph",
     "predictive_world_model_feedback",
-    "aer_aware_context_compaction",
+    "auren_aware_context_compaction",
     "repository_change_impact_prediction",
     "failure_pattern_prediction",
     "historical_task_decomposition",

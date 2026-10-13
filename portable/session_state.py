@@ -39,7 +39,7 @@ class SessionStore:
     """Atomic JSON checkpoints shared by sessions and projects."""
 
     def __init__(self, root: Path | str | None = None) -> None:
-        self.root = Path(root or (Path.home() / ".aer" / "sessions")).expanduser()
+        self.root = Path(root or (Path.home() / ".auren" / "sessions")).expanduser()
 
     @staticmethod
     def project_key(project_root: Path | str) -> str:

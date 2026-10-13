@@ -1,6 +1,6 @@
 """Closed-loop general intelligence runtime for HWS.
 
-This module is an integration layer over AER's existing cognitive primitives.
+This module is an integration layer over AUREN's existing cognitive primitives.
 It does not claim to make a model AGI by itself. It supplies the missing
 continuous perception -> prediction -> planning -> authorized action ->
 outcome -> reflection -> learning loop needed to evaluate increasingly

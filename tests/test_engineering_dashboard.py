@@ -1,4 +1,4 @@
-"""Tests for the observation-only AER engineering dashboard."""
+"""Tests for the observation-only AUREN engineering dashboard."""
 from pathlib import Path
 import tempfile
 from portable.engineering_dashboard import EngineeringDashboard
@@ -39,7 +39,7 @@ def test_dashboard_reads_durable_active_engineering_episode():
     import sqlite3
     with tempfile.TemporaryDirectory() as tmp:
         root=Path(tmp); state=root/"state"; state.mkdir()
-        db_path=state/"aer.sqlite3"
+        db_path=state/"auren.sqlite3"
         with sqlite3.connect(db_path) as db:
             db.execute("""CREATE TABLE engineering_episodes(
                 project TEXT, episode_id TEXT, task_family TEXT, capability TEXT,

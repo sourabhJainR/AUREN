@@ -1,4 +1,4 @@
-"""Empirical self-model for AER capability calibration.
+"""Empirical self-model for AUREN capability calibration.
 
 Capability estimates can be segmented by context and difficulty. The model
 records outcomes only; it never grants permissions or execution authority.

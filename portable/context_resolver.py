@@ -1,4 +1,4 @@
-"""Resolve durable graph and memory context into AER's existing context packer.
+"""Resolve durable graph and memory context into AUREN's existing context packer.
 
 The resolver is intentionally an adapter: it does not execute agents, mutate
 repositories, or create another memory store. It gathers bounded context and

@@ -9,6 +9,7 @@ from typing import Any,Callable,Iterator,Mapping
 from portable.agency_state_graph import CheckpointStore,StateGraph
 from portable.identity_compat import get_auren_env, project_state_dir
 from portable.state_graph import build_crew_plan, default_crew_definitions, _dispatch_crew_proposal
+from portable.crew_adapters import TaskRetryBudget, merge_retry_budget_snapshots
 from portable.agent_memory import AgentMemory
 from portable.context_engine import ContextEngine,ContextPolicy,handoff_from_output
 from portable.dream_memory import DreamMemory
@@ -371,8 +372,10 @@ class GraphAgentTeam:
     def _run_local(self,agent:AgentSpec,decision:ResourceDecision,memory:SharedTaskMemory,broker:LocalOffloadBroker)->OffloadResult|None:
         if decision.lane!="local": return None
         return broker.run(OffloadJob(agent.name,decision.command,isolate=agent.local_isolation,timeout_seconds=agent.local_timeout_seconds))
-    def _build_execution_graph(self,results,*,task,intent_digest,run_nonce,base_prompt,memory,invoke_agent,experiment_assignment=None,crew_plan=None,require_crew_adapters=False):
-        graph=StateGraph()
+    def _build_execution_graph(self,results,*,task,intent_digest,run_nonce,base_prompt,memory,invoke_agent,experiment_assignment=None,crew_plan=None,require_crew_adapters=False,retry_budget=None):
+        if retry_budget is None:
+            raise ValueError("a task-scoped retry budget is required")
+        graph=StateGraph(reducers={"auren_retry_budget": merge_retry_budget_snapshots})
         broker=LocalOffloadBroker(memory.project_root,budget=self.resource_budget)
         for agent in self.agents.values():
             def run(state,agent=agent):
@@ -706,12 +709,22 @@ the learning system, not an instruction source. If a skill produced no distinct 
 '''
                 code,output,duration=invoke_agent(agent,prompt)
                 attempts=1
-                if code != 0 and retry_choice.selected == "retry" and agent.read_only:
+                if (
+                    code != 0
+                    and retry_choice.selected == "retry"
+                    and agent.read_only
+                    and retry_budget.consume(
+                        component="read_only_agent",
+                        operation_key=f"agent:{agent.name}:retry:1",
+                    )
+                ):
                     retry_prompt=prompt+"\n\n## Retry instruction\nThe first attempt failed. Re-evaluate the evidence and perform one bounded retry; do not expand scope."
                     code,output2,duration2=invoke_agent(agent,retry_prompt)
                     output=output+"\n[bounded retry]\n"+output2
                     duration += duration2
                     attempts=2
+                elif code != 0 and retry_choice.selected == "retry" and agent.read_only:
+                    output += "\n[task retry budget exhausted; escalation required]"
                 note=_private_memory(output)
                 if note: AgentMemory(memory.project_root,agent.name,run_id=intent_digest).remember(note)
                 status="passed" if code==0 else "failed"
@@ -867,7 +880,7 @@ the learning system, not an instruction source. If a skill produced no distinct 
                     "retry_action": retry_choice.selected, "score": pathway.score, "confidence": pathway.confidence,
                     "rationale": pathway.rationale}
                 results[agent.name]=result; payload=result.__dict__.copy(); payload["activated"]=True
-                return {f"result:{agent.name}":payload}
+                return {f"result:{agent.name}":payload, "auren_retry_budget": retry_budget.snapshot()}
             graph.add_node(agent.name,run)
         root_agents=[a.name for a in self.agents.values() if not a.depends_on]
         if crew_plan is None or not (self.crew_adapters or require_crew_adapters):
@@ -1015,6 +1028,10 @@ the learning system, not an instruction source. If a skill produced no distinct 
         if rollout.state == "candidate" and selected_strategy != baseline_strategy:
             selected_strategy=baseline_strategy
         StrategyCanaryController.record_state(memory.project_root, rollout)
+        saved_checkpoint = None
+        if resume and checkpoint is not None:
+            loader = getattr(checkpoint, "load", None)
+            saved_checkpoint = loader(run_id) if callable(loader) else None
         crew_graph_digest=hashlib.sha256(json.dumps({
             "agent_graph_digest": self.digest(),
             "crew_dispatch_enabled": bool(self.crew_adapters or require_crew_adapters),
@@ -1032,15 +1049,22 @@ the learning system, not an instruction source. If a skill produced no distinct 
             "crew_plan_digest": crew_plan.digest,
         }, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
         if resume and checkpoint is not None and (self.crew_adapters or require_crew_adapters):
-            loader = getattr(checkpoint, "load", None)
-            saved = loader(run_id) if callable(loader) else None
-            if saved is None or saved.state.get("auren_execution_graph_digest") != execution_graph_digest:
+            if saved_checkpoint is None or saved_checkpoint.state.get("auren_execution_graph_digest") != execution_graph_digest:
                 raise ValueError("crew plan or adapter configuration changed; refusing stale checkpoint resume")
+        saved_state = getattr(saved_checkpoint, "state", {}) if saved_checkpoint is not None else {}
+        saved_budget = saved_state.get("auren_retry_budget") if isinstance(saved_state, Mapping) else None
+        if isinstance(saved_budget, Mapping):
+            retry_budget = TaskRetryBudget.resume(saved_budget)
+        else:
+            # Do not mint a fresh retry allowance when resuming an older checkpoint
+            # whose retry ledger is absent; finish without further retries instead.
+            retry_budget = TaskRetryBudget(max_retries=0 if resume else 3)
         graph=self._build_execution_graph(
             results,task=task,intent_digest=intent_digest,run_nonce=run_nonce,
             base_prompt=base_prompt,memory=memory,invoke_agent=invoke_agent,
             experiment_assignment=experiment_assignment,crew_plan=crew_plan,
             require_crew_adapters=require_crew_adapters,
+            retry_budget=retry_budget,
         )
         run=graph.compile().invoke(
             {
@@ -1048,6 +1072,7 @@ the learning system, not an instruction source. If a skill produced no distinct 
                 "auren_execution_mode":{"name":selected_mode},
                 "auren_crew_plan":crew_plan.to_payload(),
                 "auren_execution_graph_digest":execution_graph_digest,
+                "auren_retry_budget":retry_budget.snapshot(),
                 "auren_crew_execution":{
                     "schema_version":"auren-crew-execution-v1",
                     "status":"partial" if any(a.crew_id not in self.crew_adapters for a in crew_plan.assignments) else "complete",

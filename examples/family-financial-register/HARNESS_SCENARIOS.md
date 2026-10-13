@@ -1,6 +1,6 @@
 # Harness Scenarios
 
-This example is intentionally offline and uses fake data. The scenarios exercise the current AER control-plane behavior around a higher-sensitivity domain without introducing real credentials, secrets, or external integrations.
+This example is intentionally offline and uses fake data. The scenarios exercise the current AUREN control-plane behavior around a higher-sensitivity domain without introducing real credentials, secrets, or external integrations.
 
 ## Scenario 1: Complete-job change
 

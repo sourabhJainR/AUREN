@@ -5,7 +5,7 @@
     "ref": "ad9264e309bd5e5422c04784372d7841b1e5d604",
     "license": "MIT"
   },
-  "purpose": "Provider-neutral specialist agency layer for AER. Source agents remain upstream-owned; sync_agency_agents.py vendors an exact pinned snapshot when needed.",
+  "purpose": "Provider-neutral specialist agency layer for AUREN. Source agents remain upstream-owned; sync_agency_agents.py vendors an exact pinned snapshot when needed.",
   "quality_contract": {
     "minimum_sections": ["Identity & Memory", "Core Mission", "Critical Rules", "Technical Deliverables", "Workflow Process", "Communication Style", "Success Metrics"],
     "required_behavior": ["evidence before claims", "explicit assumptions", "concrete deliverables", "verification before success", "scope discipline", "review and repair when needed"]

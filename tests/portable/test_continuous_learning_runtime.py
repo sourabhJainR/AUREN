@@ -55,7 +55,7 @@ class ContinuousLearningRuntimeTests(unittest.TestCase):
             sessions = SessionStore(root / "sessions.db")
 
             def agent(context):
-                captured["policy"] = dict(context["aer_adaptive_policy"])
+                captured["policy"] = dict(context["auren_adaptive_policy"])
                 return "ok"
 
             graph = Graph([Node("agent", NodeKind.AGENT, agent, critical=True, risk="low")])

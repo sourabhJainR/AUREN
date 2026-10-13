@@ -69,7 +69,7 @@ class ProviderFabric:
     """Discover provider capabilities and select native execution when possible."""
 
     def __init__(self, manifest_dir: Path | str | None = None) -> None:
-        self.manifest_dir = Path(manifest_dir or (Path.home() / ".aer" / "providers")).expanduser()
+        self.manifest_dir = Path(manifest_dir or (Path.home() / ".auren" / "providers")).expanduser()
 
     def discover(self, *, refresh: bool = False) -> dict[str, ProviderCapability]:
         discovered: dict[str, ProviderCapability] = {}
@@ -100,7 +100,7 @@ class ProviderFabric:
             if capability and capability.supports(request.capability):
                 return RoutingDecision(name, request.capability, True, "native provider capability discovered", capability.command)
         if request.allow_fallback:
-            return RoutingDecision("aer", request.capability, False, "no native capability discovered; use AUREN fallback")
+            return RoutingDecision("auren", request.capability, False, "no native capability discovered; use AUREN fallback")
         raise RuntimeError(f"no provider supports capability: {request.capability}")
 
     def persist(self, providers: Mapping[str, ProviderCapability]) -> Path:

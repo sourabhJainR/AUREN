@@ -1,8 +1,8 @@
-"""Deterministic agent-pattern primitives composed with AER's canonical runtime.
+"""Deterministic agent-pattern primitives composed with AUREN's canonical runtime.
 
 These primitives adapt useful multi-agent patterns without creating a second
 capability, memory, graph, or execution owner. Model/tool execution stays in
-the host; AER supplies policy, verification, state, and promotion controls.
+the host; AUREN supplies policy, verification, state, and promotion controls.
 """
 from __future__ import annotations
 

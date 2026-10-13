@@ -1,4 +1,4 @@
-"""Executable deterministic interactive benchmark environments for AER."""
+"""Executable deterministic interactive benchmark environments for AUREN."""
 from __future__ import annotations
 
 import hashlib

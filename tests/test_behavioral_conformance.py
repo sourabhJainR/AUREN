@@ -8,7 +8,7 @@ TASKS = ROOT / ".ai-harness" / "conformance" / "tasks.jsonl"
 
 
 def load_module():
-    spec = importlib.util.spec_from_file_location("aer_behavioral_conformance_test", SCRIPT)
+    spec = importlib.util.spec_from_file_location("auren_behavioral_conformance_test", SCRIPT)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     spec.loader.exec_module(module)

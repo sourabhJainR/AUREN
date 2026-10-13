@@ -1,4 +1,4 @@
-"""Empirical intervention learning around AER's explicit causal graph."""
+"""Empirical intervention learning around AUREN's explicit causal graph."""
 from __future__ import annotations
 
 from dataclasses import dataclass

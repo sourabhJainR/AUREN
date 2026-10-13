@@ -8,8 +8,8 @@ an artifact state transition.
 ```python
 from portable.agency_release_lifecycle import ArtifactStore
 
-store = ArtifactStore("~/.aer/releases")
-artifact = store.stage("dist/aer-portable.zip", "candidate-123")
+store = ArtifactStore("~/.auren/releases")
+artifact = store.stage("dist/auren-portable.zip", "candidate-123")
 state = store.transition("canary", artifact, "regression passed; staged rollout")
 ```
 
@@ -27,7 +27,7 @@ result = execute(
     worker,
     regression_plan=plan,
     release_store=store,
-    release_artifact="dist/aer-portable.zip",
+    release_artifact="dist/auren-portable.zip",
     release_artifact_id="candidate-123",
 )
 ```

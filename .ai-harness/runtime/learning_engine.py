@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Evidence-driven candidate generation and scoring for self-improving AER."""
+"""Evidence-driven candidate generation and scoring for self-improving AUREN."""
 from __future__ import annotations
 from dataclasses import asdict, dataclass
 from hashlib import sha256
