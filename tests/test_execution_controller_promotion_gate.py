@@ -108,6 +108,33 @@ class ExecutionControllerPromotionGateTests(unittest.TestCase):
             "promote-capability", payload or {"operation": "merge"}
         )
 
+    def test_context_provider_cannot_be_submitted_as_a_task(self):
+        with self.assertRaisesRegex(ValueError, "internal-only"):
+            self.controller.submit("trusted-context", {"task_id": "attacker-controlled"})
+
+    def test_unclassified_legacy_registration_fails_closed(self):
+        import sqlite3
+        with sqlite3.connect(self.controller.db_path) as db:
+            db.execute("UPDATE handlers SET execution_class='unclassified' WHERE name='promote-capability'")
+        with self.assertRaisesRegex(ValueError, "unclassified legacy handler"):
+            self.controller.submit("promote-capability", {"operation": "merge"})
+
+    def test_handler_class_cannot_be_downgraded_on_reregistration(self):
+        with self.assertRaisesRegex(ValueError, "execution_class is immutable"):
+            self.controller.register_handler(
+                "promote-capability", protected_promotion_handler, execution_class="read_only"
+            )
+
+    def test_action_handler_cannot_be_mislabeled_read_only(self):
+        with self.assertRaisesRegex(ValueError, "must be classified consequential"):
+            self.controller.register_handler(
+                "safe-helper", protected_promotion_handler, execution_class="read_only"
+            )
+
+    def test_new_handler_requires_explicit_execution_class(self):
+        with self.assertRaisesRegex(ValueError, "requires an explicit execution_class"):
+            self.controller.register_handler("unclassified-worker", lambda payload: payload)
+
     def test_valid_decision_record_allows_handler(self):
         task = self.submit()
         self.controller.run_once(task.id)
