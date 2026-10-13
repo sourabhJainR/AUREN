@@ -24,6 +24,7 @@ LEGACY_ALLOWED = {
     "portable/state_graph.py",
     "scripts/conformance_oracles.py",
     "scripts/validate_auren_identity.py",
+    "tests/test_contract_alignment.py",
     "tests/test_state_paths.py",
     "tests/test_identity_compat.py",
     "tests/test_legacy_name_compatibility.py",
