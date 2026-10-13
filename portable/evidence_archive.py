@@ -31,6 +31,17 @@ _SOURCE_TYPES = {
     "auren_runtime", "ci", "external_evaluator", "oracle_custody",
     "sealed_corpus_custody", "isolation_audit", "operator",
 }
+_SIGNED_EXTERNAL_SOURCES = {
+    "external_evaluator", "oracle_custody", "sealed_corpus_custody",
+    "isolation_audit", "operator",
+}
+_SOURCE_EVIDENCE_TYPES = {
+    "external_evaluator": {"independent_evaluator_receipt", "external_evaluator_receipt", "arena_receipt"},
+    "oracle_custody": {"oracle_custody"},
+    "sealed_corpus_custody": {"sealed_corpus_custody"},
+    "isolation_audit": {"isolation_audit"},
+    "operator": {"approval", "promotion_approval", "operator_approval", "rollback_rehearsal", "rollback_test"},
+}
 _HEX64 = set("0123456789abcdef")
 _HEX40 = set("0123456789abcdef")
 _ALLOWED_METADATA = {
@@ -84,6 +95,10 @@ class EvidenceArchive:
             raise ValueError("event schema contains missing or unknown fields")
         if event["event_type"] not in _EVENT_TYPES or event["source_type"] not in _SOURCE_TYPES:
             raise ValueError("event type or source type is unsupported")
+        if event["source_type"] in _SIGNED_EXTERNAL_SOURCES and "signed_receipt" not in event:
+            raise ValueError("external evaluator, custody, isolation, and operator evidence requires a signed receipt")
+        if "signed_receipt" in event and self.receipt_verifier is None:
+            raise ValueError("a trusted receipt verifier is required before signed evidence can be archived")
         if not isinstance(event["metadata"], Mapping):
             raise ValueError("event metadata must be an object")
         if set(event["metadata"]) - _ALLOWED_METADATA:
@@ -143,6 +158,9 @@ class EvidenceArchive:
             }
             if required - set(payload) or set(payload) - allowed_payload:
                 raise ValueError("signed receipt contains missing or unknown fields")
+            expected_evidence_types = _SOURCE_EVIDENCE_TYPES.get(str(event["source_type"]))
+            if expected_evidence_types is not None and payload.get("evidence_type") not in expected_evidence_types:
+                raise ValueError("signed evidence type does not match its trusted source role")
             if (
                 payload.get("repository") != event["repository"]
                 or not isinstance(payload.get("head_sha"), str)
@@ -198,6 +216,9 @@ class EvidenceArchive:
                 }
             ):
                 raise ValueError("signed receipt does not match the archived event")
+            if event["source_type"] in {"oracle_custody", "sealed_corpus_custody", "isolation_audit", "operator"}:
+                if not isinstance(payload.get("operator_id"), str) or not payload["operator_id"].strip():
+                    raise ValueError("custody, audit, and operator receipts must name the responsible operator")
             if self.receipt_verifier is not None:
                 message = canonical_json(payload)
                 if hasattr(self.receipt_verifier, "verify_detached"):

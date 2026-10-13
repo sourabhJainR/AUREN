@@ -63,6 +63,19 @@ class EvidenceArchiveTests(unittest.TestCase):
         with self.assertRaises(ArchiveConflict):
             self.archive.ingest(self.event(status="failure"), authenticated_principal="test-service")
 
+    def test_external_evidence_without_a_signed_receipt_is_rejected(self):
+        capture = EvidenceCapture(self.base / "unsigned-external.sqlite3")
+        event = capture.record(
+            "external_evidence_observed", work_unit_id="work-1", task_id="external-1",
+            iteration=1, status="verified", repository="owner/project",
+            head_sha="b" * 40, evidence_uri="https://evidence.example.invalid/unsigned",
+            source_type="external_evaluator", metadata={"result_category": "external"},
+            event_id="unsigned-external",
+        )
+        with self.assertRaisesRegex(ValueError, "requires a signed receipt"):
+            self.archive.ingest(event, authenticated_principal="evidence-relay")
+
+
     def test_signed_receipt_is_independently_verified_before_archive_acceptance(self):
         capture = EvidenceCapture(self.base / "runtime.sqlite3")
         payload = {
@@ -88,6 +101,17 @@ class EvidenceArchiveTests(unittest.TestCase):
         )
         event = capture.events()[-1]
         event["signed_receipt"] = envelope
+        unverified_archive = EvidenceArchive(self.base / "no-verifier.sqlite3")
+        with self.assertRaisesRegex(ValueError, "trusted receipt verifier is required"):
+            unverified_archive.ingest(event, authenticated_principal="evidence-relay")
+        mismatched = dict(event)
+        mismatched_envelope = dict(envelope)
+        mismatched_payload = dict(payload)
+        mismatched_payload["evidence_type"] = "rollback_rehearsal"
+        mismatched_envelope["payload"] = mismatched_payload
+        mismatched["signed_receipt"] = mismatched_envelope
+        with self.assertRaisesRegex(ValueError, "does not match its trusted source role"):
+            self.archive.ingest(mismatched, authenticated_principal="evidence-relay")
         result = self.archive.ingest(event, authenticated_principal="evidence-relay")
         self.assertTrue(result["receipt_signature_verified"])
         self.assertEqual(self.archive.get(event["event_id"])["receipt_digest"], event["metadata"]["receipt_digest"])
