@@ -36,6 +36,38 @@ def get_auren_env(
     return default
 
 
+def canonical_auren_home(
+    *,
+    home: str | Path | None = None,
+    environ: Mapping[str, str] | None = None,
+) -> Path:
+    """Resolve the canonical destination root; never interpret an empty value as CWD."""
+    source = os.environ if environ is None else environ
+    if "AUREN_HOME" in source:
+        value = source["AUREN_HOME"]
+        if not value.strip():
+            raise ValueError("AUREN_HOME must not be empty")
+        return Path(value).expanduser()
+    base = Path(home).expanduser() if home is not None else Path.home()
+    return base / CANONICAL_HOME_NAME
+
+
+def legacy_aer_home(
+    *,
+    home: str | Path | None = None,
+    environ: Mapping[str, str] | None = None,
+) -> Path:
+    """Resolve the legacy source root; never interpret an empty value as CWD."""
+    source = os.environ if environ is None else environ
+    if "AER_HOME" in source:
+        value = source["AER_HOME"]
+        if not value.strip():
+            raise ValueError("legacy AER_HOME must not be empty")
+        return Path(value).expanduser()
+    base = Path(home).expanduser() if home is not None else Path.home()
+    return base / LEGACY_HOME_NAME
+
+
 def auren_home(
     *,
     home: str | Path | None = None,
@@ -86,4 +118,4 @@ def project_state_dir(
     return canonical
 
 
-__all__ = ["auren_home", "get_auren_env", "project_state_dir"]
+__all__ = ["auren_home", "canonical_auren_home", "get_auren_env", "legacy_aer_home", "project_state_dir"]
