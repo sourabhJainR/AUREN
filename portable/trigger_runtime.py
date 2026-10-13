@@ -1,4 +1,4 @@
-"""Durable event triggers that hand work to the existing AER orchestrator.
+"""Durable event triggers that hand work to the existing AUREN orchestrator.
 
 This is a coordination boundary, not an execution engine. It provides
 idempotent event intake, single-owner claims, bounded retry/backoff, lease-based
