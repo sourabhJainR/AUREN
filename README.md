@@ -16,6 +16,23 @@ AUREN's current repository includes graph-based specialist proposal adapters, du
 
 The repository currently reports no open pull requests. Closed pull requests must still be checked individually for merge status before being counted as merged. See [all pull requests](https://github.com/sourabhJainR/AUREN/pulls) and [recent changes](https://github.com/sourabhJainR/AUREN/commits/main).
 
+## Support AUREN
+
+AUREN is an open-source project, and community support helps fund the time and resources needed to keep improving it. If you find the project useful or want to support its development, you can [buy me a coffee](https://buymeacoffee.com/sourabhjainr).
+
+Contributions help support:
+
+- **Development:** improve the runtime, agent orchestration, and engineering workflows.
+- **Testing and reliability:** expand regression coverage and validate recovery and rollback paths.
+- **Documentation and onboarding:** make AUREN easier to install, understand, and contribute to.
+- **Independent evaluation:** work toward external benchmarks and validation, with results reported only when evidence is available.
+- **Community contributions:** maintain examples, triage issues, and improve the contributor experience.
+
+Support is voluntary and does not purchase influence over project decisions or guarantee specific features or outcomes. AUREN remains open to feedback, issues, and pull requests.
+
+**Support AUREN:** https://buymeacoffee.com/sourabhjainr  
+**Explore the project:** https://github.com/sourabhJainR/AUREN
+
 ## What AUREN is today
 
 The primary product flow is designed to connect task intake through verification, learning, memory consolidation, empirical tuning, and controlled improvement. The repository also retains distinct compatibility and lower-level execution surfaces; their boundaries and outstanding integration gaps are documented in [`docs/REPOSITORY_CONSISTENCY_AND_ENHANCEMENT_PLAN.md`](docs/REPOSITORY_CONSISTENCY_AND_ENHANCEMENT_PLAN.md).
