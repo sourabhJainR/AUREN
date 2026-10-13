@@ -18,10 +18,10 @@ def _request(task_id, domain, holdout=True):
     )
 
 
-def _receipt(request, accepted=True, reason="accepted"):
+def _receipt(request, accepted=True, reason="accepted", evidence_ids=None):
     return BenchmarkExecutionReceipt(
         request.task_id, request.domain, request.holdout,
-        (f"evidence:{request.task_id}",),
+        tuple(evidence_ids) if evidence_ids is not None else (f"evidence:{request.task_id}",),
         ("canonical execution evidence",),
         request.required_evidence,
         accepted, True, reason,
@@ -86,6 +86,128 @@ class AutonomousCampaignLearningTests(unittest.TestCase):
             self.assertEqual(len(result.observations), 3)
             self.assertEqual(result.rollout.state, "promotion_blocked")
             self.assertTrue(any("decision record is required" in reason for reason in result.rollout.reasons))
+
+
+    def test_holdout_without_evidence_rolls_back_even_when_score_passes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            controller = AutonomousCampaignController(root, max_tasks=3, lifecycle_canaries=3)
+            requests = tuple(_request(x, d) for x, d in (
+                ("a", "coding"), ("b", "research"), ("c", "analysis")
+            ))
+            predictions = {r.task_id: CampaignPrediction(r.task_id, True, .8) for r in requests}
+            result = controller.run(
+                "campaign-missing-evidence",
+                requests,
+                execute=lambda request: (_receipt(request, evidence_ids=()), .95),
+                predictions=predictions,
+                capability_id="candidate-capability",
+                baseline_score=.8,
+            )
+            self.assertEqual(result.rollout.state, "rolled_back")
+            self.assertTrue(any("safety gate failed" in reason for reason in result.rollout.reasons))
+
+    def test_trusted_lifecycle_factory_can_promote_only_with_actual_holdout_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            trusted_ids = {
+                "run-123", "approval-1", "rollback-test-1",
+                "evidence:a", "evidence:b", "evidence:c",
+            }
+            record = {
+                "schema_version": "1.0",
+                "task_id": "promotion-task",
+                "repository": "owner/project",
+                "base_commit": "a" * 40,
+                "head_commit": "b" * 40,
+                "risk_level": "high",
+                "acceptance_criteria": ["Independent holdout canaries pass"],
+                "selected_option": "Promote behind a reversible gate",
+                "selection_rationale": "Measured score passes the holdout threshold",
+                "alternatives": [{"option": "Immediate rollout", "reason_rejected": "Not reversible"}],
+                "dependencies": [],
+                "checks": [{
+                    "name": "canary-regression",
+                    "command": "python -m unittest tests.test_autonomous_campaign_learning",
+                    "status": "passed",
+                    "commit_sha": "b" * 40,
+                    "evidence_id": "run-123",
+                    "evaluator_type": "internal",
+                }],
+                "limitations": ["No independent generalization campaign is claimed"],
+                "rollback_trigger": "Any required check fails or safety regression is observed",
+                "rollback_action": "Restore the last known-good capability and rerun holdouts",
+                "rollback_procedure_ref": "runbook://release-rollback",
+                "rollback_test_evidence_id": "rollback-test-1",
+                "last_known_good_commit": "a" * 40,
+                "retry_history": [],
+                "promotion": {
+                    "level": "verified_for_scope",
+                    "approved_by": "release-manager",
+                    "approval_evidence_id": "approval-1",
+                },
+            }
+
+            def lifecycle_factory(path, project, min_canaries):
+                from portable.capability_lifecycle import CapabilityLifecycle
+                from portable.persistent_memory import PersistentMemory
+                return CapabilityLifecycle(
+                    PersistentMemory(path / "trusted-lifecycle.sqlite3", require_approval=False),
+                    project,
+                    min_canaries=min_canaries,
+                    promotion_record=record,
+                    expected_repository="owner/project",
+                    expected_head="b" * 40,
+                    authorized_approvers={"release-manager"},
+                    known_evidence_ids=trusted_ids,
+                )
+
+            controller = AutonomousCampaignController(
+                root,
+                max_tasks=3,
+                lifecycle_canaries=3,
+                capability_lifecycle_factory=lifecycle_factory,
+            )
+            requests = tuple(_request(x, d) for x, d in (
+                ("a", "coding"), ("b", "research"), ("c", "analysis")
+            ))
+            predictions = {r.task_id: CampaignPrediction(r.task_id, True, .8) for r in requests}
+            result = controller.run(
+                "campaign-trusted-promotion",
+                requests,
+                execute=lambda request: (_receipt(request), .95),
+                predictions=predictions,
+                capability_id="candidate-capability",
+                baseline_score=.8,
+            )
+            self.assertEqual(result.rollout.state, "promoted", result.rollout.reasons)
+            self.assertEqual(result.rollout.canary_count, 3)
+
+
+    def test_holdout_cohort_below_promotion_threshold_cannot_promote(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            controller = AutonomousCampaignController(
+                root,
+                max_tasks=3,
+                lifecycle_canaries=3,
+                minimum_holdout_score=.75,
+                minimum_promotion_score=.80,
+            )
+            requests = tuple(_request(x, d) for x, d in (
+                ("a", "coding"), ("b", "research"), ("c", "analysis")
+            ))
+            predictions = {r.task_id: CampaignPrediction(r.task_id, True, .8) for r in requests}
+            result = controller.run(
+                "campaign-below-promotion-threshold",
+                requests,
+                execute=lambda request: (_receipt(request), .77),
+                predictions=predictions,
+                capability_id="candidate-capability",
+                baseline_score=.70,
+            )
+            self.assertEqual(result.rollout.state, "rolled_back")
+            self.assertTrue(any("safety gate failed" in reason for reason in result.rollout.reasons))
 
     def test_learned_domain_score_calibrates_from_persisted_observations(self):
         with tempfile.TemporaryDirectory() as tmp:
