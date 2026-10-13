@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from portable.canonical_evidence_ledger import CanonicalEvidenceLedger
 from portable.evidence_archive import ArchiveConflict, EvidenceArchive
 from portable.engineering_evidence_capture import EvidenceCapture
 
@@ -74,9 +75,7 @@ class EvidenceArchiveTests(unittest.TestCase):
             "runtime_id": "candidate-runtime",
         }
         envelope = {"payload": payload, "signer_id": "custody-authority", "signature": "valid-signature"}
-        capture.evidence_ledger = __import__(
-            "portable.canonical_evidence_ledger", fromlist=["CanonicalEvidenceLedger"]
-        ).CanonicalEvidenceLedger(self.base / "canonical.sqlite3")
+        capture.evidence_ledger = CanonicalEvidenceLedger(self.base / "canonical.sqlite3")
         capture.ingest_signed_external_evidence(
             envelope, verifier=StubVerifier(), expected_repository="owner/project",
             expected_head="b" * 40,
