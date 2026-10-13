@@ -1124,7 +1124,7 @@ the learning system, not an instruction source. If a skill produced no distinct 
                         except Exception as exc:
                             failures.append({"crew_id": "handoff-controller", "error_type": type(exc).__name__, "reason": "handoff validation or durable checkpoint failed"})
                             handoff_status = "blocked"
-                blocked = bool(require_crew_adapters and (missing or failures)) or handoff_status == "blocked"
+                blocked = bool(require_crew_adapters and (missing or failures)) or handoff_status == "blocked" or state.get("auren_principle_evidence", {}).get("status") == "blocked"
                 unresolved_handoff = handoff_status in {"review_failed", "review_rejected", "dispatched_pending_independent_review", "queued"}
                 status = "blocked" if blocked else "partial" if missing or failures or unresolved_handoff else "complete"
                 # Bind adapter outputs and queued handoffs to canonical graph state.
@@ -1137,6 +1137,7 @@ the learning system, not an instruction source. If a skill produced no distinct 
                     "execution_graph_digest": hashlib.sha256(json.dumps({"graph_digest": crew_plan.graph_digest, "crew_plan_digest": crew_plan.digest}, sort_keys=True, separators=(",", ":")).encode()).hexdigest(),
                     "status": status,
                     "required": require_crew_adapters,
+                    "principle_evidence": state.get("auren_principle_evidence", {}),
                     "proposals": proposals,
                     "missing_adapters": sorted(missing),
                     "dispatch_failures": failures,
@@ -1165,6 +1166,7 @@ the learning system, not an instruction source. If a skill produced no distinct 
                     "graph_digest": crew_plan.graph_digest,
                     "intent_digest": intent_digest,
                     "crew_plan_digest": crew_plan.digest,
+                    "principle_evidence_digest": state.get("auren_principle_evidence", {}).get("digest"),
                     "evidence_envelope": {**evidence_payload, "digest": evidence_digest},
                     "handoff_receipts": handoff_receipts,
                     "handoff_proposals": handoff_proposals if handoff_requests and "handoff_proposals" in locals() else {},
