@@ -39,6 +39,9 @@ LEGACY_ALLOWED_LINE_PATTERNS = {
     "portable/orchestration.py": (
         re.compile(r'\bstate\.get\("auren_adaptive_policy", state\.get\("aer_adaptive_policy"\)\)'),
     ),
+    "portable/engineering_dashboard.py": (
+        re.compile(r'".aer"'),
+    ),
     # The active graph-team runtime may read these two old checkpoint keys as
     # compatibility fallbacks, but no other stale identity is allowed there.
     ".ai-harness/runtime/graph_agent_team.py": (
