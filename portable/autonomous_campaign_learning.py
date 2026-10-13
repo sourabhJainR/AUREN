@@ -402,9 +402,17 @@ class AutonomousCampaignController:
             # holdout must be visible to rollback; only passing holdouts count
             # toward promotion.
             holdout_ids = {r.task_id for r in selected if r.holdout}
-            for index, observation in enumerate(
-                x for x in observations if x.task_id in holdout_ids
-            ):
+            holdout_observations = tuple(
+                observation for observation in observations if observation.task_id in holdout_ids
+            )
+            cohort_score = (
+                sum(item.realized_score for item in holdout_observations) / len(holdout_observations)
+                if holdout_observations else 0.0
+            )
+            promotion_score_passed = (
+                bool(holdout_observations) and cohort_score >= self.minimum_promotion_score
+            )
+            for index, observation in enumerate(holdout_observations):
                 evidence_ids = tuple(observation.evidence_ids)
                 # Bind the canary to real execution evidence. Missing evidence
                 # creates an explicitly unsafe canary, never a promotable one.
@@ -413,6 +421,7 @@ class AutonomousCampaignController:
                     if evidence_ids
                     else f"missing-evidence:{campaign_id}:{observation.task_id}"
                 )
+                holdout_score_passed = observation.realized_score >= self.minimum_holdout_score
                 rollout = lifecycle.record_canary(
                     capability_id, score=observation.realized_score,
                     evidence_id=evidence_id,
@@ -420,10 +429,16 @@ class AutonomousCampaignController:
                         bool(evidence_ids)
                         and observation.failure_class != "safety"
                         and observation.realized_success
+                        and holdout_score_passed
+                        and promotion_score_passed
                     ),
                     metadata={
                         "campaign_id": campaign_id,
                         "holdout_score_gate": self.minimum_holdout_score,
+                        "holdout_score_passed": holdout_score_passed,
+                        "promotion_score_gate": self.minimum_promotion_score,
+                        "promotion_score_passed": promotion_score_passed,
+                        "holdout_cohort_score": round(cohort_score, 6),
                         "evidence_ids": list(evidence_ids),
                         "evidence_missing": not bool(evidence_ids),
                     },
