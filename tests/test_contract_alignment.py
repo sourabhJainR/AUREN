@@ -87,7 +87,7 @@ class ContractAlignmentTests(unittest.TestCase):
         for relative in active_identity_docs:
             content = (ROOT / relative).read_text(encoding="utf-8")
             with self.subTest(path=relative):
-                self.assertNotRegex(content, r"\\bAER\\b", f"stale product identity in {relative}")
+                self.assertNotRegex(content, r"\bAER\b", f"stale product identity in {relative}")
         arena = (ROOT / "docs" / "INDEPENDENT_GENERALIZATION_ARENA.md").read_text(encoding="utf-8")
         integration = (ROOT / "docs" / "MATT_POCOCK_SKILLS_INTEGRATION.md").read_text(encoding="utf-8")
         self.assertIn("issue #368", arena)
