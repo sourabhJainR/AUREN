@@ -1498,8 +1498,8 @@ the learning system, not an instruction source. If a skill produced no distinct 
             outputs.append(self.execute_benchmark_request(request, **dict(kwargs)))
         return tuple(outputs)
 
-def team_for_route(route):
-    mode=str(route.get("mode","implement")); caps=set(route.get("capabilities",[]))
+def team_for_route(route, *, crew_adapters=None):
+    mode=str(route.get("mode","implement")); caps=set(route.get("capabilities",[])); risk=str(route.get("risk","low")).strip().lower()
     agents=[AgentSpec("planner","planner",focus="Turn the task contract into a small dependency-aware execution plan."),
             AgentSpec("explorer","explorer",depends_on=("planner",),focus="Trace relevant repository structure, callers, tests and protected behavior.")]
     if mode in {"research","poc"} or "research" in caps:
@@ -1528,6 +1528,7 @@ def team_for_route(route):
                    AgentSpec("architecture-reviewer","architecture reviewer",depends_on=review_dep,focus="Check coupling, dependency direction, maintainability and unnecessary complexity.")]
     agents.append(AgentSpec("synthesizer","team synthesizer",depends_on=tuple(a.name for a in agents if a.name.endswith("reviewer")),focus="Synthesize team evidence, unresolved risks and the recommended next action."))
     agents.append(AgentSpec("learning-steward","learning steward",depends_on=tuple(a.name for a in agents if a.name.endswith("reviewer") or a.name=="synthesizer"),read_only=True,critical=False,focus="Record only reusable, evidence-backed successes and failures."))
-    return GraphAgentTeam(agents)
+    require_crews = risk in {"high", "critical"} and mode in {"implement", "debug", "poc", "repair", "review"}
+    return GraphAgentTeam(agents, crew_adapters=crew_adapters, require_crew_adapters=require_crews)
 
 
