@@ -1,3 +1,5 @@
+name: AI Harness Check
+
 on:
   push:
   pull_request:
