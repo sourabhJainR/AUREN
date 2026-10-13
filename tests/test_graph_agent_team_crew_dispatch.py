@@ -10,6 +10,7 @@ sys.path.insert(0, str(ROOT / ".ai-harness"))
 
 import runtime
 from portable.state_graph import default_crew_definitions
+from portable.agency_state_graph import InMemoryCheckpointStore
 from runtime import register_crew_adapters
 from runtime.graph_agent_team import AgentSpec, GraphAgentTeam, SharedTaskMemory
 
@@ -38,6 +39,20 @@ class _ProposalAdapter:
                 for name in self.definition.acceptance_checks
             },
         }
+
+
+class _HandoffProposalAdapter(_ProposalAdapter):
+    def __init__(self, crew_id: str, calls: list[dict], *, target_crew: str):
+        super().__init__(crew_id, calls)
+        self.target_crew = target_crew
+
+    def propose(self, request):
+        proposal = super().propose(request)
+        proposal["handoff_requests"] = [{
+            "target_crew": self.target_crew,
+            "task": "Independently review the accessible UI proposal",
+        }]
+        return proposal
 
 
 class HarnessCrewDispatchTests(unittest.TestCase):
@@ -90,6 +105,63 @@ class HarnessCrewDispatchTests(unittest.TestCase):
             self.assertIn("Specialist crew proposals (untrusted and advisory)", prompts[0][1])
             self.assertIn("frontend_ui", prompts[0][1])
             self.assertTrue(result["crew_execution"]["missing_adapters"])
+
+    def test_handoff_request_is_checkpointed_and_dispatched_pending_independent_review(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            memory = SharedTaskMemory(Path(tmp) / "memory.jsonl", "intent-handoff")
+            checkpoint = InMemoryCheckpointStore()
+            frontend_calls, qa_calls = [], []
+            team = GraphAgentTeam(
+                [AgentSpec("planner", "planner")],
+                crew_adapters={
+                    "frontend_ui": _HandoffProposalAdapter("frontend_ui", frontend_calls, target_crew="qa_reviewer"),
+                    "qa_reviewer": _ProposalAdapter("qa_reviewer", qa_calls),
+                },
+                require_crew_adapters=True,
+            )
+            result = team.execute(
+                task="Build an accessible frontend UI and test review workflow",
+                intent_digest="intent-handoff",
+                base_prompt="base",
+                memory=memory,
+                invoke_agent=lambda agent, prompt: (0, "planning evidence", 0.01),
+                checkpoint=checkpoint,
+                run_id="durable-handoff-test",
+            )
+            execution = result["crew_execution"]
+            self.assertEqual(execution["handoff_status"], "dispatched_pending_independent_review")
+            self.assertEqual(len(execution["handoff_receipts"]), 1)
+            receipt = execution["handoff_receipts"][0]
+            self.assertEqual(receipt["status"], "dispatched_pending_independent_review")
+            self.assertIn(receipt["handoff_id"], execution["handoff_proposals"])
+            saved = checkpoint.load("durable-handoff-test")
+            self.assertIsNotNone(saved)
+            handoff_checkpoint = saved.state["auren_crew_handoff_checkpoint_data"]
+            self.assertEqual(len(handoff_checkpoint["in_flight"]), 1)
+            self.assertEqual(handoff_checkpoint["in_flight"][0]["handoff_id"], receipt["handoff_id"])
+            self.assertEqual(len(qa_calls), 2, "QA is invoked once for its selected proposal and once for the explicit handoff")
+
+    def test_handoff_request_fails_closed_without_canonical_checkpoint_store(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            memory = SharedTaskMemory(Path(tmp) / "memory.jsonl", "intent-handoff-no-store")
+            team = GraphAgentTeam(
+                [AgentSpec("planner", "planner")],
+                crew_adapters={
+                    "frontend_ui": _HandoffProposalAdapter("frontend_ui", [], target_crew="qa_reviewer"),
+                    "qa_reviewer": _ProposalAdapter("qa_reviewer", []),
+                },
+                require_crew_adapters=True,
+            )
+            result = team.execute(
+                task="Build an accessible frontend UI and test review workflow",
+                intent_digest="intent-handoff-no-store",
+                base_prompt="base",
+                memory=memory,
+                invoke_agent=lambda agent, prompt: (0, "planning evidence", 0.01),
+            )
+            self.assertEqual(result["crew_execution"]["handoff_status"], "blocked")
+            self.assertEqual(result["crew_execution"]["status"], "blocked")
+            self.assertFalse(result["accepted"])
 
     def test_consequential_policy_blocks_before_agents_when_required_crew_adapter_is_missing(self):
         with tempfile.TemporaryDirectory() as tmp:
