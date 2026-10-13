@@ -36,12 +36,12 @@ class TrustedRepositoryContextTests(unittest.TestCase):
         self.approvers = self.base / "approvers.json"
         self.approvers.write_text(json.dumps(["release-manager"]), encoding="utf-8")
         self.ledger = CanonicalEvidenceLedger(self.base / "evidence.sqlite3")
-        for evidence_id in ("ci-run-1", "approval-1", "rollback-1"):
+        for evidence_id, evidence_type in (("ci-run-1", "ci_check"), ("approval-1", "approval"), ("rollback-1", "rollback_rehearsal")):
             self.ledger.record(
                 evidence_id=evidence_id,
                 repository="owner/project",
                 head_sha=self.head,
-                evidence_type="test",
+                evidence_type=evidence_type,
                 status="verified",
                 source_uri="urn:auren:test:" + evidence_id,
                 payload_digest="a" * 64,
