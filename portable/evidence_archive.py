@@ -9,6 +9,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import hashlib
 import json
+import math
 from pathlib import Path
 import re
 from urllib.parse import urlparse
@@ -88,6 +89,10 @@ class EvidenceArchive:
         if set(event["metadata"]) - _ALLOWED_METADATA:
             raise ValueError("event metadata contains unknown or unsafe fields")
         for key, value in event["metadata"].items():
+            if not isinstance(value, (str, bool, int, float, type(None))):
+                raise ValueError(f"event metadata field {key} must be a scalar")
+            if isinstance(value, float) and not math.isfinite(value):
+                raise ValueError(f"event metadata field {key} must be finite")
             if isinstance(value, str) and (
                 len(value) > 512 or any(ord(ch) < 32 for ch in value)
                 or any(marker in value.lower() for marker in _SECRET_MARKERS)
