@@ -5,6 +5,7 @@ import os
 import sqlite3
 import tempfile
 import unittest
+from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import patch
 
@@ -12,9 +13,20 @@ from portable.session_state import SessionCheckpoint, SessionStore
 from portable.state_paths import AurenStatePaths, StatePathConflict
 
 
+@contextmanager
+def _closed_connection(path: Path):
+    """SQLite's connection context commits but does not close its file handle."""
+    connection = sqlite3.connect(path)
+    try:
+        with connection:
+            yield connection
+    finally:
+        connection.close()
+
+
 def _database(path: Path, value: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    with sqlite3.connect(path) as db:
+    with _closed_connection(path) as db:
         db.execute("CREATE TABLE IF NOT EXISTS values_table (value TEXT NOT NULL)")
         db.execute("INSERT INTO values_table(value) VALUES(?)", (value,))
 
@@ -43,7 +55,7 @@ class AurenStatePathsTests(unittest.TestCase):
             target_session = canonical / "sessions" / "session-1.json"
             self.assertTrue(target_db.is_file())
             self.assertTrue(source_db.is_file(), "migration must preserve the legacy source")
-            with sqlite3.connect(target_db) as db:
+            with _closed_connection(target_db) as db:
                 self.assertEqual(db.execute("SELECT value FROM values_table").fetchone()[0], "keep-me")
             self.assertEqual(json.loads(target_session.read_text(encoding="utf-8"))["stage"], "resume")
             self.assertTrue(paths.migration_manifest.is_file())
@@ -69,7 +81,7 @@ class AurenStatePathsTests(unittest.TestCase):
 
                 AurenStatePaths.prepare(canonical, legacy)
                 target = canonical / "memory" / "memory.db"
-                with sqlite3.connect(target) as db:
+                with _closed_connection(target) as db:
                     values = {row[0] for row in db.execute("SELECT value FROM values_table")}
                 self.assertEqual(values, {"checkpointed", "wal-only"})
                 self.assertTrue(source.is_file(), "legacy SQLite source must remain available for rollback")
@@ -115,7 +127,7 @@ class AurenStatePathsTests(unittest.TestCase):
             target = canonical / "memory" / "memory.db"
             _database(target, "new-canonical-write")
             AurenStatePaths.prepare(canonical, legacy)
-            with sqlite3.connect(target) as db:
+            with _closed_connection(target) as db:
                 values = {row[0] for row in db.execute("SELECT value FROM values_table")}
             self.assertEqual(values, {"legacy", "new-canonical-write"})
 
@@ -128,9 +140,9 @@ class AurenStatePathsTests(unittest.TestCase):
             _database(target, "canonical")
             with self.assertRaisesRegex(StatePathConflict, "Both legacy and canonical state"):
                 AurenStatePaths.prepare(canonical, legacy)
-            with sqlite3.connect(source) as db:
+            with _closed_connection(source) as db:
                 self.assertEqual(db.execute("SELECT value FROM values_table").fetchone()[0], "legacy")
-            with sqlite3.connect(target) as db:
+            with _closed_connection(target) as db:
                 self.assertEqual(db.execute("SELECT value FROM values_table").fetchone()[0], "canonical")
 
     def test_migration_rejects_changed_legacy_copy_after_initial_migration(self):

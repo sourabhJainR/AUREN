@@ -15,6 +15,7 @@ import threading
 import unicodedata
 import uuid
 from concurrent.futures import Future, ThreadPoolExecutor
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -186,7 +187,7 @@ class PersistentMemory:
         self.require_approval = require_approval
         self._lock = threading.RLock()
         self._fts_available = True
-        with self._connect() as db:
+        with self._connection() as db:
             db.execute("PRAGMA journal_mode=WAL")
             db.execute("""CREATE TABLE IF NOT EXISTS memory(
                 id TEXT PRIMARY KEY, project TEXT NOT NULL, category TEXT NOT NULL,
@@ -201,6 +202,16 @@ class PersistentMemory:
     def _connect(self) -> sqlite3.Connection:
         return sqlite3.connect(self.path, timeout=10)
 
+    @contextmanager
+    def _connection(self):
+        """Commit/rollback transactions and always close SQLite handles (Windows-safe)."""
+        db = self._connect()
+        try:
+            with db:
+                yield db
+        finally:
+            db.close()
+
     def remember(self, project: str, category: str, text: str | None = None, *,
                  intent_digest: str | None = None, confidence: float = 0.0,
                  verified: bool = False, approved: bool = False) -> MemoryRecord | None:
@@ -211,7 +222,7 @@ class PersistentMemory:
         if not 0 <= confidence <= 1:
             raise ValueError("confidence must be between 0 and 1")
         clean = sanitize_untrusted(text)
-        with self._lock, self._connect() as db:
+        with self._lock, self._connection() as db:
             used = db.execute("SELECT COALESCE(SUM(length(text)),0) FROM memory WHERE project=?", (project,)).fetchone()[0]
             if used + len(clean) > self.max_chars:
                 raise ValueError("memory budget exceeded; consolidate or remove stale memories")
@@ -247,7 +258,7 @@ class PersistentMemory:
         # FTS5's default tokenizer does not reliably split all scripts (notably CJK)
         # into searchable subwords. Use a substring path for non-ASCII queries.
         unicode_query = not query.isascii()
-        with self._lock, self._connect() as db:
+        with self._lock, self._connection() as db:
             if self._fts_available and not unicode_query:
                 rows = db.execute("""SELECT m.id,m.project,m.category,m.text,m.intent_digest,m.confidence,m.verified,m.created_at
                     FROM memory AS m JOIN memory_fts AS f ON f.id=m.id

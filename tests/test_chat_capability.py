@@ -37,7 +37,9 @@ class ChatCapabilityTests(unittest.TestCase):
             status = runtime.trigger_runtime.get(receipt["trigger_id"])
             self.assertIsNotNone(status)
             self.assertEqual(status.priority, 0)
-            self.assertEqual(status.status, "pending")
+            # The trigger worker may claim the durable event before this read; both
+            # pending and claimed mean invoke returned before task completion.
+            self.assertIn(status.status, {"pending", "claimed"})
             scheduler.close()
 
     def test_invalid_arguments_fail_closed(self):

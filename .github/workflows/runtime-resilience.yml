@@ -1,0 +1,42 @@
+name: Runtime Resilience Matrix
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  durable-runtime:
+    name: Durable runtime (${{ matrix.os }}, Python ${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ['3.11', '3.12']
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Compile portable runtime and state paths
+        run: python -m compileall -q portable state
+      - name: Verify checkpoint durability, migration idempotency, and rollback-safe legacy preservation
+        run: python -m unittest tests.test_state_paths -v
+      - name: Verify receipt uniqueness and verified learning-input boundary
+        run: python -m unittest tests.test_promotion_evidence_chain tests.test_external_decision_evidence_ingestion tests.test_evidence_freshness -v
+      - name: Stress concurrent in-memory receipt claims
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3 4 5; do
+            echo "Arena ledger concurrency pass ${attempt}/5"
+            python -m unittest tests.test_promotion_evidence_chain -k concurrent_receipt_claim -v
+          done
+      - name: Verify bounded StateGraph timeout and retry contracts
+        run: python -m unittest tests.test_state_graph_hardening -v
