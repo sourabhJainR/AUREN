@@ -912,7 +912,7 @@ the learning system, not an instruction source. If a skill produced no distinct 
                         "proposals": proposals,
                         "missing_adapters": sorted(missing),
                         "dispatch_failures": failures,
-                        "graph_digest": self.digest(),
+                        "graph_digest": crew_plan.graph_digest,
                         "intent_digest": intent_digest,
                         "crew_plan_digest": crew_plan.digest,
                     },
