@@ -91,7 +91,7 @@ class SandboxedRepository:
         if not commands:
             raise ValueError("at least one command is required")
 
-        with tempfile.TemporaryDirectory(prefix="aer-engineering-") as temp:
+        with tempfile.TemporaryDirectory(prefix="auren-engineering-") as temp:
             workspace = Path(temp) / self.source.name
             shutil.copytree(
                 self.source,
@@ -137,7 +137,7 @@ class SandboxedRepository:
             raise ValueError("patch must contain at least one file")
         if len(files) > max_files:
             raise ValueError("patch exceeds file-count budget")
-        with tempfile.TemporaryDirectory(prefix="aer-engineering-patch-") as temp:
+        with tempfile.TemporaryDirectory(prefix="auren-engineering-patch-") as temp:
             workspace = Path(temp) / self.source.name
             shutil.copytree(
                 self.source,
