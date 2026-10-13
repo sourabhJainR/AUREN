@@ -25,6 +25,13 @@ class DesignDimension(str, Enum):
     LEGACY = "legacy"
     CONSTRUCTION = "construction"
     COMPATIBILITY = "compatibility"
+    SECURITY = "security"
+    PERFORMANCE = "performance"
+    CONCURRENCY = "concurrency"
+    DISTRIBUTED = "distributed"
+    CORRECTNESS = "correctness"
+    OPERATIONS = "operations"
+    AI_AGENT = "ai_agent"
 
 
 class FindingSeverity(str, Enum):
@@ -88,6 +95,13 @@ class EngineeringDesignGuard:
         DesignDimension.COMPATIBILITY: (
             "compatibility", "rollout", "migration", "contract", "usage_compatibility",
         ),
+        DesignDimension.SECURITY: ("security", "threat_model", "authorization", "least_privilege", "input_validation", "secrets", "privacy", "tool_permissions"),
+        DesignDimension.PERFORMANCE: ("performance", "benchmark", "performance_budget", "latency", "resource_budget", "profiling"),
+        DesignDimension.CONCURRENCY: ("concurrency", "ownership", "synchronization", "cancellation", "deadlock", "race_test", "parallelism"),
+        DesignDimension.DISTRIBUTED: ("distributed", "consistency", "cap_tradeoff", "pacelc", "idempotency", "ordering", "quorum", "split_brain"),
+        DesignDimension.CORRECTNESS: ("correctness", "invariant", "transaction", "isolation", "migration", "source_of_truth", "reconciliation"),
+        DesignDimension.OPERATIONS: ("operations", "observability", "rollback", "recovery", "slo", "rto_rpo", "rollout"),
+        DesignDimension.AI_AGENT: ("ai_agent", "agent_safety", "tool_permissions", "human_approval", "evaluation", "provenance", "autonomy_budget", "prompt_injection"),
     }
 
     _PATH_RULES = (
@@ -100,6 +114,13 @@ class EngineeringDesignGuard:
         (re.compile(r"(^|/)(log|logging|telemetry|observability|diagnostic)(/|$)|\blog(ging)?\b", re.I), {DesignDimension.CONSTRUCTION, DesignDimension.RESILIENCE}),
         (re.compile(r"(^|/)(exception|error|errors|fault)(/|$)|\b(exception|error handling|failure path)\b", re.I), {DesignDimension.CONSTRUCTION, DesignDimension.RESILIENCE}),
         (re.compile(r"(^|/)(benchmark|performance|profil|latency|throughput)(/|$)|\b(performance|latency|throughput|allocation|hot path)\b", re.I), {DesignDimension.RESILIENCE}),
+        (re.compile(r"(^|/)(benchmark|performance|profil|latency|throughput)(/|$)|\b(performance|latency|throughput|allocation|hot path)\b", re.I), {DesignDimension.RESILIENCE, DesignDimension.PERFORMANCE}),
+        (re.compile(r"(^|/)(auth|authn|authz|security|secrets|crypto|permission|policy|sandbox)(/|$)|\b(security|privacy|authorization|authentication|secret|prompt injection|tool permission|threat model)\b", re.I), {DesignDimension.SECURITY}),
+        (re.compile(r"(^|/)(async|concurrency|thread|lock|worker|scheduler|parallel)(/|$)|\b(concurrency|race condition|deadlock|cancellation|parallelism|shared state|thread safe)\b", re.I), {DesignDimension.CONCURRENCY}),
+        (re.compile(r"(^|/)(distributed|replica|cluster|consensus|quorum|consumer|producer|stream|queue|event)(/|$)|\b(cap theorem|pacelc|partition tolerance|eventual consistency|split brain|distributed system|idempotent consumer)\b", re.I), {DesignDimension.DISTRIBUTED}),
+        (re.compile(r"(^|/)(transaction|migration|schema|integrity|invariant|reconcile)(/|$)|\b(data integrity|transaction boundary|schema migration|invariant|serializability)\b", re.I), {DesignDimension.CORRECTNESS}),
+        (re.compile(r"(^|/)(deploy|release|ops|runbook|recovery|backup|restore)(/|$)|\b(rollback|disaster recovery|rto|rpo|slo|error budget)\b", re.I), {DesignDimension.OPERATIONS}),
+        (re.compile(r"(^|/)(agent|agents|arena|model|prompt|tool_runner|memory|learning)(/|$)|\b(ai agent|autonomous|prompt injection|model evaluation|tool execution|agent memory)\b", re.I), {DesignDimension.AI_AGENT, DesignDimension.SECURITY}),
     )
 
     _HIGH_RISK = {"high", "critical"}
@@ -149,6 +170,13 @@ class EngineeringDesignGuard:
             DesignDimension.LEGACY: r"\b(legacy|untested|characterization|seam|brownfield)\b",
             DesignDimension.COMPATIBILITY: r"\b(api|contract|migration|upgrade|backward|compatib|rollout|version|usage pattern|caller)\b",
             DesignDimension.ARCHITECTURE: r"\b(architect|boundary|dependency|adapter|framework|service|module|layer)\b",
+            DesignDimension.SECURITY: r"\b(security|privacy|authorization|authentication|least privilege|threat model|secret|prompt injection|permission|sandbox)\b",
+            DesignDimension.PERFORMANCE: r"\b(performance|benchmark|profiling|latency|throughput|resource budget|tail latency|big-o|load shedding)\b",
+            DesignDimension.CONCURRENCY: r"\b(concurrency|parallel|race condition|deadlock|cancellation|shared state|thread safe|structured concurrency)\b",
+            DesignDimension.DISTRIBUTED: r"\b(distributed|cap theorem|pacelc|partition|quorum|consensus|replication|eventual consistency|split brain|saga|outbox)\b",
+            DesignDimension.CORRECTNESS: r"\b(invariant|transaction|isolation|data integrity|migration|reconciliation|serializability|source of truth)\b",
+            DesignDimension.OPERATIONS: r"\b(rollback|recovery|observability|runbook|rto|rpo|slo|error budget|backup|restore|rollout)\b",
+            DesignDimension.AI_AGENT: r"\b(ai agent|autonomous|agent|tool execution|prompt injection|model evaluation|human approval|agent memory)\b",
         }
         for dimension, pattern in keyword_rules.items():
             if re.search(pattern, text, re.I):
@@ -166,7 +194,11 @@ class EngineeringDesignGuard:
         changed_paths: Iterable[str] = (),
         design: Mapping[str, str] | None = None,
         risk: str = "medium",
-        blocking_dimensions: Iterable[DesignDimension] = (DesignDimension.RESILIENCE,),
+        blocking_dimensions: Iterable[DesignDimension] = (
+            DesignDimension.RESILIENCE, DesignDimension.SECURITY, DesignDimension.DATA,
+            DesignDimension.CONCURRENCY, DesignDimension.DISTRIBUTED,
+            DesignDimension.CORRECTNESS, DesignDimension.AI_AGENT,
+        ),
     ) -> DesignReviewReceipt:
         paths = tuple(changed_paths)
         dimensions = cls.infer_dimensions(intent, paths, risk)
@@ -204,6 +236,53 @@ class EngineeringDesignGuard:
         if DesignDimension.RESILIENCE in dimensions and not is_not_applicable(DesignDimension.RESILIENCE) and not any(k in declared for k in ("timeout", "retry", "recovery", "performance", "resilience")):
             severity = FindingSeverity.BLOCKING if high_risk else FindingSeverity.WARNING
             findings.append(DesignFinding(DesignDimension.RESILIENCE, severity, "External/asynchronous/performance-sensitive work should state timeout, retry, recovery, and performance behavior"))
+
+        # These dimensions require a concrete contract, not a broad declaration
+        # that merely repeats the dimension name. Alternatives keep the policy
+        # adaptable to different architectures while ensuring key failure modes
+        # are considered explicitly.
+        required_contracts = {
+            DesignDimension.SECURITY: (
+                (("threat_model", "security"), "State the trust boundary and security threat/mitigation, or an explicit not_applicable reason"),
+                (("authorization", "least_privilege", "tool_permissions"), "State authorization and least-privilege/tool authority boundaries, or an explicit not_applicable reason"),
+            ),
+            DesignDimension.PERFORMANCE: (
+                (("performance_budget", "benchmark", "profiling", "latency", "resource_budget", "performance"), "State a measurable performance/resource expectation or explain why measurement is not applicable"),
+            ),
+            DesignDimension.CONCURRENCY: (
+                (("ownership", "concurrency"), "State shared-state ownership and concurrency model, or an explicit not_applicable reason"),
+                (("cancellation", "synchronization", "race_test", "deadlock", "parallelism"), "State cancellation/synchronization and race/deadlock verification, or an explicit not_applicable reason"),
+            ),
+            DesignDimension.DISTRIBUTED: (
+                (("consistency", "cap_tradeoff", "pacelc"), "State consistency and CAP/PACELC trade-offs where partitions or replicas matter, or an explicit not_applicable reason"),
+                (("idempotency", "ordering", "quorum", "split_brain"), "State duplicate delivery, ordering, quorum, or split-brain controls as applicable, or an explicit not_applicable reason"),
+            ),
+            DesignDimension.CORRECTNESS: (
+                (("invariant", "correctness", "transaction", "source_of_truth"), "State critical invariants, transaction/source-of-truth semantics, or an explicit not_applicable reason"),
+            ),
+            DesignDimension.OPERATIONS: (
+                (("rollback", "recovery", "rollout", "operations"), "State rollback/recovery and rollout behavior, or an explicit not_applicable reason"),
+            ),
+            DesignDimension.AI_AGENT: (
+                (("agent_safety", "tool_permissions", "human_approval"), "State agent authority, tool permission and approval boundaries, or an explicit not_applicable reason"),
+                (("evaluation", "provenance", "autonomy_budget"), "State evaluation/evidence provenance and bounded-autonomy criteria, or an explicit not_applicable reason"),
+            ),
+        }
+        for dimension, groups in required_contracts.items():
+            if dimension not in dimensions:
+                continue
+            for alternatives, message in groups:
+                if any(key in declared and declared[key].lower().startswith("not_applicable") for key in alternatives):
+                    reasoned = any(
+                        key in declared and (":" in declared[key] or " - " in declared[key])
+                        for key in alternatives
+                    )
+                    if not reasoned:
+                        findings.append(DesignFinding(dimension, FindingSeverity.WARNING, "not_applicable must include a reason", alternatives[0]))
+                    continue
+                if not any(key in declared and not declared[key].lower().startswith("not_applicable") for key in alternatives):
+                    severity = FindingSeverity.BLOCKING if high_risk and dimension in blocking_set else FindingSeverity.WARNING
+                    findings.append(DesignFinding(dimension, severity, message, None))
 
         if cls._is_code_change(paths):
             for key, dimension, message in cls._UNIVERSAL_QUALITY:

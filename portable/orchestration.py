@@ -23,6 +23,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Callable, Mapping
 from .execution_strategy import ExecutionStrategy, execution_strategy
+from .engineering_design_guard import EngineeringDesignGuard
 
 
 class NodeKind(str, Enum):
@@ -357,6 +358,52 @@ class Orchestrator:
         run = OrchestrationRun(task_id=task_id, intent_digest=self.intent_digest(intent), environment_fingerprint=self.environment_fingerprint(context))
         state: dict[str, Any] = dict(context or {})
         state["intent_digest"] = run.intent_digest
+
+        changed_paths = state.get("changed_paths", state.get("files", ()))
+        if not isinstance(changed_paths, (list, tuple)):
+            changed_paths = ()
+
+        # Engineering principles are checked before any graph node can perform
+        # side effects. This reuses the canonical guard and records its receipt
+        # in the existing run evidence/trajectory rather than creating a second
+        # policy engine or evidence store.
+        design = state.get("engineering_design", {})
+        if not isinstance(design, Mapping):
+            design = {}
+        risk = str(state.get("risk") or max(
+            (node.risk for node in self.graph.order()),
+            key=lambda value: {"low": 0, "medium": 1, "high": 2, "critical": 3}.get(value, 1),
+            default="medium",
+        ))
+        receipt = EngineeringDesignGuard.review(
+            intent=intent,
+            changed_paths=changed_paths,
+            design=design,
+            risk=risk,
+        )
+        evidence_payload = EngineeringDesignGuard.as_evidence(receipt)
+        evidence_payload["risk"] = risk
+        evidence_payload["changed_paths"] = list(changed_paths)
+        evidence_payload["code_revision"] = str(state.get("code_revision", ""))
+        state["engineering_design_review"] = evidence_payload
+        run.record(Evidence(
+            "engineering-design-review",
+            json.dumps(evidence_payload, sort_keys=True, separators=(",", ":")),
+            "portable.engineering_design_guard",
+        ))
+        run.trajectory.append({
+            "event": "engineering_design_review",
+            "status": receipt.status,
+            "risk": risk,
+            "dimensions": list(receipt.dimensions),
+            "receipt_digest": receipt.receipt_digest,
+            "intent_digest": receipt.intent_digest,
+            "code_revision": str(state.get("code_revision", "")),
+        })
+        if receipt.blocking:
+            run.status = RunStatus.BLOCKED
+            run.stop_reason = "engineering design guard blocked task before execution"
+            return run
         adaptive_policy = self._read_adaptive_policy(state)
         if adaptive_policy is not None:
             strategy_profile = execution_strategy(adaptive_policy["strategy"])
@@ -416,6 +463,43 @@ class Orchestrator:
                 run.status = RunStatus.BLOCKED
                 run.stop_reason = "global attempt budget exhausted"
                 return run
+
+        # Code-changing runs are accepted only when verification names the
+        # exact final revision. A successful node graph alone is not evidence
+        # that the final source head was tested.
+        if EngineeringDesignGuard._is_code_change(tuple(changed_paths)):
+            final_revision = str(state.get("final_code_revision", "")).strip()
+            verified_revision = str(state.get("verified_code_revision", "")).strip()
+            if not final_revision or final_revision != verified_revision:
+                run.status = RunStatus.BLOCKED
+                run.stop_reason = "exact final code revision verification missing or stale"
+                payload = {
+                    "kind": "exact_head_verification",
+                    "status": "blocked",
+                    "expected_final_revision": final_revision,
+                    "verified_revision": verified_revision,
+                    "intent_digest": run.intent_digest,
+                }
+                run.record(Evidence(
+                    "exact-head-verification",
+                    json.dumps(payload, sort_keys=True, separators=(",", ":")),
+                    "portable.orchestration",
+                ))
+                run.trajectory.append({"event": "exact_head_verification", **payload})
+                return run
+            payload = {
+                "kind": "exact_head_verification",
+                "status": "passed",
+                "final_revision": final_revision,
+                "verified_revision": verified_revision,
+                "intent_digest": run.intent_digest,
+            }
+            run.record(Evidence(
+                "exact-head-verification",
+                json.dumps(payload, sort_keys=True, separators=(",", ":")),
+                "portable.orchestration",
+            ))
+            run.trajectory.append({"event": "exact_head_verification", **payload})
 
         run.status = RunStatus.ACCEPTED
         run.stop_reason = "all critical graph nodes passed"
