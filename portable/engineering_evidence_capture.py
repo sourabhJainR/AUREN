@@ -112,7 +112,11 @@ class EvidenceCapture:
             )""")
 
     @classmethod
-    def from_environment(cls, database_path: str | Path) -> "EvidenceCapture":
+    def from_environment(
+        cls, database_path: str | Path, *,
+        evidence_ledger: CanonicalEvidenceLedger | None = None,
+        signer: Callable[[bytes], Mapping[str, str]] | None = None,
+    ) -> "EvidenceCapture":
         """Enable automatic HTTPS export only when an operator configured a sink.
 
         No remote network access occurs merely because this class is imported.
@@ -121,7 +125,7 @@ class EvidenceCapture:
         url = os.environ.get("AUREN_EVIDENCE_SINK_URL", "").strip()
         token = os.environ.get("AUREN_EVIDENCE_SINK_TOKEN", "")
         sink = HttpsEvidenceSink(url, token) if url else None
-        return cls(database_path, sink=sink)
+        return cls(database_path, sink=sink, signer=signer, evidence_ledger=evidence_ledger)
 
     def record(
         self,
