@@ -17,6 +17,7 @@ from typing import Any, Callable, Mapping
 from uuid import uuid4
 
 from .autonomous_company import AutonomousCompany, TrustScore
+from .canonical_evidence_ledger import CanonicalEvidenceLedger
 from .decision_gate import require_valid_decision_record
 from .engineering_recovery import verify_ci_gate
 from .engineering_evidence_capture import EvidenceCapture
@@ -50,7 +51,10 @@ class DurableTask:
 class ExecutionController:
     """Durable supervisor used as the default owner of graph/team execution."""
 
-    def __init__(self, root: str | Path, *, company: AutonomousCompany | None = None) -> None:
+    def __init__(
+        self, root: str | Path, *, company: AutonomousCompany | None = None,
+        evidence_signer: Callable[[bytes], Mapping[str, str]] | None = None,
+    ) -> None:
         self.root = Path(root).expanduser().resolve()
         self.company = company or AutonomousCompany(self.root)
         self.db_path = self.root / ".auren" / "execution.sqlite3"
@@ -78,8 +82,13 @@ class ExecutionController:
             for column in ("heartbeat_at", "lease_until"):
                 if column not in columns:
                     db.execute(f"ALTER TABLE tasks ADD COLUMN {column} TEXT")
+        self.evidence_ledger = CanonicalEvidenceLedger(
+            self.root / ".auren" / "canonical-evidence.sqlite3"
+        )
         self.evidence_capture = EvidenceCapture.from_environment(
-            self.root / ".auren" / "engineering-evidence.sqlite3"
+            self.root / ".auren" / "engineering-evidence.sqlite3",
+            evidence_ledger=self.evidence_ledger,
+            signer=evidence_signer,
         )
 
     def register_handler(
