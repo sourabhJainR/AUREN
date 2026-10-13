@@ -124,7 +124,7 @@ class TrustedRepositoryContextProvider:
             repository=self.expected_repository, head_sha=head
         )
 
-        def has_trusted_receipt(evidence_id: str, item: Mapping[str, Any]) -> bool:
+        def has_trusted_receipt(evidence_id: str, item: Mapping[str, Any]) -> Mapping[str, Any] | None:
             for stored in self.evidence_capture.signed_receipts(evidence_id=evidence_id):
                 envelope = stored["envelope"]
                 if not isinstance(envelope, Mapping) or set(envelope) != {"payload", "signer_id", "signature"}:
@@ -142,8 +142,16 @@ class TrustedRepositoryContextProvider:
                     or payload.get("evidence_type") != item["evidence_type"]
                     or payload.get("status") != item["status"]
                     or payload.get("payload_digest") != item["payload_digest"]
+                    or payload.get("source_uri") != item["source_uri"]
                     or signer_id in {payload.get("evaluator_id"), payload.get("oracle_id"), payload.get("runtime_id")}
                 ):
+                    continue
+                source_type = payload.get("source_type")
+                if source_type not in {"ci", "external_evaluator", "oracle_custody", "sealed_corpus_custody", "isolation_audit", "operator"}:
+                    continue
+                if item["evidence_type"] in {"approval", "promotion_approval", "operator_approval", "rollback_rehearsal", "rollback_test"} and source_type != "operator":
+                    continue
+                if item["evidence_type"] in {"ci_check", "ci_run", "regression_check", "test_result"} and source_type != "ci":
                     continue
                 receipt_bytes = json.dumps(envelope, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
                 if hashlib.sha256(receipt_bytes).hexdigest() != stored["receipt_digest"]:
@@ -162,10 +170,10 @@ class TrustedRepositoryContextProvider:
                     else:
                         valid_signature = self.receipt_verifier(signer_id, envelope["signature"], message)
                     if valid_signature is True:
-                        return True
+                        return payload
                 except Exception:
                     continue
-            return False
+            return None
 
         known_evidence_ids = tuple(
             evidence_id for evidence_id in candidate_evidence_ids
@@ -174,11 +182,11 @@ class TrustedRepositoryContextProvider:
                     evidence_id, repository=self.expected_repository, head_sha=head
                 )) is not None
                 and item["status"] in {"passed", "verified"}
-                and has_trusted_receipt(evidence_id, item)
+                and has_trusted_receipt(evidence_id, item) is not None
             )
         )
 
-        def require_evidence(evidence_id: Any, label: str, allowed_types: set[str]) -> None:
+        def require_evidence(evidence_id: Any, label: str, allowed_types: set[str]) -> Mapping[str, Any]:
             if not isinstance(evidence_id, str) or evidence_id not in known_evidence_ids:
                 raise ValueError(f"{label} evidence lacks a fresh trusted signed receipt")
             item = self.evidence_ledger.resolve(
@@ -188,6 +196,10 @@ class TrustedRepositoryContextProvider:
                 raise ValueError(f"{label} evidence is missing, stale, or not passing")
             if item["evidence_type"] not in allowed_types:
                 raise ValueError(f"{label} evidence has an incompatible evidence type")
+            receipt_payload = has_trusted_receipt(evidence_id, item)
+            if receipt_payload is None:
+                raise ValueError(f"{label} evidence lacks a fresh trusted signed receipt")
+            return receipt_payload
 
         checks = record.get("checks")
         if not isinstance(checks, list) or not checks:
@@ -203,15 +215,23 @@ class TrustedRepositoryContextProvider:
                 )
         promotion = record.get("promotion")
         if isinstance(promotion, Mapping) and promotion.get("approval_evidence_id"):
-            require_evidence(
+            approval_receipt = require_evidence(
                 promotion["approval_evidence_id"], "promotion approval",
                 {"approval", "promotion_approval", "operator_approval"},
             )
+            if approval_receipt.get("operator_id") != promotion.get("approved_by"):
+                raise ValueError("promotion approver does not match the signed operator receipt")
         if record.get("rollback_test_evidence_id"):
-            require_evidence(
-                record["rollback_test_evidence_id"], "rollback rehearsal",
-                {"rollback_rehearsal", "rollback_test"},
+            risk_level = record.get("risk_level")
+            rollback_types = {"rollback_rehearsal"} if risk_level in {"high", "critical"} else {"rollback_rehearsal", "rollback_test"}
+            rollback_receipt = require_evidence(
+                record["rollback_test_evidence_id"], "rollback rehearsal", rollback_types,
             )
+            if risk_level in {"high", "critical"} and (
+                rollback_receipt.get("last_known_good_commit") != record.get("last_known_good_commit")
+                or rollback_receipt.get("recovered_head_sha") != record.get("last_known_good_commit")
+            ):
+                raise ValueError("operator rollback receipt does not prove recovery to the decision record's last-known-good commit")
         return {
             "decision_record": record,
             "expected_repository": self.expected_repository,
