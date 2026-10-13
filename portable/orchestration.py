@@ -367,44 +367,43 @@ class Orchestrator:
         # side effects. This reuses the canonical guard and records its receipt
         # in the existing run evidence/trajectory rather than creating a second
         # policy engine or evidence store.
-        if state.get("enforce_engineering_principles", True):
-            design = state.get("engineering_design", {})
-            if not isinstance(design, Mapping):
-                design = {}
-            risk = str(state.get("risk") or max(
-                (node.risk for node in self.graph.order()),
-                key=lambda value: {"low": 0, "medium": 1, "high": 2, "critical": 3}.get(value, 1),
-                default="medium",
-            ))
-            receipt = EngineeringDesignGuard.review(
-                intent=intent,
-                changed_paths=changed_paths,
-                design=design,
-                risk=risk,
-            )
-            evidence_payload = EngineeringDesignGuard.as_evidence(receipt)
-            evidence_payload["risk"] = risk
-            evidence_payload["changed_paths"] = list(changed_paths)
-            evidence_payload["code_revision"] = str(state.get("code_revision", ""))
-            state["engineering_design_review"] = evidence_payload
-            run.record(Evidence(
-                "engineering-design-review",
-                json.dumps(evidence_payload, sort_keys=True, separators=(",", ":")),
-                "portable.engineering_design_guard",
-            ))
-            run.trajectory.append({
-                "event": "engineering_design_review",
-                "status": receipt.status,
-                "risk": risk,
-                "dimensions": list(receipt.dimensions),
-                "receipt_digest": receipt.receipt_digest,
-                "intent_digest": receipt.intent_digest,
-                "code_revision": str(state.get("code_revision", "")),
-            })
-            if receipt.blocking:
-                run.status = RunStatus.BLOCKED
-                run.stop_reason = "engineering design guard blocked task before execution"
-                return run
+        design = state.get("engineering_design", {})
+        if not isinstance(design, Mapping):
+            design = {}
+        risk = str(state.get("risk") or max(
+            (node.risk for node in self.graph.order()),
+            key=lambda value: {"low": 0, "medium": 1, "high": 2, "critical": 3}.get(value, 1),
+            default="medium",
+        ))
+        receipt = EngineeringDesignGuard.review(
+            intent=intent,
+            changed_paths=changed_paths,
+            design=design,
+            risk=risk,
+        )
+        evidence_payload = EngineeringDesignGuard.as_evidence(receipt)
+        evidence_payload["risk"] = risk
+        evidence_payload["changed_paths"] = list(changed_paths)
+        evidence_payload["code_revision"] = str(state.get("code_revision", ""))
+        state["engineering_design_review"] = evidence_payload
+        run.record(Evidence(
+            "engineering-design-review",
+            json.dumps(evidence_payload, sort_keys=True, separators=(",", ":")),
+            "portable.engineering_design_guard",
+        ))
+        run.trajectory.append({
+            "event": "engineering_design_review",
+            "status": receipt.status,
+            "risk": risk,
+            "dimensions": list(receipt.dimensions),
+            "receipt_digest": receipt.receipt_digest,
+            "intent_digest": receipt.intent_digest,
+            "code_revision": str(state.get("code_revision", "")),
+        })
+        if receipt.blocking:
+            run.status = RunStatus.BLOCKED
+            run.stop_reason = "engineering design guard blocked task before execution"
+            return run
         adaptive_policy = self._read_adaptive_policy(state)
         if adaptive_policy is not None:
             strategy_profile = execution_strategy(adaptive_policy["strategy"])
