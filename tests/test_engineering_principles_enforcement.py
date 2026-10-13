@@ -11,6 +11,20 @@ def _messages(receipt, severity=None):
     return [f.message.lower() for f in receipt.findings if severity is None or f.severity == severity]
 
 
+
+def test_architecture_contract_requires_owner_and_dependency_direction():
+    receipt = EngineeringDesignGuard.review(
+        intent="Refactor module architecture and dependency boundaries",
+        changed_paths=["portable/service.py"],
+        risk="high",
+        design={"architecture": "Use a clean architecture"},
+    )
+    blocking = _messages(receipt, FindingSeverity.BLOCKING)
+    assert receipt.status == "blocked"
+    assert any("responsible module/owner" in message for message in blocking)
+    assert any("dependency direction" in message for message in blocking)
+
+
 def test_security_is_inferred_and_high_risk_missing_contract_blocks():
     receipt = EngineeringDesignGuard.review(
         intent="Change authentication and authorization for external tool execution",
