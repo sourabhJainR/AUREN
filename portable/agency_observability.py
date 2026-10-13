@@ -1,4 +1,4 @@
-"""Dependency-free tracing, scoring, datasets, prompts and experiments for AER.
+"""Dependency-free tracing, scoring, datasets, prompts and experiments for AUREN.
 
 The design is intentionally compatible with Opik-style concepts without making
 Opik a runtime dependency: traces contain nested spans, spans can carry scores,
