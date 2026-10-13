@@ -76,13 +76,13 @@ class MemoryFact:
 
 
 class MemoryStore:
-    """Legacy adapter over the canonical AER PersistentMemory."""
+    """Legacy adapter over the canonical AUREN PersistentMemory."""
     _KINDS = frozenset({"episodic", "semantic", "procedural"})
 
     def __init__(self, persist_path: str | Path | None = None) -> None:
         self._owned_temp: Path | None = None
         if persist_path is None:
-            handle = tempfile.NamedTemporaryFile(prefix="aer-memory-", suffix=".sqlite", delete=False)
+            handle = tempfile.NamedTemporaryFile(prefix="auren-memory-", suffix=".sqlite", delete=False)
             handle.close()
             self._owned_temp = Path(handle.name)
             persist_path = self._owned_temp

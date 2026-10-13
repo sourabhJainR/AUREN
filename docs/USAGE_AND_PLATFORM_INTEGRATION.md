@@ -62,7 +62,7 @@ Before deleting `~/.auren`, uninstall any service that was installed:
 
 ~~~bash
 python ~/.auren/current/portable/maintenance_service.py --scope user uninstall
-rm -rf ~/.auren
+rm -rf ~/.aer
 ~~~
 
 For a system-scoped service use `--scope system` with the required privileges.
@@ -70,7 +70,7 @@ For a system-scoped service use `--scope system` with the required privileges.
 Older installations may have left `~/.aer`; remove that directory only after any legacy service has been stopped/uninstalled:
 
 ~~~bash
-rm -rf ~/.aer
+rm -rf ~/.auren
 ~~~
 
 ## 3. Canonical package layout
@@ -88,7 +88,7 @@ portable/auren_console.py
 auren-core/
 ~~~
 
-Legacy public/runtime names such as `aer_cli.py`, `aer-portable.zip`, `aer-bundle.json`, `.aer/`, and `aer-core/` are not part of the current distribution contract.
+Historical entry-point, archive, manifest, and native-core names are catalogued in the [Legacy Name and Compatibility Register](LEGACY_NAME_COMPATIBILITY.md).
 
 ## 4. Claude Code
 

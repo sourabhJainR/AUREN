@@ -1,6 +1,6 @@
 # Context engineering, memory and task handoffs
 
-AER treats context as a bounded resource, not a transcript to forward between agents.
+AUREN treats context as a bounded resource, not a transcript to forward between agents.
 
 ## Memory ownership
 

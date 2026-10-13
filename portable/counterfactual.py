@@ -1,4 +1,4 @@
-"""Bounded read-only counterfactual prediction over AER's causal model."""
+"""Bounded read-only counterfactual prediction over AUREN's causal model."""
 from __future__ import annotations
 
 from dataclasses import dataclass

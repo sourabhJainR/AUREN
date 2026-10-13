@@ -373,7 +373,7 @@ If the maintenance service is installed, remove the service first:
 
 ~~~bash
 python ~/.auren/current/portable/maintenance_service.py --scope user uninstall
-rm -rf ~/.auren
+rm -rf ~/.aer
 ~~~
 
 For a system-scoped service, use `--scope system` with the privileges required by the host before removing `~/.auren`.
@@ -381,7 +381,7 @@ For a system-scoped service, use `--scope system` with the privileges required b
 A legacy `.aer` installation, if one exists from an older release, can be removed after its service is stopped:
 
 ~~~bash
-rm -rf ~/.aer
+rm -rf ~/.auren
 ~~~
 
 AUREN does not install into or modify the target repository merely by being installed.

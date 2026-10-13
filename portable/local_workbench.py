@@ -145,7 +145,7 @@ class LocalWorkbench:
             if read_only:
                 with ThreadPoolExecutor(
                     max_workers=min(self.max_workers, len(read_only)),
-                    thread_name_prefix="aer-local-read",
+                    thread_name_prefix="auren-local-read",
                 ) as pool:
                     futures = {item.id: pool.submit(self._execute, item) for item in read_only}
                     for item in read_only:
@@ -313,7 +313,7 @@ def packet(
 
 
 def _cli() -> int:
-    parser = argparse.ArgumentParser(description="AER bounded local workbench")
+    parser = argparse.ArgumentParser(description="AUREN bounded local workbench")
     parser.add_argument("--project-root", default=".")
     parser.add_argument("--workers", type=int, default=DEFAULT_WORKERS)
     parser.add_argument("--mission", default="local-cli")

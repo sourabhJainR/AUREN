@@ -250,6 +250,19 @@ class ContractAlignmentTests(unittest.TestCase):
         for token in ("DesignDimension.DISTRIBUTED", "DesignDimension.RESILIENCE", "DesignDimension.CORRECTNESS", "DesignDimension.AI_AGENT"):
             self.assertIn(token, guard)
 
+    def test_task_retry_budget_is_shared_by_harness_and_crew_handoffs(self) -> None:
+        runtime = (ROOT / ".ai-harness" / "runtime" / "graph_agent_team.py").read_text(encoding="utf-8")
+        crew_contract = (ROOT / "portable" / "crew_adapters.py").read_text(encoding="utf-8")
+        graph_contract = (ROOT / "portable" / "state_graph.py").read_text(encoding="utf-8")
+        self.assertIn("TaskRetryBudget", runtime)
+        self.assertIn("merge_retry_budget_snapshots", runtime)
+        self.assertIn('reducers={"auren_retry_budget": merge_retry_budget_snapshots}', runtime)
+        self.assertIn("retry_budget.consume(", runtime)
+        self.assertIn("TaskRetryBudget.resume(saved_budget)", runtime)
+        self.assertIn("component=\"crew_handoff\"", crew_contract)
+        self.assertIn("require_durable_handoffs", graph_contract)
+        self.assertIn("auren_crew_handoff_checkpoint_data", graph_contract)
+
     def test_active_runtime_and_user_facing_docs_use_canonical_auren_identity(self) -> None:
         import re
 

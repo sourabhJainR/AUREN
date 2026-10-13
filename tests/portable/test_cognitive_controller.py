@@ -30,7 +30,7 @@ class CognitiveControllerTests(unittest.TestCase):
             self.assertEqual(plan.belief_ids, ("b1",))
             enriched = controller.enrich_context("Fix parser", context={"existing": True})
             self.assertTrue(enriched["existing"])
-            self.assertIn("aer_cognitive_plan", enriched)
+            self.assertIn("auren_cognitive_plan", enriched)
 
     def test_plan_loads_persisted_low_confidence_beliefs(self):
         with tempfile.TemporaryDirectory() as directory:

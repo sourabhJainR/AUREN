@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Self-improvement primitives for AER.
+"""Self-improvement primitives for AUREN.
 
-AER learns from verified engineering outcomes, but learning is deliberately
+AUREN learns from verified engineering outcomes, but learning is deliberately
 separated from executable policy. This module turns outcomes into ranked,
 explainable improvement proposals and only promotes proposals when they pass
 reproducible evidence and regression gates supplied by the caller.

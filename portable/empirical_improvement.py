@@ -1,4 +1,4 @@
-"""Replayable empirical improvement gates for integrated AER behavior."""
+"""Replayable empirical improvement gates for integrated AUREN behavior."""
 from __future__ import annotations
 
 import hashlib

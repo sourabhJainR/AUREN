@@ -1,4 +1,4 @@
-"""Bounded cognitive episode coordination for AER execution.
+"""Bounded cognitive episode coordination for AUREN execution.
 
 The cognitive loop observes an orchestration episode without taking execution
 authority away from the existing StateGraph/Orchestrator path. It records only

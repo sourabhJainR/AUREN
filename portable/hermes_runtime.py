@@ -252,7 +252,7 @@ class DelegationCoordinator:
     def __init__(self, max_workers: int = 4) -> None:
         from concurrent.futures import ThreadPoolExecutor
         self.max_workers = max(1, max_workers)
-        self._executor = ThreadPoolExecutor(max_workers=self.max_workers, thread_name_prefix="aer-agent")
+        self._executor = ThreadPoolExecutor(max_workers=self.max_workers, thread_name_prefix="auren-agent")
 
     def run(self, tasks: Iterable[Callable[[], Any]]) -> list[Any]:
         futures = [self._executor.submit(task) for task in tasks]

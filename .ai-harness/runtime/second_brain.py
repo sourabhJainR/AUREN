@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Small, dependency-free second-brain primitives for AER."""
+"""Small, dependency-free second-brain primitives for AUREN."""
 from __future__ import annotations
 
 import hashlib

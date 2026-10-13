@@ -1,4 +1,4 @@
-"""Append-only reasoning trace for AER cognitive decisions.
+"""Append-only reasoning trace for AUREN cognitive decisions.
 
 This records the compact chain from observation and hypotheses through action
 and outcome. It is an audit surface, not an execution authority and never
@@ -61,7 +61,7 @@ class ReasoningRecord:
 
 
 class ReasoningLedger:
-    """Bounded append-only reasoning records on the canonical AER memory DB."""
+    """Bounded append-only reasoning records on the canonical AUREN memory DB."""
 
     def __init__(self, memory: PersistentMemory, project: str, *, max_records: int = 100_000) -> None:
         if not isinstance(memory, PersistentMemory):

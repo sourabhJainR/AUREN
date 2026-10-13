@@ -1,1 +1,250 @@
-# AUREN Engineering Console\n\nThe AUREN Engineering Console is a local, read-only web UI for understanding what AUREN is doing and how the engineering system is improving over time.\n\nIt reads existing AUREN state and repository intelligence. It does not become a second orchestrator, scheduler, policy engine, memory store, or execution authority.\n\n## What the UI shows\n\n- Current and recently active EngineeringEpisodes\n- Task and run counts\n- Per-task execution duration\n- Durable learnings and SkillOpt activity when the corresponding stores exist\n- Findings, failures and verified DO/DON'T rules exposed by existing stores\n- Regression and benchmark activity\n- Research and capability experiment records\n- Repository file and symbol counts\n- Actual observed repository dependency/code-graph edges\n- Codebase quality signals and verification/evidence counts\n- Test files, detected test cases and explicitly recorded tests-added telemetry\n- AUREN usage and execution history\n\nThe UI refreshes automatically. Repository intelligence is cached briefly so refreshing the browser does not rebuild the code graph on every request.\n\nIf a source store does not exist or does not contain a metric, the console reports the absence rather than inventing a value.\n\n## Access after AUREN is installed\n\nAER installs its active immutable build under:\n\n- Linux/macOS: ~/.aer/current\n- Windows: %USERPROFILE%\\.aer\\current\n\nThe active installation contains the dashboard server and UI assets.\n\n### Recommended command\n\nFrom any terminal:\n\n~~~bash\npython ~/.aer/current/aer_cli.py dashboard --project-root /path/to/your/repository\n~~~\n\nWindows PowerShell:\n\n~~~powershell\npython "$HOME\\.aer\\current\\aer_cli.py" dashboard --project-root "C:\\path\\to\\your\\repository"\n~~~\n\nThe server prints:\n\n~~~text\nAER Engineering Console: http://127.0.0.1:8765\n~~~\n\nOpen that address in a browser.\n\nThe default binding is 127.0.0.1, so the console is available only on the local machine.\n\n### If aer_cli.py is already on PATH\n\n~~~bash\naer_cli.py dashboard --project-root /path/to/your/repository\n~~~\n\nIf the launcher is not on PATH, use the full path shown above.\n\n## Run directly from the installed AUREN runtime\n\nThe equivalent module command is:\n\n~~~bash\nPYTHONPATH="$HOME/.aer/current" python -m portable.dashboard_server \\n  --project-root /path/to/your/repository \\n  --host 127.0.0.1 \\n  --port 8765\n~~~\n\nWindows PowerShell:\n\n~~~powershell\n$env:PYTHONPATH="$HOME\\.aer\\current"\npython -m portable.dashboard_server `\n  --project-root "C:\\path\\to\\your\\repository" `\n  --host 127.0.0.1 `\n  --port 8765\n~~~\n\nThe CLI form is preferred because it resolves the active AUREN installation directly.\n\n## Choosing the project root\n\n--project-root must point to the repository whose AUREN activity you want to inspect.\n\nExample:\n\n~~~bash\npython ~/.aer/current/aer_cli.py dashboard --project-root ~/work/Hello_world_With_Structure\n~~~\n\nThe dashboard uses that directory for:\n\n1. Repository Intelligence and the code graph\n2. .aer dashboard events and AUREN SQLite state\n3. state and .ai-harness SQLite stores when present\n4. Engineering episode state\n5. Test and repository structure discovery\n\nDo not point --project-root at ~/.aer/current unless the installed AUREN runtime itself is the repository you want to inspect.\n\n## Custom port\n\nIf port 8765 is already in use:\n\n~~~bash\npython ~/.aer/current/aer_cli.py dashboard \\n  --project-root /path/to/repository \\n  --port 8876\n~~~\n\nThen open http://127.0.0.1:8876.\n\n## Custom host\n\nKeep 127.0.0.1 for normal use.\n\nA different host can be supplied when a controlled environment requires it:\n\n~~~bash\npython ~/.aer/current/aer_cli.py dashboard \\n  --project-root /path/to/repository \\n  --host 0.0.0.0 \\n  --port 8765\n~~~\n\nThis changes the exposure boundary. Do not bind to a non-loopback address on an untrusted network without an appropriate authenticated or restricted network boundary.\n\n## Health check\n\nWhile the server is running:\n\n~~~bash\ncurl http://127.0.0.1:8765/api/health\n~~~\n\nExpected response:\n\n~~~json\n{"status":"ok"}\n~~~\n\nThe dashboard data endpoint is http://127.0.0.1:8765/api/dashboard.\n\n## Starting the console on another machine\n\nThe UI is a local process, not a hosted service.\n\nOn the machine where AUREN is installed:\n\n1. Start the dashboard command.\n2. Keep the terminal/process running.\n3. Open the printed URL in a browser on that machine.\n\nFor remote access, prefer an authenticated SSH tunnel rather than exposing the dashboard directly.\n\nExample:\n\n~~~bash\nssh -L 8765:127.0.0.1:8765 user@aer-host\n~~~\n\nThen, on the local browser, open http://127.0.0.1:8765.\n\n## Running from an AUREN source checkout\n\nFor development:\n\n~~~bash\ncd Hello_world_With_Structure\npython aer_cli.py dashboard --project-root .\n~~~\n\nOr:\n\n~~~bash\npython -m portable.dashboard_server --project-root . --port 8765\n~~~\n\n## Data and security boundary\n\nThe Engineering Console is observation-only.\n\nIt does not:\n\n- execute engineering tasks\n- modify source files\n- modify AUREN policy\n- promote learning\n- modify regression cases\n- change credentials or permissions\n- expose source-file contents through the dashboard API\n- expose prompts or credentials\n- create a second scheduler\n\nThe dashboard reads underlying SQLite stores in read-only mode and uses repository intelligence for structural metadata.\n\nThe server is loopback-only by default.\n\n## Troubleshooting\n\n### AUREN runtime not found\n\nUse the installed launcher explicitly:\n\n~~~bash\npython ~/.aer/current/aer_cli.py dashboard --project-root /path/to/repository\n~~~\n\nCheck that the active installation exists:\n\n~~~bash\nls ~/.aer/current\n~~~\n\nWindows:\n\n~~~powershell\nGet-ChildItem "$HOME\\.aer\\current"\n~~~\n\n### Port already in use\n\nChoose another port:\n\n~~~bash\npython ~/.aer/current/aer_cli.py dashboard --project-root /path/to/repository --port 8876\n~~~\n\n### Dashboard opens but shows little or no historical data\n\nCheck that --project-root is the repository where AUREN has been running. The console does not manufacture history. Missing stores or missing telemetry are shown as unavailable.\n\n### Code graph looks empty\n\nCheck that the project root contains the source repository and that the repository is readable by the AUREN process. The graph intentionally excludes .aer and state telemetry directories.\n\n## Updating AUREN\n\nThe console is bundled with AUREN. After installing or updating AUREN to a build containing the Engineering Console, the active installation under ~/.aer/current (or the Windows equivalent) contains the matching UI, server and runtime.\n\nNo separate UI package or Node.js installation is required.
+# AUREN Engineering Console
+
+The AUREN Engineering Console is a local, read-only web UI for understanding what AUREN is doing and how the engineering system is improving over time.
+
+It reads existing AUREN state and repository intelligence. It does not become a second orchestrator, scheduler, policy engine, memory store, or execution authority.
+
+## What the UI shows
+
+- Current and recently active EngineeringEpisodes
+- Task and run counts
+- Per-task execution duration
+- Durable learnings and SkillOpt activity when the corresponding stores exist
+- Findings, failures and verified DO/DON'T rules exposed by existing stores
+- Regression and benchmark activity
+- Research and capability experiment records
+- Repository file and symbol counts
+- Actual observed repository dependency/code-graph edges
+- Codebase quality signals and verification/evidence counts
+- Test files, detected test cases and explicitly recorded tests-added telemetry
+- AUREN usage and execution history
+
+The UI refreshes automatically. Repository intelligence is cached briefly so refreshing the browser does not rebuild the code graph on every request.
+
+If a source store does not exist or does not contain a metric, the console reports the absence rather than inventing a value.
+
+## Access after AUREN is installed
+
+AUREN installs its active immutable build under:
+
+- Linux/macOS: ~/.auren/current
+- Windows: %USERPROFILE%\\.auren\\current
+
+The active installation contains the dashboard server and UI assets.
+
+### Recommended command
+
+From any terminal:
+
+~~~bash
+python ~/.auren/current/auren_cli.py dashboard --project-root /path/to/your/repository
+~~~
+
+Windows PowerShell:
+
+~~~powershell
+python "$HOME\\.auren\\current\\auren_cli.py" dashboard --project-root "C:\\path\\to\\your\\repository"
+~~~
+
+The server prints:
+
+~~~text
+AUREN Engineering Console: http://127.0.0.1:8765
+~~~
+
+Open that address in a browser.
+
+The default binding is 127.0.0.1, so the console is available only on the local machine.
+
+### If auren_cli.py is already on PATH
+
+~~~bash
+auren_cli.py dashboard --project-root /path/to/your/repository
+~~~
+
+If the launcher is not on PATH, use the full path shown above.
+
+## Run directly from the installed AUREN runtime
+
+The equivalent module command is:
+
+~~~bash
+PYTHONPATH="$HOME/.auren/current" python -m portable.dashboard_server \
+  --project-root /path/to/your/repository \
+  --host 127.0.0.1 \
+  --port 8765
+~~~
+
+Windows PowerShell:
+
+~~~powershell
+$env:PYTHONPATH="$HOME\\.auren\\current"
+python -m portable.dashboard_server `
+  --project-root "C:\\path\\to\\your\\repository" `
+  --host 127.0.0.1 `
+  --port 8765
+~~~
+
+The CLI form is preferred because it resolves the active AUREN installation directly.
+
+## Choosing the project root
+
+--project-root must point to the repository whose AUREN activity you want to inspect.
+
+Example:
+
+~~~bash
+python ~/.auren/current/auren_cli.py dashboard --project-root ~/work/Hello_world_With_Structure
+~~~
+
+The dashboard uses that directory for:
+
+1. Repository Intelligence and the code graph
+2. .auren dashboard events and AUREN SQLite state
+3. state and .ai-harness SQLite stores when present
+4. Engineering episode state
+5. Test and repository structure discovery
+
+Do not point --project-root at ~/.auren/current unless the installed AUREN runtime itself is the repository you want to inspect.
+
+## Custom port
+
+If port 8765 is already in use:
+
+~~~bash
+python ~/.auren/current/auren_cli.py dashboard \
+  --project-root /path/to/repository \
+  --port 8876
+~~~
+
+Then open http://127.0.0.1:8876.
+
+## Custom host
+
+Keep 127.0.0.1 for normal use.
+
+A different host can be supplied when a controlled environment requires it:
+
+~~~bash
+python ~/.auren/current/auren_cli.py dashboard \
+  --project-root /path/to/repository \
+  --host 0.0.0.0 \
+  --port 8765
+~~~
+
+This changes the exposure boundary. Do not bind to a non-loopback address on an untrusted network without an appropriate authenticated or restricted network boundary.
+
+## Health check
+
+While the server is running:
+
+~~~bash
+curl http://127.0.0.1:8765/api/health
+~~~
+
+Expected response:
+
+~~~json
+{"status":"ok"}
+~~~
+
+The dashboard data endpoint is http://127.0.0.1:8765/api/dashboard.
+
+## Starting the console on another machine
+
+The UI is a local process, not a hosted service.
+
+On the machine where AUREN is installed:
+
+1. Start the dashboard command.
+2. Keep the terminal/process running.
+3. Open the printed URL in a browser on that machine.
+
+For remote access, prefer an authenticated SSH tunnel rather than exposing the dashboard directly.
+
+Example:
+
+~~~bash
+ssh -L 8765:127.0.0.1:8765 user@auren-host
+~~~
+
+Then, on the local browser, open http://127.0.0.1:8765.
+
+## Running from an AUREN source checkout
+
+For development:
+
+~~~bash
+cd AUREN
+python auren_cli.py dashboard --project-root .
+~~~
+
+Or:
+
+~~~bash
+python -m portable.dashboard_server --project-root . --port 8765
+~~~
+
+## Data and security boundary
+
+The Engineering Console is observation-only.
+
+It does not:
+
+- execute engineering tasks
+- modify source files
+- modify AUREN policy
+- promote learning
+- modify regression cases
+- change credentials or permissions
+- expose source-file contents through the dashboard API
+- expose prompts or credentials
+- create a second scheduler
+
+The dashboard reads underlying SQLite stores in read-only mode and uses repository intelligence for structural metadata.
+
+The server is loopback-only by default.
+
+## Troubleshooting
+
+### AUREN runtime not found
+
+Use the installed launcher explicitly:
+
+~~~bash
+python ~/.auren/current/auren_cli.py dashboard --project-root /path/to/repository
+~~~
+
+Check that the active installation exists:
+
+~~~bash
+ls ~/.auren/current
+~~~
+
+Windows:
+
+~~~powershell
+Get-ChildItem "$HOME\\.auren\\current"
+~~~
+
+### Port already in use
+
+Choose another port:
+
+~~~bash
+python ~/.auren/current/auren_cli.py dashboard --project-root /path/to/repository --port 8876
+~~~
+
+### Dashboard opens but shows little or no historical data
+
+Check that --project-root is the repository where AUREN has been running. The console does not manufacture history. Missing stores or missing telemetry are shown as unavailable.
+
+### Code graph looks empty
+
+Check that the project root contains the source repository and that the repository is readable by the AUREN process. The graph intentionally excludes .auren and state telemetry directories.
+
+## Updating AUREN
+
+The console is bundled with AUREN. After installing or updating AUREN to a build containing the Engineering Console, the active installation under ~/.auren/current (or the Windows equivalent) contains the matching UI, server and runtime.
+
+No separate UI package or Node.js installation is required.

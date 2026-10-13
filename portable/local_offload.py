@@ -161,7 +161,7 @@ class LocalOffloadBroker:
             cwd = self._resolve_cwd(job.cwd)
 
             if job.isolate:
-                workspace = Path(tempfile.mkdtemp(prefix="aer-offload-"))
+                workspace = Path(tempfile.mkdtemp(prefix="auren-offload-"))
                 self._copy_workspace(self.project_root, workspace)
                 cwd = self._map_isolated_cwd(self.project_root, cwd, workspace)
 
@@ -218,7 +218,7 @@ class LocalOffloadBroker:
         if len(jobs) > self.budget.max_workers * 8:
             raise ValueError("offload batch exceeds bounded queue capacity")
         with concurrent.futures.ThreadPoolExecutor(
-            max_workers=self.budget.max_workers, thread_name_prefix="aer-offload"
+            max_workers=self.budget.max_workers, thread_name_prefix="auren-offload"
         ) as pool:
             futures = [pool.submit(self.run, job) for job in jobs]
             return [future.result() for future in futures]

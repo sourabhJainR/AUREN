@@ -1,4 +1,4 @@
-"""Cognitive control-plane planning for AER execution."""
+"""Cognitive control-plane planning for AUREN execution."""
 from __future__ import annotations
 
 from dataclasses import dataclass
