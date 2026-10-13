@@ -162,6 +162,8 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   examples:
+    needs: impact
+    if: needs.impact.outputs.required == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     strategy:
@@ -180,6 +182,8 @@ jobs:
 
 
   evaluations:
+    needs: impact
+    if: needs.impact.outputs.required == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     strategy:
