@@ -467,7 +467,7 @@ class EngineeringEvolutionControlPlane:
             return LocalExecutionReadiness(True, "embedded", cfg.model_path, True, ())
         reasons.append("embedded llama.cpp backend unavailable")
         if not cfg.model_path:
-            reasons.append("AER_LOCAL_LLM_MODEL_PATH is not configured")
+            reasons.append("AUREN_LOCAL_LLM_MODEL_PATH is not configured")
         return LocalExecutionReadiness(False, "ollama", cfg.model_path, False, tuple(reasons))
 
     def status(self) -> dict[str, Any]:
