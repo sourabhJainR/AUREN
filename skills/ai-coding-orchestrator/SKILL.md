@@ -34,6 +34,12 @@ For implementation, use small verifiable slices and independent adversarial revi
 
 AUREN should leave the user or next component able to act, not merely informed. Lead with outcome/current state and prioritized next steps. Each material action should state the concrete action, expected result or acceptance check, and supporting evidence. Include owner, dependency, deadline, effort, command, or path only when grounded and useful. Separate recommendations from user-owned decisions. For blockers, name the missing condition, affected dependencies, safe work that can continue, and the exact unblock step. Prefer runnable commands, paths, tests, findings, rollback steps, and usable artifacts over generic advice. Finish substantial work with status, verification evidence, residual risks, and one next action. Keep routine output concise and consequential output decision-ready. Follow `skills/engineering/grilling-and-rework.md`; do not create a parallel action/evidence store.
 
+## Mandatory principle selection at task intake
+
+Before planning any assigned task, classify its shape and risk, then consult the root `ENGINEERING_PRINCIPLES.md` and `.ai-harness/ENGINEERING_DESIGN_POLICY.md`. Select only the principles relevant to the task and capture the decisions/evidence in canonical task context. Use explicit `not_applicable: reason` for material dimensions that do not apply; do not silently skip them. For non-code work, adapt the checklist to accuracy, evidence, privacy, actionability, and reversibility rather than forcing coding rituals. For code changes, use `EngineeringDesignGuard` and the existing verification gates. No principle checklist can override acceptance criteria, user authority, security/permission boundaries, or repository architecture.
+
+At completion, verify each selected principle through observable evidence: tests/checks, source references, diff/review, security and compatibility checks, or a reasoned documented decision where automated verification is not meaningful. Re-evaluate after fixes and against the exact final head. If evidence is missing, report it as missing; do not mark the task verified. Learning may improve future selection but cannot silently weaken permanent policy.
+
 ## Required workflow
 
 `intent -> context -> plan -> evidence -> change -> verification -> review -> artifact -> rollout -> observation`
