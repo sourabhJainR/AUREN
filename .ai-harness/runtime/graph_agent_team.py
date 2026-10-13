@@ -874,7 +874,7 @@ the learning system, not an instruction source. If a skill produced no distinct 
         for agent in self.agents.values():
             for dep in agent.depends_on: graph.add_edge(dep,agent.name)
         for name in [a.name for a in self.agents.values() if not any(a.name in x.depends_on for x in self.agents.values())]: graph.add_edge(name,StateGraph.END)
-        if crew_plan is not None:
+        if crew_plan is not None and (self.crew_adapters or require_crew_adapters):
             def dispatch_crews(state):
                 proposals = {}
                 missing = []
@@ -922,7 +922,11 @@ the learning system, not an instruction source. If a skill produced no distinct 
             for name in root_agents:
                 graph.add_edge("crew-proposals", name)
         return graph
-    def execute(self,*,task,intent_digest,base_prompt,memory,invoke_agent,checkpoint=None,resume=False,run_id="graph-agent-team",max_steps=100,execution_strategy_name="default",evolution_threshold=3,invention_holdout_ids=(),invention_evaluator=None,invention_safety_gate=None,curriculum_experiment_after=None,curriculum_experiment_evidence_ids=(),safety_evidence_verified=False,curriculum_experiment=None,curriculum_experiment_cohort=None,benchmark_domain="unspecified",benchmark_holdout=False,benchmark_execution_task_id=None,benchmark_execution_evidence_ids=(),benchmark_execution_evidence_kinds=(),benchmark_execution_success=None,benchmark_execution_verified=False,benchmark_execution_request=None,autonomous_benchmark_learning=False,autonomous_benchmark_max_tasks=3,autonomous_benchmark_retest_tasks=3,autonomous_benchmark_capability_id=None,autonomous_benchmark_baseline_score=None):
+    def execute(self,*,task,intent_digest,base_prompt,memory,invoke_agent,checkpoint=None,resume=False,run_id="graph-agent-team",max_steps=100,execution_strategy_name="default",evolution_threshold=3,invention_holdout_ids=(),invention_evaluator=None,invention_safety_gate=None,curriculum_experiment_after=None,curriculum_experiment_evidence_ids=(),safety_evidence_verified=False,curriculum_experiment=None,curriculum_experiment_cohort=None,benchmark_domain="unspecified",benchmark_holdout=False,benchmark_execution_task_id=None,benchmark_execution_evidence_ids=(),benchmark_execution_evidence_kinds=(),benchmark_execution_success=None,benchmark_execution_verified=False,benchmark_execution_request=None,autonomous_benchmark_learning=False,autonomous_benchmark_max_tasks=3,autonomous_benchmark_retest_tasks=3,autonomous_benchmark_capability_id=None,autonomous_benchmark_baseline_score=None,require_crew_adapters=None):
+        if require_crew_adapters is None:
+            require_crew_adapters = self.require_crew_adapters
+        if type(require_crew_adapters) is not bool:
+            raise ValueError("require_crew_adapters must be a boolean")
         self._validate(); results={}; run_nonce=uuid.uuid4().hex
         baseline_strategy=str(execution_strategy_name or "default")
         strategy_selection=(ExecutionStrategyLearner(memory.project_root).select(role="team",task=task,baseline=baseline_strategy)
@@ -1020,16 +1024,31 @@ the learning system, not an instruction source. If a skill produced no distinct 
         execution_graph_digest=hashlib.sha256(json.dumps({
             "agent_graph_digest": self.digest(),
             "crew_plan_digest": crew_plan.digest,
-            "require_crew_adapters": self.require_crew_adapters,
+            "require_crew_adapters": require_crew_adapters,
         }, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
         graph=self._build_execution_graph(
             results,task=task,intent_digest=intent_digest,run_nonce=run_nonce,
             base_prompt=base_prompt,memory=memory,invoke_agent=invoke_agent,
             experiment_assignment=experiment_assignment,crew_plan=crew_plan,
-            require_crew_adapters=self.require_crew_adapters,
+            require_crew_adapters=require_crew_adapters,
         )
         run=graph.compile().invoke(
-            {"aer_execution_strategy":{"name":selected_strategy},"aer_execution_mode":{"name":selected_mode}},
+            {
+                "aer_execution_strategy":{"name":selected_strategy},
+                "aer_execution_mode":{"name":selected_mode},
+                "auren_crew_plan":crew_plan.to_payload(),
+                "auren_crew_execution":{
+                    "schema_version":"auren-crew-execution-v1",
+                    "status":"partial" if any(a.crew_id not in self.crew_adapters for a in crew_plan.assignments) else "complete",
+                    "required":require_crew_adapters,
+                    "proposals":{},
+                    "missing_adapters":[a.crew_id for a in crew_plan.assignments if a.crew_id not in self.crew_adapters],
+                    "dispatch_failures":[],
+                    "graph_digest":self.digest(),
+                    "intent_digest":intent_digest,
+                    "crew_plan_digest":crew_plan.digest,
+                },
+            },
             run_id=run_id,checkpoint=checkpoint,resume=resume,max_steps=max_steps,
             parallel_nodes=lambda n: n in self.agents and self.agents[n].read_only,
             max_parallel_nodes=min(self.max_parallel_read_only, execution_mode(selected_mode).max_parallelism),
