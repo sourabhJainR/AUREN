@@ -139,6 +139,7 @@ class EvidenceCapture:
         metadata: Mapping[str, Any] | None = None,
         event_id: str | None = None,
         _verified_attestation: bool = False,
+        _defer_export: bool = False,
     ) -> dict[str, Any]:
         if event_type not in _EVENT_TYPES:
             raise ValueError("unsupported engineering event type")
@@ -244,7 +245,8 @@ class EvidenceCapture:
             # Delivery is retriable and does not change the execution result. A
             # deployment that requires remote durability must gate promotion on
             # pending_exports() == 0 and configure external retention/WORM storage.
-            self.flush_pending(limit=10)
+            if not _defer_export:
+                self.flush_pending(limit=10)
         return event
 
     def ingest_signed_external_evidence(
@@ -378,7 +380,19 @@ class EvidenceCapture:
             source_type=str(payload["source_type"]),
             metadata=metadata,
             _verified_attestation=True,
+            _defer_export=True,
         )
+        if self.sink is not None:
+            # The signed envelope contains only the allowlisted attestation and
+            # digests; sealed corpus cases and oracle answers are not accepted by
+            # this schema. Ship the envelope to the configured retention sink.
+            outbound = {**event, "signed_receipt": dict(envelope)}
+            with sqlite3.connect(self.path, timeout=10) as db:
+                db.execute(
+                    "UPDATE engineering_event_outbox SET event_json=?,updated_at=? WHERE event_id=? AND delivery_state='pending'",
+                    (json.dumps(outbound, sort_keys=True), datetime.now(timezone.utc).isoformat(), event["event_id"]),
+                )
+            self.flush_pending(limit=10)
         return {
             "evidence_id": evidence_id,
             "event_digest": event["event_digest"],
