@@ -356,22 +356,8 @@ class EvidenceCapture:
         evidence_id = _text(payload["evidence_id"], "evidence_id")
         source_uri = _text(payload["source_uri"], "source_uri", 2048)
         digest = _text(payload["payload_digest"], "payload_digest", 64)
+        evidence_type = _text(payload["evidence_type"], "evidence_type")
         receipt_digest = sha256_bytes(_canonical(envelope))
-        self.evidence_ledger.record(
-            evidence_id=evidence_id,
-            repository=str(payload["repository"]),
-            head_sha=str(payload["head_sha"]),
-            evidence_type=_text(payload["evidence_type"], "evidence_type"),
-            status=status,
-            source_uri=source_uri,
-            payload_digest=digest,
-            signer_id=signer_id,
-        )
-        with sqlite3.connect(self.path, timeout=10) as db:
-            db.execute(
-                "INSERT OR IGNORE INTO external_signed_receipts(receipt_digest,evidence_id,signer_id,envelope_json,retained_at) VALUES(?,?,?,?,?)",
-                (receipt_digest, evidence_id, signer_id, json.dumps(envelope, sort_keys=True), datetime.now(timezone.utc).isoformat()),
-            )
         metadata: dict[str, Any] = {
             "external_system": _text(payload.get("external_system", payload["source_type"]), "external_system"),
             "run_id": _text(payload["run_id"], "run_id"),
@@ -386,10 +372,27 @@ class EvidenceCapture:
                 metadata[key] = _text(payload[key], key)
         if "rollback_plan_digest" in payload:
             metadata["rollback_plan_digest"] = _text(payload["rollback_plan_digest"], "rollback_plan_digest", 64)
+            if not _SHA_RE.fullmatch(metadata["rollback_plan_digest"]):
+                raise ValueError("rollback_plan_digest must be a SHA-256 digest")
         if "corpus_digest" in payload:
             metadata["corpus_digest"] = _text(payload["corpus_digest"], "corpus_digest", 64)
             if not _SHA_RE.fullmatch(metadata["corpus_digest"]):
                 raise ValueError("corpus_digest must be a lowercase SHA-256 digest")
+        self.evidence_ledger.record(
+            evidence_id=evidence_id,
+            repository=str(payload["repository"]),
+            head_sha=str(payload["head_sha"]),
+            evidence_type=evidence_type,
+            status=status,
+            source_uri=source_uri,
+            payload_digest=digest,
+            signer_id=signer_id,
+        )
+        with sqlite3.connect(self.path, timeout=10) as db:
+            db.execute(
+                "INSERT OR IGNORE INTO external_signed_receipts(receipt_digest,evidence_id,signer_id,envelope_json,retained_at) VALUES(?,?,?,?,?)",
+                (receipt_digest, evidence_id, signer_id, json.dumps(envelope, sort_keys=True), datetime.now(timezone.utc).isoformat()),
+            )
         event = self.record(
             "external_evidence_observed",
             work_unit_id="external:" + evidence_id,
