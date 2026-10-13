@@ -27,6 +27,17 @@ _KNOWN_DATABASES = frozenset({
     "executive/.auren/executive.sqlite3",
 })
 
+# Non-database durable files read or written by active runtime services.
+# Keep this list explicit: unknown legacy files are never copied automatically.
+_KNOWN_FILES = frozenset({
+    "active.json",
+    "history.jsonl",
+    "observability/traces.jsonl",
+    "orchestration/active.py",
+    "orchestration/previous.py",
+    "orchestration/promotion.jsonl",
+})
+
 
 class AurenStatePaths:
     """Resolve the canonical state root and safely copy legacy state when needed."""
@@ -110,6 +121,7 @@ class AurenStatePaths:
             path for path in legacy.rglob("*")
             if path.is_file() and (
                 path.relative_to(legacy).as_posix() in _KNOWN_DATABASES
+                or path.relative_to(legacy).as_posix() in _KNOWN_FILES
                 or (path.parent.name == "sessions" and path.suffix.lower() == ".json")
             )
         )
