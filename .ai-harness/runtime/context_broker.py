@@ -3,7 +3,7 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable, Iterable, Any
-import hashlib, json, os, re, time
+import hashlib, json, re, time
 from portable.identity_compat import get_auren_env
 
 @dataclass(frozen=True, slots=True)
