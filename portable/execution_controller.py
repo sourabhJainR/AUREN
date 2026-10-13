@@ -12,6 +12,7 @@ import inspect
 import json
 import re
 import sqlite3
+from threading import Event, Thread
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -48,10 +49,18 @@ class DurableTask:
     state: str
     attempts: int
     work_unit_id: str
+    lease_generation: int = 0
+    lease_token: str | None = None
+
+
+class LeaseLostError(RuntimeError):
+    """Raised when a stale worker attempts to renew or finalize a task lease."""
 
 
 class ExecutionController:
     """Durable supervisor used as the default owner of graph/team execution."""
+
+    _LEASE_HEARTBEAT_INTERVAL_SECONDS = 30
 
     def __init__(
         self, root: str | Path, *, company: AutonomousCompany | None = None,
@@ -75,7 +84,8 @@ class ExecutionController:
               id TEXT PRIMARY KEY, handler TEXT NOT NULL, payload TEXT NOT NULL,
               state TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0,
               work_unit_id TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
-              heartbeat_at TEXT, lease_until TEXT);
+              heartbeat_at TEXT, lease_until TEXT,
+              lease_generation INTEGER NOT NULL DEFAULT 0, lease_token TEXT);
             """)
             handler_columns = {row[1] for row in db.execute("PRAGMA table_info(handlers)").fetchall()}
             if "ci_gate_policy_json" not in handler_columns:
@@ -90,6 +100,10 @@ class ExecutionController:
             for column in ("heartbeat_at", "lease_until"):
                 if column not in columns:
                     db.execute(f"ALTER TABLE tasks ADD COLUMN {column} TEXT")
+            if "lease_generation" not in columns:
+                db.execute("ALTER TABLE tasks ADD COLUMN lease_generation INTEGER NOT NULL DEFAULT 0")
+            if "lease_token" not in columns:
+                db.execute("ALTER TABLE tasks ADD COLUMN lease_token TEXT")
         self.evidence_ledger = CanonicalEvidenceLedger(
             self.root / ".auren" / "canonical-evidence.sqlite3"
         )
@@ -497,11 +511,13 @@ class ExecutionController:
 
     def _claim(self, task_id: str) -> DurableTask | None:
         # Claim under a write lock so two controllers cannot both observe
-        # "pending" and execute the same side-effecting handler.
+        # "pending" and execute the same side-effecting handler. Each claim
+        # increments a fencing generation and receives a fresh unguessable token.
         with sqlite3.connect(self.db_path, timeout=10) as db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute(
-                "SELECT id,handler,payload,state,attempts,work_unit_id,lease_until FROM tasks WHERE id=?",
+                "SELECT id,handler,payload,state,attempts,work_unit_id,lease_until,lease_generation "
+                "FROM tasks WHERE id=?",
                 (task_id,),
             ).fetchone()
             if not row or row[3] in {"completed", "failed", "cancelled"}:
@@ -522,71 +538,135 @@ class ExecutionController:
                 if current_lease > now_dt:
                     return None
             attempts = int(row[4]) + 1
+            generation = int(row[7] or 0) + 1
+            token = uuid4().hex
             lease = (now_dt + timedelta(minutes=5)).isoformat()
             cursor = db.execute(
-                "UPDATE tasks SET state='running',attempts=?,updated_at=?,heartbeat_at=?,lease_until=? "
-                "WHERE id=? AND state IN ('pending','running')",
-                (attempts, now, now, lease, task_id),
+                "UPDATE tasks SET state='running',attempts=?,updated_at=?,heartbeat_at=?,lease_until=?,"
+                "lease_generation=?,lease_token=? WHERE id=? AND state IN ('pending','running') AND lease_generation=?",
+                (attempts, now, now, lease, generation, token, task_id, int(row[7] or 0)),
             )
             if cursor.rowcount != 1:
                 return None
-        return DurableTask(row[0], row[1], json.loads(row[2]), "running", attempts, row[5])
+        return DurableTask(
+            row[0], row[1], json.loads(row[2]), "running", attempts, row[5],
+            lease_generation=generation, lease_token=token,
+        )
+
+    def _finalize_claim(self, task: DurableTask, state: str) -> bool:
+        if state not in {"completed", "failed", "cancelled"}:
+            raise ValueError("task final state is invalid")
+        if not task.lease_token or task.lease_generation < 1:
+            raise LeaseLostError("task claim has no fencing token")
+        now = _now()
+        with sqlite3.connect(self.db_path, timeout=10) as db:
+            cursor = db.execute(
+                "UPDATE tasks SET state=?,updated_at=?,heartbeat_at=?,lease_until=NULL,lease_token=NULL "
+                "WHERE id=? AND state='running' AND lease_token=? AND lease_generation=?",
+                (state, now, now, task.id, task.lease_token, task.lease_generation),
+            )
+        return cursor.rowcount == 1
+
+    def _invoke_with_lease_heartbeat(self, task: DurableTask, handler: Handler) -> Any:
+        """Renew the current lease while a handler runs; reject results after lease loss."""
+        stop = Event()
+        lease_errors: list[BaseException] = []
+
+        def renew() -> None:
+            while not stop.wait(self._LEASE_HEARTBEAT_INTERVAL_SECONDS):
+                try:
+                    self.heartbeat(task)
+                except BaseException as exc:
+                    lease_errors.append(exc)
+                    stop.set()
+                    return
+
+        thread = Thread(target=renew, name=f"auren-lease-{task.id[:8]}", daemon=True)
+        thread.start()
+        result: Any = None
+        handler_error: BaseException | None = None
+        try:
+            result = handler(task.payload)
+        except BaseException as exc:
+            handler_error = exc
+        finally:
+            stop.set()
+            thread.join(timeout=2)
+        if lease_errors:
+            raise LeaseLostError(
+                "task lease was lost while handler was running; result cannot be committed"
+            ) from (handler_error or lease_errors[0])
+        if handler_error is not None:
+            raise handler_error
+        # Verify ownership once more before the caller can finalize the result.
+        self.heartbeat(task)
+        return result
 
     def run_once(self, task_id: str) -> TrustScore | None:
         task = self._claim(task_id)
         if task is None:
             return None
-        self._capture_event("task_attempt_started", task, status="running", metadata={"handler": task.handler})
+        self._capture_event("task_attempt_started", task, status="running", metadata={
+            "handler": task.handler,
+        })
         try:
-            self.heartbeat(task.id)
+            self.heartbeat(task)
             gates_passed, gate_detail, gate_evidence = self._preflight_gates(task)
             if not gates_passed:
+                if not self._finalize_claim(task, "failed"):
+                    raise LeaseLostError("stale worker cannot finalize rejected task")
                 evidence = [f"handler:{task.handler}", *gate_evidence]
-                self._capture_event("task_failed", task, status="failed", metadata={"handler": task.handler, "phase": "preflight", "failure_class": "gate_rejection"})
+                self._capture_event("task_failed", task, status="failed", metadata={
+                    "handler": task.handler, "phase": "preflight", "failure_class": "gate_rejection",
+                })
                 self.company.record(task.work_unit_id, "execution", "failed", gate_detail, evidence)
-                with sqlite3.connect(self.db_path) as db:
-                    db.execute(
-                        "UPDATE tasks SET state='failed',updated_at=?,heartbeat_at=?,lease_until=NULL WHERE id=?",
-                        (_now(), _now(), task.id),
-                    )
                 return self.company.finish(task.work_unit_id, success=False, reason=gate_detail, evidence=evidence)
 
             handler = self._load_handler(task.handler)
-            result = handler(task.payload)
-            self.heartbeat(task.id)
-            evidence = [f"handler:{task.handler}", *gate_evidence]
-            if isinstance(result, Mapping):
-                evidence.extend(str(x) for x in result.get("evidence", ()) if x)
-                success_value = result.get("success", True)
-                if type(success_value) is not bool:
-                    success = False
-                    detail = "handler success field must be a boolean"
-                else:
-                    success = success_value
-                    detail = str(result.get("detail", "handler completed"))
-            else:
-                success, detail = True, "handler completed"
-
-            self._capture_event("task_completed" if success else "task_failed", task, status="completed" if success else "failed", metadata={"handler": task.handler, "phase": "handler", "result_category": "success" if success else "failure"})
-            self.company.record(task.work_unit_id, "execution", "completed" if success else "failed", detail, evidence)
-            state = "completed" if success else "failed"
-            with sqlite3.connect(self.db_path) as db:
-                db.execute(
-                    "UPDATE tasks SET state=?,updated_at=?,heartbeat_at=?,lease_until=NULL WHERE id=?",
-                    (state, _now(), _now(), task.id),
-                )
-            return self.company.finish(task.work_unit_id, success=success, reason=detail, evidence=evidence)
+            result = self._invoke_with_lease_heartbeat(task, handler)
+        except LeaseLostError:
+            raise
         except Exception as exc:
+            if not self._finalize_claim(task, "failed"):
+                raise LeaseLostError(
+                    "task lease was lost; stale worker cannot overwrite the current task outcome"
+                ) from exc
             detail = f"{type(exc).__name__}: {exc}"
-            self._capture_event("task_failed", task, status="failed", metadata={"handler": task.handler, "phase": "exception", "failure_class": type(exc).__name__})
+            self._capture_event("task_failed", task, status="failed", metadata={
+                "handler": task.handler, "phase": "exception",
+                "failure_class": type(exc).__name__,
+            })
             self.company.record(task.work_unit_id, "execution", "failed", detail, (f"handler:{task.handler}",))
-            with sqlite3.connect(self.db_path) as db:
-                db.execute(
-                    "UPDATE tasks SET state='failed',updated_at=?,heartbeat_at=?,lease_until=NULL WHERE id=?",
-                    (_now(), _now(), task.id),
-                )
             self.company.finish(task.work_unit_id, success=False, reason=detail)
             raise
+
+        evidence = [f"handler:{task.handler}", *gate_evidence]
+        if isinstance(result, Mapping):
+            evidence.extend(str(x) for x in result.get("evidence", ()) if x)
+            success_value = result.get("success", True)
+            if type(success_value) is not bool:
+                success = False
+                detail = "handler success field must be a boolean"
+            else:
+                success = success_value
+                detail = str(result.get("detail", "handler completed"))
+        else:
+            success, detail = True, "handler completed"
+
+        state = "completed" if success else "failed"
+        if not self._finalize_claim(task, state):
+            raise LeaseLostError("task lease was lost; stale worker cannot finalize task outcome")
+        self._capture_event(
+            "task_completed" if success else "task_failed",
+            task,
+            status=state,
+            metadata={
+                "handler": task.handler, "phase": "handler",
+                "result_category": "success" if success else "failure",
+            },
+        )
+        self.company.record(task.work_unit_id, "execution", state, detail, evidence)
+        return self.company.finish(task.work_unit_id, success=success, reason=detail, evidence=evidence)
 
     def resume_pending(self, *, limit: int = 20) -> list[TrustScore]:
         """Resume pending/running work after process or host restart."""
@@ -602,14 +682,19 @@ class ExecutionController:
                 scores.append(score)
         return scores
 
-    def heartbeat(self, task_id: str, *, lease_seconds: int = 300) -> None:
+    def heartbeat(self, task: DurableTask, *, lease_seconds: int = 300) -> None:
+        if not isinstance(task, DurableTask) or not task.lease_token or task.lease_generation < 1:
+            raise LeaseLostError("heartbeat requires the current durable task fencing token")
         now = datetime.now(timezone.utc)
         lease = (now + timedelta(seconds=max(1, lease_seconds))).isoformat()
-        with sqlite3.connect(self.db_path) as db:
-            db.execute(
-                "UPDATE tasks SET heartbeat_at=?,lease_until=?,updated_at=? WHERE id=? AND state='running'",
-                (now.isoformat(), lease, now.isoformat(), task_id),
+        with sqlite3.connect(self.db_path, timeout=10) as db:
+            cursor = db.execute(
+                "UPDATE tasks SET heartbeat_at=?,lease_until=?,updated_at=? "
+                "WHERE id=? AND state='running' AND lease_token=? AND lease_generation=?",
+                (now.isoformat(), lease, now.isoformat(), task.id, task.lease_token, task.lease_generation),
             )
+        if cursor.rowcount != 1:
+            raise LeaseLostError("task lease was lost; stale worker cannot renew it")
 
     def detect_stale(self, stale_after_seconds: int = 900) -> list[DurableTask]:
         cutoff = (datetime.now(timezone.utc) - timedelta(seconds=max(1, stale_after_seconds))).isoformat()

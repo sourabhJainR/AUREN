@@ -14,6 +14,8 @@ A session is mapped to a durable work unit. For a directly constructed `Executio
 
 If the worker exits after a work unit has started, the next invocation with the same session_id resumes the existing work unit rather than creating a new one.
 
+Each task claim now advances a durable lease generation and receives a fresh fencing token. Heartbeats and terminal-state commits must match both values, so an expired/reclaimed worker cannot overwrite the newer owner's outcome. This does not undo a side effect already performed by a handler that outlives its lease; consequential handlers must use task-scoped idempotency keys at their external effect boundary. The supervisor now renews the lease in a separate heartbeat thread while a handler runs and verifies ownership again before finalization. If renewal fails, the handler result is rejected. This still cannot cancel an external side effect already in progress; such effects must use task-scoped idempotency keys.
+
 The existing maintenance service calls resume_tasks() before its maintenance cycle. Its native service definitions already use restart-on-failure behavior, so host/process restart feeds back into the same durable queue.
 
 ## Durable handlers

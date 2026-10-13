@@ -4,9 +4,10 @@ from datetime import datetime, timedelta, timezone
 import json
 import os
 import subprocess
+import time
 import sys
 
-from portable.execution_controller import ExecutionController
+from portable.execution_controller import ExecutionController, LeaseLostError
 
 def test_process_death_running_task_recovers_in_fresh_process(tmp_path: Path):
     repo_root = Path(__file__).resolve().parents[1]
@@ -63,6 +64,89 @@ print(json.dumps({
         "state": "completed",
         "attempts": 2,
     }
+
+def slow_durable_handler(payload):
+    time.sleep(float(payload.get("sleep_seconds", 0.08)))
+    return {"success": True, "evidence": ["slow-handler"]}
+
+
+def test_supervisor_renews_lease_while_handler_runs(tmp_path: Path):
+    controller = ExecutionController(tmp_path)
+    controller._LEASE_HEARTBEAT_INTERVAL_SECONDS = 0.01
+    controller.register_handler(
+        "tests.test_execution_controller_restart.slow_durable_handler",
+        slow_durable_handler,
+        execution_class="read_only",
+    )
+    task = controller.submit(
+        "tests.test_execution_controller_restart.slow_durable_handler",
+        {"sleep_seconds": 0.08},
+    )
+    heartbeat_calls = []
+    original_heartbeat = controller.heartbeat
+
+    def count_heartbeat(claim, *, lease_seconds=300):
+        heartbeat_calls.append(claim.lease_generation)
+        return original_heartbeat(claim, lease_seconds=lease_seconds)
+
+    controller.heartbeat = count_heartbeat
+    score = controller.run_once(task.id)
+    assert score is not None
+    assert len(heartbeat_calls) >= 3
+    assert controller.task(task.id).state == "completed"
+
+
+def test_legacy_task_schema_adds_fencing_columns_without_losing_rows(tmp_path: Path):
+    state_dir = tmp_path / ".auren"
+    state_dir.mkdir(parents=True)
+    db_path = state_dir / "execution.sqlite3"
+    with sqlite3.connect(db_path) as db:
+        db.execute(
+            "CREATE TABLE tasks("
+            "id TEXT PRIMARY KEY, handler TEXT NOT NULL, payload TEXT NOT NULL, "
+            "state TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, work_unit_id TEXT NOT NULL, "
+            "created_at TEXT NOT NULL, updated_at TEXT NOT NULL, heartbeat_at TEXT, lease_until TEXT)"
+        )
+        db.execute(
+            "INSERT INTO tasks(id,handler,payload,state,attempts,work_unit_id,created_at,updated_at,heartbeat_at,lease_until) "
+            "VALUES('legacy-task','tests.test_execution_controller.durable_handler','{}','pending',0,'work','now','now','now','now')"
+        )
+    controller = ExecutionController(tmp_path)
+    with sqlite3.connect(controller.db_path) as db:
+        columns = {row[1] for row in db.execute("PRAGMA table_info(tasks)")}
+        row = db.execute("SELECT id,state,lease_generation,lease_token FROM tasks WHERE id='legacy-task'").fetchone()
+    assert {"lease_generation", "lease_token"} <= columns
+    assert row == ("legacy-task", "pending", 0, None)
+
+
+def test_reclaimed_task_fences_old_worker_heartbeat_and_finalization(tmp_path: Path):
+    first = ExecutionController(tmp_path)
+    first.register_handler("tests.test_execution_controller.durable_handler", durable_handler, execution_class="read_only")
+    task = first.submit("tests.test_execution_controller.durable_handler", {"id": "fenced-owner"})
+    old_claim = first._claim(task.id)
+    assert old_claim is not None
+
+    expired = (datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat()
+    with sqlite3.connect(first.db_path) as db:
+        db.execute("UPDATE tasks SET lease_until=? WHERE id=?", (expired, task.id))
+
+    second = ExecutionController(tmp_path)
+    new_claim = second._claim(task.id)
+    assert new_claim is not None
+    assert new_claim.lease_generation > old_claim.lease_generation
+    assert new_claim.lease_token != old_claim.lease_token
+
+    try:
+        first.heartbeat(old_claim)
+    except LeaseLostError as exc:
+        assert "lease was lost" in str(exc)
+    else:
+        raise AssertionError("stale worker heartbeat must be rejected")
+    assert not first._finalize_claim(old_claim, "completed")
+    second.heartbeat(new_claim)
+    assert second._finalize_claim(new_claim, "completed")
+    assert second.task(task.id).state == "completed"
+
 
 def test_resume_pending_task_after_controller_restart(tmp_path: Path):
     first = ExecutionController(tmp_path)
