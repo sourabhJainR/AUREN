@@ -16,6 +16,31 @@ import os
 from pathlib import Path
 from typing import Any
 
+from portable.state_graph import default_crew_definitions
+
+
+_CREW_ADAPTERS: dict[str, Any] = {}
+
+
+def register_crew_adapters(adapters: dict[str, Any], *, replace: bool = False) -> None:
+    """Register trusted proposal-only adapters during runtime bootstrap."""
+    if not isinstance(adapters, dict):
+        raise TypeError("crew adapters must be a mapping")
+    if type(replace) is not bool:
+        raise ValueError("replace must be a boolean")
+    allowed_ids = {crew.crew_id for crew in default_crew_definitions()}
+    for crew_id, adapter in adapters.items():
+        if crew_id not in allowed_ids:
+            raise ValueError(f"unknown crew id: {crew_id}")
+        if getattr(adapter, "crew_id", None) != crew_id or not callable(getattr(adapter, "propose", None)):
+            raise ValueError(f"invalid proposal adapter for crew {crew_id}")
+        digest = getattr(adapter, "configuration_digest", None)
+        if not isinstance(digest, str) or not digest.strip():
+            raise ValueError(f"crew adapter {crew_id} needs a stable configuration digest")
+        if crew_id in _CREW_ADAPTERS and _CREW_ADAPTERS[crew_id] is not adapter and not replace:
+            raise ValueError(f"crew adapter {crew_id} is already registered")
+    _CREW_ADAPTERS.update(adapters)
+
 
 def _phase_team(route: dict[str, Any], phase: str, graph_types):
     AgentSpec, GraphAgentTeam = graph_types
