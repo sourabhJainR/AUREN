@@ -69,6 +69,8 @@ def test_explicit_security_not_applicable_reason_does_not_block():
                 "security": "not_applicable: documentation-only change with no runtime trust boundary changes",
                 "least_privilege": "not_applicable: no permissions or tool authority are modified",
                 "architecture": "not_applicable: documentation-only change; no module or dependency boundaries change",
+                "responsibility": "not_applicable: documentation-only change; no runtime module responsibility changes",
+                "dependency_direction": "not_applicable: documentation-only change; no dependencies are changed",
                 "compatibility": "not_applicable: no runtime contract or caller behavior changes",
                 "usage_compatibility": "not_applicable: no existing callers, APIs, or workflow usage changes",
                 "rollout": "not_applicable: documentation-only change; no migration or staged deployment",
