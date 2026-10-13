@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run a safe local AER second-brain heartbeat.
+"""Run a safe local AUREN second-brain heartbeat.
 
 This command only reads local JSON state and prints suggestions. It does not
 send messages, mutate external systems, execute code, or change permissions.
@@ -21,7 +21,7 @@ spec.loader.exec_module(second_brain)
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Run a read-only AER second-brain heartbeat")
+    parser = argparse.ArgumentParser(description="Run a read-only AUREN second-brain heartbeat")
     parser.add_argument("--tasks", type=Path, default=ROOT / ".ai-harness" / "state" / "tasks.json")
     parser.add_argument("--outcomes", type=Path, default=ROOT / ".ai-harness" / "state" / "outcomes.json")
     parser.add_argument("--max-suggestions", type=int, default=5)
