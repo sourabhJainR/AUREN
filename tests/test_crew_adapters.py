@@ -448,6 +448,29 @@ class ApprovedCrewAdapterTests(unittest.TestCase):
         self.assertIsNone(controller.retry(claimed_retry, retryable=True))
         self.assertEqual(budget.used, 1)
 
+    def test_resume_reconciles_nested_handoff_budget_without_refunding_retries(self):
+        nested_budget = TaskRetryBudget(max_retries=2)
+        self.assertTrue(nested_budget.consume(component="crew_handoff", operation_key="handoff:retry:1"))
+        controller = GraphHandoffController(max_attempts=3, retry_budget=nested_budget)
+        checkpoint = controller.snapshot()
+
+        canonical_task_budget = TaskRetryBudget(max_retries=2)
+        resumed = GraphHandoffController.resume(
+            checkpoint, retry_budget=canonical_task_budget
+        )
+        self.assertIs(resumed.retry_budget, canonical_task_budget)
+        self.assertEqual(canonical_task_budget.used, 1)
+        self.assertEqual(canonical_task_budget.snapshot()["digest"], checkpoint["retry_budget"]["digest"])
+
+    def test_resume_rejects_conflicting_task_retry_budget_charge(self):
+        nested_budget = TaskRetryBudget(max_retries=2)
+        nested_budget.consume(component="crew_handoff", operation_key="shared-key")
+        checkpoint = GraphHandoffController(retry_budget=nested_budget).snapshot()
+        canonical_task_budget = TaskRetryBudget(max_retries=2)
+        canonical_task_budget.consume(component="graph_node", operation_key="shared-key")
+        with self.assertRaisesRegex(ValueError, "conflicting retry budget charge"):
+            GraphHandoffController.resume(checkpoint, retry_budget=canonical_task_budget)
+
     def test_retry_budget_checkpoint_requires_integrity_digest(self):
         checkpoint = TaskRetryBudget(max_retries=2).snapshot()
         checkpoint.pop("digest")
