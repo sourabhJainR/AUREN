@@ -17,8 +17,10 @@ from typing import Any, Callable, Mapping
 from uuid import uuid4
 
 from .autonomous_company import AutonomousCompany, TrustScore
+from .canonical_evidence_ledger import CanonicalEvidenceLedger
 from .decision_gate import require_valid_decision_record
 from .engineering_recovery import verify_ci_gate
+from .engineering_evidence_capture import EvidenceCapture
 
 Handler = Callable[[Mapping[str, Any]], Any]
 
@@ -49,7 +51,10 @@ class DurableTask:
 class ExecutionController:
     """Durable supervisor used as the default owner of graph/team execution."""
 
-    def __init__(self, root: str | Path, *, company: AutonomousCompany | None = None) -> None:
+    def __init__(
+        self, root: str | Path, *, company: AutonomousCompany | None = None,
+        evidence_signer: Callable[[bytes], Mapping[str, str]] | None = None,
+    ) -> None:
         self.root = Path(root).expanduser().resolve()
         self.company = company or AutonomousCompany(self.root)
         self.db_path = self.root / ".auren" / "execution.sqlite3"
@@ -77,6 +82,14 @@ class ExecutionController:
             for column in ("heartbeat_at", "lease_until"):
                 if column not in columns:
                     db.execute(f"ALTER TABLE tasks ADD COLUMN {column} TEXT")
+        self.evidence_ledger = CanonicalEvidenceLedger(
+            self.root / ".auren" / "canonical-evidence.sqlite3"
+        )
+        self.evidence_capture = EvidenceCapture.from_environment(
+            self.root / ".auren" / "engineering-evidence.sqlite3",
+            evidence_ledger=self.evidence_ledger,
+            signer=evidence_signer,
+        )
 
     def register_handler(
         self,
@@ -104,9 +117,18 @@ class ExecutionController:
                 raise ValueError("durable handlers must be importable module-level callables")
             reference = f"{module}:{qualname}"
 
-        tokens = _handler_tokens(name)
-        requires_promotion_gate = bool(tokens & _PROMOTION_HANDLER_TOKENS)
-        requires_exact_head_ci = bool(tokens & _EXACT_HEAD_CI_HANDLER_TOKENS)
+        name_tokens = _handler_tokens(name)
+        if isinstance(handler, str):
+            handler_identity = handler.split(":", 1)[-1]
+        else:
+            handler_identity = str(getattr(handler, "__qualname__", ""))
+        identity_tokens = _handler_tokens(handler_identity)
+        tokens = name_tokens | identity_tokens
+        neutral_provider_tokens = {"context", "provider", "gate", "evidence", "validator", "verifier"}
+        explicit_action_tokens = {"promote", "promoter", "merge", "merger", "release", "deploy", "deployment", "publish"}
+        is_context_or_evidence_provider = bool(tokens & neutral_provider_tokens) and not bool(tokens & explicit_action_tokens)
+        requires_promotion_gate = bool(tokens & _PROMOTION_HANDLER_TOKENS) and not is_context_or_evidence_provider
+        requires_exact_head_ci = bool(tokens & _EXACT_HEAD_CI_HANDLER_TOKENS) and not is_context_or_evidence_provider
         if requires_promotion_gate and not promotion_gate_policy:
             # A prior trusted policy is retained on re-registration below. For
             # a new handler, require the caller to declare the gate explicitly.
@@ -220,6 +242,13 @@ class ExecutionController:
         promotion_expected_head: str | None = None
         try:
             promotion_policy = self._handler_promotion_gate_policy(task.handler)
+            if promotion_policy and self.evidence_capture.sink is not None:
+                pending_exports = self.evidence_capture.pending_exports()
+                if pending_exports:
+                    return False, (
+                        f"promotion gate rejected task: {pending_exports} engineering evidence export(s) "
+                        "are pending in the configured external retention sink"
+                    ), ("evidence-export:pending", "promotion-gate:rejected")
             if promotion_policy:
                 provider = self._load_handler(promotion_policy["context_handler"])
                 # Do not pass task payload: the provider must resolve live repository/head
@@ -287,6 +316,32 @@ class ExecutionController:
             # The gate fails closed before the task handler can cause side effects.
             return False, f"preflight gate rejected task: {type(exc).__name__}: {exc}", tuple((*evidence, "preflight-gate:rejected"))
 
+    def _capture_event(
+        self, event_type: str, task: DurableTask, *, status: str,
+        metadata: Mapping[str, Any] | None = None,
+    ) -> None:
+        """Record safe lifecycle metadata without serializing task payload or output."""
+        import subprocess
+        head_sha = ""
+        try:
+            head_sha = subprocess.run(
+                ["git", "-C", str(self.root), "rev-parse", "--verify", "HEAD^{commit}"],
+                check=True, capture_output=True, text=True, timeout=2,
+            ).stdout.strip()
+        except (OSError, subprocess.SubprocessError):
+            pass
+        repository = __import__("os").environ.get("AUREN_REPOSITORY_SLUG", "")
+        self.evidence_capture.record(
+            event_type,
+            work_unit_id=task.work_unit_id,
+            task_id=task.id,
+            iteration=task.attempts,
+            status=status,
+            repository=repository,
+            head_sha=head_sha,
+            metadata=dict(metadata or {}),
+        )
+
     def work_unit_for_session(self, session_id: str, goal: str) -> str:
         """Return a stable work unit for a session, creating it once if needed."""
         if not isinstance(session_id, str) or not session_id.strip():
@@ -324,6 +379,7 @@ class ExecutionController:
                 (task.id, task.handler, json.dumps(task.payload, sort_keys=True),
                  task.state, task.attempts, task.work_unit_id, now, now, now, now),
             )
+        self._capture_event("task_submitted", task, status="pending", metadata={"handler": task.handler})
         return task
 
     def _claim(self, task_id: str) -> DurableTask | None:
@@ -367,11 +423,13 @@ class ExecutionController:
         task = self._claim(task_id)
         if task is None:
             return None
+        self._capture_event("task_attempt_started", task, status="running", metadata={"handler": task.handler})
         try:
             self.heartbeat(task.id)
             gates_passed, gate_detail, gate_evidence = self._preflight_gates(task)
             if not gates_passed:
                 evidence = [f"handler:{task.handler}", *gate_evidence]
+                self._capture_event("task_failed", task, status="failed", metadata={"handler": task.handler, "phase": "preflight", "failure_class": "gate_rejection"})
                 self.company.record(task.work_unit_id, "execution", "failed", gate_detail, evidence)
                 with sqlite3.connect(self.db_path) as db:
                     db.execute(
@@ -396,6 +454,7 @@ class ExecutionController:
             else:
                 success, detail = True, "handler completed"
 
+            self._capture_event("task_completed" if success else "task_failed", task, status="completed" if success else "failed", metadata={"handler": task.handler, "phase": "handler", "result_category": "success" if success else "failure"})
             self.company.record(task.work_unit_id, "execution", "completed" if success else "failed", detail, evidence)
             state = "completed" if success else "failed"
             with sqlite3.connect(self.db_path) as db:
@@ -406,6 +465,7 @@ class ExecutionController:
             return self.company.finish(task.work_unit_id, success=success, reason=detail, evidence=evidence)
         except Exception as exc:
             detail = f"{type(exc).__name__}: {exc}"
+            self._capture_event("task_failed", task, status="failed", metadata={"handler": task.handler, "phase": "exception", "failure_class": type(exc).__name__})
             self.company.record(task.work_unit_id, "execution", "failed", detail, (f"handler:{task.handler}",))
             with sqlite3.connect(self.db_path) as db:
                 db.execute(
@@ -536,6 +596,10 @@ class ExecutionController:
             findings.append(f"failed_tasks={failed}")
         if stale:
             findings.append(f"stale_tasks={stale}")
+        if self.evidence_capture.sink is not None:
+            delivery = self.evidence_capture.flush_pending(limit=100)
+            if delivery["pending"]:
+                findings.append(f"evidence_exports_pending={delivery['pending']}")
         return tuple(findings)
 
     def task(self, task_id: str) -> DurableTask | None:

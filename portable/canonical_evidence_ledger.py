@@ -148,7 +148,7 @@ class CanonicalEvidenceLedger:
             raise ValueError("head_sha must be a full lowercase 40-character commit SHA")
         with sqlite3.connect(self.database_path, timeout=10) as db:
             rows = db.execute(
-                "SELECT evidence_id FROM canonical_evidence WHERE repository=? AND head_sha=? ORDER BY evidence_id",
+                "SELECT evidence_id FROM canonical_evidence WHERE repository=? AND head_sha=? AND status IN ('passed','verified') ORDER BY evidence_id",
                 (repository, head_sha),
             ).fetchall()
         return tuple(row[0] for row in rows)

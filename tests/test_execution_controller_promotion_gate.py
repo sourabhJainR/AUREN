@@ -25,6 +25,11 @@ def protected_promotion_handler(payload):
     return {"success": True, "detail": "promotion handler ran", "evidence": ["promotion-action"]}
 
 
+def merge_pull_request_handler(payload):
+    _PROMOTION_SIDE_EFFECTS.append(payload.get("operation", "merge"))
+    return {"success": True, "detail": "merge handler ran"}
+
+
 def trusted_ci_evidence(request):
     return copy.deepcopy(_CI_CONTEXT)
 
@@ -132,6 +137,15 @@ class ExecutionControllerPromotionGateTests(unittest.TestCase):
     def test_consequential_handler_cannot_be_registered_without_promotion_gate(self):
         with self.assertRaisesRegex(ValueError, "requires an operator-owned promotion_gate_policy"):
             self.controller.register_handler("promote-without-policy", protected_promotion_handler)
+
+    def test_consequential_callable_cannot_bypass_gates_with_an_innocuous_alias(self):
+        with self.assertRaisesRegex(ValueError, "requires an operator-owned promotion_gate_policy"):
+            self.controller.register_handler("helper", protected_promotion_handler)
+        with self.assertRaisesRegex(ValueError, "requires an exact-head ci_gate_policy"):
+            self.controller.register_handler(
+                "helper", merge_pull_request_handler,
+                promotion_gate_policy={"context_handler": "trusted-context"},
+            )
 
     def test_merge_handler_requires_exact_head_ci_and_promotion_gates(self):
         with self.assertRaisesRegex(ValueError, "requires an operator-owned promotion_gate_policy"):

@@ -65,6 +65,17 @@ class CanonicalEvidenceLedgerTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     self.record(evidence_id="invalid-" + str(len(overrides)) + str(overrides), **overrides)
 
+    def test_failed_skipped_and_unknown_evidence_never_enters_promotion_context(self):
+        self.record(evidence_id="passed")
+        self.record(evidence_id="failed", status="failed")
+        self.record(evidence_id="skipped", status="skipped")
+        self.record(evidence_id="unknown", status="unknown")
+        self.record(evidence_id="verified", status="verified")
+        self.assertEqual(
+            self.ledger.known_evidence_ids(repository="sourabhJainR/AUREN", head_sha=HEAD),
+            ("passed", "verified"),
+        )
+
     def test_in_memory_database_is_rejected(self):
         with self.assertRaises(ValueError):
             CanonicalEvidenceLedger(":memory:")
