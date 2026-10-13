@@ -69,8 +69,10 @@ class ExternalSignedEvidenceTests(unittest.TestCase):
         self.assertEqual(event["metadata"]["receipt_digest"], result["receipt_digest"])
 
     def test_tampered_signature_stale_head_and_stale_timestamp_fail_closed(self):
+        tampered = self.envelope()
+        tampered["signature"] = "tampered"
         with self.assertRaisesRegex(ValueError, "signature verification"):
-            self.ingest(self.envelope(signature="tampered"))
+            self.ingest(tampered)
         with self.assertRaisesRegex(ValueError, "stale"):
             self.ingest(self.envelope(head_sha="c" * 40))
         old = (datetime.now(timezone.utc) - timedelta(days=3)).isoformat()
