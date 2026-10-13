@@ -61,8 +61,8 @@ class AdaptiveRuntime:
         self.orchestrator = Orchestrator(graph, max_total_attempts=max_total_attempts)
         if state_root is None:
             self.state_paths = AurenStatePaths.prepare(
-                canonical_root=Path.home() / ".auren",
-                legacy_root=legacy_state_root or (Path.home() / ".aer"),
+                canonical_root=Path(os.environ.get("AUREN_HOME", str(Path.home() / ".auren"))),
+                legacy_root=legacy_state_root or os.environ.get("AER_HOME", str(Path.home() / ".aer")),
             )
         else:
             self.state_paths = AurenStatePaths.prepare(
@@ -402,7 +402,7 @@ class AdaptiveRuntime:
         learning_confidence: float = 0.5,
     ) -> OrchestrationRun:
         project_key = self.session_store.project_key(project_root)
-        provider_name = provider or "auren"
+        provider_name = provider or "aer"
         execution = HookedExecution(self.hooks, session_id, provider_name)
         start = execution.gate(HookPhase.SESSION_START, task_id=task_id, payload={"project_key": project_key})
         if not start.allow:
@@ -465,7 +465,7 @@ class AdaptiveRuntime:
                         current_value=cognitive_current_value, beliefs=cognitive_beliefs,
                         belief_limit=cognitive_belief_limit, context=effective_context,
                     )
-                    cognitive_plan_payload = dict(effective_context["auren_cognitive_plan"])  # type: ignore[arg-type]
+                    cognitive_plan_payload = dict(effective_context.get("auren_cognitive_plan", {}))  # type: ignore[arg-type]
                     self.last_cognitive_plan = dict(cognitive_plan_payload)
                     cognitive_loop.observe(episode, {
                         "event": "cognitive_plan_created",

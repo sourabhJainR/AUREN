@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from .repository_intelligence import RepositoryIntelligence
+from .identity_compat import auren_home
 
 
 _PROVIDER_NAMES = ("claude", "codex", "gemini")
@@ -38,7 +39,8 @@ def _path(value: Path | str | None, default: Path) -> Path:
 
 
 def _default_auren_home() -> Path:
-    return Path.home() / ".auren"
+    """Compatibility helper; new installations resolve to ~/.auren."""
+    return auren_home()
 
 
 def _safe_read_json(path: Path) -> dict[str, Any] | None:
