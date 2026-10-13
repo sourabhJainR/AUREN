@@ -9,12 +9,18 @@ and exact-head CI, and invokes the handler only after preflight passes. Gate fai
 are retained as failed execution evidence. Handler re-registration cannot silently
 erase persisted CI or promotion policies.
 
-The registration guard checks both the registered handler name and importable
-callable identity so a routine alias cannot trivially hide a `merge`, `deploy`,
-`publish`, or promotion handler. Regression tests cover missing/stale decision
-records, task-payload spoofing, unknown evidence IDs, unauthorized approvers,
-missing rollback action/anchor, skipped checks, in-progress CI, wrong CI head,
-missing providers, re-registration, and innocuously named aliases.
+Every registered handler now carries an explicit operator-owned `execution_class`
+(`read_only`, `context_provider`, `ci_gated`, or `consequential`) persisted
+separately from task payload. Unknown legacy rows fail closed until explicitly
+reclassified. Consequential handlers require both decision-record and exact-head CI
+gates; CI-gated handlers require exact-head CI. Context/evidence providers are
+internal-only and cannot be submitted as ordinary tasks. A handler's effect class
+cannot be downgraded by re-registration, and action-like callable identities cannot
+claim a read-only class. Regression tests cover missing/stale decision records,
+task-payload spoofing, unknown evidence IDs, unauthorized approvers, missing
+rollback action/anchor, skipped checks, in-progress CI, wrong CI head, missing
+providers, re-registration, innocuous aliases, unclassified legacy rows, provider
+task submission, and effect-class downgrade attempts.
 
 ## Required tests before P0 closure
 
@@ -36,11 +42,13 @@ missing providers, re-registration, and innocuously named aliases.
 
 ## Residual limits
 
-Name-based classification is a safety net, not a proof that arbitrary Python
-handlers are side-effect free. A handler can hide a privileged operation behind a
-neutral name, or code can call a privileged external API outside AUREN. Python
-in-process checks cannot prevent a process holding unrestricted repository or
-cloud credentials from using them directly.
+Explicit effect classification is an operator attestation, not a proof that arbitrary
+Python handlers are side-effect free. A malicious or mistaken operator can label a
+side-effecting function `read_only`; static Python inspection cannot prove otherwise.
+Code can also call a privileged external API outside AUREN. In-process checks cannot
+prevent a process holding unrestricted repository or cloud credentials from using
+them directly. The actual security boundary must therefore be least-privilege worker
+credentials plus an independently protected promotion service/branch ruleset.
 
 Therefore “complete bypass resistance” is not established by unit tests alone.
 It requires the deployment to put privileged credentials behind the guarded
