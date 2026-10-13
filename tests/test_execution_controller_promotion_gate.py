@@ -137,7 +137,7 @@ class ExecutionControllerPromotionGateTests(unittest.TestCase):
 
     def test_new_handler_requires_explicit_execution_class(self):
         with self.assertRaisesRegex(ValueError, "requires an explicit execution_class"):
-            self.controller.register_handler("unclassified-worker", unclassified_worker, execution_class="read_only")
+            self.controller.register_handler("unclassified-worker", unclassified_worker)
 
     def test_valid_decision_record_allows_handler(self):
         task = self.submit()
