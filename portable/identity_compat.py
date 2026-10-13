@@ -101,6 +101,24 @@ def auren_home(
     return canonical
 
 
+def canonical_runtime_home(
+    *,
+    home: str | Path | None = None,
+    environ: Mapping[str, str] | None = None,
+) -> Path:
+    """Prepare canonical runtime storage and copy known legacy state non-destructively.
+
+    All new runtime writes use the canonical root. The explicit state-path
+    migration validates known durable files and retains the legacy source for
+    rollback; ambiguous conflicts fail closed.
+    """
+    from portable.state_paths import AurenStatePaths
+
+    canonical = canonical_auren_home(home=home, environ=environ)
+    legacy = legacy_aer_home(home=home, environ=environ)
+    return AurenStatePaths.prepare(canonical_root=canonical, legacy_root=legacy).root
+
+
 def project_state_dir(
     project_root: str | Path,
     *,
@@ -118,4 +136,4 @@ def project_state_dir(
     return canonical
 
 
-__all__ = ["auren_home", "canonical_auren_home", "get_auren_env", "legacy_aer_home", "project_state_dir"]
+__all__ = ["auren_home", "canonical_auren_home", "canonical_runtime_home", "get_auren_env", "legacy_aer_home", "project_state_dir"]
