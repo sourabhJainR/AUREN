@@ -10,6 +10,122 @@ from dataclasses import dataclass
 import hashlib
 import json
 from typing import Any, Callable, Mapping, Sequence
+from threading import RLock
+
+
+class TaskRetryBudget:
+    """Thread-safe task-scoped retry budget with checkpointable idempotent charges.
+
+    This is a value object owned by the task graph/supervisor, not a second
+    persistence layer. Its snapshot belongs in the graph's canonical checkpoint.
+    """
+
+    SCHEMA_VERSION = "auren-task-retry-budget-v1"
+
+    def __init__(self, max_retries: int = 3, *, charges: Mapping[str, str] | None = None) -> None:
+        if type(max_retries) is not int or not 0 <= max_retries <= 100:
+            raise ValueError("max_retries must be an integer between 0 and 100")
+        self.max_retries = max_retries
+        self._charges = dict(charges or {})
+        if any(not isinstance(k, str) or not k.strip() or not isinstance(v, str) or not v.strip()
+               for k, v in self._charges.items()):
+            raise ValueError("retry budget charges must map non-empty operation keys to components")
+        if len(self._charges) > self.max_retries:
+            raise ValueError("checkpoint charges exceed retry budget")
+        self._lock = RLock()
+
+    @property
+    def used(self) -> int:
+        with self._lock:
+            return len(self._charges)
+
+    @property
+    def remaining(self) -> int:
+        with self._lock:
+            return max(0, self.max_retries - len(self._charges))
+
+    def consume(self, *, component: str, operation_key: str) -> bool:
+        """Charge a retry once; duplicate charge keys do not consume budget twice."""
+        if not isinstance(component, str) or not component.strip():
+            raise ValueError("retry component is required")
+        if not isinstance(operation_key, str) or not operation_key.strip():
+            raise ValueError("retry operation_key is required")
+        with self._lock:
+            existing = self._charges.get(operation_key)
+            if existing is not None:
+                if existing != component:
+                    raise ValueError("retry operation key was reused by a different component")
+                return True
+            if len(self._charges) >= self.max_retries:
+                return False
+            self._charges[operation_key] = component
+            return True
+
+    def snapshot(self) -> dict[str, Any]:
+        with self._lock:
+            charges = [
+                {"operation_key": key, "component": value}
+                for key, value in sorted(self._charges.items())
+            ]
+            payload = {
+                "schema_version": self.SCHEMA_VERSION,
+                "max_retries": self.max_retries,
+                "used_retries": len(charges),
+                "charges": charges,
+            }
+            payload["digest"] = hashlib.sha256(
+                json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+            ).hexdigest()
+            return payload
+
+    @classmethod
+    def resume(cls, snapshot: Mapping[str, Any]) -> "TaskRetryBudget":
+        if not isinstance(snapshot, Mapping) or snapshot.get("schema_version") != cls.SCHEMA_VERSION:
+            raise ValueError("unsupported task retry budget checkpoint")
+        raw_charges = snapshot.get("charges")
+        if not isinstance(raw_charges, list):
+            raise ValueError("retry budget charges must be a list")
+        charges: dict[str, str] = {}
+        for item in raw_charges:
+            if not isinstance(item, Mapping):
+                raise ValueError("invalid retry budget charge")
+            key, component = item.get("operation_key"), item.get("component")
+            if not isinstance(key, str) or not key.strip() or not isinstance(component, str) or not component.strip():
+                raise ValueError("invalid retry budget charge fields")
+            if key in charges and charges[key] != component:
+                raise ValueError("conflicting retry budget charge")
+            charges[key] = component
+        budget = cls(snapshot.get("max_retries", 3), charges=charges)
+        if snapshot.get("used_retries") != budget.used:
+            raise ValueError("retry budget used count does not match charge ledger")
+        supplied_digest = snapshot.get("digest")
+        if supplied_digest is not None:
+            expected = budget.snapshot()["digest"]
+            if supplied_digest != expected:
+                raise ValueError("retry budget checkpoint digest mismatch")
+        return budget
+
+
+def merge_retry_budget_snapshots(current: Any, incoming: Any) -> dict[str, Any]:
+    """Monotonic reducer for concurrent graph-node budget snapshots."""
+    if current is None:
+        return TaskRetryBudget.resume(incoming).snapshot()
+    if incoming is None:
+        return TaskRetryBudget.resume(current).snapshot()
+    left = TaskRetryBudget.resume(current)
+    right = TaskRetryBudget.resume(incoming)
+    if left.max_retries != right.max_retries:
+        raise ValueError("cannot merge retry budgets with different limits")
+    charges = dict(left.snapshot()["charges"])
+    merged = {item["operation_key"]: item["component"] for item in left.snapshot()["charges"]}
+    for item in right.snapshot()["charges"]:
+        previous = merged.get(item["operation_key"])
+        if previous is not None and previous != item["component"]:
+            raise ValueError("conflicting retry budget charge across graph branches")
+        merged[item["operation_key"]] = item["component"]
+    if len(merged) > left.max_retries:
+        raise ValueError("merged retry budget exceeds task limit")
+    return TaskRetryBudget(left.max_retries, charges=merged).snapshot()
 
 
 @dataclass(frozen=True, slots=True)
