@@ -88,7 +88,7 @@ portable/auren_console.py
 auren-core/
 ~~~
 
-Legacy public/runtime names such as `auren_cli.py`, `auren-portable.zip`, `auren-bundle.json`, `.auren/`, and `auren-core/` are not part of the current distribution contract.
+Historical entry-point, archive, manifest, and native-core names are catalogued in the [Legacy Name and Compatibility Register](LEGACY_NAME_COMPATIBILITY.md).
 
 ## 4. Claude Code
 
