@@ -268,6 +268,14 @@ class EngineeringDesignGuard:
                 (("source_of_truth", "consistency", "transaction"), "State the authoritative data source and consistency/transaction boundary, or an explicit not_applicable reason"),
                 (("schema_evolution", "migration", "backfill", "reconciliation"), "State schema/format evolution, backfill, reconciliation and rollback handling, or an explicit not_applicable reason"),
             ),
+            DesignDimension.COMPATIBILITY: (
+                (("usage_compatibility", "contract", "compatibility", "api_compatibility", "caller_compatibility"), "State compatibility for existing callers, APIs, workflow ordering and usage, or an explicit not_applicable reason"),
+                (("migration", "rollout", "compatibility_plan", "rollback"), "State migration/rollout/rollback compatibility and sequencing, or an explicit not_applicable reason"),
+            ),
+            DesignDimension.LEGACY: (
+                (("characterization", "regression"), "Record characterization/regression protection for existing behavior, or an explicit not_applicable reason"),
+                (("seam", "dependency_break", "migration", "compatibility_plan"), "State the seam/dependency break and safe migration strategy, or an explicit not_applicable reason"),
+            ),
             DesignDimension.RESILIENCE: (
                 (("timeout_budget", "deadline_budget", "timeout", "deadline"), "State an operation deadline and timeout budget, or an explicit not_applicable reason"),
                 (("retry_budget", "bounded_retries", "backoff", "jitter"), "State a bounded retry budget and backoff/jitter policy, or an explicit not_applicable reason"),
