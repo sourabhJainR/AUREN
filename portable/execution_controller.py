@@ -6,6 +6,7 @@ can reconstruct them after a restart. Handler state and outcomes live in SQLite.
 """
 from __future__ import annotations
 
+import hashlib
 import importlib
 import inspect
 import json
