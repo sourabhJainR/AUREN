@@ -13,7 +13,7 @@ class UserExperienceTests(unittest.TestCase):
             project = Path(temp) / "project"
             project.mkdir()
             (project / ".git").mkdir()
-            checks, exit_code = run_doctor(project, aer_home=Path(temp) / ".aer")
+            checks, exit_code = run_doctor(project, auren_home=Path(temp) / ".aer")
             self.assertEqual(exit_code, 0)
             self.assertTrue(any(c.name == "installation" and c.status == "WARN" for c in checks))
 
