@@ -111,6 +111,40 @@ class TrustedRepositoryContextProvider:
         known_evidence_ids = self.evidence_ledger.known_evidence_ids(
             repository=self.expected_repository, head_sha=head
         )
+        def require_evidence(evidence_id: Any, label: str, allowed_types: set[str]) -> None:
+            if not isinstance(evidence_id, str) or not evidence_id.strip():
+                raise ValueError(f"{label} evidence ID is missing")
+            item = self.evidence_ledger.resolve(
+                evidence_id, repository=self.expected_repository, head_sha=head
+            )
+            if not item or item["status"] not in {"passed", "verified"}:
+                raise ValueError(f"{label} evidence is missing, stale, or not passing")
+            if item["evidence_type"] not in allowed_types:
+                raise ValueError(f"{label} evidence has an incompatible evidence type")
+
+        checks = record.get("checks")
+        if not isinstance(checks, list) or not checks:
+            raise ValueError("operator decision record must contain checks")
+        for index, check in enumerate(checks):
+            if not isinstance(check, Mapping):
+                raise ValueError(f"decision record check {index} is malformed")
+            if check.get("status") == "passed":
+                require_evidence(
+                    check.get("evidence_id"), f"check[{index}]",
+                    {"ci_check", "ci_run", "regression_check", "test_result",
+                     "independent_evaluator_receipt", "external_evaluator_receipt", "arena_receipt"},
+                )
+        promotion = record.get("promotion")
+        if isinstance(promotion, Mapping) and promotion.get("approval_evidence_id"):
+            require_evidence(
+                promotion["approval_evidence_id"], "promotion approval",
+                {"approval", "promotion_approval", "operator_approval"},
+            )
+        if record.get("rollback_test_evidence_id"):
+            require_evidence(
+                record["rollback_test_evidence_id"], "rollback rehearsal",
+                {"rollback_rehearsal", "rollback_test"},
+            )
         return {
             "decision_record": record,
             "expected_repository": self.expected_repository,
