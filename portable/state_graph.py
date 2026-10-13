@@ -550,4 +550,5 @@ class GraphAgentTeam:
 
 __all__ = [
     "StateGraph", "StateTransition", "CrewDefinition", "CrewAssignment", "CrewPlan", "GraphAgentTeam",
+    "default_crew_definitions", "build_crew_plan", "dispatch_crew_proposal",
 ]
