@@ -114,6 +114,8 @@ def test_complete_domain_data_and_refactoring_contract_is_ready():
             "behavior_delta": "none",
             "safety_net": "billing contract tests plus focused unit tests",
             "architecture": "domain stays independent of persistence and transport",
+            "responsibility": "billing domain owns invoice lifecycle invariants and public boundary",
+            "dependency_direction": "domain depends on abstractions only; transport and persistence depend inward on domain contracts",
             "construction": "validate boundary inputs and preserve diagnostic errors",
             "compatibility": "existing API remains backward compatible",
             "usage_compatibility": "existing callers, API shape, lifecycle ordering and usage remain unchanged",
