@@ -10,6 +10,8 @@ from datetime import datetime, timezone
 import hashlib
 import json
 from pathlib import Path
+import re
+from urllib.parse import urlparse
 import sqlite3
 from typing import Any, Mapping
 
@@ -30,6 +32,15 @@ _SOURCE_TYPES = {
 }
 _HEX64 = set("0123456789abcdef")
 _HEX40 = set("0123456789abcdef")
+_ALLOWED_METADATA = {
+    "phase", "handler", "failure_class", "hypothesis_digest", "test_suite",
+    "test_count", "passed_count", "failed_count", "duration_ms", "retry_action",
+    "external_system", "run_id", "evaluator_id", "oracle_id", "corpus_digest",
+    "isolation_profile", "signature_key_id", "rollback_plan_digest",
+    "previous_head_sha", "result_category", "receipt_digest", "operator_id",
+    "target_id", "last_known_good_commit", "recovered_head_sha",
+}
+_SECRET_MARKERS = ("password", "secret", "authorization", "oracle_answer", "oracle answer", "private_key", "private key", "api_key", "api-key", "token=", "prompt=", "bearer ")
 
 
 class ArchiveConflict(ValueError):
@@ -74,6 +85,20 @@ class EvidenceArchive:
             raise ValueError("event type or source type is unsupported")
         if not isinstance(event["metadata"], Mapping):
             raise ValueError("event metadata must be an object")
+        if set(event["metadata"]) - _ALLOWED_METADATA:
+            raise ValueError("event metadata contains unknown or unsafe fields")
+        for key, value in event["metadata"].items():
+            if isinstance(value, str) and (
+                len(value) > 512 or "\\n" in value or "\\r" in value
+                or any(marker in value.lower() for marker in _SECRET_MARKERS)
+            ):
+                raise ValueError(f"event metadata field {key} appears unsafe")
+            if key.endswith("_digest") and (not isinstance(value, str) or len(value) != 64 or any(ch not in _HEX64 for ch in value)):
+                raise ValueError(f"event metadata field {key} must be a SHA-256 digest")
+            if key in {"test_count", "passed_count", "failed_count", "duration_ms"} and (
+                isinstance(value, bool) or not isinstance(value, int) or value < 0
+            ):
+                raise ValueError(f"event metadata field {key} must be a non-negative integer")
         if isinstance(event["iteration"], bool) or not isinstance(event["iteration"], int) or event["iteration"] < 0:
             raise ValueError("event iteration must be a non-negative integer")
         if event["head_sha"] and (
@@ -146,6 +171,13 @@ class EvidenceArchive:
                     raise ValueError("rollback receipt is missing operator rehearsal fields")
                 if payload["status"] in {"passed", "verified"} and payload["recovered_head_sha"] != payload["last_known_good_commit"]:
                     raise ValueError("successful rollback receipt must recover to last-known-good")
+            source_uri = str(payload.get("source_uri", ""))
+            if not source_uri.startswith(("https://", "file:", "urn:")):
+                raise ValueError("signed receipt source_uri must use https, file, or urn")
+            if source_uri.startswith("https://"):
+                parsed_uri = urlparse(source_uri)
+                if parsed_uri.username or parsed_uri.password or parsed_uri.query:
+                    raise ValueError("signed receipt URI must not embed credentials or query-string secrets")
             receipt_digest = sha256_json(envelope)
             metadata = event["metadata"]
             if (
