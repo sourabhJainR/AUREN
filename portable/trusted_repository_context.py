@@ -7,14 +7,18 @@ ledger for that exact repository/head.
 """
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 import re
 import subprocess
 from typing import Any, Mapping
 
 from .canonical_evidence_ledger import CanonicalEvidenceLedger
+from .engineering_evidence_capture import EvidenceCapture
 
 
 _REPOSITORY_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
@@ -38,6 +42,8 @@ class TrustedRepositoryContextProvider:
         decision_record_dir: str | Path,
         authorized_approvers_file: str | Path,
         evidence_ledger: CanonicalEvidenceLedger,
+        evidence_capture: EvidenceCapture,
+        receipt_verifier: Any,
         require_clean_worktree: bool = True,
     ) -> None:
         self.root = Path(repository_root).expanduser().resolve()
@@ -47,6 +53,12 @@ class TrustedRepositoryContextProvider:
         self.decision_record_dir = Path(decision_record_dir).expanduser().resolve()
         self.authorized_approvers_file = Path(authorized_approvers_file).expanduser().resolve()
         self.evidence_ledger = evidence_ledger
+        self.evidence_capture = evidence_capture
+        self.receipt_verifier = receipt_verifier
+        if self.evidence_capture.evidence_ledger is not evidence_ledger:
+            raise ValueError("evidence capture and trusted context must share the same canonical ledger instance")
+        if self.receipt_verifier is None:
+            raise ValueError("trusted receipt verifier is required")
         self.require_clean_worktree = bool(require_clean_worktree)
 
     def _git(self, *args: str) -> str:
@@ -121,6 +133,51 @@ class TrustedRepositoryContextProvider:
                 raise ValueError(f"{label} evidence is missing, stale, or not passing")
             if item["evidence_type"] not in allowed_types:
                 raise ValueError(f"{label} evidence has an incompatible evidence type")
+            retained = self.evidence_capture.signed_receipts(evidence_id=evidence_id)
+            verified_receipt = False
+            for stored in retained:
+                envelope = stored["envelope"]
+                if not isinstance(envelope, Mapping) or set(envelope) != {"payload", "signer_id", "signature"}:
+                    continue
+                payload = envelope.get("payload")
+                if not isinstance(payload, Mapping):
+                    continue
+                signer_id = envelope.get("signer_id")
+                if not isinstance(signer_id, str) or signer_id != item["signer_id"]:
+                    continue
+                if (
+                    payload.get("evidence_id") != evidence_id
+                    or payload.get("repository") != self.expected_repository
+                    or payload.get("head_sha") != head
+                    or payload.get("evidence_type") != item["evidence_type"]
+                    or payload.get("status") != item["status"]
+                    or payload.get("payload_digest") != item["payload_digest"]
+                    or signer_id in {payload.get("evaluator_id"), payload.get("oracle_id"), payload.get("runtime_id")}
+                ):
+                    continue
+                receipt_bytes = json.dumps(envelope, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+                if hashlib.sha256(receipt_bytes).hexdigest() != stored["receipt_digest"]:
+                    continue
+                try:
+                    issued = datetime.fromisoformat(str(payload.get("issued_at", "")).replace("Z", "+00:00"))
+                    if issued.tzinfo is None or issued.utcoffset() is None:
+                        continue
+                    age = (datetime.now(timezone.utc) - issued.astimezone(timezone.utc)).total_seconds()
+                    max_age = 90 * 24 * 3600 if item["evidence_type"] == "rollback_rehearsal" else 7 * 24 * 3600
+                    if age > max_age or age < -300:
+                        continue
+                    message = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+                    if hasattr(self.receipt_verifier, "verify_detached"):
+                        valid_signature = self.receipt_verifier.verify_detached(signer_id, envelope["signature"], message)
+                    else:
+                        valid_signature = self.receipt_verifier(signer_id, envelope["signature"], message)
+                    if valid_signature is True:
+                        verified_receipt = True
+                        break
+                except Exception:
+                    continue
+            if not verified_receipt:
+                raise ValueError(f"{label} evidence lacks a fresh trusted signed receipt")
 
         checks = record.get("checks")
         if not isinstance(checks, list) or not checks:
@@ -174,12 +231,37 @@ def trusted_repository_context(request: Mapping[str, Any]) -> dict[str, Any]:
     ledger = CanonicalEvidenceLedger(
         ledger_path or str(Path(root).expanduser().resolve() / ".auren" / "canonical-evidence.sqlite3")
     )
+    capture_path = os.environ.get(
+        "AUREN_ENGINEERING_EVIDENCE_DB",
+        str(Path(root).expanduser().resolve() / ".auren" / "engineering-evidence.sqlite3"),
+    )
+    capture = EvidenceCapture(capture_path, evidence_ledger=ledger)
+    public_keys_path = os.environ.get("AUREN_TRUSTED_EVIDENCE_PUBLIC_KEYS_FILE", "").strip()
+    if not public_keys_path:
+        raise ValueError("AUREN_TRUSTED_EVIDENCE_PUBLIC_KEYS_FILE is required for trusted promotion context")
+    encoded_keys = json.loads(Path(public_keys_path).read_text(encoding="utf-8"))
+    if not isinstance(encoded_keys, dict) or not encoded_keys:
+        raise ValueError("trusted evidence public-key file must be a non-empty JSON object")
+    public_keys = {}
+    for signer_id, encoded in encoded_keys.items():
+        if not isinstance(signer_id, str) or not isinstance(encoded, str):
+            raise ValueError("trusted evidence public keys must map signer IDs to base64url strings")
+        raw = base64.urlsafe_b64decode(encoded + "=" * ((4 - len(encoded) % 4) % 4))
+        if len(raw) != 32:
+            raise ValueError(f"trusted Ed25519 public key for {signer_id} must be 32 bytes")
+        public_keys[signer_id] = raw
+    revoked_path = os.environ.get("AUREN_REVOKED_EVIDENCE_SIGNERS_FILE", "").strip()
+    revoked = json.loads(Path(revoked_path).read_text(encoding="utf-8")) if revoked_path else []
+    from .sealed_arena_signature import Ed25519ReceiptVerifier
+    verifier = Ed25519ReceiptVerifier(public_keys, revoked_signers=revoked)
     provider = TrustedRepositoryContextProvider(
         root,
         expected_repository=repository,
         decision_record_dir=record_dir,
         authorized_approvers_file=approvers_file,
         evidence_ledger=ledger,
+        evidence_capture=capture,
+        receipt_verifier=verifier,
     )
     return provider(request)
 
