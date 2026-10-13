@@ -269,7 +269,7 @@ class EngineeringDesignGuard:
                 (("schema_evolution", "migration", "backfill", "reconciliation"), "State schema/format evolution, backfill, reconciliation and rollback handling, or an explicit not_applicable reason"),
             ),
             DesignDimension.COMPATIBILITY: (
-                (("usage_compatibility", "contract", "compatibility", "api_compatibility", "caller_compatibility"), "State compatibility for existing callers, APIs, workflow ordering and usage, or an explicit not_applicable reason"),
+                (("usage_compatibility", "contract", "api_compatibility", "caller_compatibility"), "State compatibility for existing callers, APIs, workflow ordering and usage, or an explicit not_applicable reason"),
                 (("migration", "rollout", "compatibility_plan", "rollback"), "State migration/rollout/rollback compatibility and sequencing, or an explicit not_applicable reason"),
             ),
             DesignDimension.LEGACY: (
