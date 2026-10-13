@@ -111,7 +111,7 @@ class AutonomousCampaignLearningTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             trusted_ids = {
-                "run-123", "approval-1",
+                "run-123", "approval-1", "rollback-test-1",
                 "evidence:a", "evidence:b", "evidence:c",
             }
             record = {
@@ -137,6 +137,9 @@ class AutonomousCampaignLearningTests(unittest.TestCase):
                 "limitations": ["No independent generalization campaign is claimed"],
                 "rollback_trigger": "Any required check fails or safety regression is observed",
                 "rollback_action": "Restore the last known-good capability and rerun holdouts",
+                "rollback_procedure_ref": "runbook://release-rollback",
+                "rollback_test_evidence_id": "rollback-test-1",
+                "last_known_good_commit": "a" * 40,
                 "retry_history": [],
                 "promotion": {
                     "level": "verified_for_scope",
