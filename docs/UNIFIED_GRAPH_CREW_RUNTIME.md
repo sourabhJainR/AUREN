@@ -17,7 +17,7 @@ AUREN is one governed engineering system. It may retain specialized graph implem
 | Checkpointable graph kernel used by the harness team | `portable.agency_state_graph.StateGraph` | Owns JSON-safe graph state, checkpoints, reducers, interrupts, bounded supersteps, and effect-aware retries. It is not a second task planner or policy authority. |
 | Supervisor-facing compatibility facade | `portable.state_graph.StateGraph` | Wraps `portable.orchestration.Graph/Orchestrator`; do not treat it as the checkpointable kernel. |
 | Specialist contracts and scoped proposal tools | `portable.crew_adapters` plus `portable.state_graph.GraphAgentTeam` | Owns crew contract validation, selected-crew plan digest, scoped read-only tool proposals, and handoff validation. Proposals do not authorize changes. |
-| Resource-aware harness team strategy | `.ai-harness/runtime/graph_agent_team.py` | Currently builds its own agent graph on `portable.agency_state_graph.StateGraph` and owns resource/learning strategy behavior. It must consume the canonical crew contracts through an explicit adapter before it can be described as fully integrated with the portable crew facade. |
+| Resource-aware harness team strategy | `.ai-harness/runtime/graph_agent_team.py` | Builds its agent graph on `portable.agency_state_graph.StateGraph` and owns resource/learning strategy behavior. It now consumes the shared crew-plan and proposal-validation helpers; trusted host adapters are registered through `runtime.register_crew_adapters`. Handoff queue persistence and a single retry budget across graph, crew, and supervisor layers remain incomplete. |
 | Capability selection | `portable.agent_capabilities.CapabilityFabric` | Owns capability semantics, risk and provider eligibility. Crew adapters cannot broaden it. |
 | Durable memory | `portable.persistent_memory.PersistentMemory` (compatibility wrapper over `portable.agent_capabilities.PersistentMemory`) | One storage implementation; scoped wrappers may adapt APIs but must not create a second memory truth. |
 | Verification and promotion | Existing verification, decision-record, Guard, Arena, CI and rollback gates | Neither graph nor crew can self-approve, promote, merge, waive Guard, or convert model confidence into verification. |
@@ -71,9 +71,9 @@ Outcome evidence -> advisory learning -> future task policy
 
 ## Known integration gap on the review baseline
 
-The portable crew facade (`portable.state_graph.GraphAgentTeam`) and the resource-aware harness team (`.ai-harness/runtime/graph_agent_team.py`) are distinct execution paths. The former uses `portable.orchestration.Graph/Orchestrator`; the latter builds on `portable.agency_state_graph.StateGraph`. The current repository contains scoped crew adapters and tests for the portable facade, but the reviewed harness team does not import or invoke those adapters. Therefore the repository must not claim that every default harness task automatically dispatches the typed crews.
+The portable crew facade (`portable.state_graph.GraphAgentTeam`) and resource-aware harness team (`.ai-harness/runtime/graph_agent_team.py`) retain distinct graph kernels, but the harness now builds the same canonical crew plan and dispatches registered adapters from a graph-owned `crew-proposals` node. When no adapters are registered, the run records the missing assignments; for high/critical mutation and review phases, missing adapters block mutation while safe read-only planning may continue. The trusted host registers adapters at bootstrap with `runtime.register_crew_adapters(...)`; task/model output cannot register or broaden them.
 
-Track this convergence under [issue #438](https://github.com/sourabhJainR/AUREN/issues/438). Completion requires real end-to-end tests on the default harness path, not just contract-unit tests.
+The remaining convergence work under [issue #438](https://github.com/sourabhJainR/AUREN/issues/438) is to complete durable cross-crew handoffs, unify graph/handoff/supervisor retry budgets, bind all handoff and acceptance evidence to checkpoints, and prove end-to-end restart/resume, independent QA, and rollback through the real runtime.
 
 ## Verification commands
 
@@ -83,4 +83,4 @@ python -m unittest tests.test_architecture_contract tests.test_contract_alignmen
 python -m unittest discover -s tests -p 'test_*.py'
 ```
 
-The last command is the broad local suite; repository CI remains the authoritative result for the exact PR head. Post-merge checks and any operator-controlled migration or external Arena campaign are separate evidence gates.
+The last command is the broad local suite; repository CI remains the authoritative result for the exact PR head. The current implementation exposes a host-injected adapter registry but does not ship provider-specific live adapters by default. Post-merge checks and any operator-controlled migration or external Arena campaign are separate evidence gates.
