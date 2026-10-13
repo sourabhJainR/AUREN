@@ -61,6 +61,7 @@ def test_resilience_contract_accepts_explicit_bounded_controls():
             "exception_handling": "preserve typed errors and close resources",
             "logging": "record correlation IDs without request secrets",
             "usage_compatibility": "preserve existing API and error contract",
+            "rollout": "not_applicable: no deployment or staged migration change is proposed",
         },
     )
     assert not any(
@@ -109,6 +110,7 @@ def test_data_integrity_contract_accepts_explicit_schema_non_applicability():
             "logging": "record correlation ID without row contents",
             "performance": "query count remains bounded",
             "usage_compatibility": "repository contract and caller behavior remain stable",
+            "rollout": "not_applicable: no deployment or staged migration change is proposed",
         },
     )
     assert not any(
