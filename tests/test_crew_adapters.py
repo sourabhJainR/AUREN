@@ -291,6 +291,57 @@ class ApprovedCrewAdapterTests(unittest.TestCase):
         self.assertEqual(claimed.target_crew, "qa_reviewer")
         self.assertEqual(claimed.task, "Review endpoint")
 
+    def test_handoff_retries_share_task_budget_and_dedupe_requests(self):
+        budget = TaskRetryBudget(max_retries=1)
+        controller = GraphHandoffController(max_attempts=3, retry_budget=budget)
+        handoff = controller.enqueue(
+            source_crew="backend_api", target_crew="qa_reviewer", task="Review endpoint",
+            source_plan_digest="plan-digest", allowed_handoffs=("qa_reviewer",),
+            selected_crews=("backend_api", "qa_reviewer"),
+        )
+        duplicate = controller.enqueue(
+            source_crew="backend_api", target_crew="qa_reviewer", task="Review endpoint",
+            source_plan_digest="plan-digest", allowed_handoffs=("qa_reviewer",),
+            selected_crews=("backend_api", "qa_reviewer"),
+        )
+        self.assertEqual(duplicate.handoff_id, handoff.handoff_id)
+        claimed = controller.claim_next(graph_node_active=True)
+        self.assertEqual(claimed.handoff_id, handoff.handoff_id)
+        retry = controller.retry(claimed, retryable=True)
+        self.assertEqual(retry.attempt, 1)
+        claimed_retry = controller.claim_next(graph_node_active=True)
+        self.assertIsNone(controller.retry(claimed_retry, retryable=True))
+        self.assertEqual(budget.used, 1)
+
+    def test_handoff_checkpoint_persists_claim_and_requeues_inflight_on_resume(self):
+        persisted = []
+        controller = GraphHandoffController(
+            max_attempts=3,
+            persist=lambda snapshot: persisted.append(dict(snapshot)),
+            require_persistence=True,
+        )
+        controller.enqueue(
+            source_crew="backend_api", target_crew="qa_reviewer", task="Review endpoint",
+            source_plan_digest="plan-digest", allowed_handoffs=("qa_reviewer",),
+            selected_crews=("backend_api", "qa_reviewer"),
+        )
+        claimed = controller.claim_next(graph_node_active=True)
+        self.assertTrue(persisted)
+        self.assertEqual(persisted[-1]["in_flight"][0]["handoff_id"], claimed.handoff_id)
+        resumed = GraphHandoffController.resume(persisted[-1])
+        replayed = resumed.claim_next(graph_node_active=True)
+        self.assertEqual(replayed.handoff_id, claimed.handoff_id)
+        self.assertEqual(replayed.task, claimed.task)
+
+    def test_required_durable_handoffs_fail_closed_without_checkpoint_writer(self):
+        controller = GraphHandoffController(require_persistence=True)
+        with self.assertRaisesRegex(RuntimeError, "checkpoint writer"):
+            controller.enqueue(
+                source_crew="backend_api", target_crew="qa_reviewer", task="Review endpoint",
+                source_plan_digest="plan-digest", allowed_handoffs=("qa_reviewer",),
+                selected_crews=("backend_api", "qa_reviewer"),
+            )
+
     def test_stategraph_controls_handoff_retry_resume_and_rollback_gate(self):
         observed = {}
         def run_node(state):
