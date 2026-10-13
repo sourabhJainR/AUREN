@@ -188,7 +188,7 @@ class EvidenceCapture:
             else:
                 safe_metadata[key] = _text(value, key, 512) if isinstance(value, str) else value
                 if isinstance(safe_metadata[key], str) and re.search(
-                    r"(?i)(api[_-]?key|password|secret|bearer\\s|authorization|oracle[_ -]?answer|private[_ -]?key|token=|prompt=)",
+                    r"(?i)(api[_-]?key|password|secret|bearer[ ]|authorization|oracle[_ -]?answer|private[_ -]?key|token=|prompt=)",
                     safe_metadata[key],
                 ):
                     raise ValueError(f"{key} appears to contain secret or raw task content")
