@@ -22,7 +22,7 @@ The benchmark evidence pipeline is:
 4. **AST/static invariants** — structural requirements are checked independently of runtime behavior, including required symbols and security-sensitive source invariants.
 5. **Deterministic failure injection** — BC-06 injects a one-shot verification failure through the benchmark trace boundary, without asking the provider to manufacture a failure.
 6. **Exact recovery ordering** — a recovery pass requires an observed failure followed later by a successful verification event; success alone is insufficient.
-7. **Context Broker telemetry** — the broker can emit lease/discover/release events to an isolated JSONL sink via `AER_CONTEXT_BROKER_TELEMETRY`. Missing telemetry is reported as missing observability, never converted into behavioral credit.
+7. **Context Broker telemetry** — the broker can emit lease/discover/release events to an isolated JSONL sink via canonical `AUREN_CONTEXT_BROKER_TELEMETRY` (legacy `AER_CONTEXT_BROKER_TELEMETRY` remains a fallback during migration). Missing telemetry is reported as missing observability, never converted into behavioral credit.
 8. **Separate scores** — `behavior_score`, `oracle_coverage` and `observability_score` are independent. A provider can behave correctly while having incomplete telemetry, and that distinction is preserved.
 
 Provider JSON remains diagnostic only and cannot override an oracle failure.
