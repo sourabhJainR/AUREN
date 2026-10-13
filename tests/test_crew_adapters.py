@@ -71,7 +71,7 @@ class ApprovedCrewAdapterTests(unittest.TestCase):
         registry = ApprovedToolRegistry([
             ApprovedTool(
                 f"read_{crew_id}",
-                lambda args, crew_id=crew_id: calls.append((crew_id, dict(args))) or {"read": crew_id},
+                lambda args, crew_id=crew_id: calls.append((f"read_{crew_id}", dict(args))) or {"read": crew_id},
                 f"Read-only context lookup scoped to {crew_id}",
             )
             for crew_id in SPECIALIST_CREW_IDS
