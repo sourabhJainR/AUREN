@@ -89,6 +89,7 @@ def test_distributed_contract_can_record_consistency_and_delivery_semantics():
             "distributed": "consumer across multiple nodes",
             "consistency": "eventual consistency; tolerate stale reads during partition",
             "idempotency": "deduplicate by stable message id",
+            "query_pattern": "bounded batch reads; no N+1 query path",
             "architecture": "consumer uses existing adapter",
             "resilience": "timeouts and bounded retries with jitter",
             "reuse": "reuse current queue client",
