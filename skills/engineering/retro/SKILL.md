@@ -1,10 +1,10 @@
 ---
 name: retro
-description: Retrospect on an engineering session and turn observed failure patterns into bounded, verifiable improvements to the AER environment.
+description: Retrospect on an engineering session and turn observed failure patterns into bounded, verifiable improvements to the AUREN environment.
 disable-model-invocation: true
 ---
 
-# AER Retrospective
+# AUREN Retrospective
 
 Use this skill when the user asks for a retrospective or asks how the engineering environment should improve after a session.
 

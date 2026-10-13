@@ -1,4 +1,4 @@
-"""Unified, provider-neutral agent capabilities for AER.
+"""Unified, provider-neutral agent capabilities for AUREN.
 
 The module is stdlib-only and owns task-facing capability semantics. AER remains
 the authority for policy, sandboxing, verification and promotion.

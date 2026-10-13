@@ -1,4 +1,4 @@
-# AER Architecture Constitution
+# AUREN Architecture Constitution
 
 ## Purpose
 
@@ -31,14 +31,16 @@ The sequence deliberately separates evidence from execution state and keeps lear
 | Repository model | `portable.agency_codebase_context.CodebaseIndex` | Structural and semantic repository truth |
 | Context/evidence | `state/engineering-state.schema.json:evidence` | Evidence identity, source, claim, confidence, freshness and provenance contract |
 | Planning | `portable.task_planner.TaskPlan` | Dependency-aware work planning and readiness |
-| Execution | `portable.agency_state_graph.StateGraph` | Bounded graph execution semantics |
+| Default adaptive execution | `portable.orchestration.Graph` / `Orchestrator` via `portable.adaptive_runtime.AdaptiveRuntime` | Default bounded task execution, evaluation, repair, and evidence trajectory |
+| Checkpointable harness graph kernel | `portable.agency_state_graph.StateGraph` | JSON-safe state, checkpoints, reducers, interrupts, and bounded supersteps |
+| Crew contracts and proposal dispatch | `portable.crew_adapters` + `portable.state_graph.GraphAgentTeam` | Typed crew selection, scoped proposal tools, and handoff contract; not a promotion authority |
 | Capabilities | `portable.agent_capabilities.CapabilityFabric` | Capability meaning, risk and provider resolution |
 | Verification | `state/engineering-state.schema.json:verification` | Verification result contract and evidence references |
 | Release | `docs/REGRESSION_CANARY.md` | Regression, shadow, canary, promotion and rollback gates |
 | Learning | `portable.agency_adaptive_planning` | Advisory observations and strategy recommendations |
 | Architecture views | `skills/engineering/interactive-documentation` | Evidence-backed visualization only |
 
-The important rule is not the table itself. It is the one-owner constraint behind it: compatibility APIs, agent teams, documentation renderers and adapters must consume these owners rather than silently establishing parallel truth.
+The important rule is not the table itself. It is the one-owner constraint behind it: compatibility APIs, agent teams, documentation renderers and adapters must consume these owners rather than silently establishing parallel truth. The two graph execution APIs are distinct today; the resource-aware harness team is built on the checkpointable kernel while the default adaptive supervisor uses `Graph/Orchestrator`. This is a documented convergence gap, not permission to create another policy or evidence store. The canonical target and current limits are recorded in [`UNIFIED_GRAPH_CREW_RUNTIME.md`](UNIFIED_GRAPH_CREW_RUNTIME.md) and tracked under [issue #438](https://github.com/sourabhJainR/AUREN/issues/438).
 
 ## Compatibility policy
 

@@ -1,4 +1,4 @@
-# AER Canary Rollout
+# AUREN Canary Rollout
 
 A learned policy is first evaluated in shadow mode, then against a bounded canary set, before activation.
 

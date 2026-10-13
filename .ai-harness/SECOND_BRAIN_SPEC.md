@@ -1,6 +1,6 @@
-# AER Second Brain
+# AUREN Second Brain
 
-AER can act as an engineering-focused second brain around the coding agent. It is not a general-purpose personal assistant by default. Its purpose is to preserve durable context, decisions, preferences, and evidence so an agent can help across sessions without replaying transcripts.
+AUREN can act as an engineering-focused second brain around the coding agent. It is not a general-purpose personal assistant by default. Its purpose is to preserve durable context, decisions, preferences, and evidence so an agent can help across sessions without replaying transcripts.
 
 ## Model
 
@@ -20,7 +20,7 @@ AER can act as an engineering-focused second brain around the coding agent. It i
                   Knowledge Fabric
           repo / graph / docs / task evidence
                            |
-                    AER Agent Loop
+                    AUREN Agent Loop
                            |
           +----------------+----------------+
           |                |                |
@@ -73,11 +73,11 @@ A heartbeat must:
 - distinguish suggestion, prepared action, and executed action;
 - stop on repeated non-progressing runs.
 
-External sources such as email, Slack, Jira, calendars, GitHub, or task managers are optional adapters. AER must not require them for core operation.
+External sources such as email, Slack, Jira, calendars, GitHub, or task managers are optional adapters. AUREN must not require them for core operation.
 
 ## Proactive work
 
-The same pattern applies beyond coding. AER can prepare structured drafts or actions for recurring digital work such as:
+The same pattern applies beyond coding. AUREN can prepare structured drafts or actions for recurring digital work such as:
 
 - engineering status updates;
 - design or review summaries;

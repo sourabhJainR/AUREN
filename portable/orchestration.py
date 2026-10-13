@@ -1,6 +1,6 @@
-"""Provider-neutral orchestration primitives for AER.
+"""Provider-neutral orchestration primitives for AUREN.
 
-AER models Agent -> bounded Loop -> Graph -> Orchestration and can learn changes
+AUREN models Agent -> bounded Loop -> Graph -> Orchestration and can learn changes
 to its own executable orchestration. Self-modification is candidate-based: a
 candidate is statically validated, evaluated in isolation, regression and
 safety gates must both pass, and only then is the executable overlay promoted.

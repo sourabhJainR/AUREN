@@ -1,6 +1,6 @@
 # Rust migration boundary
 
-AER uses a staged Python-to-Rust migration.
+AUREN uses a staged Python-to-Rust migration.
 
 ## Eligible for Rust
 

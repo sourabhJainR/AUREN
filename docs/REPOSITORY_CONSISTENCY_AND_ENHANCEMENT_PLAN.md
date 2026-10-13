@@ -125,3 +125,40 @@ This section supersedes earlier "pending implementation" statements only where t
 - [ ] Close #379, #377, #368 or #380 only when their specific acceptance evidence is attached to the corresponding issue.
 
 **Production-readiness statement:** the two implementation PRs are merged and their listed exact-head workflows passed. AUREN is not yet fully production-accepted for this enhancement program while the external Arena campaign, Pages publication, real-store migration/rollback rehearsal and controller-enforced exact-head CI gate remain outstanding.
+
+
+## Current-main re-review — 2026-10-13
+
+**Review baseline:** `492799ee7237ba690a3ce23db2012997855d1cb3`. This section supersedes older status statements above where later code and issue updates provide newer evidence. Historical findings are retained for provenance.
+
+### Revalidated state and recovery work
+
+- `portable.adaptive_runtime.AdaptiveRuntime` now resolves the canonical machine state root through `AurenStatePaths` at `~/.auren`, and passes the legacy `~/.aer` root through the guarded migration path. The earlier table statement that the current runtime still initializes all stores under `~/.aer` is stale.
+- `AdaptiveRuntime.run()` now directly uses `EngineeringRecoveryLedger` for bounded attempts, alternate hypotheses, and checkpoints. The earlier statement that the default runtime does not use the ledger is stale.
+- Issues [#379](https://github.com/sourabhJainR/AUREN/issues/379) and [#377](https://github.com/sourabhJainR/AUREN/issues/377) remain open for live/operational acceptance: representative legacy-state upgrade and rollback rehearsal, process-death restart/resume, unrelated work proceeding around blocked dependencies, and exact-head CI/last-known-good evidence. Do not close them based only on unit tests.
+
+### Newly confirmed graph/crew consistency gap
+
+The graph APIs and team strategy are not yet one integrated dispatch path:
+
+1. `portable.adaptive_runtime.AdaptiveRuntime` composes the default task run through `portable.orchestration.Graph/Orchestrator`.
+2. `portable.state_graph.StateGraph` is a supervisor-facing facade over that orchestration API.
+3. `portable.agency_state_graph.StateGraph` is a separate checkpointable graph kernel used by `.ai-harness/runtime/graph_agent_team.py`.
+4. `portable.crew_adapters` and `portable.state_graph.GraphAgentTeam` implement typed crew selection and scoped proposal dispatch, but the reviewed harness team does not import or invoke those adapters.
+5. `README.md`, `docs/ARCHITECTURE_CONSTITUTION.md`, `architecture/compatibility.yaml`, and pattern-adaptation documents had described overlapping owners inconsistently.
+
+The current owner map is documented in [`docs/UNIFIED_GRAPH_CREW_RUNTIME.md`](UNIFIED_GRAPH_CREW_RUNTIME.md). Issue [#438](https://github.com/sourabhJainR/AUREN/issues/438) is the acceptance gate for actual default-harness integration. Until the integration tests pass, documentation must not claim every default task invokes the typed specialist crews.
+
+### Documentation drift found
+
+The current-main search also found active AER-era naming and paths in console, orchestration, agent-capability, provider, second-brain, learning, offload, and adaptation documents. This PR aligns the active graph/crew contract surfaces and selected runtime docs, fixes the console commands and canonical state path, and adds regression checks for the changed active docs. Historical/version-specific notes and explicit legacy identifiers (for example, the `.aer` migration source or `AER_*` compatibility environment variables) must remain labeled as legacy rather than being blindly renamed.
+
+### Next acceptance sequence
+
+- [ ] Integrate `portable.crew_adapters` into the actual harness graph path using a narrow adapter; retain the graph as the only dependency, evidence, review, and promotion authority.
+- [ ] Prove deterministic crew assignment and stable digest binding across graph, intent, crew contract, and adapter configuration.
+- [ ] Test independent read-only parallel work, serialized mutations, cross-crew handoffs, missing adapter behavior, blocked dependencies, retry budgets, checkpoint/resume, independent QA, and unauthorized promotion attempts.
+- [ ] Consolidate retry ownership so node retries, crew handoff retries, and supervisor recovery consume one bounded task budget.
+- [ ] Verify memory/evidence ownership: task-scoped memory remains a projection, not a second durable source of truth.
+- [ ] Run identity/path consistency tests, architecture validation, full test suite, exact-head CI, and post-merge main re-evaluation.
+- [ ] Continue the separate independent Arena, external attestation, and operator migration/rollback gates; repository CI cannot substitute for them.

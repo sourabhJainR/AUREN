@@ -4,7 +4,7 @@ This harness is a control plane for coding agents. The provider is replaceable; 
 
 ## Execution model
 
-AER follows the useful progression from a single agent to a bounded loop, then to a graph, and finally to an orchestration control plane:
+AUREN follows the useful progression from a single agent to a bounded loop, then to a graph, and finally to an orchestration control plane:
 
 ```text
 AGENT
@@ -76,7 +76,7 @@ Verification outranks model confidence. Acceptance requires explicit acceptance 
 
 ## Self-improvement boundary
 
-AER may observe outcomes and produce improvement candidates. It must not directly rewrite its executable orchestration, permissions, security policy, approval rules, or production authority from model output.
+AUREN may observe outcomes and produce improvement candidates. It must not directly rewrite its executable orchestration, permissions, security policy, approval rules, or production authority from model output.
 
 Promotion follows:
 
@@ -110,4 +110,4 @@ Escalate policy, product-intent, irreversible-production, security-authorization
 
 ## Reference implementation
 
-`portable/orchestration.py` provides dependency-free graph, bounded-loop, evaluation, repair, evidence, replay and proposal primitives. It is provider-neutral by design: provider adapters remain responsible for model/tool execution.
+`portable/orchestration.py` provides the default adaptive-runtime graph, bounded-loop, evaluation, repair, evidence, replay and proposal primitives. `portable/agency_state_graph.py` provides the separate checkpointable graph kernel used by the resource-aware harness team. `docs/UNIFIED_GRAPH_CREW_RUNTIME.md` defines their current boundary and the crew-dispatch convergence gate. Provider adapters remain responsible for model/tool execution.

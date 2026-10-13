@@ -72,11 +72,47 @@ class ContractAlignmentTests(unittest.TestCase):
         self.assertIn("Make blockers actionable", text)
         self.assertIn("Actionable output is part of completion", canonical)
 
-    def test_active_arena_and_skill_docs_use_current_identity_and_version_authority(self) -> None:
+    def test_active_docs_use_current_identity_and_version_authority(self) -> None:
+        active_identity_docs = (
+            "docs/INDEPENDENT_GENERALIZATION_ARENA.md",
+            "docs/MATT_POCOCK_SKILLS_INTEGRATION.md",
+            ".ai-harness/ORCHESTRATION_SPEC.md",
+            ".ai-harness/CORE_RUNTIME_SERVICES.md",
+            "portable/LANGGRAPH_PATTERN_ALIGNMENT.md",
+            "docs/CANONICAL_AGENT_PATTERN_COMPOSITION.md",
+            "docs/END_USER_CONSOLE.md",
+            "docs/ENGINEERING_CONSOLE.md",
+            "docs/OPENHANDS_TASKMASTER_ADAPTATION.md",
+            "agency/README.md",
+            "agency/UPSTREAM_NOTICE.md",
+            "agency/AGENCY_AGENT_QUALITY.md",
+            "dashboard/README.md",
+            "docs/SECOND_BRAIN.md",
+            "docs/CANARY_DESIGN.md",
+            "docs/LOCAL_OFFLOAD.md",
+            "docs/RUST_MIGRATION.md",
+            "docs/LEARNING_ENGINE.md",
+            "docs/REGRESSION_CANARY.md",
+            "docs/LOCAL_LLM_FALLBACK.md",
+            "docs/ENGINEERING_EPISODE.md",
+            "docs/RIPWIRE_INTEGRATION.md",
+            ".ai-harness/HERMES_PARITY.md",
+            ".ai-harness/PROVIDER_CONTRACT.md",
+            ".ai-harness/SECOND_BRAIN_SPEC.md",
+            ".ai-harness/CONTEXT_POLICY.md",
+            ".ai-harness/GENAI_CODING_POLICY.md",
+            "docs/SKILLOPT_INTEGRATION.md",
+            "docs/GENAI_CODING_ADAPTATION.md",
+            "docs/LOCAL_MISSION_WORKBENCH.md",
+            "docs/ROWBOAT_ADAPTATION_SPEC.md",
+            "skills/engineering/retro/SKILL.md",
+        )
+        for relative in active_identity_docs:
+            content = (ROOT / relative).read_text(encoding="utf-8")
+            with self.subTest(path=relative):
+                self.assertNotRegex(content, r"\bAER\b", f"stale product identity in {relative}")
         arena = (ROOT / "docs" / "INDEPENDENT_GENERALIZATION_ARENA.md").read_text(encoding="utf-8")
         integration = (ROOT / "docs" / "MATT_POCOCK_SKILLS_INTEGRATION.md").read_text(encoding="utf-8")
-        for path, content in (("Arena docs", arena), ("skills integration docs", integration)):
-            self.assertNotRegex(content, r"\bAER\b", f"stale product identity in {path}")
         self.assertIn("issue #368", arena)
         self.assertIn("`VERSION` is the canonical release version", integration)
         self.assertNotIn("21.0.0", integration)
@@ -95,6 +131,29 @@ class ContractAlignmentTests(unittest.TestCase):
             self.assertIn(token, controller_docs)
         self.assertIn("Standalone checkpointable graph runtime", readme)
         self.assertIn("Default graph orchestration", readme)
+
+    def test_unified_graph_crew_contract_matches_current_runtime_boundaries(self) -> None:
+        contract = (ROOT / "docs" / "UNIFIED_GRAPH_CREW_RUNTIME.md").read_text(encoding="utf-8")
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        compatibility = json.loads((ROOT / "architecture" / "compatibility.yaml").read_text(encoding="utf-8"))
+        for token in (
+            "portable.orchestration.Graph/Orchestrator",
+            "portable.agency_state_graph.StateGraph",
+            "portable.state_graph.GraphAgentTeam",
+            "portable.crew_adapters",
+            "issue #438",
+            "does not import or invoke",
+            "Guard authorization",
+        ):
+            self.assertIn(token, contract)
+        self.assertIn("issue #438", readme)
+        team_strategy = next(
+            item for item in compatibility["surfaces"]
+            if item["name"] == ".ai-harness/runtime/graph_agent_team.py"
+        )
+        self.assertEqual(team_strategy["status"], "strategy")
+        self.assertEqual(team_strategy["canonical_owner"], "portable.agency_state_graph.StateGraph")
+        self.assertIn("canonical crew-contract adapter", team_strategy["replacement"])
 
     def test_runtime_service_paths_are_present(self) -> None:
         missing = [str(path.relative_to(ROOT)) for path in RUNTIME_PATHS if not path.is_file()]
