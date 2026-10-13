@@ -130,20 +130,22 @@ class Ed25519ReceiptVerifierTests(unittest.TestCase):
             )
             self.assertFalse(revoked._verify_signature(self.signed()))
 
+            clocked_receipt = replace(self.receipt, issued_at_epoch=150.0, expires_at_epoch=250.0)
+            signed_clocked_receipt = self.signed(clocked_receipt)
             not_yet_valid = SealedArenaBoundary.from_trusted_ed25519_keys(
                 {"independent-lab": self.public},
                 replay_ledger=ledger,
                 key_validity={"independent-lab": (200.0, 300.0)},
                 clock=lambda: 199.0,
             )
-            self.assertFalse(not_yet_valid._verify_signature(self.signed()))
+            self.assertFalse(not_yet_valid._verify_signature(signed_clocked_receipt))
             active = SealedArenaBoundary.from_trusted_ed25519_keys(
                 {"independent-lab": self.public},
                 replay_ledger=ledger,
                 key_validity={"independent-lab": (100.0, 300.0)},
                 clock=lambda: 199.0,
             )
-            self.assertTrue(active._verify_signature(self.signed()))
+            self.assertTrue(active._verify_signature(signed_clocked_receipt))
 
 
 if __name__ == "__main__":
