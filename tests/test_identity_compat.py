@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import os
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 from portable.identity_compat import auren_home, get_auren_env, project_state_dir
+from portable.local_llm import LocalLLMConfig, enabled as local_llm_enabled
 
 
 class IdentityCompatibilityTests(unittest.TestCase):
@@ -21,6 +24,17 @@ class IdentityCompatibilityTests(unittest.TestCase):
             get_auren_env("LOCAL_LLM_ENABLED", "0", environ={}),
             "0",
         )
+
+    def test_local_llm_config_uses_canonical_setting_before_legacy(self) -> None:
+        with patch.dict(os.environ, {
+            "AUREN_LOCAL_LLM_MODEL": "canonical-model",
+            "AER_LOCAL_LLM_MODEL": "legacy-model",
+            "AER_LOCAL_LLM_ENABLED": "1",
+        }, clear=True):
+            self.assertEqual(LocalLLMConfig.from_env().model, "canonical-model")
+            self.assertTrue(local_llm_enabled())
+        with patch.dict(os.environ, {"AER_LOCAL_LLM_MODEL": "legacy-model"}, clear=True):
+            self.assertEqual(LocalLLMConfig.from_env().model, "legacy-model")
 
     def test_home_selection_preserves_existing_legacy_state(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
