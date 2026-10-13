@@ -202,7 +202,9 @@ class EngineeringDesignGuard:
         risk: str = "medium",
         code_revision: str = "",
         blocking_dimensions: Iterable[DesignDimension] = (
-            DesignDimension.RESILIENCE, DesignDimension.SECURITY, DesignDimension.DATA,
+            DesignDimension.ARCHITECTURE, DesignDimension.RESILIENCE,
+            DesignDimension.SECURITY, DesignDimension.DATA, DesignDimension.OPERATIONS,
+            DesignDimension.COMPATIBILITY, DesignDimension.LEGACY,
             DesignDimension.CONCURRENCY, DesignDimension.DISTRIBUTED,
             DesignDimension.CORRECTNESS, DesignDimension.AI_AGENT,
         ),
@@ -267,6 +269,14 @@ class EngineeringDesignGuard:
             DesignDimension.DATA: (
                 (("source_of_truth", "consistency", "transaction"), "State the authoritative data source and consistency/transaction boundary, or an explicit not_applicable reason"),
                 (("schema_evolution", "migration", "backfill", "reconciliation"), "State schema/format evolution, backfill, reconciliation and rollback handling, or an explicit not_applicable reason"),
+            ),
+            DesignDimension.COMPATIBILITY: (
+                (("usage_compatibility", "contract", "api_compatibility", "caller_compatibility"), "State compatibility for existing callers, APIs, workflow ordering and usage, or an explicit not_applicable reason"),
+                (("migration", "rollout", "compatibility_plan", "rollback"), "State migration/rollout/rollback compatibility and sequencing, or an explicit not_applicable reason"),
+            ),
+            DesignDimension.LEGACY: (
+                (("characterization", "regression"), "Record characterization/regression protection for existing behavior, or an explicit not_applicable reason"),
+                (("seam", "dependency_break", "migration", "compatibility_plan"), "State the seam/dependency break and safe migration strategy, or an explicit not_applicable reason"),
             ),
             DesignDimension.RESILIENCE: (
                 (("timeout_budget", "deadline_budget", "timeout", "deadline"), "State an operation deadline and timeout budget, or an explicit not_applicable reason"),
