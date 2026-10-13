@@ -43,10 +43,16 @@ def register_crew_adapters(adapters: dict[str, Any], *, replace: bool = False) -
 
 
 def _requires_crew_contract(route: dict[str, Any], phase: str) -> bool:
-    return (
-        str(route.get("risk", "low")).strip().lower() in {"high", "critical"}
-        and phase in {"poc", "debug", "execute", "repair", "review"}
-    )
+    if phase not in {"poc", "debug", "execute", "repair", "review"}:
+        return False
+    if str(route.get("risk", "low")).strip().lower() in {"high", "critical"}:
+        return True
+    task = str(route.get("task", "")).lower()
+    return any(term in task for term in (
+        "security", "privacy", "authentication", "authorization", "permission",
+        "database migration", "schema migration", "data integrity",
+        "production deploy", "rollback", "concurrency", "distributed consistency",
+    ))
 
 
 def _phase_team(route: dict[str, Any], phase: str, graph_types):
@@ -166,6 +172,7 @@ def _install_graph_team_bridge() -> None:
             route = dict(route)
             route["phase"] = phase
             task = str(manifest.get("task", "")).strip()
+            route["task"] = task
             intent_digest = str(manifest.get("intent_digest", "")).strip()
             if not intent_digest:
                 contract_path = run_dir / "intent-contract.json"
