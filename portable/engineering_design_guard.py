@@ -263,6 +263,11 @@ class EngineeringDesignGuard:
                 (("responsibility", "module_owner", "boundary"), "State the responsible module/owner and its boundary, or an explicit not_applicable reason"),
                 (("dependency_direction", "allowed_dependencies", "coupling"), "State permitted dependency direction and coupling constraints, or an explicit not_applicable reason"),
             ),
+            DesignDimension.RESILIENCE: (
+                (("timeout_budget", "deadline_budget", "timeout", "deadline"), "State an operation deadline and timeout budget, or an explicit not_applicable reason"),
+                (("retry_budget", "bounded_retries", "backoff", "jitter"), "State a bounded retry budget and backoff/jitter policy, or an explicit not_applicable reason"),
+                (("recovery", "circuit_breaker", "bulkhead", "bounded_queue", "readiness", "liveness"), "State failure containment and recovery/readiness behavior, or an explicit not_applicable reason"),
+            ),
             DesignDimension.SECURITY: (
                 (("threat_model", "security"), "State the trust boundary and security threat/mitigation, or an explicit not_applicable reason"),
                 (("authorization", "least_privilege", "tool_permissions"), "State authorization and least-privilege/tool authority boundaries, or an explicit not_applicable reason"),
