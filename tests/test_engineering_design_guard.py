@@ -28,7 +28,7 @@ def test_receipt_digest_binds_canonical_changed_paths_and_risk():
     different_risk = EngineeringDesignGuard.review(
         intent="Update project metadata",
         changed_paths=["README.md", "VERSION"],
-        risk="high",
+        risk="low",
         design={"architecture": "documentation and version metadata only"},
     )
 
