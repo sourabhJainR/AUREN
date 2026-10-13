@@ -472,6 +472,25 @@ class GraphAgentTeam:
     def run(self, task_id: str, intent: str, context: Mapping[str, Any] | None = None) -> OrchestrationRun:
         plan = self.plan_crews(intent)
         state = dict(context or {})
+        supervisor_envelope = state.pop("auren_supervisor_checkpoint_envelope", None)
+        if supervisor_envelope is not None:
+            if not isinstance(supervisor_envelope, Mapping):
+                raise ValueError("supervisor handoff checkpoint envelope must be a mapping")
+            if supervisor_envelope.get("schema_version") != "auren-task-handoff-envelope-v1":
+                raise ValueError("unsupported supervisor handoff checkpoint envelope")
+            if supervisor_envelope.get("task_id") != task_id:
+                raise ValueError("supervisor checkpoint task_id does not match active task")
+            if supervisor_envelope.get("intent_digest") != plan.intent_digest:
+                raise ValueError("supervisor checkpoint intent digest does not match active task")
+            if supervisor_envelope.get("crew_plan_digest") != plan.digest:
+                raise ValueError("supervisor checkpoint crew-plan digest does not match active plan")
+            saved_handoffs = supervisor_envelope.get("handoff_checkpoint")
+            saved_budget = supervisor_envelope.get("retry_budget")
+            if not isinstance(saved_handoffs, Mapping) or not isinstance(saved_budget, Mapping):
+                raise ValueError("supervisor checkpoint requires handoff and retry-budget snapshots")
+            # The supervisor-provided checkpoint is authoritative over caller state.
+            state["auren_crew_handoff_checkpoint_data"] = dict(saved_handoffs)
+            state["auren_retry_budget"] = dict(saved_budget)
         # Reserved fields are overwritten, so caller payloads cannot self-authorize
         # a different crew plan or broaden the declared crew authority.
         state["auren_crew_plan"] = plan.to_payload()

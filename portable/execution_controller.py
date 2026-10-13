@@ -86,6 +86,11 @@ class ExecutionController:
               work_unit_id TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
               heartbeat_at TEXT, lease_until TEXT,
               lease_generation INTEGER NOT NULL DEFAULT 0, lease_token TEXT);
+            CREATE TABLE IF NOT EXISTS graph_checkpoints(
+              task_id TEXT PRIMARY KEY,
+              envelope_json TEXT NOT NULL,
+              envelope_digest TEXT NOT NULL,
+              updated_at TEXT NOT NULL);
             """)
             handler_columns = {row[1] for row in db.execute("PRAGMA table_info(handlers)").fetchall()}
             if "ci_gate_policy_json" not in handler_columns:
@@ -808,6 +813,134 @@ class ExecutionController:
             ).fetchone()
         return DurableTask(row[0], row[1], json.loads(row[2]), row[3], int(row[4]), row[5]) if row else None
 
+    @staticmethod
+    def _validate_graph_checkpoint_envelope(task_id: str, envelope: Mapping[str, Any]) -> dict[str, Any]:
+        """Validate supervisor-owned crew checkpoint data before persistence or resume."""
+        if not isinstance(task_id, str) or not task_id.strip():
+            raise ValueError("graph checkpoint task_id is required")
+        if not isinstance(envelope, Mapping):
+            raise ValueError("graph checkpoint envelope must be a mapping")
+        payload = dict(envelope)
+        expected_fields = {
+            "schema_version", "handoff_checkpoint", "retry_budget",
+            "task_id", "intent_digest", "crew_plan_digest",
+        }
+        if set(payload) != expected_fields:
+            raise ValueError("supervisor handoff checkpoint envelope has missing or unknown fields")
+        if payload.get("schema_version") != "auren-task-handoff-envelope-v1":
+            raise ValueError("unsupported supervisor handoff checkpoint envelope")
+        if payload.get("task_id") != task_id:
+            raise ValueError("graph checkpoint task_id does not match supervisor context")
+        for key in ("intent_digest", "crew_plan_digest"):
+            value = payload.get(key)
+            if not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{64}", value):
+                raise ValueError(f"graph checkpoint {key} must be a SHA-256 digest")
+        checkpoint = payload.get("handoff_checkpoint")
+        retry_snapshot = payload.get("retry_budget")
+        if not isinstance(checkpoint, Mapping) or not isinstance(retry_snapshot, Mapping):
+            raise ValueError("graph checkpoint requires handoff and retry-budget snapshots")
+        # Reuse the canonical validators rather than trusting JSON shape alone.
+        from .crew_adapters import GraphHandoffController, TaskRetryBudget
+        budget = TaskRetryBudget.resume(retry_snapshot)
+        embedded_budget = checkpoint.get("retry_budget")
+        if not isinstance(embedded_budget, Mapping):
+            raise ValueError("handoff checkpoint must embed the shared retry budget")
+        embedded = TaskRetryBudget.resume(embedded_budget)
+        if embedded.snapshot()["digest"] != budget.snapshot()["digest"]:
+            raise ValueError("handoff and supervisor retry-budget checkpoints disagree")
+        GraphHandoffController.resume(checkpoint, retry_budget=budget)
+        return payload
+
+    def save_graph_checkpoint(self, task_id: str, envelope: Mapping[str, Any]) -> None:
+        """Atomically persist a digest-checked handoff envelope in the supervisor DB."""
+        payload = self._validate_graph_checkpoint_envelope(task_id, envelope)
+        encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+        digest = hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+        with sqlite3.connect(self.db_path, timeout=10) as db:
+            db.execute("BEGIN IMMEDIATE")
+            prior = db.execute(
+                "SELECT envelope_json,envelope_digest FROM graph_checkpoints WHERE task_id=?", (task_id,)
+            ).fetchone()
+            if prior:
+                old_encoded, old_digest = prior
+                if hashlib.sha256(old_encoded.encode("utf-8")).hexdigest() != old_digest:
+                    raise ValueError("stored graph checkpoint digest mismatch; explicit recovery is required")
+                try:
+                    old = json.loads(old_encoded)
+                except (TypeError, json.JSONDecodeError) as exc:
+                    raise ValueError("stored graph checkpoint is malformed; explicit recovery is required") from exc
+                for key in ("intent_digest", "crew_plan_digest"):
+                    if old.get(key) != payload.get(key):
+                        raise ValueError(f"graph checkpoint {key} is immutable for a task")
+            db.execute(
+                "INSERT INTO graph_checkpoints(task_id,envelope_json,envelope_digest,updated_at) "
+                "VALUES(?,?,?,?) ON CONFLICT(task_id) DO UPDATE SET "
+                "envelope_json=excluded.envelope_json,envelope_digest=excluded.envelope_digest,"
+                "updated_at=excluded.updated_at",
+                (task_id, encoded, digest, _now()),
+            )
+        # Tie the durable state transition into the existing engineering evidence
+        # journal. Deterministic event IDs make retries idempotent.
+        event_id = (
+            "crew-checkpoint:"
+            + hashlib.sha256(task_id.encode("utf-8")).hexdigest()
+            + ":"
+            + digest
+        )
+        with sqlite3.connect(self.evidence_capture.path, timeout=10) as db:
+            already_recorded = db.execute(
+                "SELECT 1 FROM engineering_events WHERE event_id=?", (event_id,)
+            ).fetchone()
+        if not already_recorded:
+            import os
+            import subprocess
+            head_sha = ""
+            try:
+                head_sha = subprocess.run(
+                    ["git", "-C", str(self.root), "rev-parse", "--verify", "HEAD^{commit}"],
+                    check=True, capture_output=True, text=True, timeout=2,
+                ).stdout.strip()
+            except (OSError, subprocess.SubprocessError):
+                pass
+            self.evidence_capture.record(
+                "crew_handoff_checkpoint_persisted",
+                work_unit_id=task_id,
+                task_id=task_id,
+                status="verified",
+                repository=os.environ.get("AUREN_REPOSITORY_SLUG", ""),
+                head_sha=head_sha,
+                artifact_digest=digest,
+                evidence_uri=f"urn:auren:crew-checkpoint:{hashlib.sha256(task_id.encode('utf-8')).hexdigest()}:{digest}",
+                metadata={
+                    "phase": "crew_handoff_checkpoint",
+                    "checkpoint_digest": digest,
+                    "crew_plan_digest": payload["crew_plan_digest"],
+                    "retry_budget_digest": payload["retry_budget"]["digest"],
+                },
+                event_id=event_id,
+            )
+
+    def load_graph_checkpoint(self, task_id: str) -> dict[str, Any] | None:
+        """Load a checkpoint only after validating its stored digest and task binding."""
+        if not isinstance(task_id, str) or not task_id.strip():
+            raise ValueError("graph checkpoint task_id is required")
+        with sqlite3.connect(self.db_path, timeout=10) as db:
+            row = db.execute(
+                "SELECT envelope_json,envelope_digest FROM graph_checkpoints WHERE task_id=?",
+                (task_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        encoded, supplied_digest = row
+        actual_digest = hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+        if not isinstance(supplied_digest, str) or actual_digest != supplied_digest:
+            raise ValueError("stored graph checkpoint digest mismatch")
+        try:
+            envelope = json.loads(encoded)
+        except (TypeError, json.JSONDecodeError) as exc:
+            raise ValueError("stored graph checkpoint is malformed") from exc
+        return self._validate_graph_checkpoint_envelope(task_id, envelope)
+
     def trust(self, task_id: str) -> TrustScore:
         task = self.task(task_id)
         if task is None:
@@ -815,10 +948,39 @@ class ExecutionController:
         return self.company.trust(task.work_unit_id)
 
     def execute_graph(self, graph: Any, task_id: str, intent: str, context: Mapping[str, Any] | None = None) -> Any:
-        """Execute StateGraph or GraphAgentTeam under the durable supervisor boundary."""
+        """Execute graph work; consequential crew handoffs checkpoint in supervisor SQLite."""
         from .state_graph import StateGraph, GraphAgentTeam
         if isinstance(graph, GraphAgentTeam):
-            return graph.run(task_id, intent, context)
+            state = dict(context or {})
+            # Caller context cannot override or inject supervisor-owned checkpoint state.
+            for reserved in (
+                "auren_supervisor_checkpoint_envelope",
+                "auren_crew_handoff_checkpoint_data",
+                "auren_crew_handoff_checkpoint",
+                "auren_retry_budget",
+            ):
+                state.pop(reserved, None)
+            saved = self.load_graph_checkpoint(task_id)
+            if saved is not None:
+                state["auren_supervisor_checkpoint_envelope"] = saved
+            prior_writer = graph.handoff_checkpoint_writer
+            prior_required = graph.require_durable_handoffs
+
+            def persist_checkpoint(checkpoint_task_id: str, envelope: Mapping[str, Any]) -> None:
+                if checkpoint_task_id != task_id:
+                    raise ValueError("crew checkpoint task_id does not match active supervisor task")
+                self.save_graph_checkpoint(task_id, envelope)
+                if prior_writer is not None:
+                    prior_writer(checkpoint_task_id, envelope)
+
+            # This policy is supervisor-owned, not a task or caller option.
+            graph.handoff_checkpoint_writer = persist_checkpoint
+            graph.require_durable_handoffs = True
+            try:
+                return graph.run(task_id, intent, state)
+            finally:
+                graph.handoff_checkpoint_writer = prior_writer
+                graph.require_durable_handoffs = prior_required
         if isinstance(graph, StateGraph):
             return graph.run(task_id, intent, context)
         from .orchestration import Orchestrator

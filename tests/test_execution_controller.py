@@ -297,3 +297,118 @@ def test_promotion_gate_rejects_malformed_trusted_context_before_handler_side_ef
 
     assert controller.task(task.id).state == "failed"
     assert not side_effect_path.exists()
+
+
+def _supervisor_checkpoint_envelope(task_id: str, intent: str = "durable crew task") -> dict:
+    import hashlib
+    from portable.crew_adapters import GraphHandoffController, TaskRetryBudget
+
+    budget = TaskRetryBudget(max_retries=3)
+    return {
+        "schema_version": "auren-task-handoff-envelope-v1",
+        "handoff_checkpoint": GraphHandoffController(retry_budget=budget).snapshot(),
+        "retry_budget": budget.snapshot(),
+        "task_id": task_id,
+        "intent_digest": hashlib.sha256(intent.encode("utf-8")).hexdigest(),
+        "crew_plan_digest": hashlib.sha256(b"stable crew plan").hexdigest(),
+    }
+
+
+def test_supervisor_checkpoint_round_trips_and_detects_tampering(tmp_path: Path):
+    import json
+    import sqlite3
+    import pytest
+
+    controller = ExecutionController(tmp_path)
+    envelope = _supervisor_checkpoint_envelope("task-checkpoint")
+    controller.save_graph_checkpoint("task-checkpoint", envelope)
+    assert controller.load_graph_checkpoint("task-checkpoint") == envelope
+    controller.save_graph_checkpoint("task-checkpoint", envelope)
+    with sqlite3.connect(controller.evidence_capture.path) as db:
+        evidence = db.execute(
+            "SELECT event_type, artifact_digest FROM engineering_events "
+            "WHERE event_type='crew_handoff_checkpoint_persisted'"
+        ).fetchall()
+    assert len(evidence) == 1
+    assert evidence[0][0] == "crew_handoff_checkpoint_persisted"
+    assert len(evidence[0][1]) == 64
+
+    encoded = json.dumps({**envelope, "intent_digest": "f" * 64}, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    with sqlite3.connect(controller.db_path) as db:
+        db.execute(
+            "UPDATE graph_checkpoints SET envelope_json=? WHERE task_id=?",
+            (encoded, "task-checkpoint"),
+        )
+    with pytest.raises(ValueError, match="digest mismatch"):
+        controller.load_graph_checkpoint("task-checkpoint")
+    with pytest.raises(ValueError, match="digest mismatch"):
+        controller.save_graph_checkpoint("task-checkpoint", envelope)
+
+
+def test_execute_graph_owns_durable_checkpoint_and_ignores_caller_checkpoint(tmp_path: Path, monkeypatch):
+    from portable.state_graph import GraphAgentTeam
+
+    controller = ExecutionController(tmp_path)
+    team = GraphAgentTeam(graph=None)
+    seen = []
+
+    def fake_run(instance, task_id, intent, context=None):
+        state = dict(context or {})
+        seen.append((state, instance.require_durable_handoffs, instance.handoff_checkpoint_writer))
+        envelope = state.get("auren_supervisor_checkpoint_envelope")
+        resumed = envelope is not None
+        if envelope is None:
+            envelope = _supervisor_checkpoint_envelope(task_id, intent)
+        instance.handoff_checkpoint_writer(task_id, envelope)
+        return {"resumed_from_supervisor": resumed}
+
+    monkeypatch.setattr(GraphAgentTeam, "run", fake_run)
+    first = controller.execute_graph(
+        team,
+        "task-checkpoint",
+        "durable crew task",
+        {"auren_supervisor_checkpoint_envelope": {"forged": True},
+         "auren_crew_handoff_checkpoint_data": {"forged": True},
+         "auren_retry_budget": {"forged": True}},
+    )
+    assert first == {"resumed_from_supervisor": False}
+    assert "auren_supervisor_checkpoint_envelope" not in seen[0][0]
+    assert "auren_crew_handoff_checkpoint_data" not in seen[0][0]
+    assert "auren_retry_budget" not in seen[0][0]
+    assert seen[0][1] is True
+    assert callable(seen[0][2])
+    assert controller.load_graph_checkpoint("task-checkpoint") is not None
+    assert team.handoff_checkpoint_writer is None
+    assert team.require_durable_handoffs is False
+
+    second = controller.execute_graph(team, "task-checkpoint", "durable crew task", {})
+    assert second == {"resumed_from_supervisor": True}
+    assert seen[1][0]["auren_supervisor_checkpoint_envelope"] == controller.load_graph_checkpoint("task-checkpoint")
+
+
+def test_graph_team_rejects_checkpoint_for_stale_intent_or_crew_plan():
+    import hashlib
+    import pytest
+    from portable.state_graph import GraphAgentTeam
+
+    class StubGraph:
+        def digest(self):
+            return "a" * 64
+
+        def run(self, task_id, intent, state):
+            return state
+
+    team = GraphAgentTeam(graph=StubGraph())
+    intent = "durable crew task"
+    plan = team.plan_crews(intent)
+    envelope = _supervisor_checkpoint_envelope("task-checkpoint", intent)
+    envelope["intent_digest"] = hashlib.sha256(b"different intent").hexdigest()
+    envelope["crew_plan_digest"] = plan.digest
+    with pytest.raises(ValueError, match="intent digest"):
+        team.run("task-checkpoint", intent, {"auren_supervisor_checkpoint_envelope": envelope})
+
+    envelope = _supervisor_checkpoint_envelope("task-checkpoint", intent)
+    envelope["intent_digest"] = plan.intent_digest
+    envelope["crew_plan_digest"] = "f" * 64
+    with pytest.raises(ValueError, match="crew-plan digest"):
+        team.run("task-checkpoint", intent, {"auren_supervisor_checkpoint_envelope": envelope})
