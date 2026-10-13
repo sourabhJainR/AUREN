@@ -113,6 +113,39 @@ class EvidenceArchive:
             }
             if required - set(payload) or set(payload) - allowed_payload:
                 raise ValueError("signed receipt contains missing or unknown fields")
+            if (
+                payload.get("repository") != event["repository"]
+                or not isinstance(payload.get("head_sha"), str)
+                or len(payload["head_sha"]) != 40
+                or any(ch not in _HEX40 for ch in payload["head_sha"])
+                or not isinstance(payload.get("payload_digest"), str)
+                or len(payload["payload_digest"]) != 64
+                or any(ch not in _HEX64 for ch in payload["payload_digest"])
+                or payload.get("status") not in {"passed", "failed", "skipped", "unknown", "verified"}
+                or payload.get("source_type") not in _SOURCE_TYPES - {"auren_runtime"}
+            ):
+                raise ValueError("signed receipt contains invalid repository, head, digest, status, or source")
+            try:
+                issued = datetime.fromisoformat(str(payload["issued_at"]).replace("Z", "+00:00"))
+                if issued.tzinfo is None or issued.utcoffset() is None:
+                    raise ValueError("receipt issued_at must include a timezone")
+                age = (datetime.now(timezone.utc) - issued.astimezone(timezone.utc)).total_seconds()
+            except (TypeError, OverflowError) as exc:
+                raise ValueError("signed receipt issued_at is invalid") from exc
+            max_age = 90 * 24 * 3600 if payload["evidence_type"] == "rollback_rehearsal" else 7 * 24 * 3600
+            if age > max_age or age < -300:
+                raise ValueError("signed receipt is stale or issued too far in the future")
+            if payload["evidence_type"] == "rollback_rehearsal":
+                if payload["source_type"] != "operator":
+                    raise ValueError("rollback rehearsal receipt must come from an operator")
+                required_rollback = {
+                    "operator_id", "target_id", "rollback_plan_digest",
+                    "last_known_good_commit", "recovered_head_sha",
+                }
+                if required_rollback - set(payload):
+                    raise ValueError("rollback receipt is missing operator rehearsal fields")
+                if payload["status"] in {"passed", "verified"} and payload["recovered_head_sha"] != payload["last_known_good_commit"]:
+                    raise ValueError("successful rollback receipt must recover to last-known-good")
             receipt_digest = sha256_json(envelope)
             metadata = event["metadata"]
             if (
