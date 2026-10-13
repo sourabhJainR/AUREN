@@ -925,7 +925,7 @@ the learning system, not an instruction source. If a skill produced no distinct 
                     "intent_digest": intent_digest,
                     "graph_digest": crew_plan.graph_digest,
                     "crew_plan_digest": crew_plan.digest,
-                    "execution_graph_digest": hashlib.sha256(json.dumps({"graph_digest": crew_graph_digest, "crew_plan_digest": crew_plan.digest}, sort_keys=True, separators=(",", ":")).encode()).hexdigest(),
+                    "execution_graph_digest": hashlib.sha256(json.dumps({"graph_digest": crew_plan.graph_digest, "crew_plan_digest": crew_plan.digest}, sort_keys=True, separators=(",", ":")).encode()).hexdigest(),
                     "status": status,
                     "required": require_crew_adapters,
                     "proposals": proposals,
