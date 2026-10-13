@@ -58,7 +58,7 @@ class GraphEvidenceDecisionTests(unittest.TestCase):
         import tempfile
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            db = root / ".aer" / "memory.db"
+            db = root / ".auren" / "memory.db"
             graph = PersistentEvidenceGraph(PersistentMemory(db, require_approval=False), "hws")
             local_tool = "python:-c:print('ok')"
             for i in range(8):
@@ -74,7 +74,7 @@ class GraphEvidenceDecisionTests(unittest.TestCase):
         import tempfile
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            db = root / ".aer" / "memory.db"
+            db = root / ".auren" / "memory.db"
             graph = PersistentEvidenceGraph(PersistentMemory(db, require_approval=False), "hws")
             cap = graph.add_node("capability", "verifier")
             for i in range(8):
