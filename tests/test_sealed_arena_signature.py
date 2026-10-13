@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import tempfile
 import unittest
 from dataclasses import replace
+from pathlib import Path
 
 try:
     from cryptography.hazmat.primitives import serialization
@@ -11,6 +13,8 @@ except ImportError:  # optional dependency; the dedicated CI job installs it
     Ed25519PrivateKey = None
 
 from portable.sealed_arena_boundary import ExternalOutcomeReceipt
+from portable.sealed_arena_replay import SealedArenaReplayLedger
+from portable.sealed_arena_boundary import SealedArenaBoundary
 from portable.sealed_arena_signature import (
     Ed25519ReceiptVerifier, encode_receipt_signature, receipt_signing_message,
 )
@@ -115,6 +119,31 @@ class Ed25519ReceiptVerifierTests(unittest.TestCase):
             Ed25519ReceiptVerifier({"lab": self.public}, key_validity={"lab": (5.0, 5.0)})
         with self.assertRaisesRegex(ValueError, "collection"):
             Ed25519ReceiptVerifier({"lab": self.public}, revoked_signers="lab")
+
+    def test_production_boundary_enforces_revocation_and_key_validity_configuration(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ledger = SealedArenaReplayLedger(Path(directory) / "replay.sqlite3")
+            revoked = SealedArenaBoundary.from_trusted_ed25519_keys(
+                {"independent-lab": self.public},
+                replay_ledger=ledger,
+                revoked_signers={"independent-lab"},
+            )
+            self.assertFalse(revoked._verify_signature(self.signed()))
+
+            not_yet_valid = SealedArenaBoundary.from_trusted_ed25519_keys(
+                {"independent-lab": self.public},
+                replay_ledger=ledger,
+                key_validity={"independent-lab": (200.0, 300.0)},
+                clock=lambda: 199.0,
+            )
+            self.assertFalse(not_yet_valid._verify_signature(self.signed()))
+            active = SealedArenaBoundary.from_trusted_ed25519_keys(
+                {"independent-lab": self.public},
+                replay_ledger=ledger,
+                key_validity={"independent-lab": (100.0, 300.0)},
+                clock=lambda: 199.0,
+            )
+            self.assertTrue(active._verify_signature(self.signed()))
 
 
 if __name__ == "__main__":
