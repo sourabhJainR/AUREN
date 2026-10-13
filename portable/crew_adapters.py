@@ -479,9 +479,11 @@ class GraphHandoffController:
         with self._lock:
             key = (handoff.source_crew, handoff.target_crew, hashlib.sha256(handoff.task.encode()).hexdigest())
             self._completed.add(key)
-            if handoff.handoff_id:
-                self._in_flight.pop(handoff.handoff_id, None)
-                self._seen_ids.add(handoff.handoff_id)
+            handoff_id = handoff.handoff_id or self._handoff_id(
+                handoff.source_crew, handoff.target_crew, handoff.task, handoff.source_plan_digest
+            )
+            self._in_flight.pop(handoff_id, None)
+            self._seen_ids.add(handoff_id)
             self._persist()
 
     def snapshot(self) -> dict[str, Any]:
