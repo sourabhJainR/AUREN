@@ -41,7 +41,7 @@ class AdaptiveRuntimeContextTests(unittest.TestCase):
             result = runtime.run(session_id="s1", task_id="t1", project_root=root, intent="Fix timeout", context_node_id="task:1", enrich_context=True)
             self.assertEqual(result.status.value, "accepted")
             self.assertIn("client.py", captured["auren_context_pack"])
-            self.assertTrue(captured["aer_context_digest"])
+            self.assertTrue(captured["auren_context_digest"])
             self.assertIsNotNone(runtime.last_cognitive_episode)
             self.assertEqual(runtime.last_cognitive_episode.status, "accepted")
             self.assertIn("evaluate", runtime.last_cognitive_episode.phases)
