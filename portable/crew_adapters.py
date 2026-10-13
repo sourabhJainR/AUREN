@@ -507,30 +507,85 @@ class GraphHandoffController:
             return payload
 
     @classmethod
-    def resume(cls, checkpoint: Mapping[str, Any]) -> "GraphHandoffController":
-        if not isinstance(checkpoint, Mapping) or checkpoint.get("schema_version") != "auren-crew-handoff-checkpoint-v1":
+    def resume(
+        cls,
+        checkpoint: Mapping[str, Any],
+        *,
+        retry_budget: TaskRetryBudget | None = None,
+        persist: Callable[[Mapping[str, Any]], None] | None = None,
+        require_persistence: bool = False,
+    ) -> "GraphHandoffController":
+        if not isinstance(checkpoint, Mapping) or checkpoint.get("schema_version") not in {
+            "auren-crew-handoff-checkpoint-v1", "auren-crew-handoff-checkpoint-v2"
+        }:
             raise ValueError("unsupported handoff checkpoint")
-        controller = cls(max_attempts=checkpoint.get("max_attempts", 3))
+        supplied_digest = checkpoint.get("digest")
+        if supplied_digest is not None:
+            payload = {key: value for key, value in checkpoint.items() if key != "digest"}
+            expected_digest = hashlib.sha256(
+                json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+            ).hexdigest()
+            if supplied_digest != expected_digest:
+                raise ValueError("handoff checkpoint digest mismatch")
+        shared_budget = retry_budget
+        saved_budget = checkpoint.get("retry_budget")
+        if shared_budget is None and isinstance(saved_budget, Mapping):
+            shared_budget = TaskRetryBudget.resume(saved_budget)
+        controller = cls(
+            max_attempts=checkpoint.get("max_attempts", 3),
+            retry_budget=shared_budget,
+            persist=persist,
+            require_persistence=require_persistence,
+        )
         queued = checkpoint.get("queued")
         completed = checkpoint.get("completed")
-        if not isinstance(queued, list) or not isinstance(completed, list):
-            raise ValueError("checkpoint queue and completed records must be lists")
+        in_flight = checkpoint.get("in_flight", [])
+        if not isinstance(queued, list) or not isinstance(completed, list) or not isinstance(in_flight, list):
+            raise ValueError("checkpoint queue, in_flight, and completed records must be lists")
+
+        def restore(raw: Mapping[str, Any]) -> CrewHandoff:
+            source = raw.get("source_crew")
+            target = raw.get("target_crew")
+            task = raw.get("task")
+            plan_digest = raw.get("source_plan_digest")
+            attempt = raw.get("attempt", 0)
+            if any(not isinstance(value, str) or not value.strip() for value in (source, target, task, plan_digest)):
+                raise ValueError("invalid handoff checkpoint fields")
+            if type(attempt) is not int or not 0 <= attempt < controller.max_attempts:
+                raise ValueError("checkpoint handoff attempt is outside retry budget")
+            expected_id = cls._handoff_id(source, target, task, plan_digest)
+            handoff_id = raw.get("handoff_id", expected_id)
+            if handoff_id != expected_id:
+                raise ValueError("handoff checkpoint ID does not match its payload")
+            return CrewHandoff(source, target, task, plan_digest, attempt, expected_id)
+
         for raw in queued:
             if not isinstance(raw, Mapping):
                 raise ValueError("invalid queued handoff")
-            handoff = CrewHandoff(
-                raw["source_crew"], raw["target_crew"], raw["task"],
-                raw["source_plan_digest"], raw["attempt"],
-            )
-            if not 0 <= handoff.attempt < controller.max_attempts:
-                raise ValueError("checkpoint handoff attempt is outside retry budget")
-            controller._queue.append(handoff)
+            item = restore(raw)
+            if item.handoff_id in controller._seen_ids:
+                raise ValueError("duplicate handoff ID in checkpoint queue")
+            controller._queue.append(item)
+            controller._seen_ids.add(item.handoff_id)
+        for raw in in_flight:
+            if not isinstance(raw, Mapping):
+                raise ValueError("invalid in-flight handoff")
+            item = restore(raw)
+            if item.handoff_id in controller._seen_ids:
+                raise ValueError("duplicate handoff ID in checkpoint in-flight records")
+            # Specialist proposal adapters are read-only; an interrupted claim
+            # can be requeued with the same idempotency key without repeating effects.
+            controller._queue.append(item)
+            controller._seen_ids.add(item.handoff_id)
+        saved_seen = checkpoint.get("seen_ids", [])
+        if not isinstance(saved_seen, list) or any(not isinstance(value, str) or not value.strip() for value in saved_seen):
+            raise ValueError("invalid handoff seen_ids")
+        controller._seen_ids.update(saved_seen)
         for item in completed:
-            if not isinstance(item, list) or len(item) != 3 or any(not isinstance(v, str) for v in item):
+            if not isinstance(item, list) or len(item) != 3 or any(not isinstance(value, str) for value in item):
                 raise ValueError("invalid completed handoff key")
             controller._completed.add(tuple(item))
         return controller
-
 
 def rollback_readiness(
     *,
