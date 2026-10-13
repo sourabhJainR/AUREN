@@ -114,6 +114,13 @@ class EngineeringDesignGuard:
         (re.compile(r"(^|/)(log|logging|telemetry|observability|diagnostic)(/|$)|\blog(ging)?\b", re.I), {DesignDimension.CONSTRUCTION, DesignDimension.RESILIENCE}),
         (re.compile(r"(^|/)(exception|error|errors|fault)(/|$)|\b(exception|error handling|failure path)\b", re.I), {DesignDimension.CONSTRUCTION, DesignDimension.RESILIENCE}),
         (re.compile(r"(^|/)(benchmark|performance|profil|latency|throughput)(/|$)|\b(performance|latency|throughput|allocation|hot path)\b", re.I), {DesignDimension.RESILIENCE}),
+        (re.compile(r"(^|/)(benchmark|performance|profil|latency|throughput)(/|$)|\\b(performance|latency|throughput|allocation|hot path)\\b", re.I), {DesignDimension.RESILIENCE, DesignDimension.PERFORMANCE}),
+        (re.compile(r"(^|/)(auth|authn|authz|security|secrets|crypto|permission|policy|sandbox)(/|$)|\\b(security|privacy|authorization|authentication|secret|prompt injection|tool permission|threat model)\\b", re.I), {DesignDimension.SECURITY}),
+        (re.compile(r"(^|/)(async|concurrency|thread|lock|worker|scheduler|parallel)(/|$)|\\b(concurrency|race condition|deadlock|cancellation|parallelism|shared state|thread safe)\\b", re.I), {DesignDimension.CONCURRENCY}),
+        (re.compile(r"(^|/)(distributed|replica|cluster|consensus|quorum|consumer|producer|stream|queue|event)(/|$)|\\b(cap theorem|pacelc|partition tolerance|eventual consistency|split brain|distributed system|idempotent consumer)\\b", re.I), {DesignDimension.DISTRIBUTED}),
+        (re.compile(r"(^|/)(transaction|migration|schema|integrity|invariant|reconcile)(/|$)|\\b(data integrity|transaction boundary|schema migration|invariant|serializability)\\b", re.I), {DesignDimension.CORRECTNESS}),
+        (re.compile(r"(^|/)(deploy|release|ops|runbook|recovery|backup|restore)(/|$)|\\b(rollback|disaster recovery|rto|rpo|slo|error budget)\\b", re.I), {DesignDimension.OPERATIONS}),
+        (re.compile(r"(^|/)(agent|agents|arena|model|prompt|tool_runner|memory|learning)(/|$)|\\b(ai agent|autonomous|prompt injection|model evaluation|tool execution|agent memory)\\b", re.I), {DesignDimension.AI_AGENT, DesignDimension.SECURITY}),
     )
 
     _HIGH_RISK = {"high", "critical"}
@@ -163,6 +170,13 @@ class EngineeringDesignGuard:
             DesignDimension.LEGACY: r"\b(legacy|untested|characterization|seam|brownfield)\b",
             DesignDimension.COMPATIBILITY: r"\b(api|contract|migration|upgrade|backward|compatib|rollout|version|usage pattern|caller)\b",
             DesignDimension.ARCHITECTURE: r"\b(architect|boundary|dependency|adapter|framework|service|module|layer)\b",
+            DesignDimension.SECURITY: r"\\b(security|privacy|authorization|authentication|least privilege|threat model|secret|prompt injection|permission|sandbox)\\b",
+            DesignDimension.PERFORMANCE: r"\\b(performance|benchmark|profiling|latency|throughput|resource budget|tail latency|big-o|load shedding)\\b",
+            DesignDimension.CONCURRENCY: r"\\b(concurrency|parallel|race condition|deadlock|cancellation|shared state|thread safe|structured concurrency)\\b",
+            DesignDimension.DISTRIBUTED: r"\\b(distributed|cap theorem|pacelc|partition|quorum|consensus|replication|eventual consistency|split brain|saga|outbox)\\b",
+            DesignDimension.CORRECTNESS: r"\\b(invariant|transaction|isolation|data integrity|migration|reconciliation|serializability|source of truth)\\b",
+            DesignDimension.OPERATIONS: r"\\b(rollback|recovery|observability|runbook|rto|rpo|slo|error budget|backup|restore|rollout)\\b",
+            DesignDimension.AI_AGENT: r"\\b(ai agent|autonomous|agent|tool execution|prompt injection|model evaluation|human approval|agent memory)\\b",
         }
         for dimension, pattern in keyword_rules.items():
             if re.search(pattern, text, re.I):
