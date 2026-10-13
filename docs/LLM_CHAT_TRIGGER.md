@@ -1,6 +1,6 @@
 # LLM Chat AdaptiveRuntime Trigger
 
-AER exposes a provider-neutral, fire-and-forget trigger for an LLM chat, agent adapter, MCP client, or other interactive caller that needs to start normal `AdaptiveRuntime` execution without waiting for the full orchestration lifecycle.
+AUREN exposes a provider-neutral, fire-and-forget trigger for an LLM chat, agent adapter, MCP client, or other interactive caller that needs to start normal `AdaptiveRuntime` execution without waiting for the full orchestration lifecycle.
 
 ## Flow
 
@@ -122,6 +122,6 @@ Pass a stable `event_id` when the chat/tool layer may retry a request. Reusing t
 
 ## Safety boundaries
 
-The trigger does not bypass AER verification, review, evidence, policy, or learning gates. Chat context is passed into the normal `AdaptiveRuntime.run()` path; it does not create a privileged execution path. The background dispatcher is bounded to a shared four-worker pool so many chat requests cannot create one unbounded thread per request.
+The trigger does not bypass AUREN verification, review, evidence, policy, or learning gates. Chat context is passed into the normal `AdaptiveRuntime.run()` path; it does not create a privileged execution path. The background dispatcher is bounded to a shared four-worker pool so many chat requests cannot create one unbounded thread per request.
 
 The MCP adapter accepts only JSON-compatible tool arguments and persists only bounded execution metadata. It does not store arbitrary Python return values in SQLite.

@@ -1,6 +1,6 @@
-# AER Provider Conformance Harness
+# AUREN Provider Conformance Harness
 
-The Provider Conformance Harness proves that AER preserves its orchestration contract across Claude, Codex, Gemini and ChatGPT surfaces.
+The Provider Conformance Harness proves that AUREN preserves its orchestration contract across Claude, Codex, Gemini and ChatGPT surfaces.
 
 ## Commands
 
@@ -31,11 +31,11 @@ Use `--write-report` when a persistent JSON report is desired. Normal runs do no
 
 ## Parity principle
 
-Provider parity does not mean identical prompts, text, tools or model behavior. It means the same AER semantics survive provider projection:
+Provider parity does not mean identical prompts, text, tools or model behavior. It means the same AUREN semantics survive provider projection:
 
 `intent -> boundaries -> acceptance -> capability plan -> context evidence -> tool observations -> verification evidence -> outcome`
 
-A provider cannot claim verification merely because it exits successfully. AER remains the authority for scope, safety, evidence and acceptance.
+A provider cannot claim verification merely because it exits successfully. AUREN remains the authority for scope, safety, evidence and acceptance.
 
 ## Live probe policy
 
@@ -43,4 +43,4 @@ The live probe is deliberately narrow. It must not edit files, install packages,
 
 ## CI policy
 
-The deterministic static harness is part of the normal AER release gate. Live provider tests are opt-in because CI environments may not have provider credentials, network access, or licensed CLIs.
+The deterministic static harness is part of the normal AUREN release gate. Live provider tests are opt-in because CI environments may not have provider credentials, network access, or licensed CLIs.

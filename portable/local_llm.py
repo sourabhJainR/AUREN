@@ -1,4 +1,4 @@
-"""Minimal local LLM fallback for AER.
+"""Minimal local LLM fallback for AUREN.
 
 Uses a local Ollama HTTP endpoint with no Python dependency. It is deliberately
 read-only: the fallback can provide planning/review/synthesis text when the

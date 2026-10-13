@@ -2,7 +2,7 @@
 
 The project adopts the useful part of the Jev/TypeSafe design notes without adding a Jev runtime or making the system dependent on a provider.
 
-## What is already native to AER
+## What is already native to AUREN
 
 - **Choice / Noul / Score** are first-class typed decision primitives.
 - **Probabilities and confidence** remain attached to the decision and are consumed by deterministic policy.
@@ -12,7 +12,7 @@ The project adopts the useful part of the Jev/TypeSafe design notes without addi
 - **StateGraph** handles changing state, parallel work, joins, contracts and bounded convergence.
 - **Regression and SkillOpt** already provide the learning and validation loop.
 
-These are the parts worth keeping because they reinforce existing AER boundaries rather than replacing them.
+These are the parts worth keeping because they reinforce existing AUREN boundaries rather than replacing them.
 
 ## Small addition
 
@@ -40,4 +40,4 @@ These are the parts worth keeping because they reinforce existing AER boundaries
 
 Use a typed decision when the task needs bounded semantic judgment. Use ordinary code for deterministic rules, arithmetic, exact lookup, execution and policy. Keep an explicit no-match/abstain option when the domain permits "none of the above". Verify the resulting action independently before treating it as an engineering fact.
 
-This keeps the useful Jev pattern while preserving AER's provider-neutral, evidence-first architecture.
+This keeps the useful Jev pattern while preserving AUREN's provider-neutral, evidence-first architecture.
