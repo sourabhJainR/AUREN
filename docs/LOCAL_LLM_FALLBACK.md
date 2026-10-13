@@ -1,6 +1,6 @@
 # Minimal local LLM fallback
 
-AER can use a small local Ollama model as a bounded backup when the configured
+AUREN can use a small local Ollama model as a bounded backup when the configured
 provider is unavailable, transiently fails, or exhausts its context/token budget.
 
 The local model is deliberately an advisory/read-only fallback. It does not
@@ -40,14 +40,14 @@ Override with `AER_LOCAL_LLM_ENDPOINT`, `AER_LOCAL_LLM_CONTEXT`,
 ```
 Primary provider
       |
-      +-- success --------------------> existing AER flow
+      +-- success --------------------> existing AUREN flow
       |
       +-- transient / token failure
                     |
                     v
              bounded retries
                     |
-                    +-- success ------> existing AER flow
+                    +-- success ------> existing AUREN flow
                     |
                     +-- exhausted ----> local LLM (read-only only)
 ```
@@ -60,5 +60,5 @@ for the next stage, not authority to mutate the repository.
 
 The local lane is allowed only for prompts explicitly marked read-only,
 analysis-only, or `patch_allowed: false`. If a builder/mutating turn fails,
-AER returns the original provider failure rather than silently converting it
+AUREN returns the original provider failure rather than silently converting it
 into an unauthenticated local mutation path.
