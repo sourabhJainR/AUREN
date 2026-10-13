@@ -101,3 +101,23 @@ def test_code_task_accepts_only_matching_final_and_verified_revision():
     receipt = next(item for item in run.trajectory if item.get("event") == "exact_head_verification")
     assert receipt["status"] == "passed"
     assert receipt["final_revision"] == receipt["verified_revision"]
+
+# Keep the suite runnable by the repository's unittest-based CI entrypoint.
+import unittest
+
+
+class OrchestrationEngineeringGuardTests(unittest.TestCase):
+    def test_high_risk_blocks_before_node_runs_case(self):
+        test_high_risk_security_contract_blocks_before_any_node_runs()
+
+    def test_medium_risk_records_receipt_case(self):
+        test_medium_risk_task_records_guard_receipt_and_can_continue()
+
+    def test_security_not_applicable_case(self):
+        test_explicit_security_not_applicable_reason_does_not_block()
+
+    def test_code_task_requires_exact_revision_case(self):
+        test_code_task_is_blocked_when_final_revision_was_not_verified()
+
+    def test_code_task_accepts_matching_revision_case(self):
+        test_code_task_accepts_only_matching_final_and_verified_revision()
