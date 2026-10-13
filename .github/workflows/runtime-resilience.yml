@@ -10,7 +10,47 @@ permissions:
   contents: read
 
 jobs:
+  impact:
+    runs-on: ubuntu-latest
+    outputs:
+      required: ${{ steps.detect.outputs.required }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Classify changed-file impact
+        id: detect
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          python - <<'PY'
+          import fnmatch, os, subprocess
+          event = os.environ['EVENT_NAME']
+          if event == 'workflow_dispatch':
+              required = True
+              changed = []
+          else:
+              base = os.environ.get('BASE_SHA', '')
+              head = os.environ.get('HEAD_SHA', '')
+              if not base or set(base) == {'0'}:
+                  required, changed = True, []
+              else:
+                  changed = subprocess.check_output(['git', 'diff', '--name-only', base, head], text=True).splitlines()
+                  patterns = [".github/workflows/runtime-resilience.yml","portable/state_graph.py","portable/crew_adapters.py","portable/orchestration.py","portable/auren_runtime.py","portable/supervisor.py","state/**","tests/test_state_paths.py","tests/test_state_graph_hardening.py","tests/test_promotion_evidence_chain.py","tests/test_external_decision_evidence_ingestion.py","tests/test_evidence_freshness.py","tests/test_crew_adapters.py","tests/test_graph_agent_team.py","tests/test_execution_controller_promotion_gate.py"]
+                  required = any(fnmatch.fnmatchcase(path, pattern) for path in changed for pattern in patterns)
+          print('Changed files:')
+          print('\n'.join(changed) if changed else '(none or full validation requested)')
+          print(f'Validation required: {required}')
+          with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as output:
+              output.write(f'required={str(required).lower()}\n')
+          PY
+
   durable-runtime:
+    needs: impact
+    if: needs.impact.outputs.required == 'true'
     name: Durable runtime (${{ matrix.os }}, Python ${{ matrix.python-version }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
