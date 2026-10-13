@@ -6,7 +6,7 @@ import unittest
 from unittest.mock import patch
 from pathlib import Path
 
-from portable.identity_compat import auren_home, get_auren_env, project_state_dir
+from portable.identity_compat import auren_home, canonical_auren_home, get_auren_env, legacy_aer_home, project_state_dir
 from portable.local_llm import LocalLLMConfig, enabled as local_llm_enabled
 from portable.chat_capability import _default_runtime
 
@@ -49,6 +49,24 @@ class IdentityCompatibilityTests(unittest.TestCase):
                 auren_home(home=root, environ={"AUREN_HOME": "~/chosen", "AER_HOME": "~/legacy"}),
                 Path.home() / "chosen",
             )
+
+    def test_canonical_state_root_ignores_legacy_home_and_rejects_empty(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.assertEqual(
+                canonical_auren_home(home=root, environ={"AER_HOME": str(root / "legacy")}),
+                root / ".auren",
+            )
+            self.assertEqual(
+                canonical_auren_home(home=root, environ={"AUREN_HOME": str(root / "chosen")}),
+                root / "chosen",
+            )
+        with self.assertRaisesRegex(ValueError, "AUREN_HOME must not be empty"):
+            canonical_auren_home(environ={"AUREN_HOME": "", "AER_HOME": "/tmp/legacy"})
+
+    def test_legacy_state_root_rejects_empty(self) -> None:
+        with self.assertRaisesRegex(ValueError, "legacy AER_HOME must not be empty"):
+            legacy_aer_home(environ={"AER_HOME": ""})
 
     def test_empty_configured_home_fails_closed(self) -> None:
         with self.assertRaisesRegex(ValueError, "AUREN_HOME must not be empty"):
