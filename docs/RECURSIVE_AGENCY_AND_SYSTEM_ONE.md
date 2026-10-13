@@ -10,7 +10,7 @@ The design combines three useful directions:
 2. **Graph engineering**: work is represented as small typed jobs connected by real dependencies. Independent work can run in parallel, while state and evidence converge at explicit synthesis and verification nodes.
 3. **Machine-native decisions**: not every model call should generate prose. The `decision_fabric` exposes `Choice`, `Score` and `Noul`-style typed judgments with probabilities and confidence. Deterministic policy code decides whether a judgment is sufficient to authorize the next software action.
 
-The TypeSafe announcement describes this separation as unstructured state in and typed probabilistic decisions out, with parallel evaluation of independent questions. Those are useful architectural properties; AER does not claim to reproduce TypeSafe's model architecture or RLCD training method. See the source discussion at https://typesafe.ai/blog/introducing-system-one-models-and-jev.
+The TypeSafe announcement describes this separation as unstructured state in and typed probabilistic decisions out, with parallel evaluation of independent questions. Those are useful architectural properties; AUREN does not claim to reproduce TypeSafe's model architecture or RLCD training method. See the source discussion at https://typesafe.ai/blog/introducing-system-one-models-and-jev.
 
 ## 2. The resulting control architecture
 
@@ -65,7 +65,7 @@ The TypeSafe announcement describes this separation as unstructured state in and
 
 ## 3. Why the decision layer matters
 
-Text generation is a poor interface for software when the application only needs a bounded judgment. AER therefore separates:
+Text generation is a poor interface for software when the application only needs a bounded judgment. AUREN therefore separates:
 
 - **generation** for plans, explanations, code and research;
 - **decision** for routing, risk, verification triage, prioritization and other bounded judgments;
@@ -83,7 +83,7 @@ The model supplies evidence about a fuzzy question. Code remains responsible for
 
 ## 4. Calibration is a first-class contract
 
-A confidence value is useful only if it is measured. Providers may expose confidence, but AER should maintain a calibration ledger containing:
+A confidence value is useful only if it is measured. Providers may expose confidence, but AUREN should maintain a calibration ledger containing:
 
 - question definition and version;
 - model/provider/version;
@@ -117,11 +117,11 @@ Properties:
 
 The controller does not create permissions, mutate policy, or declare itself successful without verification.
 
-## 6. How this fits the existing AER implementation
+## 6. How this fits the existing AUREN implementation
 
 These are complementary layers, not replacement runtimes:
 
-| Concern | Canonical AER construct |
+| Concern | Canonical AUREN construct |
 |---|---|
 | dependency graph | `TaskPlan` + `StateGraph` |
 | bounded graph execution | `agency_state_graph` |
@@ -163,7 +163,7 @@ The moat is the compounding evidence and control fabric around models: state, gr
 
 Do not copy claims merely because they sound AGI-like.
 
-- AER does not claim to be AGI.
+- AUREN does not claim to be AGI.
 - `DecisionFabric` is not a new foundation model.
 - A probability returned by a model is not proof of correctness.
 - Parallel agents do not automatically improve quality.

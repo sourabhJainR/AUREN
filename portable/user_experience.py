@@ -1,4 +1,4 @@
-"""Read-only end-user control surface for AER.
+"""Read-only end-user control surface for AUREN.
 
 This module deliberately owns no new persistent state. It is a presentation and
 health facade over existing installation metadata, scheduler state, provider
@@ -291,19 +291,19 @@ def run_doctor(
 
     installation = _installation(home)
     if installation["installed"]:
-        checks.append(CheckResult("installation", "PASS", f"AER {installation['version']} is active"))
+        checks.append(CheckResult("installation", "PASS", f"AUREN {installation['version']} is active"))
     elif installation["declared"]:
         checks.append(CheckResult(
             "installation",
             "FAIL",
             str(installation["reason"]),
-            "Run verify/update or reinstall the pinned AER bundle.",
+            "Run verify/update or reinstall the pinned AUREN bundle.",
         ))
     else:
         checks.append(CheckResult(
             "installation",
             "WARN",
-            "AER is not installed in this user profile",
+            "AUREN is not installed in this user profile",
             "Install the portable bundle before enabling implementation workflows.",
         ))
 
@@ -330,7 +330,7 @@ def run_doctor(
         "skills",
         "PASS" if skill_count else "WARN",
         f"{skill_count} Agent Skills installation(s) detected",
-        None if skill_count else "Install the AER skill for the coding-agent host you use.",
+        None if skill_count else "Install the AUREN skill for the coding-agent host you use.",
     ))
 
     scheduler = _scheduler(home)
@@ -341,7 +341,7 @@ def run_doctor(
             "scheduler",
             "WARN",
             "no readable scheduler state is present",
-            "This is normal before AER has executed a durable task; run a task first.",
+            "This is normal before AUREN has executed a durable task; run a task first.",
         ))
 
     exit_code = 1 if any(check.status == "FAIL" for check in checks) else 0
@@ -377,7 +377,7 @@ def run_demo(project_root: Path | str, *, token_budget: int = 1200) -> dict[str,
 def render_doctor(checks: list[CheckResult], exit_code: int, *, json_output: bool = False) -> str:
     if json_output:
         return render_json({"exit_code": exit_code, "checks": [asdict(check) for check in checks]})
-    lines = ["AER doctor"]
+    lines = ["AUREN doctor"]
     for check in checks:
         line = f"[{check.status}] {check.name}: {check.message}"
         if check.remedy:
@@ -409,7 +409,7 @@ def render_status(snapshot: dict[str, object], *, json_output: bool = False) -> 
         latest_text = f"{latest.get('event')} {latest.get('version') or ''}".strip()
 
     lines = [
-        "AER status",
+        "AUREN status",
         f"Installation: {'ready' if installation.get('installed') else 'not ready'}" + (f" (v{installation.get('version')})" if installation.get('version') else ""),
         f"Project: {'Git repository' if repository.get('git') else 'directory'} at {repository.get('root')}",
         f"Hosts: {', '.join(provider_names) if provider_names else 'none detected'}",

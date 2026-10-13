@@ -149,7 +149,7 @@ def execute(
 ) -> ExecutionResult:
     """Execute a task and optionally close trace -> regression -> release.
 
-    With ``release_store`` and ``release_artifact`` supplied, AER materializes
+    With ``release_store`` and ``release_artifact`` supplied, AUREN materializes
     the decision as a real immutable artifact/channel transition. Shadow and
     canary stage an artifact without replacing ``current``; promote atomically
     advances ``current``; rollback selects the prior promoted immutable build.
@@ -213,7 +213,7 @@ def execute(
             result.regression_link = correlate_trace_with_regression(trace, regression_run.regression_id, regression_run.result)
             apply_regression_score(trace, result.regression_link)
             result.promotion_decision = decision
-            regression_span.score("regression_pass", 1.0 if regression_run.passed else 0.0, "AER-owned regression outcome", "regression")
+            regression_span.score("regression_pass", 1.0 if regression_run.passed else 0.0, "AUREN-owned regression outcome", "regression")
             regression_span.finish({"regression_id": regression_run.regression_id, "passed": regression_run.passed, "dataset_digest": regression_run.result.dataset_digest, "failures": regression_run.result.failures, "promotion": decision.action})
             trace.metadata["promotion"] = decision.as_dict()
             result.ledger.append(LedgerEntry("regression", f"{regression_run.regression_id}: {'passed' if regression_run.passed else 'failed'}"))

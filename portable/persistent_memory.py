@@ -1,4 +1,4 @@
-"""Public facade for durable AER memory.
+"""Public facade for durable AUREN memory.
 
 The facade also accepts the earlier compact API so existing integrations can
 move to the unified memory implementation without carrying a second store.
