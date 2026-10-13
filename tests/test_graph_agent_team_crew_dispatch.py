@@ -115,6 +115,49 @@ class HarnessCrewDispatchTests(unittest.TestCase):
             self.assertEqual(calls, ["planner"])
             self.assertNotIn("builder", calls)
 
+    def test_resume_rejects_changed_crew_adapter_configuration(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            memory = SharedTaskMemory(Path(tmp) / "memory.jsonl", "intent-resume")
+            from portable.agency_state_graph import InMemoryCheckpointStore
+            store = InMemoryCheckpointStore()
+            first_calls = []
+            first_adapter = _ProposalAdapter("frontend_ui", first_calls)
+            team = GraphAgentTeam(
+                [AgentSpec("planner", "planner")],
+                crew_adapters={"frontend_ui": first_adapter},
+            )
+            with self.assertRaises(RuntimeError):
+                team.execute(
+                    task="Build a frontend UI component",
+                    intent_digest="intent-resume",
+                    base_prompt="base instructions",
+                    memory=memory,
+                    invoke_agent=lambda agent, prompt: (0, "done", 0.01),
+                    checkpoint=store,
+                    run_id="crew-resume",
+                    max_steps=1,
+                )
+            second_calls = []
+            second_adapter = _ProposalAdapter("frontend_ui", second_calls)
+            second_adapter.configuration_digest = "changed-adapter-config"
+            changed_team = GraphAgentTeam(
+                [AgentSpec("planner", "planner")],
+                crew_adapters={"frontend_ui": second_adapter},
+            )
+            with self.assertRaisesRegex(ValueError, "refusing stale checkpoint resume"):
+                changed_team.execute(
+                    task="Build a frontend UI component",
+                    intent_digest="intent-resume",
+                    base_prompt="base instructions",
+                    memory=memory,
+                    invoke_agent=lambda agent, prompt: (0, "done", 0.01),
+                    checkpoint=store,
+                    resume=True,
+                    run_id="crew-resume",
+                )
+            self.assertEqual(len(first_calls), 1)
+            self.assertEqual(second_calls, [])
+
     def test_runtime_phase_factory_injects_registered_adapters_and_requires_high_risk_crew_gate(self):
         runtime._CREW_ADAPTERS.clear()
         try:
