@@ -116,7 +116,6 @@ def merge_retry_budget_snapshots(current: Any, incoming: Any) -> dict[str, Any]:
     right = TaskRetryBudget.resume(incoming)
     if left.max_retries != right.max_retries:
         raise ValueError("cannot merge retry budgets with different limits")
-    charges = dict(left.snapshot()["charges"])
     merged = {item["operation_key"]: item["component"] for item in left.snapshot()["charges"]}
     for item in right.snapshot()["charges"]:
         previous = merged.get(item["operation_key"])
