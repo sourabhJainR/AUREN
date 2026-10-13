@@ -93,11 +93,23 @@ sealed corpus or secret oracle answers.
 
 ## Trusted live repository context
 
-Register `TrustedRepositoryContextProvider` as the execution controller's
-operator-owned promotion context handler. Configure its repository root, expected
-`owner/repository` slug, decision-record directory, authorized-approver policy
-file, and canonical evidence ledger outside task payloads. It resolves origin and
-HEAD through Git, rejects mismatched remotes and dirty worktrees, reads the
+Configure `AUREN_REPOSITORY_ROOT`, `AUREN_REPOSITORY_SLUG`,
+`AUREN_DECISION_RECORD_DIR`, `AUREN_AUTHORIZED_APPROVERS_FILE`, and optionally
+`AUREN_CANONICAL_EVIDENCE_DB` in the service environment. Register the durable
+module-level adapter as the execution controller's context handler:
+
+```python
+controller.register_handler(
+    "trusted-context-provider",
+    "portable.trusted_repository_context:trusted_repository_context",
+)
+# Then use promotion_gate_policy={"context_handler": "trusted-context-provider"}
+# when registering each consequential handler.
+```
+
+The adapter constructs `TrustedRepositoryContextProvider` from operator-owned
+configuration. It resolves origin and HEAD through Git, rejects mismatched remotes
+and dirty worktrees, reads the
 decision record by the controller-provided task ID, and supplies evidence IDs only
 from the ledger for the exact live repository/head.
 
