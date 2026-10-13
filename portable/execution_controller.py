@@ -964,7 +964,6 @@ class ExecutionController:
             if saved is not None:
                 state["auren_supervisor_checkpoint_envelope"] = saved
             prior_writer = graph.handoff_checkpoint_writer
-            prior_required = graph.require_durable_handoffs
 
             def persist_checkpoint(checkpoint_task_id: str, envelope: Mapping[str, Any]) -> None:
                 if checkpoint_task_id != task_id:
@@ -973,14 +972,15 @@ class ExecutionController:
                 if prior_writer is not None:
                     prior_writer(checkpoint_task_id, envelope)
 
-            # This policy is supervisor-owned, not a task or caller option.
-            graph.handoff_checkpoint_writer = persist_checkpoint
-            graph.require_durable_handoffs = True
-            try:
-                return graph.run(task_id, intent, state)
-            finally:
-                graph.handoff_checkpoint_writer = prior_writer
-                graph.require_durable_handoffs = prior_required
+            # Pass supervisor authority per invocation; do not mutate a shared graph
+            # object, which may be executing independent tasks concurrently.
+            return graph.run(
+                task_id,
+                intent,
+                state,
+                handoff_checkpoint_writer=persist_checkpoint,
+                require_durable_handoffs=True,
+            )
         if isinstance(graph, StateGraph):
             return graph.run(task_id, intent, context)
         from .orchestration import Orchestrator
