@@ -359,14 +359,15 @@ class Orchestrator:
         state: dict[str, Any] = dict(context or {})
         state["intent_digest"] = run.intent_digest
 
+        changed_paths = state.get("changed_paths", state.get("files", ()))
+        if not isinstance(changed_paths, (list, tuple)):
+            changed_paths = ()
+
         # Engineering principles are checked before any graph node can perform
         # side effects. This reuses the canonical guard and records its receipt
         # in the existing run evidence/trajectory rather than creating a second
         # policy engine or evidence store.
         if state.get("enforce_engineering_principles", True):
-            changed_paths = state.get("changed_paths", state.get("files", ()))
-            if not isinstance(changed_paths, (list, tuple)):
-                changed_paths = ()
             design = state.get("engineering_design", {})
             if not isinstance(design, Mapping):
                 design = {}
