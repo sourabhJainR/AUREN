@@ -10,6 +10,7 @@ This register intentionally distinguishes compatibility from stale branding. Do 
 |---|---|---|
 | `AER_*` environment variables (including `AER_HOME`, `AER_CORE_BIN`, `AER_LOCAL_LLM_*`, and `AER_OBSERVABILITY`) | Legacy environment aliases | Canonical `AUREN_*` settings take precedence; legacy names are read only as fallback through `portable.identity_compat`. Do not introduce direct reads of legacy names in new runtime code. |
 | `AER_GRAPH_TEAM` | Legacy graph/crew configuration alias | Canonical `AUREN_GRAPH_TEAM` takes precedence; the legacy alias is read only through the compatibility resolver. |
+| `AER_CONTEXT_BROKER_TELEMETRY` | Legacy context-broker telemetry path | Canonical `AUREN_CONTEXT_BROKER_TELEMETRY` takes precedence; the legacy variable remains a fallback during the compatibility period. |
 | `aer_execution_strategy`, `aer_execution_mode` in old graph checkpoints | Legacy serialized state keys | Read only as fallback when the corresponding `auren_*` key is absent; new graph state writes canonical `auren_*` keys. |
 | `aer_adaptive_policy` in older task contexts | Legacy serialized/runtime context key | Read only as fallback when `auren_adaptive_policy` is absent; all new contexts write `auren_adaptive_policy`. |
 | `aer_cli.py`, `aer-portable.zip`, `aer-bundle.json`, `aer-core` | Retired entry-point, distribution, manifest, and native-worker names | Use `auren_cli.py`, `auren-portable.zip`, `auren-bundle.json`, and `auren-core` for current installs. Mention old names only for migration or historical artifacts. |
