@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
@@ -60,8 +61,8 @@ class AdaptiveRuntime:
         self.orchestrator = Orchestrator(graph, max_total_attempts=max_total_attempts)
         if state_root is None:
             self.state_paths = AurenStatePaths.prepare(
-                canonical_root=Path.home() / ".auren",
-                legacy_root=legacy_state_root or (Path.home() / ".aer"),
+                canonical_root=Path(os.environ.get("AUREN_HOME", str(Path.home() / ".auren"))),
+                legacy_root=legacy_state_root or os.environ.get("AER_HOME", str(Path.home() / ".aer")),
             )
         else:
             self.state_paths = AurenStatePaths.prepare(
@@ -431,15 +432,15 @@ class AdaptiveRuntime:
                 raise RuntimeError(f"before_agent vetoed: {before.reason}")
             cognitive_loop.observe(episode, {"event": "before_agent", "status": "running", "policy_version": policy.version})
             effective_context = dict(context or {})
-            effective_context["aer_workstyle_guidance"] = learning_store.guidance()
+            effective_context["auren_workstyle_guidance"] = learning_store.guidance()
             selected_strategy = execution_strategy(policy.strategy)
-            effective_context["aer_adaptive_policy"] = {
+            effective_context["auren_adaptive_policy"] = {
                 "version": policy.version,
                 "strategy": policy.strategy,
                 "confidence_adjustment": policy.confidence_adjustment,
                 "iteration_target": policy.iteration_target,
             }
-            effective_context["aer_execution_strategy"] = {
+            effective_context["auren_execution_strategy"] = {
                 "name": selected_strategy.name,
                 "known": selected_strategy.known,
                 "verification_depth": selected_strategy.verification_depth,
@@ -450,9 +451,9 @@ class AdaptiveRuntime:
             if enrich_context:
                 resolution = self.resolve_context(project_root, intent, node_id=context_node_id,
                                                   workspace_id=workspace_id, required=required_context)
-                effective_context["aer_context_pack"] = resolution.pack
-                effective_context["aer_context_digest"] = resolution.digest
-                effective_context["aer_context_omitted"] = list(resolution.omitted)
+                effective_context["auren_context_pack"] = resolution.pack
+                effective_context["auren_context_digest"] = resolution.digest
+                effective_context["auren_context_omitted"] = list(resolution.omitted)
                 cognitive_loop.observe(episode, {"event": "context_resolved", "digest": resolution.digest})
             cognitive_plan_payload: dict[str, object] | None = None
             if enrich_cognition:
@@ -464,7 +465,7 @@ class AdaptiveRuntime:
                         current_value=cognitive_current_value, beliefs=cognitive_beliefs,
                         belief_limit=cognitive_belief_limit, context=effective_context,
                     )
-                    cognitive_plan_payload = dict(effective_context["aer_cognitive_plan"])  # type: ignore[arg-type]
+                    cognitive_plan_payload = dict(effective_context.get("auren_cognitive_plan", effective_context.get("aer_cognitive_plan", {})))  # type: ignore[arg-type]
                     self.last_cognitive_plan = dict(cognitive_plan_payload)
                     cognitive_loop.observe(episode, {
                         "event": "cognitive_plan_created",

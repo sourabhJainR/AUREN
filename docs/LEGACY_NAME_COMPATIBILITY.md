@@ -8,9 +8,14 @@ This register intentionally distinguishes compatibility from stale branding. Do 
 
 | Reference | Classification | Required treatment |
 |---|---|---|
-| `AER_GRAPH_TEAM` | Legacy environment-variable alias | Keep only as a documented fallback while `AUREN_GRAPH_TEAM` is canonical. Test canonical precedence and legacy fallback; do not use the legacy alias in new examples. |
+| `AER_*` environment variables (including `AER_HOME`, `AER_CORE_BIN`, `AER_LOCAL_LLM_*`, and `AER_OBSERVABILITY`) | Legacy environment aliases | Canonical `AUREN_*` settings take precedence; legacy names are read only as fallback through `portable.identity_compat`. Do not introduce direct reads of legacy names in new runtime code. |
+| `AER_GRAPH_TEAM` | Legacy graph/crew configuration alias | Canonical `AUREN_GRAPH_TEAM` takes precedence; the legacy alias is read only through the compatibility resolver. |
 | AER release names in `docs/LEGACY_LINEAGE_CONFORMANCE.md` | Historical lineage | Keep only as a historical release identifier. Do not present it as the current product name or current install path. |
 | `AER-42` inside `scripts/conformance_oracles.py` | Adversarial test fixture | Keep as arbitrary input/output test data for normalization behavior, not as a product identity. |
+| `AER_HOME` and existing `~/.aer` / project `.aer` state | Legacy state location | `AUREN_HOME` and `~/.auren` are canonical for new installs. Existing legacy state is copied by `AurenStatePaths` only with validation; source data remains for rollback. |
+| `AER_LOCAL_LLM_*`, `AER_NETWORK_ALLOWED`, `AER_OBSERVABILITY`, `AER_SKILLS_PATH`, `AER_MCP_CAPABILITIES`, `AER_PLUGIN_CAPABILITIES`, `AER_CORE_BIN`, `AER_CONTEXT_BUDGET_CHARS`, `AER_STRATEGY`, `AER_TASK_ID` | Legacy configuration aliases | Canonical `AUREN_*` names take precedence; migrated resolvers read legacy values only when the canonical setting is absent. |
+| `AER_SANDBOX`, `AER_SANDBOX_NETWORK`, `AER_COMPACTION_DIGEST`, and fallback diagnostic marker | Legacy provider/policy protocol markers | Canonical `AUREN_*` markers are emitted alongside legacy markers while downstream consumers migrate. |
+| `AER_CONFORMANCE_OK`, `AER_CONFORMANCE_PROBE` and similar oracle sentinels | Test protocol fixtures | Keep only where test/provider contracts explicitly expect the sentinel. |
 | Old names in explicitly archived release evidence | Historical evidence | Preserve for provenance; label as historical and link to the current canonical contract where useful. |
 
 ## Change policy

@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from .repository_intelligence import RepositoryIntelligence
+from .identity_compat import auren_home
 
 
 _PROVIDER_NAMES = ("claude", "codex", "gemini")
@@ -37,8 +38,9 @@ def _path(value: Path | str | None, default: Path) -> Path:
     return (Path(value).expanduser().resolve() if value is not None else default.expanduser().resolve())
 
 
-def _default_aer_home() -> Path:
-    return Path.home() / ".aer"
+def _default_auren_home() -> Path:
+    """Compatibility helper; new installations resolve to ~/.auren."""
+    return auren_home()
 
 
 def _safe_read_json(path: Path) -> dict[str, Any] | None:
@@ -265,7 +267,7 @@ def build_status(
     aer_home: Path | str | None = None,
     project_root: Path | str | None = None,
 ) -> dict[str, object]:
-    home = _path(aer_home, _default_aer_home())
+    home = _path(aer_home, _default_auren_home())
     project = _path(project_root, Path.cwd())
     return {
         "schema_version": 1,
@@ -285,7 +287,7 @@ def run_doctor(
     *,
     aer_home: Path | str | None = None,
 ) -> tuple[list[CheckResult], int]:
-    home = _path(aer_home, _default_aer_home())
+    home = _path(aer_home, _default_auren_home())
     project = _path(project_root, Path.cwd())
     checks: list[CheckResult] = []
 

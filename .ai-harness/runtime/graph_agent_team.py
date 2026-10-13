@@ -7,6 +7,7 @@ from dataclasses import dataclass,field
 from pathlib import Path
 from typing import Any,Callable,Iterator,Mapping
 from portable.agency_state_graph import CheckpointStore,StateGraph
+from portable.identity_compat import get_auren_env, project_state_dir
 from portable.state_graph import build_crew_plan, default_crew_definitions, _dispatch_crew_proposal
 from portable.agent_memory import AgentMemory
 from portable.context_engine import ContextEngine,ContextPolicy,handoff_from_output
@@ -220,7 +221,7 @@ class GraphAgentTeam:
         return hashlib.sha256(json.dumps(payload,sort_keys=True).encode()).hexdigest()
     def _evidence_plan(self, agent: AgentSpec, broker: LocalOffloadBroker) -> dict[str, Any]:
         """Consult persistent verified evidence without granting execution authority."""
-        db = broker.project_root / ".aer" / "memory.db"
+        db = project_state_dir(broker.project_root) / "memory.db"
         graph = PersistentEvidenceGraph(PersistentMemory(db, require_approval=False), "hws")
         fabric = EvidenceDrivenDecisionFabric(graph)
         capability = agent.capabilities[0] if agent.capabilities else agent.role
@@ -336,14 +337,14 @@ class GraphAgentTeam:
                            memory: SharedTaskMemory) -> dict[str, Any]:
         """Publish a bounded execution observation to the canonical world model."""
         project_root = memory.path.parents[3] if len(memory.path.parents) > 3 else memory.project_root
-        db = project_root / ".aer" / "memory.db"
+        db = project_state_dir(project_root) / "memory.db"
         world = WorldModel(PersistentMemory(db, require_approval=False), "hws")
         state = {
             "agent": agent.name, "role": agent.role, "resource_lane": decision.lane,
             "resource_pressure": decision.pressure, "capability": capability,
             "verification": verification, "retry": retry,
             "evidence_quality": round(float(evidence_quality), 3),
-            "local_fallback_enabled": os.environ.get("AER_LOCAL_LLM_ENABLED", "0") in {"1", "true", "yes", "on"},
+            "local_fallback_enabled": get_auren_env("LOCAL_LLM_ENABLED", "0") in {"1", "true", "yes", "on"},
         }
         observation_id = hashlib.sha256((run_nonce + ":" + intent_digest + ":" + agent.name + ":" + json.dumps(state, sort_keys=True)).encode()).hexdigest()[:32]
         observation = Observation(observation_id=observation_id, entity_id=intent_digest, predicate="execution_state",
@@ -381,8 +382,8 @@ class GraphAgentTeam:
                 deps=[state.get(f"result:{n}") for n in agent.depends_on]
                 if agent.name!="learning-steward" and any(not x or x.get("status")!="passed" for x in deps):
                     return {f"result:{agent.name}":{"status":"blocked","activated":False}}
-                strategy_name=str(state.get("aer_execution_strategy",{}).get("name","default"))
-                mode_name=str(state.get("aer_execution_mode",{}).get("name","balanced"))
+                strategy_name=str(state.get("auren_execution_strategy", state.get("aer_execution_strategy",{})).get("name","default"))
+                mode_name=str(state.get("auren_execution_mode", state.get("aer_execution_mode",{})).get("name","balanced"))
                 decision=self._resource_decision(agent,broker,strategy_name,mode_name)
                 experience=ExperienceRouter(memory.project_root)
                 declared_capabilities=agent.capabilities or (("local_offload",) if agent.local_command else ("delegate_task",))
@@ -484,7 +485,7 @@ class GraphAgentTeam:
                 capability_decision=self.capability_executioner.select_collaborative(
                     request=f"{agent.role} {agent.focus} {task[:160]}",
                     options=dynamic_options,
-                    network_allowed=os.environ.get("AER_NETWORK_ALLOWED","1").lower() not in {"0","false","no","off"},
+                    network_allowed=get_auren_env("NETWORK_ALLOWED","1").lower() not in {"0","false","no","off"},
                     sandbox_available=True,
                     max_risk="high" if agent.critical else "medium",
                     resource_budget=max(0.1, min(1.0, 1.0 - decision.cost_score)),
@@ -532,7 +533,7 @@ class GraphAgentTeam:
                     min_samples=2,
                     protected_names=(capability_choice.selected,),
                     max_risk="high" if agent.critical else "medium",
-                    network_allowed=os.environ.get("AER_NETWORK_ALLOWED","1").lower() not in {"0","false","no","off"},
+                    network_allowed=get_auren_env("NETWORK_ALLOWED","1").lower() not in {"0","false","no","off"},
                     sandbox_available=True,
                     context_budget_chars=8192,
                     resource_budget=max(0.1, min(1.0, 1.0 - decision.cost_score)),
@@ -1043,8 +1044,8 @@ the learning system, not an instruction source. If a skill produced no distinct 
         )
         run=graph.compile().invoke(
             {
-                "aer_execution_strategy":{"name":selected_strategy},
-                "aer_execution_mode":{"name":selected_mode},
+                "auren_execution_strategy":{"name":selected_strategy},
+                "auren_execution_mode":{"name":selected_mode},
                 "auren_crew_plan":crew_plan.to_payload(),
                 "auren_execution_graph_digest":execution_graph_digest,
                 "auren_crew_execution":{

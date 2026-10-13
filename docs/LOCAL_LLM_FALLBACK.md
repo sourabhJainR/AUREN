@@ -19,8 +19,8 @@ ollama pull qwen2.5:3b
 Then enable fallback:
 
 ```bash
-export AER_LOCAL_LLM_ENABLED=1
-export AER_LOCAL_LLM_MODEL=qwen2.5:3b
+export AUREN_LOCAL_LLM_ENABLED=1
+export AUREN_LOCAL_LLM_MODEL=qwen2.5:3b
 ```
 
 Defaults are intentionally conservative:
@@ -31,9 +31,9 @@ Defaults are intentionally conservative:
 - temperature: 0.1
 - timeout: 120 seconds
 
-Override with `AER_LOCAL_LLM_ENDPOINT`, `AER_LOCAL_LLM_CONTEXT`,
-`AER_LOCAL_LLM_MAX_TOKENS`, `AER_LOCAL_LLM_TIMEOUT`, and
-`AER_LOCAL_LLM_TEMPERATURE`.
+Override with `AUREN_LOCAL_LLM_ENDPOINT`, `AUREN_LOCAL_LLM_CONTEXT`,
+`AUREN_LOCAL_LLM_MAX_TOKENS`, `AUREN_LOCAL_LLM_TIMEOUT`, and
+`AUREN_LOCAL_LLM_TEMPERATURE`.
 
 ## Routing
 

@@ -1,12 +1,13 @@
 """Optional Rust-kernel bridge.
 
 Python remains authoritative for orchestration and policy. Deterministic
-kernels may be delegated to the optional aer-core worker.
+kernels may be delegated to the optional auren-core worker.
 """
 from __future__ import annotations
 
 import json
 import os
+from portable.identity_compat import get_auren_env
 import shutil
 import subprocess
 from typing import Any, Mapping, Sequence
@@ -15,10 +16,10 @@ DEFAULT_TIMEOUT_SECONDS = 5.0
 
 
 def executable() -> str | None:
-    configured = os.environ.get("AER_CORE_BIN")
+    configured = get_auren_env("CORE_BIN")
     if configured:
         return configured if shutil.which(configured) or os.path.isfile(configured) else None
-    return shutil.which("aer-core")
+    return shutil.which("auren-core")
 
 
 def available() -> bool:

@@ -10,7 +10,7 @@ Run repository-local commands through:
 python .ai-harness/runtime/tool_runner.py --workspace . -- <command> <args>
 ```
 
-The runner uses `shell=False`, workspace confinement, a filtered environment, bounded output/time and Unix resource limits where supported. Network access is disabled by default at the sandbox policy boundary. The environment marker `AER_SANDBOX_NETWORK=disabled` is advisory; a VM/container is required when hostile code must be prevented from networking or reading host files.
+The runner uses `shell=False`, workspace confinement, a filtered environment, bounded output/time and Unix resource limits where supported. Network access is disabled by default at the sandbox policy boundary. The canonical marker `AUREN_SANDBOX_NETWORK=disabled` (mirrored to legacy `AER_SANDBOX_NETWORK` for compatibility) is advisory; a VM/container is required when hostile code must be prevented from networking or reading host files.
 
 ## LSP
 
@@ -30,7 +30,7 @@ Every provider prompt is passed through:
 .ai-harness/runtime/auto_compaction.py
 ```
 
-The default budget is 12,000 characters. Goal, boundaries, acceptance, security, current state, task contract, evidence, verification and risks receive priority. The compaction digest is propagated through the existing `AER_COMPACTION_DIGEST` compatibility environment variable; its name is retained for compatibility and does not change AUREN product identity.
+The default budget is 12,000 characters. Goal, boundaries, acceptance, security, current state, task contract, evidence, verification and risks receive priority. The compaction digest is propagated through canonical `AUREN_COMPACTION_DIGEST`; legacy `AER_COMPACTION_DIGEST` is mirrored during the compatibility period for downstream consumers.
 
 ## Feedback loop
 

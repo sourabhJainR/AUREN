@@ -136,7 +136,7 @@ def _install_graph_team_bridge() -> None:
     except Exception:
         return
 
-    if not getattr(GraphAgentTeam.execute, "_aer_guarded", False):
+    if not getattr(GraphAgentTeam.execute, "_auren_guarded", getattr(GraphAgentTeam.execute, "_aer_guarded", False)):
         original_execute = GraphAgentTeam.execute
 
         def guarded_execute(self, *, task, intent_digest, base_prompt, memory, invoke_agent,
@@ -152,7 +152,7 @@ def _install_graph_team_bridge() -> None:
                                     resume=resume, run_id=run_id, max_steps=max_steps,
                                     require_crew_adapters=require_crew_adapters)
 
-        guarded_execute._aer_guarded = True
+        guarded_execute._auren_guarded = True
         GraphAgentTeam.execute = guarded_execute
 
     original_invoke = engine.invoke
