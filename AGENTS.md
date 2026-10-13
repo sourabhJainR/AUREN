@@ -8,6 +8,7 @@ Claude plugin manifest: `.claude-plugin/plugin.json`.
 Core orchestration contract: `.ai-harness/ORCHESTRATION_SPEC.md`.
 Knowledge fabric: `.ai-harness/KNOWLEDGE_FABRIC_POLICY.md`.
 Engineering design policy: `.ai-harness/ENGINEERING_DESIGN_POLICY.md`.
+Root engineering principles contract: `ENGINEERING_PRINCIPLES.md` (mandatory task-time applicability and evidence rules).
 Deterministic design gate: `portable/engineering_design_guard.py`.
 Optional extension registry: `.ai-harness/extension_registry.toml`.
 Deployment guide: `docs/DEPLOYMENT.md`.
@@ -134,6 +135,10 @@ Before creating a new file:
 Use the placement analyzer when candidate locations are ambiguous: `python .ai-harness/placement.py <new-file-names>`.
 
 ## Engineering principles
+
+The root contract is `ENGINEERING_PRINCIPLES.md`. Apply it to every assigned task, not only coding tasks. At task intake, classify the work (research, design, code, data, security, test, operations, documentation, AI/agent, or release), identify the applicable principles, and record either a decision/evidence or `not_applicable: reason` for material dimensions. Do not mechanically apply every pattern; use the smallest set that protects correctness, safety, compatibility, and maintainability. If a principle conflicts with user requirements, repository contracts, or safety boundaries, follow the established conflict order and document the trade-off.
+
+For implementation tasks, use the existing `portable.engineering_design_guard.EngineeringDesignGuard` and task/evidence lifecycle as the enforcement path; do not create a parallel principles engine or evidence store. A task is not complete until applicable acceptance criteria and checks are evidenced, the final diff is reviewed, and unresolved risks are reported. High-risk work must fail closed when required evidence is missing. Principles guide the design; tests, static checks, review, runtime evidence, and Guard/Arena policy determine whether the result is acceptable.
 
 Apply these proportionally, not as rituals:
 
