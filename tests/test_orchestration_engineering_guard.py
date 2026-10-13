@@ -62,7 +62,7 @@ def test_explicit_security_not_applicable_reason_does_not_block():
         },
     )
 
-    assert run.status == RunStatus.ACCEPTED
+    assert run.status == RunStatus.ACCEPTED, (run.stop_reason, run.trajectory)
     assert calls == ["ran"]
 
 
