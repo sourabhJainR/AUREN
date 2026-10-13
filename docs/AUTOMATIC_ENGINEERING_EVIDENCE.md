@@ -63,6 +63,14 @@ bearer token, verifies the event digest, rejects conflicting reuse of an event I
 stores signed receipt envelopes, and independently verifies receipt signatures
 using a trusted public-key file.
 
+A hardened container deployment package is available at
+[`deploy/evidence-archive/`](../deploy/evidence-archive/README.md). It pins the
+Python base image by operator-supplied digest, pins the cryptography package version,
+runs non-root with a read-only filesystem and resource limits, binds the host port
+to loopback, and documents TLS proxying, key management, immutable backup, and
+restore/revocation tests. The package is a deployable receiver, not proof that an
+external archive has been provisioned or that WORM retention is enabled.
+
 1. Create a JSON file outside the repository mapping trusted signer IDs to base64url
    Ed25519 public keys, and optionally a JSON list of revoked signer IDs.
 2. Inject `AUREN_ARCHIVE_TOKEN` (at least 32 characters) from your secret manager,

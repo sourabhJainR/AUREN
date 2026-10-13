@@ -1,0 +1,47 @@
+services:
+  evidence-archive:
+    build:
+      context: ../..
+      dockerfile: deploy/evidence-archive/Dockerfile
+      args:
+        PYTHON_BASE_IMAGE: ${PYTHON_BASE_IMAGE:?Set an approved immutable Python base image digest}
+        CRYPTOGRAPHY_VERSION: ${CRYPTOGRAPHY_VERSION:?Set an approved cryptography version}
+    env_file:
+      - .env.archive
+    environment:
+      AUREN_ARCHIVE_BIND: "0.0.0.0"
+      AUREN_ARCHIVE_PORT: "8765"
+      AUREN_ARCHIVE_DB: /var/lib/auren/evidence.sqlite3
+      AUREN_ARCHIVE_PRINCIPAL: auren-runtime
+      AUREN_ARCHIVE_TRUSTED_PUBLIC_KEYS_FILE: /run/auren/trusted-public-keys.json
+      AUREN_ARCHIVE_REVOKED_SIGNERS_FILE: /run/auren/revoked-signers.json
+    ports:
+      - "127.0.0.1:8765:8765"
+    volumes:
+      - evidence-archive-data:/var/lib/auren
+      - ./trusted-public-keys.json:/run/auren/trusted-public-keys.json:ro
+      - ./revoked-signers.json:/run/auren/revoked-signers.json:ro
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=16m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 64
+    mem_limit: 256m
+    cpus: 1.0
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8765/healthz', timeout=2).read()"
+      interval: 30s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
+
+volumes:
+  evidence-archive-data:
