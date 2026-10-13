@@ -70,6 +70,7 @@ def test_explicit_security_not_applicable_reason_does_not_block():
                 "least_privilege": "not_applicable: no permissions or tool authority are modified",
                 "architecture": "not_applicable: documentation-only change; no module or dependency boundaries change",
                 "compatibility": "not_applicable: no runtime contract or caller behavior changes",
+                "rollout": "not_applicable: documentation-only change; no migration or staged deployment",
                 "resilience": "not_applicable: no runtime dependency, timeout, retry, or recovery behavior changes",
                 "timeout_budget": "not_applicable: documentation-only change; no runtime deadlines or external calls",
                 "retry_budget": "not_applicable: documentation-only change; no retry behavior changes",
