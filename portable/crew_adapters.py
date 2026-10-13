@@ -531,6 +531,8 @@ class GraphHandoffController:
         }:
             raise ValueError("unsupported handoff checkpoint")
         supplied_digest = checkpoint.get("digest")
+        if checkpoint.get("schema_version") == "auren-crew-handoff-checkpoint-v2" and not supplied_digest:
+            raise ValueError("handoff checkpoint digest is required for schema v2")
         if supplied_digest is not None:
             payload = {key: value for key, value in checkpoint.items() if key != "digest"}
             expected_digest = hashlib.sha256(

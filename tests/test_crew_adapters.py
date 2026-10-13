@@ -297,6 +297,18 @@ class ApprovedCrewAdapterTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "already claimed or completed"):
             controller.enqueue(**kwargs)
 
+    def test_v2_handoff_checkpoint_requires_integrity_digest(self):
+        checkpoint = GraphHandoffController().snapshot()
+        checkpoint.pop("digest")
+        with self.assertRaisesRegex(ValueError, "digest is required"):
+            GraphHandoffController.resume(checkpoint)
+
+    def test_v2_handoff_checkpoint_rejects_tampered_payload(self):
+        checkpoint = GraphHandoffController().snapshot()
+        checkpoint["seen_ids"] = ["forged-handoff-id"]
+        with self.assertRaisesRegex(ValueError, "digest mismatch"):
+            GraphHandoffController.resume(checkpoint)
+
     def test_handoff_checkpoint_resumes_queued_work(self):
         controller = GraphHandoffController(max_attempts=3)
         controller.enqueue(
