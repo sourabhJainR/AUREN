@@ -139,6 +139,11 @@ class HarnessCrewDispatchTests(unittest.TestCase):
             handoff_checkpoint = saved.state["auren_crew_handoff_checkpoint_data"]
             self.assertEqual(len(handoff_checkpoint["in_flight"]), 1)
             self.assertEqual(handoff_checkpoint["in_flight"][0]["handoff_id"], receipt["handoff_id"])
+            self.assertEqual(
+                saved.state["auren_retry_budget"]["digest"],
+                handoff_checkpoint["retry_budget"]["digest"],
+                "outer task checkpoint must not lag the retry ledger nested in the handoff checkpoint",
+            )
             self.assertEqual(len(qa_calls), 2, "QA is invoked once for its selected proposal and once for the explicit handoff")
 
     def test_trusted_independent_handoff_reviewer_completes_and_receipts_the_handoff(self):
