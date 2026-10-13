@@ -120,7 +120,7 @@ class EngineeringDesignGuard:
         (re.compile(r"(^|/)(benchmark|performance|profil|latency|throughput)(/|$)|\b(performance|latency|throughput|allocation|hot path)\b", re.I), {DesignDimension.RESILIENCE}),
         (re.compile(r"(^|/)(benchmark|performance|profil|latency|throughput)(/|$)|\b(performance|latency|throughput|allocation|hot path)\b", re.I), {DesignDimension.RESILIENCE, DesignDimension.PERFORMANCE}),
         (re.compile(r"(^|/)(auth|authn|authz|security|secrets|crypto|permission|policy|sandbox)(/|$)|\b(security|privacy|authorization|authentication|secret|prompt injection|tool permission|threat model)\b", re.I), {DesignDimension.SECURITY}),
-        (re.compile(r"(^|/)(async|concurrency|thread|lock|worker|scheduler|parallel)(/|$)|\b(concurrency|race condition|deadlock|cancellation|parallelism|shared state|thread safe)\b", re.I), {DesignDimension.CONCURRENCY}),
+        (re.compile(r"(^|/)(async|concurrency|thread|lock|worker|scheduler|parallel)(/|$)|\b(concurrency|race conditions?|deadlock|cancellation|parallelism|shared state|thread safe)\b", re.I), {DesignDimension.CONCURRENCY}),
         (re.compile(r"(^|/)(distributed|replica|cluster|consensus|quorum|consumer|producer|stream|queue|event)(/|$)|\b(cap theorem|pacelc|partition tolerance|eventual consistency|split brain|distributed system|idempotent consumer)\b", re.I), {DesignDimension.DISTRIBUTED}),
         (re.compile(r"(^|/)(transaction|migration|schema|integrity|invariant|reconcile)(/|$)|\b(data integrity|transaction boundary|schema migration|invariant|serializability)\b", re.I), {DesignDimension.CORRECTNESS}),
         (re.compile(r"(^|/)(deploy|release|ops|runbook|recovery|backup|restore)(/|$)|\b(rollback|disaster recovery|rto|rpo|slo|error budget)\b", re.I), {DesignDimension.OPERATIONS}),
@@ -178,7 +178,7 @@ class EngineeringDesignGuard:
             DesignDimension.ARCHITECTURE: r"\b(architect|boundary|dependency|adapter|framework|service|module|layer)\b",
             DesignDimension.SECURITY: r"\b(security|privacy|authorization|authentication|least privilege|threat model|secret|prompt injection|permission|sandbox)\b",
             DesignDimension.PERFORMANCE: r"\b(performance|benchmark|profiling|latency|throughput|resource budget|tail latency|big-o|load shedding)\b",
-            DesignDimension.CONCURRENCY: r"\b(concurrency|parallel|race condition|deadlock|cancellation|shared state|thread safe|structured concurrency)\b",
+            DesignDimension.CONCURRENCY: r"\b(concurrency|parallel|race conditions?|deadlock|cancellation|shared state|thread safe|structured concurrency)\b",
             DesignDimension.DISTRIBUTED: r"\b(distributed|cap theorem|pacelc|partition|quorum|consensus|replication|eventual consistency|split brain|saga|outbox)\b",
             DesignDimension.CORRECTNESS: r"\b(invariant|transaction|isolation|data integrity|migration|reconciliation|serializability|source of truth)\b",
             DesignDimension.OPERATIONS: r"\b(rollback|recovery|observability|runbook|rto|rpo|slo|error budget|backup|restore|rollout)\b",
@@ -266,6 +266,11 @@ class EngineeringDesignGuard:
                 (("responsibility", "module_owner", "boundary"), "State the responsible module/owner and its boundary, or an explicit not_applicable reason"),
                 (("dependency_direction", "allowed_dependencies", "coupling"), "State permitted dependency direction and coupling constraints, or an explicit not_applicable reason"),
             ),
+            DesignDimension.CONCURRENCY: (
+                (("shared_state_owner", "single_writer", "lock_scope", "atomicity"), "State shared-state ownership and the lock/atomicity boundary, or an explicit not_applicable reason"),
+                (("race_test", "interleaving_test", "concurrency_test"), "State race/interleaving regression coverage, or an explicit not_applicable reason"),
+                (("cancellation", "synchronization", "deadlock", "parallelism"), "State cancellation/synchronization and race/deadlock verification, or an explicit not_applicable reason"),
+            ),
             DesignDimension.DATA: (
                 (("source_of_truth", "consistency", "transaction"), "State the authoritative data source and consistency/transaction boundary, or an explicit not_applicable reason"),
                 (("schema_evolution", "migration", "backfill", "reconciliation"), "State schema/format evolution, backfill, reconciliation and rollback handling, or an explicit not_applicable reason"),
@@ -289,10 +294,6 @@ class EngineeringDesignGuard:
             ),
             DesignDimension.PERFORMANCE: (
                 (("performance_budget", "benchmark", "profiling", "latency", "resource_budget", "performance"), "State a measurable performance/resource expectation or explain why measurement is not applicable"),
-            ),
-            DesignDimension.CONCURRENCY: (
-                (("ownership", "concurrency"), "State shared-state ownership and concurrency model, or an explicit not_applicable reason"),
-                (("cancellation", "synchronization", "race_test", "deadlock", "parallelism"), "State cancellation/synchronization and race/deadlock verification, or an explicit not_applicable reason"),
             ),
             DesignDimension.DISTRIBUTED: (
                 (("consistency", "cap_tradeoff", "pacelc"), "State consistency and CAP/PACELC trade-offs where partitions or replicas matter, or an explicit not_applicable reason"),

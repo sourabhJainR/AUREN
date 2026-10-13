@@ -146,6 +146,55 @@ def test_legacy_contract_requires_characterization_and_safe_seam():
     assert any("seam/dependency break" in message for message in blocking)
 
 
+
+def test_concurrency_contract_requires_state_ownership_and_race_coverage():
+    receipt = EngineeringDesignGuard.review(
+        intent="Prevent race conditions in shared task state",
+        changed_paths=["portable/state_store.py"],
+        risk="high",
+        design={"concurrency": "Thread safe"},
+    )
+    blocking = _messages(receipt, FindingSeverity.BLOCKING)
+    assert receipt.status == "blocked"
+    assert any("shared-state ownership" in message for message in blocking)
+    assert any("race/interleaving regression coverage" in message for message in blocking)
+
+
+def test_concurrency_contract_accepts_explicit_atomicity_and_race_controls():
+    receipt = EngineeringDesignGuard.review(
+        intent="Prevent race conditions in shared task state",
+        changed_paths=["portable/state_store.py"],
+        risk="high",
+        design={
+            "concurrency": "Shared task state is updated atomically",
+            "shared_state_owner": "StateGraph supervisor is the single writer",
+            "atomicity": "Compare-and-swap guarded by a task lease",
+            "race_test": "Concurrent claim/resume and stale-worker fencing tests",
+        },
+    )
+    assert not any(
+        phrase in message
+        for phrase in ("shared-state ownership", "race/interleaving regression coverage")
+        for message in _messages(receipt, FindingSeverity.BLOCKING)
+    )
+
+
+def test_concurrency_contract_requires_cancellation_and_synchronization_decisions():
+    receipt = EngineeringDesignGuard.review(
+        intent="Prevent race conditions in shared task state",
+        changed_paths=["portable/state_store.py"],
+        risk="high",
+        design={
+            "shared_state_owner": "StateGraph supervisor is the single writer",
+            "atomicity": "Compare-and-swap guarded by a task lease",
+            "race_test": "Concurrent claim/resume and stale-worker fencing tests",
+        },
+    )
+    blocking = _messages(receipt, FindingSeverity.BLOCKING)
+    assert receipt.status == "blocked"
+    assert any("cancellation/synchronization" in message for message in blocking)
+
+
 def test_security_is_inferred_and_high_risk_missing_contract_blocks():
     receipt = EngineeringDesignGuard.review(
         intent="Change authentication and authorization for external tool execution",
@@ -269,7 +318,9 @@ def test_reasoned_not_applicable_is_allowed_for_concurrency_contract():
         risk="medium",
         design={
             "concurrency": "not_applicable: change only documents a synchronous config format",
+            "shared_state_owner": "not_applicable: no mutable runtime state is changed",
             "ownership": "not_applicable: no mutable runtime state is changed",
+            "race_test": "not_applicable: no concurrent execution is introduced",
             "synchronization": "not_applicable: no concurrent execution is introduced",
         },
     )
@@ -298,6 +349,15 @@ class EngineeringPrincipleEnforcementTests(unittest.TestCase):
 
     def test_legacy_requires_characterization_and_safe_seam_case(self):
         test_legacy_contract_requires_characterization_and_safe_seam()
+
+    def test_concurrency_requires_state_owner_and_race_coverage_case(self):
+        test_concurrency_contract_requires_state_ownership_and_race_coverage()
+
+    def test_concurrency_accepts_atomicity_and_race_controls_case(self):
+        test_concurrency_contract_accepts_explicit_atomicity_and_race_controls()
+
+    def test_concurrency_requires_cancellation_and_synchronization_decisions_case(self):
+        test_concurrency_contract_requires_cancellation_and_synchronization_decisions()
 
     def test_security_is_inferred_and_high_risk_missing_contract_blocks_case(self):
         test_security_is_inferred_and_high_risk_missing_contract_blocks()
