@@ -6,22 +6,6 @@ on:
     tags: ['v*']
   workflow_dispatch:
   pull_request:
-    paths:
-      - '.ai-harness/**'
-      - '.agents/skills/ai-coding-orchestrator/**'
-      - '.claude-plugin/**'
-      - '.claude/skills/ai-coding-orchestrator/**'
-      - 'skills/ai-coding-orchestrator/**'
-      - 'skills/engineering/**'
-      - 'portable/**'
-      - 'state/**'
-      - 'architecture/**'
-      - 'auren_cli.py'
-      - 'tests/**'
-      - '.github/workflows/portable-bundle.yml'
-
-permissions:
-  contents: read
 
 jobs:
   impact:
@@ -37,13 +21,14 @@ jobs:
         id: detect
         env:
           EVENT_NAME: ${{ github.event_name }}
+          GITHUB_REF: ${{ github.ref }}
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           python - <<'PY'
           import fnmatch, os, subprocess
           event = os.environ['EVENT_NAME']
-          if event == 'workflow_dispatch':
+          if event == 'workflow_dispatch' or os.environ.get('GITHUB_REF', '').startswith('refs/tags/'):
               required = True
               changed = []
           else:

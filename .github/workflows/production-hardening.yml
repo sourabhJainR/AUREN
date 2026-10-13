@@ -3,22 +3,8 @@ name: Production AI Harness Hardening
 on:
   workflow_dispatch:
   pull_request:
-    paths:
-      - '.ai-harness/**'
-      - 'portable/**'
-      - 'auren_cli.py'
-      - 'state/**'
-      - 'tests/**'
-      - '.github/workflows/production-hardening.yml'
   push:
     branches: [main]
-    paths:
-      - '.ai-harness/**'
-      - 'portable/**'
-      - 'auren_cli.py'
-      - 'state/**'
-      - 'tests/**'
-      - '.github/workflows/production-hardening.yml'
 
 jobs:
   impact:
@@ -34,13 +20,14 @@ jobs:
         id: detect
         env:
           EVENT_NAME: ${{ github.event_name }}
+          GITHUB_REF: ${{ github.ref }}
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           python - <<'PY'
           import fnmatch, os, subprocess
           event = os.environ['EVENT_NAME']
-          if event == 'workflow_dispatch':
+          if event == 'workflow_dispatch' or os.environ.get('GITHUB_REF', '').startswith('refs/tags/'):
               required = True
               changed = []
           else:
