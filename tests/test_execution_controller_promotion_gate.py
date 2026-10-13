@@ -34,6 +34,10 @@ def trusted_ci_evidence(request):
     return copy.deepcopy(_CI_CONTEXT)
 
 
+def unclassified_worker(payload):
+    return dict(payload)
+
+
 def valid_record(head=HEAD_SHA):
     return {
         "schema_version": "1.0",
@@ -88,18 +92,52 @@ class ExecutionControllerPromotionGateTests(unittest.TestCase):
         _CI_CONTEXT.clear()
         _PROMOTION_CONTEXT.clear()
         _PROMOTION_CONTEXT.update(valid_context())
+        _CI_CONTEXT.update({
+            "head_sha": HEAD_SHA, "status": "completed", "conclusion": "success",
+            "passed_checks": ["required-ci"], "skipped_checks": [],
+        })
         self.controller = ExecutionController(Path(self.temp.name))
-        self.controller.register_handler("trusted-context", trusted_promotion_context)
+        self.controller.register_handler("trusted-context", trusted_promotion_context, execution_class="context_provider")
+        self.controller.register_handler("trusted-ci", trusted_ci_evidence, execution_class="context_provider")
         self.controller.register_handler(
             "promote-capability",
             protected_promotion_handler,
             promotion_gate_policy={"context_handler": "trusted-context"},
+            ci_gate_policy={"expected_head_sha": HEAD_SHA, "required_checks": ["required-ci"], "evidence_handler": "trusted-ci"},
+            execution_class="consequential",
         )
 
     def submit(self, payload=None):
         return self.controller.submit(
             "promote-capability", payload or {"operation": "merge"}
         )
+
+    def test_context_provider_cannot_be_submitted_as_a_task(self):
+        with self.assertRaisesRegex(ValueError, "internal-only"):
+            self.controller.submit("trusted-context", {"task_id": "attacker-controlled"})
+
+    def test_unclassified_legacy_registration_fails_closed(self):
+        import sqlite3
+        with sqlite3.connect(self.controller.db_path) as db:
+            db.execute("UPDATE handlers SET execution_class='unclassified' WHERE name='promote-capability'")
+        with self.assertRaisesRegex(ValueError, "unclassified legacy handler"):
+            self.controller.submit("promote-capability", {"operation": "merge"})
+
+    def test_handler_class_cannot_be_downgraded_on_reregistration(self):
+        with self.assertRaisesRegex(ValueError, "execution_class is immutable"):
+            self.controller.register_handler(
+                "promote-capability", protected_promotion_handler, execution_class="read_only"
+            )
+
+    def test_action_handler_cannot_be_mislabeled_read_only(self):
+        with self.assertRaisesRegex(ValueError, "must be classified consequential"):
+            self.controller.register_handler(
+                "safe-helper", protected_promotion_handler, execution_class="read_only"
+            )
+
+    def test_new_handler_requires_explicit_execution_class(self):
+        with self.assertRaisesRegex(ValueError, "requires an explicit execution_class"):
+            self.controller.register_handler("unclassified-worker", unclassified_worker)
 
     def test_valid_decision_record_allows_handler(self):
         task = self.submit()
@@ -127,7 +165,7 @@ class ExecutionControllerPromotionGateTests(unittest.TestCase):
         self.assertEqual(_PROMOTION_SIDE_EFFECTS, [])
 
     def test_re_registration_without_policy_does_not_remove_gate(self):
-        self.controller.register_handler("promote-capability", protected_promotion_handler)
+        self.controller.register_handler("promote-capability", protected_promotion_handler, execution_class="consequential")
         _PROMOTION_CONTEXT["decision_record"] = None
         task = self.submit()
         self.controller.run_once(task.id)
@@ -136,24 +174,26 @@ class ExecutionControllerPromotionGateTests(unittest.TestCase):
 
     def test_consequential_handler_cannot_be_registered_without_promotion_gate(self):
         with self.assertRaisesRegex(ValueError, "requires an operator-owned promotion_gate_policy"):
-            self.controller.register_handler("promote-without-policy", protected_promotion_handler)
+            self.controller.register_handler("promote-without-policy", protected_promotion_handler, execution_class="consequential")
 
     def test_consequential_callable_cannot_bypass_gates_with_an_innocuous_alias(self):
         with self.assertRaisesRegex(ValueError, "requires an operator-owned promotion_gate_policy"):
-            self.controller.register_handler("helper", protected_promotion_handler)
+            self.controller.register_handler("helper", protected_promotion_handler, execution_class="consequential")
         with self.assertRaisesRegex(ValueError, "requires an exact-head ci_gate_policy"):
             self.controller.register_handler(
                 "helper", merge_pull_request_handler,
                 promotion_gate_policy={"context_handler": "trusted-context"},
+                execution_class="consequential",
             )
 
     def test_merge_handler_requires_exact_head_ci_and_promotion_gates(self):
         with self.assertRaisesRegex(ValueError, "requires an operator-owned promotion_gate_policy"):
-            self.controller.register_handler("merge-pull-request", protected_promotion_handler)
+            self.controller.register_handler("merge-pull-request", protected_promotion_handler, execution_class="consequential")
         with self.assertRaisesRegex(ValueError, "requires an exact-head ci_gate_policy"):
             self.controller.register_handler(
                 "merge-pull-request", protected_promotion_handler,
                 promotion_gate_policy={"context_handler": "trusted-context"},
+                execution_class="consequential",
             )
 
     def test_gate_policy_requires_registered_trusted_context_provider(self):
@@ -162,6 +202,8 @@ class ExecutionControllerPromotionGateTests(unittest.TestCase):
                 "bad-promoter",
                 protected_promotion_handler,
                 promotion_gate_policy={"context_handler": "missing-provider"},
+                ci_gate_policy={"expected_head_sha": HEAD_SHA, "required_checks": ["required-ci"], "evidence_handler": "trusted-ci"},
+                execution_class="consequential",
             )
 
 
@@ -208,7 +250,7 @@ class ExecutionControllerPromotionGateTests(unittest.TestCase):
         self.assertEqual(_PROMOTION_SIDE_EFFECTS, [])
 
     def test_merge_allows_side_effect_only_after_matching_exact_head_ci(self):
-        self.controller.register_handler("trusted-ci", trusted_ci_evidence)
+        self.controller.register_handler("trusted-ci", trusted_ci_evidence, execution_class="context_provider")
         _CI_CONTEXT.update({
             "head_sha": HEAD_SHA,
             "status": "completed",
@@ -225,6 +267,7 @@ class ExecutionControllerPromotionGateTests(unittest.TestCase):
                 "required_checks": ["required-ci"],
                 "evidence_handler": "trusted-ci",
             },
+            execution_class="consequential",
         )
         task = self.controller.submit("merge-pull-request", {"operation": "merge"})
         self.controller.run_once(task.id)
@@ -232,7 +275,7 @@ class ExecutionControllerPromotionGateTests(unittest.TestCase):
         self.assertEqual(_PROMOTION_SIDE_EFFECTS, ["merge"])
 
     def test_merge_rejects_in_progress_ci_even_if_payload_claims_success(self):
-        self.controller.register_handler("trusted-ci", trusted_ci_evidence)
+        self.controller.register_handler("trusted-ci", trusted_ci_evidence, execution_class="context_provider")
         _CI_CONTEXT.update({
             "head_sha": HEAD_SHA,
             "status": "in_progress",
@@ -249,6 +292,7 @@ class ExecutionControllerPromotionGateTests(unittest.TestCase):
                 "required_checks": ["required-ci"],
                 "evidence_handler": "trusted-ci",
             },
+            execution_class="consequential",
         )
         task = self.controller.submit(
             "merge-pull-request",
@@ -264,7 +308,7 @@ class ExecutionControllerPromotionGateTests(unittest.TestCase):
         self.assertEqual(_PROMOTION_SIDE_EFFECTS, [])
 
     def test_merge_blocks_when_ci_sha_differs_from_live_promotion_head(self):
-        self.controller.register_handler("trusted-ci", trusted_ci_evidence)
+        self.controller.register_handler("trusted-ci", trusted_ci_evidence, execution_class="context_provider")
         _CI_CONTEXT.update({
             "head_sha": BASE_SHA,
             "status": "completed",
@@ -281,6 +325,7 @@ class ExecutionControllerPromotionGateTests(unittest.TestCase):
                 "required_checks": ["required-ci"],
                 "evidence_handler": "trusted-ci",
             },
+            execution_class="consequential",
         )
         task = self.controller.submit("merge-pull-request", {"operation": "merge"})
         self.controller.run_once(task.id)

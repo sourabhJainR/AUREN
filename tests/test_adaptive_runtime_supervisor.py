@@ -21,6 +21,16 @@ def runtime_protected_promotion_handler(payload):
     return {"success": True}
 
 
+def trusted_runtime_ci(_request):
+    return {
+        "head_sha": _PROMOTION_HEAD,
+        "status": "completed",
+        "conclusion": "success",
+        "passed_checks": ["required-ci"],
+        "skipped_checks": [],
+    }
+
+
 def runtime_promotion_context():
     return {
         "decision_record": {
@@ -83,10 +93,13 @@ def test_runtime_facade_enforces_trusted_promotion_gate_before_side_effects(tmp_
         Graph([Node("work", NodeKind.DETERMINISTIC, lambda state: "ok")]),
         state_root=tmp_path / "state",
     )
-    runtime.register_task_handler("promotion-context", trusted_runtime_promotion_context)
+    runtime.register_task_handler("promotion-context", trusted_runtime_promotion_context, execution_class="context_provider")
+    runtime.register_task_handler("promotion-ci", trusted_runtime_ci, execution_class="context_provider")
     runtime.register_task_handler(
         "promote", runtime_protected_promotion_handler,
         promotion_gate_policy={"context_handler": "promotion-context"},
+        ci_gate_policy={"expected_head_sha": _PROMOTION_HEAD, "required_checks": ["required-ci"], "evidence_handler": "promotion-ci"},
+        execution_class="consequential",
     )
     task = runtime.submit_task("promote", {"operation": "merge", "promotion_gate": False})
     runtime.resume_tasks()
@@ -103,10 +116,13 @@ def test_runtime_facade_blocks_missing_decision_record_before_side_effects(tmp_p
         Graph([Node("work", NodeKind.DETERMINISTIC, lambda state: "ok")]),
         state_root=tmp_path / "state",
     )
-    runtime.register_task_handler("promotion-context", trusted_runtime_promotion_context)
+    runtime.register_task_handler("promotion-context", trusted_runtime_promotion_context, execution_class="context_provider")
+    runtime.register_task_handler("promotion-ci", trusted_runtime_ci, execution_class="context_provider")
     runtime.register_task_handler(
         "promote", runtime_protected_promotion_handler,
         promotion_gate_policy={"context_handler": "promotion-context"},
+        ci_gate_policy={"expected_head_sha": _PROMOTION_HEAD, "required_checks": ["required-ci"], "evidence_handler": "promotion-ci"},
+        execution_class="consequential",
     )
     task = runtime.submit_task("promote", {"operation": "merge", "promotion_gate": False})
     runtime.resume_tasks()

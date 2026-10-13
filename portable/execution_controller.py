@@ -66,7 +66,8 @@ class ExecutionController:
             CREATE TABLE IF NOT EXISTS handlers(
               name TEXT PRIMARY KEY, reference TEXT NOT NULL, updated_at TEXT NOT NULL,
               ci_gate_policy_json TEXT NOT NULL DEFAULT '{}',
-              promotion_gate_policy_json TEXT NOT NULL DEFAULT '{}');
+              promotion_gate_policy_json TEXT NOT NULL DEFAULT '{}',
+              execution_class TEXT NOT NULL DEFAULT 'unclassified');
             CREATE TABLE IF NOT EXISTS tasks(
               id TEXT PRIMARY KEY, handler TEXT NOT NULL, payload TEXT NOT NULL,
               state TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0,
@@ -78,6 +79,8 @@ class ExecutionController:
                 db.execute("ALTER TABLE handlers ADD COLUMN ci_gate_policy_json TEXT NOT NULL DEFAULT '{}'")
             if "promotion_gate_policy_json" not in handler_columns:
                 db.execute("ALTER TABLE handlers ADD COLUMN promotion_gate_policy_json TEXT NOT NULL DEFAULT '{}'")
+            if "execution_class" not in handler_columns:
+                db.execute("ALTER TABLE handlers ADD COLUMN execution_class TEXT NOT NULL DEFAULT 'unclassified'")
             columns = {row[1] for row in db.execute("PRAGMA table_info(tasks)").fetchall()}
             for column in ("heartbeat_at", "lease_until"):
                 if column not in columns:
@@ -98,13 +101,16 @@ class ExecutionController:
         *,
         ci_gate_policy: Mapping[str, Any] | None = None,
         promotion_gate_policy: Mapping[str, Any] | None = None,
+        execution_class: str | None = None,
     ) -> str:
         """Register a durable handler and trusted, operator-owned gate policies.
 
-        Gate policy is stored separately from task payload. Omitting a policy on
-        re-registration never silently removes an existing gate. A promotion
-        context provider must obtain the candidate SHA, decision record, approver
-        set, and canonical evidence IDs from trusted live sources.
+        Execution class is an operator-owned registration contract, persisted
+        separately from task payload. New handlers must explicitly be classified
+        as read_only, context_provider, ci_gated, or consequential. Unknown legacy
+        registrations fail closed until reclassified. Consequential handlers
+        require both trusted decision-record and exact-head CI gates. Context
+        providers are internal-only and cannot be submitted as tasks.
         """
         if not isinstance(name, str) or not name.strip():
             raise ValueError("handler name is required")
@@ -124,11 +130,39 @@ class ExecutionController:
             handler_identity = str(getattr(handler, "__qualname__", ""))
         identity_tokens = _handler_tokens(handler_identity)
         tokens = name_tokens | identity_tokens
-        neutral_provider_tokens = {"context", "provider", "gate", "evidence", "validator", "verifier"}
-        explicit_action_tokens = {"promote", "promoter", "merge", "merger", "release", "deploy", "deployment", "publish"}
-        is_context_or_evidence_provider = bool(tokens & neutral_provider_tokens) and not bool(tokens & explicit_action_tokens)
-        requires_promotion_gate = bool(tokens & _PROMOTION_HANDLER_TOKENS) and not is_context_or_evidence_provider
-        requires_exact_head_ci = bool(tokens & _EXACT_HEAD_CI_HANDLER_TOKENS) and not is_context_or_evidence_provider
+        explicit_action_tokens = {"promote", "promotion", "promoter", "merge", "merger", "release", "deploy", "deployment", "publish"}
+        provider_action_exceptions = {"merge", "merger", "release", "deploy", "deployment", "publish", "promote", "promoter"}
+
+        with sqlite3.connect(self.db_path) as db:
+            prior_class_row = db.execute(
+                "SELECT execution_class FROM handlers WHERE name=?", (name,)
+            ).fetchone()
+        if execution_class is None and prior_class_row:
+            execution_class = str(prior_class_row[0])
+        if (
+            prior_class_row
+            and prior_class_row[0] != "unclassified"
+            and execution_class != prior_class_row[0]
+        ):
+            raise ValueError(
+                "registered execution_class is immutable; use a new handler identity for a different effect class"
+            )
+        if execution_class not in {"read_only", "context_provider", "ci_gated", "consequential"}:
+            raise ValueError(
+                "handler registration requires an explicit execution_class: "
+                "read_only, context_provider, ci_gated, or consequential"
+            )
+        is_trusted_provider_identity = (
+            execution_class == "context_provider"
+            and bool(tokens & {"context", "provider", "evidence", "validator", "verifier"})
+            and not bool(tokens & provider_action_exceptions)
+        )
+        if tokens & explicit_action_tokens and execution_class != "consequential" and not is_trusted_provider_identity:
+            raise ValueError("promotion/merge/release/deploy/publish handlers must be classified consequential")
+        if execution_class == "context_provider" and tokens & provider_action_exceptions:
+            raise ValueError("context providers cannot be consequential action handlers")
+        requires_promotion_gate = execution_class == "consequential"
+        requires_exact_head_ci = execution_class in {"ci_gated", "consequential"}
         if requires_promotion_gate and not promotion_gate_policy:
             # A prior trusted policy is retained on re-registration below. For
             # a new handler, require the caller to declare the gate explicitly.
@@ -193,15 +227,24 @@ class ExecutionController:
             if not promotion_policy and prior:
                 promotion_policy = json.loads(prior[1] or "{}")
             db.execute(
-                "INSERT INTO handlers(name,reference,updated_at,ci_gate_policy_json,promotion_gate_policy_json) "
-                "VALUES(?,?,?,?,?) ON CONFLICT(name) DO UPDATE SET "
+                "INSERT INTO handlers(name,reference,updated_at,ci_gate_policy_json,promotion_gate_policy_json,execution_class) "
+                "VALUES(?,?,?,?,?,?) ON CONFLICT(name) DO UPDATE SET "
                 "reference=excluded.reference,updated_at=excluded.updated_at,"
                 "ci_gate_policy_json=excluded.ci_gate_policy_json,"
-                "promotion_gate_policy_json=excluded.promotion_gate_policy_json",
+                "promotion_gate_policy_json=excluded.promotion_gate_policy_json,"
+                "execution_class=excluded.execution_class",
                 (name, reference, _now(), json.dumps(ci_policy, sort_keys=True),
-                 json.dumps(promotion_policy, sort_keys=True)),
+                 json.dumps(promotion_policy, sort_keys=True), execution_class),
             )
         return reference
+
+    def _handler_execution_class(self, name: str) -> str:
+        with sqlite3.connect(self.db_path) as db:
+            row = db.execute("SELECT execution_class FROM handlers WHERE name=?", (name,)).fetchone()
+        if not row:
+            raise KeyError(f"unknown durable handler: {name}")
+        value = row[0]
+        return value if isinstance(value, str) else "unclassified"
 
     def _handler_ci_gate_policy(self, name: str) -> dict[str, Any]:
         with sqlite3.connect(self.db_path) as db:
@@ -237,10 +280,21 @@ class ExecutionController:
         return obj
 
     def _preflight_gates(self, task: DurableTask) -> tuple[bool, str, tuple[str, ...]]:
-        """Validate promotion and exact-head CI gates before invoking a handler."""
+        """Validate operator-owned handler class and required gates before side effects."""
         evidence: list[str] = []
         promotion_expected_head: str | None = None
         try:
+            execution_class = self._handler_execution_class(task.handler)
+            if execution_class == "context_provider":
+                return False, "internal context providers cannot be executed as task handlers", ("handler-class:rejected",)
+            if execution_class not in {"read_only", "ci_gated", "consequential"}:
+                return False, "unclassified legacy handler fails closed", ("handler-class:unclassified",)
+            configured_promotion_policy = self._handler_promotion_gate_policy(task.handler)
+            configured_ci_policy = self._handler_ci_gate_policy(task.handler)
+            if execution_class == "consequential" and (not configured_promotion_policy or not configured_ci_policy):
+                return False, "consequential handler is missing mandatory promotion or exact-head CI policy", ("promotion-gate:missing", "ci-gate:missing")
+            if execution_class == "ci_gated" and not configured_ci_policy:
+                return False, "CI-gated handler is missing mandatory exact-head CI policy", ("ci-gate:missing",)
             promotion_policy = self._handler_promotion_gate_policy(task.handler)
             if promotion_policy and self.evidence_capture.sink is not None:
                 pending_exports = self.evidence_capture.pending_exports()
@@ -368,6 +422,11 @@ class ExecutionController:
         return work.id
 
     def submit(self, handler: str, payload: Mapping[str, Any], *, goal: str | None = None) -> DurableTask:
+        execution_class = self._handler_execution_class(handler)
+        if execution_class == "context_provider":
+            raise ValueError("context providers are internal-only and cannot be submitted as tasks")
+        if execution_class not in {"read_only", "ci_gated", "consequential"}:
+            raise ValueError("unclassified legacy handler fails closed; re-register with an explicit execution_class")
         self._load_handler(handler)
         work = self.company.start(goal or f"execute durable handler: {handler}")
         task = DurableTask(uuid4().hex, handler, dict(payload), "pending", 0, work.id)

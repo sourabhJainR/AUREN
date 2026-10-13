@@ -21,7 +21,7 @@ class ExecutionControllerEvidenceTests(unittest.TestCase):
         self.controller = ExecutionController(Path(self.temp.name))
 
     def test_task_lifecycle_and_attempt_number_are_captured_automatically(self):
-        self.controller.register_handler("compute", successful_work_handler)
+        self.controller.register_handler("compute", successful_work_handler, execution_class="read_only")
         task = self.controller.submit("compute", {"prompt": "DO-NOT-STORE", "api_key": "secret"})
         self.controller.run_once(task.id)
         capture = self.controller.evidence_capture
@@ -37,7 +37,7 @@ class ExecutionControllerEvidenceTests(unittest.TestCase):
         self.assertTrue(capture.verify_chain())
 
     def test_failed_work_is_preserved_as_negative_evidence(self):
-        self.controller.register_handler("compute", failed_work_handler)
+        self.controller.register_handler("compute", failed_work_handler, execution_class="read_only")
         task = self.controller.submit("compute", {"safe": "metadata"})
         self.controller.run_once(task.id)
         events = self.controller.evidence_capture.events(task_id=task.id)

@@ -210,8 +210,9 @@ class AdaptiveRuntime:
         *,
         ci_gate_policy: Mapping[str, Any] | None = None,
         promotion_gate_policy: Mapping[str, Any] | None = None,
+        execution_class: str | None = None,
     ) -> str:
-        """Register a restart-safe handler with optional operator-owned preflight gates.
+        """Register a restart-safe handler with explicit operator-owned effect class and gates.
 
         Consequential promotion/merge handlers must supply a trusted promotion
         context provider. Gate policies are persisted separately from task
@@ -219,7 +220,7 @@ class AdaptiveRuntime:
         """
         return self.execution_controller.register_handler(
             name, handler, ci_gate_policy=ci_gate_policy,
-            promotion_gate_policy=promotion_gate_policy,
+            promotion_gate_policy=promotion_gate_policy, execution_class=execution_class,
         )
 
     def submit_task(self, handler: str, payload: Mapping[str, Any], *, goal: str | None = None) -> Any:
