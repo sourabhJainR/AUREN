@@ -259,6 +259,10 @@ class EngineeringDesignGuard:
         # adaptable to different architectures while ensuring key failure modes
         # are considered explicitly.
         required_contracts = {
+            DesignDimension.ARCHITECTURE: (
+                (("responsibility", "module_owner", "boundary"), "State the responsible module/owner and its boundary, or an explicit not_applicable reason"),
+                (("dependency_direction", "allowed_dependencies", "coupling"), "State permitted dependency direction and coupling constraints, or an explicit not_applicable reason"),
+            ),
             DesignDimension.SECURITY: (
                 (("threat_model", "security"), "State the trust boundary and security threat/mitigation, or an explicit not_applicable reason"),
                 (("authorization", "least_privilege", "tool_permissions"), "State authorization and least-privilege/tool authority boundaries, or an explicit not_applicable reason"),
