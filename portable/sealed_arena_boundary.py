@@ -11,7 +11,7 @@ import hashlib
 import json
 import math
 import time
-from typing import Callable, Final, Mapping
+from typing import Callable, Final, Iterable, Mapping
 
 from .sealed_corpus_provenance import SealedCorpusProvenance
 from .sealed_arena_custody import verify_custody_attestation
@@ -273,12 +273,29 @@ class SealedArenaBoundary:
         self._max_future_skew_seconds = float(max_future_skew_seconds)
 
     @classmethod
-    def from_trusted_ed25519_keys(cls, trusted_public_keys: Mapping[str, bytes | str], *, replay_ledger: SealedArenaReplayLedger, clock: Callable[[], float] = time.time, max_future_skew_seconds: float = 30.0) -> "SealedArenaBoundary":
-        """Build a production boundary requiring signed custody, outcomes, and durable anti-replay."""
+    def from_trusted_ed25519_keys(
+        cls,
+        trusted_public_keys: Mapping[str, bytes | str],
+        *,
+        replay_ledger: SealedArenaReplayLedger,
+        revoked_signers: Iterable[str] = (),
+        key_validity: Mapping[str, tuple[float, float | None]] | None = None,
+        clock: Callable[[], float] = time.time,
+        max_future_skew_seconds: float = 30.0,
+    ) -> "SealedArenaBoundary":
+        """Build a production boundary requiring signed custody, outcomes, and durable anti-replay.
+
+        Key revocation and validity are operator-controlled trust inputs. They are
+        forwarded into the actual verifier used for both custody and outcome checks,
+        so production acceptance cannot accidentally bypass the key lifecycle policy.
+        """
         if not isinstance(replay_ledger, SealedArenaReplayLedger):
             raise ValueError("trusted Ed25519 boundary requires a persistent replay ledger")
         from .sealed_arena_signature import Ed25519ReceiptVerifier
-        verifier = Ed25519ReceiptVerifier(trusted_public_keys)
+        verifier = Ed25519ReceiptVerifier(
+            trusted_public_keys, revoked_signers=revoked_signers,
+            key_validity=key_validity, clock=clock,
+        )
         boundary = cls(
             verifier,
             verify_custody_signature=verifier.verify_detached,
