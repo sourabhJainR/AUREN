@@ -24,7 +24,7 @@ Review the harness across:
 
 ## Problem-solving quality
 
-AER must use problem-solving frameworks as adaptive reasoning tools, not as mandatory ceremonies.
+AUREN must use problem-solving frameworks as adaptive reasoning tools, not as mandatory ceremonies.
 
 For non-trivial work, review whether:
 

@@ -1,6 +1,6 @@
 # Canonical Engineering Evidence Envelope
 
-AER now has one immutable envelope for carrying lifecycle lineage across planning,
+AUREN now has one immutable envelope for carrying lifecycle lineage across planning,
 execution, verification, review, learning and release.
 
 The envelope is an index of identifiers and digests. It does not copy evidence
