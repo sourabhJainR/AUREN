@@ -1,4 +1,4 @@
-"""Active-learning and self-model primitives for AER.
+"""Active-learning and self-model primitives for AUREN.
 
 This layer turns execution telemetry into explicit uncertainty and bounded
 experiment proposals. It is provider-free and advisory: execution authority,
