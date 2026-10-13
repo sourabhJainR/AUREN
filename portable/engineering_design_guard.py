@@ -269,6 +269,7 @@ class EngineeringDesignGuard:
             DesignDimension.CONCURRENCY: (
                 (("shared_state_owner", "single_writer", "lock_scope", "atomicity"), "State shared-state ownership and the lock/atomicity boundary, or an explicit not_applicable reason"),
                 (("race_test", "interleaving_test", "concurrency_test"), "State race/interleaving regression coverage, or an explicit not_applicable reason"),
+                (("cancellation", "synchronization", "deadlock", "parallelism"), "State cancellation/synchronization and race/deadlock verification, or an explicit not_applicable reason"),
             ),
             DesignDimension.DATA: (
                 (("source_of_truth", "consistency", "transaction"), "State the authoritative data source and consistency/transaction boundary, or an explicit not_applicable reason"),
@@ -293,10 +294,6 @@ class EngineeringDesignGuard:
             ),
             DesignDimension.PERFORMANCE: (
                 (("performance_budget", "benchmark", "profiling", "latency", "resource_budget", "performance"), "State a measurable performance/resource expectation or explain why measurement is not applicable"),
-            ),
-            DesignDimension.CONCURRENCY: (
-                (("ownership", "concurrency"), "State shared-state ownership and concurrency model, or an explicit not_applicable reason"),
-                (("cancellation", "synchronization", "race_test", "deadlock", "parallelism"), "State cancellation/synchronization and race/deadlock verification, or an explicit not_applicable reason"),
             ),
             DesignDimension.DISTRIBUTED: (
                 (("consistency", "cap_tradeoff", "pacelc"), "State consistency and CAP/PACELC trade-offs where partitions or replicas matter, or an explicit not_applicable reason"),
