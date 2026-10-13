@@ -8,7 +8,7 @@ This register intentionally distinguishes compatibility from stale branding. Do 
 
 | Reference | Classification | Required treatment |
 |---|---|---|
-| `AER_GRAPH_TEAM` | Legacy environment-variable alias | Keep only as a documented fallback while `AUREN_GRAPH_TEAM` is canonical. Test canonical precedence and legacy fallback; do not use the legacy alias in new examples. |
+| `AER_*` environment variables (including `AER_HOME`, `AER_CORE_BIN`, `AER_LOCAL_LLM_*`, and `AER_OBSERVABILITY`) | Legacy environment aliases | Canonical `AUREN_*` settings take precedence; legacy names are read only as fallback through `portable.identity_compat`. Do not introduce direct reads of legacy names in new runtime code. |
 | `aer_cli.py`, `aer-portable.zip`, `aer-bundle.json`, `aer-core` | Retired entry-point, distribution, manifest, and native-worker names | Use `auren_cli.py`, `auren-portable.zip`, `auren-bundle.json`, and `auren-core` for current installs. Mention old names only when documenting migration or historical artifacts. |
 | AER release names in `docs/LEGACY_LINEAGE_CONFORMANCE.md` | Historical lineage | Keep only as a historical release identifier. Do not present it as the current product name or current install path. |
 | `AER-42` inside `scripts/conformance_oracles.py` | Adversarial test fixture | Keep as arbitrary input/output test data for normalization behavior, not as a product identity. |
