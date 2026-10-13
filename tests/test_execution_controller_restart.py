@@ -4,7 +4,6 @@ from datetime import datetime, timedelta, timezone
 import json
 import os
 import subprocess
-import pytest
 import sys
 
 from portable.execution_controller import ExecutionController, LeaseLostError
@@ -105,8 +104,12 @@ def test_reclaimed_task_fences_old_worker_heartbeat_and_finalization(tmp_path: P
     assert new_claim.lease_generation > old_claim.lease_generation
     assert new_claim.lease_token != old_claim.lease_token
 
-    with pytest.raises(LeaseLostError, match="lease was lost"):
+    try:
         first.heartbeat(old_claim)
+    except LeaseLostError as exc:
+        assert "lease was lost" in str(exc)
+    else:
+        raise AssertionError("stale worker heartbeat must be rejected")
     assert not first._finalize_claim(old_claim, "completed")
     second.heartbeat(new_claim)
     assert second._finalize_claim(new_claim, "completed")
