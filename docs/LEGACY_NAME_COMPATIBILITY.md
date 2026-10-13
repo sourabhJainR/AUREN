@@ -8,7 +8,7 @@ This register intentionally distinguishes compatibility from stale branding. Do 
 
 | Reference | Classification | Required treatment |
 |---|---|---|
-| `AER_GRAPH_TEAM` | Legacy environment-variable alias | Keep only as a documented fallback while `AUREN_GRAPH_TEAM` is canonical. Test canonical precedence and legacy fallback; do not use the legacy alias in new examples. |
+| `AUREN_GRAPH_TEAM` | Legacy environment-variable alias | Keep only as a documented fallback while `AUREN_GRAPH_TEAM` is canonical. Test canonical precedence and legacy fallback; do not use the legacy alias in new examples. |
 | AER release names in `docs/LEGACY_LINEAGE_CONFORMANCE.md` | Historical lineage | Keep only as a historical release identifier. Do not present it as the current product name or current install path. |
 | `AER-42` inside `scripts/conformance_oracles.py` | Adversarial test fixture | Keep as arbitrary input/output test data for normalization behavior, not as a product identity. |
 | Old names in explicitly archived release evidence | Historical evidence | Preserve for provenance; label as historical and link to the current canonical contract where useful. |

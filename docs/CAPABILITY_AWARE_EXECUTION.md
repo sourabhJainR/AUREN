@@ -29,10 +29,10 @@ Local skills are discovered from:
 - `.claude/skills/<name>/SKILL.md`
 - `.ai-harness/skills/<name>/SKILL.md`
 - `skills/<name>/SKILL.md`
-- paths listed in `AER_SKILLS_PATH`
+- paths listed in `AUREN_SKILLS_PATH`
 
 MCP and plugin hosts can advertise bounded capability metadata through
-`AER_MCP_CAPABILITIES` and `AER_PLUGIN_CAPABILITIES`. Each variable contains
+`AUREN_MCP_CAPABILITIES` and `AUREN_PLUGIN_CAPABILITIES`. Each variable contains
 a JSON array of descriptors. The runtime ignores malformed or unavailable
 sources and continues with built-in capabilities.
 
