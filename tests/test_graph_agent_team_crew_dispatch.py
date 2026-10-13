@@ -72,6 +72,11 @@ class HarnessCrewDispatchTests(unittest.TestCase):
                 result["crew_execution"]["proposals"]["frontend_ui"]["review_status"],
                 "pending",
             )
+            proposal_record = result["crew_execution"]["proposals"]["frontend_ui"]
+            self.assertEqual(proposal_record["implementation_version"], "test-v1")
+            self.assertEqual(proposal_record["intent_digest"], "intent-ui")
+            self.assertEqual(proposal_record["crew_plan_digest"], result["crew_plan"]["digest"])
+            self.assertEqual(len(proposal_record["proposal_digest"]), 64)
             self.assertEqual(
                 result["crew_execution"]["crew_plan_digest"],
                 result["crew_plan"]["digest"],
