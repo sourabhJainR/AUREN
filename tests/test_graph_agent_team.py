@@ -273,5 +273,61 @@ class GraphAgentTeamTests(unittest.TestCase):
             self.assertEqual(plan["planned_parallelism"], 1)
             self.assertEqual(len(plan["groups"]), 1)
 
+
+    def test_crew_proposals_are_bound_to_canonical_evidence_envelope(self):
+        import hashlib
+        import json
+
+        class FrontendProposal:
+            crew_id = "frontend_ui"
+            implementation_version = "test-v1"
+            configuration_digest = "frontend-config-v1"
+
+            def propose(self, request):
+                return {
+                    "schema_version": "auren-crew-proposal-v1",
+                    "recommendation": "review required",
+                    "artifacts": list(request["required_artifacts"]),
+                    "evidence_refs": ["test://frontend/inspection"],
+                    "uncertainty": ["Independent QA remains required."],
+                    "blockers": [],
+                    "acceptance_check_results": {
+                        name: {"status": "not_run", "evidence_refs": []}
+                        for name in request["acceptance_checks"]
+                    },
+                }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            memory = SharedTaskMemory(Path(tmp) / "memory.jsonl", "intent-crew-envelope")
+            team = GraphAgentTeam(
+                [AgentSpec("planner", "planner")],
+                crew_adapters={"frontend_ui": FrontendProposal()},
+            )
+            result = team.execute(
+                task="Implement frontend UI",
+                intent_digest="intent-crew-envelope",
+                base_prompt="base",
+                memory=memory,
+                invoke_agent=lambda agent, prompt: (0, "plan recorded", 0.01),
+            )
+
+        execution = result["crew_execution"]
+        envelope = execution["evidence_envelope"]
+        supplied_digest = envelope.pop("digest")
+        expected_digest = hashlib.sha256(
+            json.dumps(envelope, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+        self.assertEqual(supplied_digest, expected_digest)
+        self.assertEqual(envelope["intent_digest"], "intent-crew-envelope")
+        self.assertEqual(envelope["crew_plan_digest"], result["crew_plan"]["digest"])
+        self.assertIn("frontend_ui", execution["proposal_receipts"])
+        proposal = execution["proposals"]["frontend_ui"]
+        expected_receipt = hashlib.sha256(
+            json.dumps(proposal, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+        self.assertEqual(execution["proposal_receipts"]["frontend_ui"], expected_receipt)
+        self.assertEqual(execution["handoff_receipts"], [])
+        self.assertEqual(execution["handoff_status"], "not_requested")
+
 if __name__ == "__main__":
     unittest.main()
