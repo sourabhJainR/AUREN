@@ -77,7 +77,7 @@ class StateMigrationTests(unittest.TestCase):
             root = Path(tmp)
             source = root / ".aer"
             source.mkdir()
-            with self.assertRaisesRegex(ValueError, "child of the source"):
+            with self.assertRaisesRegex(ValueError, "destination must not be the source or a child"):
                 migrate_state_root(source, source / ".auren", dry_run=True)
 
 
