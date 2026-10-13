@@ -38,7 +38,7 @@ def _path(value: Path | str | None, default: Path) -> Path:
 
 
 def _default_aer_home() -> Path:
-    return Path.home() / ".aer"
+    return Path.home() / ".auren"
 
 
 def _safe_read_json(path: Path) -> dict[str, Any] | None:
@@ -53,11 +53,11 @@ def render_json(value: object) -> str:
     return json.dumps(value, indent=2, sort_keys=True, ensure_ascii=False)
 
 
-def _installation(aer_home: Path) -> dict[str, object]:
-    active_path = aer_home / "active.json"
+def _installation(auren_home: Path) -> dict[str, object]:
+    active_path = auren_home / "active.json"
     active = _safe_read_json(active_path)
     installed = active is not None and bool(active.get("version")) and bool(active.get("source_commit"))
-    current = aer_home / "current"
+    current = auren_home / "current"
     current_exists = current.exists() or current.is_symlink()
     consistent = False
     reason = "not installed"
@@ -78,7 +78,7 @@ def _installation(aer_home: Path) -> dict[str, object]:
         reason = "active metadata exists but the current installation is missing"
 
     versions = 0
-    versions_root = aer_home / "versions"
+    versions_root = auren_home / "versions"
     try:
         versions = sum(1 for p in versions_root.iterdir() if p.is_dir()) if versions_root.is_dir() else 0
     except OSError:
@@ -134,8 +134,8 @@ def _parse_schedule_label(task: object) -> tuple[str, str]:
     return "custom schedule", "custom"
 
 
-def _scheduler(aer_home: Path) -> dict[str, object]:
-    db_path = aer_home / "automation" / "automation.db"
+def _scheduler(auren_home: Path) -> dict[str, object]:
+    db_path = auren_home / "automation" / "automation.db"
     if not db_path.is_file():
         return {
             "available": False,
@@ -186,8 +186,8 @@ def _scheduler(aer_home: Path) -> dict[str, object]:
     }
 
 
-def _history(aer_home: Path) -> dict[str, object]:
-    history = aer_home / "history.jsonl"
+def _history(auren_home: Path) -> dict[str, object]:
+    history = auren_home / "history.jsonl"
     if not history.is_file():
         return {"events": 0, "activations": 0, "rollbacks": 0, "latest": None}
     activations = 0
@@ -230,8 +230,8 @@ def _line_count(path: Path) -> int:
         return 0
 
 
-def _observability(aer_home: Path) -> dict[str, object]:
-    trace_path = aer_home / "observability" / "traces.jsonl"
+def _observability(auren_home: Path) -> dict[str, object]:
+    trace_path = auren_home / "observability" / "traces.jsonl"
     return {
         "enabled": trace_path.is_file(),
         "trace_file": str(trace_path),
@@ -262,10 +262,10 @@ def _repository(project_root: Path) -> dict[str, object]:
 
 def build_status(
     *,
-    aer_home: Path | str | None = None,
+    auren_home: Path | str | None = None,
     project_root: Path | str | None = None,
 ) -> dict[str, object]:
-    home = _path(aer_home, _default_aer_home())
+    home = _path(auren_home, _default_aer_home())
     project = _path(project_root, Path.cwd())
     return {
         "schema_version": 1,
@@ -283,9 +283,9 @@ def build_status(
 def run_doctor(
     project_root: Path | str | None = None,
     *,
-    aer_home: Path | str | None = None,
+    auren_home: Path | str | None = None,
 ) -> tuple[list[CheckResult], int]:
-    home = _path(aer_home, _default_aer_home())
+    home = _path(auren_home, _default_aer_home())
     project = _path(project_root, Path.cwd())
     checks: list[CheckResult] = []
 
@@ -383,7 +383,7 @@ def render_doctor(checks: list[CheckResult], exit_code: int, *, json_output: boo
         if check.remedy:
             line += f" Remediation: {check.remedy}"
         lines.append(line)
-    lines.append("Next: run `python aer_cli.py status` for the current control-plane snapshot.")
+    lines.append("Next: run `python auren_cli.py status` for the current control-plane snapshot.")
     return "\n".join(lines)
 
 
@@ -420,7 +420,7 @@ def render_status(snapshot: dict[str, object], *, json_output: bool = False) -> 
         f"Observability traces: {observability.get('trace_count', 0) if isinstance(observability, dict) else 0}",
         f"Engineering reports: {reports.get('count', 0) if isinstance(reports, dict) else 0}",
         "",
-        "Next: `python aer_cli.py doctor` or `python aer_cli.py demo .`",
+        "Next: `python auren_cli.py doctor` or `python auren_cli.py demo .`",
     ]
     return "\n".join(lines)
 
