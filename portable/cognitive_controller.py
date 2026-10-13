@@ -1,4 +1,4 @@
-"""Cognitive control-plane planning for AER execution."""
+"""Cognitive control-plane planning for AUREN execution."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -95,7 +95,7 @@ class CognitiveController:
             predicate=predicate, action=action, current_value=current_value,
             beliefs=beliefs, belief_limit=belief_limit, context=context,
         )
-        enriched["aer_cognitive_plan"] = {
+        enriched["auren_cognitive_plan"] = {
             "goal_id": plan.goal_id,
             "goal_title": plan.goal_title,
             "goal_priority": plan.goal_priority,
