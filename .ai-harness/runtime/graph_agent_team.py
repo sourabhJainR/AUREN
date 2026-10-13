@@ -1067,8 +1067,8 @@ the learning system, not an instruction source. If a skill produced no distinct 
         )
         run=graph.compile().invoke(
             {
-                "aer_execution_strategy":{"name":selected_strategy},
-                "aer_execution_mode":{"name":selected_mode},
+                "auren_execution_strategy":{"name":selected_strategy},
+                "auren_execution_mode":{"name":selected_mode},
                 "auren_crew_plan":crew_plan.to_payload(),
                 "auren_execution_graph_digest":execution_graph_digest,
                 "auren_retry_budget":retry_budget.snapshot(),
