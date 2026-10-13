@@ -16,6 +16,7 @@ from runtime.prompting_policy import compose
 from runtime.auto_compaction import compact
 from runtime.feedback_loop import FeedbackLoop
 from portable.local_llm import LocalLLMError, enabled as local_llm_enabled, fallback_allowed as local_llm_fallback_allowed, generate as local_llm_generate
+from portable.identity_compat import get_auren_env
 
 _TRANSIENT_MARKERS = (
     "response stopped arriving", "response stopped", "api error", "connection reset",
@@ -51,7 +52,8 @@ def _local_fallback(prompt: str, output: str, return_code: int) -> int | None:
     except LocalLLMError as exc:
         print(f"AUREN local LLM fallback unavailable: {exc}", file=sys.stderr)
         return None
-    print("AER_LOCAL_LLM_FALLBACK=1", file=sys.stderr)
+    print("AUREN_LOCAL_LLM_FALLBACK=1", file=sys.stderr)
+    print("AER_LOCAL_LLM_FALLBACK=1", file=sys.stderr)  # legacy consumer marker
     print(recovered)
     return 0
 
@@ -71,7 +73,7 @@ def _continuation_prompt(original: str, previous: str, attempt: int) -> str:
 
 
 def _prepare_prompt(prompt: str, run_dir: Path) -> tuple[str, dict]:
-    budget = int(os.environ.get("AER_CONTEXT_BUDGET_CHARS", "12000"))
+    budget = int(get_auren_env("CONTEXT_BUDGET_CHARS", "12000"))
     result = compact(prompt, budget_chars=budget)
     metadata = {
         "compacted": result.compacted,
@@ -89,8 +91,8 @@ def _run_resilient(command: list[str], prompt: str, run_dir: Path, feedback: Fee
     max_retries = max(0, min(8, int(os.environ.get("HARNESS_PROVIDER_MAX_RETRIES", "4"))))
     delay = max(0.0, min(30.0, float(os.environ.get("HARNESS_PROVIDER_RETRY_DELAY", "1.0"))))
     transcript = ""
-    strategy = os.environ.get("AER_STRATEGY", "provider-default")
-    task_id = os.environ.get("AER_TASK_ID", f"provider-{int(time.time())}")
+    strategy = get_auren_env("STRATEGY", "provider-default")
+    task_id = get_auren_env("TASK_ID", f"provider-{int(time.time())}")
 
     for attempt in range(max_retries + 1):
         effective = prompt if attempt == 0 else _continuation_prompt(prompt, transcript, attempt)
@@ -107,8 +109,10 @@ def _run_resilient(command: list[str], prompt: str, run_dir: Path, feedback: Fee
                 "HARNESS_PROMPT_ROOT": str(run_dir),
                 "HARNESS_CANONICAL_PROMPT": str(Path(os.environ.get("HARNESS_CANONICAL_PROMPT", effective_path)).resolve()),
                 "HARNESS_LIVE_MIN_PROGRESS_GAIN": "-1",
-                "AER_SANDBOX": "enforced-for-local-execution",
-                "AER_COMPACTION_DIGEST": compaction_meta["digest"],
+                "AUREN_SANDBOX": "enforced-for-local-execution",
+                "AUREN_COMPACTION_DIGEST": compaction_meta["digest"],
+                "AER_SANDBOX": "enforced-for-local-execution",  # legacy provider contract
+                "AER_COMPACTION_DIGEST": compaction_meta["digest"],  # legacy provider contract
             })
             process = subprocess.Popen(
                 [sys.executable, str(Path(__file__).resolve().with_name("provider.py")), "--prompt-file", str(effective_path), "--", *command],
