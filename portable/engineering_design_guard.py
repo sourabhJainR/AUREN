@@ -84,7 +84,8 @@ class EngineeringDesignGuard:
         DesignDimension.DOMAIN: ("domain", "bounded_context", "aggregate", "invariant"),
         DesignDimension.DATA: (
             "data", "source_of_truth", "consistency", "idempotency", "ordering",
-            "db_access", "query_pattern", "n_plus_one",
+            "db_access", "query_pattern", "n_plus_one", "schema_evolution",
+            "migration", "backfill", "reconciliation", "transaction",
         ),
         DesignDimension.RESILIENCE: (
             "resilience", "timeout", "retry", "recovery", "observability", "performance",
@@ -262,6 +263,10 @@ class EngineeringDesignGuard:
             DesignDimension.ARCHITECTURE: (
                 (("responsibility", "module_owner", "boundary"), "State the responsible module/owner and its boundary, or an explicit not_applicable reason"),
                 (("dependency_direction", "allowed_dependencies", "coupling"), "State permitted dependency direction and coupling constraints, or an explicit not_applicable reason"),
+            ),
+            DesignDimension.DATA: (
+                (("source_of_truth", "consistency", "transaction"), "State the authoritative data source and consistency/transaction boundary, or an explicit not_applicable reason"),
+                (("schema_evolution", "migration", "backfill", "reconciliation"), "State schema/format evolution, backfill, reconciliation and rollback handling, or an explicit not_applicable reason"),
             ),
             DesignDimension.RESILIENCE: (
                 (("timeout_budget", "deadline_budget", "timeout", "deadline"), "State an operation deadline and timeout budget, or an explicit not_applicable reason"),
