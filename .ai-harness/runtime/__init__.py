@@ -1,7 +1,7 @@
 """Runtime package bootstrap.
 
-The graph-team integration is enabled by default. Set AER_GRAPH_TEAM=0 to
-fall back to the legacy single-provider phase execution for diagnostics.
+The graph-team integration is enabled by default. Set AUREN_GRAPH_TEAM=0 to
+fall back to the legacy single-provider phase execution for diagnostics. AER_GRAPH_TEAM remains a legacy alias.
 
 Every provider-driven lifecycle phase gets a phase-appropriate dependency DAG.
 Deterministic harness-owned operations remain authoritative, while all model
@@ -15,6 +15,48 @@ import json
 import os
 from pathlib import Path
 from typing import Any
+
+
+
+_CREW_ADAPTERS: dict[str, Any] = {}
+
+
+def register_crew_adapters(adapters: dict[str, Any], *, replace: bool = False) -> None:
+    """Register trusted proposal-only adapters during runtime bootstrap."""
+    from portable.state_graph import default_crew_definitions
+
+    if not isinstance(adapters, dict):
+        raise TypeError("crew adapters must be a mapping")
+    if type(replace) is not bool:
+        raise ValueError("replace must be a boolean")
+    allowed_ids = {crew.crew_id for crew in default_crew_definitions()}
+    for crew_id, adapter in adapters.items():
+        if crew_id not in allowed_ids:
+            raise ValueError(f"unknown crew id: {crew_id}")
+        if getattr(adapter, "crew_id", None) != crew_id or not callable(getattr(adapter, "propose", None)):
+            raise ValueError(f"invalid proposal adapter for crew {crew_id}")
+        version = getattr(adapter, "implementation_version", None)
+        if not isinstance(version, str) or not version.strip() or version.strip().lower() == "unversioned":
+            raise ValueError(f"crew adapter {crew_id} needs an explicit implementation_version")
+        digest = getattr(adapter, "configuration_digest", None)
+        if not isinstance(digest, str) or not digest.strip():
+            raise ValueError(f"crew adapter {crew_id} needs a stable configuration digest")
+        if crew_id in _CREW_ADAPTERS and _CREW_ADAPTERS[crew_id] is not adapter and not replace:
+            raise ValueError(f"crew adapter {crew_id} is already registered")
+    _CREW_ADAPTERS.update(adapters)
+
+
+def _requires_crew_contract(route: dict[str, Any], phase: str) -> bool:
+    if phase not in {"poc", "debug", "execute", "repair", "review"}:
+        return False
+    if str(route.get("risk", "low")).strip().lower() in {"high", "critical"}:
+        return True
+    task = str(route.get("task", "")).lower()
+    return any(term in task for term in (
+        "security", "privacy", "authentication", "authorization", "permission",
+        "database migration", "schema migration", "data integrity",
+        "production deploy", "rollback", "concurrency", "distributed consistency",
+    ))
 
 
 def _phase_team(route: dict[str, Any], phase: str, graph_types):
@@ -78,11 +120,15 @@ def _phase_team(route: dict[str, Any], phase: str, graph_types):
 
     final_deps = tuple(a.name for a in agents if a.name in review_names) or (agents[-1].name,)
     agents.append(AgentSpec("synthesizer", "team synthesizer", depends_on=final_deps, read_only=True, focus="Synthesize evidence, decisions, unresolved risks and the recommended next action for this phase."))
-    return GraphAgentTeam(agents)
+    return GraphAgentTeam(
+        agents,
+        crew_adapters=_CREW_ADAPTERS,
+        require_crew_adapters=_requires_crew_contract(route, phase),
+    )
 
 
 def _install_graph_team_bridge() -> None:
-    if os.environ.get("AER_GRAPH_TEAM", "1").strip().lower() in {"0", "false", "off", "no"}:
+    if os.environ.get("AUREN_GRAPH_TEAM", os.environ.get("AER_GRAPH_TEAM", "1")).strip().lower() in {"0", "false", "off", "no"}:
         return
     try:
         import engine
@@ -94,7 +140,8 @@ def _install_graph_team_bridge() -> None:
         original_execute = GraphAgentTeam.execute
 
         def guarded_execute(self, *, task, intent_digest, base_prompt, memory, invoke_agent,
-                           checkpoint=None, resume=False, run_id="graph-agent-team", max_steps=100):
+                           checkpoint=None, resume=False, run_id="graph-agent-team", max_steps=100,
+                           require_crew_adapters=None):
             def guarded_invoke(agent, prompt):
                 if agent.read_only:
                     prompt += "\n\n## Security execution mode\npatch_allowed: false\n"
@@ -102,7 +149,8 @@ def _install_graph_team_bridge() -> None:
 
             return original_execute(self, task=task, intent_digest=intent_digest, base_prompt=base_prompt,
                                     memory=memory, invoke_agent=guarded_invoke, checkpoint=checkpoint,
-                                    resume=resume, run_id=run_id, max_steps=max_steps)
+                                    resume=resume, run_id=run_id, max_steps=max_steps,
+                                    require_crew_adapters=require_crew_adapters)
 
         guarded_execute._aer_guarded = True
         GraphAgentTeam.execute = guarded_execute
@@ -130,6 +178,7 @@ def _install_graph_team_bridge() -> None:
             route = dict(route)
             route["phase"] = phase
             task = str(manifest.get("task", "")).strip()
+            route["task"] = task
             intent_digest = str(manifest.get("intent_digest", "")).strip()
             if not intent_digest:
                 contract_path = run_dir / "intent-contract.json"

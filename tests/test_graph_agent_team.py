@@ -218,6 +218,7 @@ class GraphAgentTeamTests(unittest.TestCase):
     def test_route_creates_builder_verifier_and_reviews(self):
         team = team_for_route({"mode": "implement", "capabilities": [], "risk": "high"})
         names = set(team.agents)
+        self.assertTrue(team.require_crew_adapters)
         self.assertTrue({"planner", "explorer", "builder", "verifier", "correctness-reviewer", "security-reviewer", "architecture-reviewer", "synthesizer"}.issubset(names))
 
     def test_resource_routing_exposes_adaptive_inference_depth(self):

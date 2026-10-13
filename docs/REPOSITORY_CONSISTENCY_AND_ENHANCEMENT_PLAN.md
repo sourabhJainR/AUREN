@@ -144,10 +144,10 @@ The graph APIs and team strategy are not yet one integrated dispatch path:
 1. `portable.adaptive_runtime.AdaptiveRuntime` composes the default task run through `portable.orchestration.Graph/Orchestrator`.
 2. `portable.state_graph.StateGraph` is a supervisor-facing facade over that orchestration API.
 3. `portable.agency_state_graph.StateGraph` is a separate checkpointable graph kernel used by `.ai-harness/runtime/graph_agent_team.py`.
-4. `portable.crew_adapters` and `portable.state_graph.GraphAgentTeam` implement typed crew selection and scoped proposal dispatch, but the reviewed harness team does not import or invoke those adapters.
+4. `portable.crew_adapters` and `portable.state_graph.GraphAgentTeam` implement typed crew selection and scoped proposal dispatch. The harness graph now imports shared plan/proposal helpers and dispatches registered adapters in a graph-owned node; provider-specific adapters are host-registered and are not configured by default.
 5. `README.md`, `docs/ARCHITECTURE_CONSTITUTION.md`, `architecture/compatibility.yaml`, and pattern-adaptation documents had described overlapping owners inconsistently.
 
-The current owner map is documented in [`docs/UNIFIED_GRAPH_CREW_RUNTIME.md`](UNIFIED_GRAPH_CREW_RUNTIME.md). Issue [#438](https://github.com/sourabhJainR/AUREN/issues/438) is the acceptance gate for actual default-harness integration. Until the integration tests pass, documentation must not claim every default task invokes the typed specialist crews.
+The current owner map is documented in [`docs/UNIFIED_GRAPH_CREW_RUNTIME.md`](UNIFIED_GRAPH_CREW_RUNTIME.md). The harness now has a graph-owned proposal-dispatch path, but default provider adapters are not preconfigured. Issue [#438](https://github.com/sourabhJainR/AUREN/issues/438) remains the acceptance gate for durable cross-crew handoffs, one retry budget across all layers, and full end-to-end evidence/restart/rollback proof.
 
 ### Documentation drift found
 
@@ -155,9 +155,10 @@ The current-main search also found active AER-era naming and paths in console, o
 
 ### Next acceptance sequence
 
-- [ ] Integrate `portable.crew_adapters` into the actual harness graph path using a narrow adapter; retain the graph as the only dependency, evidence, review, and promotion authority.
+- [x] Integrate shared crew planning and proposal validation into a graph-owned harness node; retain the graph as the only dependency and execution authority.
+- [ ] Register provider-specific adapters at trusted host bootstrap and prove that required high-risk phases fail closed when an adapter is absent.
 - [ ] Prove deterministic crew assignment and stable digest binding across graph, intent, crew contract, and adapter configuration.
-- [ ] Test independent read-only parallel work, serialized mutations, cross-crew handoffs, missing adapter behavior, blocked dependencies, retry budgets, checkpoint/resume, independent QA, and unauthorized promotion attempts.
+- [ ] Test independent read-only parallel work, serialized mutations, durable cross-crew handoffs, missing adapter behavior, blocked dependencies, a single retry budget, checkpoint/resume, independent QA, and unauthorized promotion attempts.
 - [ ] Consolidate retry ownership so node retries, crew handoff retries, and supervisor recovery consume one bounded task budget.
 - [ ] Verify memory/evidence ownership: task-scoped memory remains a projection, not a second durable source of truth.
 - [ ] Run identity/path consistency tests, architecture validation, full test suite, exact-head CI, and post-merge main re-evaluation.

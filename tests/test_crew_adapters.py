@@ -66,6 +66,19 @@ class ApprovedCrewAdapterTests(unittest.TestCase):
         self.assertEqual(len(calls), len(SPECIALIST_CREW_IDS))
         self.assertEqual({call["crew_id"] for call in calls}, set(SPECIALIST_CREW_IDS))
 
+    def test_configuration_digest_binds_explicit_implementation_version(self):
+        registry = ApprovedToolRegistry()
+        planner = lambda _request: {"tool_calls": [], "proposal": {}}
+        v1 = ApprovedToolCrewAdapter(
+            "frontend_ui", planner, registry, allowed_tools=(),
+            implementation_version="frontend-planner-v1",
+        )
+        v2 = ApprovedToolCrewAdapter(
+            "frontend_ui", planner, registry, allowed_tools=(),
+            implementation_version="frontend-planner-v2",
+        )
+        self.assertNotEqual(v1.configuration_digest, v2.configuration_digest)
+
     def test_core_adapter_factory_wires_every_specialist_through_graph_dispatch(self):
         calls = []
         registry = ApprovedToolRegistry([

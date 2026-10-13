@@ -142,11 +142,14 @@ class ContractAlignmentTests(unittest.TestCase):
             "portable.state_graph.GraphAgentTeam",
             "portable.crew_adapters",
             "issue #438",
-            "does not import or invoke",
+            "host registers adapters at bootstrap",
             "Guard authorization",
         ):
             self.assertIn(token, contract)
         self.assertIn("issue #438", readme)
+        runtime_entry = (ROOT / ".ai-harness" / "runtime" / "__init__.py").read_text(encoding="utf-8")
+        self.assertIn('os.environ.get("AUREN_GRAPH_TEAM"', runtime_entry)
+        self.assertIn('os.environ.get("AER_GRAPH_TEAM"', runtime_entry)
         team_strategy = next(
             item for item in compatibility["surfaces"]
             if item["name"] == ".ai-harness/runtime/graph_agent_team.py"

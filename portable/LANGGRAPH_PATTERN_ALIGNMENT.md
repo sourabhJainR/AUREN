@@ -18,7 +18,7 @@ AUREN adopts selected LangGraph ideas as provider-neutral engineering-runtime pr
 
 `portable/agency_state_graph.py` is the low-level state-machine primitive. `.ai-harness/runtime/graph_agent_team.py` remains the higher-level agent-team scheduler, with `TaskPlan` as its dependency contract and `SharedTaskMemory` as its task-scoped memory.
 
-This is the checkpointable graph kernel used by the resource-aware harness team. The default adaptive supervisor uses `portable.orchestration.Graph/Orchestrator`, while `portable.state_graph.GraphAgentTeam` owns the typed portable crew proposal contract. These are distinct paths today; the integration gate is tracked in [issue #438](https://github.com/sourabhJainR/AUREN) and mapped in `docs/UNIFIED_GRAPH_CREW_RUNTIME.md`.
+This is the checkpointable graph kernel used by the resource-aware harness team. The default adaptive supervisor uses `portable.orchestration.Graph/Orchestrator`, while `portable.state_graph.GraphAgentTeam` owns the portable crew contract facade. The harness now uses the shared crew-plan/proposal validation helpers; host-registered adapters are invoked by a graph-owned node. Durable handoffs and a shared retry budget remain tracked in [issue #438](https://github.com/sourabhJainR/AUREN) and mapped in `docs/UNIFIED_GRAPH_CREW_RUNTIME.md`.
 
 ## Safety boundary
 

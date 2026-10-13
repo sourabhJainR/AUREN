@@ -206,6 +206,177 @@ def _default_crews() -> tuple[CrewDefinition, ...]:
     )
 
 
+
+def default_crew_definitions() -> tuple[CrewDefinition, ...]:
+    """Return the canonical immutable specialist contract catalogue."""
+    return _default_crews()
+
+
+def build_crew_plan(
+    goal: str,
+    *,
+    graph_digest: str,
+    intent_digest: str,
+    agents: Mapping[str, Any],
+    crews: Mapping[str, CrewDefinition] | None = None,
+) -> CrewPlan:
+    """Build the same deterministic crew plan for either supported graph adapter."""
+    if not isinstance(goal, str) or not goal.strip():
+        raise ValueError("goal must be non-empty text")
+    if not isinstance(graph_digest, str) or not graph_digest.strip():
+        raise ValueError("graph_digest is required")
+    if not isinstance(intent_digest, str) or not intent_digest.strip():
+        raise ValueError("intent_digest is required")
+    definitions = dict(crews or {crew.crew_id: crew for crew in _default_crews()})
+    text = goal.lower()
+    selected: list[CrewAssignment] = []
+    for crew in definitions.values():
+        matched = tuple(
+            trigger for trigger in crew.triggers
+            if re.search(r"(?<![a-z0-9])" + re.escape(trigger.lower()) + r"(?![a-z0-9])", text)
+        )
+        if crew.always_on or matched:
+            contract = {
+                "crew_id": crew.crew_id, "specialty": crew.specialty,
+                "triggers": crew.triggers, "instructions": crew.instructions,
+                "required_artifacts": crew.required_artifacts,
+                "allowed_authorities": crew.allowed_authorities,
+                "acceptance_checks": crew.acceptance_checks,
+                "handoffs_to": crew.handoffs_to,
+                "always_on": crew.always_on,
+                "independent_review_required": crew.independent_review_required,
+            }
+            contract_digest = hashlib.sha256(
+                json.dumps(contract, sort_keys=True, separators=(",", ":")).encode("utf-8")
+            ).hexdigest()
+            agent = agents.get(crew.crew_id)
+            agent_config_digest = getattr(agent, "configuration_digest", "") if agent is not None else ""
+            if not isinstance(agent_config_digest, str):
+                agent_config_digest = ""
+            selected.append(CrewAssignment(
+                crew_id=crew.crew_id,
+                matched_triggers=matched,
+                agent_registered=agent is not None,
+                contract_digest=contract_digest,
+                agent_config_digest=agent_config_digest,
+            ))
+    selected.sort(key=lambda item: (0 if definitions[item.crew_id].always_on else 1, item.crew_id))
+    return CrewPlan(graph_digest=graph_digest, intent_digest=intent_digest, assignments=tuple(selected))
+
+
+def _dispatch_crew_proposal(
+    crew_id: str,
+    task: str,
+    evidence: Mapping[str, Any] | None,
+    *,
+    active: bool,
+    plan: CrewPlan,
+    graph_digest: str,
+    agents: Mapping[str, Any],
+    crews: Mapping[str, CrewDefinition],
+) -> dict[str, Any]:
+    """Validate and invoke one selected proposal adapter without granting execution authority."""
+    if type(active) is not bool:
+        raise ValueError("active must be a boolean")
+    if not isinstance(plan, CrewPlan):
+        raise TypeError("plan must be a CrewPlan")
+    if not active:
+        raise RuntimeError("crew dispatch is only available during graph execution")
+    selected_ids = {assignment.crew_id for assignment in plan.assignments}
+    if crew_id not in selected_ids:
+        raise ValueError(f"crew {crew_id} is not assigned to this graph task")
+    agent = agents.get(crew_id)
+    if agent is None:
+        raise ValueError(f"no registered proposal agent for crew {crew_id}")
+    proposer = getattr(agent, "propose", None)
+    if not callable(proposer):
+        raise TypeError("crew agents must expose a side-effect-free propose(request) interface")
+    if not isinstance(task, str) or not task.strip():
+        raise ValueError("crew task must be non-empty text")
+    if evidence is not None and not isinstance(evidence, Mapping):
+        raise ValueError("crew evidence must be a mapping")
+    definition = crews[crew_id]
+    request = {
+        "crew_id": crew_id,
+        "specialty": definition.specialty,
+        "instructions": definition.instructions,
+        "task": task,
+        "evidence": dict(evidence or {}),
+        "required_artifacts": list(definition.required_artifacts),
+        "acceptance_checks": list(definition.acceptance_checks),
+        "allowed_authorities": list(definition.allowed_authorities),
+        "graph_digest": graph_digest,
+        "crew_plan_digest": plan.digest,
+    }
+    try:
+        json.dumps(request, sort_keys=True, separators=(",", ":"))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("crew proposal request must be JSON-serializable") from exc
+    proposal = proposer(request)
+    if not isinstance(proposal, Mapping):
+        raise ValueError("crew proposal must be a structured mapping")
+    required_fields = {
+        "schema_version", "recommendation", "artifacts", "evidence_refs",
+        "uncertainty", "blockers", "acceptance_check_results",
+    }
+    if set(proposal) != required_fields:
+        raise ValueError("crew proposal fields do not match the required structured schema")
+    if proposal.get("schema_version") != "auren-crew-proposal-v1":
+        raise ValueError("unsupported crew proposal schema version")
+    if not isinstance(proposal.get("recommendation"), str) or not proposal["recommendation"].strip():
+        raise ValueError("crew proposal recommendation must be non-empty text")
+    for field in ("artifacts", "evidence_refs", "uncertainty", "blockers"):
+        values = proposal.get(field)
+        if not isinstance(values, list) or any(not isinstance(value, str) or not value.strip() for value in values):
+            raise ValueError(f"crew proposal {field} must be a list of non-empty strings")
+    checks = proposal.get("acceptance_check_results")
+    if not isinstance(checks, Mapping) or set(checks) != set(definition.acceptance_checks):
+        raise ValueError("crew proposal must report every declared acceptance check")
+    for check_name, result in checks.items():
+        if not isinstance(result, Mapping) or set(result) != {"status", "evidence_refs"}:
+            raise ValueError(f"acceptance result for {check_name} must include status and evidence_refs")
+        if result.get("status") not in {"pass", "fail", "blocked", "not_run"}:
+            raise ValueError(f"acceptance result for {check_name} has an invalid status")
+        refs = result.get("evidence_refs")
+        if not isinstance(refs, list) or any(not isinstance(ref, str) or not ref.strip() for ref in refs):
+            raise ValueError(f"acceptance evidence refs for {check_name} must be a list of non-empty strings")
+        if result["status"] == "pass" and not refs:
+            raise ValueError(f"acceptance check {check_name} cannot pass without evidence references")
+    # Bound proposal payloads before they enter checkpointed graph state.
+    payload = dict(proposal)
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    if len(encoded) > 32_000:
+        raise ValueError("crew proposal exceeds the 32 KB structured proposal limit")
+    adapter_digest = str(getattr(agent, "configuration_digest", ""))
+    implementation_version = str(getattr(agent, "implementation_version", "unversioned"))
+    digest_payload = {
+        "crew_id": crew_id,
+        "proposal": payload,
+        "adapter_configuration_digest": adapter_digest,
+        "implementation_version": implementation_version,
+        "graph_digest": graph_digest,
+        "intent_digest": plan.intent_digest,
+        "crew_plan_digest": plan.digest,
+    }
+    proposal_digest = hashlib.sha256(
+        json.dumps(digest_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    return {
+        "crew_id": crew_id,
+        "proposal": payload,
+        "proposal_digest": proposal_digest,
+        "adapter_configuration_digest": adapter_digest,
+        "implementation_version": implementation_version,
+        "graph_digest": graph_digest,
+        "intent_digest": plan.intent_digest,
+        "crew_plan_digest": plan.digest,
+        "review_required": True,
+        "review_status": "pending",
+        "acceptance_checks": list(definition.acceptance_checks),
+        "self_attested_acceptance_is_not_authoritative": True,
+    }
+
+
 class StateGraph:
     """Persistent-supervisor-friendly state machine over the existing Graph primitive."""
 
@@ -262,41 +433,12 @@ class GraphAgentTeam:
         self.crews[crew.crew_id] = crew
 
     def plan_crews(self, goal: str) -> CrewPlan:
-        if not isinstance(goal, str) or not goal.strip():
-            raise ValueError("goal must be non-empty text")
-        text = goal.lower()
-        selected: list[CrewAssignment] = []
-        for crew in self.crews.values():
-            matched = tuple(trigger for trigger in crew.triggers if re.search(r"(?<![a-z0-9])" + re.escape(trigger.lower()) + r"(?![a-z0-9])", text))
-            if crew.always_on or matched:
-                contract = {
-                    "crew_id": crew.crew_id, "specialty": crew.specialty,
-                    "triggers": crew.triggers, "instructions": crew.instructions,
-                    "required_artifacts": crew.required_artifacts,
-                    "allowed_authorities": crew.allowed_authorities,
-                    "acceptance_checks": crew.acceptance_checks,
-                    "handoffs_to": crew.handoffs_to,
-                    "always_on": crew.always_on,
-                    "independent_review_required": crew.independent_review_required,
-                }
-                contract_digest = hashlib.sha256(json.dumps(contract, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
-                agent = self.agents.get(crew.crew_id)
-                agent_config_digest = getattr(agent, "configuration_digest", "") if agent is not None else ""
-                if not isinstance(agent_config_digest, str):
-                    agent_config_digest = ""
-                selected.append(CrewAssignment(
-                    crew_id=crew.crew_id,
-                    matched_triggers=matched,
-                    agent_registered=agent is not None,
-                    contract_digest=contract_digest,
-                    agent_config_digest=agent_config_digest,
-                ))
-        # Keep routing deterministic even when callers register custom crews in a different order.
-        selected.sort(key=lambda item: (0 if self.crews[item.crew_id].always_on else 1, item.crew_id))
-        return CrewPlan(
+        return build_crew_plan(
+            goal,
             graph_digest=self.graph.digest(),
-            intent_digest=hashlib.sha256(goal.strip().encode("utf-8")).hexdigest(),
-            assignments=tuple(selected),
+            intent_digest=hashlib.sha256(goal.strip().encode("utf-8")).hexdigest() if isinstance(goal, str) else "",
+            agents=self.agents,
+            crews=self.crews,
         )
 
     def required_personas(self, goal: str) -> tuple[str, ...]:
@@ -336,71 +478,14 @@ class GraphAgentTeam:
         dispatch_active = {"value": True}
 
         def dispatch_crew(crew_id: str, task: str, evidence: Mapping[str, Any] | None = None) -> dict[str, Any]:
-            if not dispatch_active["value"]:
-                raise RuntimeError("crew dispatch is only available during graph execution")
-            if crew_id not in selected_ids:
-                raise ValueError(f"crew {crew_id} is not assigned to this graph task")
-            agent = self.agents.get(crew_id)
-            if agent is None:
-                raise ValueError(f"no registered proposal agent for crew {crew_id}")
-            proposer = getattr(agent, "propose", None)
-            if not callable(proposer):
-                raise TypeError("crew agents must expose a side-effect-free propose(request) interface")
-            if not isinstance(task, str) or not task.strip():
-                raise ValueError("crew task must be non-empty text")
-            if evidence is not None and not isinstance(evidence, Mapping):
-                raise ValueError("crew evidence must be a mapping")
-            definition = self.crews[crew_id]
-            request = {
-                "crew_id": crew_id,
-                "specialty": definition.specialty,
-                "instructions": definition.instructions,
-                "task": task,
-                "evidence": dict(evidence or {}),
-                "required_artifacts": list(definition.required_artifacts),
-                "acceptance_checks": list(definition.acceptance_checks),
-                "allowed_authorities": list(definition.allowed_authorities),
-                "graph_digest": self.graph.digest(),
-                "crew_plan_digest": plan.digest,
-            }
-            proposal = proposer(request)
-            if not isinstance(proposal, Mapping):
-                raise ValueError("crew proposal must be a structured mapping")
-            required_fields = {
-                "schema_version", "recommendation", "artifacts", "evidence_refs",
-                "uncertainty", "blockers", "acceptance_check_results",
-            }
-            if set(proposal) != required_fields:
-                raise ValueError("crew proposal fields do not match the required structured schema")
-            if proposal.get("schema_version") != "auren-crew-proposal-v1":
-                raise ValueError("unsupported crew proposal schema version")
-            if not isinstance(proposal.get("recommendation"), str) or not proposal["recommendation"].strip():
-                raise ValueError("crew proposal recommendation must be non-empty text")
-            for field in ("artifacts", "evidence_refs", "uncertainty", "blockers"):
-                values = proposal.get(field)
-                if not isinstance(values, list) or any(not isinstance(value, str) or not value.strip() for value in values):
-                    raise ValueError(f"crew proposal {field} must be a list of non-empty strings")
-            checks = proposal.get("acceptance_check_results")
-            if not isinstance(checks, Mapping) or set(checks) != set(definition.acceptance_checks):
-                raise ValueError("crew proposal must report every declared acceptance check")
-            for check_name, result in checks.items():
-                if not isinstance(result, Mapping) or set(result) != {"status", "evidence_refs"}:
-                    raise ValueError(f"acceptance result for {check_name} must include status and evidence_refs")
-                if result.get("status") not in {"pass", "fail", "blocked", "not_run"}:
-                    raise ValueError(f"acceptance result for {check_name} has an invalid status")
-                refs = result.get("evidence_refs")
-                if not isinstance(refs, list) or any(not isinstance(ref, str) or not ref.strip() for ref in refs):
-                    raise ValueError(f"acceptance evidence refs for {check_name} must be a list of non-empty strings")
-                if result["status"] == "pass" and not refs:
-                    raise ValueError(f"acceptance check {check_name} cannot pass without evidence references")
-            return {
-                "crew_id": crew_id,
-                "proposal": dict(proposal),
-                "review_required": True,
-                "review_status": "pending",
-                "acceptance_checks": list(definition.acceptance_checks),
-                "self_attested_acceptance_is_not_authoritative": True,
-            }
+            return _dispatch_crew_proposal(
+                crew_id, task, evidence,
+                active=dispatch_active["value"],
+                plan=plan,
+                graph_digest=self.graph.digest(),
+                agents=self.agents,
+                crews=self.crews,
+            )
 
         # Resume only from an explicitly supplied, schema-validated supervisor checkpoint.
         checkpoint = state.get("auren_crew_handoff_checkpoint")
@@ -489,4 +574,5 @@ class GraphAgentTeam:
 
 __all__ = [
     "StateGraph", "StateTransition", "CrewDefinition", "CrewAssignment", "CrewPlan", "GraphAgentTeam",
+    "default_crew_definitions", "build_crew_plan",
 ]

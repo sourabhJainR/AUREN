@@ -44,7 +44,7 @@ Evidence-backed learning / one-change improvement
 - `portable.task_planner.TaskPlan` remains the canonical dependency contract for agent work.
 - `portable.agency_state_graph.StateGraph` is the checkpointable graph kernel used by the resource-aware harness team; `portable.orchestration.Graph/Orchestrator` is the default adaptive-runtime execution path. They are distinct today and must not be treated as interchangeable.
 - `portable.crew_adapters` owns the typed, scoped proposal-adapter contract; `portable.state_graph.GraphAgentTeam` exposes that contract on the portable facade.
-- `.ai-harness/runtime/graph_agent_team.py` is the resource-aware harness team strategy. It does not yet dispatch through the portable crew adapters; this integration gap is tracked in [issue #438](https://github.com/sourabhJainR/AUREN).
+- `.ai-harness/runtime/graph_agent_team.py` is the resource-aware harness strategy. It now uses the shared crew-plan and proposal-validation helpers and dispatches host-registered adapters inside its graph. Durable handoffs and a unified retry budget remain tracked in [issue #438](https://github.com/sourabhJainR/AUREN).
 - `portable.agent_patterns` contains deterministic algorithms only. It does not own providers, tools, durable memory, graph execution, or promotion policy.
 - Compatibility modules may adapt APIs but must not create parallel runtime owners.
 
