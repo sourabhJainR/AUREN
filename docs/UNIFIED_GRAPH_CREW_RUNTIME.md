@@ -71,7 +71,7 @@ register_crew_adapters({
 })
 ```
 
-The example names illustrate the registration shape; the variables must be real, reviewed adapter instances. Registration rejects unknown crew IDs, mismatched adapter IDs, missing `propose(request)`, and missing stable configuration digests. A per-task option cannot disable a constructor-level crew requirement. High/critical or sensitive mutation/review phases fail closed for missing selected adapters; read-only planning can continue. The crew node is marked external, and graph node execution is bounded by the configured resource timeout.
+The example names illustrate the registration shape; the variables must be real, reviewed adapter instances. Registration rejects unknown crew IDs, mismatched adapter IDs, missing `propose(request)`, missing stable configuration digests, and adapters without an explicit `implementation_version`. The version is included in the adapter configuration digest so planner/finalizer implementation changes invalidate stale crew plans and checkpoints. A per-task option cannot disable a constructor-level crew requirement. High/critical or sensitive mutation/review phases fail closed for missing selected adapters; read-only planning can continue. The crew node is marked external, and graph node execution is bounded by the configured resource timeout.
 
 ## Required invariants
 
