@@ -76,9 +76,9 @@ The example names illustrate the registration shape; the variables must be real,
 ## Required invariants
 
 1. A single immutable intent digest follows every graph node, crew proposal, handoff, retry, checkpoint, evidence item, and final report.
-2. The crew plan digest binds the graph digest, intent digest, crew contract, and adapter configuration. Missing or changed registrations invalidate the relevant receipt.
+2. The crew plan digest binds the graph digest, intent digest, selected crew contracts, and adapter configuration. Each proposal receipt includes its own digest, adapter implementation version, adapter configuration digest, intent digest, graph digest, and crew-plan digest. Missing or changed registrations invalidate the relevant receipt.
 3. Crew selection is deterministic and bounded. Only selected, registered crews can be dispatched; tool allow-lists are per crew and read-only during proposal.
-4. Crew output is a proposal. A successful proposal or its self-reported acceptance checks cannot satisfy independent verification, reviewer independence, exact-head CI, decision records, or Guard authorization.
+4. Crew output is a proposal. A successful proposal or its self-reported acceptance checks cannot satisfy independent verification, reviewer independence, exact-head CI, decision records, or Guard authorization. The harness run artifact carries the plan and proposal receipts; these are evidence references, not a parallel task state store.
 5. Read-only independent nodes may run in bounded parallel waves. Mutations with shared resources are serialized behind dependencies. Failed dependencies block only dependent work.
 6. Checkpoint/resume preserves graph state, task identity, crew-plan digest, attempts, evidence references, and last-known-good revision. When crew dispatch is enabled, the execution-graph digest is checked against the saved checkpoint before resume; a changed crew/adapter configuration fails closed. Durable cross-crew handoff persistence remains an open gate.
 7. One recovery budget governs retries across graph nodes, crew handoffs, and supervisor recovery. No layer silently starts its own unbounded retry loop.
