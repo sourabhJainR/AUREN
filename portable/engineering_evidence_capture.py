@@ -143,7 +143,6 @@ class EvidenceCapture:
         source_type: str = "auren_runtime",
         metadata: Mapping[str, Any] | None = None,
         event_id: str | None = None,
-        _verified_attestation: bool = False,
         _defer_export: bool = False,
     ) -> dict[str, Any]:
         if event_type not in _EVENT_TYPES:
@@ -163,14 +162,14 @@ class EvidenceCapture:
             "test_suite", "test_count", "passed_count", "failed_count",
             "duration_ms", "retry_action", "external_system", "run_id",
             "evaluator_id", "oracle_id", "corpus_digest", "isolation_profile",
-            "signature_verified", "signature_key_id", "rollback_plan_digest",
+            "signature_key_id", "rollback_plan_digest",
             "previous_head_sha", "result_category", "receipt_digest", "operator_id",
             "target_id", "last_known_good_commit", "recovered_head_sha",
         }
+        if "signature_verified" in metadata:
+            raise ValueError("signature_verified is derived from the verified receipt store, not caller metadata")
         if set(metadata) - allowed_metadata:
             raise ValueError("metadata contains fields outside the safe evidence allowlist")
-        if metadata.get("signature_verified") is True and not _verified_attestation:
-            raise ValueError("signature_verified can only be set by verified external-attestation ingestion")
         safe_metadata: dict[str, Any] = {}
         for key, value in metadata.items():
             if key.endswith("_digest"):
@@ -375,7 +374,6 @@ class EvidenceCapture:
         metadata: dict[str, Any] = {
             "external_system": _text(payload.get("external_system", payload["source_type"]), "external_system"),
             "run_id": _text(payload["run_id"], "run_id"),
-            "signature_verified": True,
             "signature_key_id": signer_id,
             "receipt_digest": receipt_digest,
             "result_category": status,
@@ -419,7 +417,6 @@ class EvidenceCapture:
             evidence_uri=source_uri,
             source_type=str(payload["source_type"]),
             metadata=metadata,
-            _verified_attestation=True,
             _defer_export=True,
         )
         if self.sink is not None:
