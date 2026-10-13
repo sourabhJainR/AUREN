@@ -120,22 +120,12 @@ class TrustedRepositoryContextProvider:
             not isinstance(item, str) or not item.strip() for item in approvers_data
         ):
             raise ValueError("operator approver policy must be a non-empty string list")
-        known_evidence_ids = self.evidence_ledger.known_evidence_ids(
+        candidate_evidence_ids = self.evidence_ledger.known_evidence_ids(
             repository=self.expected_repository, head_sha=head
         )
-        def require_evidence(evidence_id: Any, label: str, allowed_types: set[str]) -> None:
-            if not isinstance(evidence_id, str) or not evidence_id.strip():
-                raise ValueError(f"{label} evidence ID is missing")
-            item = self.evidence_ledger.resolve(
-                evidence_id, repository=self.expected_repository, head_sha=head
-            )
-            if not item or item["status"] not in {"passed", "verified"}:
-                raise ValueError(f"{label} evidence is missing, stale, or not passing")
-            if item["evidence_type"] not in allowed_types:
-                raise ValueError(f"{label} evidence has an incompatible evidence type")
-            retained = self.evidence_capture.signed_receipts(evidence_id=evidence_id)
-            verified_receipt = False
-            for stored in retained:
+
+        def has_trusted_receipt(evidence_id: str, item: Mapping[str, Any]) -> bool:
+            for stored in self.evidence_capture.signed_receipts(evidence_id=evidence_id):
                 envelope = stored["envelope"]
                 if not isinstance(envelope, Mapping) or set(envelope) != {"payload", "signer_id", "signature"}:
                     continue
@@ -172,12 +162,32 @@ class TrustedRepositoryContextProvider:
                     else:
                         valid_signature = self.receipt_verifier(signer_id, envelope["signature"], message)
                     if valid_signature is True:
-                        verified_receipt = True
-                        break
+                        return True
                 except Exception:
                     continue
-            if not verified_receipt:
+            return False
+
+        known_evidence_ids = tuple(
+            evidence_id for evidence_id in candidate_evidence_ids
+            if (
+                (item := self.evidence_ledger.resolve(
+                    evidence_id, repository=self.expected_repository, head_sha=head
+                )) is not None
+                and item["status"] in {"passed", "verified"}
+                and has_trusted_receipt(evidence_id, item)
+            )
+        )
+
+        def require_evidence(evidence_id: Any, label: str, allowed_types: set[str]) -> None:
+            if not isinstance(evidence_id, str) or evidence_id not in known_evidence_ids:
                 raise ValueError(f"{label} evidence lacks a fresh trusted signed receipt")
+            item = self.evidence_ledger.resolve(
+                evidence_id, repository=self.expected_repository, head_sha=head
+            )
+            if not item or item["status"] not in {"passed", "verified"}:
+                raise ValueError(f"{label} evidence is missing, stale, or not passing")
+            if item["evidence_type"] not in allowed_types:
+                raise ValueError(f"{label} evidence has an incompatible evidence type")
 
         checks = record.get("checks")
         if not isinstance(checks, list) or not checks:
