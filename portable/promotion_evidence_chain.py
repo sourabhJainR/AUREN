@@ -312,7 +312,7 @@ class ArenaEvidenceObservationLedger:
             if not self.database_path.strip() or self.database_path == ":memory:":
                 raise ValueError("durable evidence ledger requires a persistent database path")
             Path(self.database_path).parent.mkdir(parents=True, exist_ok=True)
-            with sqlite3.connect(self.database_path, timeout=10) as connection:
+            with self._connection() as connection:
                 connection.execute("PRAGMA busy_timeout = 30000")
                 connection.execute(
                     """CREATE TABLE IF NOT EXISTS arena_evidence_observations (
@@ -323,6 +323,16 @@ class ArenaEvidenceObservationLedger:
                         recorded_at TEXT NOT NULL
                     )"""
                 )
+
+    @contextmanager
+    def _connection(self):
+        """Commit/rollback each operation and always release SQLite file handles."""
+        connection = sqlite3.connect(self.database_path, timeout=10)
+        try:
+            with connection:
+                yield connection
+        finally:
+            connection.close()
 
     @staticmethod
     def _payload(observation: ArenaEvidenceObservation) -> dict[str, object]:
@@ -356,7 +366,7 @@ class ArenaEvidenceObservationLedger:
             return observation
         payload_json = json.dumps(self._payload(observation), sort_keys=True, separators=(",", ":"))
         try:
-            with sqlite3.connect(self.database_path, timeout=10) as connection:
+            with self._connection() as connection:
                 connection.execute(
                     "INSERT INTO arena_evidence_observations VALUES (?, ?, ?, ?, ?)",
                     (
@@ -366,7 +376,7 @@ class ArenaEvidenceObservationLedger:
                     ),
                 )
         except sqlite3.IntegrityError as exc:
-            with sqlite3.connect(self.database_path, timeout=10) as connection:
+            with self._connection() as connection:
                 row = connection.execute(
                     "SELECT observation_digest FROM arena_evidence_observations WHERE run_receipt_digest = ?",
                     (observation.run_receipt_digest,),
@@ -384,7 +394,7 @@ class ArenaEvidenceObservationLedger:
     def _records_unlocked(self) -> tuple[ArenaEvidenceObservation, ...]:
         if self.database_path is None:
             return tuple(self._records)
-        with sqlite3.connect(self.database_path, timeout=10) as connection:
+        with self._connection() as connection:
             rows = connection.execute(
                 "SELECT payload_json FROM arena_evidence_observations ORDER BY rowid"
             ).fetchall()
