@@ -439,6 +439,7 @@ class EngineeringDesignGuard:
             "risk": receipt.risk,
             "guard_status": receipt.status,
             "guard_receipt_digest": receipt.receipt_digest,
+            "guard_receipt": cls.as_evidence(receipt),
             "families": families,
         }
         payload["digest"] = hashlib.sha256(
