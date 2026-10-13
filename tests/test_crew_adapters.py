@@ -343,6 +343,18 @@ class ApprovedCrewAdapterTests(unittest.TestCase):
         self.assertIsNone(controller.retry(claimed_retry, retryable=True))
         self.assertEqual(budget.used, 1)
 
+    def test_retry_budget_checkpoint_requires_integrity_digest(self):
+        checkpoint = TaskRetryBudget(max_retries=2).snapshot()
+        checkpoint.pop("digest")
+        with self.assertRaisesRegex(ValueError, "digest is required"):
+            TaskRetryBudget.resume(checkpoint)
+
+    def test_retry_budget_checkpoint_rejects_tampered_payload(self):
+        checkpoint = TaskRetryBudget(max_retries=2).snapshot()
+        checkpoint["charges"] = [{"operation_key": "forged", "component": "qa_reviewer"}]
+        with self.assertRaisesRegex(ValueError, "digest mismatch"):
+            TaskRetryBudget.resume(checkpoint)
+
     def test_handoff_checkpoint_persists_claim_and_requeues_inflight_on_resume(self):
         persisted = []
         controller = GraphHandoffController(
