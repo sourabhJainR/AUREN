@@ -224,6 +224,14 @@ class ExecutionController:
             )
         return reference
 
+    def _handler_execution_class(self, name: str) -> str:
+        with sqlite3.connect(self.db_path) as db:
+            row = db.execute("SELECT execution_class FROM handlers WHERE name=?", (name,)).fetchone()
+        if not row:
+            raise KeyError(f"unknown durable handler: {name}")
+        value = row[0]
+        return value if isinstance(value, str) else "unclassified"
+
     def _handler_ci_gate_policy(self, name: str) -> dict[str, Any]:
         with sqlite3.connect(self.db_path) as db:
             row = db.execute("SELECT ci_gate_policy_json FROM handlers WHERE name=?", (name,)).fetchone()
@@ -258,10 +266,21 @@ class ExecutionController:
         return obj
 
     def _preflight_gates(self, task: DurableTask) -> tuple[bool, str, tuple[str, ...]]:
-        """Validate promotion and exact-head CI gates before invoking a handler."""
+        """Validate operator-owned handler class and required gates before side effects."""
         evidence: list[str] = []
         promotion_expected_head: str | None = None
         try:
+            execution_class = self._handler_execution_class(task.handler)
+            if execution_class == "context_provider":
+                return False, "internal context providers cannot be executed as task handlers", ("handler-class:rejected",)
+            if execution_class not in {"read_only", "ci_gated", "consequential"}:
+                return False, "unclassified legacy handler fails closed", ("handler-class:unclassified",)
+            configured_promotion_policy = self._handler_promotion_gate_policy(task.handler)
+            configured_ci_policy = self._handler_ci_gate_policy(task.handler)
+            if execution_class == "consequential" and (not configured_promotion_policy or not configured_ci_policy):
+                return False, "consequential handler is missing mandatory promotion or exact-head CI policy", ("promotion-gate:missing", "ci-gate:missing")
+            if execution_class == "ci_gated" and not configured_ci_policy:
+                return False, "CI-gated handler is missing mandatory exact-head CI policy", ("ci-gate:missing",)
             promotion_policy = self._handler_promotion_gate_policy(task.handler)
             if promotion_policy and self.evidence_capture.sink is not None:
                 pending_exports = self.evidence_capture.pending_exports()
@@ -389,6 +408,11 @@ class ExecutionController:
         return work.id
 
     def submit(self, handler: str, payload: Mapping[str, Any], *, goal: str | None = None) -> DurableTask:
+        execution_class = self._handler_execution_class(handler)
+        if execution_class == "context_provider":
+            raise ValueError("context providers are internal-only and cannot be submitted as tasks")
+        if execution_class not in {"read_only", "ci_gated", "consequential"}:
+            raise ValueError("unclassified legacy handler fails closed; re-register with an explicit execution_class")
         self._load_handler(handler)
         work = self.company.start(goal or f"execute durable handler: {handler}")
         task = DurableTask(uuid4().hex, handler, dict(payload), "pending", 0, work.id)
