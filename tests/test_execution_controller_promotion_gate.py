@@ -1,6 +1,9 @@
 """Default execution-controller promotion gate regression tests."""
 import copy
 import tempfile
+import sys
+import sqlite3
+from unittest.mock import patch
 import unittest
 from pathlib import Path
 
@@ -128,6 +131,32 @@ class ExecutionControllerPromotionGateTests(unittest.TestCase):
             self.controller.register_handler(
                 "promote-capability", protected_promotion_handler, execution_class="read_only"
             )
+
+    def test_classified_legacy_handler_without_digest_fails_closed(self):
+        with sqlite3.connect(self.controller.db_path) as db:
+            db.execute(
+                "UPDATE handlers SET implementation_digest='' WHERE name=?",
+                ("promote-capability",),
+            )
+        with self.assertRaisesRegex(ValueError, "has no implementation digest"):
+            self.controller.register_handler(
+                "promote-capability",
+                protected_promotion_handler,
+                execution_class="consequential",
+                ci_gate_policy={
+                    "expected_head_sha": HEAD_SHA,
+                    "required_checks": ["required-ci"],
+                    "evidence_handler": "trusted-ci",
+                },
+                promotion_gate_policy={"context_handler": "trusted-context"},
+            )
+
+    def test_loaded_handler_source_must_match_registered_implementation_digest(self):
+        self.controller._load_handler("promote-capability")
+        module = sys.modules[protected_promotion_handler.__module__]
+        with patch.object(module, "protected_promotion_handler", unclassified_worker):
+            with self.assertRaisesRegex(ValueError, "implementation digest mismatch"):
+                self.controller._load_handler("promote-capability")
 
     def test_trusted_provider_implementation_cannot_be_swapped_under_same_identity(self):
         with self.assertRaisesRegex(ValueError, "handler reference is immutable"):

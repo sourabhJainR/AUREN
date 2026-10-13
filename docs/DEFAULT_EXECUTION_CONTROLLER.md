@@ -22,6 +22,8 @@ Register an importable module-level handler with `runtime.register_task_handler(
 
 Handlers are stored as module:qualname, not serialized Python objects. This makes them reconstructable by a new process.
 
+Each classified durable registration also stores a SHA-256 digest of the handler source. The controller recomputes it whenever the handler is loaded and refuses to run changed source under the same registered identity. This is an integrity check, not a signature: deployment provenance and OS-level protection of code and SQLite state remain necessary. Existing classified rows created before digest enforcement may have no digest; they fail closed and must be migrated under a new, reviewed handler identity rather than silently adopting the currently installed source. Back up the execution database and inventory gate policies before this schema upgrade.
+
 ## StateGraph / GraphAgentTeam compatibility
 
 `portable.state_graph.StateGraph` and `portable.state_graph.GraphAgentTeam` are the supervisor-facing compatibility API over `portable.orchestration.Graph` and `Orchestrator`; `ExecutionController.execute_graph()` dispatches these types. Separately, `portable.agency_state_graph.StateGraph` is a lower-level checkpointable graph runtime with explicit state, edge, interrupt and bounded-superstep semantics. These are distinct classes in distinct modules and must not be treated as interchangeable without an explicit adapter and integration tests.
