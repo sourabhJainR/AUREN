@@ -34,9 +34,9 @@ class RuntimePrincipleContextTests(unittest.TestCase):
         from unittest.mock import patch
 
         with patch("engine.run_capture", side_effect=[
-            (0, "portable/worktree.py\\nshared.py"),
-            (0, "portable/staged.py\\nshared.py"),
-            (0, "tests/new_test.py\\n"),
+            (0, "portable/worktree.py\nshared.py"),
+            (0, "portable/staged.py\nshared.py"),
+            (0, "tests/new_test.py\n"),
         ]):
             self.assertEqual(
                 engine.changed_files(),
