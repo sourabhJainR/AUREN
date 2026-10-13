@@ -32,7 +32,7 @@ jobs:
       - name: Run canonical exact-head evidence ledger regressions
         run: python -m unittest tests.test_canonical_evidence_ledger -v
       - name: Run automatic engineering evidence capture and signed receipt regressions
-        run: python -m unittest tests.test_engineering_evidence_capture tests.test_execution_controller_evidence_capture tests.test_external_signed_evidence_ingestion tests.test_trusted_repository_context tests.test_record_ci_evidence -v
+        run: python -m unittest tests.test_engineering_evidence_capture tests.test_execution_controller_evidence_capture tests.test_external_signed_evidence_ingestion tests.test_trusted_repository_context tests.test_record_ci_evidence tests.test_evidence_archive -v
       - name: Run executable and isolated Arena kernel regressions
         run: python -m unittest tests.test_independent_arena tests.test_isolated_arena_runner tests.test_container_sandboxed_arena -v
       - name: Run explicit Arena acceptance and sealed holdout threshold regressions
