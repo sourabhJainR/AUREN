@@ -1,4 +1,4 @@
-"""Dependency-free capability evaluation primitives for AER.
+"""Dependency-free capability evaluation primitives for AUREN.
 
 The suite measures general behaviors such as transfer, novelty, memory,
 reasoning, causal thinking, self-correction and long-horizon execution. It is
