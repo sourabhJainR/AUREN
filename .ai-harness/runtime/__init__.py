@@ -16,7 +16,6 @@ import os
 from pathlib import Path
 from typing import Any
 
-from portable.state_graph import default_crew_definitions
 
 
 _CREW_ADAPTERS: dict[str, Any] = {}
@@ -24,6 +23,8 @@ _CREW_ADAPTERS: dict[str, Any] = {}
 
 def register_crew_adapters(adapters: dict[str, Any], *, replace: bool = False) -> None:
     """Register trusted proposal-only adapters during runtime bootstrap."""
+    from portable.state_graph import default_crew_definitions
+
     if not isinstance(adapters, dict):
         raise TypeError("crew adapters must be a mapping")
     if type(replace) is not bool:
