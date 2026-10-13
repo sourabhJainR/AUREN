@@ -868,10 +868,59 @@ the learning system, not an instruction source. If a skill produced no distinct 
                 results[agent.name]=result; payload=result.__dict__.copy(); payload["activated"]=True
                 return {f"result:{agent.name}":payload}
             graph.add_node(agent.name,run)
-        for name in [a.name for a in self.agents.values() if not a.depends_on]: graph.add_edge(StateGraph.START,name)
+        root_agents=[a.name for a in self.agents.values() if not a.depends_on]
+        if crew_plan is None:
+            for name in root_agents: graph.add_edge(StateGraph.START,name)
         for agent in self.agents.values():
             for dep in agent.depends_on: graph.add_edge(dep,agent.name)
         for name in [a.name for a in self.agents.values() if not any(a.name in x.depends_on for x in self.agents.values())]: graph.add_edge(name,StateGraph.END)
+        if crew_plan is not None:
+            def dispatch_crews(state):
+                proposals = {}
+                missing = []
+                failures = []
+                for assignment in crew_plan.assignments:
+                    crew_id = assignment.crew_id
+                    if crew_id not in self.crew_adapters:
+                        missing.append(crew_id)
+                        continue
+                    try:
+                        proposals[crew_id] = dispatch_crew_proposal(
+                            crew_id,
+                            task,
+                            {"intent_digest": intent_digest, "task_id": run_nonce},
+                            active=True,
+                            plan=crew_plan,
+                            graph_digest=self.digest(),
+                            agents=self.crew_adapters,
+                            crews=self.crew_definitions,
+                        )
+                    except Exception as exc:
+                        failures.append({
+                            "crew_id": crew_id,
+                            "error_type": type(exc).__name__,
+                            "reason": "proposal adapter failed validation or execution",
+                        })
+                blocked = bool(require_crew_adapters and (missing or failures))
+                status = "blocked" if blocked else "complete" if not missing and not failures else "partial"
+                return {
+                    "auren_crew_plan": crew_plan.to_payload(),
+                    "auren_crew_execution": {
+                        "schema_version": "auren-crew-execution-v1",
+                        "status": status,
+                        "required": require_crew_adapters,
+                        "proposals": proposals,
+                        "missing_adapters": sorted(missing),
+                        "dispatch_failures": failures,
+                        "graph_digest": self.digest(),
+                        "intent_digest": intent_digest,
+                        "crew_plan_digest": crew_plan.digest,
+                    },
+                }
+            graph.add_node("crew-proposals", dispatch_crews)
+            graph.add_edge(StateGraph.START, "crew-proposals")
+            for name in root_agents:
+                graph.add_edge("crew-proposals", name)
         return graph
     def execute(self,*,task,intent_digest,base_prompt,memory,invoke_agent,checkpoint=None,resume=False,run_id="graph-agent-team",max_steps=100,execution_strategy_name="default",evolution_threshold=3,invention_holdout_ids=(),invention_evaluator=None,invention_safety_gate=None,curriculum_experiment_after=None,curriculum_experiment_evidence_ids=(),safety_evidence_verified=False,curriculum_experiment=None,curriculum_experiment_cohort=None,benchmark_domain="unspecified",benchmark_holdout=False,benchmark_execution_task_id=None,benchmark_execution_evidence_ids=(),benchmark_execution_evidence_kinds=(),benchmark_execution_success=None,benchmark_execution_verified=False,benchmark_execution_request=None,autonomous_benchmark_learning=False,autonomous_benchmark_max_tasks=3,autonomous_benchmark_retest_tasks=3,autonomous_benchmark_capability_id=None,autonomous_benchmark_baseline_score=None):
         self._validate(); results={}; run_nonce=uuid.uuid4().hex
