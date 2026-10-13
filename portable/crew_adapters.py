@@ -86,6 +86,7 @@ class ApprovedToolCrewAdapter:
         allowed_tools: Sequence[str],
         finalizer: Callable[[Mapping[str, Any]], Mapping[str, Any]] | None = None,
         max_tool_calls: int = 4,
+        implementation_version: str = "unversioned",
     ) -> None:
         if not isinstance(crew_id, str) or not crew_id.strip():
             raise ValueError("crew_id is required")
@@ -95,6 +96,8 @@ class ApprovedToolCrewAdapter:
             raise TypeError("finalizer must be callable")
         if type(max_tool_calls) is not int or not 0 <= max_tool_calls <= 16:
             raise ValueError("max_tool_calls must be between 0 and 16")
+        if not isinstance(implementation_version, str) or not implementation_version.strip():
+            raise ValueError("implementation_version must be non-empty text")
         if len(set(allowed_tools)) != len(tuple(allowed_tools)):
             raise ValueError("allowed_tools must not contain duplicates")
         unknown = set(allowed_tools) - set(tools.names)
@@ -106,6 +109,7 @@ class ApprovedToolCrewAdapter:
         self._allowed_tools = frozenset(allowed_tools)
         self._finalizer = finalizer
         self._max_tool_calls = max_tool_calls
+        self.implementation_version = implementation_version.strip()
 
     @property
     def configuration_digest(self) -> str:
@@ -119,6 +123,7 @@ class ApprovedToolCrewAdapter:
             ],
             "max_tool_calls": self._max_tool_calls,
             "has_finalizer": self._finalizer is not None,
+            "implementation_version": self.implementation_version,
         }
         return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
 
@@ -193,6 +198,7 @@ def build_specialist_crew_adapters(
     allowed_tools_by_crew: Mapping[str, Sequence[str]],
     finalizers: Mapping[str, Callable[[Mapping[str, Any]], Mapping[str, Any]]] | None = None,
     max_tool_calls: int = 4,
+    implementation_versions: Mapping[str, str] | None = None,
 ) -> dict[str, ApprovedToolCrewAdapter]:
     """Build the eight core specialist adapters with explicit per-crew tool scopes.
 
@@ -209,10 +215,13 @@ def build_specialist_crew_adapters(
     finalizers = {} if finalizers is None else finalizers
     if not isinstance(finalizers, Mapping):
         raise TypeError("finalizers must be a mapping")
+    implementation_versions = {} if implementation_versions is None else implementation_versions
+    if not isinstance(implementation_versions, Mapping):
+        raise TypeError("implementation_versions must be a mapping")
     expected = set(SPECIALIST_CREW_IDS)
     planner_ids = set(planners)
     tool_scope_ids = set(allowed_tools_by_crew)
-    unknown = (planner_ids | tool_scope_ids | set(finalizers)) - expected
+    unknown = (planner_ids | tool_scope_ids | set(finalizers) | set(implementation_versions)) - expected
     if unknown:
         raise ValueError("unknown core specialist crew IDs: " + ", ".join(sorted(unknown)))
     missing_planners = expected - planner_ids
@@ -229,6 +238,7 @@ def build_specialist_crew_adapters(
             allowed_tools=allowed_tools_by_crew[crew_id],
             finalizer=finalizers.get(crew_id),
             max_tool_calls=max_tool_calls,
+            implementation_version=implementation_versions.get(crew_id, "unversioned"),
         )
         for crew_id in SPECIALIST_CREW_IDS
     }
