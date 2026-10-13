@@ -236,6 +236,7 @@ class ExecutionControllerPromotionGateTests(unittest.TestCase):
                 "required_checks": ["required-ci"],
                 "evidence_handler": "trusted-ci",
             },
+            execution_class="consequential",
         )
         task = self.controller.submit("merge-pull-request", {"operation": "merge"})
         self.controller.run_once(task.id)
@@ -243,7 +244,7 @@ class ExecutionControllerPromotionGateTests(unittest.TestCase):
         self.assertEqual(_PROMOTION_SIDE_EFFECTS, ["merge"])
 
     def test_merge_rejects_in_progress_ci_even_if_payload_claims_success(self):
-        self.controller.register_handler("trusted-ci", trusted_ci_evidence)
+        self.controller.register_handler("trusted-ci", trusted_ci_evidence, execution_class="context_provider")
         _CI_CONTEXT.update({
             "head_sha": HEAD_SHA,
             "status": "in_progress",
@@ -260,6 +261,7 @@ class ExecutionControllerPromotionGateTests(unittest.TestCase):
                 "required_checks": ["required-ci"],
                 "evidence_handler": "trusted-ci",
             },
+            execution_class="consequential",
         )
         task = self.controller.submit(
             "merge-pull-request",
@@ -275,7 +277,7 @@ class ExecutionControllerPromotionGateTests(unittest.TestCase):
         self.assertEqual(_PROMOTION_SIDE_EFFECTS, [])
 
     def test_merge_blocks_when_ci_sha_differs_from_live_promotion_head(self):
-        self.controller.register_handler("trusted-ci", trusted_ci_evidence)
+        self.controller.register_handler("trusted-ci", trusted_ci_evidence, execution_class="context_provider")
         _CI_CONTEXT.update({
             "head_sha": BASE_SHA,
             "status": "completed",
@@ -292,6 +294,7 @@ class ExecutionControllerPromotionGateTests(unittest.TestCase):
                 "required_checks": ["required-ci"],
                 "evidence_handler": "trusted-ci",
             },
+            execution_class="consequential",
         )
         task = self.controller.submit("merge-pull-request", {"operation": "merge"})
         self.controller.run_once(task.id)
