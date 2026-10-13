@@ -1027,6 +1027,10 @@ the learning system, not an instruction source. If a skill produced no distinct 
         if rollout.state == "candidate" and selected_strategy != baseline_strategy:
             selected_strategy=baseline_strategy
         StrategyCanaryController.record_state(memory.project_root, rollout)
+        saved_checkpoint = None
+        if resume and checkpoint is not None:
+            loader = getattr(checkpoint, "load", None)
+            saved_checkpoint = loader(run_id) if callable(loader) else None
         crew_graph_digest=hashlib.sha256(json.dumps({
             "agent_graph_digest": self.digest(),
             "crew_dispatch_enabled": bool(self.crew_adapters or require_crew_adapters),
@@ -1044,15 +1048,22 @@ the learning system, not an instruction source. If a skill produced no distinct 
             "crew_plan_digest": crew_plan.digest,
         }, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
         if resume and checkpoint is not None and (self.crew_adapters or require_crew_adapters):
-            loader = getattr(checkpoint, "load", None)
-            saved = loader(run_id) if callable(loader) else None
-            if saved is None or saved.state.get("auren_execution_graph_digest") != execution_graph_digest:
+            if saved_checkpoint is None or saved_checkpoint.state.get("auren_execution_graph_digest") != execution_graph_digest:
                 raise ValueError("crew plan or adapter configuration changed; refusing stale checkpoint resume")
+        saved_state = getattr(saved_checkpoint, "state", {}) if saved_checkpoint is not None else {}
+        saved_budget = saved_state.get("auren_retry_budget") if isinstance(saved_state, Mapping) else None
+        if isinstance(saved_budget, Mapping):
+            retry_budget = TaskRetryBudget.resume(saved_budget)
+        else:
+            # Do not mint a fresh retry allowance when resuming an older checkpoint
+            # whose retry ledger is absent; finish without further retries instead.
+            retry_budget = TaskRetryBudget(max_retries=0 if resume else 3)
         graph=self._build_execution_graph(
             results,task=task,intent_digest=intent_digest,run_nonce=run_nonce,
             base_prompt=base_prompt,memory=memory,invoke_agent=invoke_agent,
             experiment_assignment=experiment_assignment,crew_plan=crew_plan,
             require_crew_adapters=require_crew_adapters,
+            retry_budget=retry_budget,
         )
         run=graph.compile().invoke(
             {
@@ -1060,6 +1071,7 @@ the learning system, not an instruction source. If a skill produced no distinct 
                 "aer_execution_mode":{"name":selected_mode},
                 "auren_crew_plan":crew_plan.to_payload(),
                 "auren_execution_graph_digest":execution_graph_digest,
+                "auren_retry_budget":retry_budget.snapshot(),
                 "auren_crew_execution":{
                     "schema_version":"auren-crew-execution-v1",
                     "status":"partial" if any(a.crew_id not in self.crew_adapters for a in crew_plan.assignments) else "complete",
