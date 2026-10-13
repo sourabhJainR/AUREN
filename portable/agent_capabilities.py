@@ -292,7 +292,7 @@ class DelegationPool:
     def __init__(self, max_workers: int = 4) -> None:
         if not 1 <= max_workers <= 16:
             raise ValueError("max_workers must be 1..16")
-        self._pool = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="aer-agent")
+        self._pool = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="auren-agent")
 
     def submit(self, task_id: str, fn: Callable[[], Any]) -> tuple[DelegationReceipt, Future[Any]]:
         receipt = DelegationReceipt(uuid.uuid4().hex, task_id, "running", _utc().isoformat(), None, None, None)
@@ -509,8 +509,8 @@ class CapabilityExecutioner:
 
         Skills are discovered from conventional directories and only their
         front matter/first bounded description is read. MCP/plugin capability
-        descriptors may be supplied as JSON through AER_MCP_CAPABILITIES and
-        AER_PLUGIN_CAPABILITIES. Invalid or missing sources are ignored.
+        descriptors may be supplied as JSON through AUREN_MCP_CAPABILITIES and
+        AUREN_PLUGIN_CAPABILITIES. Invalid or missing sources are ignored.
         """
         root = Path(project_root or ".").expanduser().resolve()
         options: list[CapabilityOption] = []
@@ -519,7 +519,7 @@ class CapabilityExecutioner:
             root / ".ai-harness" / "skills",
             root / "skills",
         ]
-        configured = os.environ.get("AER_SKILLS_PATH", "")
+        configured = get_auren_env("SKILLS_PATH", "")
         if configured:
             skill_roots.extend(Path(item).expanduser() for item in configured.split(os.pathsep) if item.strip())
         seen: set[str] = set()
