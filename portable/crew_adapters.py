@@ -101,10 +101,11 @@ class TaskRetryBudget:
         if snapshot.get("used_retries") != budget.used:
             raise ValueError("retry budget used count does not match charge ledger")
         supplied_digest = snapshot.get("digest")
-        if supplied_digest is not None:
-            expected = budget.snapshot()["digest"]
-            if supplied_digest != expected:
-                raise ValueError("retry budget checkpoint digest mismatch")
+        if not isinstance(supplied_digest, str) or not supplied_digest:
+            raise ValueError("retry budget checkpoint digest is required")
+        expected = budget.snapshot()["digest"]
+        if supplied_digest != expected:
+            raise ValueError("retry budget checkpoint digest mismatch")
         return budget
 
 
