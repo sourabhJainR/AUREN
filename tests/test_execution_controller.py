@@ -352,14 +352,17 @@ def test_execute_graph_owns_durable_checkpoint_and_ignores_caller_checkpoint(tmp
     team = GraphAgentTeam(graph=None)
     seen = []
 
-    def fake_run(instance, task_id, intent, context=None):
+    def fake_run(
+        instance, task_id, intent, context=None, *,
+        handoff_checkpoint_writer=None, require_durable_handoffs=None,
+    ):
         state = dict(context or {})
-        seen.append((state, instance.require_durable_handoffs, instance.handoff_checkpoint_writer))
+        seen.append((state, require_durable_handoffs, handoff_checkpoint_writer))
         envelope = state.get("auren_supervisor_checkpoint_envelope")
         resumed = envelope is not None
         if envelope is None:
             envelope = _supervisor_checkpoint_envelope(task_id, intent)
-        instance.handoff_checkpoint_writer(task_id, envelope)
+        handoff_checkpoint_writer(task_id, envelope)
         return {"resumed_from_supervisor": resumed}
 
     monkeypatch.setattr(GraphAgentTeam, "run", fake_run)
