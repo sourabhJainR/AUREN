@@ -129,6 +129,12 @@ class ExecutionControllerPromotionGateTests(unittest.TestCase):
                 "promote-capability", protected_promotion_handler, execution_class="read_only"
             )
 
+    def test_trusted_provider_implementation_cannot_be_swapped_under_same_identity(self):
+        with self.assertRaisesRegex(ValueError, "handler reference is immutable"):
+            self.controller.register_handler(
+                "trusted-context", unclassified_worker, execution_class="context_provider"
+            )
+
     def test_action_handler_cannot_be_mislabeled_read_only(self):
         with self.assertRaisesRegex(ValueError, "must be classified consequential"):
             self.controller.register_handler(

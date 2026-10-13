@@ -134,15 +134,21 @@ class ExecutionController:
         provider_action_exceptions = {"merge", "merger", "release", "deploy", "deployment", "publish", "promote", "promoter"}
 
         with sqlite3.connect(self.db_path) as db:
-            prior_class_row = db.execute(
-                "SELECT execution_class FROM handlers WHERE name=?", (name,)
+            prior_registration = db.execute(
+                "SELECT reference, execution_class FROM handlers WHERE name=?", (name,)
             ).fetchone()
-        if execution_class is None and prior_class_row:
-            execution_class = str(prior_class_row[0])
+        prior_reference = str(prior_registration[0]) if prior_registration else None
+        prior_class = str(prior_registration[1]) if prior_registration else None
+        if execution_class is None and prior_class is not None:
+            execution_class = prior_class
+        if prior_class is not None and prior_class != "unclassified" and prior_reference != reference:
+            raise ValueError(
+                "registered handler reference is immutable; use a new handler identity for a different implementation"
+            )
         if (
-            prior_class_row
-            and prior_class_row[0] != "unclassified"
-            and execution_class != prior_class_row[0]
+            prior_class is not None
+            and prior_class != "unclassified"
+            and execution_class != prior_class
         ):
             raise ValueError(
                 "registered execution_class is immutable; use a new handler identity for a different effect class"
