@@ -177,7 +177,7 @@ class AutonomousCampaignLearningTests(unittest.TestCase):
                 capability_id="candidate-capability",
                 baseline_score=.8,
             )
-            self.assertEqual(result.rollout.state, "promoted")
+            self.assertEqual(result.rollout.state, "promoted", result.rollout.reasons)
             self.assertEqual(result.rollout.canary_count, 3)
 
 
