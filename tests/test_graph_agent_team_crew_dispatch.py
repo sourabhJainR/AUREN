@@ -8,7 +8,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / ".ai-harness"))
 
+import runtime
 from portable.state_graph import default_crew_definitions
+from runtime import register_crew_adapters
 from runtime.graph_agent_team import AgentSpec, GraphAgentTeam, SharedTaskMemory
 
 
@@ -112,6 +114,22 @@ class HarnessCrewDispatchTests(unittest.TestCase):
             self.assertTrue(result["crew_execution"]["missing_adapters"])
             self.assertEqual(calls, ["planner"])
             self.assertNotIn("builder", calls)
+
+    def test_runtime_phase_factory_injects_registered_adapters_and_requires_high_risk_crew_gate(self):
+        runtime._CREW_ADAPTERS.clear()
+        try:
+            calls = []
+            adapter = _ProposalAdapter("frontend_ui", calls)
+            register_crew_adapters({"frontend_ui": adapter})
+            team = runtime._phase_team(
+                {"risk": "high"},
+                "execute",
+                (AgentSpec, GraphAgentTeam),
+            )
+            self.assertIs(team.crew_adapters["frontend_ui"], adapter)
+            self.assertTrue(team.require_crew_adapters)
+        finally:
+            runtime._CREW_ADAPTERS.clear()
 
     def test_no_adapter_configuration_preserves_legacy_agent_graph_trace(self):
         with tempfile.TemporaryDirectory() as tmp:
