@@ -153,6 +153,14 @@ class TrustedRepositoryContextProvider:
                     continue
                 if item["evidence_type"] in {"ci_check", "ci_run", "regression_check", "test_result"} and source_type != "ci":
                     continue
+                if item["evidence_type"] in {"independent_evaluator_receipt", "external_evaluator_receipt", "arena_receipt"} and source_type != "external_evaluator":
+                    continue
+                if item["evidence_type"] == "oracle_custody" and source_type != "oracle_custody":
+                    continue
+                if item["evidence_type"] == "sealed_corpus_custody" and source_type != "sealed_corpus_custody":
+                    continue
+                if item["evidence_type"] == "isolation_audit" and source_type != "isolation_audit":
+                    continue
                 receipt_bytes = json.dumps(envelope, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
                 if hashlib.sha256(receipt_bytes).hexdigest() != stored["receipt_digest"]:
                     continue
@@ -219,11 +227,13 @@ class TrustedRepositoryContextProvider:
                 promotion["approval_evidence_id"], "promotion approval",
                 {"approval", "promotion_approval", "operator_approval"},
             )
-            if approval_receipt.get("operator_id") != promotion.get("approved_by"):
+            approved_by = promotion.get("approved_by")
+            if not isinstance(approved_by, str) or not approved_by.strip() or approval_receipt.get("operator_id") != approved_by:
                 raise ValueError("promotion approver does not match the signed operator receipt")
         if record.get("rollback_test_evidence_id"):
             risk_level = record.get("risk_level")
-            rollback_types = {"rollback_rehearsal"} if risk_level in {"high", "critical"} else {"rollback_rehearsal", "rollback_test"}
+            promoted = isinstance(promotion, Mapping) and promotion.get("level", "none") != "none"
+            rollback_types = {"rollback_rehearsal"} if promoted or risk_level in {"high", "critical"} else {"rollback_rehearsal", "rollback_test"}
             rollback_receipt = require_evidence(
                 record["rollback_test_evidence_id"], "rollback rehearsal", rollback_types,
             )
