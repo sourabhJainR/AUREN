@@ -569,7 +569,7 @@ class ExecutionController:
         if task is None:
             return None
         self._capture_event("task_attempt_started", task, status="running", metadata={
-            "handler": task.handler, "lease_generation": task.lease_generation,
+            "handler": task.handler,
         })
         try:
             self.heartbeat(task)
@@ -580,7 +580,6 @@ class ExecutionController:
                 evidence = [f"handler:{task.handler}", *gate_evidence]
                 self._capture_event("task_failed", task, status="failed", metadata={
                     "handler": task.handler, "phase": "preflight", "failure_class": "gate_rejection",
-                    "lease_generation": task.lease_generation,
                 })
                 self.company.record(task.work_unit_id, "execution", "failed", gate_detail, evidence)
                 return self.company.finish(task.work_unit_id, success=False, reason=gate_detail, evidence=evidence)
@@ -600,7 +599,7 @@ class ExecutionController:
             detail = f"{type(exc).__name__}: {exc}"
             self._capture_event("task_failed", task, status="failed", metadata={
                 "handler": task.handler, "phase": "exception",
-                "failure_class": type(exc).__name__, "lease_generation": task.lease_generation,
+                "failure_class": type(exc).__name__,
             })
             self.company.record(task.work_unit_id, "execution", "failed", detail, (f"handler:{task.handler}",))
             self.company.finish(task.work_unit_id, success=False, reason=detail)
@@ -629,7 +628,6 @@ class ExecutionController:
             metadata={
                 "handler": task.handler, "phase": "handler",
                 "result_category": "success" if success else "failure",
-                "lease_generation": task.lease_generation,
             },
         )
         self.company.record(task.work_unit_id, "execution", state, detail, evidence)
