@@ -8,7 +8,7 @@ import re
 from typing import Any, Callable, Mapping
 
 from .orchestration import Graph, Node, NodeKind, NodeStatus, OrchestrationRun, Orchestrator
-from .crew_adapters import CrewHandoff, GraphHandoffController, rollback_readiness
+from .crew_adapters import CrewHandoff, GraphHandoffController, TaskRetryBudget, rollback_readiness
 
 _FORBIDDEN_CREW_AUTHORITIES = frozenset({
     "merge", "promote", "self_approve", "approve_own_work", "bypass_review",
@@ -413,8 +413,17 @@ class GraphAgentTeam:
         graph: StateGraph,
         agents: Mapping[str, Any] | None = None,
         crews: Mapping[str, CrewDefinition] | None = None,
+        *,
+        handoff_checkpoint_writer: Callable[[str, Mapping[str, Any]], None] | None = None,
+        require_durable_handoffs: bool = False,
     ) -> None:
+        if handoff_checkpoint_writer is not None and not callable(handoff_checkpoint_writer):
+            raise TypeError("handoff_checkpoint_writer must be callable")
+        if type(require_durable_handoffs) is not bool:
+            raise ValueError("require_durable_handoffs must be a boolean")
         self.graph = graph
+        self.handoff_checkpoint_writer = handoff_checkpoint_writer
+        self.require_durable_handoffs = require_durable_handoffs
         self.agents = dict(agents or {})
         self.crews = {crew.crew_id: crew for crew in _default_crews()}
         for crew_id, crew in (crews or {}).items():
