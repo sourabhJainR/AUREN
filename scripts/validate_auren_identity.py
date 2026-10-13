@@ -48,6 +48,13 @@ LEGACY_ALLOWED_LINE_PATTERNS = {
         re.compile(r'state\.get\("auren_execution_strategy",\s*state\.get\("aer_execution_strategy",\{\}\)\)'),
         re.compile(r'state\.get\("auren_execution_mode",\s*state\.get\("aer_execution_mode",\{\}\)\)'),
     ),
+    # These exact strings are compatibility fixtures proving that legacy
+    # checkpoint keys are migrated and removed; do not allow other old names.
+    "tests/test_graph_agent_team.py": (
+        re.compile(r'"aer_execution_strategy":\s*\{"name":\s*"default"\}'),
+        re.compile(r'"aer_execution_mode":\s*\{"name":\s*"balanced"\}'),
+        re.compile(r'self\.assertNotIn\("aer_execution_(?:strategy|mode)",\s*saved\.state\)'),
+    ),
     # Canonical markers are emitted alongside these legacy protocol aliases
     # only while downstream consumers still require them.
     ".ai-harness/runtime/sandbox.py": (
