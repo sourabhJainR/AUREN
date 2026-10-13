@@ -164,6 +164,18 @@ class TrustedRepositoryContextTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "fresh trusted signed receipt"):
             self.provider({"task_id": "task-1"})
 
+    def test_signed_approval_and_rollback_must_match_decision_record_claims(self):
+        self.record["promotion"]["approved_by"] = "different-operator"
+        (self.records / "task-1.json").write_text(json.dumps(self.record), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "does not match the signed operator receipt"):
+            self.provider({"task_id": "task-1"})
+
+        self.record["promotion"]["approved_by"] = "release-manager"
+        self.record["last_known_good_commit"] = "1" * 40
+        (self.records / "task-1.json").write_text(json.dumps(self.record), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "last-known-good commit"):
+            self.provider({"task_id": "task-1"})
+
 
 if __name__ == "__main__":
     unittest.main()
