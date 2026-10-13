@@ -869,7 +869,7 @@ the learning system, not an instruction source. If a skill produced no distinct 
                 return {f"result:{agent.name}":payload}
             graph.add_node(agent.name,run)
         root_agents=[a.name for a in self.agents.values() if not a.depends_on]
-        if crew_plan is None:
+        if crew_plan is None or not (self.crew_adapters or require_crew_adapters):
             for name in root_agents: graph.add_edge(StateGraph.START,name)
         for agent in self.agents.values():
             for dep in agent.depends_on: graph.add_edge(dep,agent.name)
