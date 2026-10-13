@@ -568,57 +568,72 @@ class ExecutionController:
         task = self._claim(task_id)
         if task is None:
             return None
-        self._capture_event("task_attempt_started", task, status="running", metadata={"handler": task.handler})
+        self._capture_event("task_attempt_started", task, status="running", metadata={
+            "handler": task.handler, "lease_generation": task.lease_generation,
+        })
         try:
             self.heartbeat(task)
             gates_passed, gate_detail, gate_evidence = self._preflight_gates(task)
             if not gates_passed:
+                if not self._finalize_claim(task, "failed"):
+                    raise LeaseLostError("stale worker cannot finalize rejected task")
                 evidence = [f"handler:{task.handler}", *gate_evidence]
-                self._capture_event("task_failed", task, status="failed", metadata={"handler": task.handler, "phase": "preflight", "failure_class": "gate_rejection"})
+                self._capture_event("task_failed", task, status="failed", metadata={
+                    "handler": task.handler, "phase": "preflight", "failure_class": "gate_rejection",
+                    "lease_generation": task.lease_generation,
+                })
                 self.company.record(task.work_unit_id, "execution", "failed", gate_detail, evidence)
-                with sqlite3.connect(self.db_path) as db:
-                    db.execute(
-                        "UPDATE tasks SET state='failed',updated_at=?,heartbeat_at=?,lease_until=NULL WHERE id=?",
-                        (_now(), _now(), task.id),
-                    )
                 return self.company.finish(task.work_unit_id, success=False, reason=gate_detail, evidence=evidence)
 
             handler = self._load_handler(task.handler)
             result = handler(task.payload)
-            self.heartbeat(task.id)
-            evidence = [f"handler:{task.handler}", *gate_evidence]
-            if isinstance(result, Mapping):
-                evidence.extend(str(x) for x in result.get("evidence", ()) if x)
-                success_value = result.get("success", True)
-                if type(success_value) is not bool:
-                    success = False
-                    detail = "handler success field must be a boolean"
-                else:
-                    success = success_value
-                    detail = str(result.get("detail", "handler completed"))
-            else:
-                success, detail = True, "handler completed"
-
-            self._capture_event("task_completed" if success else "task_failed", task, status="completed" if success else "failed", metadata={"handler": task.handler, "phase": "handler", "result_category": "success" if success else "failure"})
-            self.company.record(task.work_unit_id, "execution", "completed" if success else "failed", detail, evidence)
-            state = "completed" if success else "failed"
-            with sqlite3.connect(self.db_path) as db:
-                db.execute(
-                    "UPDATE tasks SET state=?,updated_at=?,heartbeat_at=?,lease_until=NULL WHERE id=?",
-                    (state, _now(), _now(), task.id),
-                )
-            return self.company.finish(task.work_unit_id, success=success, reason=detail, evidence=evidence)
+            # A worker that lost its lease while a handler was running cannot
+            # renew or finalize the task after another generation reclaimed it.
+            self.heartbeat(task)
+        except LeaseLostError:
+            raise
         except Exception as exc:
+            if not self._finalize_claim(task, "failed"):
+                raise LeaseLostError(
+                    "task lease was lost; stale worker cannot overwrite the current task outcome"
+                ) from exc
             detail = f"{type(exc).__name__}: {exc}"
-            self._capture_event("task_failed", task, status="failed", metadata={"handler": task.handler, "phase": "exception", "failure_class": type(exc).__name__})
+            self._capture_event("task_failed", task, status="failed", metadata={
+                "handler": task.handler, "phase": "exception",
+                "failure_class": type(exc).__name__, "lease_generation": task.lease_generation,
+            })
             self.company.record(task.work_unit_id, "execution", "failed", detail, (f"handler:{task.handler}",))
-            with sqlite3.connect(self.db_path) as db:
-                db.execute(
-                    "UPDATE tasks SET state='failed',updated_at=?,heartbeat_at=?,lease_until=NULL WHERE id=?",
-                    (_now(), _now(), task.id),
-                )
             self.company.finish(task.work_unit_id, success=False, reason=detail)
             raise
+
+        evidence = [f"handler:{task.handler}", *gate_evidence]
+        if isinstance(result, Mapping):
+            evidence.extend(str(x) for x in result.get("evidence", ()) if x)
+            success_value = result.get("success", True)
+            if type(success_value) is not bool:
+                success = False
+                detail = "handler success field must be a boolean"
+            else:
+                success = success_value
+                detail = str(result.get("detail", "handler completed"))
+        else:
+            success, detail = True, "handler completed"
+
+        state = "completed" if success else "failed"
+        if not self._finalize_claim(task, state):
+            raise LeaseLostError("task lease was lost; stale worker cannot finalize task outcome")
+        self._capture_event(
+            "task_completed" if success else "task_failed",
+            task,
+            status=state,
+            metadata={
+                "handler": task.handler, "phase": "handler",
+                "result_category": "success" if success else "failure",
+                "lease_generation": task.lease_generation,
+            },
+        )
+        self.company.record(task.work_unit_id, "execution", state, detail, evidence)
+        return self.company.finish(task.work_unit_id, success=success, reason=detail, evidence=evidence)
 
     def resume_pending(self, *, limit: int = 20) -> list[TrustScore]:
         """Resume pending/running work after process or host restart."""
