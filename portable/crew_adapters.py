@@ -397,6 +397,16 @@ class GraphHandoffController:
         self._seen_ids: set[str] = set()
         self._completed: set[tuple[str, str, str]] = set()
         self._lock = RLock()
+        # A failed checkpoint write makes this controller unusable. In-memory
+        # state may have advanced, but callers must not continue as if it were
+        # durable or silently retry a duplicate handoff.
+        self._persistence_failure: Exception | None = None
+
+    def _ensure_healthy(self) -> None:
+        if self._persistence_failure is not None:
+            raise RuntimeError(
+                "handoff controller is fail-closed after a checkpoint persistence failure"
+            ) from self._persistence_failure
 
     @staticmethod
     def _handoff_id(source_crew: str, target_crew: str, task: str, source_plan_digest: str) -> str:
@@ -404,10 +414,17 @@ class GraphHandoffController:
         return hashlib.sha256(json.dumps(payload, separators=(",", ":")).encode("utf-8")).hexdigest()
 
     def _persist(self) -> None:
+        self._ensure_healthy()
         if self.require_persistence and self._persist_callback is None:
-            raise RuntimeError("durable handoff checkpoint writer is required by task policy")
+            error = RuntimeError("durable handoff checkpoint writer is required by task policy")
+            self._persistence_failure = error
+            raise error
         if self._persist_callback is not None:
-            self._persist_callback(self.snapshot())
+            try:
+                self._persist_callback(self.snapshot())
+            except Exception as exc:
+                self._persistence_failure = exc
+                raise
 
     def enqueue(
         self,
@@ -427,6 +444,7 @@ class GraphHandoffController:
             raise ValueError("handoff task and source plan digest are required")
         handoff_id = self._handoff_id(source_crew, target_crew, task, source_plan_digest)
         with self._lock:
+            self._ensure_healthy()
             for queued in self._queue:
                 if queued.handoff_id == handoff_id:
                     return queued
@@ -446,6 +464,7 @@ class GraphHandoffController:
         if not graph_node_active:
             raise RuntimeError("handoffs may only be claimed by an active graph node")
         with self._lock:
+            self._ensure_healthy()
             if not self._queue:
                 return None
             item = self._queue.pop(0)
@@ -455,6 +474,7 @@ class GraphHandoffController:
 
     def retry(self, handoff: CrewHandoff, *, retryable: bool) -> CrewHandoff | None:
         with self._lock:
+            self._ensure_healthy()
             handoff_id = handoff.handoff_id or self._handoff_id(
                 handoff.source_crew, handoff.target_crew, handoff.task, handoff.source_plan_digest
             )
@@ -482,6 +502,7 @@ class GraphHandoffController:
         if not independent_review_passed:
             raise PermissionError("handoff cannot complete before independent review passes")
         with self._lock:
+            self._ensure_healthy()
             key = (handoff.source_crew, handoff.target_crew, hashlib.sha256(handoff.task.encode()).hexdigest())
             self._completed.add(key)
             handoff_id = handoff.handoff_id or self._handoff_id(
