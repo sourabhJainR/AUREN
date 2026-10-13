@@ -366,17 +366,43 @@ class CrewHandoff:
     task: str
     source_plan_digest: str
     attempt: int = 0
+    handoff_id: str = ""
 
 
 class GraphHandoffController:
     """Create/claim handoffs for graph nodes; never invokes a crew itself."""
 
-    def __init__(self, *, max_attempts: int = 3) -> None:
+    def __init__(
+        self, *, max_attempts: int = 3, retry_budget: TaskRetryBudget | None = None,
+        persist: Callable[[Mapping[str, Any]], None] | None = None,
+        require_persistence: bool = False,
+    ) -> None:
         if type(max_attempts) is not int or max_attempts < 1 or max_attempts > 10:
             raise ValueError("max_attempts must be between 1 and 10")
+        if type(require_persistence) is not bool:
+            raise ValueError("require_persistence must be a boolean")
+        if persist is not None and not callable(persist):
+            raise TypeError("persist must be callable")
         self.max_attempts = max_attempts
+        self.retry_budget = retry_budget
+        self._persist_callback = persist
+        self.require_persistence = require_persistence
         self._queue: list[CrewHandoff] = []
+        self._in_flight: dict[str, CrewHandoff] = {}
+        self._seen_ids: set[str] = set()
         self._completed: set[tuple[str, str, str]] = set()
+        self._lock = RLock()
+
+    @staticmethod
+    def _handoff_id(source_crew: str, target_crew: str, task: str, source_plan_digest: str) -> str:
+        payload = [source_crew, target_crew, task.strip(), source_plan_digest]
+        return hashlib.sha256(json.dumps(payload, separators=(",", ":")).encode("utf-8")).hexdigest()
+
+    def _persist(self) -> None:
+        if self.require_persistence and self._persist_callback is None:
+            raise RuntimeError("durable handoff checkpoint writer is required by task policy")
+        if self._persist_callback is not None:
+            self._persist_callback(self.snapshot())
 
     def enqueue(
         self,
