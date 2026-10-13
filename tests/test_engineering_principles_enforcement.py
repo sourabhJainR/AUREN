@@ -179,6 +179,22 @@ def test_concurrency_contract_accepts_explicit_atomicity_and_race_controls():
     )
 
 
+def test_concurrency_contract_requires_cancellation_and_synchronization_decisions():
+    receipt = EngineeringDesignGuard.review(
+        intent="Prevent race conditions in shared task state",
+        changed_paths=["portable/state_store.py"],
+        risk="high",
+        design={
+            "shared_state_owner": "StateGraph supervisor is the single writer",
+            "atomicity": "Compare-and-swap guarded by a task lease",
+            "race_test": "Concurrent claim/resume and stale-worker fencing tests",
+        },
+    )
+    blocking = _messages(receipt, FindingSeverity.BLOCKING)
+    assert receipt.status == "blocked"
+    assert any("cancellation/synchronization" in message for message in blocking)
+
+
 def test_security_is_inferred_and_high_risk_missing_contract_blocks():
     receipt = EngineeringDesignGuard.review(
         intent="Change authentication and authorization for external tool execution",
@@ -337,6 +353,9 @@ class EngineeringPrincipleEnforcementTests(unittest.TestCase):
 
     def test_concurrency_accepts_atomicity_and_race_controls_case(self):
         test_concurrency_contract_accepts_explicit_atomicity_and_race_controls()
+
+    def test_concurrency_requires_cancellation_and_synchronization_decisions_case(self):
+        test_concurrency_contract_requires_cancellation_and_synchronization_decisions()
 
     def test_security_is_inferred_and_high_risk_missing_contract_blocks_case(self):
         test_security_is_inferred_and_high_risk_missing_contract_blocks()
