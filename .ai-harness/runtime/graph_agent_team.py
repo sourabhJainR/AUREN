@@ -1015,6 +1015,17 @@ the learning system, not an instruction source. If a skill produced no distinct 
                                     allowed_handoffs=definition.handoffs_to,
                                     selected_crews=selected_crews,
                                 )
+                                if item is None:
+                                    completed_id = handoffs.handoff_id_for(
+                                        source_crew, target_crew, handoff_task, crew_plan.digest
+                                    )
+                                    handoff_receipts.append({
+                                        "handoff_id": completed_id, "source_crew": source_crew,
+                                        "target_crew": target_crew,
+                                        "task_digest": hashlib.sha256(handoff_task.encode("utf-8")).hexdigest(),
+                                        "attempt": 0, "status": "already_completed",
+                                    })
+                                    continue
                                 handoff_receipts.append({
                                     "handoff_id": item.handoff_id, "source_crew": item.source_crew,
                                     "target_crew": item.target_crew, "task_digest": hashlib.sha256(item.task.encode("utf-8")).hexdigest(),
