@@ -426,7 +426,9 @@ class ApprovedCrewAdapterTests(unittest.TestCase):
         self.assertEqual(claimed, handoff)
         retry = controller.retry(claimed, retryable=True)
         self.assertEqual(retry.attempt, 1)
-        self.assertIsNone(controller.retry(retry, retryable=True))
+        retry_claimed = controller.claim_next(graph_node_active=True)
+        self.assertEqual(retry_claimed, retry)
+        self.assertIsNone(controller.retry(retry_claimed, retryable=True))
         with self.assertRaisesRegex(PermissionError, "independent review"):
             controller.mark_completed(handoff, independent_review_passed=False)
         completion_controller = GraphHandoffController(max_attempts=2)
