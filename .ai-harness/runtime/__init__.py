@@ -189,7 +189,8 @@ def _install_graph_team_bridge() -> None:
         def guarded_execute(self, *, task, intent_digest, base_prompt, memory, invoke_agent,
                            checkpoint=None, resume=False, run_id="graph-agent-team", max_steps=100,
                            require_crew_adapters=None, risk="medium", changed_paths=(),
-                           design_contract=None, code_revision=""):
+                           design_contract=None, code_revision="", final_verification=False,
+                           principle_verification=None, require_principle_verification=False):
             def guarded_invoke(agent, prompt):
                 if agent.read_only:
                     prompt += "\n\n## Security execution mode\npatch_allowed: false\n"
@@ -200,7 +201,9 @@ def _install_graph_team_bridge() -> None:
                                     resume=resume, run_id=run_id, max_steps=max_steps,
                                     require_crew_adapters=require_crew_adapters, risk=risk,
                                     changed_paths=changed_paths, design_contract=design_contract,
-                                    code_revision=code_revision)
+                                    code_revision=code_revision, final_verification=final_verification,
+                                    principle_verification=principle_verification,
+                                    require_principle_verification=require_principle_verification)
 
         guarded_execute._auren_guarded = True
         GraphAgentTeam.execute = guarded_execute
@@ -253,7 +256,10 @@ def _install_graph_team_bridge() -> None:
             )
             result = team.execute(
                 task=task, intent_digest=intent_digest, base_prompt=base_prompt,
-                memory=memory, invoke_agent=invoke_agent, **principle_inputs
+                memory=memory, invoke_agent=invoke_agent, **principle_inputs,
+                final_verification=(phase == "review"),
+                principle_verification=manifest.get("principle_verification"),
+                require_principle_verification=manifest.get("require_principle_verification", False),
             )
             result["phase"] = phase
             result["duration_seconds"] = round(engine.time.monotonic() - started, 3)
