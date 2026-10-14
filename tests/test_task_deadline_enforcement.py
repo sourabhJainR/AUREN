@@ -130,10 +130,13 @@ class TaskDeadlineEnforcementTests(unittest.TestCase):
                     context={"auren_deadline_at": iso_offset(0.5)},
                 )
 
-            work_id = runtime.execution_controller.work_unit_for_session(
-                "overrun-session:overrun-task", "overrun-task: do not accept work after the deadline"
-            )
-            checkpoint = runtime.recovery_ledger.get_checkpoint(work_id, "execution")
+            with sqlite3.connect(runtime.execution_controller.db_path) as db:
+                row = db.execute(
+                    "SELECT work_unit_id FROM sessions WHERE session_id=?",
+                    ("overrun-session:overrun-task",),
+                ).fetchone()
+            self.assertIsNotNone(row)
+            checkpoint = runtime.recovery_ledger.get_checkpoint(row[0], "execution")
             self.assertIsNotNone(checkpoint)
             self.assertEqual(checkpoint.status, "blocked")
             self.assertEqual(checkpoint.payload["outcome"], "blocked")
