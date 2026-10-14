@@ -15,7 +15,12 @@ from pathlib import Path
 from typing import Callable
 
 from .attestation_key_separation import AttestationTrustPolicy, SeparationAwareAttestor
-from .independent_evaluation_attestation import AttestedEvaluation, EvaluationAttestation
+from .independent_evaluation_attestation import (
+    _PRODUCTION_EVALUATION_SEAL,
+    _TRUSTED_EVALUATION_SEAL,
+    AttestedEvaluation,
+    EvaluationAttestation,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -145,15 +150,27 @@ class FreshnessAwareAttestor:
 
     def __init__(
         self,
-        verify_signature: Callable,
-        policy: AttestationTrustPolicy,
+        verify_signature: Callable | None,
+        policy: AttestationTrustPolicy | None,
         freshness_policy: AttestationFreshnessPolicy,
         replay_registry: AttestationReplayRegistry | None = None,
         verify_principal: Callable[[str, str], bool] | None = None,
+        *,
+        production_attestor=None,
     ) -> None:
         if not isinstance(freshness_policy, AttestationFreshnessPolicy):
             raise TypeError("AttestationFreshnessPolicy is required")
-        self._attestor = SeparationAwareAttestor(verify_signature, policy, verify_principal)
+        if production_attestor is not None:
+            from .evaluator_trust import ProductionSeparationAwareAttestor
+            if type(production_attestor) is not ProductionSeparationAwareAttestor:
+                raise TypeError("production freshness requires ProductionSeparationAwareAttestor")
+            if verify_signature is not None or policy is not None or verify_principal is not None:
+                raise ValueError("do not mix production attestor with protocol verifier callbacks")
+            self._attestor = production_attestor
+        else:
+            if not callable(verify_signature) or not isinstance(policy, AttestationTrustPolicy):
+                raise TypeError("signature verifier and AttestationTrustPolicy are required")
+            self._attestor = SeparationAwareAttestor(verify_signature, policy, verify_principal)
         self.freshness_policy = freshness_policy
         self.replay_registry = replay_registry or AttestationReplayRegistry()
 
@@ -202,7 +219,7 @@ class FreshnessAwareAttestor:
         evidence_digest = hashlib.sha256(
             json.dumps(evidence_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
         ).hexdigest()
-        return AttestedEvaluation(
+        result = AttestedEvaluation(
             base.attestation,
             trustworthy,
             base.independent,
@@ -210,6 +227,11 @@ class FreshnessAwareAttestor:
             tuple(reasons),
             evidence_digest,
         )
+        if trustworthy and base.trustworthy:
+            object.__setattr__(result, "_trust_seal", _TRUSTED_EVALUATION_SEAL)
+        if trustworthy and getattr(base, "production_trustworthy", False):
+            object.__setattr__(result, "_production_seal", _PRODUCTION_EVALUATION_SEAL)
+        return result
 
 
 __all__ = [
