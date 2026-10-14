@@ -106,6 +106,19 @@ def _principle_context_inputs(
     }
 
 
+def _final_revision_binding(manifest: dict[str, Any]) -> str:
+    """Return a final revision only when the harness verifier attests the same head."""
+    final_revision = manifest.get("final_code_revision")
+    verified_revision = manifest.get("verified_code_revision")
+    if (
+        isinstance(final_revision, str) and final_revision.strip()
+        and isinstance(verified_revision, str) and verified_revision.strip()
+        and final_revision.strip() == verified_revision.strip()
+    ):
+        return final_revision.strip()
+    return ""
+
+
 def _phase_team(route: dict[str, Any], phase: str, graph_types):
     AgentSpec, GraphAgentTeam = graph_types
     risk = str(route.get("risk", "low"))
@@ -254,6 +267,10 @@ def _install_graph_team_bridge() -> None:
             principle_inputs = _principle_context_inputs(
                 route, manifest, changed_paths=engine.changed_files()
             )
+            if phase == "review":
+                # A generic/base revision is not a substitute for the exact
+                # final source head that the harness independently verified.
+                principle_inputs["code_revision"] = _final_revision_binding(manifest)
             result = team.execute(
                 task=task, intent_digest=intent_digest, base_prompt=base_prompt,
                 memory=memory, invoke_agent=invoke_agent, **principle_inputs,
