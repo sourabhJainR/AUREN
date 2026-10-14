@@ -63,6 +63,39 @@ class TaskRetryBudget:
             self._charges[operation_key] = component
             return True
 
+    def mark_rejected(
+        self,
+        handoff: CrewHandoff,
+        *,
+        review_receipt: Mapping[str, Any],
+    ) -> None:
+        """Persist a terminal reviewer rejection so restart cannot replay it as pending."""
+        with self._lock:
+            self._ensure_healthy()
+            handoff_id = handoff.handoff_id or self._handoff_id(
+                handoff.source_crew, handoff.target_crew, handoff.task, handoff.source_plan_digest
+            )
+            self.validate_claimed(handoff)
+            if not isinstance(review_receipt, Mapping):
+                raise PermissionError("terminal rejection requires an independent review receipt")
+            validated_receipt = self._validate_independent_review_receipt(review_receipt)
+            if validated_receipt["status"] != "reject":
+                raise PermissionError("mark_rejected requires a reject review receipt")
+            key = (handoff.source_crew, handoff.target_crew, hashlib.sha256(handoff.task.encode()).hexdigest())
+            self._completed.add(key)
+            self._completed_ids.add(handoff_id)
+            self._completion_receipts[handoff_id] = validated_receipt
+            self._in_flight.pop(handoff_id, None)
+            self._seen_ids.add(handoff_id)
+            self._persist()
+
+    def terminal_receipt(self, handoff_id: str) -> dict[str, Any] | None:
+        """Return the validated terminal receipt for an idempotent replay."""
+        with self._lock:
+            self._ensure_healthy()
+            receipt = self._completion_receipts.get(handoff_id)
+            return dict(receipt) if receipt is not None else None
+
     def snapshot(self) -> dict[str, Any]:
         with self._lock:
             charges = [
@@ -564,7 +597,7 @@ class GraphHandoffController:
             value.get("schema_version") != "auren-handoff-review-receipt-v1"
             or not isinstance(value.get("reviewer_id"), str) or not value["reviewer_id"].strip()
             or not isinstance(value.get("reviewer_version"), str) or not value["reviewer_version"].strip()
-            or value.get("status") != "pass"
+            or value.get("status") not in {"pass", "reject"}
             or not isinstance(refs, list) or not refs or len(refs) > 64
             or any(not isinstance(ref, str) or not ref.strip() or len(ref) > 1024 for ref in refs)
             or not isinstance(value.get("reason"), str) or not value["reason"].strip()
@@ -598,6 +631,8 @@ class GraphHandoffController:
             if not isinstance(review_receipt, Mapping):
                 raise PermissionError("handoff completion requires a durable independent review receipt")
             validated_receipt = self._validate_independent_review_receipt(review_receipt)
+            if validated_receipt["status"] != "pass":
+                raise PermissionError("a rejected review receipt cannot mark a handoff successful")
             key = (handoff.source_crew, handoff.target_crew, hashlib.sha256(handoff.task.encode()).hexdigest())
             self._completed.add(key)
             self._completed_ids.add(handoff_id)
