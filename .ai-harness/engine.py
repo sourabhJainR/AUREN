@@ -142,6 +142,23 @@ def changed_files() -> list[str]:
     return sorted(paths)
 
 
+def source_changed_files() -> list[str]:
+    """Exclude volatile runtime outputs from the source revision contract."""
+    volatile_prefixes = (
+        ".ai-harness/runs/",
+        ".ai-harness/memory/",
+        ".ai-harness/logs/",
+        ".auren/",
+        ".pytest_cache/",
+        "__pycache__/",
+    )
+    return [
+        path for path in changed_files()
+        if not path.replace("\\", "/").lower().startswith(volatile_prefixes)
+        and not path.replace("\\", "/").lower().startswith(".ai-harness/evals/_test_")
+    ]
+
+
 _CODE_SUFFIXES = {
     ".py", ".pyi", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs",
     ".go", ".rs", ".java", ".kt", ".kts", ".scala", ".cs", ".fs",
@@ -166,7 +183,7 @@ def workspace_revision_digest(paths: list[str] | tuple[str, ...] | None = None) 
     The digest binds HEAD plus the content of staged, unstaged, untracked, and
     deleted paths. It is a workspace revision identifier, not a Git commit SHA.
     """
-    selected = changed_files() if paths is None else sorted(set(paths))
+    selected = source_changed_files() if paths is None else sorted(set(paths))
     code, head = run_capture(["git", "rev-parse", "HEAD"])
     if code != 0 or not head.strip():
         raise RuntimeError(f"cannot bind workspace revision to HEAD: {head}")
@@ -655,12 +672,16 @@ def run_task(args: argparse.Namespace, config: dict[str, Any], logger) -> int:
             manifest.setdefault("completed_phases", []).append(phase); save_checkpoint(run_dir, manifest, phase, "completed", next_phase); save_control_checkpoint(run_dir, manifest, phase, index + 1, len(phases), json.dumps(manifest["context_plans"]))
             continue
         if phase == "validate":
-            revision_before = workspace_revision_digest()
+            validation_paths_before = source_changed_files()
+            code_change_before = is_code_change(validation_paths_before)
+            revision_before = workspace_revision_digest(validation_paths_before) if code_change_before else ""
             passed, results = run_validation(config, run_dir)
-            revision_after = workspace_revision_digest()
+            validation_paths_after = source_changed_files()
+            code_change_after = is_code_change(validation_paths_after)
+            revision_after = workspace_revision_digest(validation_paths_after) if code_change_after else ""
             revision_stable = revision_before == revision_after
             manifest["verified_code_revision"] = (
-                revision_before if passed and bool(results) and revision_stable else ""
+                revision_before if passed and bool(results) and revision_stable and code_change_before else ""
             )
             manifest["validation"] = {
                 "passed": passed,
@@ -676,8 +697,8 @@ def run_task(args: argparse.Namespace, config: dict[str, Any], logger) -> int:
             manifest.setdefault("completed_phases", []).append(phase); save_checkpoint(run_dir, manifest, phase, "completed", next_phase); save_control_checkpoint(run_dir, manifest, phase, index + 1, len(phases), json.dumps(results)); continue
         if phase == "learn":
             learn(run_dir, task, route, manifest, config); manifest.setdefault("completed_phases", []).append(phase); write_json_atomic(run_dir / "manifest.json", manifest); save_checkpoint(run_dir, manifest, phase, "completed", next_phase); save_control_checkpoint(run_dir, manifest, phase, index + 1, len(phases), "learning completed"); continue
-        if phase == "review" and is_code_change(changed_files()):
-            manifest["review_candidate_revision"] = workspace_revision_digest()
+        if phase == "review" and is_code_change(source_changed_files()):
+            manifest["review_candidate_revision"] = workspace_revision_digest(source_changed_files())
             manifest["final_code_revision"] = manifest["review_candidate_revision"]
             write_json_atomic(run_dir / "manifest.json", manifest)
         memory = relevant_memory(task, int(config["router"]["memory_budget"])); context = (run_dir / "repository-map.md").read_text(encoding="utf-8"); cp = plan_context(phase=phase, risk=route["risk"], uncertainty=route["uncertainty"], policy_strategy=LearningController(ROOT).active_strategy(route["mode"])); prompt_file = run_dir / f"{phase}.prompt.md"; prompt = build_prompt(phase, task, source, jira, route, context, memory, profile, "\n\n".join(history), cp); write_text_atomic(prompt_file, prompt); succeeded = False; max_attempts = int(config["execution"]["max_phase_retries"]) + 1
@@ -690,7 +711,7 @@ def run_task(args: argparse.Namespace, config: dict[str, Any], logger) -> int:
         if not succeeded:
             review_revision_stale = (
                 phase == "review"
-                and is_code_change(changed_files())
+                and is_code_change(source_changed_files())
                 and str(manifest.get("verified_code_revision", "")).strip()
                 != str(manifest.get("final_code_revision", "")).strip()
             )
@@ -712,8 +733,8 @@ def run_task(args: argparse.Namespace, config: dict[str, Any], logger) -> int:
         if control["next"] != "continue": manifest["status"] = "blocked_by_scope"; write_json_atomic(run_dir / "manifest.json", manifest); save_checkpoint(run_dir, manifest, phase, "blocked", "scope-review"); return 1
         manifest.setdefault("completed_phases", []).append(phase); write_json_atomic(run_dir / "manifest.json", manifest); save_checkpoint(run_dir, manifest, phase, "completed", next_phase)
     passed_diff, diff_output = diff_check()
-    final_revision = workspace_revision_digest()
-    final_paths = changed_files()
+    final_paths = source_changed_files()
+    final_revision = workspace_revision_digest(final_paths) if is_code_change(final_paths) else ""
     candidate_revision = str(manifest.get("review_candidate_revision", "")).strip()
     manifest["final_code_revision"] = final_revision
     revision_evidence = validate_final_revision_evidence(
@@ -770,11 +791,15 @@ def repair_after_failure(config, provider, run_dir, manifest, task, source, jira
     for attempt in range(1, limit + 1):
         manifest["retries"] += 1; prompt_file = run_dir / f"repair-{attempt}.prompt.md"; prompt = build_prompt("repair", task, source, jira, route, context, relevant_memory(task, 700), {}, "\n\n".join(history) + "\nVerification failed. Diagnose before changing code.", plan_context(phase="repair", risk=route["risk"], uncertainty=route["uncertainty"])); write_text_atomic(prompt_file, prompt); code, output, duration = invoke(provider, prompt_file, "repair", run_dir, int(config["execution"]["phase_timeout_seconds"]), dry_run, logger); history.append(compact(f"[repair-{attempt}] {output}", 2500)); manifest.setdefault("phase_metrics", {})[f"repair-{attempt}"] = {"exit_code": code, "duration_seconds": round(duration, 3)}
         if code != 0: continue
-        revision_before = workspace_revision_digest()
+        validation_paths_before = source_changed_files()
+        code_change_before = is_code_change(validation_paths_before)
+        revision_before = workspace_revision_digest(validation_paths_before) if code_change_before else ""
         passed, results = run_validation(config, run_dir)
-        revision_after = workspace_revision_digest()
+        validation_paths_after = source_changed_files()
+        code_change_after = is_code_change(validation_paths_after)
+        revision_after = workspace_revision_digest(validation_paths_after) if code_change_after else ""
         revision_stable = revision_before == revision_after
-        code_change = is_code_change(changed_files())
+        code_change = code_change_before or code_change_after
         evidence_present = bool(results) or not code_change
         manifest["verified_code_revision"] = (
             revision_before if passed and evidence_present and revision_stable and code_change else ""
