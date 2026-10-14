@@ -42,6 +42,22 @@ def now_iso() -> str:
     return dt.datetime.now(dt.UTC).isoformat()
 
 
+def deadline_remaining_seconds(deadline_at: str | dt.datetime) -> float:
+    """Return seconds until a timezone-aware task deadline; malformed values fail closed."""
+    if isinstance(deadline_at, str):
+        try:
+            parsed = dt.datetime.fromisoformat(deadline_at)
+        except ValueError as exc:
+            raise ValueError("task deadline must be an ISO-8601 timestamp") from exc
+    elif isinstance(deadline_at, dt.datetime):
+        parsed = deadline_at
+    else:
+        raise ValueError("task deadline must be an ISO-8601 timestamp")
+    if parsed.tzinfo is None:
+        raise ValueError("task deadline must include a timezone")
+    return (parsed.astimezone(dt.UTC) - dt.datetime.now(dt.UTC)).total_seconds()
+
+
 def load_config() -> dict[str, Any]:
     try:
         with CONFIG_PATH.open("rb") as handle:
