@@ -651,12 +651,31 @@ def run_task(args: argparse.Namespace, config: dict[str, Any], logger) -> int:
             manifest.setdefault("completed_phases", []).append(phase); save_checkpoint(run_dir, manifest, phase, "completed", next_phase); save_control_checkpoint(run_dir, manifest, phase, index + 1, len(phases), json.dumps(manifest["context_plans"]))
             continue
         if phase == "validate":
-            passed, results = run_validation(config, run_dir); manifest["validation"] = {"passed": passed, "results": results}; write_json_atomic(run_dir / "manifest.json", manifest)
+            revision_before = workspace_revision_digest()
+            passed, results = run_validation(config, run_dir)
+            revision_after = workspace_revision_digest()
+            revision_stable = revision_before == revision_after
+            manifest["verified_code_revision"] = (
+                revision_before if passed and bool(results) and revision_stable else ""
+            )
+            manifest["validation"] = {
+                "passed": passed,
+                "results": results,
+                "source_revision_before": revision_before,
+                "source_revision_after": revision_after,
+                "revision_stable": revision_stable,
+                "verification_evidence_present": bool(results),
+            }
+            write_json_atomic(run_dir / "manifest.json", manifest)
             if not passed:
                 if not repair_after_failure(config, provider, run_dir, manifest, task, source, jira, route, history, args.dry_run, logger): manifest["status"] = "blocked_by_validation"; write_json_atomic(run_dir / "manifest.json", manifest); save_checkpoint(run_dir, manifest, phase, "blocked", "repair"); return 1
             manifest.setdefault("completed_phases", []).append(phase); save_checkpoint(run_dir, manifest, phase, "completed", next_phase); save_control_checkpoint(run_dir, manifest, phase, index + 1, len(phases), json.dumps(results)); continue
         if phase == "learn":
             learn(run_dir, task, route, manifest, config); manifest.setdefault("completed_phases", []).append(phase); write_json_atomic(run_dir / "manifest.json", manifest); save_checkpoint(run_dir, manifest, phase, "completed", next_phase); save_control_checkpoint(run_dir, manifest, phase, index + 1, len(phases), "learning completed"); continue
+        if phase == "review" and is_code_change(changed_files()):
+            manifest["review_candidate_revision"] = workspace_revision_digest()
+            manifest["final_code_revision"] = manifest["review_candidate_revision"]
+            write_json_atomic(run_dir / "manifest.json", manifest)
         memory = relevant_memory(task, int(config["router"]["memory_budget"])); context = (run_dir / "repository-map.md").read_text(encoding="utf-8"); cp = plan_context(phase=phase, risk=route["risk"], uncertainty=route["uncertainty"], policy_strategy=LearningController(ROOT).active_strategy(route["mode"])); prompt_file = run_dir / f"{phase}.prompt.md"; prompt = build_prompt(phase, task, source, jira, route, context, memory, profile, "\n\n".join(history), cp); write_text_atomic(prompt_file, prompt); succeeded = False; max_attempts = int(config["execution"]["max_phase_retries"]) + 1
         for attempt in range(max_attempts):
             if attempt:
@@ -672,7 +691,51 @@ def run_task(args: argparse.Namespace, config: dict[str, Any], logger) -> int:
         control = save_control_checkpoint(run_dir, manifest, phase, index + 1, len(phases), output)
         if control["next"] != "continue": manifest["status"] = "blocked_by_scope"; write_json_atomic(run_dir / "manifest.json", manifest); save_checkpoint(run_dir, manifest, phase, "blocked", "scope-review"); return 1
         manifest.setdefault("completed_phases", []).append(phase); write_json_atomic(run_dir / "manifest.json", manifest); save_checkpoint(run_dir, manifest, phase, "completed", next_phase)
-    passed_diff, diff_output = diff_check(); manifest["verification"] = {"validation_passed": manifest.get("validation", {}).get("passed", True), "diff_check_passed": passed_diff, "diff_check": diff_output}; manifest["git_final"] = git_state(); manifest["git_diff"] = diff_summary(); manifest["completed_at"] = now_iso(); manifest["status"] = "completed" if manifest["verification"]["validation_passed"] and passed_diff else "blocked_by_verification"; write_json_atomic(run_dir / "manifest.json", manifest); save_checkpoint(run_dir, manifest, "complete", manifest["status"], None); emit_event(run_dir, "run.finish", status=manifest["status"]); return 0 if manifest["status"] == "completed" else 1
+    passed_diff, diff_output = diff_check()
+    final_revision = workspace_revision_digest()
+    final_paths = changed_files()
+    candidate_revision = str(manifest.get("review_candidate_revision", "")).strip()
+    manifest["final_code_revision"] = final_revision
+    revision_evidence = validate_final_revision_evidence(
+        manifest,
+        risk=str(route.get("risk", "medium")),
+        intent_digest=str(manifest.get("intent_digest", "")),
+        changed_paths=final_paths,
+        final_revision=final_revision,
+    )
+    manifest["verification"] = {
+        "validation_passed": manifest.get("validation", {}).get("passed", True),
+        "diff_check_passed": passed_diff,
+        "diff_check": diff_output,
+        "exact_revision_passed": revision_evidence["exact_revision_passed"],
+        "principle_verification_passed": revision_evidence["principle_verification_passed"],
+        "revision_blockers": revision_evidence["blockers"],
+        "review_candidate_revision": candidate_revision,
+    }
+    manifest["git_final"] = git_state()
+    manifest["git_diff"] = diff_summary()
+    manifest["completed_at"] = now_iso()
+    all_gates_passed = (
+        manifest["verification"]["validation_passed"]
+        and passed_diff
+        and revision_evidence["passed"]
+    )
+    manifest["status"] = "completed" if all_gates_passed else (
+        "blocked_by_principle_verification"
+        if revision_evidence["principle_verification_passed"] is False
+        else "blocked_by_verification"
+    )
+    next_phase_after_block = None
+    if not all_gates_passed:
+        next_phase_after_block = (
+            "review" if revision_evidence["principle_verification_passed"] is False
+            and revision_evidence["exact_revision_passed"]
+            else "validate"
+        )
+    write_json_atomic(run_dir / "manifest.json", manifest)
+    save_checkpoint(run_dir, manifest, "complete", manifest["status"], next_phase_after_block)
+    emit_event(run_dir, "run.finish", status=manifest["status"])
+    return 0 if manifest["status"] == "completed" else 1
 
 
 def asdict_safe(value: Any) -> dict[str, Any]:
