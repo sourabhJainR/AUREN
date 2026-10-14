@@ -38,6 +38,46 @@ LEGACY_ALLOWED = {
     "tests/test_graph_agent_evidence_decision.py",
     "tests/test_state_migration.py",
 }
+LEGACY_ALLOWED_RATIONALE = {
+    "docs/LEGACY_NAME_COMPATIBILITY.md": "Normative migration boundary: documents exactly which historical names remain accepted and where they may be used.",
+    "docs/LEGACY_LINEAGE_CONFORMANCE.md": "Historical conformance fixtures intentionally retain old lineage tokens to verify migration behavior.",
+    "portable/identity_compat.py": "The sole bounded compatibility adapter must name and translate legacy environment/state identifiers.",
+    "scripts/conformance_oracles.py": "Conformance oracle fixtures contain historical identifiers as test inputs, not active product names.",
+    "scripts/validate_auren_identity.py": "The audit must contain the patterns and allowlist entries it validates.",
+    "tests/test_contract_alignment.py": "Adversarial contract tests include legacy strings to prove stale-name detection and rejection.",
+    "tests/test_state_paths.py": "Migration tests construct old state roots and assert safe, non-destructive compatibility behavior.",
+    "tests/test_identity_compat.py": "Compatibility tests exercise old environment variables, persisted keys, conflicts, and canonicalization.",
+    "tests/test_legacy_name_compatibility.py": "Dedicated regression fixtures verify legacy-name compatibility remains bounded.",
+    "tests/test_identity_audit_patterns.py": "Adversarial mixed-case fixtures prove identifier casing cannot bypass the audit.",
+    "tests/test_context_broker.py": "Legacy telemetry names appear only in compatibility regression fixtures.",
+    "tests/test_extension_registry.py": "Legacy extension aliases are retained only to test registry compatibility and rejection behavior.",
+    "tests/test_user_experience.py": "Legacy user-facing names are fixture inputs for compatibility regression coverage.",
+    "tests/test_agent_capabilities.py": "Legacy capability identifiers are exercised as historical inputs, not current registration names.",
+    "tests/test_provider_conformance.py": "Provider conformance tests retain historical environment/result tokens as fixtures.",
+    "tests/test_engineering_evolution.py": "Evolution tests include old naming forms to ensure migration and rollback remain deterministic.",
+    "tests/test_adaptive_runtime_recovery_integration.py": "Recovery fixtures exercise loading and resuming historical persisted state.",
+    "tests/portable/test_adaptive_learning.py": "Learning compatibility fixtures preserve historical state labels for regression coverage.",
+    "tests/test_graph_agent_evidence_decision.py": "Evidence-decision tests use legacy identifiers to prove fail-closed migration behavior.",
+    "tests/test_state_migration.py": "Dedicated migration tests intentionally include legacy state files and keys."
+}
+LEGACY_ALLOWED_LINE_RATIONALE = {
+    "portable/engineering_dashboard.py": "Only the documented legacy state-root marker is retained for dashboard compatibility; new state writes use the canonical root.",
+    ".ai-harness/runtime/graph_agent_team.py": "Only exact historical checkpoint-key fixtures are allowed; all runtime reads must pass through the canonical compatibility adapter.",
+    "tests/test_graph_agent_team.py": "Exact legacy checkpoint fixtures prove canonicalization removes old keys before persisted state is accepted.",
+    ".ai-harness/runtime/sandbox.py": "AER_SANDBOX aliases are accepted only as explicit environment-variable compatibility inputs.",
+    ".ai-harness/safe_provider.py": "Historical local-provider fallback and sandbox environment aliases remain compatibility inputs, not canonical settings.",
+    ".ai-harness/runtime/lsp_server.py": "The old state-root spelling is retained only for locating an existing legacy workspace.",
+    ".ai-harness/CORE_RUNTIME_SERVICES.md": "This documentation names legacy environment aliases to explain their retirement boundary.",
+    ".ai-harness/BEHAVIORAL_CONFORMANCE.md": "This conformance document records historical telemetry naming for compatibility testing.",
+    "scripts/provider_conformance.py": "Legacy conformance output names are protocol fixtures required to verify older providers.",
+    "scripts/behavioral_conformance_ground_truth.py": "Historical conformance labels are ground-truth fixture values, not active runtime configuration.",
+    "scripts/behavioral_conformance.py": "Historical conformance labels are emitted only for backward-compatible test fixtures.",
+    "scripts/benchmark_oracles.py": "The old benchmark API key name is an adversarial fixture for secret/config compatibility tests.",
+    "README.md": "The legacy state-root spelling appears only in migration guidance for existing installations.",
+    "docs/USAGE_AND_PLATFORM_INTEGRATION.md": "The legacy state-root spelling appears only in upgrade instructions for existing installations.",
+    "docs/REPOSITORY_CONSISTENCY_AND_ENHANCEMENT_PLAN.md": "The old wildcard/name is discussed as a migration audit target, not a supported current product identifier."
+}
+
 LEGACY_ALLOWED_LINE_PATTERNS = {
     "portable/engineering_dashboard.py": (
         re.compile(r'".aer"'),
@@ -150,6 +190,11 @@ def main(argv: list[str] | None = None) -> int:
             findings.append(finding)
             unsafe_allowlist.append(finding)
 
+    for allowed_path in sorted(set(LEGACY_ALLOWED) ^ set(LEGACY_ALLOWED_RATIONALE)):
+        findings.append(f"{allowed_path}: legacy file allowlist rationale is missing or stale")
+    for allowed_path in sorted(set(LEGACY_ALLOWED_LINE_PATTERNS) ^ set(LEGACY_ALLOWED_LINE_RATIONALE)):
+        findings.append(f"{allowed_path}: legacy line allowlist rationale is missing or stale")
+
     inventory: list[dict[str, object]] = []
     for raw_path in tracked:
         if not raw_path:
@@ -197,6 +242,8 @@ def main(argv: list[str] | None = None) -> int:
             "unapproved_match_count": len(unapproved),
             "audit_passed": not findings,
             "allowlist_entries": sorted(LEGACY_ALLOWED),
+            "allowlist_rationale": LEGACY_ALLOWED_RATIONALE,
+            "line_allowlist_rationale": LEGACY_ALLOWED_LINE_RATIONALE,
             "unsafe_allowlist_entries": unsafe_allowlist,
             "match_inventory": inventory,
             "findings": findings,
