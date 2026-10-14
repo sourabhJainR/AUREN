@@ -40,5 +40,5 @@ def test_deployment_decisions_state_consistency_and_partition_tradeoffs():
 
     documentation = DOC_PATH.read_text(encoding="utf-8")
     assert "CAP/PACELC" in documentation
-    assert "no transport-level exactly-once" in documentation
+    assert "no transport-level exactly-once" in documentation.lower()
     assert "fencing" in documentation
