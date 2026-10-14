@@ -395,6 +395,14 @@ class ExecutionController:
                 evidence_ids = context.get("known_evidence_ids")
                 if not isinstance(record, Mapping):
                     return False, "promotion gate rejected task: trusted decision record is missing", ("promotion-gate:rejected",)
+                promotion = record.get("promotion")
+                promotion_level = promotion.get("level") if isinstance(promotion, Mapping) else None
+                if execution_class == "consequential" and promotion_level not in {
+                    "verified_for_scope", "repeatedly_reliable", "independently_corroborated"
+                }:
+                    return False, (
+                        "consequential handler requires at least verified_for_scope promotion evidence"
+                    ), ("promotion-gate:rejected",)
                 if isinstance(approvers, str) or not isinstance(approvers, (list, tuple, set, frozenset)):
                     return False, "promotion gate rejected task: authorized approver context is malformed", ("promotion-gate:rejected",)
                 if isinstance(evidence_ids, str) or not isinstance(evidence_ids, (list, tuple, set, frozenset)):
