@@ -47,7 +47,7 @@ def verified_chain(campaign, causal_evidence_ids=()):
         receipt, evidence_ids=(receipt.receipt_digest, *causal_evidence_ids)
     )
     decision = CausalCapabilityPromotionGate().evaluate(causal)
-    return PromotionEvidenceChainBuilder().build(
+    return PromotionEvidenceChainBuilder(require_production_attestation=False).build(
         campaign, receipt, causal, decision,
         attested_campaign=make_attested_campaign(campaign, receipt),
         **isolation_kwargs(campaign, receipt),

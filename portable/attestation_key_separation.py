@@ -11,7 +11,13 @@ import hashlib
 import json
 from typing import Callable, FrozenSet
 
-from .independent_evaluation_attestation import AttestedEvaluation, EvaluationAttestation, IndependentEvaluationAttestor
+from .independent_evaluation_attestation import (
+    _PRODUCTION_EVALUATION_SEAL,
+    _TRUSTED_EVALUATION_SEAL,
+    AttestedEvaluation,
+    EvaluationAttestation,
+    IndependentEvaluationAttestor,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -134,7 +140,7 @@ class SeparationAwareAttestor:
         evidence_digest = hashlib.sha256(
             json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
         ).hexdigest()
-        return AttestedEvaluation(
+        result = AttestedEvaluation(
             attestation=base.attestation,
             verified=base.verified,
             independent=independent,
@@ -142,6 +148,9 @@ class SeparationAwareAttestor:
             reasons=tuple(reasons),
             evidence_digest=evidence_digest,
         )
+        if result.verified and result.independent and result.contamination_free:
+            object.__setattr__(result, "_trust_seal", _TRUSTED_EVALUATION_SEAL)
+        return result
 
 
 __all__ = ["AttestationTrustPolicy", "SeparationAwareAttestor"]

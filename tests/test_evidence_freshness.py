@@ -56,7 +56,7 @@ class EvidenceFreshnessTests(unittest.TestCase):
                 evidence_ids=(receipt.receipt_digest, *(item.evidence_id for item in observations)),
             )
             decision = CausalCapabilityPromotionGate().evaluate(causal)
-            chain = PromotionEvidenceChainBuilder().build(
+            chain = PromotionEvidenceChainBuilder(require_production_attestation=False).build(
                 campaign, receipt, causal, decision,
                 attested_campaign=make_attested_campaign(campaign, receipt),
                 **isolation_kwargs(campaign, receipt),

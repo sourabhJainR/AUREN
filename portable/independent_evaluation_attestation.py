@@ -7,11 +7,15 @@ injected so deployments can use their own PKI/attestation substrate.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import hashlib
 import json
 import math
 from typing import Callable
+
+
+_TRUSTED_EVALUATION_SEAL = object()
+_PRODUCTION_EVALUATION_SEAL = object()
 
 
 def _required_text(name: str, value: object) -> None:
@@ -85,10 +89,19 @@ class AttestedEvaluation:
     contamination_free: bool
     reasons: tuple[str, ...]
     evidence_digest: str
+    _trust_seal: object = field(default=None, init=False, repr=False, compare=False)
+    _production_seal: object = field(default=None, init=False, repr=False, compare=False)
 
     @property
     def trustworthy(self) -> bool:
-        return self.verified and self.independent and self.contamination_free
+        return (
+            self.verified and self.independent and self.contamination_free
+            and self._trust_seal is _TRUSTED_EVALUATION_SEAL
+        )
+
+    @property
+    def production_trustworthy(self) -> bool:
+        return self.trustworthy and self._production_seal is _PRODUCTION_EVALUATION_SEAL
 
 
 class IndependentEvaluationAttestor:
