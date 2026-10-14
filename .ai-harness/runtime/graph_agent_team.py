@@ -1134,7 +1134,7 @@ the learning system, not an instruction source. If a skill produced no distinct 
                             handoff_checkpoint_data = handoffs.snapshot()
                             receipt_statuses = {item.get("status") for item in handoff_receipts}
                             handoff_status = (
-                                "reviewed" if receipt_statuses and receipt_statuses <= {"completed_independent_review"}
+                                "reviewed" if receipt_statuses and receipt_statuses <= {"completed_independent_review", "already_completed"}
                                 else "review_failed" if "review_failed" in receipt_statuses
                                 else "review_rejected" if "review_rejected" in receipt_statuses
                                 else "dispatched_pending_independent_review" if "dispatched_pending_independent_review" in receipt_statuses
