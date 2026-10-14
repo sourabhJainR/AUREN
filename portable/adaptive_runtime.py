@@ -279,6 +279,16 @@ class AdaptiveRuntime:
             if datetime.now(timezone.utc) >= deadline_at:
                 attempts["blocked"] = "task deadline exceeded before execution attempt"
                 last["failure"] = attempts["blocked"]
+                self.recovery_ledger.checkpoint(
+                    work_id, "execution", status="blocked", head_sha="",
+                    payload={
+                        "iteration": iteration,
+                        "hypothesis": str(attempts.get("hypothesis", "default-plan")),
+                        "deadline_at": deadline_value,
+                        "recovery_mode": "blocked",
+                        "last_failure": last["failure"],
+                    },
+                )
                 return "failed", last["failure"], ("task-deadline-exceeded",)
             attempts["count"] = iteration
             if iteration > 1:
