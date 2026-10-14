@@ -135,10 +135,22 @@ class ApprovedCrewAdapterTests(unittest.TestCase):
             return {"done": True}
 
         graph = StateGraph.from_nodes([Node("work", NodeKind.DETERMINISTIC, node)])
+        def independent_review(handoff):
+            reviewed.append(handoff.handoff_id)
+            return {
+                "schema_version": "auren-handoff-review-receipt-v1",
+                "reviewer_id": "qa-reviewer-v1",
+                "reviewer_version": "reviewer-version-1",
+                "status": "pass",
+                "evidence_refs": [f"review-evidence:{handoff.handoff_id}"],
+                "reason": "Independent review verified the handoff output and acceptance evidence.",
+            }
+
         team = GraphAgentTeam(
             graph,
-            independent_handoff_reviewer=lambda handoff: reviewed.append(handoff.handoff_id) or True,
+            independent_handoff_reviewer=independent_review,
             independent_handoff_reviewer_id="qa-reviewer-v1",
+            independent_handoff_reviewer_version="reviewer-version-1",
         )
         result = team.run("task-reviewed", "frontend UI accessibility", {})
         self.assertEqual(result.status, RunStatus.ACCEPTED)
