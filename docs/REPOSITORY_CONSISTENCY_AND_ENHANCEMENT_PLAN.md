@@ -1,7 +1,9 @@
 # AUREN Repository Consistency Review and Enhancement Completion Plan
 
-**Review baseline:** `ec198bdf267c1c32de2c4cc97d0bbee8e35cebd7`  
-**Review date:** 2026-10-11  
+**Review baseline:** `401902f24fa87a968300d96be095bdc96e78fad8`  
+**Review date:** 2026-10-14
+
+This is a refreshed status pass against the current mainline after state-migration recovery coverage was merged. Historical findings below are retained for traceability; current statuses are stated explicitly.  
 **Purpose:** record evidence-backed consistency findings, distinguish verified implementation from intended architecture, and order the remaining work without duplicating existing control planes.
 
 ## Scope and confidence
@@ -14,7 +16,7 @@ This is a deep review of the main architectural and release surfaces, not a clai
 
 - The three active `ai-coding-orchestrator/SKILL.md` entrypoints under `skills/`, `.agents/` and `.claude/` have the same blob SHA on the baseline.
 - `VERSION` is `1.0.4`; the existing contract test checks the Claude plugin and marketplace version alignment.
-- All seven push-triggered workflows shown for merged commit `ec198bdf267c1c32de2c4cc97d0bbee8e35cebd7` completed successfully.
+- PR #605's five reported required workflows passed on exact head `2a5f5470685446b766cbc9d0f8dce8dac9ea21ed` before merge as `401902f24fa87a968300d96be095bdc96e78fad8`. Post-merge push-run evidence was not available in this review response, so it is not asserted here.
 - Cleanup governance protects the README, Pages entrypoints, deployment workflow, portable bundle and rollback documentation.
 - The Independent Generalization Arena contract correctly states that repository tests are not independent external evaluation and that Arena evidence must not grant execution authority.
 
@@ -23,11 +25,11 @@ This is a deep review of the main architectural and release surfaces, not a clai
 | Priority | Finding | Current status | Completion evidence |
 |---|---|---|---|
 | P0 | Runtime state root mismatch: an earlier revision used the legacy `~/.aer` root as the active default and could nest `.auren` unexpectedly. | Canonical default paths now use `~/.auren`; `~/.aer` remains only as a guarded migration source. Keep [#379](https://github.com/sourabhJainR/AUREN/issues/379) open until exact-head tests and live migration/rollback evidence are confirmed. | One canonical path contract, safe migration/compatibility logic, collision and restart tests, rollback evidence. |
-| P0 | `EngineeringRecoveryLedger` is implemented and unit-tested, but the reviewed default `AdaptiveRuntime → ExecutionController → AutonomousCompany` path does not directly use it. Existing supervisor retries and the new ledger could otherwise enforce separate budgets. | [#377](https://github.com/sourabhJainR/AUREN/issues/377) remains open pending real runtime integration. | Integration tests prove durable attempt limits, changed-hypothesis recovery, exact-head CI gates, resume and safe termination through the default runtime. |
+| P0 | `EngineeringRecoveryLedger` is now integrated into `AdaptiveRuntime.run()` for bounded attempts, alternate hypotheses, and durable checkpoints. | [#377](https://github.com/sourabhJainR/AUREN/issues/377) remains open for process-death restart/resume, dependency-aware continuation, and exact-head/last-known-good operational evidence. | Integration tests must prove restart/resume and bounded recovery through the default runtime; operator/production evidence remains separate. |
 | P0 | There are two different `StateGraph` classes: `portable.state_graph.StateGraph` is a supervisor-facing facade over `Graph/Orchestrator`; `portable.agency_state_graph.StateGraph` is a separate checkpointable graph runtime. Documentation had incorrectly claimed no `StateGraph` class existed. | README and controller docs corrected in this review PR; further runtime unification is not assumed safe. | Explicit API ownership, adapters where needed, and tests showing which path the default runtime actually uses. |
 | P0 | The Arena is still the main product evidence gap: target contracts exist, but the first fully independent sealed campaign is not yet demonstrated. | Existing [#368](https://github.com/sourabhJainR/AUREN/issues/368) is the canonical roadmap. | Executable sealed runner, independent oracle, content-addressed receipt, holdout controls, repeatability and negative tests. |
-| P1 | GitHub repository metadata reports Pages disabled (`has_pages=false`) despite a configured Actions deployment workflow and homepage URL. | Tracked in [#380](https://github.com/sourabhJainR/AUREN/issues/380); repository settings must be enabled and the live URL verified. | Successful Pages deployment plus external homepage and 404 smoke checks. |
-| P1 | Several active docs and source comments still use the retired legacy identity; one integration note also claims a separate `21.0.0 → 22.0.0` version jump that conflicts with the canonical `VERSION` contract. | The Arena and skills-integration docs and selected active comments are corrected in this review PR; regression checks prevent these specific docs from drifting again. | Extend identity checks to additional maintained surfaces, preserving only explicitly documented compatibility identifiers. |
+| P1 | GitHub Pages publishing has since been reported working and the README points to the published site. | Keep [#380](https://github.com/sourabhJainR/AUREN/issues/380) open only for any remaining externally verified deployment/homepage/404 acceptance evidence; do not repeat the earlier `has_pages=false` observation as current state. | Record a successful deployment and externally observed homepage/404 checks if not already captured. |
+| P1 | The canonical identity audit and machine-readable legacy-name inventory now exist, but the broader identity cleanup remains incomplete. | [#530](https://github.com/sourabhJainR/AUREN/issues/530) stays open for review of remaining active tracked matches; preserve explicit migration aliases and historical fixtures instead of blind global replacement. | Run `python scripts/validate_auren_identity.py --report-json <outside-repo-path>`, review each remaining match, and add narrow regression tests for any approved exceptions. |
 | P1 | Several validation/fix branches are stale and diverged from main; some contain useful tests absent from main. They should not be merged wholesale. | Not merged by this review. | Inspect each test against current APIs, port useful regression cases onto a fresh branch, and run current CI. |
 
 ## Enhancement completion sequence
