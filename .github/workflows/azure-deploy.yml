@@ -4,12 +4,12 @@ on:
   workflow_dispatch:
     inputs:
       deploy_web_app:
-        description: Deploy the Web App package
+        description: Deploy the Web App
         type: boolean
         default: true
         required: true
       deploy_functions:
-        description: Deploy the Functions package
+        description: Deploy the Functions app
         type: boolean
         default: true
         required: true
@@ -22,14 +22,14 @@ on:
         type: string
         required: false
       web_app_package:
-        description: Path to the prebuilt Web App ZIP package
+        description: Path to the prepared Web App package or directory
         type: string
-        default: artifacts/webapp.zip
+        default: webapp
         required: true
       functions_package:
-        description: Path to the prebuilt Functions ZIP package
+        description: Path to the prepared Functions package or directory
         type: string
-        default: artifacts/functions.zip
+        default: functions
         required: true
       slot_name:
         description: Optional App Service deployment slot; leave blank for production
@@ -78,7 +78,7 @@ jobs:
       - name: Verify Web App package exists
         env:
           PACKAGE: ${{ inputs.web_app_package }}
-        run: test -f "$PACKAGE" || { echo "Package not found: $PACKAGE" >&2; exit 1; }
+        run: test -e "$PACKAGE" || { echo "Package path not found: $PACKAGE" >&2; exit 1; }
       - name: Sign in to Azure
         uses: azure/login@v2
         with:
@@ -100,7 +100,7 @@ jobs:
       - name: Verify Functions package exists
         env:
           PACKAGE: ${{ inputs.functions_package }}
-        run: test -f "$PACKAGE" || { echo "Package not found: $PACKAGE" >&2; exit 1; }
+        run: test -e "$PACKAGE" || { echo "Package path not found: $PACKAGE" >&2; exit 1; }
       - name: Sign in to Azure
         uses: azure/login@v2
         with:
