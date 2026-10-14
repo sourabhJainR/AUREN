@@ -414,6 +414,39 @@ class ApprovedCrewAdapterTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "digest mismatch"):
             GraphHandoffController.resume(checkpoint)
 
+    def test_handoff_queue_is_bounded_for_new_work_and_resume(self):
+        import hashlib
+        import json
+
+        controller = GraphHandoffController(max_attempts=3)
+        for index in range(GraphHandoffController.MAX_PENDING_HANDOFFS):
+            controller.enqueue(
+                source_crew="backend_api",
+                target_crew="qa_reviewer",
+                task=f"Review endpoint variant {index}",
+                source_plan_digest="plan-digest",
+                allowed_handoffs=("qa_reviewer",),
+                selected_crews=("backend_api", "qa_reviewer"),
+            )
+        with self.assertRaisesRegex(OverflowError, "queue is at its configured bound"):
+            controller.enqueue(
+                source_crew="backend_api",
+                target_crew="qa_reviewer",
+                task="One more handoff",
+                source_plan_digest="plan-digest",
+                allowed_handoffs=("qa_reviewer",),
+                selected_crews=("backend_api", "qa_reviewer"),
+            )
+
+        checkpoint = controller.snapshot()
+        checkpoint["queued"].append(dict(checkpoint["queued"][0]))
+        checkpoint.pop("digest")
+        checkpoint["digest"] = hashlib.sha256(
+            json.dumps(checkpoint, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+        with self.assertRaisesRegex(ValueError, "exceeds the configured pending queue bound"):
+            GraphHandoffController.resume(checkpoint)
+
     def test_handoff_checkpoint_resumes_queued_work(self):
         controller = GraphHandoffController(max_attempts=3)
         controller.enqueue(
