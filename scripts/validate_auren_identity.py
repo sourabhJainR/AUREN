@@ -39,9 +39,6 @@ LEGACY_ALLOWED = {
     "tests/test_state_migration.py",
 }
 LEGACY_ALLOWED_LINE_PATTERNS = {
-    "portable/orchestration.py": (
-        re.compile(r'\bstate\.get\("auren_adaptive_policy", state\.get\("aer_adaptive_policy"\)\)'),
-    ),
     "portable/engineering_dashboard.py": (
         re.compile(r'".aer"'),
     ),
