@@ -40,3 +40,8 @@ With a persistent SQLite database path, the ledger stores observations across pr
 ## Attestation key rotation and revocation
 
 `AttestationTrustPolicy` requires an explicit trusted signer allowlist and trusted key-ID allowlist. Attestations carry a `key_id` that is included in the content-addressed attestation digest. Policies may revoke signer identities or individual key IDs; a revoked signer/key, missing key ID, or key ID removed during rotation fails closed. Rotate by provisioning the replacement key ID out of band, updating the trusted key set, and revoking the old key only after overlap/rollover policy is satisfied. The runtime must not hold private signing keys. This policy is configuration plumbing; deployments must supply authenticated key material and a cryptographic verifier that signs/verifies the full attestation payload.
+
+
+## Sealed evaluator verification results
+
+`AttestedEvaluation` is not trusted merely because its public boolean fields say `verified=True`, `independent=True`, and `contamination_free=True`. The production attestor attaches an in-process verification seal only after Ed25519 signature, lineage, authenticated principal separation, freshness, and replay checks have passed. `PromotionEvidenceChainBuilder()` requires the production seal by default; fixture-based tests must explicitly construct `PromotionEvidenceChainBuilder(require_production_attestation=False)` and must never wire that test mode into a production promotion path. A manually constructed or protocol-callback-only result is rejected even when its boolean fields are forged.
