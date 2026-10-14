@@ -684,6 +684,23 @@ def run_task(args: argparse.Namespace, config: dict[str, Any], logger) -> int:
             manifest.setdefault("context_plans", {})[phase] = asdict_safe(cp); write_json_atomic(run_dir / "context-plan.json", manifest["context_plans"])
             manifest.setdefault("completed_phases", []).append(phase); save_checkpoint(run_dir, manifest, phase, "completed", next_phase); save_control_checkpoint(run_dir, manifest, phase, index + 1, len(phases), json.dumps(manifest["context_plans"]))
             continue
+        if phase == "validate" and args.dry_run:
+            # A dry run is a planning/contract preview, not an implementation
+            # attempt. Running the repository's full validation suite here
+            # recursively launches this same dry-run test and can turn a
+            # harmless preview into a false failure. Record the skip honestly.
+            manifest["validation"] = {
+                "passed": True,
+                "results": [{"status": "skipped", "reason": "dry-run does not modify source"}],
+                "skipped": True,
+                "verification_evidence_present": False,
+            }
+            manifest["verified_code_revision"] = ""
+            write_json_atomic(run_dir / "manifest.json", manifest)
+            manifest.setdefault("completed_phases", []).append(phase)
+            save_checkpoint(run_dir, manifest, phase, "completed", next_phase)
+            save_control_checkpoint(run_dir, manifest, phase, index + 1, len(phases), "validation skipped for dry-run")
+            continue
         if phase == "validate":
             validation_paths_before = source_changed_files()
             code_change_before = is_code_change(validation_paths_before)
