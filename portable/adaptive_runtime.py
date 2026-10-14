@@ -355,6 +355,8 @@ class AdaptiveRuntime:
                     if deadline_exceeded
                     else result.stop_reason or result.status.value
                 )
+                if deadline_exceeded:
+                    attempts["blocked"] = detail
                 evidence = tuple(item.digest for item in result.evidence)
                 if not accepted:
                     last["failure"] = detail
