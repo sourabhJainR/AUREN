@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import unittest
+from threading import Event
 
 from portable.agency_state_graph import (
     GraphInterrupt,
     InMemoryCheckpointStore,
     RetryPolicy,
     StateGraph,
+    current_cancellation_event,
 )
 
 
@@ -59,6 +61,34 @@ class StateGraphTests(unittest.TestCase):
         resumed = graph.compile().invoke({}, run_id="r1", checkpoint=store, resume=True)
         self.assertTrue(resumed.state["planned"])
         self.assertTrue(resumed.state["acted"])
+
+    def test_node_timeout_signals_cooperative_cancellation(self):
+        started = Event()
+        observed_cancellation = Event()
+
+        def cooperative_node(_state):
+            cancellation = current_cancellation_event()
+            self.assertIsNotNone(cancellation)
+            started.set()
+            assert cancellation is not None
+            cancellation.wait(timeout=2)
+            if cancellation.is_set():
+                observed_cancellation.set()
+            return {"completed": True}
+
+        graph = StateGraph()
+        graph.add_node("cooperative", cooperative_node)
+        graph.add_edge(StateGraph.START, "cooperative").add_edge("cooperative", StateGraph.END)
+
+        with self.assertRaisesRegex(TimeoutError, "node cooperative exceeded timeout"):
+            graph.compile().invoke({}, node_timeout_seconds=0.05)
+
+        self.assertTrue(started.is_set())
+        self.assertTrue(
+            observed_cancellation.wait(timeout=1),
+            "timed-out graph nodes must receive a cooperative cancellation signal",
+        )
+        self.assertIsNone(current_cancellation_event())
 
     def test_max_steps_prevents_unbounded_loops(self):
         graph = StateGraph()
