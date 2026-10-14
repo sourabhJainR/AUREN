@@ -109,5 +109,35 @@ class TaskDeadlineEnforcementTests(unittest.TestCase):
                         )
 
 
+    def test_deadline_expiring_during_graph_execution_cannot_be_reported_accepted(self):
+        import time
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+
+            def overrun(_state):
+                time.sleep(0.15)
+                return "completed too late"
+
+            graph = Graph([Node("slow-work", NodeKind.DETERMINISTIC, overrun)])
+            runtime = AdaptiveRuntime(graph, state_root=root / "state")
+            with self.assertRaisesRegex(RuntimeError, "task deadline exceeded"):
+                runtime.run(
+                    session_id="overrun-session",
+                    task_id="overrun-task",
+                    project_root=root,
+                    intent="do not accept work after the deadline",
+                    context={"auren_deadline_seconds": 1},
+                )
+
+            work_id = runtime.execution_controller.work_unit_for_session(
+                "overrun-session:overrun-task", "overrun-task: do not accept work after the deadline"
+            )
+            checkpoint = runtime.recovery_ledger.get_checkpoint(work_id, "execution")
+            self.assertIsNotNone(checkpoint)
+            self.assertEqual(checkpoint.status, "blocked")
+            self.assertEqual(checkpoint.payload["outcome"], "blocked")
+            self.assertIn("deadline", checkpoint.payload["last_failure"])
+
 if __name__ == "__main__":
     unittest.main()
