@@ -638,8 +638,12 @@ def run_task(args: argparse.Namespace, config: dict[str, Any], logger) -> int:
         elif args.jira: source = "jira"; task = task or f"Work on Jira item {args.jira}"
         if not task: raise ConfigurationError("A task, Jira key, or Jira file is required")
         repo_map = repository_map(); profile = profile_repository(); memory = relevant_memory(task, int(config["router"]["memory_budget"])); route = route_with_provider(provider, task, source, jira, repo_map, memory, run_dir, config, args.dry_run, logger); phases = phases_for(route, args.workflow, config); chunks = task_chunks(task, complexity={"low": 1, "medium": 4, "high": 7, "critical": 9}.get(route["risk"], 4))
-        manifest = {"version": 7, "run_id": run_dir.name, "started_at": now_iso(), "provider": provider_name, "task": task, "source": source, "jira": jira, "workflow": args.workflow or "adaptive", "route": route, "phases": phases, "task_chunks": chunks, "completed_phases": [], "retries": 0, "repository_profile": profile, "initial_git": git_state(), "protected_paths": config.get("scope", {}).get("protected_paths", []), "scope_paths": config.get("scope", {}).get("allowed_paths", []), "context_plan": asdict_safe(plan_context(phase="context", risk=route["risk"], uncertainty=route["uncertainty"]))}
+        manifest = {"version": 7, "run_id": run_dir.name, "started_at": now_iso(), "provider": provider_name, "task": task, "source": source, "jira": jira, "workflow": args.workflow or "adaptive", "route": route, "intent_digest": hashlib.sha256(task.strip().encode("utf-8")).hexdigest(), "phases": phases, "task_chunks": chunks, "completed_phases": [], "retries": 0, "repository_profile": profile, "initial_git": git_state(), "protected_paths": config.get("scope", {}).get("protected_paths", []), "scope_paths": config.get("scope", {}).get("allowed_paths", []), "context_plan": asdict_safe(plan_context(phase="context", risk=route["risk"], uncertainty=route["uncertainty"]))}
         write_json_atomic(run_dir / "manifest.json", manifest); write_text_atomic(run_dir / "task.txt", task); write_text_atomic(run_dir / "repository-map.md", repo_map); save_checkpoint(run_dir, manifest, "route", "completed", phases[0] if phases else None)
+    manifest["intent_digest"] = str(
+        manifest.get("intent_digest") or hashlib.sha256(task.strip().encode("utf-8")).hexdigest()
+    )
+    write_json_atomic(run_dir / "manifest.json", manifest)
     history = []
     if not phases: return 0
     phase_timeout = int(config["execution"]["phase_timeout_seconds"])
