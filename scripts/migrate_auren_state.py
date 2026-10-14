@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from portable.state_migration import inspect_state_migration, migrate_state_root
+from portable.state_migration import migrate_state_root
 
 
 def _payload(result) -> dict[str, object]:
@@ -45,14 +45,9 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
     try:
-        result = (
-            migrate_state_root(args.source, args.destination, dry_run=not args.apply)
-            if args.apply
-            else inspect_state_migration(args.source, args.destination)
-        )
+        result = migrate_state_root(args.source, args.destination, dry_run=not args.apply)
         payload = _payload(result)
-        if not args.apply and result.status == "ready":
-            payload["status"] = "dry_run"
+        if not args.apply and result.status == "dry_run":
             payload["next_action"] = "rerun with --apply only after reviewing the source, destination, and manifest"
         print(json.dumps(payload, sort_keys=True, indent=2))
         return 0
