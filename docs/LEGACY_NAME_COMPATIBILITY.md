@@ -34,3 +34,14 @@ This register intentionally distinguishes compatibility from stale branding. Do 
 ## Safe state migration
 
 For the operator-run dry-run/apply/rollback sequence, see [State Migration Runbook](STATE_MIGRATION_RUNBOOK.md) and `python scripts/migrate_auren_state.py --help`.
+
+
+## Produce a sign-off inventory
+
+The default identity audit remains a pass/fail gate. To create a separate machine-readable inventory of every tracked legacy-name match, including the exact allowlist boundary that permits it, run:
+
+```bash
+python scripts/validate_auren_identity.py --report-json /tmp/auren-identity-audit.json
+```
+
+On Windows, choose an absolute report path outside the repository (for example under `%TEMP%`). The command refuses to write the report into the repository so the generated historical matches cannot become a self-justifying tracked exception. Review each `file_allowlisted` and `line_allowlisted` entry with its owning maintainer before signing off; any `unapproved` match still fails the audit.
