@@ -18,6 +18,7 @@ import os
 import py_compile
 import tempfile
 import time
+from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -563,11 +564,40 @@ class Orchestrator:
         if max_attempts_override is not None:
             max_attempts = min(max_attempts, max(1, int(max_attempts_override)))
 
+        def deadline_failure() -> str | None:
+            raw = state.get("auren_deadline_at")
+            if raw is None:
+                return None
+            if not isinstance(raw, str) or not raw.strip():
+                return "invalid task deadline: expected an ISO-8601 timestamp"
+            try:
+                deadline = datetime.fromisoformat(raw)
+            except ValueError:
+                return "invalid task deadline: expected an ISO-8601 timestamp"
+            if deadline.tzinfo is None:
+                return "invalid task deadline: timezone is required"
+            if datetime.now(timezone.utc) >= deadline.astimezone(timezone.utc):
+                return "task deadline exceeded"
+            return None
+
+        failure = deadline_failure()
+        if failure:
+            evidence.append(Evidence("task-deadline", failure, node.name))
+            return NodeResult(node.name, NodeStatus.FAILED, 0, None, evidence, failure, repair_count=0)
+
         while attempts < max_attempts and total_attempts + attempts < self.max_total_attempts:
+            failure = deadline_failure()
+            if failure:
+                evidence.append(Evidence("task-deadline", failure, node.name))
+                return NodeResult(node.name, NodeStatus.FAILED, attempts, last_output, evidence, failure, repair_count=repairs)
             attempts += 1
             try:
                 output = node.run(state)
                 last_output = output
+                failure = deadline_failure()
+                if failure:
+                    evidence.append(Evidence("task-deadline", failure, node.name))
+                    return NodeResult(node.name, NodeStatus.FAILED, attempts, last_output, evidence, failure, repair_count=repairs)
                 evidence.append(Evidence("node-output", f"{node.name} attempt {attempts} completed", node.name))
                 passed = node.evaluator(output) if node.evaluator else True
                 if passed:
@@ -581,6 +611,10 @@ class Orchestrator:
 
             if node.repair is None or attempts >= max_attempts:
                 break
+            failure = deadline_failure()
+            if failure:
+                evidence.append(Evidence("task-deadline", failure, node.name))
+                return NodeResult(node.name, NodeStatus.FAILED, attempts, last_output, evidence, failure, repair_count=repairs)
             repairs += 1
             try:
                 last_output = node.repair(last_output, state)
