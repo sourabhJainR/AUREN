@@ -375,6 +375,32 @@ class ApprovedCrewAdapterTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "max_tool_calls"):
             ApprovedToolCrewAdapter("python", lambda _r: {}, registry, allowed_tools=("read",), max_tool_calls=99)
 
+    def test_retry_requires_matching_claimed_handoff(self):
+        controller = GraphHandoffController()
+        forged = CrewHandoff(
+            "frontend_ui", "qa_reviewer", "unregistered task", "plan-digest", 0, ""
+        )
+        with self.assertRaisesRegex(ValueError, "must be claimed"):
+            controller.retry(forged, retryable=True)
+        self.assertEqual(controller.snapshot()["queued"], [])
+        self.assertEqual(controller.snapshot()["in_flight"], [])
+
+        queued = controller.enqueue(
+            source_crew="frontend_ui", target_crew="qa_reviewer", task="Review UI",
+            source_plan_digest="plan-digest", allowed_handoffs=("qa_reviewer",),
+            selected_crews=("frontend_ui", "qa_reviewer"),
+        )
+        claimed = controller.claim_next(graph_node_active=True)
+        self.assertEqual(claimed.handoff_id, queued.handoff_id)
+        mismatched = CrewHandoff(
+            claimed.source_crew, claimed.target_crew, "different task",
+            claimed.source_plan_digest, claimed.attempt, claimed.handoff_id,
+        )
+        with self.assertRaisesRegex(ValueError, "does not match the claimed handoff"):
+            controller.retry(mismatched, retryable=True)
+        self.assertEqual(controller.snapshot()["queued"], [])
+        self.assertEqual(controller.snapshot()["in_flight"][0]["handoff_id"], claimed.handoff_id)
+
     def test_handoffs_require_contract_and_graph_assignment(self):
         controller = GraphHandoffController(max_attempts=2)
         with self.assertRaisesRegex(PermissionError, "not declared"):
