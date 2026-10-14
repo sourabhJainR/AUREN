@@ -59,8 +59,16 @@ jobs:
         run: python -m pip install 'cryptography>=42,<47'
       - name: Validate architecture constitution
         run: python scripts/validate_architecture.py
-      - name: Enforce canonical AUREN naming
-        run: python scripts/validate_auren_identity.py
+      - name: Enforce canonical AUREN naming and inventory all legacy references
+        run: python scripts/validate_auren_identity.py --report-json "$RUNNER_TEMP/auren-identity-audit.json"
+      - name: Retain case-insensitive legacy identity inventory
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: auren-identity-inventory-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/auren-identity-audit.json
+          retention-days: 90
+          if-no-files-found: warn
       - name: Run executable engineering-principle traceability contracts
         run: |
           python - <<'PY'
