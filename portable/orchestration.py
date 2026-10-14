@@ -430,17 +430,23 @@ class Orchestrator:
                 "minimum_evidence": strategy_profile.minimum_evidence,
             })
         total_attempts = 0
+        critical_failures: list[tuple[RunStatus, str, str]] = []
 
         for node in self.graph.order():
             dependency_results = [run.results[name] for name in node.depends_on]
-            if any(result.status in {NodeStatus.FAILED, NodeStatus.BLOCKED} for result in dependency_results):
-                result = NodeResult(node.name, NodeStatus.SKIPPED, error="dependency failed")
+            if any(
+                result.status in {NodeStatus.FAILED, NodeStatus.BLOCKED, NodeStatus.SKIPPED}
+                for result in dependency_results
+            ):
+                reason = "dependency failed or was skipped"
+                result = NodeResult(node.name, NodeStatus.SKIPPED, error=reason)
                 run.results[node.name] = result
-                run.trajectory.append({"node": node.name, "status": result.status.value, "reason": "dependency failed"})
+                run.trajectory.append({"node": node.name, "status": result.status.value, "reason": reason})
                 if node.critical:
-                    run.status = RunStatus.BLOCKED
-                    run.stop_reason = f"critical dependency failure before {node.name}"
-                    return run
+                    critical_failures.append((
+                        RunStatus.BLOCKED, node.name,
+                        f"critical dependency failure before {node.name}",
+                    ))
                 continue
 
             attempt_limit = self._adaptive_attempt_limit(node, state)
@@ -457,14 +463,45 @@ class Orchestrator:
             if result.evidence:
                 run.evidence.extend(result.evidence)
             if result.status in {NodeStatus.FAILED, NodeStatus.BLOCKED} and node.critical:
-                run.status = RunStatus.FAILED if result.status == NodeStatus.FAILED else RunStatus.BLOCKED
-                run.stop_reason = result.error or f"critical node {node.name} did not pass"
-                return run
+                critical_failures.append((
+                    RunStatus.FAILED if result.status == NodeStatus.FAILED else RunStatus.BLOCKED,
+                    node.name,
+                    result.error or f"critical node {node.name} did not pass",
+                ))
             state[node.name] = result.output
             if total_attempts >= self.max_total_attempts:
                 run.status = RunStatus.BLOCKED
                 run.stop_reason = "global attempt budget exhausted"
                 return run
+
+        if critical_failures:
+            primary_status, _, primary_reason = critical_failures[0]
+            run.status = primary_status
+            run.stop_reason = primary_reason
+            payload = {
+                "kind": "independent_graph_progress",
+                "status": "blocked",
+                "primary_blocker": primary_reason,
+                "critical_failures": [
+                    {"node": name, "status": status.value, "reason": reason}
+                    for status, name, reason in critical_failures
+                ],
+                "executed_nodes": [
+                    name for name, result in run.results.items()
+                    if result.status not in {NodeStatus.SKIPPED, NodeStatus.BLOCKED}
+                ],
+                "skipped_nodes": [
+                    name for name, result in run.results.items()
+                    if result.status == NodeStatus.SKIPPED
+                ],
+            }
+            run.record(Evidence(
+                "independent-graph-progress",
+                json.dumps(payload, sort_keys=True, separators=(",", ":")),
+                "portable.orchestration",
+            ))
+            run.trajectory.append({"event": "independent_graph_progress", **payload})
+            return run
 
         # Code-changing runs are accepted only when verification names the
         # exact final revision. A successful node graph alone is not evidence
