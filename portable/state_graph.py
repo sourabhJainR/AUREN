@@ -622,6 +622,16 @@ class GraphAgentTeam:
                 selected_crews=tuple(selected_ids),
             )
             refresh_checkpoint_state()
+            if item is None:
+                return {
+                    "source_crew": source_crew,
+                    "target_crew": target_crew,
+                    "task": task.strip(),
+                    "source_plan_digest": plan.digest,
+                    "attempt": 0,
+                    "handoff_id": handoffs.handoff_id_for(source_crew, target_crew, task, plan.digest),
+                    "status": "already_completed",
+                }
             return {
                 "source_crew": item.source_crew,
                 "target_crew": item.target_crew,
@@ -629,6 +639,7 @@ class GraphAgentTeam:
                 "source_plan_digest": item.source_plan_digest,
                 "attempt": item.attempt,
                 "handoff_id": item.handoff_id,
+                "status": "queued",
             }
 
         def claim_handoff() -> dict[str, Any] | None:
