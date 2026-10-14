@@ -162,6 +162,8 @@ def _manifest_record_path(root: Path, record_path: str) -> Path:
         raise SystemExit(f"unsafe manifest path: {record_path}")
     if record_path == LAUNCHER_PATH:
         return root / LAUNCHER_PATH
+    if record_path == "auren_env_compat.py":
+        return root / PAYLOAD_ROOT / record_path
     if not any(record_path == prefix or record_path.startswith(f"{prefix}/") for prefix in REQUIRED_PATHS):
         raise SystemExit(f"unexpected manifest path: {record_path}")
     return root / PAYLOAD_ROOT / record_path
