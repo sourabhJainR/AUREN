@@ -29,3 +29,8 @@ This register intentionally distinguishes compatibility from stale branding. Do 
 - Do not rename a public import or persisted state path based on text search alone.
 - The active-identity audit test is intentionally scoped to current runtime/UI/operational docs; historical evidence and compatibility tokens are governed by this register.
 - Review this register whenever a legacy alias is removed or a historical artifact is migrated.
+
+
+## Safe state migration
+
+For the operator-run dry-run/apply/rollback sequence, see [State Migration Runbook](STATE_MIGRATION_RUNBOOK.md) and `python scripts/migrate_auren_state.py --help`.
