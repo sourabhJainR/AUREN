@@ -78,7 +78,7 @@
         "versioned independent-review receipt"
       ],
       "remaining_gaps": [
-        "cross-process lease/fencing is not implemented for multiple supervisors sharing state"
+        "the durable execution controller fences stale task finalization with lease generations in its local SQLite ownership model; multi-node consensus/ownership guarantees are not claimed"
       ]
     },
     {
@@ -120,7 +120,8 @@
         "resume preserves retry charges and review receipts"
       ],
       "remaining_gaps": [
-        "single task deadline across supervisor and graph, structured cancellation, and fault-injection coverage remain incomplete"
+        "cooperative cancellation of non-cooperative external tools remains incomplete",
+        "fault-injection/chaos coverage, measured recovery objectives, and operator rollback rehearsals remain incomplete"
       ]
     },
     {
@@ -194,7 +195,7 @@
       ],
       "test_files": [
         "tests/test_execution_controller_promotion_gate.py",
-        "tests/test_execution_controller_promotion_gate.py"
+        "tests/test_decision_gate.py"
       ],
       "enforced_controls": [
         "verified promotion threshold for consequential handlers",
@@ -254,8 +255,8 @@
     },
     {
       "boundary": "task ownership and supervisor checkpoints",
-      "consistency": "one authoritative supervisor writes a task checkpoint; digests and run/intent/plan identity reject stale state, but there is no distributed lease/fencing token yet",
-      "cap_pacelc": "Do not run competing supervisors against the same state root. A distributed deployment must add leases plus monotonically increasing fencing generations; reject stale-owner commits even during partitions.",
+      "consistency": "the durable execution controller fences stale task finalization with monotonically increasing lease generations in its local SQLite store; graph checkpoint publication still has one authoritative supervisor writer and is not a distributed consensus protocol",
+      "cap_pacelc": "Do not run independent supervisors against a shared state root unless deployment-level ownership and storage guarantees are verified. Multi-node deployments need an authoritative lease/fencing and consistency design; reject stale-owner commits during partitions.",
       "status": "operator-controlled"
     },
     {
