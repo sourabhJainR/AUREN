@@ -7,7 +7,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / ".ai-harness"))
 
-from runtime import _principle_context_inputs
+from runtime import _final_revision_binding, _principle_context_inputs
 
 
 class RuntimePrincipleContextTests(unittest.TestCase):
@@ -50,6 +50,25 @@ class RuntimePrincipleContextTests(unittest.TestCase):
         with patch("engine.run_capture", return_value=(128, "not a repository")):
             with self.assertRaisesRegex(RuntimeError, "cannot determine repository changes"):
                 engine.changed_files()
+
+    def test_final_revision_requires_exact_match_with_verified_revision(self):
+        self.assertEqual(
+            _final_revision_binding({
+                "final_code_revision": "abc123",
+                "verified_code_revision": "abc123",
+                "code_revision": "base456",
+            }),
+            "abc123",
+        )
+        self.assertEqual(
+            _final_revision_binding({
+                "final_code_revision": "abc123",
+                "verified_code_revision": "old456",
+                "code_revision": "abc123",
+            }),
+            "",
+        )
+        self.assertEqual(_final_revision_binding({"code_revision": "base456"}), "")
 
     def test_runtime_does_not_invent_revision_or_design_contract(self):
         inputs = _principle_context_inputs(
