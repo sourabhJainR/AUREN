@@ -750,8 +750,25 @@ def repair_after_failure(config, provider, run_dir, manifest, task, source, jira
     for attempt in range(1, limit + 1):
         manifest["retries"] += 1; prompt_file = run_dir / f"repair-{attempt}.prompt.md"; prompt = build_prompt("repair", task, source, jira, route, context, relevant_memory(task, 700), {}, "\n\n".join(history) + "\nVerification failed. Diagnose before changing code.", plan_context(phase="repair", risk=route["risk"], uncertainty=route["uncertainty"])); write_text_atomic(prompt_file, prompt); code, output, duration = invoke(provider, prompt_file, "repair", run_dir, int(config["execution"]["phase_timeout_seconds"]), dry_run, logger); history.append(compact(f"[repair-{attempt}] {output}", 2500)); manifest.setdefault("phase_metrics", {})[f"repair-{attempt}"] = {"exit_code": code, "duration_seconds": round(duration, 3)}
         if code != 0: continue
-        passed, results = run_validation(config, run_dir); manifest["validation"] = {"passed": passed, "results": results}
-        if passed: return True
+        revision_before = workspace_revision_digest()
+        passed, results = run_validation(config, run_dir)
+        revision_after = workspace_revision_digest()
+        revision_stable = revision_before == revision_after
+        code_change = is_code_change(changed_files())
+        evidence_present = bool(results) or not code_change
+        manifest["verified_code_revision"] = (
+            revision_before if passed and evidence_present and revision_stable and code_change else ""
+        )
+        manifest["validation"] = {
+            "passed": passed,
+            "results": results,
+            "source_revision_before": revision_before,
+            "source_revision_after": revision_after,
+            "revision_stable": revision_stable,
+            "verification_evidence_present": bool(results),
+        }
+        if passed and evidence_present and revision_stable:
+            return True
     return False
 
 
