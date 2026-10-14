@@ -502,6 +502,43 @@ class Orchestrator:
             ))
             run.trajectory.append({"event": "exact_head_verification", **payload})
 
+        requires_principle_verification = (
+            bool(state.get("require_principle_verification", False))
+            or (
+                risk.strip().lower() in {"high", "critical"}
+                and EngineeringDesignGuard._is_code_change(tuple(changed_paths))
+            )
+        )
+        if requires_principle_verification:
+            final_revision = str(state.get("final_code_revision", state.get("code_revision", ""))).strip()
+            verification = EngineeringDesignGuard.validate_principle_verification_record(
+                state.get("principle_verification"),
+                intent_digest=run.intent_digest,
+                code_revision=final_revision,
+            )
+            verification_payload: dict[str, Any] = {
+                "kind": "engineering_principle_verification",
+                "status": "passed" if verification["valid"] else "blocked",
+                "intent_digest": run.intent_digest,
+                "code_revision": final_revision,
+                "receipt_digest": verification["receipt_digest"],
+                "blockers": verification["blockers"],
+            }
+            if verification["valid"]:
+                # Preserve the exact reviewed receipt as evidence; the validator
+                # has already bounded its size and checked canonical JSON/digest.
+                verification_payload["receipt"] = dict(state["principle_verification"])
+            run.record(Evidence(
+                "engineering-principle-verification",
+                json.dumps(verification_payload, sort_keys=True, separators=(",", ":")),
+                "portable.orchestration",
+            ))
+            run.trajectory.append({"event": "engineering_principle_verification", **verification_payload})
+            if not verification["valid"]:
+                run.status = RunStatus.BLOCKED
+                run.stop_reason = "final engineering-principle verification missing, stale, or incomplete"
+                return run
+
         run.status = RunStatus.ACCEPTED
         run.stop_reason = "all critical graph nodes passed"
         if self.allow_self_improvement:
