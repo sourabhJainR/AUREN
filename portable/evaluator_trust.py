@@ -96,6 +96,7 @@ class Ed25519EvaluationAttestationVerifier:
         *,
         clock: Callable[[], float] = time.time,
         max_future_skew_seconds: float = 30.0,
+        revoked_signers: Iterable[str] = (),
     ) -> None:
         if not callable(clock):
             raise TypeError("clock must be callable")
@@ -124,7 +125,15 @@ class Ed25519EvaluationAttestationVerifier:
                 raise ValueError("one public key cannot be registered under multiple key IDs")
             seen_material.add(public_key)
             by_key[record.key_id] = record
+        if isinstance(revoked_signers, (str, bytes)):
+            raise ValueError("revoked_signers must be a collection of signer IDs")
+        revoked = frozenset(revoked_signers)
+        if any(not isinstance(value, str) or not value.strip() for value in revoked):
+            raise ValueError("revoked signer IDs must be non-empty strings")
+        if not revoked <= {record.signer_id for record in records}:
+            raise ValueError("revoked signer IDs must exist in the key registry")
         self._keys = by_key
+        self._revoked_signers = revoked
         self._clock = clock
         self._max_future_skew_seconds = float(max_future_skew_seconds)
 
@@ -138,7 +147,7 @@ class Ed25519EvaluationAttestationVerifier:
 
     @property
     def revoked_signers(self) -> frozenset[str]:
-        return frozenset(record.signer_id for record in self._keys.values() if record.revoked)
+        return self._revoked_signers
 
     @property
     def revoked_key_ids(self) -> frozenset[str]:
@@ -149,7 +158,7 @@ class Ed25519EvaluationAttestationVerifier:
             return False
         try:
             record = self._keys.get(attestation.key_id)
-            if record is None or record.revoked or record.signer_id != attestation.signer_id:
+            if record is None or record.revoked or record.signer_id != attestation.signer_id or attestation.signer_id in self._revoked_signers:
                 return False
             now = self._clock()
             if isinstance(now, bool) or not isinstance(now, (int, float)) or not math.isfinite(now):
