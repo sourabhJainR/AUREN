@@ -30,7 +30,7 @@ class PortableAurenTests(unittest.TestCase):
         (root / "dashboard" / "index.html").write_text("<html>AUREN Engineering Console</html>\n", encoding="utf-8")
         (root / "auren_cli.py").write_text("print('launcher')\n", encoding="utf-8")
         (root / "auren_env_compat.py").write_text(
-            "def get_auren_env(suffix, default=None):\\n    return default\\n", encoding="utf-8"
+            "def get_auren_env(suffix, default=None):\n    return default\n", encoding="utf-8"
         )
 
     def test_build_verify_and_exclude_mutable_state(self) -> None:
