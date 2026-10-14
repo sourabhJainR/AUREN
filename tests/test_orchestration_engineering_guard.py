@@ -177,6 +177,18 @@ def test_final_principle_verification_rejects_stale_revision_and_missing_family(
     assert not validation["valid"]
     assert any("all 12 canonical families" in blocker for blocker in validation["blockers"])
 
+    malformed = principle_verification_receipt(Orchestrator.intent_digest(intent), revision)
+    malformed["families"][PRINCIPLE_FAMILY_IDS[0]]["status"] = []
+    malformed_payload = {key: value for key, value in malformed.items() if key != "digest"}
+    malformed["digest"] = hashlib.sha256(
+        json.dumps(malformed_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    validation = EngineeringDesignGuard.validate_principle_verification_record(
+        malformed, intent_digest=Orchestrator.intent_digest(intent), code_revision=revision
+    )
+    assert not validation["valid"]
+    assert any("invalid verification status" in blocker for blocker in validation["blockers"])
+
     stale = principle_verification_receipt(Orchestrator.intent_digest(intent), "old-revision")
     validation = EngineeringDesignGuard.validate_principle_verification_record(
         stale, intent_digest=Orchestrator.intent_digest(intent), code_revision=revision
