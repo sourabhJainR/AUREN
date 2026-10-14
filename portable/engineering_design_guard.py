@@ -34,6 +34,22 @@ class DesignDimension(str, Enum):
     AI_AGENT = "ai_agent"
 
 
+PRINCIPLE_FAMILY_IDS = (
+    "fundamental_design",
+    "security_privacy",
+    "performance_cost",
+    "concurrency",
+    "distributed_systems",
+    "reliability_recovery",
+    "data_correctness",
+    "api_integration",
+    "testing_verification",
+    "delivery_operations",
+    "observability_governance",
+    "ai_autonomous_systems",
+)
+
+
 class FindingSeverity(str, Enum):
     INFO = "info"
     WARNING = "warning"
@@ -446,6 +462,83 @@ class EngineeringDesignGuard:
             json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
         ).hexdigest()
         return payload
+
+    @staticmethod
+    def validate_principle_verification_record(
+        record: Mapping[str, object] | None,
+        *,
+        intent_digest: str,
+        code_revision: str,
+    ) -> dict[str, object]:
+        """Validate final independent verification for all 12 principle families.
+
+        This is an acceptance-boundary validator, not a generator. Every family
+        must be explicitly verified or justified not-applicable with evidence;
+        declarations and missing fields never count as proof.
+        """
+        blockers: list[str] = []
+        if not isinstance(record, Mapping):
+            return {
+                "valid": False,
+                "blockers": ["final principle verification receipt is missing"],
+                "receipt_digest": "",
+            }
+        required_fields = {
+            "schema_version", "intent_digest", "code_revision", "reviewer_id",
+            "reviewer_version", "families", "digest",
+        }
+        if set(record) != required_fields:
+            blockers.append("principle verification receipt fields are invalid")
+        if record.get("schema_version") != "auren-engineering-principle-verification-v1":
+            blockers.append("unsupported principle verification schema")
+        if not isinstance(intent_digest, str) or not intent_digest.strip() or record.get("intent_digest") != intent_digest:
+            blockers.append("principle verification intent digest is missing or stale")
+        if not isinstance(code_revision, str) or not code_revision.strip() or record.get("code_revision") != code_revision:
+            blockers.append("principle verification is not bound to the exact final code revision")
+        for field in ("reviewer_id", "reviewer_version"):
+            value = record.get(field)
+            if not isinstance(value, str) or not value.strip() or value.strip().lower() in {"unknown", "unconfigured", "unversioned"}:
+                blockers.append(f"principle verification {field} is missing or untrusted")
+        families = record.get("families")
+        if not isinstance(families, Mapping) or set(families) != set(PRINCIPLE_FAMILY_IDS):
+            blockers.append("principle verification must cover exactly all 12 canonical families")
+        else:
+            for family_id in PRINCIPLE_FAMILY_IDS:
+                family = families.get(family_id)
+                if not isinstance(family, Mapping) or set(family) != {"status", "reason", "evidence_refs"}:
+                    blockers.append(f"{family_id}: verification entry is malformed")
+                    continue
+                status = family.get("status")
+                reason = family.get("reason")
+                refs = family.get("evidence_refs")
+                if status not in {"verified", "not_applicable", "blocked"}:
+                    blockers.append(f"{family_id}: invalid verification status")
+                elif status == "blocked":
+                    blockers.append(f"{family_id}: principle verification is blocked")
+                if not isinstance(reason, str) or not reason.strip() or len(reason) > 1000:
+                    blockers.append(f"{family_id}: a bounded reviewer reason is required")
+                if (
+                    not isinstance(refs, list) or not refs or len(refs) > 64
+                    or any(not isinstance(ref, str) or not ref.strip() or len(ref) > 1024 for ref in refs)
+                ):
+                    blockers.append(f"{family_id}: verification requires bounded evidence references")
+        supplied_digest = record.get("digest")
+        try:
+            payload = {key: value for key, value in record.items() if key != "digest"}
+            encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+            if len(encoded) > 64_000:
+                blockers.append("principle verification receipt exceeds the 64 KB limit")
+            expected_digest = hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+            if not isinstance(supplied_digest, str) or supplied_digest != expected_digest:
+                blockers.append("principle verification receipt digest mismatch")
+        except (TypeError, ValueError):
+            blockers.append("principle verification receipt is not canonical JSON")
+            supplied_digest = ""
+        return {
+            "valid": not blockers,
+            "blockers": sorted(set(blockers)),
+            "receipt_digest": supplied_digest if isinstance(supplied_digest, str) else "",
+        }
 
     @staticmethod
     def as_evidence(receipt: DesignReviewReceipt) -> dict[str, object]:
