@@ -1110,17 +1110,14 @@ the learning system, not an instruction source. If a skill produced no distinct 
                                                 or not raw_review["reason"].strip()
                                             ):
                                                 raise ValueError("independent reviewer receipt failed identity, status, or evidence validation")
-                                            review_digest = hashlib.sha256(json.dumps(dict(raw_review), sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
-                                            review_receipt = {
-                                                "reviewer_id": self.independent_handoff_reviewer_id,
-                                                "reviewer_version": self.independent_handoff_reviewer_version,
-                                                "status": raw_review["status"],
-                                                "evidence_refs": list(refs),
-                                                "reason": raw_review["reason"][:1000],
-                                                "digest": review_digest,
-                                            }
+                                            review_payload = dict(raw_review)
+                                            review_digest = hashlib.sha256(json.dumps(review_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+                                            review_receipt = {**review_payload, "digest": review_digest}
                                             if raw_review["status"] == "pass":
-                                                handoffs.mark_completed(item, independent_review_passed=True)
+                                                handoffs.mark_completed(
+                                                    item, independent_review_passed=True,
+                                                    review_receipt=review_receipt,
+                                                )
                                                 review_status = "completed_independent_review"
                                             else:
                                                 review_status = "review_rejected"
