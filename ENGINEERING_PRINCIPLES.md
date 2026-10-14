@@ -2,6 +2,8 @@
 
 This is the compact root contract for all assigned work in AUREN. It is applied through `AGENTS.md`, the AI Coding Orchestrator, `.ai-harness/ENGINEERING_DESIGN_POLICY.md`, `portable/engineering_design_guard.py`, and the existing task/evidence/verification lifecycle. It is not a second policy engine.
 
+See the [12-family enforcement traceability matrix](docs/ENGINEERING_PRINCIPLE_TRACEABILITY.md) and its [machine-readable counterpart](docs/engineering-principle-traceability.json) for code owners, focused tests, remaining gaps, and per-boundary CAP/PACELC decisions.
+
 ## Non-negotiable operating rules
 
 1. Start from the task intent, acceptance criteria, constraints, non-goals, affected boundaries, and stopping condition.
