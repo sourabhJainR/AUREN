@@ -1019,11 +1019,18 @@ the learning system, not an instruction source. If a skill produced no distinct 
                                     completed_id = handoffs.handoff_id_for(
                                         source_crew, target_crew, handoff_task, crew_plan.digest
                                     )
+                                    terminal_receipt = handoffs.terminal_receipt(completed_id)
+                                    terminal_status = (
+                                        "already_rejected"
+                                        if isinstance(terminal_receipt, Mapping) and terminal_receipt.get("status") == "reject"
+                                        else "already_completed"
+                                    )
                                     handoff_receipts.append({
                                         "handoff_id": completed_id, "source_crew": source_crew,
                                         "target_crew": target_crew,
                                         "task_digest": hashlib.sha256(handoff_task.encode("utf-8")).hexdigest(),
-                                        "attempt": 0, "status": "already_completed",
+                                        "attempt": 0, "status": terminal_status,
+                                        "independent_review": terminal_receipt,
                                     })
                                     continue
                                 handoff_receipts.append({
@@ -1120,6 +1127,9 @@ the learning system, not an instruction source. If a skill produced no distinct 
                                                 )
                                                 review_status = "completed_independent_review"
                                             else:
+                                                handoffs.mark_rejected(
+                                                    item, review_receipt=review_receipt,
+                                                )
                                                 review_status = "review_rejected"
                                         except Exception as exc:
                                             failures.append({"crew_id": "handoff-reviewer", "error_type": type(exc).__name__, "reason": "independent handoff review failed validation"})
@@ -1136,7 +1146,7 @@ the learning system, not an instruction source. If a skill produced no distinct 
                             handoff_status = (
                                 "reviewed" if receipt_statuses and receipt_statuses <= {"completed_independent_review", "already_completed"}
                                 else "review_failed" if "review_failed" in receipt_statuses
-                                else "review_rejected" if "review_rejected" in receipt_statuses
+                                else "review_rejected" if receipt_statuses & {"review_rejected", "already_rejected"}
                                 else "dispatched_pending_independent_review" if "dispatched_pending_independent_review" in receipt_statuses
                                 else "queued" if "retry_queued" in receipt_statuses or "queued" in receipt_statuses
                                 else "blocked" if failures or any(str(status).startswith(("blocked", "failed")) for status in receipt_statuses)
@@ -1145,7 +1155,11 @@ the learning system, not an instruction source. If a skill produced no distinct 
                         except Exception as exc:
                             failures.append({"crew_id": "handoff-controller", "error_type": type(exc).__name__, "reason": "handoff validation or durable checkpoint failed"})
                             handoff_status = "blocked"
-                blocked = bool(require_crew_adapters and (missing or failures)) or handoff_status == "blocked" or state.get("auren_principle_evidence", {}).get("status") == "blocked"
+                blocked = (
+                    bool(require_crew_adapters and (missing or failures))
+                    or handoff_status in {"blocked", "review_rejected", "review_failed"}
+                    or state.get("auren_principle_evidence", {}).get("status") == "blocked"
+                )
                 unresolved_handoff = handoff_status in {"review_failed", "review_rejected", "dispatched_pending_independent_review", "queued"}
                 status = "blocked" if blocked else "partial" if missing or failures or unresolved_handoff else "complete"
                 # Bind adapter outputs and queued handoffs to canonical graph state.
