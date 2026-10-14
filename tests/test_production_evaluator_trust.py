@@ -5,6 +5,12 @@ from dataclasses import replace
 import time
 
 from portable.independent_evaluation_attestation import EvaluationAttestation
+from portable.attestation_freshness import (
+    AttestationFreshnessPolicy,
+    AttestationReplayRegistry,
+    FreshEvaluationAttestation,
+    FreshnessAwareAttestor,
+)
 from portable.evaluator_trust import (
     Ed25519EvaluationAttestationVerifier,
     EvaluatorKeyWindow,
@@ -101,6 +107,28 @@ class ProductionEvaluatorTrustTests(unittest.TestCase):
         self.assertTrue(result.trustworthy)
         self.assertTrue(result.production_trustworthy)
         self.assertEqual(result.attestation.key_id, "evaluator-key-2026q4")
+
+    def test_production_seal_survives_freshness_and_replay_verification(self):
+        keyring, production_attestor = self.verifier()
+        freshness = FreshnessAwareAttestor(
+            None,
+            None,
+            AttestationFreshnessPolicy(max_age_seconds=900, max_future_skew_seconds=30),
+            replay_registry=AttestationReplayRegistry(),
+            production_attestor=production_attestor,
+        )
+        signed = self.attestation()
+        result = freshness.verify(
+            FreshEvaluationAttestation(signed, issued_at=int(self.now - 1)),
+            evaluator_id="evaluator-service",
+            oracle_id="oracle-service",
+            expected_campaign_digest="campaign-digest",
+            expected_corpus_digest="sealed-corpus-digest",
+            expected_oracle_digest="oracle-digest",
+            now=int(self.now),
+        )
+        self.assertTrue(result.trustworthy)
+        self.assertTrue(result.production_trustworthy)
 
     def test_bad_signature_expired_attestation_and_wrong_signer_fail_closed(self):
         _, attestor = self.verifier()
