@@ -1,3 +1,5 @@
+import hashlib
+import json
 import sys
 import tempfile
 import threading
@@ -7,6 +9,7 @@ from pathlib import Path
 from portable.agency_state_graph import Checkpoint, InMemoryCheckpointStore
 from portable.task_planner import TaskPlan
 from portable.benchmark_task_dispatch import BenchmarkExecutionRequest
+from portable.engineering_design_guard import PRINCIPLE_FAMILY_IDS
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -14,6 +17,28 @@ HARNESS = ROOT / ".ai-harness"
 sys.path.insert(0, str(HARNESS))
 
 from runtime.graph_agent_team import AgentSpec, GraphAgentTeam, SharedTaskMemory, team_for_route
+
+
+def principle_verification_receipt(intent_digest: str, code_revision: str) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "schema_version": "auren-engineering-principle-verification-v1",
+        "intent_digest": intent_digest,
+        "code_revision": code_revision,
+        "reviewer_id": "independent-reviewer",
+        "reviewer_version": "reviewer-v1",
+        "families": {
+            family_id: {
+                "status": "verified",
+                "reason": f"Verified {family_id} against the final revision.",
+                "evidence_refs": [f"evidence:{family_id}:{code_revision}"],
+            }
+            for family_id in PRINCIPLE_FAMILY_IDS
+        },
+    }
+    payload["digest"] = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    return payload
 
 
 class GraphAgentTeamTests(unittest.TestCase):
@@ -74,6 +99,40 @@ class GraphAgentTeamTests(unittest.TestCase):
             self.assertIn("high-risk code change requires an exact code_revision", record["blockers"])
             self.assertNotIn("builder", invoked)
             self.assertFalse(result["accepted"])
+
+    def test_final_review_requires_exact_revision_principle_receipt(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            memory = SharedTaskMemory(Path(tmp) / "memory.jsonl", "final-review-intent")
+            team = GraphAgentTeam([
+                AgentSpec("reviewer", "reviewer", read_only=True, critical=True),
+            ])
+            common = {
+                "task": "Review final source revision",
+                "intent_digest": "final-review-intent",
+                "base_prompt": "Review only; do not mutate files.",
+                "memory": memory,
+                "invoke_agent": lambda agent, prompt: (0, "review completed", 0.01),
+                "risk": "medium",
+                "changed_paths": ["portable/helper.py"],
+                "design_contract": {"architecture": "reuse the existing helper boundary"},
+                "code_revision": "revision-123",
+                "final_verification": True,
+                "require_principle_verification": True,
+            }
+            missing = team.execute(**common)
+            self.assertFalse(missing["accepted"])
+            self.assertEqual(missing["principle_evidence"]["status"], "blocked")
+            self.assertEqual(missing["principle_verification"]["status"], "blocked")
+
+            verified = team.execute(
+                **common,
+                principle_verification=principle_verification_receipt(
+                    "final-review-intent", "revision-123"
+                ),
+            )
+            self.assertTrue(verified["accepted"], verified.get("principle_evidence"))
+            self.assertEqual(verified["principle_evidence"]["status"], "verified")
+            self.assertEqual(verified["principle_verification"]["status"], "passed")
 
     def test_autonomous_campaign_learning_is_runtime_bound_and_bounded(self):
         with tempfile.TemporaryDirectory() as tmp:
