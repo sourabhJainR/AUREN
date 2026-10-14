@@ -180,6 +180,17 @@ class ExecutionControllerPromotionGateTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "requires an explicit execution_class"):
             self.controller.register_handler("unclassified-worker", unclassified_worker)
 
+    def test_consequential_handler_rejects_unverified_promotion_levels(self):
+        for level in ("none", "provisional", "invalid"):
+            with self.subTest(level=level):
+                _PROMOTION_CONTEXT.clear()
+                _PROMOTION_CONTEXT.update(valid_context())
+                _PROMOTION_CONTEXT["decision_record"]["promotion"]["level"] = level
+                task = self.submit()
+                self.controller.run_once(task.id)
+                self.assertEqual(self.controller.task(task.id).state, "failed")
+                self.assertEqual(_PROMOTION_SIDE_EFFECTS, [])
+
     def test_valid_decision_record_allows_handler(self):
         task = self.submit()
         self.controller.run_once(task.id)
