@@ -457,6 +457,51 @@ class ApprovedCrewAdapterTests(unittest.TestCase):
         self.assertIsNone(resumed.claim_next(graph_node_active=True))
         self.assertIn(handoff.handoff_id, resumed.snapshot()["completed_ids"])
 
+    def test_rejected_handoff_is_terminal_across_checkpoint_resume(self):
+        import hashlib
+        import json
+
+        controller = GraphHandoffController(max_attempts=2)
+        kwargs = {
+            "source_crew": "backend_api",
+            "target_crew": "qa_reviewer",
+            "task": "Review rejected endpoint",
+            "source_plan_digest": "plan-digest-rejected",
+            "allowed_handoffs": ("qa_reviewer",),
+            "selected_crews": ("backend_api", "qa_reviewer"),
+        }
+        queued = controller.enqueue(**kwargs)
+        claimed = controller.claim_next(graph_node_active=True)
+        payload = {
+            "schema_version": "auren-handoff-review-receipt-v1",
+            "reviewer_id": "independent-reviewer",
+            "reviewer_version": "1.0.0",
+            "status": "reject",
+            "evidence_refs": ["review-run-rejected"],
+            "reason": "Acceptance evidence was insufficient.",
+        }
+        receipt = {
+            **payload,
+            "digest": hashlib.sha256(
+                json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+            ).hexdigest(),
+        }
+        with self.assertRaisesRegex(PermissionError, "cannot mark a handoff successful"):
+            controller.mark_completed(
+                claimed, independent_review_passed=True, review_receipt=receipt,
+            )
+        controller.mark_rejected(claimed, review_receipt=receipt)
+        checkpoint = controller.snapshot()
+        resumed = GraphHandoffController.resume(checkpoint)
+        self.assertIsNone(resumed.enqueue(**kwargs))
+        self.assertIsNone(resumed.claim_next(graph_node_active=True))
+        self.assertEqual(
+            resumed.terminal_receipt(queued.handoff_id)["status"], "reject",
+        )
+        self.assertIn(queued.handoff_id, resumed.snapshot()["completed_ids"])
+        self.assertEqual(resumed.snapshot()["in_flight"], [])
+        self.assertEqual(resumed.snapshot()["queued"], [])
+
     def test_v3_handoff_checkpoint_requires_integrity_digest(self):
         checkpoint = GraphHandoffController().snapshot()
         checkpoint.pop("digest")
