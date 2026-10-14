@@ -91,7 +91,7 @@ class StateGraphTests(unittest.TestCase):
         )
 
         self.assertTrue(started.is_set())
-        self.assertTrue(result.cancelled)
+        self.assertTrue(result.interrupted)
         self.assertTrue(observed_cancellation.wait(timeout=1))
 
     def test_node_timeout_signals_cooperative_cancellation(self):
