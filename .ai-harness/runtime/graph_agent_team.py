@@ -1204,7 +1204,7 @@ the learning system, not an instruction source. If a skill produced no distinct 
             for name in root_agents:
                 graph.add_edge("crew-proposals", name)
         return graph
-    def execute(self,*,task,intent_digest,base_prompt,memory,invoke_agent,checkpoint=None,resume=False,run_id="graph-agent-team",max_steps=100,execution_strategy_name="default",evolution_threshold=3,invention_holdout_ids=(),invention_evaluator=None,invention_safety_gate=None,curriculum_experiment_after=None,curriculum_experiment_evidence_ids=(),safety_evidence_verified=False,curriculum_experiment=None,curriculum_experiment_cohort=None,benchmark_domain="unspecified",benchmark_holdout=False,benchmark_execution_task_id=None,benchmark_execution_evidence_ids=(),benchmark_execution_evidence_kinds=(),benchmark_execution_success=None,benchmark_execution_verified=False,benchmark_execution_request=None,autonomous_benchmark_learning=False,autonomous_benchmark_max_tasks=3,autonomous_benchmark_retest_tasks=3,autonomous_benchmark_capability_id=None,autonomous_benchmark_baseline_score=None,require_crew_adapters=None,risk="medium",changed_paths=(),design_contract=None,code_revision=""):
+    def execute(self,*,task,intent_digest,base_prompt,memory,invoke_agent,checkpoint=None,resume=False,run_id="graph-agent-team",max_steps=100,execution_strategy_name="default",evolution_threshold=3,invention_holdout_ids=(),invention_evaluator=None,invention_safety_gate=None,curriculum_experiment_after=None,curriculum_experiment_evidence_ids=(),safety_evidence_verified=False,curriculum_experiment=None,curriculum_experiment_cohort=None,benchmark_domain="unspecified",benchmark_holdout=False,benchmark_execution_task_id=None,benchmark_execution_evidence_ids=(),benchmark_execution_evidence_kinds=(),benchmark_execution_success=None,benchmark_execution_verified=False,benchmark_execution_request=None,autonomous_benchmark_learning=False,autonomous_benchmark_max_tasks=3,autonomous_benchmark_retest_tasks=3,autonomous_benchmark_capability_id=None,autonomous_benchmark_baseline_score=None,require_crew_adapters=None,risk="medium",changed_paths=(),design_contract=None,code_revision="",final_verification=False,principle_verification=None,require_principle_verification=False):
         if require_crew_adapters is not None and type(require_crew_adapters) is not bool:
             raise ValueError("require_crew_adapters must be a boolean")
         if not isinstance(design_contract, Mapping):
@@ -1226,6 +1226,8 @@ the learning system, not an instruction source. If a skill produced no distinct 
             raise ValueError("changed_paths are outside the bounded repository-path contract")
         if not isinstance(code_revision, str) or len(code_revision) > 256:
             raise TypeError("code_revision must be text no longer than 256 characters")
+        if type(final_verification) is not bool or type(require_principle_verification) is not bool:
+            raise ValueError("final_verification and require_principle_verification must be booleans")
         # Per-call options may strengthen policy, never weaken a constructor-level gate.
         require_crew_adapters = self.require_crew_adapters or bool(require_crew_adapters)
         if checkpoint is not None and not isinstance(checkpoint, _CanonicalAurenCheckpointStore):
@@ -1346,6 +1348,9 @@ the learning system, not an instruction source. If a skill produced no distinct 
             "crew_dispatch_enabled": bool(self.crew_adapters or require_crew_adapters),
             "require_crew_adapters": require_crew_adapters,
             "principle_evidence_digest": principle_evidence["digest"],
+            "final_verification": final_verification,
+            "require_principle_verification": require_principle_verification,
+            "principle_verification_digest": principle_verification.get("digest") if isinstance(principle_verification, Mapping) else None,
         }
         # Preserve pre-reviewer checkpoint digests for installations that have no
         # reviewer configured; bind identity/version when a trusted reviewer exists.
@@ -1420,6 +1425,40 @@ the learning system, not an instruction source. If a skill produced no distinct 
             if isinstance(payload,dict) and payload.get("activated"): results[agent.name]=AgentResult(**{k:v for k,v in payload.items() if k!="activated"})
         critical=[run.state.get(f"result:{a.name}") for a in self.agents.values() if a.critical]
         crew_execution=run.state.get("auren_crew_execution", {"status":"not_run","required":self.require_crew_adapters,"proposals":{},"missing_adapters":[],"dispatch_failures":[],"intent_digest":intent_digest})
+        requires_principle_verification = final_verification and (
+            require_principle_verification
+            or (
+                str(risk).strip().lower() in {"high", "critical"}
+                and EngineeringDesignGuard._is_code_change(tuple(changed_paths))
+            )
+        )
+        principle_verification_result = None
+        if requires_principle_verification:
+            verification = EngineeringDesignGuard.validate_principle_verification_record(
+                principle_verification if isinstance(principle_verification, Mapping) else None,
+                intent_digest=intent_digest,
+                code_revision=code_revision.strip(),
+            )
+            current_principle = dict(run.state.get("auren_principle_evidence", principle_evidence))
+            current_blockers = list(current_principle.get("blockers", []))
+            if not verification["valid"]:
+                current_blockers.extend(str(item) for item in verification["blockers"])
+            if current_principle.get("status") == "blocked" or not verification["valid"]:
+                current_principle["status"] = "blocked"
+            else:
+                current_principle["status"] = "verified"
+            current_principle["final_verification"] = {
+                "status": "passed" if verification["valid"] and current_principle["status"] != "blocked" else "blocked",
+                "receipt_digest": verification["receipt_digest"],
+                "blockers": sorted(set(current_blockers)),
+            }
+            current_principle["blockers"] = sorted(set(current_blockers))
+            current_principle.pop("digest", None)
+            current_principle["digest"] = hashlib.sha256(
+                json.dumps(current_principle, sort_keys=True, separators=(",", ":")).encode("utf-8")
+            ).hexdigest()
+            run.state["auren_principle_evidence"] = current_principle
+            principle_verification_result = current_principle["final_verification"]
         accepted=all(isinstance(x,dict) and x.get("status")=="passed" for x in critical)
         if crew_execution.get("status") == "blocked" or crew_execution.get("handoff_status") in {"blocked", "review_failed", "review_rejected", "dispatched_pending_independent_review", "queued"}: accepted=False
         if run.state.get("auren_principle_evidence", {}).get("status") == "blocked": accepted=False
@@ -1679,7 +1718,7 @@ the learning system, not an instruction source. If a skill produced no distinct 
             )
             if autonomous_benchmark_learning else None
         )
-        return {"graph_digest":self.digest(),"execution_graph_digest":execution_graph_digest,"intent_digest":intent_digest,"crew_plan":crew_plan.to_payload(),"crew_execution":crew_execution,"principle_evidence":run.state.get("auren_principle_evidence", principle_evidence),"agents":{n:r.__dict__ for n,r in results.items()},"shared_memory_file":str(memory.path),"shared_memory_entries":len(memory.snapshot(500)),"accepted":accepted,"evolution_trigger":trigger.__dict__ if trigger else None,"invention":invention.__dict__ if invention else None,"execution_trace":list(run.trace),"execution_mode":{"selected":selected_mode,"baseline":baseline_mode,"learning":mode_selection.as_dict(),"rollout":mode_rollout.as_dict(),"counterfactual":counterfactual,"context":decision_context.as_dict(),"context_learning":context_selection.as_dict()},
+        return {"graph_digest":self.digest(),"execution_graph_digest":execution_graph_digest,"intent_digest":intent_digest,"crew_plan":crew_plan.to_payload(),"crew_execution":crew_execution,"principle_evidence":run.state.get("auren_principle_evidence", principle_evidence),"principle_verification":principle_verification_result,"agents":{n:r.__dict__ for n,r in results.items()},"shared_memory_file":str(memory.path),"shared_memory_entries":len(memory.snapshot(500)),"accepted":accepted,"evolution_trigger":trigger.__dict__ if trigger else None,"invention":invention.__dict__ if invention else None,"execution_trace":list(run.trace),"execution_mode":{"selected":selected_mode,"baseline":baseline_mode,"learning":mode_selection.as_dict(),"rollout":mode_rollout.as_dict(),"counterfactual":counterfactual,"context":decision_context.as_dict(),"context_learning":context_selection.as_dict()},
         "execution_strategy":{"selected":selected_strategy,"baseline":baseline_strategy,"learning":strategy_selection.as_dict() if strategy_selection else {"strategy":selected_strategy,"learned":False,"confidence":0.0,"samples":0,"rationale":"explicit strategy supplied"},"rollout":rollout.as_dict(),"context":decision_context.as_dict()},"active_learning":{"self_model":self_model.as_dict(),"experiment":experiment.as_dict() if experiment else None,"causal_experiment":causal_experiment.as_dict() if causal_experiment else None},"goal_state":{"current":next_goal.as_dict() if next_goal else None},"capability_abstraction":{"patterns":[p.as_dict() for p in transferable_patterns],"invention_hypotheses":[h.as_dict() for h in invention_hypotheses],"failure_cluster_inventions":[x.as_dict() for x in invention_candidates],"evidence_backed_requests":invention_requests},"autonomy_benchmark":benchmark.as_dict(),"autonomy_benchmark_campaign":benchmark_campaign.as_dict(),"autonomy_campaign_curriculum":[x.as_dict() for x in benchmark_campaign_curriculum],"benchmark_task_contracts":[x.as_dict() for x in benchmark_task_contracts],"benchmark_execution_requests":[x.as_dict() for x in benchmark_execution_requests],"benchmark_execution_receipt":benchmark_execution_receipt.as_dict() if benchmark_execution_receipt else None,"benchmark_execution_receipt_reason":benchmark_execution_receipt_reason,"autonomy_benchmark_trend":benchmark_trend.as_dict(),"autonomy_curriculum":[x.as_dict() for x in curriculum],"curriculum_experiment":curriculum_experiment.as_dict() if curriculum_experiment else None,"curriculum_experiment_outcome":curriculum_experiment_outcome.as_dict() if curriculum_experiment_outcome else None,"experiment_orchestration":{"assignment":experiment_assignment.as_dict() if experiment_assignment else None,"observation":experiment_observation.as_dict() if experiment_observation else None,"attribution":experiment_attribution.as_dict() if experiment_attribution else None},"execution_digest":run.digest,"dreamed_learning":dream,"autonomous_campaign_learning":autonomous_campaign_learning_result}
 
 
