@@ -702,12 +702,33 @@ def run_task(args: argparse.Namespace, config: dict[str, Any], logger) -> int:
     manifest["intent_digest"] = str(
         manifest.get("intent_digest") or hashlib.sha256(task.strip().encode("utf-8")).hexdigest()
     )
+    deadline_value = manifest.get("deadline_at")
+    if deadline_value is None:
+        deadline_seconds = config.get("execution", {}).get("task_deadline_seconds", 3600)
+        if type(deadline_seconds) is not int or not 1 <= deadline_seconds <= 86400:
+            raise ConfigurationError("execution.task_deadline_seconds must be an integer between 1 and 86400")
+        deadline_value = (dt.datetime.now(dt.UTC) + dt.timedelta(seconds=deadline_seconds)).isoformat()
+    try:
+        deadline_remaining_seconds(deadline_value)
+    except ValueError as exc:
+        raise ConfigurationError(f"Invalid task deadline in run manifest: {exc}") from exc
+    manifest["deadline_at"] = deadline_value
     write_json_atomic(run_dir / "manifest.json", manifest)
     history = []
     if not phases: return 0
-    phase_timeout = int(config["execution"]["phase_timeout_seconds"])
+    configured_phase_timeout = int(config["execution"]["phase_timeout_seconds"])
     for index, phase in enumerate(phases):
-        next_phase = phases[index + 1] if index + 1 < len(phases) else None; emit_event(run_dir, "phase.start", phase=phase); output = ""
+        next_phase = phases[index + 1] if index + 1 < len(phases) else None
+        remaining_seconds = deadline_remaining_seconds(deadline_value)
+        if remaining_seconds <= 0:
+            manifest["status"] = "blocked_by_deadline"
+            manifest["deadline_blocker"] = f"task deadline expired before phase {phase}"
+            write_json_atomic(run_dir / "manifest.json", manifest)
+            save_checkpoint(run_dir, manifest, phase, "blocked", phase)
+            return 1
+        phase_timeout = min(configured_phase_timeout, max(1, int(remaining_seconds)))
+        emit_event(run_dir, "phase.start", phase=phase)
+        output = ""
         if phase == "context":
             cp = plan_context(phase=phase, risk=route["risk"], uncertainty=route["uncertainty"], policy_strategy=LearningController(ROOT).active_strategy(route["mode"]))
             manifest.setdefault("context_plans", {})[phase] = asdict_safe(cp); write_json_atomic(run_dir / "context-plan.json", manifest["context_plans"])
