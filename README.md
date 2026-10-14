@@ -369,21 +369,15 @@ Rollback selects the previous pinned installation. It does not mutate or overwri
 
 ### Uninstall
 
-If the maintenance service is installed, remove the service first:
+If the maintenance service is installed, remove the service first using the scope in which it was installed:
 
 ~~~bash
 python ~/.auren/current/portable/maintenance_service.py --scope user uninstall
-rm -rf ~/.aer
 ~~~
 
-For a system-scoped service, use `--scope system` with the privileges required by the host before removing `~/.auren`.
+For a system-scoped service, use `--scope system` with the privileges required by the host.
 
-A legacy `.aer` installation, if one exists from an older release, can be removed after its service is stopped:
-
-~~~bash
-rm -rf ~/.auren
-~~~
-
+Uninstalling the runtime and deleting persistent state are separate operations. Do not remove `~/.aer` or `~/.auren` as part of routine uninstall; legacy state may still be needed for recovery or migration. Before any intentional state deletion, confirm the exact path and make a verified backup.
 AUREN does not install into or modify the target repository merely by being installed.
 
 ## AUREN Engineering Console
