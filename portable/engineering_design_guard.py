@@ -511,7 +511,7 @@ class EngineeringDesignGuard:
                 status = family.get("status")
                 reason = family.get("reason")
                 refs = family.get("evidence_refs")
-                if status not in {"verified", "not_applicable", "blocked"}:
+                if not isinstance(status, str) or status not in {"verified", "not_applicable", "blocked"}:
                     blockers.append(f"{family_id}: invalid verification status")
                 elif status == "blocked":
                     blockers.append(f"{family_id}: principle verification is blocked")
