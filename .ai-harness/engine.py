@@ -142,6 +142,117 @@ def changed_files() -> list[str]:
     return sorted(paths)
 
 
+_CODE_SUFFIXES = {
+    ".py", ".pyi", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs",
+    ".go", ".rs", ".java", ".kt", ".kts", ".scala", ".cs", ".fs",
+    ".vb", ".cpp", ".cc", ".cxx", ".c", ".h", ".hpp", ".swift",
+    ".rb", ".php", ".ex", ".exs", ".dart", ".lua", ".sh", ".ps1",
+}
+
+
+def is_code_change(paths: list[str] | tuple[str, ...]) -> bool:
+    for path in paths:
+        lower = path.replace("\\", "/").lower()
+        if lower.startswith(("docs/", "doc/", "documentation/")):
+            continue
+        if any(lower.endswith(suffix) for suffix in _CODE_SUFFIXES):
+            return True
+    return False
+
+
+def workspace_revision_digest(paths: list[str] | tuple[str, ...] | None = None) -> str:
+    """Fingerprint the exact source snapshot tested by the harness.
+
+    The digest binds HEAD plus the content of staged, unstaged, untracked, and
+    deleted paths. It is a workspace revision identifier, not a Git commit SHA.
+    """
+    selected = changed_files() if paths is None else sorted(set(paths))
+    code, head = run_capture(["git", "rev-parse", "HEAD"])
+    if code != 0 or not head.strip():
+        raise RuntimeError(f"cannot bind workspace revision to HEAD: {head}")
+    root = ROOT.resolve()
+    entries: list[dict[str, str]] = []
+    for relative in selected:
+        if not isinstance(relative, str) or not relative.strip():
+            raise ValueError("workspace revision paths must be non-empty strings")
+        rel_path = Path(relative)
+        if rel_path.is_absolute() or ".." in rel_path.parts:
+            raise ValueError("workspace revision path escapes the repository")
+        source = ROOT / rel_path
+        parent = source.parent.resolve()
+        if not parent.is_relative_to(root):
+            raise ValueError("workspace revision path resolves outside the repository")
+        if source.is_symlink():
+            entries.append({"path": rel_path.as_posix(), "kind": "symlink", "sha256": hashlib.sha256(os.readlink(source).encode("utf-8")).hexdigest()})
+        elif source.is_file():
+            digest = hashlib.sha256()
+            with source.open("rb") as handle:
+                for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                    digest.update(chunk)
+            entries.append({"path": rel_path.as_posix(), "kind": "file", "sha256": digest.hexdigest()})
+        elif not source.exists():
+            entries.append({"path": rel_path.as_posix(), "kind": "deleted", "sha256": hashlib.sha256(b"deleted").hexdigest()})
+        else:
+            raise ValueError(f"unsupported workspace revision path type: {relative}")
+    payload = {
+        "schema_version": "auren-workspace-revision-v1",
+        "base_commit": head.strip(),
+        "files": sorted(entries, key=lambda item: item["path"]),
+    }
+    digest = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    return f"workspace-sha256:{digest}"
+
+
+def validate_final_revision_evidence(
+    manifest: dict[str, Any],
+    *,
+    risk: str,
+    intent_digest: str,
+    changed_paths: list[str],
+    final_revision: str,
+) -> dict[str, Any]:
+    """Check that final source, validation, and high-risk principle receipts agree."""
+    if not is_code_change(changed_paths):
+        return {
+            "passed": True,
+            "exact_revision_passed": True,
+            "principle_verification_passed": None,
+            "blockers": [],
+        }
+    blockers: list[str] = []
+    validation = manifest.get("validation")
+    if not isinstance(validation, dict) or validation.get("passed") is not True or not validation.get("results"):
+        blockers.append("code change lacks a passing validation run with executable results")
+    verified_revision = str(manifest.get("verified_code_revision", "")).strip()
+    if not final_revision or verified_revision != final_revision:
+        blockers.append("verified source snapshot does not match the exact final workspace revision")
+    candidate_revision = str(manifest.get("review_candidate_revision", "")).strip()
+    if candidate_revision and candidate_revision != final_revision:
+        blockers.append("source changed after the final review candidate was recorded")
+    high_risk = str(risk).strip().lower() in {"high", "critical"}
+    require_principle = high_risk or manifest.get("require_principle_verification") is True
+    principle_passed: bool | None = None
+    if require_principle:
+        # Local import avoids loading the portable package while engine.py is
+        # still initializing (the runtime bridge can import engine in-process).
+        from portable.engineering_design_guard import EngineeringDesignGuard
+        verification = EngineeringDesignGuard.validate_principle_verification_record(
+            manifest.get("principle_verification"),
+            intent_digest=intent_digest,
+            code_revision=final_revision,
+        )
+        principle_passed = bool(verification["valid"])
+        blockers.extend(str(item) for item in verification["blockers"])
+    return {
+        "passed": not blockers,
+        "exact_revision_passed": bool(final_revision and verified_revision == final_revision and candidate_revision in {"", final_revision}),
+        "principle_verification_passed": principle_passed,
+        "blockers": sorted(set(blockers)),
+    }
+
+
 def diff_check() -> tuple[bool, str]:
     code, output = run_capture(["git", "diff", "--check"])
     return code == 0, output
