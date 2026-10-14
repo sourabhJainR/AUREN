@@ -24,6 +24,7 @@ Multiple key IDs may refer to one signer during planned rotation, but each key m
 from portable.evaluator_trust import (
     Ed25519EvaluationAttestationVerifier,
     EvaluatorKeyWindow,
+    PinnedPrincipalVerifier,
     ProductionSeparationAwareAttestor,
 )
 
@@ -31,15 +32,17 @@ keyring = Ed25519EvaluationAttestationVerifier(
     keys=operator_managed_key_windows,
     revoked_signers=operator_revoked_signer_ids,
 )
-attestor = ProductionSeparationAwareAttestor(
-    keyring,
-    verify_principal=authenticated_identity_provider.verify_principal,
-    principal_verifier_id="enterprise-identity-provider",
-    principal_verifier_version="oidc-claims-v3",
+principal_verifier = PinnedPrincipalVerifier(
+    authenticated_identity_provider.verify_principal,
+    provider_id="enterprise-identity-provider",
+    provider_version="oidc-claims-v3",
+    trust_source_ref="oidc://issuer.example/tenant",
+    configuration_digest=authenticated_identity_provider.configuration_digest,
 )
+attestor = ProductionSeparationAwareAttestor(keyring, principal_verifier)
 ```
 
-The `verify_principal` callable must come from the deployment's authenticated identity boundary (for example, a validated OIDC/SPIFFE identity source), not a protocol stub or test fixture. The ID/version are recorded as pinned deployment policy identifiers; they are not themselves proof of identity. Production construction rejects a generic signature callback and unpinned/test-like principal-verifier identifiers. If `cryptography` is unavailable, Ed25519 production verification fails closed.
+The `verify_principal` callable must come from the deployment's authenticated identity boundary (for example, a validated OIDC/SPIFFE identity source), not a protocol stub or test fixture. The ID/version are recorded as pinned deployment policy identifiers; they are not themselves proof of identity. Production construction rejects a generic signature callback and raw principal-verifier callbacks; the identity verifier must be wrapped with a pinned provider ID/version, trust-source reference, and configuration digest. If `cryptography` is unavailable, Ed25519 production verification fails closed.
 
 ## Rotation and incident response
 
