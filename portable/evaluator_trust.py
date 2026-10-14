@@ -191,36 +191,72 @@ class Ed25519EvaluationAttestationVerifier:
             return False
 
 
+class PinnedPrincipalVerifier:
+    """Deployment-bound principal verifier wrapper; rejects anonymous/test callbacks."""
+
+    production_ready = True
+
+    def __init__(
+        self,
+        verify_principal: Callable[[str, str], bool],
+        *,
+        provider_id: str,
+        provider_version: str,
+        trust_source_ref: str,
+        configuration_digest: str,
+    ) -> None:
+        if not callable(verify_principal):
+            raise TypeError("verify_principal must be a callable backed by an authenticated identity provider")
+        for name, value in (
+            ("provider_id", provider_id),
+            ("provider_version", provider_version),
+            ("trust_source_ref", trust_source_ref),
+        ):
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"{name} must be non-empty and pinned")
+            if name != "trust_source_ref" and value.strip().lower() in {
+                "test", "mock", "stub", "fake", "protocol", "unversioned", "latest"
+            }:
+                raise ValueError(f"{name} cannot identify a test or protocol-only verifier")
+        if (
+            not isinstance(configuration_digest, str)
+            or len(configuration_digest) != 64
+            or any(char not in "0123456789abcdef" for char in configuration_digest.lower())
+        ):
+            raise ValueError("configuration_digest must be a SHA-256 hex digest")
+        self._verify_principal = verify_principal
+        self.provider_id = provider_id.strip()
+        self.provider_version = provider_version.strip()
+        self.trust_source_ref = trust_source_ref.strip()
+        self.configuration_digest = configuration_digest.lower()
+
+    def __call__(self, principal: str, role: str) -> bool:
+        try:
+            return self._verify_principal(principal, role) is True
+        except Exception:
+            return False
+
+
 class ProductionSeparationAwareAttestor:
-    """Production-only attestor; refuses injected protocol/test signature verifiers."""
+    """Production-only attestor; refuses protocol/test signature and identity verifiers."""
 
     production_ready = True
 
     def __init__(
         self,
         keyring: Ed25519EvaluationAttestationVerifier,
-        verify_principal: Callable[[str, str], bool],
-        *,
-        principal_verifier_id: str,
-        principal_verifier_version: str,
+        principal_verifier: PinnedPrincipalVerifier,
     ) -> None:
         if not isinstance(keyring, Ed25519EvaluationAttestationVerifier) or not keyring.production_ready:
             raise TypeError("production attestation requires Ed25519EvaluationAttestationVerifier")
-        if not callable(verify_principal):
-            raise TypeError("an authenticated principal verifier is required")
-        for name, value in (
-            ("principal_verifier_id", principal_verifier_id),
-            ("principal_verifier_version", principal_verifier_version),
-        ):
-            if not isinstance(value, str) or not value.strip():
-                raise ValueError(f"{name} must be non-empty and pinned")
-            if value.strip().lower() in {"test", "mock", "stub", "fake", "protocol", "unversioned", "latest"}:
-                raise ValueError(f"{name} cannot identify a test or protocol-only verifier")
+        if not isinstance(principal_verifier, PinnedPrincipalVerifier) or not principal_verifier.production_ready:
+            raise TypeError("production attestation requires PinnedPrincipalVerifier")
         if not keyring.signer_ids or not keyring.key_ids:
             raise ValueError("production evaluator trust roots must be configured")
         self.keyring = keyring
-        self.principal_verifier_id = principal_verifier_id.strip()
-        self.principal_verifier_version = principal_verifier_version.strip()
+        self.principal_verifier = principal_verifier
+        self.principal_verifier_id = principal_verifier.provider_id
+        self.principal_verifier_version = principal_verifier.provider_version
         self._attestor = SeparationAwareAttestor(
             keyring,
             AttestationTrustPolicy(
@@ -229,7 +265,7 @@ class ProductionSeparationAwareAttestor:
                 revoked_signers=keyring.revoked_signers,
                 revoked_key_ids=keyring.revoked_key_ids,
             ),
-            verify_principal,
+            principal_verifier,
         )
 
     def verify(self, attestation: EvaluationAttestation, **kwargs) -> AttestedEvaluation:
@@ -239,6 +275,7 @@ class ProductionSeparationAwareAttestor:
 __all__ = [
     "EvaluatorKeyWindow",
     "Ed25519EvaluationAttestationVerifier",
+    "PinnedPrincipalVerifier",
     "ProductionSeparationAwareAttestor",
     "evaluation_attestation_signing_message",
     "encode_evaluation_signature",
