@@ -327,6 +327,9 @@ class AdaptiveRuntime:
             )
             context = dict(kwargs.get("context") or {})
             context["auren_deadline_at"] = deadline_value
+            context["auren_remaining_seconds"] = max(
+                0.0, (deadline_at - datetime.now(timezone.utc)).total_seconds()
+            )
             context["auren_supervisor_iteration"] = iteration
             context["auren_recovery_mode"] = context_mode
             context["auren_recovery_hypothesis"] = hypothesis
