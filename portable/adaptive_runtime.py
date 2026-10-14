@@ -326,6 +326,7 @@ class AdaptiveRuntime:
                 },
             )
             context = dict(kwargs.get("context") or {})
+            context["auren_deadline_at"] = deadline_value
             context["auren_supervisor_iteration"] = iteration
             context["auren_recovery_mode"] = context_mode
             context["auren_recovery_hypothesis"] = hypothesis
