@@ -11,16 +11,23 @@ work is required to pass through the collaboration layer.
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
-import sys
 from pathlib import Path
-
-_REPO_ROOT = Path(__file__).resolve().parents[2]
-if (_REPO_ROOT / "portable" / "identity_compat.py").is_file() and str(_REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(_REPO_ROOT))
-
-from auren_env_compat import get_auren_env
 from typing import Any
+
+
+def _load_environment_resolver():
+    path = Path(__file__).resolve().parents[2] / "auren_env_compat.py"
+    spec = importlib.util.spec_from_file_location("_auren_env_compat_runtime", path)
+    if spec is None or spec.loader is None:
+        raise ImportError("canonical AUREN environment resolver is unavailable")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.get_auren_env
+
+
+get_auren_env = _load_environment_resolver()
 
 
 
