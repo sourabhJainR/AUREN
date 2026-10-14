@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import tempfile
-import time
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -55,13 +54,14 @@ class TaskDeadlineEnforcementTests(unittest.TestCase):
                 raise AssertionError("expired task must not enter graph execution")
 
             runtime._run_once = run_once
+            expired_deadline = iso_offset(-1)
             with self.assertRaisesRegex(RuntimeError, "task deadline exceeded"):
                 runtime.run(
                     session_id="deadline-session",
                     task_id="deadline-task",
                     project_root=root,
                     intent="enforce an expired deadline",
-                    context={"auren_deadline_at": iso_offset(-1), "auren_max_iterations": 2},
+                    context={"auren_deadline_at": expired_deadline, "auren_max_iterations": 2},
                 )
             self.assertEqual(calls, [])
             work_id = runtime.execution_controller.work_unit_for_session(
@@ -70,7 +70,7 @@ class TaskDeadlineEnforcementTests(unittest.TestCase):
             checkpoint = runtime.recovery_ledger.get_checkpoint(work_id, "execution")
             self.assertIsNotNone(checkpoint)
             self.assertEqual(checkpoint.status, "blocked")
-            self.assertEqual(checkpoint.payload["deadline_at"], checkpoint.payload["deadline_at"])
+            self.assertEqual(checkpoint.payload["deadline_at"], expired_deadline)
 
     def test_deadline_seconds_must_be_bounded_integer(self):
         with tempfile.TemporaryDirectory() as tmp:
