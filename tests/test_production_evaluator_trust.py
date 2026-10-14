@@ -8,6 +8,7 @@ from portable.independent_evaluation_attestation import EvaluationAttestation
 from portable.evaluator_trust import (
     Ed25519EvaluationAttestationVerifier,
     EvaluatorKeyWindow,
+    PinnedPrincipalVerifier,
     ProductionSeparationAwareAttestor,
     encode_evaluation_signature,
     evaluation_attestation_signing_message,
@@ -69,15 +70,17 @@ class ProductionEvaluatorTrustTests(unittest.TestCase):
             clock=self.clock,
             revoked_signers=revoked_signers,
         )
-        attestor = ProductionSeparationAwareAttestor(
-            keyring,
+        principal_verifier = PinnedPrincipalVerifier(
             lambda principal, role: (principal, role) in {
                 ("evaluator-service", "evaluator"),
                 ("oracle-service", "oracle"),
             },
-            principal_verifier_id="enterprise-identity-provider",
-            principal_verifier_version="oidc-claims-v3",
+            provider_id="enterprise-identity-provider",
+            provider_version="oidc-claims-v3",
+            trust_source_ref="oidc://issuer.example/tenant",
+            configuration_digest="a" * 64,
         )
+        attestor = ProductionSeparationAwareAttestor(keyring, principal_verifier)
         return keyring, attestor
 
     def verify(self, attestor, value):
@@ -134,17 +137,24 @@ class ProductionEvaluatorTrustTests(unittest.TestCase):
         with self.assertRaisesRegex(TypeError, "Ed25519EvaluationAttestationVerifier"):
             ProductionSeparationAwareAttestor(
                 lambda _attestation: True,
-                lambda _principal, _role: True,
-                principal_verifier_id="enterprise-identity-provider",
-                principal_verifier_version="oidc-claims-v3",
+                PinnedPrincipalVerifier(
+                    lambda _principal, _role: True,
+                    provider_id="enterprise-identity-provider",
+                    provider_version="oidc-claims-v3",
+                    trust_source_ref="oidc://issuer.example/tenant",
+                    configuration_digest="a" * 64,
+                ),
             )
         keyring = Ed25519EvaluationAttestationVerifier((self.key,), clock=self.clock)
+        with self.assertRaisesRegex(TypeError, "PinnedPrincipalVerifier"):
+            ProductionSeparationAwareAttestor(keyring, lambda _principal, _role: True)
         with self.assertRaisesRegex(ValueError, "test or protocol-only"):
-            ProductionSeparationAwareAttestor(
-                keyring,
+            PinnedPrincipalVerifier(
                 lambda _principal, _role: True,
-                principal_verifier_id="test",
-                principal_verifier_version="oidc-claims-v3",
+                provider_id="test",
+                provider_version="oidc-claims-v3",
+                trust_source_ref="oidc://issuer.example/tenant",
+                configuration_digest="a" * 64,
             )
 
 
