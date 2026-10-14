@@ -117,10 +117,11 @@
       "enforced_controls": [
         "checkpoint integrity checks",
         "bounded retries and queue",
-        "resume preserves retry charges and review receipts"
+        "resume preserves retry charges and review receipts",
+        "graph node timeout signals cooperative cancellation through the graph-run context; late node output is not accepted"
       ],
       "remaining_gaps": [
-        "cooperative cancellation of non-cooperative external tools remains incomplete",
+        "cancellation depends on each node/provider polling or forwarding the event; non-cooperative threads and already-issued external side effects cannot be forcibly stopped",
         "fault-injection/chaos coverage, measured recovery objectives, and operator rollback rehearsals remain incomplete"
       ]
     },
