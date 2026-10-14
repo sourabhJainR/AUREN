@@ -22,7 +22,7 @@ from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from portable.identity_compat import canonical_runtime_home
+from portable.identity_compat import canonical_runtime_home, canonicalize_auren_checkpoint_state
 from typing import Any, Callable, Mapping
 from .execution_strategy import ExecutionStrategy, execution_strategy
 from .engineering_design_guard import EngineeringDesignGuard
@@ -670,7 +670,10 @@ class Orchestrator:
 
     @staticmethod
     def _read_adaptive_policy(state: Mapping[str, Any]) -> dict[str, Any] | None:
-        raw = state.get("auren_adaptive_policy", state.get("aer_adaptive_policy"))
+        # Legacy persisted keys are read only through the bounded, versioned
+        # compatibility adapter; conflicting dual-key checkpoints fail closed.
+        normalized_state = canonicalize_auren_checkpoint_state(state)
+        raw = normalized_state.get("auren_adaptive_policy")
         if not isinstance(raw, Mapping):
             return None
         version = str(raw.get("version", "")).strip()
