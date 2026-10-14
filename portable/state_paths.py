@@ -53,7 +53,13 @@ class AurenStatePaths:
         legacy_root: str | Path | None = None,
     ) -> "AurenStatePaths":
         root = Path(canonical_root or (Path.home() / ".auren")).expanduser().resolve()
-        legacy = Path(legacy_root).expanduser().resolve() if legacy_root is not None else None
+        legacy_input = Path(legacy_root).expanduser() if legacy_root is not None else None
+        if legacy_input is not None and legacy_input.is_symlink():
+            raise StatePathConflict(
+                f"Legacy state root is a symbolic link: {legacy_input}. "
+                "Select and review the real source directory explicitly before migration."
+            )
+        legacy = legacy_input.resolve() if legacy_input is not None else None
         if legacy is not None and (legacy == root or legacy in root.parents or root in legacy.parents):
             raise ValueError("canonical and legacy state roots must be distinct, non-overlapping directories")
         root.mkdir(parents=True, exist_ok=True)
