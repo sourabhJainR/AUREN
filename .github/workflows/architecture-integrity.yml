@@ -36,7 +36,7 @@ jobs:
                   required, changed = True, []
               else:
                   changed = subprocess.check_output(['git', 'diff', '--name-only', base, head], text=True).splitlines()
-                  patterns = [".github/workflows/**",".github/actions/**","architecture/**",".ai-harness/**","portable/**","state/**","scripts/validate_architecture.py","scripts/validate_auren_identity.py","scripts/arena*","tests/test_architecture_contract.py","tests/test_decision_gate.py","tests/test_capability_promotion_gate.py","tests/test_execution_controller_promotion_gate.py","tests/test_canonical_evidence_ledger.py","tests/test_independent_arena.py","tests/test_arena_acceptance.py","tests/test_contract_alignment.py","docs/architecture*","docs/DEFAULT_EXECUTION_CONTROLLER.md"]
+                  patterns = [".github/workflows/**",".github/actions/**","architecture/**",".ai-harness/**","portable/**","state/**","scripts/validate_architecture.py","scripts/validate_auren_identity.py","scripts/arena*","tests/test_architecture_contract.py","tests/test_decision_gate.py","tests/test_capability_promotion_gate.py","tests/test_execution_controller_promotion_gate.py","tests/test_canonical_evidence_ledger.py","tests/test_independent_arena.py","tests/test_arena_acceptance.py","tests/test_contract_alignment.py","tests/test_principle_traceability.py","docs/engineering-principle-traceability.json","docs/ENGINEERING_PRINCIPLE_TRACEABILITY.md","docs/architecture*","docs/DEFAULT_EXECUTION_CONTROLLER.md"]
                   required = any(fnmatch.fnmatchcase(path, pattern) for path in changed for pattern in patterns)
           print('Changed files:')
           print('\n'.join(changed) if changed else '(none or full validation requested)')
@@ -61,6 +61,15 @@ jobs:
         run: python scripts/validate_architecture.py
       - name: Enforce canonical AUREN naming
         run: python scripts/validate_auren_identity.py
+      - name: Run executable engineering-principle traceability contracts
+        run: |
+          python - <<'PY'
+          import runpy
+          tests = runpy.run_path("tests/test_principle_traceability.py")
+          tests["test_traceability_matrix_covers_every_canonical_family_with_existing_owners_and_tests"]()
+          tests["test_deployment_decisions_state_consistency_and_partition_tradeoffs"]()
+          print("Engineering-principle traceability contracts passed")
+          PY
       - name: Run architecture contract regression tests
         run: python -m unittest tests.test_architecture_contract -v
       - name: Run decision record and promotion gate regressions
