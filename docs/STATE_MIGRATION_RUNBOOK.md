@@ -5,7 +5,7 @@ The migration helper copies and verifies state; it does not delete or rewrite th
 ## 1. Inspect first (default; no writes)
 
 ```bash
-python scripts/migrate_auren_state.py --source ~/.aer/orchestration --destination ~/.auren/orchestration
+python scripts/migrate_auren_state.py --source "$LEGACY_STATE_ROOT" --destination "$CANONICAL_STATE_ROOT"
 ```
 
 Review the JSON result. It reports the manifest SHA-256, file count, byte count, and whether the destination is already migrated or conflicts with existing data. Dry-run must not create the destination.
@@ -13,7 +13,7 @@ Review the JSON result. It reports the manifest SHA-256, file count, byte count,
 ## 2. Apply only after review
 
 ```bash
-python scripts/migrate_auren_state.py --source ~/.aer/orchestration --destination ~/.auren/orchestration --apply
+python scripts/migrate_auren_state.py --source "$LEGACY_STATE_ROOT" --destination "$CANONICAL_STATE_ROOT" --apply
 ```
 
 The operation acquires a sibling migration lock, copies to a staging directory, verifies the manifest and byte count, and atomically renames the staging directory into place. Symbolic links and unsupported entries fail closed. A conflicting destination is never overwritten.
