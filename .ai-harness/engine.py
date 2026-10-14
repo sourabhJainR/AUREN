@@ -142,6 +142,151 @@ def changed_files() -> list[str]:
     return sorted(paths)
 
 
+def source_changed_files() -> list[str]:
+    """Exclude volatile runtime outputs from the source revision contract."""
+    volatile_prefixes = (
+        ".ai-harness/runs/",
+        ".ai-harness/memory/",
+        ".ai-harness/logs/",
+        ".ai-harness/learning/",
+        ".ai-harness/cache/",
+        ".ai-harness/state/",
+        ".auren/",
+        "ci-artifacts/",
+        ".pytest_cache/",
+        "coverage/",
+        "test-results/",
+        "reports/",
+        "artifacts/",
+        "dist/",
+        "build/",
+        "node_modules/",
+    )
+    ignored_parts = {"__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache"}
+    ignored_suffixes = {".pyc", ".pyo", ".log"}
+    result = []
+    for path in changed_files():
+        normalized = path.replace("\\", "/").lower()
+        parts = normalized.split("/")
+        if normalized.startswith(volatile_prefixes) or ".ai-harness/evals/_test_" in normalized:
+            continue
+        if any(part in ignored_parts for part in parts) or Path(normalized).suffix in ignored_suffixes:
+            continue
+        result.append(path)
+    return sorted(result)
+
+
+_CODE_SUFFIXES = {
+    ".py", ".pyi", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs",
+    ".go", ".rs", ".java", ".kt", ".kts", ".scala", ".cs", ".fs",
+    ".vb", ".cpp", ".cc", ".cxx", ".c", ".h", ".hpp", ".swift",
+    ".rb", ".php", ".ex", ".exs", ".dart", ".lua", ".sh", ".ps1",
+}
+
+
+def is_code_change(paths: list[str] | tuple[str, ...]) -> bool:
+    for path in paths:
+        lower = path.replace("\\", "/").lower()
+        if lower.startswith(("docs/", "doc/", "documentation/")):
+            continue
+        if any(lower.endswith(suffix) for suffix in _CODE_SUFFIXES):
+            return True
+    return False
+
+
+def workspace_revision_digest(paths: list[str] | tuple[str, ...] | None = None) -> str:
+    """Fingerprint the exact source snapshot tested by the harness.
+
+    The digest binds HEAD plus the content of staged, unstaged, untracked, and
+    deleted paths. It is a workspace revision identifier, not a Git commit SHA.
+    """
+    selected = source_changed_files() if paths is None else sorted(set(paths))
+    code, head = run_capture(["git", "rev-parse", "HEAD"])
+    if code != 0 or not head.strip():
+        raise RuntimeError(f"cannot bind workspace revision to HEAD: {head}")
+    root = ROOT.resolve()
+    entries: list[dict[str, str]] = []
+    for relative in selected:
+        if not isinstance(relative, str) or not relative.strip():
+            raise ValueError("workspace revision paths must be non-empty strings")
+        rel_path = Path(relative)
+        if rel_path.is_absolute() or ".." in rel_path.parts:
+            raise ValueError("workspace revision path escapes the repository")
+        source = ROOT / rel_path
+        parent = source.parent.resolve()
+        if not parent.is_relative_to(root):
+            raise ValueError("workspace revision path resolves outside the repository")
+        if source.is_symlink():
+            entries.append({"path": rel_path.as_posix(), "kind": "symlink", "sha256": hashlib.sha256(os.readlink(source).encode("utf-8")).hexdigest()})
+        elif source.is_file():
+            digest = hashlib.sha256()
+            with source.open("rb") as handle:
+                for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                    digest.update(chunk)
+            entries.append({"path": rel_path.as_posix(), "kind": "file", "sha256": digest.hexdigest()})
+        elif not source.exists():
+            entries.append({"path": rel_path.as_posix(), "kind": "deleted", "sha256": hashlib.sha256(b"deleted").hexdigest()})
+        else:
+            raise ValueError(f"unsupported workspace revision path type: {relative}")
+    payload = {
+        "schema_version": "auren-workspace-revision-v1",
+        "base_commit": head.strip(),
+        "files": sorted(entries, key=lambda item: item["path"]),
+    }
+    digest = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    return f"workspace-sha256:{digest}"
+
+
+def validate_final_revision_evidence(
+    manifest: dict[str, Any],
+    *,
+    risk: str,
+    intent_digest: str,
+    changed_paths: list[str],
+    final_revision: str,
+) -> dict[str, Any]:
+    """Check that final source, validation, and high-risk principle receipts agree."""
+    if not is_code_change(changed_paths):
+        return {
+            "passed": True,
+            "exact_revision_passed": True,
+            "principle_verification_passed": None,
+            "blockers": [],
+        }
+    blockers: list[str] = []
+    validation = manifest.get("validation")
+    if not isinstance(validation, dict) or validation.get("passed") is not True or not validation.get("results"):
+        blockers.append("code change lacks a passing validation run with executable results")
+    verified_revision = str(manifest.get("verified_code_revision", "")).strip()
+    if not final_revision or verified_revision != final_revision:
+        blockers.append("verified source snapshot does not match the exact final workspace revision")
+    candidate_revision = str(manifest.get("review_candidate_revision", "")).strip()
+    if candidate_revision and candidate_revision != final_revision:
+        blockers.append("source changed after the final review candidate was recorded")
+    high_risk = str(risk).strip().lower() in {"high", "critical"}
+    require_principle = high_risk or manifest.get("require_principle_verification") is True
+    principle_passed: bool | None = None
+    if require_principle:
+        # Local import avoids loading the portable package while engine.py is
+        # still initializing (the runtime bridge can import engine in-process).
+        from portable.engineering_design_guard import EngineeringDesignGuard
+        verification = EngineeringDesignGuard.validate_principle_verification_record(
+            manifest.get("principle_verification"),
+            intent_digest=intent_digest,
+            code_revision=final_revision,
+        )
+        principle_passed = bool(verification["valid"])
+        blockers.extend(str(item) for item in verification["blockers"])
+    return {
+        "passed": not blockers,
+        "exact_revision_passed": bool(final_revision and verified_revision == final_revision and candidate_revision in {"", final_revision}),
+        "principle_verification_passed": principle_passed,
+        "blockers": sorted(set(blockers)),
+    }
+
+
 def diff_check() -> tuple[bool, str]:
     code, output = run_capture(["git", "diff", "--check"])
     return code == 0, output
@@ -527,8 +672,12 @@ def run_task(args: argparse.Namespace, config: dict[str, Any], logger) -> int:
         elif args.jira: source = "jira"; task = task or f"Work on Jira item {args.jira}"
         if not task: raise ConfigurationError("A task, Jira key, or Jira file is required")
         repo_map = repository_map(); profile = profile_repository(); memory = relevant_memory(task, int(config["router"]["memory_budget"])); route = route_with_provider(provider, task, source, jira, repo_map, memory, run_dir, config, args.dry_run, logger); phases = phases_for(route, args.workflow, config); chunks = task_chunks(task, complexity={"low": 1, "medium": 4, "high": 7, "critical": 9}.get(route["risk"], 4))
-        manifest = {"version": 7, "run_id": run_dir.name, "started_at": now_iso(), "provider": provider_name, "task": task, "source": source, "jira": jira, "workflow": args.workflow or "adaptive", "route": route, "phases": phases, "task_chunks": chunks, "completed_phases": [], "retries": 0, "repository_profile": profile, "initial_git": git_state(), "protected_paths": config.get("scope", {}).get("protected_paths", []), "scope_paths": config.get("scope", {}).get("allowed_paths", []), "context_plan": asdict_safe(plan_context(phase="context", risk=route["risk"], uncertainty=route["uncertainty"]))}
+        manifest = {"version": 7, "run_id": run_dir.name, "started_at": now_iso(), "provider": provider_name, "task": task, "source": source, "jira": jira, "workflow": args.workflow or "adaptive", "route": route, "intent_digest": hashlib.sha256(task.strip().encode("utf-8")).hexdigest(), "phases": phases, "task_chunks": chunks, "completed_phases": [], "retries": 0, "repository_profile": profile, "initial_git": git_state(), "protected_paths": config.get("scope", {}).get("protected_paths", []), "scope_paths": config.get("scope", {}).get("allowed_paths", []), "context_plan": asdict_safe(plan_context(phase="context", risk=route["risk"], uncertainty=route["uncertainty"]))}
         write_json_atomic(run_dir / "manifest.json", manifest); write_text_atomic(run_dir / "task.txt", task); write_text_atomic(run_dir / "repository-map.md", repo_map); save_checkpoint(run_dir, manifest, "route", "completed", phases[0] if phases else None)
+    manifest["intent_digest"] = str(
+        manifest.get("intent_digest") or hashlib.sha256(task.strip().encode("utf-8")).hexdigest()
+    )
+    write_json_atomic(run_dir / "manifest.json", manifest)
     history = []
     if not phases: return 0
     phase_timeout = int(config["execution"]["phase_timeout_seconds"])
@@ -539,13 +688,53 @@ def run_task(args: argparse.Namespace, config: dict[str, Any], logger) -> int:
             manifest.setdefault("context_plans", {})[phase] = asdict_safe(cp); write_json_atomic(run_dir / "context-plan.json", manifest["context_plans"])
             manifest.setdefault("completed_phases", []).append(phase); save_checkpoint(run_dir, manifest, phase, "completed", next_phase); save_control_checkpoint(run_dir, manifest, phase, index + 1, len(phases), json.dumps(manifest["context_plans"]))
             continue
+        if phase == "validate" and args.dry_run:
+            # A dry run is a planning/contract preview, not an implementation
+            # attempt. Running the repository's full validation suite here
+            # recursively launches this same dry-run test and can turn a
+            # harmless preview into a false failure. Record the skip honestly.
+            manifest["validation"] = {
+                "passed": True,
+                "results": [{"status": "skipped", "reason": "dry-run does not modify source"}],
+                "skipped": True,
+                "verification_evidence_present": False,
+            }
+            manifest["verified_code_revision"] = ""
+            write_json_atomic(run_dir / "manifest.json", manifest)
+            manifest.setdefault("completed_phases", []).append(phase)
+            save_checkpoint(run_dir, manifest, phase, "completed", next_phase)
+            save_control_checkpoint(run_dir, manifest, phase, index + 1, len(phases), "validation skipped for dry-run")
+            continue
         if phase == "validate":
-            passed, results = run_validation(config, run_dir); manifest["validation"] = {"passed": passed, "results": results}; write_json_atomic(run_dir / "manifest.json", manifest)
+            validation_paths_before = source_changed_files()
+            code_change_before = is_code_change(validation_paths_before)
+            revision_before = workspace_revision_digest(validation_paths_before) if code_change_before else ""
+            passed, results = run_validation(config, run_dir)
+            validation_paths_after = source_changed_files()
+            code_change_after = is_code_change(validation_paths_after)
+            revision_after = workspace_revision_digest(validation_paths_after) if code_change_after else ""
+            revision_stable = revision_before == revision_after
+            manifest["verified_code_revision"] = (
+                revision_before if passed and bool(results) and revision_stable and code_change_before else ""
+            )
+            manifest["validation"] = {
+                "passed": passed,
+                "results": results,
+                "source_revision_before": revision_before,
+                "source_revision_after": revision_after,
+                "revision_stable": revision_stable,
+                "verification_evidence_present": bool(results),
+            }
+            write_json_atomic(run_dir / "manifest.json", manifest)
             if not passed:
                 if not repair_after_failure(config, provider, run_dir, manifest, task, source, jira, route, history, args.dry_run, logger): manifest["status"] = "blocked_by_validation"; write_json_atomic(run_dir / "manifest.json", manifest); save_checkpoint(run_dir, manifest, phase, "blocked", "repair"); return 1
             manifest.setdefault("completed_phases", []).append(phase); save_checkpoint(run_dir, manifest, phase, "completed", next_phase); save_control_checkpoint(run_dir, manifest, phase, index + 1, len(phases), json.dumps(results)); continue
         if phase == "learn":
             learn(run_dir, task, route, manifest, config); manifest.setdefault("completed_phases", []).append(phase); write_json_atomic(run_dir / "manifest.json", manifest); save_checkpoint(run_dir, manifest, phase, "completed", next_phase); save_control_checkpoint(run_dir, manifest, phase, index + 1, len(phases), "learning completed"); continue
+        if phase == "review" and is_code_change(source_changed_files()):
+            manifest["review_candidate_revision"] = workspace_revision_digest(source_changed_files())
+            manifest["final_code_revision"] = manifest["review_candidate_revision"]
+            write_json_atomic(run_dir / "manifest.json", manifest)
         memory = relevant_memory(task, int(config["router"]["memory_budget"])); context = (run_dir / "repository-map.md").read_text(encoding="utf-8"); cp = plan_context(phase=phase, risk=route["risk"], uncertainty=route["uncertainty"], policy_strategy=LearningController(ROOT).active_strategy(route["mode"])); prompt_file = run_dir / f"{phase}.prompt.md"; prompt = build_prompt(phase, task, source, jira, route, context, memory, profile, "\n\n".join(history), cp); write_text_atomic(prompt_file, prompt); succeeded = False; max_attempts = int(config["execution"]["max_phase_retries"]) + 1
         for attempt in range(max_attempts):
             if attempt:
@@ -554,14 +743,74 @@ def run_task(args: argparse.Namespace, config: dict[str, Any], logger) -> int:
             integrity = context_integrity(task, {"goal": task}, output, ["task boundary", "protected behavior"]); manifest.setdefault("integrity", {})[phase] = integrity
             if code == 0: succeeded = True; break
         if not succeeded:
-            manifest["status"] = "failed"; write_json_atomic(run_dir / "manifest.json", manifest); save_checkpoint(run_dir, manifest, phase, "failed", phase); return 1
+            review_revision_stale = (
+                phase == "review"
+                and is_code_change(source_changed_files())
+                and str(manifest.get("verified_code_revision", "")).strip()
+                != str(manifest.get("final_code_revision", "")).strip()
+            )
+            if review_revision_stale:
+                manifest["status"] = "blocked_by_verification"
+                full_phases = manifest.get("phases", phases)
+                retry_phase = "validate" if "validate" in full_phases else "review"
+                write_json_atomic(run_dir / "manifest.json", manifest)
+                save_checkpoint(run_dir, manifest, phase, "blocked", retry_phase)
+            else:
+                manifest["status"] = "failed"
+                write_json_atomic(run_dir / "manifest.json", manifest)
+                save_checkpoint(run_dir, manifest, phase, "failed", phase)
+            return 1
         if phase == "review" and review_requires_fix(output):
             if not repair_after_failure(config, provider, run_dir, manifest, task, source, jira, route, history, args.dry_run, logger): manifest["status"] = "blocked_by_review"; write_json_atomic(run_dir / "manifest.json", manifest); save_checkpoint(run_dir, manifest, phase, "blocked", "repair"); return 1
         if phase in {"execute", "debug", "poc", "research", "grill", "review"}: manifest.setdefault("git_evidence", {})[phase] = diff_summary()
         control = save_control_checkpoint(run_dir, manifest, phase, index + 1, len(phases), output)
         if control["next"] != "continue": manifest["status"] = "blocked_by_scope"; write_json_atomic(run_dir / "manifest.json", manifest); save_checkpoint(run_dir, manifest, phase, "blocked", "scope-review"); return 1
         manifest.setdefault("completed_phases", []).append(phase); write_json_atomic(run_dir / "manifest.json", manifest); save_checkpoint(run_dir, manifest, phase, "completed", next_phase)
-    passed_diff, diff_output = diff_check(); manifest["verification"] = {"validation_passed": manifest.get("validation", {}).get("passed", True), "diff_check_passed": passed_diff, "diff_check": diff_output}; manifest["git_final"] = git_state(); manifest["git_diff"] = diff_summary(); manifest["completed_at"] = now_iso(); manifest["status"] = "completed" if manifest["verification"]["validation_passed"] and passed_diff else "blocked_by_verification"; write_json_atomic(run_dir / "manifest.json", manifest); save_checkpoint(run_dir, manifest, "complete", manifest["status"], None); emit_event(run_dir, "run.finish", status=manifest["status"]); return 0 if manifest["status"] == "completed" else 1
+    passed_diff, diff_output = diff_check()
+    final_paths = source_changed_files()
+    final_revision = workspace_revision_digest(final_paths) if is_code_change(final_paths) else ""
+    candidate_revision = str(manifest.get("review_candidate_revision", "")).strip()
+    manifest["final_code_revision"] = final_revision
+    revision_evidence = validate_final_revision_evidence(
+        manifest,
+        risk=str(route.get("risk", "medium")),
+        intent_digest=str(manifest.get("intent_digest", "")),
+        changed_paths=final_paths,
+        final_revision=final_revision,
+    )
+    manifest["verification"] = {
+        "validation_passed": manifest.get("validation", {}).get("passed", True),
+        "diff_check_passed": passed_diff,
+        "diff_check": diff_output,
+        "exact_revision_passed": revision_evidence["exact_revision_passed"],
+        "principle_verification_passed": revision_evidence["principle_verification_passed"],
+        "revision_blockers": revision_evidence["blockers"],
+        "review_candidate_revision": candidate_revision,
+    }
+    manifest["git_final"] = git_state()
+    manifest["git_diff"] = diff_summary()
+    manifest["completed_at"] = now_iso()
+    all_gates_passed = (
+        manifest["verification"]["validation_passed"]
+        and passed_diff
+        and revision_evidence["passed"]
+    )
+    manifest["status"] = "completed" if all_gates_passed else (
+        "blocked_by_principle_verification"
+        if revision_evidence["principle_verification_passed"] is False
+        else "blocked_by_verification"
+    )
+    next_phase_after_block = None
+    if not all_gates_passed:
+        next_phase_after_block = (
+            "review" if revision_evidence["principle_verification_passed"] is False
+            and revision_evidence["exact_revision_passed"]
+            else "validate"
+        )
+    write_json_atomic(run_dir / "manifest.json", manifest)
+    save_checkpoint(run_dir, manifest, "complete", manifest["status"], next_phase_after_block)
+    emit_event(run_dir, "run.finish", status=manifest["status"])
+    return 0 if manifest["status"] == "completed" else 1
 
 
 def asdict_safe(value: Any) -> dict[str, Any]:
@@ -576,8 +825,29 @@ def repair_after_failure(config, provider, run_dir, manifest, task, source, jira
     for attempt in range(1, limit + 1):
         manifest["retries"] += 1; prompt_file = run_dir / f"repair-{attempt}.prompt.md"; prompt = build_prompt("repair", task, source, jira, route, context, relevant_memory(task, 700), {}, "\n\n".join(history) + "\nVerification failed. Diagnose before changing code.", plan_context(phase="repair", risk=route["risk"], uncertainty=route["uncertainty"])); write_text_atomic(prompt_file, prompt); code, output, duration = invoke(provider, prompt_file, "repair", run_dir, int(config["execution"]["phase_timeout_seconds"]), dry_run, logger); history.append(compact(f"[repair-{attempt}] {output}", 2500)); manifest.setdefault("phase_metrics", {})[f"repair-{attempt}"] = {"exit_code": code, "duration_seconds": round(duration, 3)}
         if code != 0: continue
-        passed, results = run_validation(config, run_dir); manifest["validation"] = {"passed": passed, "results": results}
-        if passed: return True
+        validation_paths_before = source_changed_files()
+        code_change_before = is_code_change(validation_paths_before)
+        revision_before = workspace_revision_digest(validation_paths_before) if code_change_before else ""
+        passed, results = run_validation(config, run_dir)
+        validation_paths_after = source_changed_files()
+        code_change_after = is_code_change(validation_paths_after)
+        revision_after = workspace_revision_digest(validation_paths_after) if code_change_after else ""
+        revision_stable = revision_before == revision_after
+        code_change = code_change_before or code_change_after
+        evidence_present = bool(results) or not code_change
+        manifest["verified_code_revision"] = (
+            revision_before if passed and evidence_present and revision_stable and code_change else ""
+        )
+        manifest["validation"] = {
+            "passed": passed,
+            "results": results,
+            "source_revision_before": revision_before,
+            "source_revision_after": revision_after,
+            "revision_stable": revision_stable,
+            "verification_evidence_present": bool(results),
+        }
+        if passed and evidence_present and revision_stable:
+            return True
     return False
 
 

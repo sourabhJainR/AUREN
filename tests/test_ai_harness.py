@@ -14,7 +14,7 @@ class AdaptiveHarnessTests(unittest.TestCase):
 
     def test_capabilities(self) -> None:
         result = self.run_cli("capabilities")
-        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.returncode, 0, f"stdout={result.stdout!r}; stderr={result.stderr!r}")
         self.assertEqual(set(result.stdout.split()), {"research", "poc", "grill"})
 
     def test_runtime_policy_is_single_run(self) -> None:
@@ -25,8 +25,11 @@ class AdaptiveHarnessTests(unittest.TestCase):
 
     def test_dry_run_creates_checkpoint_and_manifest(self) -> None:
         result = self.run_cli("run", "--task", "Add input validation", "--dry-run")
-        self.assertEqual(result.returncode, 0, result.stderr)
         run_dirs = [path for path in (ROOT / ".ai-harness" / "runs").glob("*") if path.is_dir() and (path / "manifest.json").is_file()]
+        latest_debug = max(run_dirs, key=lambda path: path.stat().st_mtime) if run_dirs else None
+        debug_manifest = (latest_debug / "manifest.json").read_text(encoding="utf-8") if latest_debug else "no manifest"
+        debug_checkpoint = (latest_debug / "checkpoint.json").read_text(encoding="utf-8") if latest_debug and (latest_debug / "checkpoint.json").exists() else "no checkpoint"
+        self.assertEqual(result.returncode, 0, f"stdout={result.stdout!r}; stderr={result.stderr!r}; manifest={debug_manifest}; checkpoint={debug_checkpoint}")
         self.assertTrue(run_dirs)
         run_dir = max(run_dirs, key=lambda path: path.stat().st_mtime)
         manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
@@ -41,7 +44,7 @@ class AdaptiveHarnessTests(unittest.TestCase):
 
     def test_explicit_workflow_is_honored(self) -> None:
         result = self.run_cli("run", "--workflow", "research", "--task", "Compare two approaches", "--dry-run")
-        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.returncode, 0, f"stdout={result.stdout!r}; stderr={result.stderr!r}")
         run_dirs = [path for path in (ROOT / ".ai-harness" / "runs").glob("*") if path.is_dir() and (path / "manifest.json").is_file()]
         run_dir = max(run_dirs, key=lambda path: path.stat().st_mtime)
         manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
@@ -50,7 +53,7 @@ class AdaptiveHarnessTests(unittest.TestCase):
 
     def test_eval_regression_suite(self) -> None:
         result = self.run_cli("eval")
-        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.returncode, 0, f"stdout={result.stdout!r}; stderr={result.stderr!r}")
         payload = json.loads(result.stdout)
         self.assertGreaterEqual(payload["cases"], 7)
         self.assertEqual(payload["failed"], 0, payload)
@@ -58,7 +61,7 @@ class AdaptiveHarnessTests(unittest.TestCase):
     def test_memory_and_groom_commands(self) -> None:
         self.assertEqual(self.run_cli("memory").returncode, 0)
         result = self.run_cli("groom")
-        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.returncode, 0, f"stdout={result.stdout!r}; stderr={result.stderr!r}")
         payload = json.loads(result.stdout)
         self.assertIn("patterns", payload)
         self.assertIn("trusted", payload)
@@ -68,7 +71,7 @@ class AdaptiveHarnessTests(unittest.TestCase):
         fixture.write_text("PROJ-1: Add tenant filtering\nAcceptance: preserve existing behavior", encoding="utf-8")
         try:
             result = self.run_cli("run", "--jira-file", str(fixture), "--dry-run")
-            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.returncode, 0, f"stdout={result.stdout!r}; stderr={result.stderr!r}")
         finally:
             fixture.unlink(missing_ok=True)
 
