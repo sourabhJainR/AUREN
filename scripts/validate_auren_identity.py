@@ -7,6 +7,8 @@ product names, entry points, package names, or current state keys.
 """
 from __future__ import annotations
 
+import argparse
+import json
 import re
 import subprocess
 import sys
@@ -122,39 +124,100 @@ PATTERNS = (
 OLD_FILENAME = re.compile(r"(^|/)aer[_-][^/]+$", re.IGNORECASE)
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Audit active AUREN code and inventory approved legacy compatibility.")
+    parser.add_argument(
+        "--report-json",
+        type=Path,
+        help="Write a complete match inventory to a JSON file outside the repository (for operator review).",
+    )
+    args = parser.parse_args(argv)
+    report_path: Path | None = None
+    if args.report_json is not None:
+        report_path = args.report_json.expanduser().resolve()
+        if report_path == ROOT.resolve() or ROOT.resolve() in report_path.parents:
+            print("AUREN identity report must be written outside the repository to avoid becoming a tracked legacy-name exception.")
+            return 2
+
     tracked = subprocess.run(
         ["git", "ls-files", "-z"], cwd=ROOT, check=True, capture_output=True
-    ).stdout.split(b"\0")
+    ).stdout.split(b"\\0")
     findings: list[str] = []
+    unsafe_allowlist = []
     for allowed_path in sorted(LEGACY_ALLOWED):
         if not _is_approved_allowlist_path(allowed_path):
-            findings.append(f"{allowed_path}: unsafe broad legacy allowlist entry")
+            finding = f"{allowed_path}: unsafe broad legacy allowlist entry"
+            findings.append(finding)
+            unsafe_allowlist.append(finding)
+
+    inventory: list[dict[str, object]] = []
     for raw_path in tracked:
         if not raw_path:
             continue
         path = raw_path.decode("utf-8", errors="strict")
         if OLD_FILENAME.search(path):
             findings.append(f"{path}: stale AER filename")
-        if path in LEGACY_ALLOWED:
-            continue
         full_path = ROOT / path
         try:
             content = full_path.read_text(encoding="utf-8")
         except (UnicodeDecodeError, OSError):
             continue
+        line_patterns = LEGACY_ALLOWED_LINE_PATTERNS.get(path, ())
+        file_allowed = path in LEGACY_ALLOWED
         for line_no, line in enumerate(content.splitlines(), 1):
-            if any(pattern.search(line) for pattern in LEGACY_ALLOWED_LINE_PATTERNS.get(path, ())):
+            matched = [pattern.pattern for pattern in PATTERNS if pattern.search(line)]
+            if not matched:
                 continue
-            for pattern in PATTERNS:
-                if pattern.search(line):
-                    findings.append(f"{path}:{line_no}: stale AER identity: {line.strip()[:180]}")
-                    break
+            line_allowed = any(pattern.search(line) for pattern in line_patterns)
+            if line_allowed:
+                disposition = "line_allowlisted"
+            elif file_allowed:
+                disposition = "file_allowlisted"
+            else:
+                disposition = "unapproved"
+            inventory.append({
+                "path": path,
+                "line": line_no,
+                "matched_patterns": matched,
+                "disposition": disposition,
+                "line_excerpt": line.strip()[:180],
+            })
+            if disposition == "unapproved":
+                findings.append(f"{path}:{line_no}: stale AER identity: {line.strip()[:180]}")
+
+    if report_path is not None:
+        allowlisted = [item for item in inventory if item["disposition"] != "unapproved"]
+        unapproved = [item for item in inventory if item["disposition"] == "unapproved"]
+        report = {
+            "schema_version": "auren-identity-audit-report-v1",
+            "repository": str(ROOT.resolve()),
+            "tracked_file_count": len([item for item in tracked if item]),
+            "legacy_match_count": len(inventory),
+            "allowlisted_match_count": len(allowlisted),
+            "unapproved_match_count": len(unapproved),
+            "audit_passed": not findings,
+            "allowlist_entries": sorted(LEGACY_ALLOWED),
+            "unsafe_allowlist_entries": unsafe_allowlist,
+            "match_inventory": inventory,
+            "findings": findings,
+        }
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\\n", encoding="utf-8")
+
     if findings:
         print("AUREN identity validation failed:")
-        print("\n".join(findings))
+        print("\\n".join(findings))
+        if report_path is not None:
+            print(f"Full match inventory written to {report_path}")
         return 1
-    print("AUREN identity validation passed; legacy compatibility is confined to the allowlist.")
+    if report_path is not None:
+        print(
+            f"AUREN identity validation passed; inventoried {len(inventory)} legacy matches "
+            f"({sum(1 for item in inventory if item['disposition'] != 'unapproved')} allowlisted). "
+            f"Report: {report_path}"
+        )
+    else:
+        print("AUREN identity validation passed; legacy compatibility is confined to the allowlist.")
     return 0
 
 
