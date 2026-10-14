@@ -150,13 +150,26 @@ def source_changed_files() -> list[str]:
         ".ai-harness/logs/",
         ".auren/",
         ".pytest_cache/",
-        "__pycache__/",
+        "coverage/",
+        "test-results/",
+        "reports/",
+        "artifacts/",
+        "dist/",
+        "build/",
+        "node_modules/",
     )
-    return [
-        path for path in changed_files()
-        if not path.replace("\\", "/").lower().startswith(volatile_prefixes)
-        and not path.replace("\\", "/").lower().startswith(".ai-harness/evals/_test_")
-    ]
+    ignored_parts = {"__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache"}
+    ignored_suffixes = {".pyc", ".pyo", ".log"}
+    result = []
+    for path in changed_files():
+        normalized = path.replace("\\", "/").lower()
+        parts = normalized.split("/")
+        if normalized.startswith(volatile_prefixes) or ".ai-harness/evals/_test_" in normalized:
+            continue
+        if any(part in ignored_parts for part in parts) or Path(normalized).suffix in ignored_suffixes:
+            continue
+        result.append(path)
+    return sorted(result)
 
 
 _CODE_SUFFIXES = {
