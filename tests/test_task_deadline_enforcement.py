@@ -127,7 +127,7 @@ class TaskDeadlineEnforcementTests(unittest.TestCase):
                     task_id="overrun-task",
                     project_root=root,
                     intent="do not accept work after the deadline",
-                    context={"auren_deadline_seconds": 1},
+                    context={"auren_deadline_at": iso_offset(0.05)},
                 )
 
             work_id = runtime.execution_controller.work_unit_for_session(
