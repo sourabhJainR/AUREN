@@ -196,6 +196,54 @@ class HarnessCrewDispatchTests(unittest.TestCase):
             self.assertEqual(len(saved.state["auren_crew_handoff_checkpoint_data"]["completed"]), 1)
             self.assertEqual(saved.state["auren_crew_handoff_checkpoint_data"]["in_flight"], [])
 
+    def test_independent_handoff_rejection_is_terminal_and_blocks_graph_acceptance(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            memory = SharedTaskMemory(Path(tmp) / "memory.jsonl", "intent-handoff-rejected")
+            checkpoint = InMemoryCheckpointStore()
+
+            def independent_review(_request):
+                return {
+                    "schema_version": "auren-handoff-review-receipt-v1",
+                    "reviewer_id": "host-independent-qa",
+                    "reviewer_version": "reviewer-v1",
+                    "status": "reject",
+                    "evidence_refs": ["test://independent-qa/review-rejected-001"],
+                    "reason": "Required acceptance evidence is missing.",
+                }
+
+            team = GraphAgentTeam(
+                [AgentSpec("planner", "planner")],
+                crew_adapters={
+                    "frontend_ui": _HandoffProposalAdapter("frontend_ui", [], target_crew="qa_reviewer"),
+                    "qa_reviewer": _ProposalAdapter("qa_reviewer", []),
+                },
+                require_crew_adapters=True,
+                independent_handoff_reviewer=independent_review,
+                independent_handoff_reviewer_id="host-independent-qa",
+                independent_handoff_reviewer_version="reviewer-v1",
+            )
+            result = team.execute(
+                task="Build an accessible frontend UI and test review workflow",
+                intent_digest="intent-handoff-rejected",
+                base_prompt="base",
+                memory=memory,
+                invoke_agent=lambda agent, prompt: (0, "planning evidence", 0.01),
+                checkpoint=checkpoint,
+                run_id="rejected-handoff-test",
+            )
+            execution = result["crew_execution"]
+            self.assertEqual(execution["handoff_status"], "review_rejected")
+            self.assertEqual(execution["status"], "blocked")
+            receipt = execution["handoff_receipts"][0]
+            self.assertEqual(receipt["status"], "review_rejected")
+            self.assertEqual(receipt["independent_review"]["status"], "reject")
+            saved = checkpoint.load("rejected-handoff-test")
+            terminal = saved.state["auren_crew_handoff_checkpoint_data"]
+            self.assertEqual(terminal["queued"], [])
+            self.assertEqual(terminal["in_flight"], [])
+            self.assertEqual(len(terminal["completed_ids"]), 1)
+            self.assertEqual(next(iter(terminal["completion_receipts"].values()))["status"], "reject")
+
     def test_independent_reviewer_cannot_reuse_a_specialist_crew_identity(self):
         with self.assertRaisesRegex(ValueError, "distinct from every specialist crew"):
             GraphAgentTeam(
