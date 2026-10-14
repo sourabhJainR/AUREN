@@ -415,6 +415,7 @@ class GraphHandoffController:
         self._in_flight: dict[str, CrewHandoff] = {}
         self._seen_ids: set[str] = set()
         self._completed: set[tuple[str, str, str]] = set()
+        self._completed_ids: set[str] = set()
         self._lock = RLock()
         # A failed checkpoint write makes this controller unusable. In-memory
         # state may have advanced, but callers must not continue as if it were
@@ -431,6 +432,11 @@ class GraphHandoffController:
     def _handoff_id(source_crew: str, target_crew: str, task: str, source_plan_digest: str) -> str:
         payload = [source_crew, target_crew, task.strip(), source_plan_digest]
         return hashlib.sha256(json.dumps(payload, separators=(",", ":")).encode("utf-8")).hexdigest()
+
+    @classmethod
+    def handoff_id_for(cls, source_crew: str, target_crew: str, task: str, source_plan_digest: str) -> str:
+        """Return the stable idempotency key used by enqueue and checkpoint receipts."""
+        return cls._handoff_id(source_crew, target_crew, task, source_plan_digest)
 
     def _persist(self) -> None:
         self._ensure_healthy()
@@ -454,7 +460,7 @@ class GraphHandoffController:
         source_plan_digest: str,
         allowed_handoffs: Sequence[str],
         selected_crews: Sequence[str],
-    ) -> CrewHandoff:
+    ) -> CrewHandoff | None:
         if target_crew not in allowed_handoffs:
             raise PermissionError(f"handoff {source_crew}->{target_crew} is not declared by crew contract")
         if target_crew not in selected_crews:
@@ -469,6 +475,10 @@ class GraphHandoffController:
                     return queued
             if handoff_id in self._in_flight:
                 return self._in_flight[handoff_id]
+            # A completed handoff replayed from the original proposal after a
+            # restart is idempotently acknowledged, not treated as a new dispatch.
+            if handoff_id in self._completed_ids:
+                return None
             handoff = CrewHandoff(source_crew, target_crew, task.strip(), source_plan_digest, 0, handoff_id)
             if handoff_id in self._seen_ids:
                 raise ValueError(
@@ -549,6 +559,7 @@ class GraphHandoffController:
             self.validate_claimed(handoff)
             key = (handoff.source_crew, handoff.target_crew, hashlib.sha256(handoff.task.encode()).hexdigest())
             self._completed.add(key)
+            self._completed_ids.add(handoff_id)
             self._in_flight.pop(handoff_id, None)
             self._seen_ids.add(handoff_id)
             self._persist()
@@ -557,7 +568,7 @@ class GraphHandoffController:
         """JSON-safe checkpoint for the supervisor's canonical task store."""
         with self._lock:
             payload = {
-                "schema_version": "auren-crew-handoff-checkpoint-v2",
+                "schema_version": "auren-crew-handoff-checkpoint-v3",
                 "max_attempts": self.max_attempts,
                 "queued": [
                     {"source_crew": h.source_crew, "target_crew": h.target_crew,
@@ -573,6 +584,7 @@ class GraphHandoffController:
                 ],
                 "seen_ids": sorted(self._seen_ids),
                 "completed": [list(key) for key in sorted(self._completed)],
+                "completed_ids": sorted(self._completed_ids),
                 "retry_budget": self.retry_budget.snapshot() if self.retry_budget is not None else None,
             }
             payload["digest"] = hashlib.sha256(
@@ -590,12 +602,13 @@ class GraphHandoffController:
         require_persistence: bool = False,
     ) -> "GraphHandoffController":
         if not isinstance(checkpoint, Mapping) or checkpoint.get("schema_version") not in {
-            "auren-crew-handoff-checkpoint-v1", "auren-crew-handoff-checkpoint-v2"
+            "auren-crew-handoff-checkpoint-v1", "auren-crew-handoff-checkpoint-v2",
+            "auren-crew-handoff-checkpoint-v3"
         }:
             raise ValueError("unsupported handoff checkpoint")
         supplied_digest = checkpoint.get("digest")
-        if checkpoint.get("schema_version") == "auren-crew-handoff-checkpoint-v2" and not supplied_digest:
-            raise ValueError("handoff checkpoint digest is required for schema v2")
+        if checkpoint.get("schema_version") in {"auren-crew-handoff-checkpoint-v2", "auren-crew-handoff-checkpoint-v3"} and not supplied_digest:
+            raise ValueError("handoff checkpoint digest is required for schema v2/v3")
         if supplied_digest is not None:
             payload = {key: value for key, value in checkpoint.items() if key != "digest"}
             expected_digest = hashlib.sha256(
@@ -669,6 +682,20 @@ class GraphHandoffController:
             if not isinstance(item, list) or len(item) != 3 or any(not isinstance(value, str) for value in item):
                 raise ValueError("invalid completed handoff key")
             controller._completed.add(tuple(item))
+        completed_ids = checkpoint.get("completed_ids", [])
+        if not isinstance(completed_ids, list) or any(
+            not isinstance(value, str) or not value.strip() for value in completed_ids
+        ):
+            raise ValueError("invalid completed handoff IDs")
+        if checkpoint.get("schema_version") == "auren-crew-handoff-checkpoint-v3":
+            if len(completed_ids) != len(set(completed_ids)):
+                raise ValueError("duplicate completed handoff ID")
+            if not set(completed_ids).issubset(set(saved_seen)):
+                raise ValueError("completed handoff IDs must be included in seen_ids")
+            active_ids = {item.handoff_id for item in controller._queue} | set(controller._in_flight)
+            if set(completed_ids) & active_ids:
+                raise ValueError("completed handoff ID cannot also be queued or in-flight")
+        controller._completed_ids.update(completed_ids)
         return controller
 
 def rollback_readiness(
