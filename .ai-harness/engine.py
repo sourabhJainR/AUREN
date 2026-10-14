@@ -755,7 +755,7 @@ def run_task(args: argparse.Namespace, config: dict[str, Any], logger) -> int:
             validation_paths_before = source_changed_files()
             code_change_before = is_code_change(validation_paths_before)
             revision_before = workspace_revision_digest(validation_paths_before) if code_change_before else ""
-            passed, results = run_validation(config, run_dir)
+            passed, results = run_validation(config, run_dir, deadline_at=deadline_value)
             validation_paths_after = source_changed_files()
             code_change_after = is_code_change(validation_paths_after)
             revision_after = workspace_revision_digest(validation_paths_after) if code_change_after else ""
@@ -773,7 +773,17 @@ def run_task(args: argparse.Namespace, config: dict[str, Any], logger) -> int:
             }
             write_json_atomic(run_dir / "manifest.json", manifest)
             if not passed:
-                if not repair_after_failure(config, provider, run_dir, manifest, task, source, jira, route, history, args.dry_run, logger): manifest["status"] = "blocked_by_validation"; write_json_atomic(run_dir / "manifest.json", manifest); save_checkpoint(run_dir, manifest, phase, "blocked", "repair"); return 1
+                if deadline_remaining_seconds(deadline_value) <= 0 or any(item.get("status") == "deadline_exceeded" for item in results):
+                    manifest["status"] = "blocked_by_deadline"
+                    manifest["deadline_blocker"] = "task deadline expired during validation"
+                    write_json_atomic(run_dir / "manifest.json", manifest)
+                    save_checkpoint(run_dir, manifest, phase, "blocked", phase)
+                    return 1
+                if not repair_after_failure(config, provider, run_dir, manifest, task, source, jira, route, history, args.dry_run, logger, deadline_at=deadline_value):
+                    manifest["status"] = "blocked_by_validation"
+                    write_json_atomic(run_dir / "manifest.json", manifest)
+                    save_checkpoint(run_dir, manifest, phase, "blocked", "repair")
+                    return 1
             manifest.setdefault("completed_phases", []).append(phase); save_checkpoint(run_dir, manifest, phase, "completed", next_phase); save_control_checkpoint(run_dir, manifest, phase, index + 1, len(phases), json.dumps(results)); continue
         if phase == "learn":
             learn(run_dir, task, route, manifest, config); manifest.setdefault("completed_phases", []).append(phase); write_json_atomic(run_dir / "manifest.json", manifest); save_checkpoint(run_dir, manifest, phase, "completed", next_phase); save_control_checkpoint(run_dir, manifest, phase, index + 1, len(phases), "learning completed"); continue
@@ -783,9 +793,23 @@ def run_task(args: argparse.Namespace, config: dict[str, Any], logger) -> int:
             write_json_atomic(run_dir / "manifest.json", manifest)
         memory = relevant_memory(task, int(config["router"]["memory_budget"])); context = (run_dir / "repository-map.md").read_text(encoding="utf-8"); cp = plan_context(phase=phase, risk=route["risk"], uncertainty=route["uncertainty"], policy_strategy=LearningController(ROOT).active_strategy(route["mode"])); prompt_file = run_dir / f"{phase}.prompt.md"; prompt = build_prompt(phase, task, source, jira, route, context, memory, profile, "\n\n".join(history), cp); write_text_atomic(prompt_file, prompt); succeeded = False; max_attempts = int(config["execution"]["max_phase_retries"]) + 1
         for attempt in range(max_attempts):
+            if deadline_remaining_seconds(deadline_value) <= 0:
+                manifest["status"] = "blocked_by_deadline"
+                manifest["deadline_blocker"] = f"task deadline expired before {phase} attempt {attempt + 1}"
+                write_json_atomic(run_dir / "manifest.json", manifest)
+                save_checkpoint(run_dir, manifest, phase, "blocked", phase)
+                return 1
             if attempt:
                 manifest["retries"] += 1; prompt = build_prompt(phase, task, source, jira, route, context, memory, profile, "\n\n".join(history) + "\nPrevious attempt failed. Gather new evidence and change the approach.", cp); write_text_atomic(prompt_file, prompt)
-            code, output, duration = invoke(provider, prompt_file, phase, run_dir, phase_timeout, args.dry_run, logger); history.append(compact(f"[{phase}] {output}", 2500)); manifest.setdefault("phase_metrics", {})[phase] = {"attempt": attempt, "exit_code": code, "duration_seconds": round(duration, 3)}
+            code, output, duration = invoke(provider, prompt_file, phase, run_dir, phase_timeout, args.dry_run, logger)
+            history.append(compact(f"[{phase}] {output}", 2500))
+            manifest.setdefault("phase_metrics", {})[phase] = {"attempt": attempt, "exit_code": code, "duration_seconds": round(duration, 3)}
+            if deadline_remaining_seconds(deadline_value) <= 0:
+                manifest["status"] = "blocked_by_deadline"
+                manifest["deadline_blocker"] = f"task deadline expired while phase {phase} was running"
+                write_json_atomic(run_dir / "manifest.json", manifest)
+                save_checkpoint(run_dir, manifest, phase, "blocked", phase)
+                return 1
             integrity = context_integrity(task, {"goal": task}, output, ["task boundary", "protected behavior"]); manifest.setdefault("integrity", {})[phase] = integrity
             if code == 0: succeeded = True; break
         if not succeeded:
