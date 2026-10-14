@@ -245,6 +245,27 @@ class AdaptiveRuntime:
         if requested_iterations < 1 or requested_iterations > 12:
             raise ValueError("auren_max_iterations must be between 1 and 12")
         work_id = self.execution_controller.work_unit_for_session(f"{session_id}:{task_id}", f"{task_id}: {intent}")
+        saved_checkpoint = self.recovery_ledger.get_checkpoint(work_id, "execution")
+        saved_payload = saved_checkpoint.payload if saved_checkpoint is not None else {}
+        supplied_deadline = context.get("auren_deadline_at")
+        persisted_deadline = saved_payload.get("deadline_at") if isinstance(saved_payload, Mapping) else None
+        deadline_value = supplied_deadline or persisted_deadline
+        if deadline_value is None:
+            deadline_seconds = context.get("auren_deadline_seconds", 300)
+            if type(deadline_seconds) is not int or not 1 <= deadline_seconds <= 3600:
+                raise ValueError("auren_deadline_seconds must be an integer between 1 and 3600")
+            deadline_value = (datetime.now(timezone.utc) + timedelta(seconds=deadline_seconds)).isoformat()
+        if not isinstance(deadline_value, str):
+            raise ValueError("auren_deadline_at must be an ISO-8601 timestamp")
+        try:
+            deadline_at = datetime.fromisoformat(deadline_value)
+        except ValueError as exc:
+            raise ValueError("auren_deadline_at must be an ISO-8601 timestamp") from exc
+        if deadline_at.tzinfo is None:
+            raise ValueError("auren_deadline_at must include a timezone")
+        deadline_at = deadline_at.astimezone(timezone.utc)
+        deadline_value = deadline_at.isoformat()
+        context["auren_deadline_at"] = deadline_value
         self.recovery_ledger.start_run(work_id, f"{task_id}: {intent}")
         attempts: dict[str, Any] = {
             "count": 0, "hypothesis": "default-plan", "alternate_count": 0,
@@ -255,6 +276,10 @@ class AdaptiveRuntime:
         }
 
         def execute(iteration: int):
+            if datetime.now(timezone.utc) >= deadline_at:
+                attempts["blocked"] = "task deadline exceeded before execution attempt"
+                last["failure"] = attempts["blocked"]
+                return "failed", last["failure"], ("task-deadline-exceeded",)
             attempts["count"] = iteration
             if iteration > 1:
                 previous_hypothesis = str(attempts["hypothesis"])
@@ -308,8 +333,13 @@ class AdaptiveRuntime:
             try:
                 result = self._run_once(**call)
                 last["result"] = result
-                accepted = result.status.value == "accepted"
-                detail = result.stop_reason or result.status.value
+                deadline_exceeded = datetime.now(timezone.utc) >= deadline_at
+                accepted = result.status.value == "accepted" and not deadline_exceeded
+                detail = (
+                    "task deadline exceeded while graph execution was running"
+                    if deadline_exceeded
+                    else result.stop_reason or result.status.value
+                )
                 evidence = tuple(item.digest for item in result.evidence)
                 if not accepted:
                     last["failure"] = detail
@@ -352,6 +382,7 @@ class AdaptiveRuntime:
                 "outcome": "accepted" if result is not None and result.status.value == "accepted" else "blocked",
                 "attempt_count": len(self.recovery_ledger.attempts(work_id)),
                 "hypothesis": str(attempts.get("hypothesis", "default-plan")),
+                "deadline_at": deadline_value,
                 "recovery_mode": (
                     "alternate-plan"
                     if str(attempts.get("hypothesis", "")).startswith("alternate-plan")
