@@ -30,6 +30,22 @@ class TaskDeadlineEnforcementTests(unittest.TestCase):
         self.assertEqual(calls, [])
         self.assertEqual(result.attempts, 0)
 
+    def test_graph_node_receives_refreshed_remaining_task_budget(self):
+        observed = []
+        node = Node(
+            "bounded-work", NodeKind.DETERMINISTIC,
+            lambda state: observed.append(state.get("auren_remaining_seconds")) or "ok",
+        )
+        orchestrator = Orchestrator(Graph([node]))
+        run = OrchestrationRun(task_id="task", intent_digest="intent")
+        result = orchestrator._execute_node(
+            node, {"auren_deadline_at": iso_offset(30)}, run, total_attempts=0,
+        )
+        self.assertEqual(result.status, NodeStatus.PASSED)
+        self.assertEqual(len(observed), 1)
+        self.assertGreater(observed[0], 0)
+        self.assertLessEqual(observed[0], 30)
+
     def test_invalid_or_timezone_naive_deadline_fails_closed(self):
         node = Node("work", NodeKind.DETERMINISTIC, lambda _state: "should not run")
         orchestrator = Orchestrator(Graph([node]))
