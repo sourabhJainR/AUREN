@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import hashlib
 import json
+import time
 from typing import Any, Callable, Mapping, Sequence
 from threading import RLock
 
@@ -309,6 +310,175 @@ class ApprovedToolCrewAdapter:
         if set(proposal) != required or proposal.get("schema_version") != "auren-crew-proposal-v1":
             raise ValueError("adapter proposal does not match auren-crew-proposal-v1")
         return dict(proposal)
+
+
+class ProviderBackedCrewAdapter(ApprovedToolCrewAdapter):
+    """Proposal-only crew adapter backed by a host-injected structured provider.
+
+    The host owns provider credentials and process/client lifecycle. Its callable
+    must honor the supplied timeout; late responses are rejected even if the host
+    provider cannot be forcibly cancelled by this adapter.
+    """
+
+    def __init__(
+        self,
+        crew_id: str,
+        provider_id: str,
+        provider_version: str,
+        invoke_provider: Callable[[str, int], str],
+        tools: ApprovedToolRegistry,
+        *,
+        allowed_tools: Sequence[str],
+        timeout_seconds: int = 120,
+        max_response_chars: int = 100_000,
+        finalizer: Callable[[Mapping[str, Any]], Mapping[str, Any]] | None = None,
+        max_tool_calls: int = 4,
+    ) -> None:
+        if not isinstance(provider_id, str) or not provider_id.strip():
+            raise ValueError("provider_id is required")
+        if not isinstance(provider_version, str) or not provider_version.strip():
+            raise ValueError("provider_version is required")
+        if provider_version.strip().lower() in {"unknown", "unversioned", "latest"}:
+            raise ValueError("provider_version must be pinned, not unknown/latest")
+        if not callable(invoke_provider):
+            raise TypeError("invoke_provider must be a host-injected callable")
+        if type(timeout_seconds) is not int or not 1 <= timeout_seconds <= 600:
+            raise ValueError("timeout_seconds must be an integer between 1 and 600")
+        if type(max_response_chars) is not int or not 256 <= max_response_chars <= 1_000_000:
+            raise ValueError("max_response_chars must be between 256 and 1000000")
+        self.provider_id = provider_id.strip()
+        self.provider_version = provider_version.strip()
+        self.timeout_seconds = timeout_seconds
+        self.max_response_chars = max_response_chars
+        self._invoke_provider = invoke_provider
+
+        def planner(request: Mapping[str, Any]) -> Mapping[str, Any]:
+            prompt_payload = {
+                "task_request": dict(request),
+                "approved_tools": [
+                    {"name": name, "description": tools.description(name)}
+                    for name in sorted(set(allowed_tools))
+                ],
+                "response_contract": {
+                    "top_level_keys": ["tool_calls", "proposal"],
+                    "tool_call_keys": ["name", "arguments"],
+                    "proposal_schema_version": "auren-crew-proposal-v1",
+                    "proposal_required_keys": [
+                        "schema_version", "recommendation", "artifacts", "evidence_refs",
+                        "uncertainty", "blockers", "acceptance_check_results",
+                    ],
+                    "output": "one JSON object only; no Markdown fences or surrounding prose",
+                },
+            }
+            prompt = (
+                "You are a specialist proposal agent. Return only the JSON object matching "
+                "response_contract. Tool calls are proposals for the host-approved read-only "
+                "tool boundary, not permission to execute side effects.\n"
+                + json.dumps(prompt_payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+            )
+            started = time.monotonic()
+            raw = self._invoke_provider(prompt, self.timeout_seconds)
+            elapsed = time.monotonic() - started
+            if elapsed > self.timeout_seconds:
+                raise TimeoutError("provider response arrived after the adapter timeout")
+            if not isinstance(raw, str):
+                raise TypeError("provider response must be text")
+            if len(raw) > self.max_response_chars:
+                raise ValueError("provider response exceeds configured character budget")
+
+            def reject_duplicate_keys(pairs):
+                result = {}
+                for key, value in pairs:
+                    if key in result:
+                        raise ValueError(f"provider response contains duplicate JSON key: {key}")
+                    result[key] = value
+                return result
+
+            try:
+                parsed = json.loads(raw, object_pairs_hook=reject_duplicate_keys)
+            except (json.JSONDecodeError, TypeError) as exc:
+                raise ValueError("provider response must be one valid JSON object") from exc
+            if not isinstance(parsed, Mapping) or set(parsed) != {"tool_calls", "proposal"}:
+                raise ValueError("provider response must contain exactly tool_calls and proposal")
+            return parsed
+
+        super().__init__(
+            crew_id,
+            planner,
+            tools,
+            allowed_tools=allowed_tools,
+            finalizer=finalizer,
+            max_tool_calls=max_tool_calls,
+            implementation_version=f"{self.provider_id}@{self.provider_version}",
+        )
+
+    @property
+    def configuration_digest(self) -> str:
+        payload = {
+            "schema_version": "auren-provider-backed-crew-adapter-v1",
+            "provider_id": self.provider_id,
+            "provider_version": self.provider_version,
+            "timeout_seconds": self.timeout_seconds,
+            "max_response_chars": self.max_response_chars,
+            "approved_tool_configuration": super().configuration_digest,
+        }
+        return hashlib.sha256(
+            json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+
+
+def build_provider_backed_specialist_crew_adapters(
+    *,
+    provider_invokers: Mapping[str, Callable[[str, int], str]],
+    provider_ids: Mapping[str, str],
+    provider_versions: Mapping[str, str],
+    tools: ApprovedToolRegistry,
+    allowed_tools_by_crew: Mapping[str, Sequence[str]],
+    finalizers: Mapping[str, Callable[[Mapping[str, Any]], Mapping[str, Any]]] | None = None,
+    timeout_seconds_by_crew: Mapping[str, int] | None = None,
+    max_response_chars: int = 100_000,
+    max_tool_calls: int = 4,
+) -> dict[str, ProviderBackedCrewAdapter]:
+    """Build all eight host-backed adapters with pinned provider identity and tool scope."""
+    if not isinstance(tools, ApprovedToolRegistry):
+        raise TypeError("tools must be an ApprovedToolRegistry")
+    mappings = {
+        "provider_invokers": provider_invokers,
+        "provider_ids": provider_ids,
+        "provider_versions": provider_versions,
+        "allowed_tools_by_crew": allowed_tools_by_crew,
+    }
+    expected = set(SPECIALIST_CREW_IDS)
+    for name, mapping in mappings.items():
+        if not isinstance(mapping, Mapping):
+            raise TypeError(f"{name} must be a mapping")
+        unknown = set(mapping) - expected
+        if unknown:
+            raise ValueError(f"{name} contains unknown crew IDs: " + ", ".join(sorted(unknown)))
+        missing = expected - set(mapping)
+        if missing:
+            raise ValueError(f"{name} is missing specialist crew IDs: " + ", ".join(sorted(missing)))
+    finalizers = {} if finalizers is None else finalizers
+    timeouts = {} if timeout_seconds_by_crew is None else timeout_seconds_by_crew
+    if not isinstance(finalizers, Mapping) or not isinstance(timeouts, Mapping):
+        raise TypeError("finalizers and timeout_seconds_by_crew must be mappings")
+    if set(finalizers) - expected or set(timeouts) - expected:
+        raise ValueError("finalizers or timeout_seconds_by_crew contains unknown crew IDs")
+    return {
+        crew_id: ProviderBackedCrewAdapter(
+            crew_id,
+            provider_ids[crew_id],
+            provider_versions[crew_id],
+            provider_invokers[crew_id],
+            tools,
+            allowed_tools=allowed_tools_by_crew[crew_id],
+            timeout_seconds=timeouts.get(crew_id, 120),
+            max_response_chars=max_response_chars,
+            finalizer=finalizers.get(crew_id),
+            max_tool_calls=max_tool_calls,
+        )
+        for crew_id in SPECIALIST_CREW_IDS
+    }
 
 
 # These core crews have explicit, graph-routed proposal contracts. Provider

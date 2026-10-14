@@ -14,7 +14,7 @@ import hashlib
 import importlib.util
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Mapping, Sequence
 
 
 def _load_environment_resolver():
@@ -57,6 +57,42 @@ def register_crew_adapters(adapters: dict[str, Any], *, replace: bool = False) -
         if crew_id in _CREW_ADAPTERS and _CREW_ADAPTERS[crew_id] is not adapter and not replace:
             raise ValueError(f"crew adapter {crew_id} is already registered")
     _CREW_ADAPTERS.update(adapters)
+
+
+def register_provider_backed_crew_adapters(
+    *,
+    provider_invokers: Mapping[str, Callable[[str, int], str]],
+    provider_ids: Mapping[str, str],
+    provider_versions: Mapping[str, str],
+    tools,
+    allowed_tools_by_crew: Mapping[str, Sequence[str]],
+    finalizers: Mapping[str, Callable[[Mapping[str, Any]], Mapping[str, Any]]] | None = None,
+    timeout_seconds_by_crew: Mapping[str, int] | None = None,
+    max_response_chars: int = 100_000,
+    max_tool_calls: int = 4,
+    replace: bool = False,
+) -> dict[str, Any]:
+    """Build and register explicit provider-backed proposal adapters at host bootstrap.
+
+    No provider is auto-discovered and no credentials are loaded by AUREN. The host
+    must supply pinned provider identities/versions, bounded invokers, and per-crew
+    read-only tool scopes before this function can register the adapters.
+    """
+    from portable.crew_adapters import build_provider_backed_specialist_crew_adapters
+
+    adapters = build_provider_backed_specialist_crew_adapters(
+        provider_invokers=provider_invokers,
+        provider_ids=provider_ids,
+        provider_versions=provider_versions,
+        tools=tools,
+        allowed_tools_by_crew=allowed_tools_by_crew,
+        finalizers=finalizers,
+        timeout_seconds_by_crew=timeout_seconds_by_crew,
+        max_response_chars=max_response_chars,
+        max_tool_calls=max_tool_calls,
+    )
+    register_crew_adapters(adapters, replace=replace)
+    return adapters
 
 
 def _requires_crew_contract(route: dict[str, Any], phase: str) -> bool:
