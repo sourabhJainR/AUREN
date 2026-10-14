@@ -247,9 +247,9 @@ class ProductionSeparationAwareAttestor:
         keyring: Ed25519EvaluationAttestationVerifier,
         principal_verifier: PinnedPrincipalVerifier,
     ) -> None:
-        if not isinstance(keyring, Ed25519EvaluationAttestationVerifier) or not keyring.production_ready:
+        if type(keyring) is not Ed25519EvaluationAttestationVerifier or not keyring.production_ready:
             raise TypeError("production attestation requires Ed25519EvaluationAttestationVerifier")
-        if not isinstance(principal_verifier, PinnedPrincipalVerifier) or not principal_verifier.production_ready:
+        if type(principal_verifier) is not PinnedPrincipalVerifier or not principal_verifier.production_ready:
             raise TypeError("production attestation requires PinnedPrincipalVerifier")
         if not keyring.signer_ids or not keyring.key_ids:
             raise ValueError("production evaluator trust roots must be configured")
