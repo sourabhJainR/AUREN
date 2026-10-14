@@ -99,6 +99,7 @@ class ProductionEvaluatorTrustTests(unittest.TestCase):
         self.assertTrue(result.verified)
         self.assertTrue(result.independent)
         self.assertTrue(result.trustworthy)
+        self.assertTrue(result.production_trustworthy)
         self.assertEqual(result.attestation.key_id, "evaluator-key-2026q4")
 
     def test_bad_signature_expired_attestation_and_wrong_signer_fail_closed(self):
