@@ -29,6 +29,9 @@ class PortableAurenTests(unittest.TestCase):
         (root / "portable" / "__init__.py").write_text("from .auren_runtime import main\n", encoding="utf-8")
         (root / "dashboard" / "index.html").write_text("<html>AUREN Engineering Console</html>\n", encoding="utf-8")
         (root / "auren_cli.py").write_text("print('launcher')\n", encoding="utf-8")
+        (root / "auren_env_compat.py").write_text(
+            "def get_auren_env(suffix, default=None):\n    return default\n", encoding="utf-8"
+        )
 
     def test_build_verify_and_exclude_mutable_state(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -45,6 +48,7 @@ class PortableAurenTests(unittest.TestCase):
             with zipfile.ZipFile(bundle) as archive:
                 self.assertIn("auren_cli.py", archive.namelist())
                 self.assertIn("payload/portable/auren_runtime.py", archive.namelist())
+                self.assertIn("payload/auren_env_compat.py", archive.namelist())
 
     def test_verify_and_install_accept_github_artifact_wrapper(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -64,6 +68,7 @@ class PortableAurenTests(unittest.TestCase):
             record = json.loads((auren_home / "current" / "install.json").read_text(encoding="utf-8"))
             self.assertEqual(record["source_commit"], "artifact-commit")
             self.assertTrue((auren_home / "current" / "auren_cli.py").is_file())
+            self.assertTrue((auren_home / "current" / "auren_env_compat.py").is_file())
 
     def test_verify_rejects_artifact_with_multiple_zip_payloads(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

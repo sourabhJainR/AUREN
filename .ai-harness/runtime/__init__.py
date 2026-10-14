@@ -1,7 +1,7 @@
 """Runtime package bootstrap.
 
 The graph-team integration is enabled by default. Set AUREN_GRAPH_TEAM=0 to
-fall back to the legacy single-provider phase execution for diagnostics. AER_GRAPH_TEAM remains a legacy alias.
+fall back to the legacy single-provider phase execution for diagnostics. The old graph-team toggle remains a compatibility alias.
 
 Every provider-driven lifecycle phase gets a phase-appropriate dependency DAG.
 Deterministic harness-owned operations remain authoritative, while all model
@@ -11,10 +11,23 @@ work is required to pass through the collaboration layer.
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
-import os
 from pathlib import Path
 from typing import Any
+
+
+def _load_environment_resolver():
+    path = Path(__file__).resolve().parents[2] / "auren_env_compat.py"
+    spec = importlib.util.spec_from_file_location("_auren_env_compat_runtime", path)
+    if spec is None or spec.loader is None:
+        raise ImportError("canonical AUREN environment resolver is unavailable")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.get_auren_env
+
+
+get_auren_env = _load_environment_resolver()
 
 
 
@@ -162,7 +175,7 @@ def _phase_team(route: dict[str, Any], phase: str, graph_types):
 
 
 def _install_graph_team_bridge() -> None:
-    if os.environ.get("AUREN_GRAPH_TEAM", os.environ.get("AER_GRAPH_TEAM", "1")).strip().lower() in {"0", "false", "off", "no"}:
+    if str(get_auren_env("GRAPH_TEAM", "1") or "").strip().lower() in {"0", "false", "off", "no"}:
         return
     try:
         import engine

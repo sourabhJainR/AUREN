@@ -2,8 +2,22 @@
 """Runtime Context Broker: demand-driven, scored, bounded context discovery."""
 from __future__ import annotations
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Callable, Iterable, Any
-import hashlib, json, os, re, time
+import hashlib, importlib.util, json, re, time
+
+
+def _load_environment_resolver():
+    path = Path(__file__).resolve().parents[2] / "auren_env_compat.py"
+    spec = importlib.util.spec_from_file_location("_auren_env_compat_context_broker", path)
+    if spec is None or spec.loader is None:
+        raise ImportError("canonical AUREN environment resolver is unavailable")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.get_auren_env
+
+
+get_auren_env = _load_environment_resolver()
 
 @dataclass(frozen=True, slots=True)
 class ContextCandidate:
@@ -28,7 +42,7 @@ class ContextBroker:
         self.budget_chars=int(budget_chars); self.max_items=max(1,int(max_items)); self._candidates={}; self._active={}; self._events=[]
     def _emit(self,event:dict[str,Any])->None:
         self._events.append(event)
-        target=os.environ.get("AUREN_CONTEXT_BROKER_TELEMETRY", os.environ.get("AER_CONTEXT_BROKER_TELEMETRY"))
+        target=get_auren_env("CONTEXT_BROKER_TELEMETRY")
         if target:
             try:
                 p=__import__("pathlib").Path(target); p.parent.mkdir(parents=True,exist_ok=True)

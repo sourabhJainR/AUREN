@@ -9,6 +9,8 @@ import os
 from pathlib import Path
 from typing import Any, Mapping
 
+from auren_env_compat import get_auren_env
+
 LEGACY_HOME_NAME = ".aer"
 CANONICAL_HOME_NAME = ".auren"
 AUREN_CHECKPOINT_STATE_SCHEMA_VERSION = 2
@@ -43,29 +45,6 @@ def canonicalize_auren_checkpoint_state(state: Mapping[str, Any]) -> dict[str, A
         result.pop(legacy_key, None)
     result["auren_state_schema_version"] = AUREN_CHECKPOINT_STATE_SCHEMA_VERSION
     return result
-
-
-def get_auren_env(
-    suffix: str,
-    default: Any = None,
-    *,
-    environ: Mapping[str, str] | None = None,
-    legacy_names: tuple[str, ...] = (),
-) -> str | None:
-    """Read AUREN_<suffix> first, then documented legacy aliases.
-
-    An explicitly set canonical value wins even if empty; conflicting values are
-    never silently merged.
-    """
-    source = os.environ if environ is None else environ
-    key = suffix if suffix.startswith("AUREN_") else f"AUREN_{suffix}"
-    if key in source:
-        return source[key]
-    aliases = legacy_names or (key.replace("AUREN_", "AER_", 1),)
-    for alias in aliases:
-        if alias in source:
-            return source[alias]
-    return default
 
 
 def canonical_auren_home(

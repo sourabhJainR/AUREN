@@ -58,6 +58,12 @@ def iter_source_files(root: Path) -> list[Path]:
         if not base.exists():
             raise SystemExit(f"required source path is missing: {base}")
         files.extend(p for p in base.rglob("*") if p.is_file() and should_include(p, root))
+    # The bootstrap-safe environment resolver is a runtime dependency outside
+    # the portable package tree; pin it in the bundle manifest and payload.
+    resolver = root / "auren_env_compat.py"
+    if not resolver.is_file():
+        raise SystemExit(f"required source file is missing: {resolver}")
+    files.append(resolver)
     return sorted(set(files), key=lambda p: p.relative_to(root).as_posix())
 
 def sha256_file(path: Path) -> str:
@@ -156,6 +162,8 @@ def _manifest_record_path(root: Path, record_path: str) -> Path:
         raise SystemExit(f"unsafe manifest path: {record_path}")
     if record_path == LAUNCHER_PATH:
         return root / LAUNCHER_PATH
+    if record_path == "auren_env_compat.py":
+        return root / PAYLOAD_ROOT / record_path
     if not any(record_path == prefix or record_path.startswith(f"{prefix}/") for prefix in REQUIRED_PATHS):
         raise SystemExit(f"unexpected manifest path: {record_path}")
     return root / PAYLOAD_ROOT / record_path
@@ -266,6 +274,10 @@ def _copy_payload(payload: Path, version_root: Path) -> None:
     skill = payload / "skills" / "ai-coding-orchestrator"
     if skill.is_dir():
         _copy_tree_without_mutable_state(skill, version_root / "skills" / "ai-coding-orchestrator")
+    resolver = payload / "auren_env_compat.py"
+    if not resolver.is_file():
+        raise SystemExit("bundle environment compatibility resolver is missing")
+    shutil.copy2(resolver, version_root / resolver.name)
     launcher = payload.parent / LAUNCHER_PATH
     if not launcher.is_file():
         raise SystemExit("bundle launcher is missing: auren_cli.py")

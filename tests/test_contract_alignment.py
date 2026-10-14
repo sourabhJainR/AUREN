@@ -148,8 +148,11 @@ class ContractAlignmentTests(unittest.TestCase):
             self.assertIn(token, contract)
         self.assertIn("issue #438", readme)
         runtime_entry = (ROOT / ".ai-harness" / "runtime" / "__init__.py").read_text(encoding="utf-8")
-        self.assertIn('os.environ.get("AUREN_GRAPH_TEAM"', runtime_entry)
-        self.assertIn('os.environ.get("AER_GRAPH_TEAM"', runtime_entry)
+        self.assertIn('get_auren_env("GRAPH_TEAM", "1")', runtime_entry)
+        self.assertIn("def _load_environment_resolver", runtime_entry)
+        self.assertIn('get_auren_env = _load_environment_resolver()', runtime_entry)
+        resolver_entry = (ROOT / "auren_env_compat.py").read_text(encoding="utf-8")
+        self.assertIn('key.replace("AUREN_", "AER_", 1)', resolver_entry)
         team_strategy = next(
             item for item in compatibility["surfaces"]
             if item["name"] == ".ai-harness/runtime/graph_agent_team.py"
