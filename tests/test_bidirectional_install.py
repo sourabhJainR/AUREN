@@ -22,6 +22,9 @@ class BidirectionalInstallTests(unittest.TestCase):
         (root / "portable" / "auren_runtime.py").write_text("print('runtime')\n", encoding="utf-8")
         (root / "dashboard" / "index.html").write_text("<html>AUREN Engineering Console</html>\n", encoding="utf-8")
         (root / "auren_cli.py").write_text("print('launcher')\n", encoding="utf-8")
+        (root / "auren_env_compat.py").write_text(
+            "def get_auren_env(suffix, default=None):\n    return default\n", encoding="utf-8"
+        )
 
     def test_explicit_old_artifact_can_replace_new_active_version(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
