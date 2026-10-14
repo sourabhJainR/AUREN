@@ -831,7 +831,7 @@ def run_task(args: argparse.Namespace, config: dict[str, Any], logger) -> int:
                 save_checkpoint(run_dir, manifest, phase, "failed", phase)
             return 1
         if phase == "review" and review_requires_fix(output):
-            if not repair_after_failure(config, provider, run_dir, manifest, task, source, jira, route, history, args.dry_run, logger): manifest["status"] = "blocked_by_review"; write_json_atomic(run_dir / "manifest.json", manifest); save_checkpoint(run_dir, manifest, phase, "blocked", "repair"); return 1
+            if not repair_after_failure(config, provider, run_dir, manifest, task, source, jira, route, history, args.dry_run, logger, deadline_at=deadline_value): manifest["status"] = "blocked_by_review"; write_json_atomic(run_dir / "manifest.json", manifest); save_checkpoint(run_dir, manifest, phase, "blocked", "repair"); return 1
         if phase in {"execute", "debug", "poc", "research", "grill", "review"}: manifest.setdefault("git_evidence", {})[phase] = diff_summary()
         control = save_control_checkpoint(run_dir, manifest, phase, index + 1, len(phases), output)
         if control["next"] != "continue": manifest["status"] = "blocked_by_scope"; write_json_atomic(run_dir / "manifest.json", manifest); save_checkpoint(run_dir, manifest, phase, "blocked", "scope-review"); return 1
@@ -890,15 +890,20 @@ def asdict_safe(value: Any) -> dict[str, Any]:
     return dict(value) if isinstance(value, dict) else {"value": str(value)}
 
 
-def repair_after_failure(config, provider, run_dir, manifest, task, source, jira, route, history, dry_run, logger):
+def repair_after_failure(config, provider, run_dir, manifest, task, source, jira, route, history, dry_run, logger, *, deadline_at: str):
     limit = int(config["execution"]["max_repair_attempts"]); context = (run_dir / "repository-map.md").read_text(encoding="utf-8")
     for attempt in range(1, limit + 1):
-        manifest["retries"] += 1; prompt_file = run_dir / f"repair-{attempt}.prompt.md"; prompt = build_prompt("repair", task, source, jira, route, context, relevant_memory(task, 700), {}, "\n\n".join(history) + "\nVerification failed. Diagnose before changing code.", plan_context(phase="repair", risk=route["risk"], uncertainty=route["uncertainty"])); write_text_atomic(prompt_file, prompt); code, output, duration = invoke(provider, prompt_file, "repair", run_dir, int(config["execution"]["phase_timeout_seconds"]), dry_run, logger); history.append(compact(f"[repair-{attempt}] {output}", 2500)); manifest.setdefault("phase_metrics", {})[f"repair-{attempt}"] = {"exit_code": code, "duration_seconds": round(duration, 3)}
+        remaining = deadline_remaining_seconds(deadline_at)
+        if remaining <= 0:
+            return False
+        manifest["retries"] += 1; prompt_file = run_dir / f"repair-{attempt}.prompt.md"; prompt = build_prompt("repair", task, source, jira, route, context, relevant_memory(task, 700), {}, "\n\n".join(history) + "\nVerification failed. Diagnose before changing code.", plan_context(phase="repair", risk=route["risk"], uncertainty=route["uncertainty"])); write_text_atomic(prompt_file, prompt); code, output, duration = invoke(provider, prompt_file, "repair", run_dir, min(int(config["execution"]["phase_timeout_seconds"]), max(1, int(remaining))), dry_run, logger); history.append(compact(f"[repair-{attempt}] {output}", 2500)); manifest.setdefault("phase_metrics", {})[f"repair-{attempt}"] = {"exit_code": code, "duration_seconds": round(duration, 3)}
+        if deadline_remaining_seconds(deadline_at) <= 0:
+            return False
         if code != 0: continue
         validation_paths_before = source_changed_files()
         code_change_before = is_code_change(validation_paths_before)
         revision_before = workspace_revision_digest(validation_paths_before) if code_change_before else ""
-        passed, results = run_validation(config, run_dir)
+        passed, results = run_validation(config, run_dir, deadline_at=deadline_at)
         validation_paths_after = source_changed_files()
         code_change_after = is_code_change(validation_paths_after)
         revision_after = workspace_revision_digest(validation_paths_after) if code_change_after else ""
