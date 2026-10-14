@@ -145,7 +145,7 @@ class PromotionEvidenceChainTests(unittest.TestCase):
         receipt = make_receipt(campaign)
         causal = make_causal(receipt)
         decision = CausalCapabilityPromotionGate().evaluate(causal)
-        chain = PromotionEvidenceChainBuilder().build(
+        chain = PromotionEvidenceChainBuilder(require_production_attestation=False).build(
             campaign, receipt, causal, decision,
             attested_campaign=make_attested_campaign(campaign),
             **isolation_kwargs(campaign, receipt),
@@ -160,7 +160,7 @@ class PromotionEvidenceChainTests(unittest.TestCase):
         receipt = make_receipt(campaign, corpus_digest="different", contamination_detected=True)
         causal = make_causal(receipt)
         decision = CausalCapabilityPromotionGate().evaluate(causal)
-        chain = PromotionEvidenceChainBuilder().build(
+        chain = PromotionEvidenceChainBuilder(require_production_attestation=False).build(
             campaign, receipt, causal, decision, attested_campaign=make_attested_campaign(campaign)
         )
         self.assertFalse(chain.complete)
@@ -171,7 +171,7 @@ class PromotionEvidenceChainTests(unittest.TestCase):
         receipt = make_receipt(campaign, campaign_digest="")
         causal = make_causal(receipt)
         decision = CausalCapabilityPromotionGate().evaluate(causal)
-        chain = PromotionEvidenceChainBuilder().build(
+        chain = PromotionEvidenceChainBuilder(require_production_attestation=False).build(
             campaign, receipt, causal, decision, attested_campaign=make_attested_campaign(campaign)
         )
         self.assertFalse(chain.complete)
@@ -182,7 +182,7 @@ class PromotionEvidenceChainTests(unittest.TestCase):
         receipt = make_receipt(campaign)
         causal = make_causal(receipt, evidence_ids=("unrelated-evidence", "e2"))
         decision = CausalCapabilityPromotionGate().evaluate(causal)
-        chain = PromotionEvidenceChainBuilder().build(
+        chain = PromotionEvidenceChainBuilder(require_production_attestation=False).build(
             campaign, receipt, causal, decision, attested_campaign=make_attested_campaign(campaign)
         )
         self.assertFalse(chain.complete)
@@ -194,7 +194,7 @@ class PromotionEvidenceChainTests(unittest.TestCase):
         causal_a = make_causal(receipt)
         decision_a = CausalCapabilityPromotionGate().evaluate(causal_a)
         causal_b = make_causal(receipt, treatment_score=0.85)
-        chain = PromotionEvidenceChainBuilder().build(
+        chain = PromotionEvidenceChainBuilder(require_production_attestation=False).build(
             campaign, receipt, causal_b, decision_a, attested_campaign=make_attested_campaign(campaign)
         )
         self.assertFalse(chain.complete)
@@ -207,7 +207,7 @@ class PromotionEvidenceChainTests(unittest.TestCase):
         decision = CausalCapabilityPromotionGate().evaluate(causal)
         attestation = make_attested_campaign(campaign, signature="forged")
         self.assertFalse(attestation.trustworthy)
-        chain = PromotionEvidenceChainBuilder().build(
+        chain = PromotionEvidenceChainBuilder(require_production_attestation=False).build(
             campaign, receipt, causal, decision, attested_campaign=attestation
         )
         self.assertFalse(chain.complete)
@@ -220,7 +220,7 @@ class PromotionEvidenceChainTests(unittest.TestCase):
         causal = make_causal(receipt)
         decision = CausalCapabilityPromotionGate().evaluate(causal)
         attestation = make_attested_campaign(campaign, receipt, receipt_digest="wrong-receipt")
-        chain = PromotionEvidenceChainBuilder().build(
+        chain = PromotionEvidenceChainBuilder(require_production_attestation=False).build(
             campaign, receipt, causal, decision,
             attested_campaign=attestation, **isolation_kwargs(campaign, receipt),
         )
@@ -236,7 +236,7 @@ class PromotionEvidenceChainTests(unittest.TestCase):
         expired = make_attested_campaign(
             campaign, receipt, issued_at_epoch=now - 100, expires_at_epoch=now - 1
         )
-        chain = PromotionEvidenceChainBuilder().build(
+        chain = PromotionEvidenceChainBuilder(require_production_attestation=False).build(
             campaign, receipt, causal, decision, attested_campaign=expired,
             attestation_now=now, **isolation_kwargs(campaign, receipt),
         )
@@ -248,7 +248,7 @@ class PromotionEvidenceChainTests(unittest.TestCase):
         receipt = make_receipt(campaign)
         causal = make_causal(receipt)
         decision = CausalCapabilityPromotionGate().evaluate(causal)
-        chain = PromotionEvidenceChainBuilder().build(
+        chain = PromotionEvidenceChainBuilder(require_production_attestation=False).build(
             campaign, receipt, causal, decision,
             attested_campaign=make_attested_campaign(campaign),
         )
@@ -264,7 +264,7 @@ class PromotionEvidenceChainTests(unittest.TestCase):
         kwargs["isolation_attestation"] = replace(
             kwargs["isolation_attestation"], image_digest="sha256:" + "b" * 64
         )
-        chain = PromotionEvidenceChainBuilder().build(
+        chain = PromotionEvidenceChainBuilder(require_production_attestation=False).build(
             campaign, receipt, causal, decision,
             attested_campaign=make_attested_campaign(campaign), **kwargs
         )
@@ -280,7 +280,7 @@ class PromotionEvidenceChainTests(unittest.TestCase):
         kwargs["isolation_attestation"] = replace(
             kwargs["isolation_attestation"], signer_id="runtime-evaluator"
         )
-        chain = PromotionEvidenceChainBuilder().build(
+        chain = PromotionEvidenceChainBuilder(require_production_attestation=False).build(
             campaign, receipt, causal, decision,
             attested_campaign=make_attested_campaign(campaign), **kwargs
         )
@@ -296,7 +296,7 @@ class PromotionEvidenceChainTests(unittest.TestCase):
         kwargs["isolation_attestation"] = replace(
             kwargs["isolation_attestation"], signer_id="unconfigured-sandbox-auditor"
         )
-        chain = PromotionEvidenceChainBuilder().build(
+        chain = PromotionEvidenceChainBuilder(require_production_attestation=False).build(
             campaign, receipt, causal, decision,
             attested_campaign=make_attested_campaign(campaign), **kwargs
         )
@@ -310,7 +310,7 @@ class PromotionEvidenceChainTests(unittest.TestCase):
         decision = CausalCapabilityPromotionGate().evaluate(causal)
         kwargs = isolation_kwargs(campaign, receipt)
         kwargs["trusted_isolation_signers"] = None
-        chain = PromotionEvidenceChainBuilder().build(
+        chain = PromotionEvidenceChainBuilder(require_production_attestation=False).build(
             campaign, receipt, causal, decision,
             attested_campaign=make_attested_campaign(campaign), **kwargs
         )
@@ -324,7 +324,7 @@ class PromotionEvidenceChainTests(unittest.TestCase):
         decision = CausalCapabilityPromotionGate().evaluate(causal)
         kwargs = isolation_kwargs(campaign, receipt)
         kwargs["revoked_isolation_signers"] = frozenset({"independent-sandbox-auditor"})
-        chain = PromotionEvidenceChainBuilder().build(
+        chain = PromotionEvidenceChainBuilder(require_production_attestation=False).build(
             campaign, receipt, causal, decision,
             attested_campaign=make_attested_campaign(campaign), **kwargs
         )
@@ -338,7 +338,7 @@ class PromotionEvidenceChainTests(unittest.TestCase):
         decision = CausalCapabilityPromotionGate().evaluate(causal)
         kwargs = isolation_kwargs(campaign, receipt)
         kwargs["revoked_isolation_signer_key_ids"] = frozenset({"sandbox-auditor-key-v3"})
-        chain = PromotionEvidenceChainBuilder().build(
+        chain = PromotionEvidenceChainBuilder(require_production_attestation=False).build(
             campaign, receipt, causal, decision,
             attested_campaign=make_attested_campaign(campaign), **kwargs
         )
@@ -352,7 +352,7 @@ class PromotionEvidenceChainTests(unittest.TestCase):
         decision = CausalCapabilityPromotionGate().evaluate(causal)
         kwargs = isolation_kwargs(campaign, receipt)
         kwargs["trusted_isolation_signer_key_ids"] = None
-        chain = PromotionEvidenceChainBuilder().build(
+        chain = PromotionEvidenceChainBuilder(require_production_attestation=False).build(
             campaign, receipt, causal, decision,
             attested_campaign=make_attested_campaign(campaign), **kwargs
         )
@@ -366,7 +366,7 @@ class PromotionEvidenceChainTests(unittest.TestCase):
         decision = CausalCapabilityPromotionGate().evaluate(causal)
         kwargs = isolation_kwargs(campaign, receipt)
         kwargs["expected_sandbox_identity"] = "different-host"
-        chain = PromotionEvidenceChainBuilder().build(
+        chain = PromotionEvidenceChainBuilder(require_production_attestation=False).build(
             campaign, receipt, causal, decision,
             attested_campaign=make_attested_campaign(campaign), **kwargs
         )
@@ -380,7 +380,7 @@ class PromotionEvidenceChainTests(unittest.TestCase):
         decision = CausalCapabilityPromotionGate().evaluate(causal)
         kwargs = isolation_kwargs(campaign, receipt)
         kwargs["campaign_started_at_epoch"] = kwargs["isolation_now"] - 5
-        chain = PromotionEvidenceChainBuilder().build(
+        chain = PromotionEvidenceChainBuilder(require_production_attestation=False).build(
             campaign, receipt, causal, decision,
             attested_campaign=make_attested_campaign(campaign), **kwargs
         )
@@ -397,7 +397,7 @@ class PromotionEvidenceChainTests(unittest.TestCase):
         kwargs["isolation_attestation"] = replace(
             kwargs["isolation_attestation"], issued_at_epoch=now - 120, expires_at_epoch=now - 1
         )
-        chain = PromotionEvidenceChainBuilder().build(
+        chain = PromotionEvidenceChainBuilder(require_production_attestation=False).build(
             campaign, receipt, causal, decision,
             attested_campaign=make_attested_campaign(campaign), **kwargs
         )
@@ -413,7 +413,7 @@ class PromotionEvidenceChainTests(unittest.TestCase):
         kwargs["isolation_attestation"] = replace(
             kwargs["isolation_attestation"], controls=_REQUIRED_ISOLATION_CONTROLS[:-1]
         )
-        chain = PromotionEvidenceChainBuilder().build(
+        chain = PromotionEvidenceChainBuilder(require_production_attestation=False).build(
             campaign, receipt, causal, decision,
             attested_campaign=make_attested_campaign(campaign), **kwargs
         )
@@ -449,7 +449,7 @@ class PromotionEvidenceChainTests(unittest.TestCase):
         receipt = make_receipt(campaign)
         causal = make_causal(receipt)
         decision = CausalCapabilityPromotionGate().evaluate(causal)
-        chain = PromotionEvidenceChainBuilder().build(
+        chain = PromotionEvidenceChainBuilder(require_production_attestation=False).build(
             campaign, receipt, causal, decision,
             attested_campaign=make_attested_campaign(campaign, receipt),
             **isolation_kwargs(campaign, receipt),
@@ -469,7 +469,7 @@ class PromotionEvidenceChainTests(unittest.TestCase):
         receipt = make_receipt(campaign)
         causal = make_causal(receipt)
         decision = CausalCapabilityPromotionGate().evaluate(causal)
-        chain = PromotionEvidenceChainBuilder().build(
+        chain = PromotionEvidenceChainBuilder(require_production_attestation=False).build(
             campaign, receipt, causal, decision,
             attested_campaign=make_attested_campaign(campaign, receipt),
         )
@@ -486,7 +486,7 @@ class PromotionEvidenceChainTests(unittest.TestCase):
         receipt = make_receipt(campaign)
         causal = make_causal(receipt)
         decision = CausalCapabilityPromotionGate().evaluate(causal)
-        chain = PromotionEvidenceChainBuilder().build(
+        chain = PromotionEvidenceChainBuilder(require_production_attestation=False).build(
             campaign, receipt, causal, decision,
             attested_campaign=make_attested_campaign(campaign, receipt),
             **isolation_kwargs(campaign, receipt),
@@ -503,7 +503,7 @@ class PromotionEvidenceChainTests(unittest.TestCase):
         receipt = make_receipt(campaign)
         causal = make_causal(receipt)
         decision = CausalCapabilityPromotionGate().evaluate(causal)
-        chain = PromotionEvidenceChainBuilder().build(
+        chain = PromotionEvidenceChainBuilder(require_production_attestation=False).build(
             campaign, receipt, causal, decision,
             attested_campaign=make_attested_campaign(campaign, receipt),
             **isolation_kwargs(campaign, receipt),
@@ -528,7 +528,7 @@ class PromotionEvidenceChainTests(unittest.TestCase):
         receipt = make_receipt(campaign)
         causal = make_causal(receipt)
         decision = CausalCapabilityPromotionGate().evaluate(causal)
-        chain = PromotionEvidenceChainBuilder().build(
+        chain = PromotionEvidenceChainBuilder(require_production_attestation=False).build(
             campaign, receipt, causal, decision,
             attested_campaign=make_attested_campaign(campaign, receipt),
             **isolation_kwargs(campaign, receipt),
@@ -548,7 +548,7 @@ class PromotionEvidenceChainTests(unittest.TestCase):
         receipt = make_receipt(campaign)
         causal = make_causal(receipt)
         decision = CausalCapabilityPromotionGate().evaluate(causal)
-        chain = PromotionEvidenceChainBuilder().build(
+        chain = PromotionEvidenceChainBuilder(require_production_attestation=False).build(
             campaign, receipt, causal, decision,
             attested_campaign=make_attested_campaign(campaign, receipt),
             **isolation_kwargs(campaign, receipt),
