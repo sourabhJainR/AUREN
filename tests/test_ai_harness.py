@@ -14,7 +14,7 @@ class AdaptiveHarnessTests(unittest.TestCase):
 
     def test_capabilities(self) -> None:
         result = self.run_cli("capabilities")
-        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.returncode, 0, f"stdout={result.stdout!r}; stderr={result.stderr!r}")
         self.assertEqual(set(result.stdout.split()), {"research", "poc", "grill"})
 
     def test_runtime_policy_is_single_run(self) -> None:
