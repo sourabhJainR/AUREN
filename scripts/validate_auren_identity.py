@@ -25,6 +25,7 @@ LEGACY_ALLOWED = {
     "tests/test_state_paths.py",
     "tests/test_identity_compat.py",
     "tests/test_legacy_name_compatibility.py",
+    "tests/test_identity_audit_patterns.py",
     # These suites intentionally exercise documented legacy inputs or adversarial fixtures.
     "tests/test_context_broker.py",
     "tests/test_extension_registry.py",
@@ -115,11 +116,13 @@ def _is_approved_allowlist_path(path: str) -> bool:
 
 PATTERNS = (
     re.compile(r"\bAER\b"),
-    re.compile(r"\bAER_[A-Z][A-Z0-9_]*\b"),
+    # Configuration and internal identifiers must be detected regardless of
+    # casing; case variants are not a way to bypass the compatibility registry.
+    re.compile(r"\bAER_[A-Z][A-Z0-9_]*\b", re.IGNORECASE),
     re.compile(r"(?i)\.aer(?:/|\\|\b)"),
-    re.compile(r"\baer_cli\.py\b"),
-    re.compile(r"\baer-portable\b"),
-    re.compile(r"\baer_[a-z][A-Za-z0-9_]*\b"),
+    re.compile(r"\baer_cli\.py\b", re.IGNORECASE),
+    re.compile(r"\baer-portable\b", re.IGNORECASE),
+    re.compile(r"\baer_[a-z][A-Za-z0-9_]*\b", re.IGNORECASE),
 )
 OLD_FILENAME = re.compile(r"(^|/)aer[_-][^/]+$", re.IGNORECASE)
 
