@@ -62,6 +62,38 @@ class StateGraphTests(unittest.TestCase):
         self.assertTrue(resumed.state["planned"])
         self.assertTrue(resumed.state["acted"])
 
+    def test_parallel_timeout_signals_cancellation_in_isolate_mode(self):
+        started = Event()
+        observed_cancellation = Event()
+
+        def cooperative_node(_state):
+            cancellation = current_cancellation_event()
+            self.assertIsNotNone(cancellation)
+            started.set()
+            assert cancellation is not None
+            cancellation.wait(timeout=2)
+            if cancellation.is_set():
+                observed_cancellation.set()
+            return {"completed": True}
+
+        graph = StateGraph()
+        graph.add_node("slow", cooperative_node)
+        graph.add_node("fast", lambda _state: {"fast": True})
+        graph.add_edge(StateGraph.START, "slow").add_edge(StateGraph.START, "fast")
+        graph.add_edge("slow", StateGraph.END).add_edge("fast", StateGraph.END)
+
+        result = graph.compile().invoke(
+            {},
+            parallel_nodes=lambda _name: True,
+            max_parallel_nodes=2,
+            node_timeout_seconds=0.05,
+            parallel_failure_mode="isolate",
+        )
+
+        self.assertTrue(started.is_set())
+        self.assertTrue(result.interrupted)
+        self.assertTrue(observed_cancellation.wait(timeout=1))
+
     def test_node_timeout_signals_cooperative_cancellation(self):
         started = Event()
         observed_cancellation = Event()
