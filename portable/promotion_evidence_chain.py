@@ -88,7 +88,17 @@ class PromotionEvidenceChain:
 
 
 class PromotionEvidenceChainBuilder:
-    """Join independently verified evidence without granting promotion authority."""
+    """Join independently verified evidence without granting promotion authority.
+
+    Production callers require a result sealed by the concrete production
+    evaluator trust boundary. Test-only verifier callbacks must opt out
+    explicitly and must never be wired into a production promotion path.
+    """
+
+    def __init__(self, *, require_production_attestation: bool = True) -> None:
+        if type(require_production_attestation) is not bool:
+            raise ValueError("require_production_attestation must be a boolean")
+        self.require_production_attestation = require_production_attestation
 
     def build(
         self,
@@ -157,6 +167,8 @@ class PromotionEvidenceChainBuilder:
             reasons.append("external campaign has no attestation material")
         if not attested_campaign.trustworthy:
             reasons.append("external campaign attestation is not independently verified")
+        if self.require_production_attestation and not attested_campaign.production_trustworthy:
+            reasons.append("external campaign attestation was not produced by the production trust boundary")
         attestation = attested_campaign.attestation
         now = time.time() if attestation_now is None else attestation_now
         if isinstance(now, bool) or not isinstance(now, (int, float)) or not math.isfinite(now) or now < 0:
