@@ -204,6 +204,23 @@ class AurenStatePathsTests(unittest.TestCase):
             self.assertEqual(outside.read_text(encoding="utf-8"), '{"private":"outside-root"}')
             self.assertTrue(linked.is_symlink(), "migration must not modify the legacy source")
 
+    def test_migration_rejects_legacy_root_symlink_before_creating_destination(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            real_legacy = base / "real-legacy"
+            real_legacy.mkdir()
+            (real_legacy / "active.json").write_text('{"version":1}', encoding="utf-8")
+            legacy_link = base / ".aer"
+            legacy_link.symlink_to(real_legacy, target_is_directory=True)
+            canonical = base / ".auren"
+
+            with self.assertRaisesRegex(StatePathConflict, "Legacy state root is a symbolic link"):
+                AurenStatePaths.prepare(canonical, legacy_link)
+
+            self.assertFalse(canonical.exists())
+            self.assertTrue(legacy_link.is_symlink())
+            self.assertEqual((real_legacy / "active.json").read_text(encoding="utf-8"), '{"version":1}')
+
 
 class SessionCheckpointDurabilityTests(unittest.TestCase):
     def test_checkpoint_round_trips_through_a_fresh_store(self):
