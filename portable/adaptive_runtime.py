@@ -391,12 +391,22 @@ class AdaptiveRuntime:
         )
         result = last["result"]
         final_failure = attempts.get("blocked") or last.get("failure", "unknown")
+        deadline_exceeded = datetime.now(timezone.utc) >= deadline_at
+        terminal_accepted = (
+            result is not None
+            and result.status.value == "accepted"
+            and not attempts.get("blocked")
+            and not deadline_exceeded
+        )
+        if deadline_exceeded and not attempts.get("blocked"):
+            final_failure = "task deadline exceeded before terminal acceptance"
+            attempts["blocked"] = final_failure
         self.recovery_ledger.checkpoint(
             work_id, "execution",
-            status="pending" if result is not None and result.status.value == "accepted" else "blocked",
+            status="pending" if terminal_accepted else "blocked",
             head_sha="",
             payload={
-                "outcome": "accepted" if result is not None and result.status.value == "accepted" else "blocked",
+                "outcome": "accepted" if terminal_accepted else "blocked",
                 "attempt_count": len(self.recovery_ledger.attempts(work_id)),
                 "hypothesis": str(attempts.get("hypothesis", "default-plan")),
                 "deadline_at": deadline_value,
@@ -405,17 +415,15 @@ class AdaptiveRuntime:
                     if str(attempts.get("hypothesis", "")).startswith("alternate-plan")
                     else "fresh-retry" if attempts.get("count", 0) > 1 else "initial"
                 ),
-                "last_failure": "" if result is not None and result.status.value == "accepted" else str(final_failure),
+                "last_failure": "" if terminal_accepted else str(final_failure),
                 "verification_note": (
                     "graph execution accepted; independent verification and exact-head CI evidence were not asserted by this runtime"
-                    if result is not None and result.status.value == "accepted" else "execution did not reach an accepted result"
+                    if terminal_accepted else "execution did not reach an accepted terminal state before the deadline"
                 ),
             },
         )
-        if result is None:
+        if not terminal_accepted:
             raise RuntimeError(f"AUREN supervisor stopped safely; actionable reason: {final_failure}")
-        if result.status.value != "accepted":
-            raise RuntimeError(result.stop_reason or "AUREN execution failed")
         return result
 
     def _run_once(
