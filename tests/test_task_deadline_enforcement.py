@@ -116,7 +116,7 @@ class TaskDeadlineEnforcementTests(unittest.TestCase):
             root = Path(tmp)
 
             def overrun(_state):
-                time.sleep(0.15)
+                time.sleep(0.75)
                 return "completed too late"
 
             graph = Graph([Node("slow-work", NodeKind.DETERMINISTIC, overrun)])
@@ -127,7 +127,7 @@ class TaskDeadlineEnforcementTests(unittest.TestCase):
                     task_id="overrun-task",
                     project_root=root,
                     intent="do not accept work after the deadline",
-                    context={"auren_deadline_at": iso_offset(0.05)},
+                    context={"auren_deadline_at": iso_offset(0.5)},
                 )
 
             work_id = runtime.execution_controller.work_unit_for_session(
