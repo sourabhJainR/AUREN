@@ -56,6 +56,43 @@ def test_high_risk_security_contract_blocks_before_any_node_runs():
     assert review["intent_digest"] == run.intent_digest
 
 
+def test_critical_failure_blocks_acceptance_but_independent_branches_still_run():
+    calls = []
+
+    def fail(_state):
+        calls.append("critical")
+        raise RuntimeError("critical branch failed")
+
+    def dependent(_state):
+        calls.append("dependent")
+        return "must not run"
+
+    def independent(_state):
+        calls.append("independent")
+        return "independent work completed"
+
+    graph = Graph([
+        Node("a-critical", NodeKind.DETERMINISTIC, fail, critical=True),
+        Node("b-dependent", NodeKind.DETERMINISTIC, dependent, depends_on=("a-critical",), critical=False),
+        Node("z-independent", NodeKind.DETERMINISTIC, independent, critical=False),
+    ])
+    result = Orchestrator(graph).run(
+        task_id="independent-progress",
+        intent="Continue independent work when a dependency fails",
+        context={"risk": "low"},
+    )
+
+    assert result.status == RunStatus.FAILED
+    assert "critical branch failed" in (result.stop_reason or "")
+    assert calls == ["critical", "independent"]
+    assert result.results["b-dependent"].status.value == "skipped"
+    progress = next(item for item in result.evidence if item.kind == "independent-graph-progress")
+    payload = json.loads(progress.summary)
+    assert payload["status"] == "blocked"
+    assert "z-independent" in payload["executed_nodes"]
+    assert "b-dependent" in payload["skipped_nodes"]
+
+
 def test_medium_risk_task_records_guard_receipt_and_can_continue():
     calls = []
     graph = Graph([
