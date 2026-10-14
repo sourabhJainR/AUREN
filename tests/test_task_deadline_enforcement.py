@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sqlite3
 import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -80,10 +81,13 @@ class TaskDeadlineEnforcementTests(unittest.TestCase):
                     context={"auren_deadline_at": expired_deadline, "auren_max_iterations": 2},
                 )
             self.assertEqual(calls, [])
-            work_id = runtime.execution_controller.work_unit_for_session(
-                "deadline-session:deadline-task", "deadline-task: enforce an expired deadline"
-            )
-            checkpoint = runtime.recovery_ledger.get_checkpoint(work_id, "execution")
+            with sqlite3.connect(runtime.execution_controller.db_path) as db:
+                row = db.execute(
+                    "SELECT work_unit_id FROM sessions WHERE session_id=?",
+                    ("deadline-session:deadline-task",),
+                ).fetchone()
+            self.assertIsNotNone(row)
+            checkpoint = runtime.recovery_ledger.get_checkpoint(row[0], "execution")
             self.assertIsNotNone(checkpoint)
             self.assertEqual(checkpoint.status, "blocked")
             self.assertEqual(checkpoint.payload["deadline_at"], expired_deadline)
