@@ -141,7 +141,7 @@ def main(argv: list[str] | None = None) -> int:
 
     tracked = subprocess.run(
         ["git", "ls-files", "-z"], cwd=ROOT, check=True, capture_output=True
-    ).stdout.split(b"\\0")
+    ).stdout.split(b"\0")
     findings: list[str] = []
     unsafe_allowlist = []
     for allowed_path in sorted(LEGACY_ALLOWED):
@@ -202,11 +202,11 @@ def main(argv: list[str] | None = None) -> int:
             "findings": findings,
         }
         report_path.parent.mkdir(parents=True, exist_ok=True)
-        report_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\\n", encoding="utf-8")
+        report_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
     if findings:
         print("AUREN identity validation failed:")
-        print("\\n".join(findings))
+        print("\n".join(findings))
         if report_path is not None:
             print(f"Full match inventory written to {report_path}")
         return 1
