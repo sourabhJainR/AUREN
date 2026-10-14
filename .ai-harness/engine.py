@@ -836,6 +836,14 @@ def run_task(args: argparse.Namespace, config: dict[str, Any], logger) -> int:
         control = save_control_checkpoint(run_dir, manifest, phase, index + 1, len(phases), output)
         if control["next"] != "continue": manifest["status"] = "blocked_by_scope"; write_json_atomic(run_dir / "manifest.json", manifest); save_checkpoint(run_dir, manifest, phase, "blocked", "scope-review"); return 1
         manifest.setdefault("completed_phases", []).append(phase); write_json_atomic(run_dir / "manifest.json", manifest); save_checkpoint(run_dir, manifest, phase, "completed", next_phase)
+    if deadline_remaining_seconds(deadline_value) <= 0:
+        manifest["status"] = "blocked_by_deadline"
+        manifest["deadline_blocker"] = "task deadline expired before final acceptance"
+        manifest["completed_at"] = now_iso()
+        write_json_atomic(run_dir / "manifest.json", manifest)
+        save_checkpoint(run_dir, manifest, "complete", "blocked_by_deadline", None)
+        emit_event(run_dir, "run.finish", status=manifest["status"])
+        return 1
     passed_diff, diff_output = diff_check()
     final_paths = source_changed_files()
     final_revision = workspace_revision_digest(final_paths) if is_code_change(final_paths) else ""
