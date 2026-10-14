@@ -124,6 +124,36 @@ class IdentityCompatibilityTests(unittest.TestCase):
             self.assertEqual((canonical / "orchestration" / "active.py").read_text(encoding="utf-8"), "PLAN_VERSION = 7\n")
             self.assertTrue(source.is_file(), "legacy state must remain for rollback")
 
+    def test_canonical_runtime_home_migrates_explicit_legacy_home_to_explicit_canonical_home(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            legacy = root / "legacy-aer"
+            source = legacy / "orchestration" / "active.py"
+            source.parent.mkdir(parents=True)
+            source.write_text("PLAN_VERSION = 11\\n", encoding="utf-8")
+            canonical = root / "canonical-auren"
+
+            result = canonical_runtime_home(
+                home=root,
+                environ={"AUREN_HOME": str(canonical), "AER_HOME": str(legacy)},
+            )
+
+            self.assertEqual(result, canonical)
+            self.assertEqual(
+                (canonical / "orchestration" / "active.py").read_text(encoding="utf-8"),
+                "PLAN_VERSION = 11\\n",
+            )
+            self.assertTrue(source.is_file(), "legacy state must remain available for rollback")
+
+    def test_canonical_runtime_home_rejects_overlapping_explicit_roots(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            shared = Path(tmp) / "same-root"
+            with self.assertRaisesRegex(ValueError, "must be distinct, non-overlapping"):
+                canonical_runtime_home(
+                    environ={"AUREN_HOME": str(shared), "AER_HOME": str(shared)},
+                )
+            self.assertFalse(shared.exists(), "invalid root configuration must fail before creating state")
+
     def test_project_state_prefers_canonical_then_legacy_without_moving_it(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
