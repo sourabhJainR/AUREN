@@ -194,6 +194,12 @@ def main(argv: list[str] | None = None) -> int:
         findings.append(f"{allowed_path}: legacy file allowlist rationale is missing or stale")
     for allowed_path in sorted(set(LEGACY_ALLOWED_LINE_PATTERNS) ^ set(LEGACY_ALLOWED_LINE_RATIONALE)):
         findings.append(f"{allowed_path}: legacy line allowlist rationale is missing or stale")
+    for allowed_path, reason in LEGACY_ALLOWED_RATIONALE.items():
+        if not isinstance(reason, str) or not reason.strip():
+            findings.append(f"{allowed_path}: legacy file allowlist rationale must be non-empty")
+    for allowed_path, reason in LEGACY_ALLOWED_LINE_RATIONALE.items():
+        if not isinstance(reason, str) or not reason.strip():
+            findings.append(f"{allowed_path}: legacy line allowlist rationale must be non-empty")
 
     inventory: list[dict[str, object]] = []
     for raw_path in tracked:
