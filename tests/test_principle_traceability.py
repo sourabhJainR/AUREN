@@ -22,6 +22,8 @@ def test_traceability_matrix_covers_every_canonical_family_with_existing_owners_
         assert entry["status"] in allowed_statuses
         assert entry["owner_files"], entry["id"]
         assert entry["test_files"], entry["id"]
+        assert len(entry["owner_files"]) == len(set(entry["owner_files"])), entry["id"]
+        assert len(entry["test_files"]) == len(set(entry["test_files"])), entry["id"]
         assert entry["enforced_controls"], entry["id"]
         assert entry["remaining_gaps"], entry["id"]
         for relative in [*entry["owner_files"], *entry["test_files"]]:
