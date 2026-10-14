@@ -9,9 +9,30 @@ from pathlib import Path
 from portable.identity_compat import auren_home, canonical_auren_home, canonical_runtime_home, canonicalize_auren_checkpoint_state, get_auren_env, legacy_aer_home, project_state_dir
 from portable.local_llm import LocalLLMConfig, enabled as local_llm_enabled
 from portable.chat_capability import _default_runtime
+from portable.orchestration import Orchestrator
 
 
 class IdentityCompatibilityTests(unittest.TestCase):
+    def test_orchestration_reads_legacy_adaptive_policy_only_via_compatibility_adapter(self) -> None:
+        legacy_policy = {
+            "version": "v1",
+            "strategy": "balanced",
+            "iteration_target": 3.0,
+        }
+        self.assertEqual(
+            Orchestrator._read_adaptive_policy({"aer_adaptive_policy": legacy_policy}),
+            legacy_policy,
+        )
+        with self.assertRaisesRegex(ValueError, "conflicting legacy and canonical"):
+            Orchestrator._read_adaptive_policy({
+                "aer_adaptive_policy": legacy_policy,
+                "auren_adaptive_policy": {
+                    "version": "v2",
+                    "strategy": "aggressive",
+                    "iteration_target": 4.0,
+                },
+            })
+
     def test_checkpoint_key_migration_is_versioned_idempotent_and_conflict_safe(self) -> None:
         legacy = {
             "aer_execution_strategy": {"name": "default"},
