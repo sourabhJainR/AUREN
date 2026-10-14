@@ -392,6 +392,8 @@ class CrewHandoff:
 class GraphHandoffController:
     """Create/claim handoffs for graph nodes; never invokes a crew itself."""
 
+    MAX_PENDING_HANDOFFS = 64
+
     def __init__(
         self, *, max_attempts: int = 3, retry_budget: TaskRetryBudget | None = None,
         persist: Callable[[Mapping[str, Any]], None] | None = None,
@@ -472,6 +474,8 @@ class GraphHandoffController:
                 raise ValueError(
                     "handoff was already claimed or completed; duplicate dispatch is blocked"
                 )
+            if len(self._queue) + len(self._in_flight) >= self.MAX_PENDING_HANDOFFS:
+                raise OverflowError("specialist handoff queue is at its configured bound")
             self._queue.append(handoff)
             self._seen_ids.add(handoff_id)
             self._persist()
@@ -620,6 +624,8 @@ class GraphHandoffController:
         in_flight = checkpoint.get("in_flight", [])
         if not isinstance(queued, list) or not isinstance(completed, list) or not isinstance(in_flight, list):
             raise ValueError("checkpoint queue, in_flight, and completed records must be lists")
+        if len(queued) + len(in_flight) > cls.MAX_PENDING_HANDOFFS:
+            raise ValueError("handoff checkpoint exceeds the configured pending queue bound")
 
         def restore(raw: Mapping[str, Any]) -> CrewHandoff:
             source = raw.get("source_crew")
