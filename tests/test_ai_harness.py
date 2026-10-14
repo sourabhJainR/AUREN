@@ -25,8 +25,11 @@ class AdaptiveHarnessTests(unittest.TestCase):
 
     def test_dry_run_creates_checkpoint_and_manifest(self) -> None:
         result = self.run_cli("run", "--task", "Add input validation", "--dry-run")
-        self.assertEqual(result.returncode, 0, f"stdout={result.stdout!r}; stderr={result.stderr!r}")
         run_dirs = [path for path in (ROOT / ".ai-harness" / "runs").glob("*") if path.is_dir() and (path / "manifest.json").is_file()]
+        latest_debug = max(run_dirs, key=lambda path: path.stat().st_mtime) if run_dirs else None
+        debug_manifest = (latest_debug / "manifest.json").read_text(encoding="utf-8") if latest_debug else "no manifest"
+        debug_checkpoint = (latest_debug / "checkpoint.json").read_text(encoding="utf-8") if latest_debug and (latest_debug / "checkpoint.json").exists() else "no checkpoint"
+        self.assertEqual(result.returncode, 0, f"stdout={result.stdout!r}; stderr={result.stderr!r}; manifest={debug_manifest}; checkpoint={debug_checkpoint}")
         self.assertTrue(run_dirs)
         run_dir = max(run_dirs, key=lambda path: path.stat().st_mtime)
         manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
