@@ -155,6 +155,36 @@ class PromotionEvidenceChainTests(unittest.TestCase):
         self.assertEqual(chain.campaign_digest, campaign.campaign_digest)
         self.assertTrue(chain.attestation_evidence_digest)
 
+    def test_production_builder_rejects_protocol_and_structurally_forged_attestations(self):
+        campaign = make_campaign()
+        receipt = make_receipt(campaign)
+        causal = make_causal(receipt)
+        decision = CausalCapabilityPromotionGate().evaluate(causal)
+        protocol_attestation = make_attested_campaign(campaign)
+        self.assertTrue(protocol_attestation.trustworthy)
+        self.assertFalse(protocol_attestation.production_trustworthy)
+
+        production_chain = PromotionEvidenceChainBuilder().build(
+            campaign, receipt, causal, decision,
+            attested_campaign=protocol_attestation,
+            **isolation_kwargs(campaign, receipt),
+        )
+        self.assertFalse(production_chain.complete)
+        self.assertTrue(any("production trust boundary" in reason for reason in production_chain.reasons))
+
+        forged = AttestedEvaluation(
+            protocol_attestation.attestation,
+            True, True, True, (), "caller-controlled-evidence-digest",
+        )
+        self.assertFalse(forged.trustworthy)
+        test_chain = PromotionEvidenceChainBuilder(require_production_attestation=False).build(
+            campaign, receipt, causal, decision,
+            attested_campaign=forged,
+            **isolation_kwargs(campaign, receipt),
+        )
+        self.assertFalse(test_chain.complete)
+        self.assertTrue(any("not independently verified" in reason for reason in test_chain.reasons))
+
     def test_chain_blocks_mismatched_or_untrusted_evidence(self):
         campaign = make_campaign()
         receipt = make_receipt(campaign, corpus_digest="different", contamination_detected=True)
