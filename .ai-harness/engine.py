@@ -688,7 +688,23 @@ def run_task(args: argparse.Namespace, config: dict[str, Any], logger) -> int:
             integrity = context_integrity(task, {"goal": task}, output, ["task boundary", "protected behavior"]); manifest.setdefault("integrity", {})[phase] = integrity
             if code == 0: succeeded = True; break
         if not succeeded:
-            manifest["status"] = "failed"; write_json_atomic(run_dir / "manifest.json", manifest); save_checkpoint(run_dir, manifest, phase, "failed", phase); return 1
+            review_revision_stale = (
+                phase == "review"
+                and is_code_change(changed_files())
+                and str(manifest.get("verified_code_revision", "")).strip()
+                != str(manifest.get("final_code_revision", "")).strip()
+            )
+            if review_revision_stale:
+                manifest["status"] = "blocked_by_verification"
+                full_phases = manifest.get("phases", phases)
+                retry_phase = "validate" if "validate" in full_phases else "review"
+                write_json_atomic(run_dir / "manifest.json", manifest)
+                save_checkpoint(run_dir, manifest, phase, "blocked", retry_phase)
+            else:
+                manifest["status"] = "failed"
+                write_json_atomic(run_dir / "manifest.json", manifest)
+                save_checkpoint(run_dir, manifest, phase, "failed", phase)
+            return 1
         if phase == "review" and review_requires_fix(output):
             if not repair_after_failure(config, provider, run_dir, manifest, task, source, jira, route, history, args.dry_run, logger): manifest["status"] = "blocked_by_review"; write_json_atomic(run_dir / "manifest.json", manifest); save_checkpoint(run_dir, manifest, phase, "blocked", "repair"); return 1
         if phase in {"execute", "debug", "poc", "research", "grill", "review"}: manifest.setdefault("git_evidence", {})[phase] = diff_summary()
