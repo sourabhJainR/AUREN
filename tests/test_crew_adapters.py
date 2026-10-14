@@ -385,7 +385,7 @@ class ApprovedCrewAdapterTests(unittest.TestCase):
             completion_controller.mark_completed(claimed_candidate, independent_review_passed=False)
         completion_controller.mark_completed(claimed_candidate, independent_review_passed=True)
 
-    def test_completed_handoff_cannot_be_enqueued_again(self):
+    def test_completed_handoff_replay_is_idempotent_after_checkpoint_resume(self):
         controller = GraphHandoffController(max_attempts=2)
         kwargs = {
             "source_crew": "backend_api",
@@ -399,10 +399,13 @@ class ApprovedCrewAdapterTests(unittest.TestCase):
         claimed = controller.claim_next(graph_node_active=True)
         self.assertEqual(claimed.handoff_id, handoff.handoff_id)
         controller.mark_completed(claimed, independent_review_passed=True)
-        with self.assertRaisesRegex(ValueError, "already claimed or completed"):
-            controller.enqueue(**kwargs)
+        checkpoint = controller.snapshot()
+        resumed = GraphHandoffController.resume(checkpoint)
+        self.assertIsNone(resumed.enqueue(**kwargs))
+        self.assertIsNone(resumed.claim_next(graph_node_active=True))
+        self.assertIn(handoff.handoff_id, resumed.snapshot()["completed_ids"])
 
-    def test_v2_handoff_checkpoint_requires_integrity_digest(self):
+    def test_v3_handoff_checkpoint_requires_integrity_digest(self):
         checkpoint = GraphHandoffController().snapshot()
         checkpoint.pop("digest")
         with self.assertRaisesRegex(ValueError, "digest is required"):
