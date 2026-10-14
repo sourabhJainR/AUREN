@@ -274,7 +274,9 @@ def _install_graph_team_bridge() -> None:
             result = team.execute(
                 task=task, intent_digest=intent_digest, base_prompt=base_prompt,
                 memory=memory, invoke_agent=invoke_agent, **principle_inputs,
-                final_verification=(phase == "review"),
+                final_verification=(
+                    phase == "review" and isinstance(manifest.get("principle_verification"), dict)
+                ),
                 principle_verification=manifest.get("principle_verification"),
                 require_principle_verification=manifest.get("require_principle_verification", False),
             )
