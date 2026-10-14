@@ -116,6 +116,18 @@ class AurenStatePaths:
     def _migrate_legacy(self, legacy: Path) -> None:
         manifest = self._read_manifest()
         files: dict[str, Any] = manifest["files"]
+        # Reject links anywhere in the legacy tree before copying anything. A
+        # symlink at a known path could make the migration read outside the
+        # selected state root; silently following it would violate the
+        # non-destructive, operator-bounded migration contract.
+        for path in legacy.rglob("*"):
+            if path.is_symlink():
+                relative = path.relative_to(legacy).as_posix()
+                raise StatePathConflict(
+                    f"Legacy state contains a symbolic link: {relative}. "
+                    "Both roots are preserved; resolve the link explicitly before migration."
+                )
+
         # Only migrate known durable data formats. Unknown legacy files remain untouched.
         candidates = sorted(
             path for path in legacy.rglob("*")
