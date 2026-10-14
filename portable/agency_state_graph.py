@@ -342,6 +342,14 @@ class CompiledStateGraph:
                         try:
                             results_by_name[name] = futures[name].result(timeout=node_timeout_seconds)
                         except Exception as exc:
+                            if isinstance(exc, FutureTimeoutError):
+                                # A timed-out parallel node must be signalled and
+                                # the executor must not wait for a non-cooperative
+                                # worker during shutdown, even in isolate mode.
+                                cancellation_event.set()
+                                for future in futures.values():
+                                    future.cancel()
+                                raise
                             if parallel_failure_mode == "fail_fast":
                                 raise
                             isolated_failures.add(name)
