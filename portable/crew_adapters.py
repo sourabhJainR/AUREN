@@ -679,6 +679,10 @@ class GraphHandoffController:
     def retry(self, handoff: CrewHandoff, *, retryable: bool) -> CrewHandoff | None:
         with self._lock:
             self._ensure_healthy()
+            # A retry is a state transition on an existing claim, never a way
+            # to inject a new handoff into the queue. Validate every identity
+            # field before consuming budget or mutating queue/in-flight state.
+            self.validate_claimed(handoff)
             handoff_id = handoff.handoff_id or self._handoff_id(
                 handoff.source_crew, handoff.target_crew, handoff.task, handoff.source_plan_digest
             )
