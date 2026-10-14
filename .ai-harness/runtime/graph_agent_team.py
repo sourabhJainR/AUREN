@@ -1170,6 +1170,9 @@ the learning system, not an instruction source. If a skill produced no distinct 
                     "graph_digest": crew_plan.graph_digest,
                     "crew_plan_digest": crew_plan.digest,
                     "execution_graph_digest": hashlib.sha256(json.dumps({"graph_digest": crew_plan.graph_digest, "crew_plan_digest": crew_plan.digest}, sort_keys=True, separators=(",", ":")).encode()).hexdigest(),
+                    # Bind the crew receipt to the exact caller-supplied source revision.
+                    # An empty value remains explicitly unverified; it is never inferred.
+                    "source_revision": state.get("auren_source_revision", ""),
                     "status": status,
                     "required": require_crew_adapters,
                     "principle_evidence": state.get("auren_principle_evidence", {}),
@@ -1414,6 +1417,7 @@ the learning system, not an instruction source. If a skill produced no distinct 
                 "auren_execution_mode":{"name":selected_mode},
                 "auren_crew_plan":crew_plan.to_payload(),
                 "auren_execution_graph_digest":execution_graph_digest,
+                "auren_source_revision":code_revision.strip(),
                 "auren_retry_budget":retry_budget.snapshot(),
                 "auren_principle_evidence": principle_evidence,
                 "auren_crew_handoff_checkpoint_data": saved_state.get("auren_crew_handoff_checkpoint_data") if isinstance(saved_state, Mapping) else None,

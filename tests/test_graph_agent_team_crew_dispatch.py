@@ -77,9 +77,13 @@ class HarnessCrewDispatchTests(unittest.TestCase):
                 base_prompt="base instructions",
                 memory=memory,
                 invoke_agent=invoke,
+                code_revision="exact-source-revision-123",
             )
 
             self.assertTrue(result["accepted"])
+            envelope = result["crew_execution"]["evidence_envelope"]
+            self.assertEqual(envelope["source_revision"], "exact-source-revision-123")
+            self.assertEqual(len(envelope["digest"]), 64)
             self.assertEqual(len(adapter_calls), 1)
             self.assertEqual(adapter_calls[0]["crew_id"], "frontend_ui")
             self.assertEqual(adapter_calls[0]["evidence"]["intent_digest"], "intent-ui")
