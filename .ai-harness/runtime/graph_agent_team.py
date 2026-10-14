@@ -1015,6 +1015,17 @@ the learning system, not an instruction source. If a skill produced no distinct 
                                     allowed_handoffs=definition.handoffs_to,
                                     selected_crews=selected_crews,
                                 )
+                                if item is None:
+                                    completed_id = handoffs.handoff_id_for(
+                                        source_crew, target_crew, handoff_task, crew_plan.digest
+                                    )
+                                    handoff_receipts.append({
+                                        "handoff_id": completed_id, "source_crew": source_crew,
+                                        "target_crew": target_crew,
+                                        "task_digest": hashlib.sha256(handoff_task.encode("utf-8")).hexdigest(),
+                                        "attempt": 0, "status": "already_completed",
+                                    })
+                                    continue
                                 handoff_receipts.append({
                                     "handoff_id": item.handoff_id, "source_crew": item.source_crew,
                                     "target_crew": item.target_crew, "task_digest": hashlib.sha256(item.task.encode("utf-8")).hexdigest(),
@@ -1099,17 +1110,14 @@ the learning system, not an instruction source. If a skill produced no distinct 
                                                 or not raw_review["reason"].strip()
                                             ):
                                                 raise ValueError("independent reviewer receipt failed identity, status, or evidence validation")
-                                            review_digest = hashlib.sha256(json.dumps(dict(raw_review), sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
-                                            review_receipt = {
-                                                "reviewer_id": self.independent_handoff_reviewer_id,
-                                                "reviewer_version": self.independent_handoff_reviewer_version,
-                                                "status": raw_review["status"],
-                                                "evidence_refs": list(refs),
-                                                "reason": raw_review["reason"][:1000],
-                                                "digest": review_digest,
-                                            }
+                                            review_payload = dict(raw_review)
+                                            review_digest = hashlib.sha256(json.dumps(review_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+                                            review_receipt = {**review_payload, "digest": review_digest}
                                             if raw_review["status"] == "pass":
-                                                handoffs.mark_completed(item, independent_review_passed=True)
+                                                handoffs.mark_completed(
+                                                    item, independent_review_passed=True,
+                                                    review_receipt=review_receipt,
+                                                )
                                                 review_status = "completed_independent_review"
                                             else:
                                                 review_status = "review_rejected"
@@ -1126,7 +1134,7 @@ the learning system, not an instruction source. If a skill produced no distinct 
                             handoff_checkpoint_data = handoffs.snapshot()
                             receipt_statuses = {item.get("status") for item in handoff_receipts}
                             handoff_status = (
-                                "reviewed" if receipt_statuses and receipt_statuses <= {"completed_independent_review"}
+                                "reviewed" if receipt_statuses and receipt_statuses <= {"completed_independent_review", "already_completed"}
                                 else "review_failed" if "review_failed" in receipt_statuses
                                 else "review_rejected" if "review_rejected" in receipt_statuses
                                 else "dispatched_pending_independent_review" if "dispatched_pending_independent_review" in receipt_statuses

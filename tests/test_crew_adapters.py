@@ -17,6 +17,24 @@ from portable.crew_adapters import (
 )
 
 
+def independent_review_receipt():
+    import hashlib
+    import json
+
+    payload = {
+        "schema_version": "auren-handoff-review-receipt-v1",
+        "reviewer_id": "independent-reviewer",
+        "reviewer_version": "1.0.0",
+        "status": "pass",
+        "evidence_refs": ["review-run-1"],
+        "reason": "Independent review passed against the claimed handoff.",
+    }
+    digest = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    return {**payload, "digest": digest}
+
+
 def proposal(request):
     return {
         "schema_version": "auren-crew-proposal-v1",
@@ -117,10 +135,22 @@ class ApprovedCrewAdapterTests(unittest.TestCase):
             return {"done": True}
 
         graph = StateGraph.from_nodes([Node("work", NodeKind.DETERMINISTIC, node)])
+        def independent_review(handoff):
+            reviewed.append(handoff.handoff_id)
+            return {
+                "schema_version": "auren-handoff-review-receipt-v1",
+                "reviewer_id": "qa-reviewer-v1",
+                "reviewer_version": "reviewer-version-1",
+                "status": "pass",
+                "evidence_refs": [f"review-evidence:{handoff.handoff_id}"],
+                "reason": "Independent review verified the handoff output and acceptance evidence.",
+            }
+
         team = GraphAgentTeam(
             graph,
-            independent_handoff_reviewer=lambda handoff: reviewed.append(handoff.handoff_id) or True,
+            independent_handoff_reviewer=independent_review,
             independent_handoff_reviewer_id="qa-reviewer-v1",
+            independent_handoff_reviewer_version="reviewer-version-1",
         )
         result = team.run("task-reviewed", "frontend UI accessibility", {})
         self.assertEqual(result.status, RunStatus.ACCEPTED)
@@ -383,9 +413,28 @@ class ApprovedCrewAdapterTests(unittest.TestCase):
         self.assertEqual(claimed_candidate.task, completed_candidate.task)
         with self.assertRaisesRegex(PermissionError, "independent review"):
             completion_controller.mark_completed(claimed_candidate, independent_review_passed=False)
-        completion_controller.mark_completed(claimed_candidate, independent_review_passed=True)
+        completion_controller.mark_completed(
+            claimed_candidate, independent_review_passed=True,
+            review_receipt=independent_review_receipt(),
+        )
 
-    def test_completed_handoff_cannot_be_enqueued_again(self):
+    def test_boolean_pass_without_review_receipt_cannot_complete_handoff(self):
+        controller = GraphHandoffController()
+        handoff = controller.enqueue(
+            source_crew="backend_api", target_crew="qa_reviewer", task="Review endpoint",
+            source_plan_digest="plan-digest", allowed_handoffs=("qa_reviewer",),
+            selected_crews=("backend_api", "qa_reviewer"),
+        )
+        claimed = controller.claim_next(graph_node_active=True)
+        with self.assertRaisesRegex(PermissionError, "durable independent review receipt"):
+            controller.mark_completed(claimed, independent_review_passed=True)
+        self.assertEqual(len(controller.snapshot()["in_flight"]), 1)
+        controller.mark_completed(
+            claimed, independent_review_passed=True,
+            review_receipt=independent_review_receipt(),
+        )
+
+    def test_completed_handoff_replay_is_idempotent_after_checkpoint_resume(self):
         controller = GraphHandoffController(max_attempts=2)
         kwargs = {
             "source_crew": "backend_api",
@@ -398,17 +447,23 @@ class ApprovedCrewAdapterTests(unittest.TestCase):
         handoff = controller.enqueue(**kwargs)
         claimed = controller.claim_next(graph_node_active=True)
         self.assertEqual(claimed.handoff_id, handoff.handoff_id)
-        controller.mark_completed(claimed, independent_review_passed=True)
-        with self.assertRaisesRegex(ValueError, "already claimed or completed"):
-            controller.enqueue(**kwargs)
+        controller.mark_completed(
+            claimed, independent_review_passed=True,
+            review_receipt=independent_review_receipt(),
+        )
+        checkpoint = controller.snapshot()
+        resumed = GraphHandoffController.resume(checkpoint)
+        self.assertIsNone(resumed.enqueue(**kwargs))
+        self.assertIsNone(resumed.claim_next(graph_node_active=True))
+        self.assertIn(handoff.handoff_id, resumed.snapshot()["completed_ids"])
 
-    def test_v2_handoff_checkpoint_requires_integrity_digest(self):
+    def test_v3_handoff_checkpoint_requires_integrity_digest(self):
         checkpoint = GraphHandoffController().snapshot()
         checkpoint.pop("digest")
         with self.assertRaisesRegex(ValueError, "digest is required"):
             GraphHandoffController.resume(checkpoint)
 
-    def test_v2_handoff_checkpoint_rejects_tampered_payload(self):
+    def test_v3_handoff_checkpoint_rejects_tampered_payload(self):
         checkpoint = GraphHandoffController().snapshot()
         checkpoint["seen_ids"] = ["forged-handoff-id"]
         with self.assertRaisesRegex(ValueError, "digest mismatch"):
