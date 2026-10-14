@@ -1,5 +1,9 @@
 """End-to-end enforcement tests for the orchestration engineering guard."""
 
+import hashlib
+import json
+
+from portable.engineering_design_guard import EngineeringDesignGuard, PRINCIPLE_FAMILY_IDS
 from portable.orchestration import (
     Graph,
     Node,
@@ -7,6 +11,28 @@ from portable.orchestration import (
     Orchestrator,
     RunStatus,
 )
+
+
+def principle_verification_receipt(intent_digest: str, code_revision: str):
+    payload = {
+        "schema_version": "auren-engineering-principle-verification-v1",
+        "intent_digest": intent_digest,
+        "code_revision": code_revision,
+        "reviewer_id": "independent-principle-reviewer",
+        "reviewer_version": "reviewer-v1",
+        "families": {
+            family_id: {
+                "status": "verified",
+                "reason": f"Reviewed and verified {family_id} against the final source revision.",
+                "evidence_refs": [f"evidence:{family_id}:{code_revision}"],
+            }
+            for family_id in PRINCIPLE_FAMILY_IDS
+        },
+    }
+    payload["digest"] = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    return payload
 
 
 def test_high_risk_security_contract_blocks_before_any_node_runs():
@@ -102,6 +128,73 @@ def test_code_task_is_blocked_when_final_revision_was_not_verified():
     assert run.status == RunStatus.BLOCKED
     assert run.stop_reason == "exact final code revision verification missing or stale"
     assert any(item.kind == "exact-head-verification" for item in run.evidence)
+
+
+def test_final_principle_verification_is_required_and_bound_to_exact_revision():
+    intent = "Implement a small pure helper"
+    revision = "candidate-abc123"
+    graph = Graph([
+        Node("implement", NodeKind.DETERMINISTIC, lambda state: {"changed": True})
+    ])
+    base_context = {
+        "changed_paths": ["portable/helper.py"],
+        "final_code_revision": revision,
+        "verified_code_revision": revision,
+        "require_principle_verification": True,
+    }
+
+    missing = Orchestrator(graph).run("principle-task-missing", intent, context=base_context)
+    assert missing.status == RunStatus.BLOCKED
+    assert missing.stop_reason == "final engineering-principle verification missing, stale, or incomplete"
+    assert any(item.kind == "engineering-principle-verification" for item in missing.evidence)
+
+    receipt = principle_verification_receipt(Orchestrator.intent_digest(intent), revision)
+    verified = Orchestrator(graph).run(
+        "principle-task-verified",
+        intent,
+        context={**base_context, "principle_verification": receipt},
+    )
+    assert verified.status == RunStatus.ACCEPTED, (verified.stop_reason, verified.trajectory)
+    evidence = next(item for item in verified.evidence if item.kind == "engineering-principle-verification")
+    payload = json.loads(evidence.summary)
+    assert payload["status"] == "passed"
+    assert payload["receipt_digest"] == receipt["digest"]
+    assert set(payload["receipt"]["families"]) == set(PRINCIPLE_FAMILY_IDS)
+
+
+def test_final_principle_verification_rejects_stale_revision_and_missing_family():
+    intent = "Implement a small pure helper"
+    revision = "candidate-abc123"
+    receipt = principle_verification_receipt(Orchestrator.intent_digest(intent), revision)
+    receipt["families"].pop(PRINCIPLE_FAMILY_IDS[-1])
+    payload = {key: value for key, value in receipt.items() if key != "digest"}
+    receipt["digest"] = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    validation = EngineeringDesignGuard.validate_principle_verification_record(
+        receipt, intent_digest=Orchestrator.intent_digest(intent), code_revision=revision
+    )
+    assert not validation["valid"]
+    assert any("all 12 canonical families" in blocker for blocker in validation["blockers"])
+
+    malformed = principle_verification_receipt(Orchestrator.intent_digest(intent), revision)
+    malformed["families"][PRINCIPLE_FAMILY_IDS[0]]["status"] = []
+    malformed_payload = {key: value for key, value in malformed.items() if key != "digest"}
+    malformed["digest"] = hashlib.sha256(
+        json.dumps(malformed_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    validation = EngineeringDesignGuard.validate_principle_verification_record(
+        malformed, intent_digest=Orchestrator.intent_digest(intent), code_revision=revision
+    )
+    assert not validation["valid"]
+    assert any("invalid verification status" in blocker for blocker in validation["blockers"])
+
+    stale = principle_verification_receipt(Orchestrator.intent_digest(intent), "old-revision")
+    validation = EngineeringDesignGuard.validate_principle_verification_record(
+        stale, intent_digest=Orchestrator.intent_digest(intent), code_revision=revision
+    )
+    assert not validation["valid"]
+    assert any("exact final code revision" in blocker for blocker in validation["blockers"])
 
 
 def test_code_task_accepts_only_matching_final_and_verified_revision():

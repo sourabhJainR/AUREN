@@ -106,6 +106,19 @@ def _principle_context_inputs(
     }
 
 
+def _final_revision_binding(manifest: dict[str, Any]) -> str:
+    """Return a final revision only when the harness verifier attests the same head."""
+    final_revision = manifest.get("final_code_revision")
+    verified_revision = manifest.get("verified_code_revision")
+    if (
+        isinstance(final_revision, str) and final_revision.strip()
+        and isinstance(verified_revision, str) and verified_revision.strip()
+        and final_revision.strip() == verified_revision.strip()
+    ):
+        return final_revision.strip()
+    return ""
+
+
 def _phase_team(route: dict[str, Any], phase: str, graph_types):
     AgentSpec, GraphAgentTeam = graph_types
     risk = str(route.get("risk", "low"))
@@ -189,7 +202,8 @@ def _install_graph_team_bridge() -> None:
         def guarded_execute(self, *, task, intent_digest, base_prompt, memory, invoke_agent,
                            checkpoint=None, resume=False, run_id="graph-agent-team", max_steps=100,
                            require_crew_adapters=None, risk="medium", changed_paths=(),
-                           design_contract=None, code_revision=""):
+                           design_contract=None, code_revision="", final_verification=False,
+                           principle_verification=None, require_principle_verification=False):
             def guarded_invoke(agent, prompt):
                 if agent.read_only:
                     prompt += "\n\n## Security execution mode\npatch_allowed: false\n"
@@ -200,7 +214,9 @@ def _install_graph_team_bridge() -> None:
                                     resume=resume, run_id=run_id, max_steps=max_steps,
                                     require_crew_adapters=require_crew_adapters, risk=risk,
                                     changed_paths=changed_paths, design_contract=design_contract,
-                                    code_revision=code_revision)
+                                    code_revision=code_revision, final_verification=final_verification,
+                                    principle_verification=principle_verification,
+                                    require_principle_verification=require_principle_verification)
 
         guarded_execute._auren_guarded = True
         GraphAgentTeam.execute = guarded_execute
@@ -251,9 +267,16 @@ def _install_graph_team_bridge() -> None:
             principle_inputs = _principle_context_inputs(
                 route, manifest, changed_paths=engine.changed_files()
             )
+            if phase == "review":
+                # A generic/base revision is not a substitute for the exact
+                # final source head that the harness independently verified.
+                principle_inputs["code_revision"] = _final_revision_binding(manifest)
             result = team.execute(
                 task=task, intent_digest=intent_digest, base_prompt=base_prompt,
-                memory=memory, invoke_agent=invoke_agent, **principle_inputs
+                memory=memory, invoke_agent=invoke_agent, **principle_inputs,
+                final_verification=(phase == "review"),
+                principle_verification=manifest.get("principle_verification"),
+                require_principle_verification=manifest.get("require_principle_verification", False),
             )
             result["phase"] = phase
             result["duration_seconds"] = round(engine.time.monotonic() - started, 3)
