@@ -15,7 +15,11 @@ import time
 from typing import Callable, Iterable, Mapping
 
 from .attestation_key_separation import AttestationTrustPolicy, SeparationAwareAttestor
-from .independent_evaluation_attestation import AttestedEvaluation, EvaluationAttestation
+from .independent_evaluation_attestation import (
+    _PRODUCTION_EVALUATION_SEAL,
+    AttestedEvaluation,
+    EvaluationAttestation,
+)
 
 
 def evaluation_attestation_signing_message(attestation: EvaluationAttestation) -> bytes:
@@ -269,7 +273,10 @@ class ProductionSeparationAwareAttestor:
         )
 
     def verify(self, attestation: EvaluationAttestation, **kwargs) -> AttestedEvaluation:
-        return self._attestor.verify(attestation, **kwargs)
+        result = self._attestor.verify(attestation, **kwargs)
+        if result.trustworthy:
+            object.__setattr__(result, "_production_seal", _PRODUCTION_EVALUATION_SEAL)
+        return result
 
 
 __all__ = [
