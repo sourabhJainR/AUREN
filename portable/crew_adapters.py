@@ -416,6 +416,7 @@ class GraphHandoffController:
         self._seen_ids: set[str] = set()
         self._completed: set[tuple[str, str, str]] = set()
         self._completed_ids: set[str] = set()
+        self._completion_receipts: dict[str, dict[str, Any]] = {}
         self._lock = RLock()
         # A failed checkpoint write makes this controller unusable. In-memory
         # state may have advanced, but callers must not continue as if it were
@@ -478,6 +479,8 @@ class GraphHandoffController:
             # A completed handoff replayed from the original proposal after a
             # restart is idempotently acknowledged, not treated as a new dispatch.
             if handoff_id in self._completed_ids:
+                if handoff_id not in self._completion_receipts:
+                    raise ValueError("completed handoff lacks a durable independent review receipt")
                 return None
             handoff = CrewHandoff(source_crew, target_crew, task.strip(), source_plan_digest, 0, handoff_id)
             if handoff_id in self._seen_ids:
@@ -548,7 +551,42 @@ class GraphHandoffController:
             ):
                 raise ValueError("handoff completion record does not match the claimed handoff")
 
-    def mark_completed(self, handoff: CrewHandoff, *, independent_review_passed: bool) -> None:
+    @staticmethod
+    def _validate_independent_review_receipt(value: Mapping[str, Any]) -> dict[str, Any]:
+        required = {
+            "schema_version", "reviewer_id", "reviewer_version", "status",
+            "evidence_refs", "reason", "digest",
+        }
+        if not isinstance(value, Mapping) or set(value) != required:
+            raise ValueError("independent handoff review receipt fields are invalid")
+        refs = value.get("evidence_refs")
+        if (
+            value.get("schema_version") != "auren-handoff-review-receipt-v1"
+            or not isinstance(value.get("reviewer_id"), str) or not value["reviewer_id"].strip()
+            or not isinstance(value.get("reviewer_version"), str) or not value["reviewer_version"].strip()
+            or value.get("status") != "pass"
+            or not isinstance(refs, list) or not refs or len(refs) > 64
+            or any(not isinstance(ref, str) or not ref.strip() or len(ref) > 1024 for ref in refs)
+            or not isinstance(value.get("reason"), str) or not value["reason"].strip()
+            or len(value["reason"]) > 1000
+            or not isinstance(value.get("digest"), str)
+        ):
+            raise ValueError("independent handoff review receipt failed schema or evidence validation")
+        payload = {key: item for key, item in value.items() if key != "digest"}
+        expected = hashlib.sha256(
+            json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+        if value["digest"] != expected:
+            raise ValueError("independent handoff review receipt digest mismatch")
+        return dict(value)
+
+    def mark_completed(
+        self,
+        handoff: CrewHandoff,
+        *,
+        independent_review_passed: bool,
+        review_receipt: Mapping[str, Any] | None = None,
+    ) -> None:
         if not independent_review_passed:
             raise PermissionError("handoff cannot complete before independent review passes")
         with self._lock:
@@ -557,9 +595,13 @@ class GraphHandoffController:
                 handoff.source_crew, handoff.target_crew, handoff.task, handoff.source_plan_digest
             )
             self.validate_claimed(handoff)
+            if not isinstance(review_receipt, Mapping):
+                raise PermissionError("handoff completion requires a durable independent review receipt")
+            validated_receipt = self._validate_independent_review_receipt(review_receipt)
             key = (handoff.source_crew, handoff.target_crew, hashlib.sha256(handoff.task.encode()).hexdigest())
             self._completed.add(key)
             self._completed_ids.add(handoff_id)
+            self._completion_receipts[handoff_id] = validated_receipt
             self._in_flight.pop(handoff_id, None)
             self._seen_ids.add(handoff_id)
             self._persist()
@@ -585,6 +627,7 @@ class GraphHandoffController:
                 "seen_ids": sorted(self._seen_ids),
                 "completed": [list(key) for key in sorted(self._completed)],
                 "completed_ids": sorted(self._completed_ids),
+                "completion_receipts": {key: self._completion_receipts[key] for key in sorted(self._completion_receipts)},
                 "retry_budget": self.retry_budget.snapshot() if self.retry_budget is not None else None,
             }
             payload["digest"] = hashlib.sha256(
@@ -695,6 +738,16 @@ class GraphHandoffController:
             active_ids = {item.handoff_id for item in controller._queue} | set(controller._in_flight)
             if set(completed_ids) & active_ids:
                 raise ValueError("completed handoff ID cannot also be queued or in-flight")
+        completion_receipts = checkpoint.get("completion_receipts", {})
+        if not isinstance(completion_receipts, Mapping):
+            raise ValueError("invalid completed handoff review receipts")
+        if checkpoint.get("schema_version") == "auren-crew-handoff-checkpoint-v3":
+            if set(completion_receipts) != set(completed_ids):
+                raise ValueError("every completed handoff must retain its independent review receipt")
+            for handoff_id, receipt in completion_receipts.items():
+                if not isinstance(handoff_id, str) or not handoff_id.strip() or not isinstance(receipt, Mapping):
+                    raise ValueError("invalid completed handoff review receipt entry")
+                controller._completion_receipts[handoff_id] = cls._validate_independent_review_receipt(receipt)
         controller._completed_ids.update(completed_ids)
         return controller
 
