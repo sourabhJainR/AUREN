@@ -63,39 +63,6 @@ class TaskRetryBudget:
             self._charges[operation_key] = component
             return True
 
-    def mark_rejected(
-        self,
-        handoff: CrewHandoff,
-        *,
-        review_receipt: Mapping[str, Any],
-    ) -> None:
-        """Persist a terminal reviewer rejection so restart cannot replay it as pending."""
-        with self._lock:
-            self._ensure_healthy()
-            handoff_id = handoff.handoff_id or self._handoff_id(
-                handoff.source_crew, handoff.target_crew, handoff.task, handoff.source_plan_digest
-            )
-            self.validate_claimed(handoff)
-            if not isinstance(review_receipt, Mapping):
-                raise PermissionError("terminal rejection requires an independent review receipt")
-            validated_receipt = self._validate_independent_review_receipt(review_receipt)
-            if validated_receipt["status"] != "reject":
-                raise PermissionError("mark_rejected requires a reject review receipt")
-            key = (handoff.source_crew, handoff.target_crew, hashlib.sha256(handoff.task.encode()).hexdigest())
-            self._completed.add(key)
-            self._completed_ids.add(handoff_id)
-            self._completion_receipts[handoff_id] = validated_receipt
-            self._in_flight.pop(handoff_id, None)
-            self._seen_ids.add(handoff_id)
-            self._persist()
-
-    def terminal_receipt(self, handoff_id: str) -> dict[str, Any] | None:
-        """Return the validated terminal receipt for an idempotent replay."""
-        with self._lock:
-            self._ensure_healthy()
-            receipt = self._completion_receipts.get(handoff_id)
-            return dict(receipt) if receipt is not None else None
-
     def snapshot(self) -> dict[str, Any]:
         with self._lock:
             charges = [
@@ -640,6 +607,39 @@ class GraphHandoffController:
             self._in_flight.pop(handoff_id, None)
             self._seen_ids.add(handoff_id)
             self._persist()
+
+    def mark_rejected(
+        self,
+        handoff: CrewHandoff,
+        *,
+        review_receipt: Mapping[str, Any],
+    ) -> None:
+        """Persist a terminal reviewer rejection so restart cannot replay it as pending."""
+        with self._lock:
+            self._ensure_healthy()
+            handoff_id = handoff.handoff_id or self._handoff_id(
+                handoff.source_crew, handoff.target_crew, handoff.task, handoff.source_plan_digest
+            )
+            self.validate_claimed(handoff)
+            if not isinstance(review_receipt, Mapping):
+                raise PermissionError("terminal rejection requires an independent review receipt")
+            validated_receipt = self._validate_independent_review_receipt(review_receipt)
+            if validated_receipt["status"] != "reject":
+                raise PermissionError("mark_rejected requires a reject review receipt")
+            key = (handoff.source_crew, handoff.target_crew, hashlib.sha256(handoff.task.encode()).hexdigest())
+            self._completed.add(key)
+            self._completed_ids.add(handoff_id)
+            self._completion_receipts[handoff_id] = validated_receipt
+            self._in_flight.pop(handoff_id, None)
+            self._seen_ids.add(handoff_id)
+            self._persist()
+
+    def terminal_receipt(self, handoff_id: str) -> dict[str, Any] | None:
+        """Return the validated terminal receipt for an idempotent replay."""
+        with self._lock:
+            self._ensure_healthy()
+            receipt = self._completion_receipts.get(handoff_id)
+            return dict(receipt) if receipt is not None else None
 
     def snapshot(self) -> dict[str, Any]:
         """JSON-safe checkpoint for the supervisor's canonical task store."""
