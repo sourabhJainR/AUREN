@@ -194,7 +194,7 @@
       ],
       "test_files": [
         "tests/test_execution_controller_promotion_gate.py",
-        "tests/test_workspace_revision_gate.py"
+        "tests/test_execution_controller_promotion_gate.py"
       ],
       "enforced_controls": [
         "verified promotion threshold for consequential handlers",
