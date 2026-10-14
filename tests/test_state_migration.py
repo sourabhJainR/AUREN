@@ -85,5 +85,34 @@ class StateMigrationTests(unittest.TestCase):
                 migrate_state_root(source, source / ".auren", dry_run=True)
 
 
+    def test_interrupted_copy_cleans_staging_and_preserves_source_for_retry(self) -> None:
+        from unittest.mock import patch
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / ".aer"
+            source.mkdir()
+            original = source / "memory.db"
+            original.write_bytes(b"last-known-good-state")
+            destination = root / ".auren"
+
+            with patch(
+                "portable.state_migration.shutil.copy2",
+                side_effect=OSError("simulated interruption during copy"),
+            ):
+                with self.assertRaisesRegex(OSError, "simulated interruption"):
+                    migrate_state_root(source, destination, dry_run=False)
+
+            self.assertFalse(destination.exists())
+            self.assertEqual(original.read_bytes(), b"last-known-good-state")
+            self.assertFalse((root / ".auren.migration.lock").exists())
+            self.assertFalse(any(path.name.startswith(".auren.migration-") for path in root.iterdir()))
+
+            # A fresh attempt can proceed after the failed copy was cleaned up.
+            result = migrate_state_root(source, destination, dry_run=False)
+            self.assertEqual(result.status, "copied_verified_source_retained")
+            self.assertEqual((destination / "memory.db").read_bytes(), b"last-known-good-state")
+
+
 if __name__ == "__main__":
     unittest.main()
