@@ -592,6 +592,11 @@ class Orchestrator:
                 return NodeResult(node.name, NodeStatus.FAILED, attempts, last_output, evidence, failure, repair_count=repairs)
             attempts += 1
             try:
+                if isinstance(state, dict) and isinstance(state.get("auren_deadline_at"), str):
+                    deadline = datetime.fromisoformat(state["auren_deadline_at"]).astimezone(timezone.utc)
+                    state["auren_remaining_seconds"] = max(
+                        0.0, (deadline - datetime.now(timezone.utc)).total_seconds()
+                    )
                 output = node.run(state)
                 last_output = output
                 failure = deadline_failure()
