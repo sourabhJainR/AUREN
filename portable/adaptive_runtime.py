@@ -320,6 +320,7 @@ class AdaptiveRuntime:
                 payload={
                     "iteration": iteration,
                     "hypothesis": hypothesis,
+                    "deadline_at": deadline_value,
                     "recovery_mode": context_mode,
                     "previous_failure": last.get("failure", ""),
                 },
