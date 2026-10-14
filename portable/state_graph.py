@@ -427,8 +427,9 @@ class GraphAgentTeam:
         *,
         handoff_checkpoint_writer: Callable[[str, Mapping[str, Any]], None] | None = None,
         require_durable_handoffs: bool = False,
-        independent_handoff_reviewer: Callable[[CrewHandoff], bool] | None = None,
+        independent_handoff_reviewer: Callable[[CrewHandoff], Mapping[str, Any]] | None = None,
         independent_handoff_reviewer_id: str | None = None,
+        independent_handoff_reviewer_version: str | None = None,
     ) -> None:
         if handoff_checkpoint_writer is not None and not callable(handoff_checkpoint_writer):
             raise TypeError("handoff_checkpoint_writer must be callable")
@@ -438,15 +439,19 @@ class GraphAgentTeam:
             raise TypeError("independent_handoff_reviewer must be callable")
         if independent_handoff_reviewer is not None and (
             not isinstance(independent_handoff_reviewer_id, str) or not independent_handoff_reviewer_id.strip()
+            or not isinstance(independent_handoff_reviewer_version, str) or not independent_handoff_reviewer_version.strip()
         ):
-            raise ValueError("independent_handoff_reviewer_id is required when a reviewer is configured")
-        if independent_handoff_reviewer is None and independent_handoff_reviewer_id not in (None, ""):
-            raise ValueError("reviewer id cannot be set without an independent handoff reviewer")
+            raise ValueError("independent reviewer id and version are required when a reviewer is configured")
+        if independent_handoff_reviewer is None and (
+            independent_handoff_reviewer_id not in (None, "") or independent_handoff_reviewer_version not in (None, "")
+        ):
+            raise ValueError("reviewer identity cannot be set without an independent handoff reviewer")
         self.graph = graph
         self.handoff_checkpoint_writer = handoff_checkpoint_writer
         self.require_durable_handoffs = require_durable_handoffs
         self.independent_handoff_reviewer = independent_handoff_reviewer
         self.independent_handoff_reviewer_id = independent_handoff_reviewer_id.strip() if independent_handoff_reviewer_id else "unconfigured"
+        self.independent_handoff_reviewer_version = independent_handoff_reviewer_version.strip() if independent_handoff_reviewer_version else "unconfigured"
         self.agents = dict(agents or {})
         self.crews = {crew.crew_id: crew for crew in _default_crews()}
         for crew_id, crew in (crews or {}).items():
@@ -468,6 +473,7 @@ class GraphAgentTeam:
         graph_contract_digest = hashlib.sha256(json.dumps({
             "graph_digest": self.graph.digest(),
             "independent_handoff_reviewer_id": self.independent_handoff_reviewer_id,
+            "independent_handoff_reviewer_version": self.independent_handoff_reviewer_version,
         }, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
         return build_crew_plan(
             goal,
@@ -672,12 +678,36 @@ class GraphAgentTeam:
             reviewer = self.independent_handoff_reviewer
             if reviewer is None:
                 raise RuntimeError("independent handoff reviewer is not configured")
-            passed = reviewer(handoff)
-            if type(passed) is not bool:
-                raise TypeError("independent handoff reviewer must return a boolean")
-            if not passed:
+            raw_review = reviewer(handoff)
+            required_review_fields = {
+                "schema_version", "reviewer_id", "reviewer_version",
+                "status", "evidence_refs", "reason",
+            }
+            if not isinstance(raw_review, Mapping) or set(raw_review) != required_review_fields:
+                raise TypeError("independent handoff reviewer must return a structured evidence receipt")
+            refs = raw_review.get("evidence_refs")
+            if (
+                raw_review.get("schema_version") != "auren-handoff-review-receipt-v1"
+                or raw_review.get("reviewer_id") != self.independent_handoff_reviewer_id
+                or raw_review.get("reviewer_version") != self.independent_handoff_reviewer_version
+                or raw_review.get("status") not in {"pass", "reject"}
+                or not isinstance(refs, list) or not refs
+                or any(not isinstance(ref, str) or not ref.strip() for ref in refs)
+                or not isinstance(raw_review.get("reason"), str) or not raw_review["reason"].strip()
+            ):
+                raise ValueError("independent handoff review receipt failed identity or evidence validation")
+            if raw_review["status"] != "pass":
                 raise PermissionError("independent handoff review did not pass")
-            handoffs.mark_completed(handoff, independent_review_passed=True)
+            review_payload = dict(raw_review)
+            review_receipt = {
+                **review_payload,
+                "digest": hashlib.sha256(
+                    json.dumps(review_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+                ).hexdigest(),
+            }
+            handoffs.mark_completed(
+                handoff, independent_review_passed=True, review_receipt=review_receipt
+            )
             refresh_checkpoint_state()
 
         # Only graph nodes receive scoped functions. Adapter/tool objects are never
