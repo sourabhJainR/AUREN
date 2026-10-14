@@ -4,7 +4,7 @@
   "families": [
     {
       "id": "fundamental_design",
-      "status": "evidence_gated",
+      "status": "evidence-gated",
       "owner_files": [
         "portable/engineering_design_guard.py",
         "portable/orchestration.py"
@@ -24,7 +24,7 @@
     },
     {
       "id": "security_privacy",
-      "status": "evidence_gated",
+      "status": "evidence-gated",
       "owner_files": [
         "portable/decision_gate.py",
         "portable/execution_controller.py"
@@ -43,7 +43,7 @@
     },
     {
       "id": "performance_cost",
-      "status": "operator_controlled",
+      "status": "operator-controlled",
       "owner_files": [
         ".ai-harness/runtime/graph_agent_team.py",
         ".ai-harness/engine.py"
@@ -62,7 +62,7 @@
     },
     {
       "id": "concurrency",
-      "status": "evidence_gated",
+      "status": "evidence-gated",
       "owner_files": [
         "portable/crew_adapters.py",
         "portable/state_graph.py"
@@ -83,7 +83,7 @@
     },
     {
       "id": "distributed_systems",
-      "status": "operator_controlled",
+      "status": "operator-controlled",
       "owner_files": [
         "portable/state_graph.py",
         "portable/crew_adapters.py",
@@ -103,7 +103,7 @@
     },
     {
       "id": "reliability_recovery",
-      "status": "evidence_gated",
+      "status": "evidence-gated",
       "owner_files": [
         ".ai-harness/engine.py",
         "portable/crew_adapters.py",
@@ -125,7 +125,7 @@
     },
     {
       "id": "data_correctness",
-      "status": "evidence_gated",
+      "status": "evidence-gated",
       "owner_files": [
         "portable/state_paths.py",
         "portable/state_migration.py",
@@ -145,7 +145,7 @@
     },
     {
       "id": "api_integration",
-      "status": "evidence_gated",
+      "status": "evidence-gated",
       "owner_files": [
         "portable/identity_compat.py",
         "portable/state_graph.py",
@@ -165,7 +165,7 @@
     },
     {
       "id": "testing_verification",
-      "status": "evidence_gated",
+      "status": "evidence-gated",
       "owner_files": [
         "portable/orchestration.py",
         "portable/engineering_design_guard.py",
@@ -186,7 +186,7 @@
     },
     {
       "id": "delivery_operations",
-      "status": "evidence_gated",
+      "status": "evidence-gated",
       "owner_files": [
         "portable/execution_controller.py",
         "portable/decision_gate.py",
@@ -207,7 +207,7 @@
     },
     {
       "id": "observability_governance",
-      "status": "evidence_gated",
+      "status": "evidence-gated",
       "owner_files": [
         ".ai-harness/runtime/context_broker.py",
         ".ai-harness/engine.py"
@@ -226,7 +226,7 @@
     },
     {
       "id": "ai_autonomous_systems",
-      "status": "operator_controlled",
+      "status": "operator-controlled",
       "owner_files": [
         ".ai-harness/runtime/graph_agent_team.py",
         "portable/causal_capability_promotion.py"
@@ -262,13 +262,13 @@
       "boundary": "crew handoff queue and retry ledger",
       "consistency": "durable bounded local queue, idempotent handoff IDs, shared task retry budget, and persisted independent-review receipts; replay is at-least-once at the orchestration boundary",
       "cap_pacelc": "No transport-level exactly-once side effects are claimed. External tools must supply idempotency keys or compensation; multi-node queue publication requires a transactional outbox/inbox or equivalent.",
-      "status": "evidence_gated"
+      "status": "evidence-gated"
     },
     {
       "boundary": "evidence and promotion receipts",
       "consistency": "digest-bound canonical JSON receipts tied to intent and source snapshot; promotion requires verified evidence and authorized decision records",
       "cap_pacelc": "Authoritative evidence/promotion state is consistency-first. During a partition, block promotion rather than accepting stale or conflicting receipts; replicas/quorum are not implemented in the local runtime.",
-      "status": "evidence_gated"
+      "status": "evidence-gated"
     },
     {
       "boundary": "remote tools and providers",
