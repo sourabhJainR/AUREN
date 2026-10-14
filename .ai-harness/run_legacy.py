@@ -166,9 +166,9 @@ def optimized_build_prompt(phase, task, source, jira, route, repo_map, memory, p
     return prompt + anchor + f"\n## Knowledge fabric\nSources: {sources}\n{knowledge}\n\n## IO-aware context\n{metadata}\n"
 
 
-def strict_run_validation(config: dict, run_dir: Path):
+def strict_run_validation(config: dict, run_dir: Path, *, deadline_at: str | None = None):
     """Do not turn absence of discovered tests into a successful verification result."""
-    passed, results = _original_run_validation(config, run_dir)
+    passed, results = _original_run_validation(config, run_dir, deadline_at=deadline_at)
     if results:
         return passed, results
     commands = verification_gate.discover_commands()
@@ -180,7 +180,7 @@ def strict_run_validation(config: dict, run_dir: Path):
     strict_config = copy.deepcopy(config)
     strict_config.setdefault("validation", {})["commands"] = commands
     strict_config["validation"]["auto_discover"] = False
-    return _original_run_validation(strict_config, run_dir)
+    return _original_run_validation(strict_config, run_dir, deadline_at=deadline_at)
 
 
 def _emit_work_report(args, manifest: dict, code: int, route: str) -> None:

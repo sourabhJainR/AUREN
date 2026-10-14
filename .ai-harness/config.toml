@@ -42,6 +42,7 @@ command = []
 supports_local_execution = false
 
 [execution]
+task_deadline_seconds = 3600
 phase_timeout_seconds = 600
 provider_timeout_seconds = 600
 validation_timeout_seconds = 600
