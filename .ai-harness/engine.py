@@ -567,7 +567,7 @@ def phases_for(route: dict[str, Any], workflow: str | None, config: dict[str, An
     return list(dict.fromkeys(phases))
 
 
-def run_validation(config: dict[str, Any], run_dir: Path):
+def run_validation(config: dict[str, Any], run_dir: Path, *, deadline_at: str | None = None):
     commands = []
     for item in config.get("validation", {}).get("commands", []):
         if isinstance(item, list) and all(isinstance(part, str) for part in item): commands.append(item)
@@ -586,11 +586,20 @@ def run_validation(config: dict[str, Any], run_dir: Path):
         for command in commands[:5]:
             stream.write(f"$ {shlex.join(command)}\n")
             start = time.monotonic()
+            timeout = int(config["execution"]["validation_timeout_seconds"])
+            if deadline_at is not None:
+                remaining = deadline_remaining_seconds(deadline_at)
+                if remaining <= 0:
+                    results.append({"command": command, "status": "deadline_exceeded", "exit_code": 124, "duration_seconds": 0.0})
+                    return False, results
+                timeout = min(timeout, max(1, int(remaining)))
             try:
-                result = subprocess.run(command, cwd=ROOT, stdout=stream, stderr=subprocess.STDOUT, text=True, check=False, timeout=int(config["execution"]["validation_timeout_seconds"]))
+                result = subprocess.run(command, cwd=ROOT, stdout=stream, stderr=subprocess.STDOUT, text=True, check=False, timeout=timeout)
                 code = result.returncode; status = "passed" if code == 0 else "failed"
             except subprocess.TimeoutExpired:
                 code = 124; status = "timeout"
+            if deadline_at is not None and deadline_remaining_seconds(deadline_at) <= 0:
+                code = 124; status = "deadline_exceeded"
             results.append({"command": command, "status": status, "exit_code": code, "duration_seconds": round(time.monotonic() - start, 3)})
             if code != 0: return False, results
     return True, results
