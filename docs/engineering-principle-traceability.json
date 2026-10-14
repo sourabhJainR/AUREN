@@ -1,0 +1,280 @@
+{
+  "schema_version": "auren-engineering-principle-traceability-v1",
+  "generated_from": "reviewed repository owners and focused test suites; statuses are conservative and include remaining gaps",
+  "families": [
+    {
+      "id": "fundamental_design",
+      "status": "evidence_gated",
+      "owner_files": [
+        "portable/engineering_design_guard.py",
+        "portable/orchestration.py"
+      ],
+      "test_files": [
+        "tests/test_engineering_design_guard.py",
+        "tests/test_orchestration_engineering_guard.py"
+      ],
+      "enforced_controls": [
+        "risk-aware design review receipt",
+        "final verification requires exact intent and source-snapshot binding when enabled"
+      ],
+      "remaining_gaps": [
+        "independent reviewer receipt is not auto-produced by the default runtime",
+        "coverage of every design dimension remains task-dependent"
+      ]
+    },
+    {
+      "id": "security_privacy",
+      "status": "evidence_gated",
+      "owner_files": [
+        "portable/decision_gate.py",
+        "portable/execution_controller.py"
+      ],
+      "test_files": [
+        "tests/test_execution_controller_promotion_gate.py",
+        "tests/test_engineering_design_guard.py"
+      ],
+      "enforced_controls": [
+        "consequential handlers require verified_for_scope or stronger promotion",
+        "decision records and high-risk design findings fail closed"
+      ],
+      "remaining_gaps": [
+        "live host tool adapters and operator approval wiring must be configured and rehearsed"
+      ]
+    },
+    {
+      "id": "performance_cost",
+      "status": "operator_controlled",
+      "owner_files": [
+        ".ai-harness/runtime/graph_agent_team.py",
+        ".ai-harness/engine.py"
+      ],
+      "test_files": [
+        "tests/test_graph_agent_team.py",
+        "tests/test_context_broker.py"
+      ],
+      "enforced_controls": [
+        "bounded per-node runtime timeout and resource budget context"
+      ],
+      "remaining_gaps": [
+        "measured p95/p99 latency and per-workflow cost budgets are not universally enforced",
+        "benchmark evidence is required before performance claims"
+      ]
+    },
+    {
+      "id": "concurrency",
+      "status": "evidence_gated",
+      "owner_files": [
+        "portable/crew_adapters.py",
+        "portable/state_graph.py"
+      ],
+      "test_files": [
+        "tests/test_crew_adapters.py",
+        "tests/test_graph_agent_team_crew_dispatch.py"
+      ],
+      "enforced_controls": [
+        "thread-safe handoff controller",
+        "bounded pending queue",
+        "monotonic retry-budget merge",
+        "versioned independent-review receipt"
+      ],
+      "remaining_gaps": [
+        "cross-process lease/fencing is not implemented for multiple supervisors sharing state"
+      ]
+    },
+    {
+      "id": "distributed_systems",
+      "status": "operator_controlled",
+      "owner_files": [
+        "portable/state_graph.py",
+        "portable/crew_adapters.py",
+        "portable/state_paths.py"
+      ],
+      "test_files": [
+        "tests/test_crew_adapters.py",
+        "tests/test_state_migration.py"
+      ],
+      "enforced_controls": [
+        "single-writer local checkpoint model",
+        "stable handoff idempotency keys and digest-bound receipts"
+      ],
+      "remaining_gaps": [
+        "no distributed quorum/consensus, transactional outbox/inbox, or saga compensation is claimed for current file-backed runtime"
+      ]
+    },
+    {
+      "id": "reliability_recovery",
+      "status": "evidence_gated",
+      "owner_files": [
+        ".ai-harness/engine.py",
+        "portable/crew_adapters.py",
+        "portable/state_migration.py"
+      ],
+      "test_files": [
+        "tests/test_crew_adapters.py",
+        "tests/test_state_migration.py",
+        "tests/test_graph_agent_team_crew_dispatch.py"
+      ],
+      "enforced_controls": [
+        "checkpoint integrity checks",
+        "bounded retries and queue",
+        "resume preserves retry charges and review receipts"
+      ],
+      "remaining_gaps": [
+        "single task deadline across supervisor and graph, structured cancellation, and fault-injection coverage remain incomplete"
+      ]
+    },
+    {
+      "id": "data_correctness",
+      "status": "evidence_gated",
+      "owner_files": [
+        "portable/state_paths.py",
+        "portable/state_migration.py",
+        "portable/engineering_design_guard.py"
+      ],
+      "test_files": [
+        "tests/test_state_migration.py",
+        "tests/test_engineering_design_guard.py"
+      ],
+      "enforced_controls": [
+        "migration staging and checksum/count verification",
+        "canonical checkpoint schema and tamper detection"
+      ],
+      "remaining_gaps": [
+        "file-backed state does not provide cross-store ACID transactions; conflict/rollback rehearsal remains deployment-specific"
+      ]
+    },
+    {
+      "id": "api_integration",
+      "status": "evidence_gated",
+      "owner_files": [
+        "portable/identity_compat.py",
+        "portable/state_graph.py",
+        "portable/crew_adapters.py"
+      ],
+      "test_files": [
+        "tests/test_identity_compat.py",
+        "tests/test_crew_adapters.py"
+      ],
+      "enforced_controls": [
+        "canonical-first environment compatibility",
+        "version-bound crew contracts and structured review receipts"
+      ],
+      "remaining_gaps": [
+        "real provider/tool adapters are operator registered; compatibility aliases require a complete inventory and retirement plan"
+      ]
+    },
+    {
+      "id": "testing_verification",
+      "status": "evidence_gated",
+      "owner_files": [
+        "portable/orchestration.py",
+        "portable/engineering_design_guard.py",
+        ".ai-harness/engine.py"
+      ],
+      "test_files": [
+        "tests/test_orchestration_engineering_guard.py",
+        "tests/test_engineering_design_guard.py",
+        "tests/test_contract_alignment.py"
+      ],
+      "enforced_controls": [
+        "exact workspace snapshot comparison before/after validation",
+        "high-risk final principle receipt validation"
+      ],
+      "remaining_gaps": [
+        "the external verifier must supply authentic evidence refs; repository CI does not prove external isolation or holdout independence"
+      ]
+    },
+    {
+      "id": "delivery_operations",
+      "status": "evidence_gated",
+      "owner_files": [
+        "portable/execution_controller.py",
+        "portable/decision_gate.py",
+        ".ai-harness/engine.py"
+      ],
+      "test_files": [
+        "tests/test_execution_controller_promotion_gate.py",
+        "tests/test_execution_controller_promotion_gate.py"
+      ],
+      "enforced_controls": [
+        "verified promotion threshold for consequential handlers",
+        "rollback/evidence checks in decision gate",
+        "source snapshot must match tested revision"
+      ],
+      "remaining_gaps": [
+        "operator-level deployment, migration rollback, and last-known-good rehearsal are not inferable from repository tests"
+      ]
+    },
+    {
+      "id": "observability_governance",
+      "status": "evidence_gated",
+      "owner_files": [
+        ".ai-harness/runtime/context_broker.py",
+        ".ai-harness/engine.py"
+      ],
+      "test_files": [
+        "tests/test_context_broker.py",
+        "tests/test_contract_alignment.py"
+      ],
+      "enforced_controls": [
+        "bounded context/telemetry envelope",
+        "task manifest records phase, validation, and revision evidence"
+      ],
+      "remaining_gaps": [
+        "separate liveness/readiness endpoints and universal SLO/error-budget enforcement remain unimplemented"
+      ]
+    },
+    {
+      "id": "ai_autonomous_systems",
+      "status": "operator_controlled",
+      "owner_files": [
+        ".ai-harness/runtime/graph_agent_team.py",
+        "portable/causal_capability_promotion.py"
+      ],
+      "test_files": [
+        "tests/test_graph_agent_team.py",
+        "tests/test_graph_agent_team_crew_dispatch.py"
+      ],
+      "enforced_controls": [
+        "crew proposals bound to graph/plan digests",
+        "high-risk principle evidence gate",
+        "bounded retries and authority checks"
+      ],
+      "remaining_gaps": [
+        "independent Arena campaign, external evaluator/oracle, sealed corpus, and cross-domain transfer receipts require external infrastructure and operator evidence"
+      ]
+    }
+  ],
+  "deployment_decisions": [
+    {
+      "boundary": "episodic/semantic/engineering memory",
+      "consistency": "local single-writer file-backed state; use atomic replacement/checkpoint digests where implemented; no distributed replication guarantee",
+      "cap_pacelc": "CAP is not applicable to the current single-process deployment. If shared across nodes, choose a transactional/consensus-backed store before enabling concurrent writers; consistency takes priority over availability for authoritative memory updates.",
+      "status": "operator-controlled"
+    },
+    {
+      "boundary": "task ownership and supervisor checkpoints",
+      "consistency": "one authoritative supervisor writes a task checkpoint; digests and run/intent/plan identity reject stale state, but there is no distributed lease/fencing token yet",
+      "cap_pacelc": "Do not run competing supervisors against the same state root. A distributed deployment must add leases plus monotonically increasing fencing generations; reject stale-owner commits even during partitions.",
+      "status": "operator-controlled"
+    },
+    {
+      "boundary": "crew handoff queue and retry ledger",
+      "consistency": "durable bounded local queue, idempotent handoff IDs, shared task retry budget, and persisted independent-review receipts; replay is at-least-once at the orchestration boundary",
+      "cap_pacelc": "No transport-level exactly-once side effects are claimed. External tools must supply idempotency keys or compensation; multi-node queue publication requires a transactional outbox/inbox or equivalent.",
+      "status": "evidence_gated"
+    },
+    {
+      "boundary": "evidence and promotion receipts",
+      "consistency": "digest-bound canonical JSON receipts tied to intent and source snapshot; promotion requires verified evidence and authorized decision records",
+      "cap_pacelc": "Authoritative evidence/promotion state is consistency-first. During a partition, block promotion rather than accepting stale or conflicting receipts; replicas/quorum are not implemented in the local runtime.",
+      "status": "evidence_gated"
+    },
+    {
+      "boundary": "remote tools and providers",
+      "consistency": "provider/adapter-owned timeout, retries, and effect semantics; proposal adapters do not imply execution authority",
+      "cap_pacelc": "PACELC latency/consistency trade-offs are provider-specific. AUREN does not promise exactly-once remote effects; use per-operation idempotency keys and explicit compensation for multi-step effects.",
+      "status": "operator-controlled"
+    }
+  ]
+}
