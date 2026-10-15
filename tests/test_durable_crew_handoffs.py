@@ -73,7 +73,8 @@ class DurableHandoffLedgerTests(unittest.TestCase):
             self.assertEqual(path.read_bytes(), durable_bytes)
             self.assertEqual(list(Path(tmp).glob(".queue.json.*.tmp")), [])
             resumed = DurableHandoffLedger(path)
-            self.assertEqual([record["handoff_id"] for record in resumed.records], ["durable-1"])
+            self.assertEqual(resumed.get("durable-1")["state"], "queued")
+            self.assertIsNone(resumed.get("not-durable"))
 
     def test_cross_crew_and_capacity_contracts(self):
         with tempfile.TemporaryDirectory() as tmp:
