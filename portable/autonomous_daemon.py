@@ -115,7 +115,12 @@ class PersistentSupervisorDaemon:
             # Short sleep slices keep stop/cancel signals responsive even when
             # the configured checkpoint interval is long. This is an iterative
             # loop, not recursive retry; failure budgets guarantee termination.
-            remaining = interval
+            # Reuse the controller's durable quota schedule. If a provider
+            # supplied a reset time sooner than the regular health cadence, wake
+            # at that deadline; otherwise remain in low-cost local sleep. No model
+            # call is made by this timer calculation.
+            quota_delay = self.controller.seconds_until_quota_due()
+            remaining = min(interval, max(1.0, quota_delay)) if quota_delay is not None else interval
             while remaining > 0:
                 if stop is not None and stop():
                     return
