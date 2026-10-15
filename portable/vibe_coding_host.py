@@ -985,6 +985,35 @@ class IndependentReviewTool:
         return result
 
 
+class MCPIndependentReviewTool:
+    """Require an explicit reviewer identity and bind it against the implementation provider."""
+
+    def __init__(self, delegate: Any, *, author_provider: str) -> None:
+        if not callable(delegate) or not author_provider.strip():
+            raise ValueError("independent review delegate and author identity are required")
+        self.delegate = delegate
+        self.author_provider = author_provider
+
+    def __call__(self, request: Mapping[str, Any]) -> Mapping[str, Any]:
+        raw = self.delegate(request)
+        if not isinstance(raw, Mapping):
+            raise AdapterUnavailable("independent review MCP tool returned no structured receipt")
+        result = dict(raw)
+        for field in ("reviewer", "review_summary", "status", "blocking_findings"):
+            if field not in result or result[field] is None:
+                raise AdapterUnavailable(f"independent review MCP tool omitted required field: {field}")
+        reviewer = str(result["reviewer"]).strip()
+        if not reviewer or reviewer.casefold().removeprefix("provider:") == self.author_provider.casefold().removeprefix("provider:"):
+            raise AdapterUnavailable("independent reviewer identity must differ from the implementation provider")
+        result["author"] = f"provider:{self.author_provider}"
+        result["reviewer"] = reviewer
+        result["evidence"] = list(result.get("evidence", [])) + [{
+            "source": "independent-review-mcp",
+            "locator": f"mcp://independent-review/{reviewer}",
+        }]
+        return result
+
+
 class LocalBrowserTool:
     """A truthful no-browser-surface receipt; actual browser QA must be MCP-configured."""
 
@@ -1343,6 +1372,10 @@ class LocalVibeCodingHost:
                 timeout_seconds=int(spec.get("timeout_seconds", 30)),
                 env_allowlist=tuple(spec.get("env_allowlist", self.config.env_allowlist)),
             )
+        if "independent_review" in self.config.mcp_tools:
+            tools["independent_review"] = MCPIndependentReviewTool(
+                tools["independent_review"], author_provider=agent.provider
+            )
         if self.config.reviewer_provider and "independent_review" not in self.config.mcp_tools:
             reviewer = ProviderCliAgent(
                 provider=self.config.reviewer_provider, allow_workspace_writes=False,
@@ -1440,6 +1473,6 @@ __all__ = [
     "DurableVibeCheckpointStore", "IndependentReviewTool", "IsolatedGitWorktree",
     "JournaledToolAdapter", "LocalAccessibilityTool", "LocalBrowserTool", "LocalDesignTool",
     "LocalProjectTool", "LocalSecurityTool", "LocalTestExecutionTool", "LocalVibeCodingHost",
-    "MCPStdioToolAdapter", "MemoizedToolAdapter", "ProviderCliAgent", "SideEffectJournal",
+    "MCPIndependentReviewTool", "MCPStdioToolAdapter", "MemoizedToolAdapter", "ProviderCliAgent", "SideEffectJournal",
     "VerifiedResearchTool", "VibeHostConfig", "load_host_config",
 ]
