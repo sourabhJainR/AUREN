@@ -36,6 +36,17 @@ def _normal_target(value: str) -> str:
     return "" if normalized == "." and not value.strip() else normalized.rstrip("/")
 
 
+def _matches_protected_target(target: str, root: str) -> bool:
+    target_parts = tuple(part for part in _normal_target(target).strip("/").split("/") if part and part != ".")
+    root_parts = tuple(part for part in _normal_target(root).strip("/").split("/") if part and part != ".")
+    if not root_parts:
+        return False
+    return any(
+        target_parts[index:index + len(root_parts)] == root_parts
+        for index in range(max(0, len(target_parts) - len(root_parts) + 1))
+    )
+
+
 def _result_digest(result: Any) -> str:
     payload = json.dumps(
         {"type": type(result).__name__, "value": result},
@@ -165,8 +176,7 @@ class ActionGovernanceGateway:
         fingerprint = request.fingerprint()
         protected = _normal_target(request.target)
         protected_hit = any(
-            protected == _normal_target(root)
-            or protected.startswith(_normal_target(root) + "/")
+            _matches_protected_target(protected, root)
             for root in self._policy.protected_targets
         )
         needs_approval = (
