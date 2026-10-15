@@ -151,6 +151,8 @@ def validate_stage_output(stage: VibeStage, output: Any) -> tuple[bool, str]:
 
 def build_vibe_coding_graph(
     handlers: Mapping[str | VibeStage, Callable[[Mapping[str, Any]], Mapping[str, Any]]],
+    *,
+    checkpoint_writer: Callable[[Mapping[str, Any]], None] | None = None,
 ) -> Graph:
     """Build AUREN's canonical 18-stage graph around caller-supplied handlers.
 
@@ -182,6 +184,13 @@ def build_vibe_coding_graph(
 
         def run_stage(state: Mapping[str, Any], *, _stage: VibeStage = stage,
                       _handler: Callable[[Mapping[str, Any]], Mapping[str, Any]] = normalized[stage]) -> Mapping[str, Any]:
+            raw_checkpoint = state.get("vibe_coding_checkpoint")
+            if raw_checkpoint is not None:
+                checkpoint = VibeCodingCheckpoint.resume(raw_checkpoint)
+                if _stage.value in checkpoint.completed:
+                    # A resumed stage returns its validated receipt; its side
+                    # effects are never replayed just because the process restarted.
+                    return dict(checkpoint.outputs[_stage.value])
             if _stage == VibeStage.PRODUCTION_DEPLOY:
                 disabled = state.get("production_deployment_required") is False
                 if disabled:
@@ -215,7 +224,25 @@ def build_vibe_coding_graph(
                 raise ValueError(f"{_stage.value} stage gate failed: {reason}")
             # Copy the returned envelope so later handler mutation cannot change
             # the evidence already consumed by dependent stages.
-            return json.loads(json.dumps(dict(result), sort_keys=True, allow_nan=False))
+            frozen_result = json.loads(json.dumps(dict(result), sort_keys=True, allow_nan=False))
+            if checkpoint_writer is not None or isinstance(state, dict):
+                completed_outputs: dict[str, Mapping[str, Any]] = {}
+                for prior_stage in STAGE_ORDER[:STAGE_ORDER.index(_stage)]:
+                    prior_output = state.get(prior_stage.value)
+                    if not isinstance(prior_output, Mapping):
+                        raise ValueError(f"cannot checkpoint {_stage.value}: prior stage {prior_stage.value} has no output")
+                    completed_outputs[prior_stage.value] = dict(prior_output)
+                completed_outputs[_stage.value] = frozen_result
+                receipt = VibeCodingCheckpoint(
+                    workflow_id=str(state.get("vibe_coding_workflow_id") or state.get("task_id") or "vibe-coding"),
+                    completed=tuple(item.value for item in STAGE_ORDER[:STAGE_ORDER.index(_stage) + 1]),
+                    outputs=completed_outputs,
+                ).snapshot()
+                if isinstance(state, dict):
+                    state["vibe_coding_checkpoint"] = receipt
+                if checkpoint_writer is not None:
+                    checkpoint_writer(receipt)
+            return frozen_result
 
         nodes.append(Node(
             name=stage.value,
