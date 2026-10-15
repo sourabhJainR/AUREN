@@ -776,9 +776,16 @@ class ExecutionController:
             )
             if cursor.rowcount != 1:
                 raise LeaseLostError("task lease was lost while recording provider quota wait")
-        self._capture_event("task_quota_wait" if not blocked else "task_quota_blocked", task,
-                            status=state, metadata={"provider": provider[:100], "quota_attempts": quota_attempts,
-                            "next_retry_at": retry_at.isoformat() if retry_at and not blocked else None})
+        self._capture_event(
+            "task_quota_wait" if not blocked else "task_quota_blocked", task,
+            status=state,
+            metadata={
+                "phase": "quota_recovery",
+                "external_system": provider[:100] or "unknown",
+                "result_category": state,
+                "retry_action": "wait_until_reset" if not blocked else "operator_action_required",
+            },
+        )
         self.company.record(task.work_unit_id, "execution", state, detail,
                             (f"handler:{task.handler}", f"provider:{provider[:100]}"))
         self.company._transition(task.work_unit_id, "waiting_external")
