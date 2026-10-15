@@ -59,5 +59,34 @@ class RuntimeExecutionGuardTests(unittest.TestCase):
             resumed.check()
 
 
+
+    def test_absolute_deadline_expires_during_downtime(self):
+        import time
+        from portable.runtime_recovery import _digest
+        guard = RuntimeExecutionGuard(deadline_seconds=30)
+        snapshot = guard.snapshot()
+        snapshot["deadline_unix"] = time.time() - 1
+        payload = {key: value for key, value in snapshot.items() if key != "digest"}
+        snapshot["digest"] = _digest(payload)
+        resumed = RuntimeExecutionGuard.resume(snapshot)
+        self.assertTrue(resumed.cancellation_event.is_set())
+        with self.assertRaises(ExecutionBudgetExceeded):
+            resumed.check()
+
+    def test_deadline_checkpoint_without_absolute_expiry_fails_closed(self):
+        from portable.runtime_recovery import _digest
+        guard = RuntimeExecutionGuard(deadline_seconds=30)
+        snapshot = guard.snapshot()
+        snapshot.pop("deadline_unix")
+        payload = {key: value for key, value in snapshot.items() if key != "digest"}
+        snapshot["digest"] = _digest(payload)
+        with self.assertRaisesRegex(ValueError, "lacks absolute deadline"):
+            RuntimeExecutionGuard.resume(snapshot)
+
+    def test_non_finite_or_boolean_deadlines_are_rejected(self):
+        for value in (float("nan"), float("inf"), True):
+            with self.assertRaisesRegex(ValueError, "finite positive"):
+                RuntimeExecutionGuard(deadline_seconds=value)
+
 if __name__ == "__main__":
     unittest.main()
