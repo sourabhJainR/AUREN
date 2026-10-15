@@ -9,6 +9,7 @@ from .agency_multi_specialist import SpecialistResourceProfile, build_specialist
 from .agency_provenance import ProvenanceLedger
 from .agency_release import ReleaseDecision, decide_release
 from .agency_runtime import Assignment, ExecutionResult, TaskProfile, execute
+from .action_governance import ActionGovernanceGateway, ActionRequest, ApprovalReceipt
 
 @dataclass(frozen=True)
 class CodingTask:
@@ -49,7 +50,7 @@ def _build_codebase_context(task:CodingTask)->CodebaseContext|None:
     if not task.workspace_root: return None
     return retrieve_from_path(task.workspace_root,task.context_query or task.goal,token_budget=task.context_token_budget,max_files=task.context_max_files,graph_hops=task.context_graph_hops)
 
-def run_coding_task(task:CodingTask,worker:Callable[[TaskProfile,list[Assignment]],Mapping[str,object]],*,baseline_artifacts:Iterable[ArtifactSnapshot]=(),current_artifacts:Iterable[ArtifactSnapshot]=(),resource_profiles:Mapping[str,SpecialistResourceProfile]|None=None,benchmark_history:BenchmarkHistory|Iterable=(),registry:Mapping[str,object]|None=None,rubric:Mapping[str,object]|None=None)->OrchestratorRun:
+def run_coding_task(task:CodingTask,worker:Callable[[TaskProfile,list[Assignment]],Mapping[str,object]],*,baseline_artifacts:Iterable[ArtifactSnapshot]=(),current_artifacts:Iterable[ArtifactSnapshot]=(),resource_profiles:Mapping[str,SpecialistResourceProfile]|None=None,benchmark_history:BenchmarkHistory|Iterable=(),registry:Mapping[str,object]|None=None,rubric:Mapping[str,object]|None=None,governance_gateway:ActionGovernanceGateway|None=None,approval_provider:Callable[[ActionRequest],ApprovalReceipt|None]|None=None,run_id:str|None=None)->OrchestratorRun:
     """Run profile -> adaptive plan -> graph context -> specialists -> verify -> regression -> release -> benchmark."""
     history=benchmark_history if isinstance(benchmark_history,BenchmarkHistory) else BenchmarkHistory(list(benchmark_history))
     recommendation=recommend_plan(history,requested_mutation_mode=task.mutation_mode,requested_support_limit=task.support_limit)
@@ -57,7 +58,77 @@ def run_coding_task(task:CodingTask,worker:Callable[[TaskProfile,list[Assignment
     effective_task=replace(task,mutation_mode=mutation_mode,support_limit=support_limit)
     codebase_context=_build_codebase_context(effective_task)
     profile=TaskProfile(task_id=effective_task.task_id,request=effective_task.goal,artifact_type="code",risk=effective_task.risk,mutation_mode=effective_task.mutation_mode,acceptance=effective_task.acceptance,technologies=effective_task.technologies,context=codebase_context)
-    execution=execute(profile,worker,registry=registry,rubric=rubric,support_limit=effective_task.support_limit)
+    effective_worker = worker
+    if governance_gateway is not None:
+        if not isinstance(run_id, str) or not run_id.strip():
+            raise ValueError("run_id is required when governance gateway is enabled")
+
+        def effective_worker(task_profile: TaskProfile, assignments: list[Assignment]) -> Mapping[str, object]:
+            mutating = task_profile.mutation_mode != "read-only"
+            capability = "repository.write" if mutating else "repository.read"
+            risk_class = "write" if mutating else "read"
+            targets = tuple(effective_task.allowed_artifact_changes) if mutating else (effective_task.task_id,)
+            if mutating and not targets:
+                return {
+                    "deliverables": [], "verification": [],
+                    "dimensions": {}, "hard_gates": {"action_governance": False},
+                    "findings": ["action_governance:explicit_write_scope_missing"],
+                    "evidence": [],
+                }
+
+            protected = tuple(str(path).replace("\\", "/").strip("/") for path in effective_task.protected_paths)
+            checked: list[tuple[ActionRequest, ApprovalReceipt | None]] = []
+            for index, target in enumerate(targets):
+                normalized_target = str(target).replace("\\", "/").strip("/")
+                if mutating and any(
+                    normalized_target == root
+                    or normalized_target.startswith(root + "/")
+                    or root.startswith(normalized_target + "/")
+                    for root in protected
+                ):
+                    return {
+                        "deliverables": [], "verification": [],
+                        "dimensions": {}, "hard_gates": {"action_governance": False},
+                        "findings": ["action_governance:task_protected_path"],
+                        "evidence": [],
+                    }
+                request = ActionRequest(
+                    run_id=run_id,
+                    action_id=f"{effective_task.task_id}:coding-worker:{index}",
+                    actor="auren-host",
+                    capability=capability,
+                    action="specialist.execute",
+                    target=str(target),
+                    risk=risk_class,
+                )
+                approval = approval_provider(request) if approval_provider else None
+                verdict = governance_gateway.evaluate(request, approval=approval)
+                if not verdict.allowed:
+                    return {
+                        "deliverables": [], "verification": [],
+                        "dimensions": {}, "hard_gates": {"action_governance": False},
+                        "findings": [f"action_governance:{verdict.reason}"],
+                        "evidence": [],
+                    }
+                checked.append((request, approval))
+
+            request, approval = checked[0]
+            captured: list[Mapping[str, object]] = []
+            result = governance_gateway.execute(
+                request,
+                lambda: captured.append(worker(task_profile, assignments)) or captured[-1],
+                approval=approval,
+            )
+            if not result.executed or not captured:
+                return {
+                    "deliverables": [], "verification": [],
+                    "dimensions": {}, "hard_gates": {"action_governance": False},
+                    "findings": [f"action_governance:{result.verdict.reason}"],
+                    "evidence": [],
+                }
+            return captured[0]
+
+    execution=execute(profile,effective_worker,registry=registry,rubric=rubric,support_limit=effective_task.support_limit)
     execution_plan=build_specialist_plan(execution.assignments,resource_profiles)
     provenance=ProvenanceLedger(); provenance.append(task.task_id,"task-profiled",task.goal); provenance.append(task.task_id,"adaptive-recommendation",str(recommendation.as_dict()))
     if codebase_context:
