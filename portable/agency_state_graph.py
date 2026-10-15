@@ -378,7 +378,11 @@ class CompiledStateGraph:
                 if cancellation and cancellation.is_set():
                     self._checkpoint(checkpoint, run_id, step - 1, current, next_nodes, trace)
                     return GraphRun(run_id, dict(current), tuple(events), tuple(trace), step - 1, True)
-                results_by_name[name] = self._run_node_with_timeout(name, snapshot, node_timeout_seconds, cancellation_event, guard, f"{run_id}:{step}:{name}")
+                try:
+                    results_by_name[name] = self._run_node_with_timeout(name, snapshot, node_timeout_seconds, cancellation_event, guard, f"{run_id}:{step}:{name}")
+                except BaseException:
+                    self._checkpoint(checkpoint, run_id, step - 1, current, next_nodes, trace, guard)
+                    raise
             if cancellation_event.is_set():
                 self._checkpoint(checkpoint, run_id, step - 1, current, next_nodes, trace)
                 return GraphRun(run_id, dict(current), tuple(events), tuple(trace), step - 1, True)
@@ -439,14 +443,13 @@ class CompiledStateGraph:
                     return dict(output), attempt
                 except BaseException as exc:
                     last = exc
-                    if guard is not None:
-                        try:
-                            guard.observe_failure(node=name, state=state, error=exc)
-                        except NoProgressDetected:
-                            raise
+                    terminal_failure = attempt >= policy.max_attempts or not policy.allows(exc)
+                    if guard is not None and terminal_failure:
+                        guard.observe_failure(node=name, state=state, error=exc)
                     if cancellation is not None and cancellation.is_set():
                         raise TimeoutError(f"node {name} cancelled") from exc
-                    if attempt >= policy.max_attempts or not policy.allows(exc): raise
+                    if terminal_failure:
+                        raise
             assert last is not None
             raise last
         finally:
