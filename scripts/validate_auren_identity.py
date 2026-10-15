@@ -37,6 +37,7 @@ LEGACY_ALLOWED = {
     "tests/portable/test_adaptive_learning.py",
     "tests/test_graph_agent_evidence_decision.py",
     "tests/test_state_migration.py",
+    "tests/test_state_migration_plan.py",
 }
 LEGACY_ALLOWED_RATIONALE = {
     "docs/LEGACY_NAME_COMPATIBILITY.md": "Normative migration boundary: documents exactly which historical names remain accepted and where they may be used.",
@@ -58,7 +59,8 @@ LEGACY_ALLOWED_RATIONALE = {
     "tests/test_adaptive_runtime_recovery_integration.py": "Recovery fixtures exercise loading and resuming historical persisted state.",
     "tests/portable/test_adaptive_learning.py": "Learning compatibility fixtures preserve historical state labels for regression coverage.",
     "tests/test_graph_agent_evidence_decision.py": "Evidence-decision tests use legacy identifiers to prove fail-closed migration behavior.",
-    "tests/test_state_migration.py": "Dedicated migration tests intentionally include legacy state files and keys."
+    "tests/test_state_migration.py": "Dedicated migration tests intentionally include legacy state files and keys.",
+    "tests/test_state_migration_plan.py": "Read-only migration preflight fixtures use the legacy .aer root to verify that planned copies and conflicts are reported without mutation."
 }
 LEGACY_ALLOWED_LINE_RATIONALE = {
     "portable/engineering_dashboard.py": "Only the documented legacy state-root marker is retained for dashboard compatibility; new state writes use the canonical root.",
