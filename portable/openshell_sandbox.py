@@ -11,6 +11,8 @@ from hashlib import sha256
 import math
 import os
 from pathlib import Path
+import json
+import tempfile
 import re
 import shutil
 import subprocess
@@ -20,6 +22,23 @@ from uuid import uuid4
 
 
 _NAME = re.compile(r"^[a-z0-9][a-z0-9-]{0,40}$")
+
+
+def _workspace_digest(root: Path) -> str:
+    entries: list[list[str | int]] = []
+    for path in sorted(root.rglob("*"), key=lambda item: item.relative_to(root).as_posix()):
+        if path.is_symlink():
+            raise ValueError("curated workspace must not contain symlinks")
+        relative = path.relative_to(root).as_posix()
+        if path.is_dir():
+            entries.append([relative, "directory"])
+        elif path.is_file():
+            data = path.read_bytes()
+            entries.append([relative, len(data), sha256(data).hexdigest()])
+        else:
+            raise ValueError("workspace contains an unsupported filesystem entry")
+    canonical = json.dumps(entries, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return sha256(canonical).hexdigest()
 
 
 class OpenShellUnavailableError(RuntimeError):
@@ -73,13 +92,15 @@ class OpenShellExecutionResult:
     timed_out: bool
     duration_seconds: float
     policy_digest: str
+    workspace_digest: str
+    workspace_stable: bool
     stdout: str
     stderr: str
     cleanup_attempted: bool = False
 
     @property
     def passed(self) -> bool:
-        return self.exit_code == 0 and not self.timed_out
+        return self.exit_code == 0 and not self.timed_out and self.workspace_stable
 
     def as_evidence(self) -> dict[str, Any]:
         """Return a low-leakage receipt suitable for AUREN's evidence graph."""
@@ -91,6 +112,8 @@ class OpenShellExecutionResult:
             "passed": self.passed,
             "duration_seconds": round(self.duration_seconds, 6),
             "policy_digest": self.policy_digest,
+            "workspace_digest": self.workspace_digest,
+            "workspace_stable": self.workspace_stable,
             "stdout_digest": sha256(self.stdout.encode("utf-8", errors="replace")).hexdigest(),
             "stderr_digest": sha256(self.stderr.encode("utf-8", errors="replace")).hexdigest(),
             "stdout_bytes": len(self.stdout.encode("utf-8", errors="replace")),
@@ -123,56 +146,80 @@ class OpenShellSandboxBackend:
                 "OpenShell CLI is unavailable; refusing to execute this task on the host"
             )
         try:
-            policy_digest = sha256(policy.read_bytes()).hexdigest()
+            policy_bytes = policy.read_bytes()
+            if not policy_bytes.strip():
+                raise ValueError("OpenShell policy file must not be empty")
+            policy_digest = sha256(policy_bytes).hexdigest()
+            workspace_digest = _workspace_digest(workspace)
         except OSError as exc:
-            raise ValueError("OpenShell policy file could not be read") from exc
+            raise ValueError("OpenShell policy or workspace could not be read") from exc
 
         sandbox_name = f"{request.name_prefix}-{uuid4().hex[:12]}"
-        args: list[str] = [
-            executable, "sandbox", "create",
-            "--name", sandbox_name,
-            "--policy", str(policy),
-            "--upload", f"{workspace}:/workspace",
-            "--no-keep",
-        ]
-        for provider in request.providers:
-            args.extend(("--provider", provider))
-        args.extend(("--", *request.command))
-
         started = self._monotonic()
+        # Snapshot the exact policy bytes that are hashed and handed to the CLI,
+        # avoiding a mutable-path time-of-check/time-of-use gap.
+        with tempfile.TemporaryDirectory(prefix="auren-openshell-policy-") as policy_dir:
+            policy_snapshot = Path(policy_dir) / "policy.yaml"
+            policy_snapshot.write_bytes(policy_bytes)
+            os.chmod(policy_snapshot, 0o400)
+            args: list[str] = [
+                executable, "sandbox", "create",
+                "--name", sandbox_name,
+                "--policy", str(policy_snapshot),
+                "--upload", f"{workspace}:/workspace",
+                "--no-keep",
+            ]
+            for provider in request.providers:
+                args.extend(("--provider", provider))
+            args.extend(("--", *request.command))
+
+            try:
+                completed = self._runner(
+                    args,
+                    capture_output=True,
+                    text=True,
+                    timeout=float(request.timeout_seconds),
+                    check=False,
+                )
+                current_digest = self._current_workspace_digest(workspace)
+                stable = current_digest == workspace_digest
+                return OpenShellExecutionResult(
+                    sandbox_name=sandbox_name,
+                    exit_code=int(completed.returncode),
+                    timed_out=False,
+                    duration_seconds=max(0.0, self._monotonic() - started),
+                    policy_digest=policy_digest,
+                    workspace_digest=workspace_digest,
+                    workspace_stable=stable,
+                    stdout=self._text_output(getattr(completed, "stdout", "")),
+                    stderr=self._text_output(getattr(completed, "stderr", "")),
+                )
+            except subprocess.TimeoutExpired as exc:
+                cleaned = self._cleanup(executable, sandbox_name, request.timeout_seconds)
+                stable = self._current_workspace_digest(workspace) == workspace_digest
+                return OpenShellExecutionResult(
+                    sandbox_name=sandbox_name,
+                    exit_code=124,
+                    timed_out=True,
+                    duration_seconds=max(0.0, self._monotonic() - started),
+                    policy_digest=policy_digest,
+                    workspace_digest=workspace_digest,
+                    workspace_stable=stable,
+                    stdout=self._text_output(exc.stdout),
+                    stderr=self._text_output(exc.stderr),
+                    cleanup_attempted=cleaned,
+                )
+            except OSError as exc:
+                raise OpenShellUnavailableError(
+                    "OpenShell command could not be invoked; refusing host fallback"
+                ) from exc
+
+    @staticmethod
+    def _current_workspace_digest(workspace: Path) -> str:
         try:
-            completed = self._runner(
-                args,
-                capture_output=True,
-                text=True,
-                timeout=float(request.timeout_seconds),
-                check=False,
-            )
-            return OpenShellExecutionResult(
-                sandbox_name=sandbox_name,
-                exit_code=int(completed.returncode),
-                timed_out=False,
-                duration_seconds=max(0.0, self._monotonic() - started),
-                policy_digest=policy_digest,
-                stdout=self._text_output(getattr(completed, "stdout", "")),
-                stderr=self._text_output(getattr(completed, "stderr", "")),
-            )
-        except subprocess.TimeoutExpired as exc:
-            cleaned = self._cleanup(executable, sandbox_name, request.timeout_seconds)
-            return OpenShellExecutionResult(
-                sandbox_name=sandbox_name,
-                exit_code=124,
-                timed_out=True,
-                duration_seconds=max(0.0, self._monotonic() - started),
-                policy_digest=policy_digest,
-                stdout=self._text_output(exc.stdout),
-                stderr=self._text_output(exc.stderr),
-                cleanup_attempted=cleaned,
-            )
-        except OSError as exc:
-            raise OpenShellUnavailableError(
-                "OpenShell command could not be invoked; refusing host fallback"
-            ) from exc
+            return _workspace_digest(workspace)
+        except (OSError, ValueError):
+            return ""
 
     def _cleanup(self, executable: str, sandbox_name: str, timeout_seconds: float) -> bool:
         try:
