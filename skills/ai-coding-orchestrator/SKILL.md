@@ -77,10 +77,3 @@ On quota/rate-limit, persist task/checkpoint, honor Retry-After/reset, release t
 
 
 
-## Memory routing
-
-Use \`portable.memory_orchestrator.MemoryOrchestrator\` as the single routing facade. Reuse \`PersistentMemory\`, \`ContextGraph\`, \`ContextEngine\`, the existing context cache, task-memory ledger, \`DreamMemory\`, and \`ExecutionController\`; connect specialized owners through callbacks, never duplicate their stores or queues. Keep working/sensory state bounded and task-scoped, require approval for durable writes, preserve provenance, and fail closed when required context exceeds budget. Idle recall/metrics must not call a model.
-
-## Tests and coverage
-
-Use repository \`unittest\` conventions. Test routing, scope, TTL/eviction, provenance, hard budgets and callbacks. Passive DTO dataclasses may use class-level \`# pragma: no cover\`; never exclude behavior-bearing logic.
