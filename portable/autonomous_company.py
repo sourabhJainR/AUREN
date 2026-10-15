@@ -197,19 +197,70 @@ class AutonomousCompany:
                            reason=f"{problem}; no alternate passed confirmation",
                            confidence=min(confidence,0.25),alternatives=alternatives,evidence=refs)
 
-    def wait_for_ci(self, wid: str, check: Callable[[], tuple[str, str, Sequence[str]]],
-                    poll_seconds: float = 30.0, timeout_seconds: float = 86400.0) -> str:
-        self._transition(wid,"waiting_ci")
+    def wait_for_ci(
+        self,
+        wid: str,
+        check: Callable[[], tuple[str, str, Sequence[str]]],
+        poll_seconds: float = 30.0,
+        timeout_seconds: float = 86400.0,
+        *,
+        stop: Callable[[], bool] | None = None,
+        max_polls: int | None = None,
+    ) -> str:
+        """Wait for CI with validated time/poll budgets and cooperative cancellation.
+
+        The callback must itself have a finite timeout: synchronous Python cannot
+        safely interrupt a provider call that never returns. Between callback
+        invocations, the deadline and stop signal are checked and sleeps are
+        sliced to at most one second for responsive cancellation.
+        """
+        import math
+
+        if not math.isfinite(poll_seconds) or poll_seconds <= 0:
+            raise ValueError("poll_seconds must be finite and positive")
+        if not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
+            raise ValueError("timeout_seconds must be finite and positive")
+        if max_polls is not None and max_polls < 1:
+            raise ValueError("max_polls must be positive when supplied")
+
+        self._transition(wid, "waiting_ci")
         deadline = time.monotonic() + timeout_seconds
+        polls = 0
         while True:
-            status, detail, evidence = check()
-            self.record(wid,"ci",status,detail,evidence)
-            if status in {"passed","failed"}:
-                return status
+            if stop is not None and stop():
+                self.record(wid, "ci", "cancelled", "CI wait cancelled by caller", ())
+                return "cancelled"
             if time.monotonic() >= deadline:
-                self.record(wid,"ci","timeout","CI wait deadline reached",())
+                self.record(wid, "ci", "timeout", "CI wait deadline reached", ())
                 return "timeout"
-            time.sleep(max(0.1,poll_seconds))
+            if max_polls is not None and polls >= max_polls:
+                self.record(wid, "ci", "poll_limit", "CI wait poll budget exhausted", ())
+                return "poll_limit"
+
+            status, detail, evidence = check()
+            polls += 1
+            if time.monotonic() >= deadline:
+                self.record(wid, "ci", "timeout", "CI wait deadline reached during poll", ())
+                return "timeout"
+            if stop is not None and stop():
+                self.record(wid, "ci", "cancelled", "CI wait cancelled by caller", ())
+                return "cancelled"
+            self.record(wid, "ci", status, detail, evidence)
+            if status in {"passed", "failed"}:
+                return status
+
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                self.record(wid, "ci", "timeout", "CI wait deadline reached", ())
+                return "timeout"
+            sleep_remaining = min(poll_seconds, remaining)
+            while sleep_remaining > 0:
+                if stop is not None and stop():
+                    self.record(wid, "ci", "cancelled", "CI wait cancelled by caller", ())
+                    return "cancelled"
+                delay = min(1.0, sleep_remaining)
+                time.sleep(delay)
+                sleep_remaining -= delay
 
     def self_review(self, wid: str, checks: Sequence[Callable[[], tuple[bool,str,Sequence[str]]]]) -> tuple[bool, tuple[str,...]]:
         failures=[]; refs=[]
