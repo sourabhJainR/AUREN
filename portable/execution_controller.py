@@ -1084,11 +1084,16 @@ class ExecutionController:
             if saved is not None:
                 state["auren_supervisor_checkpoint_envelope"] = saved
             prior_writer = graph.handoff_checkpoint_writer
-            identity = (
-                (saved["repository"], saved["head_sha"])
-                if saved is not None and "repository" in saved and "head_sha" in saved
-                else _git_repository_identity(self.root)
-            )
+            # A legacy checkpoint without revision identity stays explicitly
+            # unbound on resume; never retroactively attribute old work to today's HEAD.
+            if saved is not None:
+                identity = (
+                    (saved["repository"], saved["head_sha"])
+                    if "repository" in saved and "head_sha" in saved
+                    else None
+                )
+            else:
+                identity = _git_repository_identity(self.root)
 
             def persist_checkpoint(checkpoint_task_id: str, envelope: Mapping[str, Any]) -> None:
                 if checkpoint_task_id != task_id:
