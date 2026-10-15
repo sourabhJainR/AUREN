@@ -7,6 +7,7 @@ Generic runtime skill: `.agents/skills/ai-coding-orchestrator/SKILL.md`.
 Claude plugin manifest: `.claude-plugin/plugin.json`.
 Core orchestration contract: `.ai-harness/ORCHESTRATION_SPEC.md`.
 Knowledge fabric: `.ai-harness/KNOWLEDGE_FABRIC_POLICY.md`.
+Canonical memory routing: `portable/memory_orchestrator.py`; ownership rules: `docs/CAPABILITY_MEMORY_OWNERSHIP.md`.
 Engineering design policy: `.ai-harness/ENGINEERING_DESIGN_POLICY.md`.
 Root engineering principles contract: `ENGINEERING_PRINCIPLES.md` (mandatory task-time applicability and evidence rules).
 Deterministic design gate: `portable/engineering_design_guard.py`.
@@ -234,3 +235,10 @@ The collaboration model is a chain for execution and a graph for knowledge. Comp
 ## Completion report
 
 Report outcome, files changed, validation evidence, independent review evidence when used, knowledge sources and extensions actually used, repository conventions reused, reuse candidates inspected and why they were selected/rejected, placement decisions, dependency decisions, principles materially applied, assumptions, remaining risks, and checkpoint or next action when intentionally incomplete.
+
+
+## Memory orchestration
+
+For memory-aware tasks, reuse `portable.memory_orchestrator.MemoryOrchestrator`. Route durable episodes/semantics through canonical PersistentMemory and ContextGraph provenance; keep working/sensory state bounded and task-scoped; use the existing context cache; connect procedural, reflective and prospective operations to their canonical owners through explicit callbacks. Never create a parallel memory database, background poller, or duplicate task scheduler. Required context that cannot fit must fail closed rather than be truncated. Keep idle metrics local and model-free.
+
+For Python unit tests, follow the repository's standard `unittest` style. Use the existing `# pragma: no cover` class-level exclusion for passive DTO/POCO-style dataclasses only; do not exclude behavior-bearing logic to inflate coverage.
