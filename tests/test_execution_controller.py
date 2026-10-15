@@ -816,3 +816,86 @@ def test_exhausted_handoff_retry_budget_is_terminal_and_cannot_be_resurrected(tm
     assert saved["handoff_checkpoint"]["queued"] == []
     assert saved["handoff_checkpoint"]["in_flight"] == []
     assert saved["retry_budget"]["remaining"] == 0
+
+
+def test_real_graph_team_handoff_resumes_through_supervisor_after_two_interruptions(tmp_path: Path):
+    import pytest
+    from portable.state_graph import GraphAgentTeam
+
+    intent = "Build a frontend UI and complete accessibility QA review"
+    handoff_task = "review accessible UI implementation"
+    interruptions = []
+
+    class InterruptibleGraph:
+        states = ()
+
+        def __init__(self, phase):
+            self.phase = phase
+
+        def digest(self):
+            return "a" * 64
+
+        def run(self, task_id, goal, state):
+            if self.phase == "enqueue":
+                plan = state["auren_crew_plan"]
+                selected = {item["crew_id"] for item in plan["assignments"]}
+                assert {"frontend_ui", "qa_reviewer"}.issubset(selected)
+                first = state["auren_crew_handoff_enqueue"](
+                    "frontend_ui", "qa_reviewer", handoff_task
+                )
+                duplicate = state["auren_crew_handoff_enqueue"](
+                    "frontend_ui", "qa_reviewer", handoff_task
+                )
+                assert duplicate["handoff_id"] == first["handoff_id"]
+                interruptions.append(first["handoff_id"])
+                raise RuntimeError("simulated process interruption after durable enqueue")
+            record = state["auren_crew_handoff_claim"]()
+            assert record is not None
+            if self.phase == "claim":
+                interruptions.append(record["handoff_id"])
+                raise RuntimeError("simulated process interruption after durable claim")
+            state["auren_crew_handoff_complete"](record)
+            return {"completed": True, "handoff_id": record["handoff_id"]}
+
+    def independent_review(_handoff):
+        return {
+            "schema_version": "auren-handoff-review-receipt-v1",
+            "reviewer_id": "integration-qa",
+            "reviewer_version": "v1",
+            "status": "pass",
+            "evidence_refs": ["test://supervisor/independent-review"],
+            "reason": "Independent review passed in the integration test.",
+        }
+
+    def make_team(phase):
+        return GraphAgentTeam(
+            graph=InterruptibleGraph(phase),
+            independent_handoff_reviewer=independent_review,
+            independent_handoff_reviewer_id="integration-qa",
+            independent_handoff_reviewer_version="v1",
+        )
+
+    first_process = ExecutionController(tmp_path)
+    with pytest.raises(RuntimeError, match="after durable enqueue"):
+        first_process.execute_graph(make_team("enqueue"), "real-handoff-task", intent)
+
+    second_process = ExecutionController(tmp_path)
+    saved_after_enqueue = second_process.load_graph_checkpoint("real-handoff-task")
+    assert saved_after_enqueue is not None
+    assert len(saved_after_enqueue["handoff_checkpoint"]["queued"]) == 1
+    with pytest.raises(RuntimeError, match="after durable claim"):
+        second_process.execute_graph(make_team("claim"), "real-handoff-task", intent)
+
+    third_process = ExecutionController(tmp_path)
+    saved_after_claim = third_process.load_graph_checkpoint("real-handoff-task")
+    assert saved_after_claim is not None
+    assert len(saved_after_claim["handoff_checkpoint"]["in_flight"]) == 1
+    result = third_process.execute_graph(make_team("complete"), "real-handoff-task", intent)
+
+    assert result["completed"] is True
+    assert interruptions[0] == interruptions[1] == result["handoff_id"]
+    final = third_process.load_graph_checkpoint("real-handoff-task")
+    assert final is not None
+    assert final["handoff_checkpoint"]["completed_ids"] == [result["handoff_id"]]
+    assert final["handoff_checkpoint"]["completion_receipts"][result["handoff_id"]]["reviewer_id"] == "integration-qa"
+    assert final["retry_budget"]["digest"] == final["handoff_checkpoint"]["retry_budget"]["digest"]
