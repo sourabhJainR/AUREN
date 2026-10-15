@@ -711,3 +711,70 @@ def test_supervisor_checkpoint_rejects_retry_budget_refund(tmp_path: Path):
     controller.save_graph_checkpoint("retry-refund-task", advanced)
     with pytest.raises(ValueError, match="refund or rewrite consumed retry budget"):
         controller.save_graph_checkpoint("retry-refund-task", initial)
+
+
+def test_handoff_queue_survives_supervisor_restart_without_duplicate_dispatch(tmp_path: Path):
+    from portable.crew_adapters import GraphHandoffController, TaskRetryBudget
+
+    first = ExecutionController(tmp_path)
+    envelope = _supervisor_checkpoint_envelope("handoff-restart-task", "restart handoff")
+    budget = TaskRetryBudget.resume(envelope["retry_budget"])
+    handoffs = GraphHandoffController(
+        max_attempts=3,
+        retry_budget=budget,
+        persist=lambda snapshot: first.save_graph_checkpoint(
+            "handoff-restart-task",
+            {
+                **envelope,
+                "handoff_checkpoint": dict(snapshot),
+                "retry_budget": budget.snapshot(),
+            },
+        ),
+        require_persistence=True,
+    )
+    queued = handoffs.enqueue(
+        source_crew="frontend_ui",
+        target_crew="qa_reviewer",
+        task="review once",
+        source_plan_digest=envelope["crew_plan_digest"],
+        allowed_handoffs=("qa_reviewer",),
+        selected_crews=("frontend_ui", "qa_reviewer"),
+    )
+    assert queued is not None
+
+    # Simulate process exit after a durable claim but before review completion.
+    claimed = handoffs.claim_next(graph_node_active=True)
+    assert claimed is not None
+    second_process = ExecutionController(tmp_path)
+    saved = second_process.load_graph_checkpoint("handoff-restart-task")
+    assert saved is not None
+    resumed_budget = TaskRetryBudget.resume(saved["retry_budget"])
+    resumed = GraphHandoffController.resume(
+        saved["handoff_checkpoint"],
+        retry_budget=resumed_budget,
+        persist=lambda snapshot: second_process.save_graph_checkpoint(
+            "handoff-restart-task",
+            {
+                **saved,
+                "handoff_checkpoint": dict(snapshot),
+                "retry_budget": resumed_budget.snapshot(),
+            },
+        ),
+        require_persistence=True,
+    )
+    # The interrupted in-flight claim is requeued under its original idempotency key.
+    retry = resumed.claim_next(graph_node_active=True)
+    assert retry is not None
+    assert retry.handoff_id == queued.handoff_id
+    duplicate = resumed.enqueue(
+        source_crew="frontend_ui",
+        target_crew="qa_reviewer",
+        task="review once",
+        source_plan_digest=envelope["crew_plan_digest"],
+        allowed_handoffs=("qa_reviewer",),
+        selected_crews=("frontend_ui", "qa_reviewer"),
+    )
+    assert duplicate is not None
+    assert duplicate.handoff_id == queued.handoff_id
+    assert len(resumed.snapshot()["queued"]) == 1
+    assert len(resumed.snapshot()["in_flight"]) == 0
