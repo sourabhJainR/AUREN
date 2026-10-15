@@ -1,6 +1,7 @@
 """Bridge the AI coding orchestrator to the deterministic Agency Runtime."""
 from __future__ import annotations
 from dataclasses import dataclass, replace
+import posixpath
 from typing import Callable, Iterable, Mapping
 from .agency_adaptive_planning import AdaptiveRecommendation, BenchmarkHistory, apply_recommendation, observe_run, recommend_plan
 from .agency_artifact_regression import ArtifactSnapshot, RegressionDecision, compare_artifacts
@@ -45,6 +46,31 @@ class OrchestratorRun:
     def as_dict(self)->dict[str,object]:
         return {"task_id":self.task.task_id,"execution":self.execution.as_dict(),"execution_plan":self.execution_plan.as_dict(),"regression":self.regression.as_dict() if self.regression else None,"release":self.release.as_dict(),"provenance":self.provenance.as_dict(),"adaptive_recommendation":self.adaptive_recommendation.as_dict() if self.adaptive_recommendation else None,"benchmark":self.benchmark.as_dict() if self.benchmark else None,"codebase_context":self.codebase_context.as_dict() if self.codebase_context else None,"ready":self.ready}
 
+def _safe_repo_path(value: str) -> str:
+    """Normalize a repository-relative path and reject traversal/absolute scopes."""
+    if not isinstance(value, str) or not value.strip() or "\x00" in value:
+        raise ValueError("write scope paths must be non-empty strings without NUL bytes")
+    raw = value.replace("\\", "/").strip()
+    if raw.startswith("/") or (len(raw) >= 2 and raw[1] == ":"):
+        raise ValueError("write scope paths must be repository-relative")
+    parts = raw.split("/")
+    if any(part == ".." for part in parts):
+        raise ValueError("write scope paths must not contain parent traversal")
+    normalized = posixpath.normpath(raw)
+    if normalized in {"", "."}:
+        raise ValueError("write scope path must identify a repository path")
+    return normalized
+
+
+def _paths_overlap(left: str, right: str) -> bool:
+    """Return true if either path is the other or lies beneath it."""
+    return (
+        left == right
+        or left.startswith(right.rstrip("/") + "/")
+        or right.startswith(left.rstrip("/") + "/")
+    )
+
+
 def _artifact_map(items:Iterable[ArtifactSnapshot])->dict[str,ArtifactSnapshot]: return {x.path:x for x in items}
 
 def _build_codebase_context(task:CodingTask)->CodebaseContext|None:
@@ -82,29 +108,37 @@ def run_coding_task(task:CodingTask,worker:Callable[[TaskProfile,list[Assignment
                     "evidence": [],
                 }
 
-            protected = tuple(str(path).replace("\\", "/").strip("/") for path in effective_task.protected_paths)
-            checked: list[tuple[ActionRequest, ApprovalReceipt | None]] = []
-            for index, target in enumerate(targets):
-                normalized_target = str(target).replace("\\", "/").strip("/")
-                if mutating and any(
-                    normalized_target == root
-                    or normalized_target.startswith(root + "/")
-                    or root.startswith(normalized_target + "/")
-                    for root in protected
-                ):
-                    return {
-                        "deliverables": [], "verification": [],
-                        "dimensions": {}, "hard_gates": {"action_governance": False},
-                        "findings": [ReviewFinding("blocker", "action_governance:task_protected_path")],
-                        "evidence": [],
-                    }
+            try:
+                normalized_targets = tuple(_safe_repo_path(str(target)) for target in targets)
+                protected = tuple(_safe_repo_path(str(path)) for path in effective_task.protected_paths)
+            except ValueError as exc:
+                return {
+                    "deliverables": [], "verification": [],
+                    "dimensions": {}, "hard_gates": {"action_governance": False},
+                    "findings": [ReviewFinding("blocker", f"action_governance:invalid_write_scope:{exc}")],
+                    "evidence": [],
+                }
+
+            if mutating and any(
+                _paths_overlap(target, root)
+                for target in normalized_targets
+                for root in protected
+            ):
+                return {
+                    "deliverables": [], "verification": [],
+                    "dimensions": {}, "hard_gates": {"action_governance": False},
+                    "findings": [ReviewFinding("blocker", "action_governance:task_protected_path")],
+                    "evidence": [],
+                }
+
+            for index, target in enumerate(normalized_targets):
                 request = ActionRequest(
                     run_id=run_id,
-                    action_id=f"{effective_task.task_id}:coding-worker:{index}",
+                    action_id=f"{effective_task.task_id}:coding-scope:{index}",
                     actor="auren-host",
                     capability=capability,
                     action="specialist.execute",
-                    target=str(target),
+                    target=target,
                     risk=risk_class,
                 )
                 approval = approval_provider(request) if approval_provider else None
@@ -116,14 +150,35 @@ def run_coding_task(task:CodingTask,worker:Callable[[TaskProfile,list[Assignment
                         "findings": [ReviewFinding("blocker", f"action_governance:{verdict.reason}")],
                         "evidence": [],
                     }
-                checked.append((request, approval))
 
-            request, approval = checked[0]
+            # Bind the actual worker invocation to the complete, preflighted scope.
+            # The scope digest is an opaque target; individual paths were separately
+            # evaluated above so policy checks cannot be reduced to the first path.
+            scope_request = ActionRequest(
+                run_id=run_id,
+                action_id=f"{effective_task.task_id}:coding-worker",
+                actor="auren-host",
+                capability=capability,
+                action="specialist.execute",
+                target=f"task-scope/{effective_task.task_id}",
+                risk=risk_class,
+                evidence_refs=tuple(f"scope:{path}" for path in normalized_targets),
+            )
+            scope_approval = approval_provider(scope_request) if approval_provider else None
+            scope_verdict = governance_gateway.evaluate(scope_request, approval=scope_approval)
+            if not scope_verdict.allowed:
+                return {
+                    "deliverables": [], "verification": [],
+                    "dimensions": {}, "hard_gates": {"action_governance": False},
+                    "findings": [ReviewFinding("blocker", f"action_governance:{scope_verdict.reason}")],
+                    "evidence": [],
+                }
+
             captured: list[Mapping[str, object]] = []
             result = governance_gateway.execute(
-                request,
+                scope_request,
                 lambda: captured.append(worker(task_profile, assignments)) or captured[-1],
-                approval=approval,
+                approval=scope_approval,
             )
             if not result.executed or not captured:
                 return {
