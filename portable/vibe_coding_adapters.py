@@ -204,7 +204,7 @@ class VibeAdapterRegistry:
             "stage": stage.value,
             "purpose": next(spec.purpose for spec in STAGE_SPECS if spec.stage == stage),
             "required_capabilities": list(capabilities or _STAGE_CAPABILITIES[stage]),
-            "intent": str(state.get("intent", state.get("task_intent", ""))),
+            "intent": _safe_payload(str(state.get("intent", state.get("task_intent", "")))),
             "prior_stage_outputs": _safe_payload({
                 prior.value: state[prior.value] for prior in STAGE_ORDER
                 if prior.value in state and isinstance(state[prior.value], Mapping)
@@ -214,12 +214,12 @@ class VibeAdapterRegistry:
                 if key in _STAGE_STATE_KEYS
                 and (key != "production_approval" or stage == VibeStage.PRODUCTION_DEPLOY)
             }),
-            "agent_candidates": rank_agents(
+            "agent_candidates": _safe_payload(rank_agents(
                 str(state.get("intent", state.get("task_intent", "")) or ""),
                 limit=5,
-            ) if stage in {VibeStage.IDEA, VibeStage.DEFINE_USER, VibeStage.PRD,
-                           VibeStage.TECH_STACK, VibeStage.ARCHITECTURE,
-                           VibeStage.TASK_BREAKDOWN, VibeStage.DEVELOPMENT} else [],
+            )) if stage in {VibeStage.IDEA, VibeStage.DEFINE_USER, VibeStage.PRD,
+                            VibeStage.TECH_STACK, VibeStage.ARCHITECTURE,
+                            VibeStage.TASK_BREAKDOWN, VibeStage.DEVELOPMENT} else [],
             "adapter": {"id": selected.adapter_id, "version": selected.version},
         }
         try:
@@ -427,6 +427,16 @@ def build_host_adapter_registry(
             merged = dict(agent_output)
             evidence = merged.get("evidence", [])
             evidence_items = list(evidence) if isinstance(evidence, list) else ([evidence] if evidence else [])
+            if _stage == VibeStage.RESEARCH:
+                research_evidence = tool_results.get("research", {}).get("evidence", [])
+                source_backed = isinstance(research_evidence, list) and any(
+                    isinstance(item, Mapping)
+                    and str(item.get("locator", "")).strip()
+                    and str(item.get("source", "")).strip().lower() not in {"", "model", "llm", "assistant", "generated", "self"}
+                    for item in research_evidence
+                )
+                if not source_backed:
+                    raise AdapterUnavailable("research stage requires source-backed evidence from the research tool")
             # Tool-owned fields cannot be invented by the language model.
             for capability, fields in _TOOL_AUTHORITY.get(_stage, {}).items():
                 tool_result = tool_results.get(capability, {})
