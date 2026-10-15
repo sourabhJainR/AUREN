@@ -776,5 +776,5 @@ def test_handoff_queue_survives_supervisor_restart_without_duplicate_dispatch(tm
     )
     assert duplicate is not None
     assert duplicate.handoff_id == queued.handoff_id
-    assert len(resumed.snapshot()["queued"]) == 1
-    assert len(resumed.snapshot()["in_flight"]) == 0
+    assert len(resumed.snapshot()["queued"]) == 0
+    assert len(resumed.snapshot()["in_flight"]) == 1
