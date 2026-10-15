@@ -70,7 +70,7 @@ def execute_governed_sandbox(
     captured: list[OpenShellExecutionResult] = []
     result = gateway.execute(
         action,
-        lambda: captured.append(backend.execute(sandbox_request)) or captured[-1],
+        lambda: captured.append(backend.execute(sandbox_request)) or captured[-1].as_evidence(),
         approval=approval,
     )
     if not result.executed:
