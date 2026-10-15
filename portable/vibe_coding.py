@@ -211,6 +211,10 @@ def build_vibe_coding_graph(
                     raise PermissionError("production deployment blocked: explicit production_approval is required")
                 if not _nonempty(approval.get("approved_by")) or not _nonempty(approval.get("approved_at")):
                     raise PermissionError("production deployment blocked: approver and timestamp are required")
+                final_revision = str(state.get("final_code_revision", "")).strip()
+                verified_revision = str(state.get("verified_code_revision", "")).strip()
+                if not final_revision or not verified_revision or final_revision != verified_revision:
+                    raise PermissionError("production deployment blocked: final revision must have exact-head verification")
             if _stage == VibeStage.PREVIEW_DEPLOYMENT and state.get("preview_deployment_required") is False:
                 rationale = state.get("preview_deployment_rationale")
                 if not isinstance(rationale, str) or not rationale.strip():
@@ -226,6 +230,12 @@ def build_vibe_coding_graph(
             valid, reason = validate_stage_output(_stage, result)
             if not valid:
                 raise ValueError(f"{_stage.value} stage gate failed: {reason}")
+            if _stage == VibeStage.PRODUCTION_DEPLOY:
+                if dict(result.get("approval", {})) != dict(state.get("production_approval", {})):
+                    raise PermissionError("production release receipt approval does not match the supplied authorization")
+                expected_revision = str(state.get("verified_code_revision", "")).strip()
+                if str(result.get("reviewed_revision", "")).strip() != expected_revision:
+                    raise PermissionError("production release receipt is not bound to the exact verified revision")
             # Copy the returned envelope so later handler mutation cannot change
             # the evidence already consumed by dependent stages.
             frozen_result = json.loads(json.dumps(dict(result), sort_keys=True, allow_nan=False))
