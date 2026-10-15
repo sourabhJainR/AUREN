@@ -62,7 +62,9 @@ class PersistentSupervisorDaemon:
                 task.id, reason=f"stale heartbeat detected; alternate={chosen or 'none'}; {last_reason}"
             )
         scores = self.controller.resume_pending(limit=self.max_tasks_per_tick)
-        reviewed = self.controller.self_review(limit=self.max_tasks_per_tick)
+        # Avoid writing duplicate review events on every idle tick. Active or
+        # recovered work is reviewed; idle health checks remain local/read-only.
+        reviewed = self.controller.self_review(limit=self.max_tasks_per_tick) if scores or stale else 0
         score = min((s.score for s in scores), default=1.0)
         findings = tuple(self.controller.health_findings())
         healthy = not findings and score >= 0.50
