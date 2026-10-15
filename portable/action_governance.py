@@ -94,6 +94,7 @@ class ActionPolicy:
 
     allowed_capabilities: frozenset[str]
     protected_targets: tuple[str, ...] = ()
+    allowed_actions: frozenset[str] = frozenset({"read", "inspect", "test", "edit", "specialist.execute", "merge", "release", "deploy", "publish", "send", "charge", "delete_remote"})
     approval_required_actions: frozenset[str] = frozenset({"merge", "release", "deploy"})
     external_effect_actions: frozenset[str] = frozenset({"publish", "send", "charge", "delete_remote"})
     evidence_required_actions: frozenset[str] = frozenset({"merge", "release", "deploy"})
@@ -102,7 +103,7 @@ class ActionPolicy:
     def validate(self) -> None:
         if not self.allowed_capabilities:
             raise ValueError("at least one allowed capability must be configured")
-        for value in self.allowed_capabilities | self.approval_required_actions | self.external_effect_actions | self.evidence_required_actions:
+        for value in self.allowed_capabilities | self.allowed_actions | self.approval_required_actions | self.external_effect_actions | self.evidence_required_actions:
             _nonblank(value, "policy action/capability")
         for target in self.protected_targets:
             _nonblank(target, "protected target")
@@ -178,6 +179,8 @@ class ActionGovernanceGateway:
         decision = "allow"
         if request.capability not in self._policy.allowed_capabilities:
             decision, reason = "deny", "capability_not_allowlisted"
+        elif request.action not in self._policy.allowed_actions:
+            decision, reason = "deny", "action_not_allowlisted"
         elif request.action in self._policy.evidence_required_actions and not request.evidence_refs:
             decision, reason = "deny", "required_evidence_missing"
         elif (
