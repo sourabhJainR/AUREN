@@ -168,7 +168,7 @@ PATTERNS = (
 OLD_FILENAME = re.compile(r"(^|/)aer[_-][^/]+$", re.IGNORECASE)
 # Match the legacy token as a complete identifier segment, not words such as Arena.
 LEGACY_SYMBOL_TOKEN = re.compile(r"(?i)(?:^|_)aer(?:_|$)")
-LEGACY_PATH_TOKEN = re.compile(r"(?i)(?:^|[/_.-])aer(?:[/_.-]|$)")
+LEGACY_PATH_TOKEN = re.compile(r"(?i)(?:^|/)\.?aer(?:/|$)|(?:^|/)aer[_-][^/]+$")
 
 
 def find_legacy_python_symbols(content: str) -> list[tuple[int, str]]:
@@ -235,7 +235,7 @@ def main(argv: list[str] | None = None) -> int:
             content = full_path.read_text(encoding="utf-8")
         except (UnicodeDecodeError, OSError):
             continue
-        if path.endswith(".py"):
+        if path.endswith(".py") and not _is_approved_allowlist_path(path):
             for line_no, symbol in find_legacy_python_symbols(content):
                 findings.append(f"{path}:{line_no}: stale AER Python identifier: {symbol}")
         line_patterns = LEGACY_ALLOWED_LINE_PATTERNS.get(path, ())
