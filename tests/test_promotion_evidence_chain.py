@@ -599,3 +599,163 @@ class PromotionEvidenceChainTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ArenaPromotionGateTests(unittest.TestCase):
+    def _production_attestation(self, campaign, receipt, *, now_epoch):
+        try:
+            from cryptography.hazmat.primitives import serialization
+            from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+        except ImportError:
+            self.skipTest("cryptography package is required for the production signature test")
+        from portable.evaluator_trust import (
+            Ed25519EvaluationAttestationVerifier,
+            EvaluatorKeyWindow,
+            PinnedPrincipalVerifier,
+            ProductionSeparationAwareAttestor,
+            encode_evaluation_signature,
+            evaluation_attestation_signing_message,
+        )
+        from portable.independent_evaluation_attestation import EvaluationAttestation
+
+        private_key = Ed25519PrivateKey.generate()
+        public_key = private_key.public_key().public_bytes(
+            encoding=serialization.Encoding.Raw,
+            format=serialization.PublicFormat.Raw,
+        )
+        unsigned = EvaluationAttestation(
+            campaign.campaign_digest,
+            campaign.corpus_digest,
+            campaign.oracle_digest,
+            campaign.evaluator_version,
+            "independent-attestation-signer",
+            "pending",
+            key_id="evaluator-key-v1",
+            run_id=receipt.run_id,
+            receipt_digest=receipt.receipt_digest,
+            runtime_digest=receipt.runtime_snapshot,
+            issued_at_epoch=now_epoch - 1,
+            expires_at_epoch=now_epoch + 100,
+        )
+        signed = replace(
+            unsigned,
+            signature=encode_evaluation_signature(
+                private_key.sign(evaluation_attestation_signing_message(unsigned))
+            ),
+        )
+        keyring = Ed25519EvaluationAttestationVerifier(
+            [EvaluatorKeyWindow(
+                key_id="evaluator-key-v1",
+                signer_id="independent-attestation-signer",
+                public_key=public_key,
+                not_before_epoch=1,
+                not_after_epoch=now_epoch + 200,
+            )],
+            clock=lambda: now_epoch,
+        )
+        principal_verifier = PinnedPrincipalVerifier(
+            lambda principal, role: (
+                (principal == "runtime-evaluator" and role == "evaluator")
+                or (principal == "independent-oracle" and role == "oracle")
+            ),
+            provider_id="oidc-principal-verifier",
+            provider_version="v1",
+            trust_source_ref="https://identity.example/trust",
+            configuration_digest="e" * 64,
+        )
+        return ProductionSeparationAwareAttestor(keyring, principal_verifier).verify(
+            signed,
+            evaluator_id="runtime-evaluator",
+            oracle_id="independent-oracle",
+            expected_campaign_digest=campaign.campaign_digest,
+            expected_corpus_digest=campaign.corpus_digest,
+            expected_oracle_digest=campaign.oracle_digest,
+        )
+
+    def _accepted_baseline(self, tmp_path):
+        from portable.promotion_evidence_chain import ArenaEvidenceObservationLedger
+        campaign = make_campaign()
+        receipt = make_receipt(campaign)
+        causal = make_causal(receipt)
+        decision = CausalCapabilityPromotionGate().evaluate(causal)
+        chain = PromotionEvidenceChainBuilder(require_production_attestation=False).build(
+            campaign, receipt, causal, decision,
+            attested_campaign=make_attested_campaign(campaign),
+            **isolation_kwargs(campaign, receipt),
+        )
+        ledger = ArenaEvidenceObservationLedger(tmp_path / "arena-observations.sqlite3")
+        observation = ledger.record(chain)
+        self.assertTrue(observation.accepted, observation.reasons)
+        return ledger, observation, receipt
+
+    def test_promotion_requires_fresh_signed_post_promotion_holdout_retest_and_rollback(self):
+        import tempfile
+        from pathlib import Path
+        from portable.arena_promotion_gate import ArenaPromotionGate
+
+        with tempfile.TemporaryDirectory() as directory:
+            ledger, observation, baseline = self._accepted_baseline(Path(directory))
+            now_epoch = int(time.time())
+            runtime_digest = "d" * 64
+            config_digest = "c" * 64
+            campaign = make_campaign(runtime_snapshot=runtime_digest)
+            retest = make_receipt(
+                campaign,
+                run_id="post-promotion-retest",
+                runtime_snapshot=runtime_digest,
+                manifest_digest=config_digest,
+                campaign_digest=campaign.campaign_digest,
+            )
+            attestation = self._production_attestation(campaign, retest, now_epoch=now_epoch)
+            decision = ArenaPromotionGate().evaluate(
+                evidence_ledger=ledger,
+                baseline_observation=observation,
+                baseline_receipt=baseline,
+                post_promotion_receipt=retest,
+                post_promotion_attestation=attestation,
+                expected_runtime_digest=runtime_digest,
+                expected_configuration_digest=config_digest,
+                rollback_target_commit="a" * 40,
+                rollback_plan_digest="b" * 64,
+                now_epoch=now_epoch,
+            )
+            self.assertTrue(decision.eligible, decision.reasons)
+            self.assertEqual(decision.retest_receipt_digest, retest.receipt_digest)
+            self.assertEqual(len(decision.decision_digest), 64)
+
+    def test_promotion_blocks_failed_holdout_retest_and_missing_rollback_target(self):
+        import tempfile
+        from pathlib import Path
+        from portable.arena_promotion_gate import ArenaPromotionGate
+
+        with tempfile.TemporaryDirectory() as directory:
+            ledger, observation, baseline = self._accepted_baseline(Path(directory))
+            now_epoch = int(time.time())
+            runtime_digest = "d" * 64
+            config_digest = "c" * 64
+            campaign = make_campaign(runtime_snapshot=runtime_digest)
+            retest = make_receipt(
+                campaign,
+                run_id="failed-post-promotion-retest",
+                runtime_snapshot=runtime_digest,
+                manifest_digest=config_digest,
+                passed_case_ids=("a",),
+                verified_case_ids=("a",),
+                campaign_digest=campaign.campaign_digest,
+            )
+            attestation = self._production_attestation(campaign, retest, now_epoch=now_epoch)
+            decision = ArenaPromotionGate().evaluate(
+                evidence_ledger=ledger,
+                baseline_observation=observation,
+                baseline_receipt=baseline,
+                post_promotion_receipt=retest,
+                post_promotion_attestation=attestation,
+                expected_runtime_digest=runtime_digest,
+                expected_configuration_digest=config_digest,
+                rollback_target_commit="missing",
+                rollback_plan_digest="b" * 64,
+                now_epoch=now_epoch,
+            )
+            self.assertFalse(decision.eligible)
+            self.assertTrue(any("holdout retest contains failed cases" in reason for reason in decision.reasons))
+            self.assertTrue(any("rollback target" in reason for reason in decision.reasons))
