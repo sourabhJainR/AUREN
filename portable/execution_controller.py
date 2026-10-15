@@ -787,6 +787,7 @@ class ExecutionController:
         current = now or datetime.now(timezone.utc)
         stamp = current.astimezone(timezone.utc).isoformat()
         work_units: list[str] = []
+        woken_ids: list[str] = []
         with sqlite3.connect(self.db_path, timeout=10) as db:
             db.execute("BEGIN IMMEDIATE")
             for task_id in ids:
@@ -803,9 +804,10 @@ class ExecutionController:
                 )
                 if cursor.rowcount == 1:
                     work_units.append(str(row[0]))
+                    woken_ids.append(task_id)
         for work_unit_id in work_units:
             self.company._transition(work_unit_id, "running")
-        return [task_id for task_id in ids if self.task(task_id).state == "pending"]
+        return woken_ids
 
     def unblock_quota_task(self, task_id: str, *, operator_reason: str) -> bool:
         """Explicitly release a permanently blocked quota task after operator action."""
