@@ -693,7 +693,7 @@ class ExecutionController:
         if isinstance(value, str) and value.strip():
             try:
                 return now + timedelta(seconds=max(0, float(value.strip())))
-            except ValueError:
+            except (ValueError, OverflowError):
                 try:
                     parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
                 except ValueError:
@@ -1090,12 +1090,15 @@ class ExecutionController:
         findings = []
         with sqlite3.connect(self.db_path) as db:
             failed = db.execute("SELECT COUNT(*) FROM tasks WHERE state='failed'").fetchone()[0]
+            blocked_quota = db.execute("SELECT COUNT(*) FROM tasks WHERE state='blocked_quota'").fetchone()[0]
             stale = db.execute(
                 "SELECT COUNT(*) FROM tasks WHERE state='running' AND (heartbeat_at IS NULL OR heartbeat_at<?)",
                 ((datetime.now(timezone.utc) - timedelta(minutes=15)).isoformat(),),
             ).fetchone()[0]
         if failed:
             findings.append(f"failed_tasks={failed}")
+        if blocked_quota:
+            findings.append(f"blocked_quota_tasks={blocked_quota}; operator action required")
         if stale:
             findings.append(f"stale_tasks={stale}")
         if self.evidence_capture.sink is not None:
