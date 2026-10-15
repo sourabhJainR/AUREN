@@ -973,6 +973,11 @@ class ExecutionController:
                 for handoff_id, attempt in old_active.items():
                     if handoff_id in new_active and new_active[handoff_id] < attempt:
                         raise ValueError("stale graph checkpoint would rewind a handoff attempt")
+                # Seen-but-inactive and not completed means the controller has
+                # reached a terminal rejection/exhaustion state. Do not revive it.
+                old_terminal = old_seen - set(old_active) - old_completed
+                if old_terminal.intersection(new_active):
+                    raise ValueError("stale graph checkpoint would resurrect a terminal handoff")
                 if new_completed.intersection(new_active):
                     raise ValueError("graph checkpoint cannot reactivate a completed handoff")
             db.execute(
