@@ -327,6 +327,14 @@ class MCPStdioToolAdapter:
             except (OSError, subprocess.TimeoutExpired):
                 proc.kill()
                 proc.wait(timeout=2)
+            for stream in (proc.stdout, proc.stderr):
+                if stream is not None:
+                    try:
+                        stream.close()
+                    except OSError:
+                        pass
+            out_thread.join(timeout=1)
+            err_thread.join(timeout=1)
 
 
 class MemoizedToolAdapter:
