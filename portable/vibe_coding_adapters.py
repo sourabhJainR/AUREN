@@ -109,6 +109,7 @@ class VibeAdapterRegistry:
         self._risk_rank = {"low": 0, "medium": 1, "high": 2, "critical": 3}
         self._adapters: dict[str, AdapterRegistration] = {}
         self._stats: dict[str, AdapterStats] = {}
+        self._evaluation_stats: dict[str, AdapterStats] = {}
 
     def register(self, registration: AdapterRegistration) -> None:
         if not isinstance(registration, AdapterRegistration):
@@ -118,6 +119,7 @@ class VibeAdapterRegistry:
             raise ValueError("same adapter version cannot change implementation metadata")
         self._adapters[registration.adapter_id] = registration
         self._stats.setdefault(registration.adapter_id, AdapterStats())
+        self._evaluation_stats.setdefault(registration.adapter_id, AdapterStats())
 
     def discover(self, stage: VibeStage, capabilities: Sequence[str] | None = None) -> tuple[AdapterRegistration, ...]:
         required = set(capabilities or _STAGE_CAPABILITIES[stage])
@@ -202,18 +204,18 @@ class VibeAdapterRegistry:
             raise KeyError(f"unknown adapter: {adapter_id}")
         if not workflow_id.strip() or not evidence_refs or any(not str(ref).strip() for ref in evidence_refs):
             raise ValueError("evaluation needs workflow identity and evidence references")
-        stats = self._stats[adapter_id]
+        stats = self._evaluation_stats[adapter_id]
         stats.workflows.add(workflow_id)
+        stats.attempts += 1
         if passed:
             stats.successes += 1
         else:
             stats.failures += 1
-        stats.attempts = max(stats.attempts, stats.successes + stats.failures)
 
     def evolution_candidates(self) -> list[dict[str, Any]]:
-        """Return proposals only after enough independent workflow evidence."""
+        """Return proposals only after enough independently evaluated workflow evidence."""
         proposals = []
-        for adapter_id, stats in sorted(self._stats.items()):
+        for adapter_id, stats in sorted(self._evaluation_stats.items()):
             if stats.attempts < 5 or len(stats.workflows) < 3:
                 continue
             rate = stats.success_rate
@@ -240,7 +242,11 @@ class VibeAdapterRegistry:
             "attempts": value.attempts, "successes": value.successes,
             "failures": value.failures, "workflows": sorted(value.workflows),
         } for key, value in sorted(self._stats.items())}
-        payload = {"schema_version": _SCHEMA, "stats": stats}
+        evaluations = {key: {
+            "attempts": value.attempts, "successes": value.successes,
+            "failures": value.failures, "workflows": sorted(value.workflows),
+        } for key, value in sorted(self._evaluation_stats.items())}
+        payload = {"schema_version": _SCHEMA, "stats": stats, "evaluations": evaluations}
         payload["digest"] = hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
         return payload
 
@@ -251,19 +257,20 @@ class VibeAdapterRegistry:
         digest = hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
         if snapshot.get("digest") != digest:
             raise ValueError("adapter-learning snapshot digest mismatch")
-        incoming = snapshot.get("stats")
-        if not isinstance(incoming, Mapping):
-            raise ValueError("adapter-learning stats must be a mapping")
-        for adapter_id, raw in incoming.items():
-            if adapter_id not in self._adapters or not isinstance(raw, Mapping):
-                raise ValueError("learning snapshot references an unregistered adapter")
-            attempts, successes, failures = (raw.get(key) for key in ("attempts", "successes", "failures"))
-            workflows = raw.get("workflows")
-            if any(type(value) is not int or value < 0 for value in (attempts, successes, failures)):
-                raise ValueError("learning counters must be non-negative integers")
-            if successes + failures > attempts or not isinstance(workflows, list) or any(not isinstance(x, str) for x in workflows):
-                raise ValueError("invalid adapter learning counters or workflow list")
-            self._stats[adapter_id] = AdapterStats(attempts, successes, failures, set(workflows))
+        for section, destination in (("stats", self._stats), ("evaluations", self._evaluation_stats)):
+            incoming = snapshot.get(section)
+            if not isinstance(incoming, Mapping):
+                raise ValueError(f"adapter-learning {section} must be a mapping")
+            for adapter_id, raw in incoming.items():
+                if adapter_id not in self._adapters or not isinstance(raw, Mapping):
+                    raise ValueError("learning snapshot references an unregistered adapter")
+                attempts, successes, failures = (raw.get(key) for key in ("attempts", "successes", "failures"))
+                workflows = raw.get("workflows")
+                if any(type(value) is not int or value < 0 for value in (attempts, successes, failures)):
+                    raise ValueError("learning counters must be non-negative integers")
+                if successes + failures > attempts or not isinstance(workflows, list) or any(not isinstance(x, str) for x in workflows):
+                    raise ValueError("invalid adapter learning counters or workflow list")
+                destination[adapter_id] = AdapterStats(attempts, successes, failures, set(workflows))
 
 
 def build_integrated_vibe_coding_graph(
