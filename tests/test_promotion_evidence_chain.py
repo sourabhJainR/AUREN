@@ -676,11 +676,17 @@ class ArenaPromotionGateTests(unittest.TestCase):
         from portable.promotion_evidence_chain import ArenaEvidenceObservationLedger
         campaign = make_campaign()
         receipt = make_receipt(campaign)
+        now_epoch = int(time.time())
+        attested = self._production_attestation(campaign, receipt, now_epoch=now_epoch)
+        # Campaign digest deliberately excludes the external signature, so the
+        # signed signature can be bound after signing without a digest cycle.
+        campaign = replace(campaign, external_attestation=attested.attestation.signature)
         causal = make_causal(receipt)
         decision = CausalCapabilityPromotionGate().evaluate(causal)
-        chain = PromotionEvidenceChainBuilder(require_production_attestation=False).build(
+        chain = PromotionEvidenceChainBuilder().build(
             campaign, receipt, causal, decision,
-            attested_campaign=make_attested_campaign(campaign),
+            attested_campaign=attested,
+            attestation_now=now_epoch,
             **isolation_kwargs(campaign, receipt),
         )
         ledger = ArenaEvidenceObservationLedger(tmp_path / "arena-observations.sqlite3")
