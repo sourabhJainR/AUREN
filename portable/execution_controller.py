@@ -983,6 +983,8 @@ class ExecutionController:
                 "auren_crew_handoff_checkpoint_data",
                 "auren_crew_handoff_checkpoint",
                 "auren_retry_budget",
+                "auren_provider_resume_state",
+                "auren_provider_resume_persist",
             ):
                 state.pop(reserved, None)
             saved = self.load_graph_checkpoint(task_id)
