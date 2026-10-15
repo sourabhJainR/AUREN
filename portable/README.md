@@ -282,3 +282,12 @@ Learned behavior remains advisory and safety/security controls remain authoritat
 The portable runtime exposes `portable.vibe_coding` as the canonical 18-stage product lifecycle graph. Callers provide stage handlers; AUREN enforces dependency order, stage-specific evidence contracts, failure blocking, durable checkpoint receipts, and restart/resume without replaying completed stages. Production deployment requires an explicit approval envelope and a release receipt bound to the reviewed revision.
 
 See [../docs/VIBE_CODING_WORKFLOW.md](../docs/VIBE_CODING_WORKFLOW.md) for the complete contract and example.
+
+
+### Integrated active-agent and tool adapters
+
+`portable.vibe_coding_adapters` binds the lifecycle to explicit host registrations for active agents, research/search, design/accessibility, repository context and mutation, test execution, independent review, deployment, and observability/rollback. Every stage declares capability requirements; the graph builder fails closed if any stage has no eligible adapter. The registry scores eligible adapters using smoothed runtime outcomes, evidence quality, cost, and latency, subject to a risk ceiling.
+
+Self-evolution is evidence-gated: independent evaluation outcomes are recorded with evidence references, and a candidate is proposed only after at least five evaluations across three distinct workflow IDs. Candidates are not auto-promoted; isolated regression, independent review, security review, and holdout transfer must pass first. Learning snapshots are digest-checked but are not cryptographically signed. The runtime makes no blind retry of uncertain external side effects and never grants deployment or Guard authority based on a learned score.
+
+The portable contract does not fabricate provider integrations. The host must register real clients and permission-scoped tools, including credentials, sandboxing, repository access, browser/design services, and deployment environments. See [VIBE_CODING_WORKFLOW.md](../docs/VIBE_CODING_WORKFLOW.md).
