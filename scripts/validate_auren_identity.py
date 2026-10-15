@@ -8,8 +8,10 @@ product names, entry points, package names, or current state keys.
 from __future__ import annotations
 
 import argparse
+import io
 import json
 import re
+import tokenize
 import subprocess
 import sys
 from pathlib import Path
@@ -164,6 +166,24 @@ PATTERNS = (
     re.compile(r"\baer_[a-z][A-Za-z0-9_]*\b", re.IGNORECASE),
 )
 OLD_FILENAME = re.compile(r"(^|/)aer[_-][^/]+$", re.IGNORECASE)
+# Match the legacy token as a complete identifier segment, not words such as Arena.
+LEGACY_SYMBOL_TOKEN = re.compile(r"(?i)(?:^|_)aer(?:_|$)")
+LEGACY_PATH_TOKEN = re.compile(r"(?i)(?:^|[/_.-])aer(?:[/_.-]|$)")
+
+
+def find_legacy_python_symbols(content: str) -> list[tuple[int, str]]:
+    """Return legacy-branded Python NAME tokens, excluding strings and comments."""
+    found: list[tuple[int, str]] = []
+    try:
+        tokens = tokenize.generate_tokens(io.StringIO(content).readline)
+        for token in tokens:
+            if token.type == tokenize.NAME and LEGACY_SYMBOL_TOKEN.search(token.string):
+                found.append((token.start[0], token.string))
+    except (tokenize.TokenError, IndentationError, SyntaxError):
+        # The compiler/test suite reports syntax failures separately. Do not let
+        # malformed source suppress the existing line-based identity audit.
+        pass
+    return found
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -208,13 +228,16 @@ def main(argv: list[str] | None = None) -> int:
         if not raw_path:
             continue
         path = raw_path.decode("utf-8", errors="strict")
-        if OLD_FILENAME.search(path):
-            findings.append(f"{path}: stale AER filename")
+        if OLD_FILENAME.search(path) or LEGACY_PATH_TOKEN.search(path):
+            findings.append(f"{path}: stale AER file or folder name")
         full_path = ROOT / path
         try:
             content = full_path.read_text(encoding="utf-8")
         except (UnicodeDecodeError, OSError):
             continue
+        if path.endswith(".py"):
+            for line_no, symbol in find_legacy_python_symbols(content):
+                findings.append(f"{path}:{line_no}: stale AER Python identifier: {symbol}")
         line_patterns = LEGACY_ALLOWED_LINE_PATTERNS.get(path, ())
         file_allowed = path in LEGACY_ALLOWED
         for line_no, line in enumerate(content.splitlines(), 1):
