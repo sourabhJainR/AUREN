@@ -540,13 +540,20 @@ class GraphAgentTeam:
             saved_handoffs = supervisor_envelope.get("handoff_checkpoint")
             saved_budget = supervisor_envelope.get("retry_budget")
             saved_provider_resume = supervisor_envelope.get("provider_resume_state")
+            saved_runtime_guard = supervisor_envelope.get("runtime_guard")
             if not isinstance(saved_handoffs, Mapping) or not isinstance(saved_budget, Mapping):
                 raise ValueError("supervisor checkpoint requires handoff and retry-budget snapshots")
             if saved_provider_resume is not None and not isinstance(saved_provider_resume, Mapping):
                 raise ValueError("supervisor provider resume state must be a mapping")
+            if saved_runtime_guard is not None and not isinstance(saved_runtime_guard, Mapping):
+                raise ValueError("supervisor runtime guard checkpoint must be a mapping")
             # The supervisor-provided checkpoint is authoritative over caller state.
             state["auren_crew_handoff_checkpoint_data"] = dict(saved_handoffs)
             state["auren_retry_budget"] = dict(saved_budget)
+            if isinstance(saved_runtime_guard, Mapping):
+                state["auren_runtime_guard"] = dict(saved_runtime_guard)
+            elif require_persistence:
+                raise ValueError("durable resume checkpoint lacks runtime recovery budget; explicit recovery is required")
             if isinstance(saved_provider_resume, Mapping):
                 state["auren_provider_resume_state"] = dict(saved_provider_resume)
         # Reserved fields are overwritten, so caller payloads cannot self-authorize
@@ -594,6 +601,8 @@ class GraphAgentTeam:
                     "schema_version": "auren-task-handoff-envelope-v1",
                     "handoff_checkpoint": dict(snapshot),
                     "retry_budget": retry_budget.snapshot(),
+                    **({"runtime_guard": dict(state["auren_runtime_guard"])}
+                       if isinstance(state.get("auren_runtime_guard"), Mapping) else {}),
                     "task_id": task_id,
                     "intent_digest": plan.intent_digest,
                     "crew_plan_digest": plan.digest,
@@ -767,6 +776,7 @@ class GraphAgentTeam:
         state["auren_crew_handoff_checkpoint_data"] = handoffs.snapshot()
         state["auren_retry_budget"] = retry_budget.snapshot()
         state["auren_provider_resume_persist"] = persist_provider_resume
+        state["auren_runtime_guard_persist"] = lambda _snapshot=None: persist_handoff_checkpoint(handoffs.snapshot())
         state["auren_crew_handoff_checkpoint"] = handoffs.snapshot
         state["auren_crew_rollback_readiness"] = rollback_readiness
         try:
