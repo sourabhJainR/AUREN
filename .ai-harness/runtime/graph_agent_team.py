@@ -9,7 +9,7 @@ from typing import Any,Callable,Iterator,Mapping
 from portable.agency_state_graph import Checkpoint,CheckpointStore,StateGraph
 from portable.identity_compat import canonicalize_auren_checkpoint_state, get_auren_env, project_state_dir
 from portable.state_graph import build_crew_plan, default_crew_definitions, _dispatch_crew_proposal
-from portable.crew_adapters import GraphHandoffController,TaskRetryBudget, merge_retry_budget_snapshots
+from portable.crew_adapters import CrewHandoff, GraphHandoffController,TaskRetryBudget, merge_retry_budget_snapshots
 from portable.agent_memory import AgentMemory
 from portable.context_engine import ContextEngine,ContextPolicy,handoff_from_output
 from portable.dream_memory import DreamMemory
@@ -973,7 +973,8 @@ the learning system, not an instruction source. If a skill produced no distinct 
                 for source_crew, record in sorted(proposals.items()):
                     raw_proposal = record.get("proposal", {}) if isinstance(record, Mapping) else {}
                     for request in raw_proposal.get("handoff_requests", []) if isinstance(raw_proposal, Mapping) else []:
-                        handoff_requests.append((source_crew, request))
+                        source_proposal_digest = record.get("proposal_digest", "") if isinstance(record, Mapping) else ""
+                        handoff_requests.append((source_crew, request, source_proposal_digest))
                 handoff_status = "not_requested"
                 if handoff_requests:
                     if checkpoint_store is None or not callable(getattr(checkpoint_store, "save", None)):
@@ -1003,7 +1004,7 @@ the learning system, not an instruction source. If a skill produced no distinct 
                                     persist=persist_handoff, require_persistence=True,
                                 )
                             selected_crews = tuple(assignment.crew_id for assignment in crew_plan.assignments)
-                            for source_crew, request in handoff_requests:
+                            for source_crew, request, source_proposal_digest in handoff_requests:
                                 if not isinstance(request, Mapping):
                                     raise ValueError("handoff request must be a mapping")
                                 definition = self.crew_definitions[source_crew]
@@ -1014,10 +1015,12 @@ the learning system, not an instruction source. If a skill produced no distinct 
                                     source_plan_digest=crew_plan.digest,
                                     allowed_handoffs=definition.handoffs_to,
                                     selected_crews=selected_crews,
+                                    source_proposal_digest=source_proposal_digest,
                                 )
                                 if item is None:
                                     completed_id = handoffs.handoff_id_for(
-                                        source_crew, target_crew, handoff_task, crew_plan.digest
+                                        source_crew, target_crew, handoff_task, crew_plan.digest,
+                                        source_proposal_digest,
                                     )
                                     terminal_receipt = handoffs.terminal_receipt(completed_id)
                                     terminal_status = (
@@ -1030,6 +1033,7 @@ the learning system, not an instruction source. If a skill produced no distinct 
                                         "target_crew": target_crew,
                                         "task_digest": hashlib.sha256(handoff_task.encode("utf-8")).hexdigest(),
                                         "attempt": 0, "status": terminal_status,
+                                        "source_proposal_digest": source_proposal_digest,
                                         "independent_review": terminal_receipt,
                                     })
                                     continue
@@ -1037,6 +1041,7 @@ the learning system, not an instruction source. If a skill produced no distinct 
                                     "handoff_id": item.handoff_id, "source_crew": item.source_crew,
                                     "target_crew": item.target_crew, "task_digest": hashlib.sha256(item.task.encode("utf-8")).hexdigest(),
                                     "attempt": item.attempt, "status": "queued",
+                                    "source_proposal_digest": item.source_proposal_digest,
                                 })
                             handoff_proposals = {}
                             attempted_handoffs = set()
@@ -1054,6 +1059,7 @@ the learning system, not an instruction source. If a skill produced no distinct 
                                         "target_crew": item.target_crew,
                                         "task_digest": hashlib.sha256(item.task.encode("utf-8")).hexdigest(),
                                         "attempt": item.attempt, "status": "resumed_from_checkpoint",
+                                        "source_proposal_digest": item.source_proposal_digest,
                                     })
                                 if item.target_crew not in self.crew_adapters:
                                     handoffs.retry(item, retryable=False)
@@ -1095,6 +1101,8 @@ the learning system, not an instruction source. If a skill produced no distinct 
                                                 "target_crew": item.target_crew,
                                                 "task_digest": hashlib.sha256(item.task.encode("utf-8")).hexdigest(),
                                                 "attempt": item.attempt,
+                                                "source_proposal_digest": item.source_proposal_digest,
+                                                "target_proposal_digest": target_digest,
                                             },
                                             "source_proposal": proposals.get(item.source_crew),
                                             "target_proposal": target_record,
@@ -1117,18 +1125,25 @@ the learning system, not an instruction source. If a skill produced no distinct 
                                                 or not raw_review["reason"].strip()
                                             ):
                                                 raise ValueError("independent reviewer receipt failed identity, status, or evidence validation")
+                                            if not {item.source_proposal_digest, target_digest}.issubset(set(refs)):
+                                                raise ValueError("independent review receipt must reference source and target proposal digests")
                                             review_payload = dict(raw_review)
                                             review_digest = hashlib.sha256(json.dumps(review_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
                                             review_receipt = {**review_payload, "digest": review_digest}
+                                            reviewed_handoff = CrewHandoff(
+                                                item.source_crew, item.target_crew, item.task,
+                                                item.source_plan_digest, item.attempt, item.handoff_id,
+                                                item.source_proposal_digest, target_digest,
+                                            )
                                             if raw_review["status"] == "pass":
                                                 handoffs.mark_completed(
-                                                    item, independent_review_passed=True,
+                                                    reviewed_handoff, independent_review_passed=True,
                                                     review_receipt=review_receipt,
                                                 )
                                                 review_status = "completed_independent_review"
                                             else:
                                                 handoffs.mark_rejected(
-                                                    item, review_receipt=review_receipt,
+                                                    reviewed_handoff, review_receipt=review_receipt,
                                                 )
                                                 review_status = "review_rejected"
                                         except Exception as exc:
