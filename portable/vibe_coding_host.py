@@ -1628,5 +1628,6 @@ __all__ = [
     "JournaledToolAdapter", "LocalAccessibilityTool", "LocalBrowserTool", "LocalDesignTool",
     "LocalProjectTool", "LocalSecurityTool", "LocalTestExecutionTool", "LocalVibeCodingHost",
     "MCPIndependentReviewTool", "MCPStdioToolAdapter", "MemoizedToolAdapter", "ProviderCliAgent", "SideEffectJournal",
-    "VerifiedResearchTool", "VibeHostConfig", "fingerprint_worktree", "load_host_config",
+    "VerifiedResearchTool", "VibeHostConfig", "build_engineering_design_contract",
+    "fingerprint_worktree", "load_host_config",
 ]
