@@ -160,15 +160,16 @@ class StateGraphTests(unittest.TestCase):
         self.assertEqual(len(calls), 2)
         self.assertTrue(store.load("repeat").runtime_guard["cancelled"])
 
-    def test_resume_rejects_checkpoint_without_recovery_budget(self):
+    def test_legacy_checkpoint_resumes_with_a_bounded_migrated_budget(self):
         from portable.agency_state_graph import Checkpoint
         store = InMemoryCheckpointStore()
         store.save(Checkpoint("legacy", 0, {}, ("work",)))
         graph = StateGraph()
         graph.add_node("work", lambda _state: {"done": True})
         graph.add_edge(StateGraph.START, "work").add_edge("work", StateGraph.END)
-        with self.assertRaisesRegex(ValueError, "lacks runtime guard"):
-            graph.compile().invoke({}, run_id="legacy", checkpoint=store, resume=True)
+        result = graph.compile().invoke({}, run_id="legacy", checkpoint=store, resume=True)
+        self.assertTrue(result.state["done"])
+        self.assertIsNotNone(store.load("legacy").runtime_guard)
 
     def test_deadline_overrun_rejects_late_node_result(self):
         import time
