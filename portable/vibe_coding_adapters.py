@@ -23,7 +23,7 @@ from .agent_capabilities import redact
 from .vibe_coding import STAGE_ORDER, STAGE_SPECS, VibeStage, build_vibe_coding_graph, validate_stage_output
 
 Adapter = Callable[[Mapping[str, Any]], Mapping[str, Any]]
-_SCHEMA = "auren-vibe-adapter-learning-v2"
+_SCHEMA = "auren-vibe-adapter-learning-v3"
 _SECRET_KEY = re.compile(r"(?i)(secret|token|password|credential|authorization|api[_-]?key|private[_-]?key)")
 _STAGE_STATE_KEYS = frozenset({
     "intent", "task_intent", "task_id", "vibe_coding_workflow_id", "risk",
@@ -189,6 +189,26 @@ class VibeAdapterRegistry:
         if self.learning_store_path is not None and self._learning_loaded:
             self.save_snapshot(self.learning_store_path)
 
+    @property
+    def configuration_digest(self) -> str:
+        rows = [
+            {
+                "adapter_id": item.adapter_id,
+                "version": item.version,
+                "stages": sorted(stage.value for stage in item.stages),
+                "capabilities": sorted(item.capabilities),
+                "risk": item.risk,
+                "evidence_quality": item.evidence_quality,
+                "historical_success": item.historical_success,
+                "estimated_cost": item.estimated_cost,
+                "estimated_latency_ms": item.estimated_latency_ms,
+                "external_side_effects": item.external_side_effects,
+            }
+            for item in sorted(self._adapters.values(), key=lambda adapter: adapter.adapter_id)
+        ]
+        payload = {"max_risk": self.max_risk, "exploration": self.exploration, "adapters": rows}
+        return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
     def register(self, registration: AdapterRegistration) -> None:
         if not isinstance(registration, AdapterRegistration):
             raise TypeError("registration must be AdapterRegistration")
@@ -344,7 +364,12 @@ class VibeAdapterRegistry:
             "failures": value.failures, "workflows": sorted(value.workflows),
             "evidence_refs": sorted(value.evidence_refs),
         } for key, value in sorted(self._evaluation_stats.items())}
-        payload = {"schema_version": _SCHEMA, "stats": stats, "evaluations": evaluations}
+        payload = {
+            "schema_version": _SCHEMA,
+            "adapter_config_digest": self.configuration_digest,
+            "stats": stats,
+            "evaluations": evaluations,
+        }
         payload["digest"] = hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
         return payload
 
@@ -355,6 +380,8 @@ class VibeAdapterRegistry:
         digest = hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
         if snapshot.get("digest") != digest:
             raise ValueError("adapter-learning snapshot digest mismatch")
+        if snapshot.get("adapter_config_digest") != self.configuration_digest:
+            raise ValueError("adapter-learning snapshot adapter configuration mismatch")
         for section, destination in (("stats", self._stats), ("evaluations", self._evaluation_stats)):
             incoming = snapshot.get(section)
             if not isinstance(incoming, Mapping):
