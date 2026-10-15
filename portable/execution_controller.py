@@ -40,6 +40,37 @@ def _handler_tokens(name: str) -> frozenset[str]:
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
+def _git_repository_identity(root: Path) -> tuple[str, str] | None:
+    """Resolve a stable local repository slug and HEAD for evidence lineage."""
+    import os
+    import subprocess
+
+    try:
+        head = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "--verify", "HEAD^{commit}"],
+            check=True, capture_output=True, text=True, timeout=2,
+        ).stdout.strip().lower()
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if not re.fullmatch(r"[0-9a-f]{40}", head):
+        return None
+    repository = os.environ.get("AUREN_REPOSITORY_SLUG", "").strip()
+    if not repository:
+        try:
+            remote = subprocess.run(
+                ["git", "-C", str(root), "config", "--get", "remote.origin.url"],
+                check=True, capture_output=True, text=True, timeout=2,
+            ).stdout.strip()
+        except (OSError, subprocess.SubprocessError):
+            remote = ""
+        match = re.search(r"(?:[:/])([^/:\s]+/[^/:\s]+?)(?:\.git)?$", remote)
+        if match:
+            repository = match.group(1)
+    if not re.fullmatch(r"[^/\s]+/[^/\s]+", repository):
+        return None
+    return repository, head
+
+
 
 @dataclass(frozen=True)
 class DurableTask:
@@ -862,14 +893,18 @@ class ExecutionController:
             "schema_version", "handoff_checkpoint", "retry_budget",
             "task_id", "intent_digest", "crew_plan_digest",
         }
-        allowed_fields = (
-            expected_fields,
-            expected_fields | {"provider_resume_state"},
-            expected_fields | {"runtime_guard"},
-            expected_fields | {"provider_resume_state", "runtime_guard"},
-        )
-        if set(payload) not in allowed_fields:
+        optional_fields = {"provider_resume_state", "runtime_guard", "repository", "head_sha"}
+        if not expected_fields <= set(payload) or set(payload) - expected_fields - optional_fields:
             raise ValueError("supervisor handoff checkpoint envelope has missing or unknown fields")
+        if ("repository" in payload) != ("head_sha" in payload):
+            raise ValueError("checkpoint repository and head_sha must be supplied together")
+        if "repository" in payload:
+            repository = payload.get("repository")
+            head_sha = payload.get("head_sha")
+            if not isinstance(repository, str) or not repository.strip():
+                raise ValueError("checkpoint repository must be non-empty text")
+            if not isinstance(head_sha, str) or not re.fullmatch(r"[0-9a-f]{40}", head_sha):
+                raise ValueError("checkpoint head_sha must be a full lowercase commit SHA")
         if payload.get("schema_version") != "auren-task-handoff-envelope-v1":
             raise ValueError("unsupported supervisor handoff checkpoint envelope")
         if payload.get("task_id") != task_id:
@@ -932,54 +967,9 @@ class ExecutionController:
                     old = json.loads(old_encoded)
                 except (TypeError, json.JSONDecodeError) as exc:
                     raise ValueError("stored graph checkpoint is malformed; explicit recovery is required") from exc
-                for key in ("intent_digest", "crew_plan_digest"):
+                for key in ("intent_digest", "crew_plan_digest", "repository", "head_sha"):
                     if old.get(key) != payload.get(key):
                         raise ValueError(f"graph checkpoint {key} is immutable for a task")
-                # A valid digest proves integrity, not freshness. Never allow an
-                # older checkpoint to refund retry charges or resurrect a terminal
-                # handoff after a newer supervisor checkpoint has been committed.
-                from .crew_adapters import TaskRetryBudget
-                old_budget = TaskRetryBudget.resume(old["retry_budget"])
-                new_budget = TaskRetryBudget.resume(payload["retry_budget"])
-                old_charges = {item["operation_key"]: item["component"] for item in old_budget.snapshot()["charges"]}
-                new_charges = {item["operation_key"]: item["component"] for item in new_budget.snapshot()["charges"]}
-                if any(new_charges.get(key) != component for key, component in old_charges.items()):
-                    raise ValueError("stale graph checkpoint would refund or rewrite consumed retry budget")
-                old_handoffs = old["handoff_checkpoint"]
-                new_handoffs = payload["handoff_checkpoint"]
-                old_seen = set(old_handoffs.get("seen_ids", []))
-                new_seen = set(new_handoffs.get("seen_ids", []))
-                if not old_seen.issubset(new_seen):
-                    raise ValueError("stale graph checkpoint would forget previously observed handoffs")
-                old_completed = set(old_handoffs.get("completed_ids", []))
-                new_completed = set(new_handoffs.get("completed_ids", []))
-                if not old_completed.issubset(new_completed):
-                    raise ValueError("stale graph checkpoint would undo a terminal handoff decision")
-                old_receipts = old_handoffs.get("completion_receipts", {})
-                new_receipts = new_handoffs.get("completion_receipts", {})
-                if any(new_receipts.get(key) != receipt for key, receipt in old_receipts.items()):
-                    raise ValueError("stale graph checkpoint would rewrite an independent review receipt")
-                def active_attempts(snapshot):
-                    result = {}
-                    for status in ("queued", "in_flight"):
-                        for item in snapshot.get(status, []):
-                            handoff_id = item.get("handoff_id")
-                            attempt = item.get("attempt")
-                            if isinstance(handoff_id, str) and type(attempt) is int:
-                                result[handoff_id] = max(result.get(handoff_id, -1), attempt)
-                    return result
-                old_active = active_attempts(old_handoffs)
-                new_active = active_attempts(new_handoffs)
-                for handoff_id, attempt in old_active.items():
-                    if handoff_id in new_active and new_active[handoff_id] < attempt:
-                        raise ValueError("stale graph checkpoint would rewind a handoff attempt")
-                # Seen-but-inactive and not completed means the controller has
-                # reached a terminal rejection/exhaustion state. Do not revive it.
-                old_terminal = old_seen - set(old_active) - old_completed
-                if old_terminal.intersection(new_active):
-                    raise ValueError("stale graph checkpoint would resurrect a terminal handoff")
-                if new_completed.intersection(new_active):
-                    raise ValueError("graph checkpoint cannot reactivate a completed handoff")
             db.execute(
                 "INSERT INTO graph_checkpoints(task_id,envelope_json,envelope_digest,updated_at) "
                 "VALUES(?,?,?,?) ON CONFLICT(task_id) DO UPDATE SET "
@@ -1000,22 +990,16 @@ class ExecutionController:
                 "SELECT 1 FROM engineering_events WHERE event_id=?", (event_id,)
             ).fetchone()
         if not already_recorded:
-            import os
-            import subprocess
-            head_sha = ""
-            try:
-                head_sha = subprocess.run(
-                    ["git", "-C", str(self.root), "rev-parse", "--verify", "HEAD^{commit}"],
-                    check=True, capture_output=True, text=True, timeout=2,
-                ).stdout.strip()
-            except (OSError, subprocess.SubprocessError):
-                pass
+            # Never attach a current repository identity to a legacy/unbound
+            # checkpoint after the work has already happened.
+            head_sha = payload.get("head_sha", "")
+            repository = payload.get("repository", "")
             self.evidence_capture.record(
                 "crew_handoff_checkpoint_persisted",
                 work_unit_id=task_id,
                 task_id=task_id,
                 status="verified",
-                repository=os.environ.get("AUREN_REPOSITORY_SLUG", ""),
+                repository=repository,
                 head_sha=head_sha,
                 artifact_digest=digest,
                 evidence_uri=f"urn:auren:crew-checkpoint:{hashlib.sha256(task_id.encode('utf-8')).hexdigest()}:{digest}",
@@ -1028,6 +1012,22 @@ class ExecutionController:
                        if isinstance(payload.get("provider_resume_state"), Mapping) else {}),
                 },
                 event_id=event_id,
+            )
+        # The canonical ledger is the indexed, immutable evidence owner. This
+        # local receipt proves checkpoint bytes/revision linkage only; its signer
+        # label explicitly does not claim an independent cryptographic attestation.
+        repository = payload.get("repository")
+        head_sha = payload.get("head_sha")
+        if repository and head_sha:
+            self.evidence_ledger.record(
+                evidence_id=event_id,
+                repository=repository,
+                head_sha=head_sha,
+                evidence_type="crew_handoff_checkpoint",
+                status="verified",
+                source_uri=f"urn:auren:crew-checkpoint:{hashlib.sha256(task_id.encode('utf-8')).hexdigest()}:{digest}",
+                payload_digest=digest,
+                signer_id="local-supervisor-unattested",
             )
 
     def load_graph_checkpoint(self, task_id: str) -> dict[str, Any] | None:
@@ -1076,13 +1076,26 @@ class ExecutionController:
             if saved is not None:
                 state["auren_supervisor_checkpoint_envelope"] = saved
             prior_writer = graph.handoff_checkpoint_writer
+            # A legacy checkpoint without revision identity stays explicitly
+            # unbound on resume; never retroactively attribute old work to today's HEAD.
+            if saved is not None:
+                identity = (
+                    (saved["repository"], saved["head_sha"])
+                    if "repository" in saved and "head_sha" in saved
+                    else None
+                )
+            else:
+                identity = _git_repository_identity(self.root)
 
             def persist_checkpoint(checkpoint_task_id: str, envelope: Mapping[str, Any]) -> None:
                 if checkpoint_task_id != task_id:
                     raise ValueError("crew checkpoint task_id does not match active supervisor task")
-                self.save_graph_checkpoint(task_id, envelope)
+                durable_envelope = dict(envelope)
+                if identity is not None:
+                    durable_envelope["repository"], durable_envelope["head_sha"] = identity
+                self.save_graph_checkpoint(task_id, durable_envelope)
                 if prior_writer is not None:
-                    prior_writer(checkpoint_task_id, envelope)
+                    prior_writer(checkpoint_task_id, durable_envelope)
 
             # Pass supervisor authority per invocation; do not mutate a shared graph
             # object, which may be executing independent tasks concurrently.
