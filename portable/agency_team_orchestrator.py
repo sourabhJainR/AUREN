@@ -50,11 +50,13 @@ class AgentTeamOrchestrator:
         by_id = {u.unit_id: u for u in units}
         if len(by_id) != len(units): raise ValueError("unit IDs must be unique")
         return build_plan(tuple(SpecialistWork(u.specialist, u.role, u.mutation_mode, u.read_paths, u.write_paths, tuple(by_id[d].specialist for d in u.depends_on if d in by_id), u.priority) for u in units))
-    def run(self, units: Sequence[WorkUnit], *, evidence_digest: str, spawn: AgentSpawner, verify: Verifier, review: Reviewer, governance_gateway: ActionGovernanceGateway | None = None, approval_provider: ApprovalProvider | None = None, run_id: str = "team-run") -> TeamRun:
+    def run(self, units: Sequence[WorkUnit], *, evidence_digest: str, spawn: AgentSpawner, verify: Verifier, review: Reviewer, governance_gateway: ActionGovernanceGateway | None = None, approval_provider: ApprovalProvider | None = None, run_id: str = "") -> TeamRun:
         if not evidence_digest.strip(): raise ValueError("evidence_digest is required")
         normalized = tuple(units); by_id = {u.unit_id: u for u in normalized}
         if len(by_id) != len(normalized): raise ValueError("unit IDs must be unique")
         if any(d not in by_id for u in normalized for d in u.depends_on): raise ValueError("unknown unit dependency")
+        if governance_gateway is not None and not run_id.strip():
+            raise ValueError("run_id is required when governance gateway is enabled")
         plan = self.plan(normalized)
 
         effective_spawn = spawn
