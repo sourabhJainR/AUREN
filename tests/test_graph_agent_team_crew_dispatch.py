@@ -163,7 +163,11 @@ class HarnessCrewDispatchTests(unittest.TestCase):
                     "reviewer_id": "host-independent-qa",
                     "reviewer_version": "reviewer-v1",
                     "status": "pass",
-                    "evidence_refs": ["test://independent-qa/review-001"],
+                    "evidence_refs": [
+                        "test://independent-qa/review-001",
+                        request["source_proposal"]["proposal_digest"],
+                        request["target_proposal"]["proposal_digest"],
+                    ],
                     "reason": "Separate reviewer accepted the handoff proposal.",
                 }
 
@@ -192,7 +196,8 @@ class HarnessCrewDispatchTests(unittest.TestCase):
             receipt = execution["handoff_receipts"][0]
             self.assertEqual(receipt["status"], "completed_independent_review")
             self.assertEqual(receipt["independent_review"]["reviewer_id"], "host-independent-qa")
-            self.assertEqual(receipt["independent_review"]["evidence_refs"], ["test://independent-qa/review-001"])
+            self.assertIn(reviewer_requests[0]["source_proposal"]["proposal_digest"], receipt["independent_review"]["evidence_refs"])
+            self.assertIn(reviewer_requests[0]["target_proposal"]["proposal_digest"], receipt["independent_review"]["evidence_refs"])
             self.assertEqual(len(receipt["independent_review"]["digest"]), 64)
             self.assertEqual(reviewer_requests[0]["schema_version"], "auren-handoff-review-request-v1")
             self.assertIn("source_proposal", reviewer_requests[0])
@@ -211,7 +216,11 @@ class HarnessCrewDispatchTests(unittest.TestCase):
                     "reviewer_id": "host-independent-qa",
                     "reviewer_version": "reviewer-v1",
                     "status": "reject",
-                    "evidence_refs": ["test://independent-qa/review-rejected-001"],
+                    "evidence_refs": [
+                        "test://independent-qa/review-rejected-001",
+                        _request["source_proposal"]["proposal_digest"],
+                        _request["target_proposal"]["proposal_digest"],
+                    ],
                     "reason": "Required acceptance evidence is missing.",
                 }
 
