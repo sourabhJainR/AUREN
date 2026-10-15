@@ -12,7 +12,7 @@ from portable.state_paths import StatePathConflict
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Inspect a legacy .aer to canonical .auren migration without changing either root."
+        description="Inspect a legacy to canonical state migration without changing either root."
     )
     parser.add_argument("--canonical-root", required=True, type=Path, help="Target .auren state root")
     parser.add_argument("--legacy-root", required=True, type=Path, help="Existing legacy .aer state root")
