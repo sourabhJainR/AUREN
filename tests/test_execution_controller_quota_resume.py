@@ -76,3 +76,19 @@ def test_permanent_quota_exhaustion_parks_without_polling(tmp_path):
     assert _quota_calls == 1
     assert controller.unblock_quota_task(task.id, operator_reason="Provider account quota replenished")
     assert _state(controller, task.id)[0] == "pending"
+
+
+def test_http_429_uses_provider_reset_headers():
+    class RateLimitResponse:
+        status_code = 429
+        headers = {"x-ratelimit-reset": str((datetime.now(timezone.utc) + timedelta(minutes=3)).timestamp())}
+
+    class RateLimitError(Exception):
+        response = RateLimitResponse()
+
+    is_quota, provider, retry_after, permanent = ExecutionController._quota_signal(RateLimitError())
+    assert is_quota
+    assert provider == "unknown"
+    assert isinstance(retry_after, datetime)
+    assert not permanent
+    assert retry_after > datetime.now(timezone.utc)
