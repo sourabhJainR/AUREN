@@ -434,7 +434,7 @@ class CompiledStateGraph:
                 try:
                     if guard is not None:
                         guard.check()
-                        guard.charge_attempt(f"{operation_prefix}:attempt:{attempt}")
+                        guard.charge_attempt(f"{operation_prefix}:attempt:{guard.attempts_used + 1}")
                     output = self._g._nodes[name](dict(state))
                     if not isinstance(output, Mapping): raise TypeError(f"node {name} must return a mapping")
                     validate_state(output, label=f"node {name} output")
