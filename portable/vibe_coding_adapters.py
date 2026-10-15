@@ -19,7 +19,7 @@ from typing import Any, Callable, Mapping, Sequence
 
 from .agency_registry import rank as rank_agents
 from .agent_capabilities import redact
-from .vibe_coding import STAGE_ORDER, STAGE_SPECS, VibeStage, build_vibe_coding_graph
+from .vibe_coding import STAGE_ORDER, STAGE_SPECS, VibeStage, build_vibe_coding_graph, validate_stage_output
 
 Adapter = Callable[[Mapping[str, Any]], Mapping[str, Any]]
 _SCHEMA = "auren-vibe-adapter-learning-v2"
@@ -244,6 +244,9 @@ class VibeAdapterRegistry:
             }]
             result.setdefault("adapter_id", selected.adapter_id)
             result.setdefault("adapter_version", selected.version)
+            valid, reason = validate_stage_output(stage, result)
+            if not valid:
+                raise ValueError(f"{stage.value} adapter output failed its stage contract: {reason}")
             stats.successes += 1
             return result
         except Exception:
