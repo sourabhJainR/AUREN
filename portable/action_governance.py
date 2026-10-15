@@ -9,11 +9,12 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from hashlib import sha256
 import json
+import posixpath
+import threading
 import time
-from typing import Any, Callable, Iterable, Mapping
+from typing import Any, Callable, Mapping
 
 
-DECISIONS = {"allow", "deny", "approval_required"}
 RISK_LEVELS = {"read", "write", "external_effect", "release"}
 
 
@@ -31,7 +32,19 @@ def _nonblank(value: str, name: str) -> None:
 
 
 def _normal_target(value: str) -> str:
-    return value.replace("\\", "/").strip().rstrip("/")
+    normalized = posixpath.normpath(value.replace("\\", "/").strip())
+    return "" if normalized == "." and not value.strip() else normalized.rstrip("/")
+
+
+def _result_digest(result: Any) -> str:
+    payload = json.dumps(
+        {"type": type(result).__name__, "value": result},
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        default=lambda value: {"__type__": type(value).__name__},
+    )
+    return sha256(payload.encode("utf-8")).hexdigest()
 
 
 @dataclass(frozen=True)
@@ -117,8 +130,8 @@ class GovernedResult:
 class ActionGovernanceGateway:
     """Evaluate and mediate actions, with an in-memory tamper-evident trace.
 
-    The trace hash chain detects accidental/tampering changes when independently
-    verified, but is not a signature, trusted-storage guarantee, or isolation proof.
+    The trace hash chain detects modifications to the event sequence when verified,
+    but is not a signature, trusted-storage guarantee, or isolation proof.
     """
 
     def __init__(
@@ -133,10 +146,13 @@ class ActionGovernanceGateway:
         self._approval_verifier = approval_verifier
         self._clock = clock
         self._events: list[dict[str, Any]] = []
+        self._lock = threading.RLock()
+        self._attempted_actions: set[tuple[str, str]] = set()
 
     @property
     def events(self) -> tuple[dict[str, Any], ...]:
-        return tuple(dict(event) for event in self._events)
+        with self._lock:
+            return tuple(dict(event) for event in self._events)
 
     def evaluate(
         self,
@@ -211,7 +227,7 @@ class ActionGovernanceGateway:
         *,
         approval: ApprovalReceipt | None = None,
     ) -> GovernedResult:
-        """Invoke the handler only after an allow verdict; record success/failure.
+        """Invoke the handler only after allow; each run/action identity is single-use.
 
         The caller must not execute the same action outside this gateway. External
         effects should use the request's idempotency key at the downstream service.
@@ -219,6 +235,29 @@ class ActionGovernanceGateway:
         verdict = self.evaluate(request, approval=approval)
         if not verdict.allowed:
             return GovernedResult(executed=False, verdict=verdict)
+
+        identity = (request.run_id, request.action_id)
+        with self._lock:
+            if identity in self._attempted_actions:
+                blocked = PolicyVerdict(
+                    "deny", "duplicate_action_identity", verdict.request_fingerprint,
+                    verdict.approval_required,
+                )
+                self._append_event({
+                    "event": "duplicate_action_blocked",
+                    "run_id": request.run_id,
+                    "action_id": request.action_id,
+                    "request_fingerprint": verdict.request_fingerprint,
+                })
+                return GovernedResult(executed=False, verdict=blocked)
+            self._attempted_actions.add(identity)
+            self._append_event({
+                "event": "action_started",
+                "run_id": request.run_id,
+                "action_id": request.action_id,
+                "request_fingerprint": verdict.request_fingerprint,
+            })
+
         try:
             result = handler()
         except Exception as exc:
@@ -230,7 +269,7 @@ class ActionGovernanceGateway:
                 "error_type": type(exc).__name__,
             })
             raise
-        result_digest = _digest({"type": type(result).__name__, "value": result})
+        result_digest = _result_digest(result)
         self._append_event({
             "event": "action_completed",
             "run_id": request.run_id,
@@ -241,26 +280,29 @@ class ActionGovernanceGateway:
         return GovernedResult(executed=True, verdict=verdict, result_digest=result_digest)
 
     def verify_trace(self) -> dict[str, Any]:
+        with self._lock:
+            rows = [dict(row) for row in self._events]
         previous = ""
-        for index, row in enumerate(self._events, start=1):
+        for index, row in enumerate(rows, start=1):
             if row.get("sequence") != index or row.get("previous_hash", "") != previous:
-                return {"passed": False, "events": len(self._events), "reason": "sequence_or_link_mismatch"}
+                return {"passed": False, "events": len(rows), "reason": "sequence_or_link_mismatch"}
             unsigned = dict(row)
             supplied = unsigned.pop("hash", None)
             if supplied != _digest(unsigned):
-                return {"passed": False, "events": len(self._events), "reason": "hash_mismatch"}
+                return {"passed": False, "events": len(rows), "reason": "hash_mismatch"}
             previous = str(supplied)
-        return {"passed": True, "events": len(self._events), "head": previous}
+        return {"passed": True, "events": len(rows), "head": previous}
 
     def _append_event(self, fields: Mapping[str, Any]) -> None:
-        row = {
-            "sequence": len(self._events) + 1,
-            "timestamp": self._clock(),
-            "previous_hash": self._events[-1]["hash"] if self._events else "",
-            **dict(fields),
-        }
-        row["hash"] = _digest(row)
-        self._events.append(row)
+        with self._lock:
+            row = {
+                "sequence": len(self._events) + 1,
+                "timestamp": self._clock(),
+                "previous_hash": self._events[-1]["hash"] if self._events else "",
+                **dict(fields),
+            }
+            row["hash"] = _digest(row)
+            self._events.append(row)
 
 
 __all__ = [
