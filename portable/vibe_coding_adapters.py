@@ -341,6 +341,103 @@ def build_integrated_vibe_coding_graph(
     return build_vibe_coding_graph(handlers, checkpoint_writer=checkpoint_writer)
 
 
+
+def build_host_adapter_registry(
+    active_agent: Adapter,
+    tools: Mapping[str, Adapter],
+    *,
+    version: str = "host-registered",
+    max_risk: str = "high",
+    risk_by_stage: Mapping[VibeStage | str, str] | None = None,
+) -> VibeAdapterRegistry:
+    """Wire one active-agent dispatcher plus concrete capability tools into all stages.
+
+    The active_agent callback should route to AUREN's live GraphAgentTeam/provider
+    runtime. Each tools entry is a real, permission-scoped host adapter keyed by
+    capability (research, web_search, design, repository, deployment, etc.). Tool
+    receipts override agent-generated claims for the same fields; tool evidence is
+    retained. Missing capability adapters fail fast before execution.
+    """
+    if not callable(active_agent):
+        raise TypeError("active_agent must be a callable host agent dispatcher")
+    if not isinstance(tools, Mapping):
+        raise TypeError("tools must map capability names to callable adapters")
+    invalid = [name for name, callback in tools.items()
+               if not isinstance(name, str) or not name.strip() or not callable(callback)]
+    if invalid:
+        raise ValueError("tool adapter names must be non-empty and values callable")
+    risk_overrides: dict[VibeStage, str] = {}
+    for key, value in (risk_by_stage or {}).items():
+        stage = key if isinstance(key, VibeStage) else VibeStage(str(key))
+        if value not in {"low", "medium", "high", "critical"}:
+            raise ValueError(f"invalid adapter risk for {stage.value}")
+        risk_overrides[stage] = value
+
+    required_tools = sorted({
+        capability
+        for stage in STAGE_ORDER
+        for capability in _STAGE_CAPABILITIES[stage]
+        if capability != "agent"
+    })
+    missing = [capability for capability in required_tools if capability not in tools]
+    if missing:
+        raise AdapterUnavailable("host integration missing capability tools: " + ", ".join(missing))
+
+    registry = VibeAdapterRegistry(max_risk=max_risk)
+    for stage in STAGE_ORDER:
+        capabilities = tuple(_STAGE_CAPABILITIES[stage])
+        def composite(request: Mapping[str, Any], *, _stage: VibeStage = stage,
+                      _capabilities: tuple[str, ...] = capabilities) -> Mapping[str, Any]:
+            tool_results: dict[str, Mapping[str, Any]] = {}
+            tool_evidence: list[Any] = []
+            for capability in _capabilities:
+                if capability == "agent":
+                    continue
+                tool_request = dict(request)
+                tool_request["capability"] = capability
+                tool_result = tools[capability](tool_request)
+                if not isinstance(tool_result, Mapping):
+                    raise TypeError(f"tool adapter {capability} must return a mapping")
+                tool_results[capability] = dict(tool_result)
+                evidence = tool_result.get("evidence", [])
+                if isinstance(evidence, list):
+                    tool_evidence.extend(evidence)
+                elif evidence:
+                    tool_evidence.append(evidence)
+            agent_request = dict(request)
+            agent_request["tool_results"] = tool_results
+            agent_output = active_agent(agent_request)
+            if not isinstance(agent_output, Mapping):
+                raise TypeError("active agent dispatcher must return a structured mapping")
+            merged = dict(agent_output)
+            evidence = merged.get("evidence", [])
+            evidence_items = list(evidence) if isinstance(evidence, list) else ([evidence] if evidence else [])
+            # Concrete tool results are authoritative over generated descriptions/claims.
+            for capability in _capabilities:
+                if capability == "agent":
+                    continue
+                tool_result = tool_results[capability]
+                for key, value in tool_result.items():
+                    if key != "evidence":
+                        merged[key] = value
+            merged["evidence"] = evidence_items + tool_evidence
+            merged.setdefault("stage", _stage.value)
+            return merged
+
+        registry.register(AdapterRegistration(
+            adapter_id=f"host-integrated:{stage.value}",
+            version=version,
+            stages=(stage,),
+            capabilities=frozenset(set(capabilities) | {"agent"}),
+            invoke=composite,
+            risk=risk_overrides.get(stage, "medium"),
+            evidence_quality=0.65,
+            historical_success=0.5,
+            external_side_effects=stage in _SIDE_EFFECT_STAGES,
+        ))
+    return registry
+
+
 def default_stage_capabilities() -> dict[str, list[str]]:
     """Expose the explicit capability contract for host/provider configuration."""
     return {stage.value: list(_STAGE_CAPABILITIES[stage]) for stage in STAGE_ORDER}
@@ -348,6 +445,6 @@ def default_stage_capabilities() -> dict[str, list[str]]:
 
 __all__ = [
     "AdapterRegistration", "AdapterStats", "AdapterUnavailable",
-    "VibeAdapterRegistry", "build_integrated_vibe_coding_graph",
+    "VibeAdapterRegistry", "build_host_adapter_registry", "build_integrated_vibe_coding_graph",
     "default_stage_capabilities",
 ]
