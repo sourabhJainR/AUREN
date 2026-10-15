@@ -321,11 +321,6 @@ class CompiledStateGraph:
                 self._checkpoint(checkpoint, run_id, step, current, next_nodes, trace, guard)
                 return GraphRun(run_id, dict(current), tuple(events), tuple(trace), step, True)
             if step >= max_steps: raise ExecutionBudgetExceeded(f"graph exceeded max_steps={max_steps}")
-            try:
-                guard.charge_step()
-            except ExecutionBudgetExceeded:
-                self._checkpoint(checkpoint, run_id, step, current, next_nodes, trace, guard)
-                raise
             step += 1; snapshot = dict(current)
             if not skip_before_once:
                 for name in next_nodes:
@@ -333,6 +328,11 @@ class CompiledStateGraph:
                         self._checkpoint(checkpoint, run_id, step - 1, current, next_nodes, trace, guard)
                         raise GraphInterrupt(run_id, step - 1, dict(current), tuple(next_nodes), f"interrupted before {name}")
             skip_before_once = False
+            try:
+                guard.charge_step()
+            except ExecutionBudgetExceeded:
+                self._checkpoint(checkpoint, run_id, step - 1, current, next_nodes, trace, guard)
+                raise
             parallel = [name for name in next_nodes if name != StateGraph.END and parallel_nodes and parallel_nodes(name)]
             sequential = [name for name in next_nodes if name != StateGraph.END and name not in parallel]
             results_by_name: dict[str, tuple[Mapping[str, Any], int]] = {}
