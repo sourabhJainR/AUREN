@@ -10,9 +10,11 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
 import re
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
 from .agency_registry import rank as rank_agents
@@ -20,7 +22,7 @@ from .agent_capabilities import redact
 from .vibe_coding import STAGE_ORDER, STAGE_SPECS, VibeStage, build_vibe_coding_graph
 
 Adapter = Callable[[Mapping[str, Any]], Mapping[str, Any]]
-_SCHEMA = "auren-vibe-adapter-learning-v1"
+_SCHEMA = "auren-vibe-adapter-learning-v2"
 _SECRET_KEY = re.compile(r"(?i)(secret|token|password|credential|authorization|api[_-]?key|private[_-]?key)")
 _STAGE_STATE_KEYS = frozenset({
     "intent", "task_intent", "task_id", "vibe_coding_workflow_id", "risk",
@@ -133,6 +135,7 @@ class AdapterStats:
     successes: int = 0
     failures: int = 0
     workflows: set[str] = field(default_factory=set)
+    evidence_refs: set[str] = field(default_factory=set)
 
     @property
     def success_rate(self) -> float:
@@ -256,6 +259,7 @@ class VibeAdapterRegistry:
         stats = self._evaluation_stats[adapter_id]
         stats.workflows.add(workflow_id)
         stats.attempts += 1
+        stats.evidence_refs.update(str(ref).strip() for ref in evidence_refs)
         if passed:
             stats.successes += 1
         else:
@@ -279,6 +283,7 @@ class VibeAdapterRegistry:
                 "distinct_workflows": len(stats.workflows),
                 "smoothed_success_rate": rate,
                 "evidence_quality": registration.evidence_quality,
+                "evidence_refs": sorted(stats.evidence_refs)[:100],
                 "required_next_gates": ["isolated_regression", "independent_review", "security_review", "holdout_transfer"],
                 "status": "candidate_only",
             }
@@ -290,10 +295,12 @@ class VibeAdapterRegistry:
         stats = {key: {
             "attempts": value.attempts, "successes": value.successes,
             "failures": value.failures, "workflows": sorted(value.workflows),
+            "evidence_refs": sorted(value.evidence_refs),
         } for key, value in sorted(self._stats.items())}
         evaluations = {key: {
             "attempts": value.attempts, "successes": value.successes,
             "failures": value.failures, "workflows": sorted(value.workflows),
+            "evidence_refs": sorted(value.evidence_refs),
         } for key, value in sorted(self._evaluation_stats.items())}
         payload = {"schema_version": _SCHEMA, "stats": stats, "evaluations": evaluations}
         payload["digest"] = hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
@@ -319,7 +326,29 @@ class VibeAdapterRegistry:
                     raise ValueError("learning counters must be non-negative integers")
                 if successes + failures > attempts or not isinstance(workflows, list) or any(not isinstance(x, str) for x in workflows):
                     raise ValueError("invalid adapter learning counters or workflow list")
-                destination[adapter_id] = AdapterStats(attempts, successes, failures, set(workflows))
+                evidence_refs = raw.get("evidence_refs", [])
+                if not isinstance(evidence_refs, list) or any(not isinstance(ref, str) or not ref.strip() for ref in evidence_refs):
+                    raise ValueError("adapter evidence references must be non-empty strings")
+                destination[adapter_id] = AdapterStats(
+                    attempts, successes, failures, set(workflows), set(evidence_refs)
+                )
+
+    def save_snapshot(self, path: str | Path) -> Path:
+        """Atomically persist a learning receipt to a caller-selected machine-scoped path."""
+        target = Path(path).expanduser().resolve()
+        target.parent.mkdir(parents=True, exist_ok=True)
+        temporary = target.with_name(target.name + ".tmp")
+        payload = json.dumps(self.snapshot(), sort_keys=True, indent=2, ensure_ascii=False, allow_nan=False) + "\n"
+        temporary.write_text(payload, encoding="utf-8")
+        os.replace(temporary, target)
+        return target
+
+    def load_snapshot(self, path: str | Path) -> None:
+        """Load and validate a previously persisted learning receipt."""
+        raw = json.loads(Path(path).expanduser().read_text(encoding="utf-8"))
+        if not isinstance(raw, Mapping):
+            raise ValueError("adapter-learning snapshot must be a mapping")
+        self.restore_stats(raw)
 
 
 def build_integrated_vibe_coding_graph(
