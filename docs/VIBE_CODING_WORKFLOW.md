@@ -71,7 +71,7 @@ For a restart, pass the last saved receipt as `context["vibe_coding_checkpoint"]
 Run:
 
 ```bash
-python -m unittest tests.test_vibe_coding -v
+python -m unittest discover -s tests -p 'test_vibe_coding.py' -v
 ```
 
 The tests cover the full 18-stage graph, missing-handler rejection, security-gate blocking, production authorization, checkpoint tampering and restart/resume without replaying completed stages.
