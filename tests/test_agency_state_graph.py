@@ -170,6 +170,28 @@ class StateGraphTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "lacks runtime guard"):
             graph.compile().invoke({}, run_id="legacy", checkpoint=store, resume=True)
 
+    def test_deadline_overrun_rejects_late_node_result(self):
+        import time
+        from portable.runtime_recovery import ExecutionBudgetExceeded
+        graph = StateGraph()
+        graph.add_node("slow", lambda _state: (time.sleep(0.03) or {"done": True}))
+        graph.add_edge(StateGraph.START, "slow").add_edge("slow", StateGraph.END)
+        with self.assertRaises(ExecutionBudgetExceeded):
+            graph.compile().invoke({}, deadline_seconds=0.005)
+
+    def test_isolated_node_failure_cannot_be_reported_as_success(self):
+        graph = StateGraph()
+        graph.add_node("broken", lambda _state: (_ for _ in ()).throw(ValueError("failed")))
+        graph.add_node("healthy", lambda _state: {"healthy": True})
+        graph.add_edge(StateGraph.START, "broken").add_edge(StateGraph.START, "healthy")
+        graph.add_edge("broken", StateGraph.END).add_edge("healthy", StateGraph.END)
+        result = graph.compile().invoke(
+            {}, parallel_nodes=lambda _name: True, max_parallel_nodes=2,
+            parallel_failure_mode="isolate",
+        )
+        self.assertTrue(result.interrupted)
+        self.assertTrue(any(event.status == "failed-isolated" for event in result.events))
+
 
 if __name__ == "__main__":
     unittest.main()
