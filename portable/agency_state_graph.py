@@ -445,6 +445,7 @@ class CompiledStateGraph:
                     if not isinstance(output, Mapping): raise TypeError(f"node {name} must return a mapping")
                     validate_state(output, label=f"node {name} output")
                     if guard is not None:
+                        guard.check()  # Reject late results; a deadline overrun is not success.
                         guard.observe_progress(node=name, state=state)
                     return dict(output), attempt
                 except BaseException as exc:
