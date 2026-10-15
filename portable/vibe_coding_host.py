@@ -303,7 +303,7 @@ class SideEffectJournal:
 
     def resolve_uncertain(
         self, workflow_id: str, stage: str, capability: str, *, action: str,
-        workspace_root: str | Path, expectedfingerprint_worktree: str,
+        workspace_root: str | Path, expected_worktree_digest: str,
         external_state_evidence: str, reason: str, authorized: bool = False,
     ) -> None:
         if authorized is not True:
@@ -313,7 +313,7 @@ class SideEffectJournal:
         if not reason.strip() or not external_state_evidence.strip():
             raise ValueError("resolution requires a reason and an external-state evidence reference")
         actual_digest = fingerprint_worktree(workspace_root)
-        if actual_digest != expectedfingerprint_worktree:
+        if actual_digest != expected_worktree_digest:
             raise ValueError("reviewed worktree digest does not match current worktree state")
         key = self._key(workflow_id, stage, capability)
         with closing(self._connect()) as connection:
