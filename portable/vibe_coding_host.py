@@ -63,7 +63,13 @@ def build_engineering_design_contract(intent: str, project_root: str | Path, con
         if (root / name).is_file()
     ]
     guidance_text = ", ".join(guidance) if guidance else "repository guidance must be inspected by the planning stages"
+    deployment_scope = (
+        "an isolated preview is explicitly configured; deployment receipt must identify preview/staging/isolated and pass health checks"
+        if config.preview_deployment_required
+        else "preview deployment is explicitly out of scope with a recorded rationale"
+    )
     return {
+        "scope_summary": f"Intent: {intent.strip()[:400]}; project guidance: {guidance_text}; {deployment_scope}; production release is disabled in the local validation runner.",
         "complexity": "Keep the change to the smallest reviewable implementation; introduce no new abstraction unless acceptance criteria require it.",
         "construction": f"Follow repository conventions from: {guidance_text}; validate inputs, propagate failures, clean up processes, and add regression tests.",
         "architecture": "The lifecycle graph owns stage ordering and policy; each capability adapter owns only its explicit tool boundary.",
