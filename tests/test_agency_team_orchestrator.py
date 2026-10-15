@@ -109,4 +109,19 @@ class AgentTeamOrchestratorTests(unittest.TestCase):
             )
         self.assertEqual(spawned, [])
 
+
+    def test_governance_requires_explicit_run_identity(self):
+        gateway = ActionGovernanceGateway(ActionPolicy(
+            allowed_capabilities=frozenset({"repository.read"}),
+        ))
+        with self.assertRaisesRegex(ValueError, "run_id is required"):
+            AgentTeamOrchestrator().run(
+                (WorkUnit("inspect", "inspect", read_paths=("src",)),),
+                evidence_digest="E7",
+                spawn=lambda unit, evidence: AgentOutput(unit.unit_id, "done"),
+                verify=lambda unit, output, evidence: (True, "v"),
+                review=lambda unit, output, evidence, verification: (True, "r"),
+                governance_gateway=gateway,
+            )
+
 if __name__ == "__main__": unittest.main()
