@@ -51,20 +51,25 @@ source = "/absolute/path/to/legacy-state"
 destination = "/absolute/path/to/candidate-state"
 before = inspect_state_migration(source, destination)
 result = migrate_state_root(source, destination, dry_run=False)
-after = inspect_state_migration(source, destination)
+source_after = inspect_state_migration(source, source + "/.manifest-probe-never-created")
+destination_after = inspect_state_migration(destination, destination + "/.manifest-probe-never-created")
 print(json.dumps({
     "phase": "apply",
     "status": result.status,
     "source": str(result.source),
     "destination": str(result.destination),
-    "source_manifest_sha256": before.manifest_sha256,
-    "destination_manifest_sha256": after.manifest_sha256,
-    "entry_count": result.file_count,
-    "byte_count": result.byte_count,
+    "source_manifest_sha256": source_after.manifest_sha256,
+    "destination_manifest_sha256": destination_after.manifest_sha256,
+    "source_entry_count": source_after.file_count,
+    "destination_entry_count": destination_after.file_count,
+    "source_byte_count": source_after.byte_count,
+    "destination_byte_count": destination_after.byte_count,
     "source_retained": result.source.is_dir(),
 }, indent=2, sort_keys=True))
 assert result.status in {"copied_verified_source_retained", "already_migrated_verified"}
-assert before.manifest_sha256 == after.manifest_sha256
+assert source_after.manifest_sha256 == destination_after.manifest_sha256
+assert source_after.file_count == destination_after.file_count
+assert source_after.byte_count == destination_after.byte_count
 assert result.source.is_dir()
 PY
 ```
