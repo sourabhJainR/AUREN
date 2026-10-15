@@ -32,6 +32,7 @@ _STAGE_STATE_KEYS = frozenset({
     "production_deployment_required", "production_deployment_rationale",
     "production_approval", "final_code_revision", "verified_code_revision",
     "environment", "requirements", "acceptance_criteria",
+    "browser_qa_required", "browser_qa_rationale",
 })
 
 
@@ -261,7 +262,10 @@ class VibeAdapterRegistry:
             output = selected.invoke(request)
             if not isinstance(output, Mapping):
                 raise TypeError("adapter must return a structured mapping")
-            result = dict(output)
+            sanitized_output = _safe_payload(dict(output))
+            if not isinstance(sanitized_output, Mapping):
+                raise TypeError("adapter output must sanitize to a structured mapping")
+            result = dict(sanitized_output)
             # Evidence records which real adapter executed the stage. It is metadata,
             # not proof of correctness; stage validators and independent gates still apply.
             evidence = result.get("evidence")
@@ -514,6 +518,7 @@ def build_host_adapter_registry(
                     tool_request["capability"] = capability
                     if stage_output is not None:
                         tool_request["stage_output"] = _safe_payload(dict(stage_output))
+                    tool_request["tool_results"] = dict(tool_results)
                     tool_result = tools[capability](tool_request)
                     if not isinstance(tool_result, Mapping):
                         raise TypeError(f"tool adapter {capability} must return a mapping")
