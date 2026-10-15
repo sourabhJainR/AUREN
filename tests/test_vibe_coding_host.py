@@ -37,11 +37,11 @@ def init_git(root: Path) -> str:
     ).stdout.strip()
 
 
-def fake_mcp_server(path: Path, *, plain_text: bool = False) -> None:
+def fake_mcp_server(path: Path, *, plain_text: bool = False, structured: dict | None = None) -> None:
     result = (
         {"content": [{"type": "text", "text": "Results: https://example.com/product and https://docs.example.org/alternatives"}]}
         if plain_text else
-        {"structuredContent": {"market_evidence": [{"source": "example.com", "locator": "https://example.com/product"}], "competitors": ["example.com"], "evidence": [{"source": "example.com", "locator": "https://example.com/product"}]}}
+        {"structuredContent": structured or {"market_evidence": [{"source": "example.com", "locator": "https://example.com/product"}], "competitors": ["example.com"], "evidence": [{"source": "example.com", "locator": "https://example.com/product"}]}}
     )
     source = """import json, sys
 result = json.loads(%r)
