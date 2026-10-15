@@ -763,6 +763,22 @@ class ExecutionController:
             ).fetchall()
         return [str(row[0]) for row in rows]
 
+    def seconds_until_quota_due(self, *, now: datetime | None = None) -> float | None:
+        """Return the delay to the nearest quota wake; None means no scheduled quota wait."""
+        current = now or datetime.now(timezone.utc)
+        if current.tzinfo is None:
+            raise ValueError("now must be timezone-aware")
+        with sqlite3.connect(self.db_path, timeout=10) as db:
+            row = db.execute(
+                "SELECT MIN(next_retry_at) FROM tasks WHERE state='waiting_quota' AND next_retry_at IS NOT NULL"
+            ).fetchone()
+        if not row or not row[0]:
+            return None
+        due = datetime.fromisoformat(str(row[0]))
+        if due.tzinfo is None:
+            return None
+        return max(0.0, (due.astimezone(timezone.utc) - current.astimezone(timezone.utc)).total_seconds())
+
     def wake_due_quota_tasks(self, *, now: datetime | None = None, limit: int = 20) -> list[str]:
         """Make due waits eligible for the existing supervisor; never calls a model."""
         ids = self.due_quota_task_ids(now=now, limit=limit)
