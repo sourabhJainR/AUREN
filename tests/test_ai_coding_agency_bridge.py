@@ -162,5 +162,24 @@ class AICodingAgencyBridgeTests(unittest.TestCase):
             run_coding_task(CodingTask("run-governed-4", "read API", mutation_mode="read-only"),
                             self._worker, governance_gateway=gateway)
 
+
+    def test_high_risk_governed_coding_requires_approval(self):
+        gateway = ActionGovernanceGateway(ActionPolicy(
+            allowed_capabilities=frozenset({"repository.read", "repository.write"}),
+        ))
+        task = CodingTask(
+            "run-governed-5", "modify authentication flow",
+            risk="critical", mutation_mode="bounded",
+            allowed_artifact_changes=("src/auth.py",),
+        )
+        calls = []
+        result = run_coding_task(
+            task, lambda profile, assignments: calls.append("worker") or self._worker(profile, assignments),
+            governance_gateway=gateway, run_id="governed-bridge-5",
+        )
+        self.assertFalse(result.ready)
+        self.assertEqual(calls, [])
+        self.assertIn("action_governance:trusted_approval_missing_or_invalid", result.execution.findings)
+
 if __name__ == "__main__":
     unittest.main()
