@@ -16,10 +16,39 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Mapping, Sequence
 
 from .agency_registry import rank as rank_agents
+from .agent_capabilities import redact
 from .vibe_coding import STAGE_ORDER, STAGE_SPECS, VibeStage, build_vibe_coding_graph
 
 Adapter = Callable[[Mapping[str, Any]], Mapping[str, Any]]
 _SCHEMA = "auren-vibe-adapter-learning-v1"
+_SECRET_KEY = re.compile(r"(?i)(secret|token|password|credential|authorization|api[_-]?key|private[_-]?key)")
+_STAGE_STATE_KEYS = frozenset({
+    "intent", "task_intent", "task_id", "vibe_coding_workflow_id", "risk",
+    "repository", "workspace_root", "project_root", "branch", "base_revision",
+    "preview_deployment_required", "preview_deployment_rationale",
+    "production_deployment_required", "production_deployment_rationale",
+    "production_approval", "final_code_revision", "verified_code_revision",
+    "environment", "requirements", "acceptance_criteria",
+})
+
+
+def _safe_payload(value: Any, key: str = "") -> Any:
+    """Bound adapter context and strip common secret-bearing fields."""
+    if key and _SECRET_KEY.search(key):
+        return "[REDACTED]"
+    if isinstance(value, Mapping):
+        return {
+            str(child_key): _safe_payload(child_value, str(child_key))
+            for child_key, child_value in value.items()
+            if not _SECRET_KEY.search(str(child_key))
+        }
+    if isinstance(value, (list, tuple)):
+        return [_safe_payload(item) for item in value[:200]]
+    if isinstance(value, str):
+        return redact(value[:12000])
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    return str(value)[:2000]
 _STAGE_CAPABILITIES: dict[VibeStage, tuple[str, ...]] = {
     VibeStage.IDEA: ("agent", "product"),
     VibeStage.RESEARCH: ("research", "web_search"),
@@ -160,11 +189,15 @@ class VibeAdapterRegistry:
             "purpose": next(spec.purpose for spec in STAGE_SPECS if spec.stage == stage),
             "required_capabilities": list(capabilities or _STAGE_CAPABILITIES[stage]),
             "intent": str(state.get("intent", state.get("task_intent", ""))),
-            "prior_stage_outputs": {
+            "prior_stage_outputs": _safe_payload({
                 prior.value: state[prior.value] for prior in STAGE_ORDER
                 if prior.value in state and isinstance(state[prior.value], Mapping)
-            },
-            "state": dict(state),
+            }),
+            "state": _safe_payload({
+                key: value for key, value in state.items()
+                if key in _STAGE_STATE_KEYS
+                and (key != "production_approval" or stage == VibeStage.PRODUCTION_DEPLOY)
+            }),
             "agent_candidates": rank_agents(
                 str(state.get("intent", state.get("task_intent", "")) or ""),
                 limit=5,
