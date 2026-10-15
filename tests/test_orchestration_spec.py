@@ -96,9 +96,10 @@ class OrchestrationSpecTests(unittest.TestCase):
 
     def test_comparison_requires_holdout_and_reports_reliability_metrics(self):
         rows = [
-            trial("t1", "framework-a", "sealed_holdout", True),
-            trial("t2", "framework-a", "sealed_holdout", False, outcome=OUTCOME_B, repeat_group="case-2", recovered=False),
-            trial("t3", "framework-a", "development", True, outcome=OUTCOME_A),
+            trial("t1", "framework-a", "sealed_holdout", True, repeat_group="case-1", recovered=True),
+            trial("t2", "framework-a", "sealed_holdout", True, repeat_group="case-1", recovered=None, recovery_expected=False),
+            trial("t3", "framework-a", "sealed_holdout", False, outcome=OUTCOME_B, repeat_group="case-2", recovered=False),
+            trial("t4", "framework-a", "sealed_holdout", False, outcome=OUTCOME_B, repeat_group="case-2", recovered=True),
         ]
         result = compare_orchestration_trials(rows)
         metrics = result["frameworks"]["framework-a"]
