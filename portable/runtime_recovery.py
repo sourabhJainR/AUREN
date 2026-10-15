@@ -2,6 +2,7 @@
 from __future__ import annotations
 import hashlib
 import json
+import math
 import time
 from threading import Event, Lock
 from typing import Any, Mapping
@@ -61,8 +62,13 @@ class RuntimeExecutionGuard:
             raise ValueError("max_steps must be a positive integer")
         if type(max_attempts) is not int or max_attempts < 1:
             raise ValueError("max_attempts must be a positive integer")
-        if deadline_seconds is not None and deadline_seconds <= 0:
-            raise ValueError("deadline_seconds must be positive")
+        if deadline_seconds is not None and (
+            isinstance(deadline_seconds, bool)
+            or not isinstance(deadline_seconds, (int, float))
+            or not math.isfinite(deadline_seconds)
+            or deadline_seconds <= 0
+        ):
+            raise ValueError("deadline_seconds must be a finite positive number")
         if type(repeated_failure_limit) is not int or repeated_failure_limit < 1:
             raise ValueError("repeated_failure_limit must be a positive integer")
         self.max_steps, self.max_attempts = max_steps, max_attempts
@@ -151,7 +157,9 @@ class RuntimeExecutionGuard:
                 "schema_version": self.SCHEMA_VERSION,
                 "max_steps": self.max_steps, "steps_used": self._steps,
                 "max_attempts": self.max_attempts, "attempts_used": self._attempts,
-                "remaining_seconds": remaining, "charged_operations": sorted(self._charged),
+                "remaining_seconds": remaining,
+                "deadline_unix": time.time() + remaining if remaining is not None else None,
+                "charged_operations": sorted(self._charged),
                 "failure_counts": dict(sorted(self._failures.items())),
                 "cancelled": self._cancel.is_set(), "cancellation_reason": self._reason,
             }
@@ -169,12 +177,30 @@ class RuntimeExecutionGuard:
         max_steps, steps = snapshot.get("max_steps"), snapshot.get("steps_used")
         max_attempts, attempts = snapshot.get("max_attempts"), snapshot.get("attempts_used")
         remaining = snapshot.get("remaining_seconds")
+        deadline_unix = snapshot.get("deadline_unix")
         if type(max_steps) is not int or max_steps < 1 or type(steps) is not int or not 0 <= steps <= max_steps:
             raise ValueError("invalid step budget checkpoint")
         if type(max_attempts) is not int or max_attempts < 1 or type(attempts) is not int or not 0 <= attempts <= max_attempts:
             raise ValueError("invalid attempt budget checkpoint")
-        if remaining is not None and (type(remaining) not in (int, float) or remaining < 0):
+        if remaining is not None and (
+            isinstance(remaining, bool)
+            or not isinstance(remaining, (int, float))
+            or not math.isfinite(remaining)
+            or remaining < 0
+        ):
             raise ValueError("invalid remaining deadline")
+        if deadline_unix is not None and (
+            isinstance(deadline_unix, bool)
+            or not isinstance(deadline_unix, (int, float))
+            or not math.isfinite(deadline_unix)
+        ):
+            raise ValueError("invalid absolute deadline")
+        if remaining is not None and deadline_unix is None:
+            raise ValueError("checkpoint lacks absolute deadline; explicit recovery is required")
+        if remaining is None and deadline_unix is not None:
+            raise ValueError("absolute deadline has no remaining-time field")
+        if deadline_unix is not None:
+            remaining = max(0.0, float(deadline_unix) - time.time())
         charged, failures = snapshot.get("charged_operations"), snapshot.get("failure_counts")
         if not isinstance(charged, list) or any(not isinstance(v, str) or not v for v in charged):
             raise ValueError("invalid charged operation ledger")
