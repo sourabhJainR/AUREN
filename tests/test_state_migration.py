@@ -113,11 +113,6 @@ class StateMigrationTests(unittest.TestCase):
             self.assertEqual(result.status, "copied_verified_source_retained")
             self.assertEqual((destination / "memory.db").read_bytes(), b"last-known-good-state")
 
-
-if __name__ == "__main__":
-    unittest.main()
-
-
     def test_sqlite_state_copy_restart_integrity_and_source_rollback(self) -> None:
         import sqlite3
 
@@ -157,3 +152,6 @@ if __name__ == "__main__":
                 )
             self.assertTrue(source_db.exists())
             self.assertTrue((destination / "execution.sqlite3").exists())
+
+if __name__ == "__main__":
+    unittest.main()
