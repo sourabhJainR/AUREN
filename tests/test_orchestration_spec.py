@@ -70,7 +70,7 @@ class OrchestrationSpecTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "max_traversals"):
             unbounded.validate()
         bounded = basic_spec((
-            WorkflowEdgeSpec("plan", "implement"),
+            WorkflowEdgeSpec("plan", "implement", max_traversals=2),
             WorkflowEdgeSpec("implement", "plan", max_traversals=2),
             WorkflowEdgeSpec("implement", "verify"),
         ))
