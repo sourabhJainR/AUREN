@@ -190,12 +190,12 @@ class VibeCodingHostTests(unittest.TestCase):
             with self.assertRaisesRegex(PermissionError, "explicit operator authorization"):
                 journal.resolve_uncertain(
                     "uncertain-test", "development", "agent", action="retry",
-                    workspace_root=root, expectedfingerprint_worktree=reviewed_digest,
+                    workspace_root=root, expected_worktree_digest=reviewed_digest,
                     external_state_evidence="operator://review-1", reason="Reviewed partial write",
                 )
             journal.resolve_uncertain(
                 "uncertain-test", "development", "agent", action="retry",
-                workspace_root=root, expectedfingerprint_worktree=reviewed_digest,
+                workspace_root=root, expected_worktree_digest=reviewed_digest,
                 external_state_evidence="operator://review-1", reason="Reviewed partial write",
                 authorized=True,
             )
