@@ -1,7 +1,5 @@
 from datetime import datetime, timezone
-from pathlib import Path
-
-import pytest
+import unittest
 
 from portable.crew_adapters import TaskRetryBudget
 from portable.resumable_provider import ProviderCallError, ResumableProviderExecutor
@@ -86,7 +84,7 @@ def test_provider_checkpoint_tamper_and_wrong_task_fail_closed():
     snapshot = executor.snapshot()
     tampered = dict(snapshot)
     tampered["stage_id"] = "other"
-    with pytest.raises(ValueError, match="digest mismatch"):
+    with unittest.TestCase().assertRaisesRegex(ValueError, "digest mismatch"):
         ResumableProviderExecutor(
             task_id="task-3", stage_id="stage",
             providers={"p": lambda request, key: {"ok": True}},
@@ -94,7 +92,7 @@ def test_provider_checkpoint_tamper_and_wrong_task_fail_closed():
             retry_budget=TaskRetryBudget(max_retries=1), persist=lambda _: None,
             checkpoint=tampered,
         )
-    with pytest.raises(ValueError, match="different task or stage"):
+    with unittest.TestCase().assertRaisesRegex(ValueError, "different task or stage"):
         ResumableProviderExecutor(
             task_id="other", stage_id="stage",
             providers={"p": lambda request, key: {"ok": True}},
