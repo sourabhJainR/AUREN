@@ -403,7 +403,8 @@ class CompiledStateGraph:
                 if name != StateGraph.END and name not in isolated_failures: next_set.extend(self._next(name, current))
             next_nodes = list(dict.fromkeys(next_set)); self._checkpoint(checkpoint, run_id, step, current, next_nodes, trace, guard)
             if StateGraph.END in next_nodes: next_nodes = []
-        return GraphRun(run_id, dict(current), tuple(events), tuple(trace), step)
+        had_isolated_failures = any(event.status == "failed-isolated" for event in events)
+        return GraphRun(run_id, dict(current), tuple(events), tuple(trace), step, interrupted=had_isolated_failures)
 
     def _checkpoint(self, store: CheckpointStore | None, run_id: str, step: int, state: Mapping[str, Any], next_nodes: Sequence[str], trace: Sequence[str], guard: RuntimeExecutionGuard) -> None:
         if store: store.save(Checkpoint(run_id, step, dict(state), tuple(next_nodes), tuple(trace), runtime_guard=guard.snapshot()))
