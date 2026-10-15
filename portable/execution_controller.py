@@ -766,7 +766,7 @@ class ExecutionController:
             # Provider exception text can contain request details or credentials;
             # persist a bounded category, not raw provider payloads.
             detail = f"{type(exc).__name__}: provider quota/rate-limit response; automatic retry is bounded"
-            db.execute(
+            cursor = db.execute(
                 "UPDATE tasks SET state=?,updated_at=?,heartbeat_at=?,lease_until=NULL,lease_token=NULL,"
                 "quota_provider=?,quota_reason=?,quota_attempts=?,next_retry_at=?,quota_blocked=? "
                 "WHERE id=? AND state='running' AND lease_token=? AND lease_generation=?",
@@ -774,6 +774,8 @@ class ExecutionController:
                  quota_attempts, retry_at.isoformat() if retry_at and not blocked else None,
                  int(blocked), task.id, task.lease_token, task.lease_generation),
             )
+            if cursor.rowcount != 1:
+                raise LeaseLostError("task lease was lost while recording provider quota wait")
         self._capture_event("task_quota_wait" if not blocked else "task_quota_blocked", task,
                             status=state, metadata={"provider": provider[:100], "quota_attempts": quota_attempts,
                             "next_retry_at": retry_at.isoformat() if retry_at and not blocked else None})
