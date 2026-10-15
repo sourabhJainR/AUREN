@@ -559,6 +559,24 @@ def build_host_adapter_registry(
                 )
                 if not source_backed:
                     raise AdapterUnavailable("research stage requires source-backed evidence from the research tool")
+            # Consequential receipts must identify the environment and health outcome;
+            # a model-generated description is never sufficient deployment evidence.
+            if _stage == VibeStage.PREVIEW_DEPLOYMENT:
+                deployment = tool_results.get("deployment", {})
+                preview = tool_results.get("preview", {})
+                if deployment.get("environment") not in {"preview", "staging", "isolated"}:
+                    raise AdapterUnavailable("preview deployment receipt must identify a non-production environment")
+                preview_url = preview.get("preview_url") or preview.get("url")
+                if not isinstance(preview_url, str) or not preview_url.startswith(("https://", "http://127.0.0.1", "http://localhost")):
+                    raise AdapterUnavailable("preview tool must return a valid HTTPS or loopback preview_url")
+                if preview.get("health_status") != "passed":
+                    raise AdapterUnavailable("preview health check must explicitly report health_status='passed'")
+            if _stage == VibeStage.PRODUCTION_DEPLOY:
+                release = tool_results.get("release", {})
+                if release.get("environment") != "production":
+                    raise AdapterUnavailable("release receipt must identify the production environment")
+                if dict(release.get("approval", {})) != dict(request.get("state", {}).get("production_approval", {})):
+                    raise AdapterUnavailable("release tool approval does not match the explicit workflow authorization")
             # Tool-owned fields cannot be invented by the agent; tool results must
             # be from the post-mutation state for testing, review, and deployment.
             for capability, fields in _TOOL_AUTHORITY.get(_stage, {}).items():
