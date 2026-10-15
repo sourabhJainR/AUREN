@@ -13,6 +13,7 @@ import math
 import os
 import re
 import time
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
@@ -153,7 +154,10 @@ class AdapterStats:
 class VibeAdapterRegistry:
     """Capability-aware adapter routing with bounded, explainable adaptation."""
 
-    def __init__(self, *, max_risk: str = "high", exploration: float = 0.08) -> None:
+    def __init__(
+        self, *, max_risk: str = "high", exploration: float = 0.08,
+        learning_store_path: str | Path | None = None,
+    ) -> None:
         if max_risk not in {"low", "medium", "high", "critical"}:
             raise ValueError("invalid max_risk")
         if not math.isfinite(exploration) or not 0 <= exploration <= 0.2:
@@ -164,6 +168,20 @@ class VibeAdapterRegistry:
         self._adapters: dict[str, AdapterRegistration] = {}
         self._stats: dict[str, AdapterStats] = {}
         self._evaluation_stats: dict[str, AdapterStats] = {}
+        self.learning_store_path = Path(learning_store_path).expanduser() if learning_store_path else None
+        self._learning_loaded = False
+
+    def attach_learning_store(self, path: str | Path, *, load_existing: bool = True) -> None:
+        """Enable cross-session receipts after all adapter identities have been registered."""
+        self.learning_store_path = Path(path).expanduser()
+        if load_existing and self.learning_store_path.exists():
+            self.load_snapshot(self.learning_store_path)
+        self._learning_loaded = True
+        self._persist_learning()
+
+    def _persist_learning(self) -> None:
+        if self.learning_store_path is not None and self._learning_loaded:
+            self.save_snapshot(self.learning_store_path)
 
     def register(self, registration: AdapterRegistration) -> None:
         if not isinstance(registration, AdapterRegistration):
@@ -208,6 +226,8 @@ class VibeAdapterRegistry:
         workflow_id = str(state.get("vibe_coding_workflow_id", state.get("task_id", "unknown")))
         stats.attempts += 1
         stats.workflows.add(workflow_id)
+        # Persist before external work, so a crash cannot erase a possibly side-effecting attempt.
+        self._persist_learning()
         # One call only. Do not replay uncertain deployment/repository side effects.
         request = {
             "schema_version": "auren-vibe-stage-request-v1",
@@ -255,9 +275,11 @@ class VibeAdapterRegistry:
             if not valid:
                 raise ValueError(f"{stage.value} adapter output failed its stage contract: {reason}")
             stats.successes += 1
+            self._persist_learning()
             return result
         except Exception:
             stats.failures += 1
+            self._persist_learning()
             raise
 
     def record_evaluation(self, adapter_id: str, *, workflow_id: str,
@@ -274,6 +296,7 @@ class VibeAdapterRegistry:
             stats.successes += 1
         else:
             stats.failures += 1
+        self._persist_learning()
 
     def evolution_candidates(self) -> list[dict[str, Any]]:
         """Return proposals only after enough independently evaluated workflow evidence."""
@@ -344,21 +367,48 @@ class VibeAdapterRegistry:
                 )
 
     def save_snapshot(self, path: str | Path) -> Path:
-        """Atomically persist a learning receipt to a caller-selected machine-scoped path."""
+        """Atomically persist a learning receipt with private file permissions."""
         target = Path(path).expanduser().resolve()
-        target.parent.mkdir(parents=True, exist_ok=True)
-        temporary = target.with_name(target.name + ".tmp")
-        payload = json.dumps(self.snapshot(), sort_keys=True, indent=2, ensure_ascii=False, allow_nan=False) + "\n"
-        temporary.write_text(payload, encoding="utf-8")
-        os.replace(temporary, target)
+        target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        if os.name != "nt":
+            os.chmod(target.parent, 0o700)
+        payload = json.dumps(self.snapshot(), sort_keys=True, indent=2, ensure_ascii=False, allow_nan=False) + "\\n"
+        descriptor, temporary_name = tempfile.mkstemp(prefix=f".{target.name}.", suffix=".tmp", dir=target.parent)
+        try:
+            if os.name != "nt":
+                os.fchmod(descriptor, 0o600)
+            with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+                stream.write(payload)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary_name, target)
+            if os.name != "nt":
+                os.chmod(target, 0o600)
+            try:
+                directory_fd = os.open(target.parent, os.O_RDONLY)
+                try:
+                    os.fsync(directory_fd)
+                finally:
+                    os.close(directory_fd)
+            except OSError:
+                pass
+        finally:
+            if os.path.exists(temporary_name):
+                os.unlink(temporary_name)
         return target
 
     def load_snapshot(self, path: str | Path) -> None:
-        """Load and validate a previously persisted learning receipt."""
-        raw = json.loads(Path(path).expanduser().read_text(encoding="utf-8"))
+        """Load a validated learning receipt; symlinks and broad POSIX modes fail closed."""
+        source = Path(path).expanduser()
+        if source.is_symlink():
+            raise ValueError("adapter-learning snapshot must not be a symlink")
+        if os.name != "nt" and source.exists() and source.stat().st_mode & 0o077:
+            raise PermissionError("adapter-learning snapshot permissions must be private (0600)")
+        raw = json.loads(source.read_text(encoding="utf-8"))
         if not isinstance(raw, Mapping):
             raise ValueError("adapter-learning snapshot must be a mapping")
         self.restore_stats(raw)
+        self._learning_loaded = True
 
 
 def build_integrated_vibe_coding_graph(
