@@ -15,9 +15,9 @@ SPEC.loader.exec_module(VALIDATOR)
 
 class CaseInsensitiveIdentityAuditTests(unittest.TestCase):
     def test_python_symbol_scan_ignores_strings_and_flags_legacy_identifiers(self):
-        source = "def legacy_aer_home():\\n    auren_state = \"legacy_aer_home\"\\n    return auren_state\\n"
+        source = "def legacy_aer_home():\n    auren_state = \"legacy_aer_home\"\n    return auren_state\n"
         self.assertEqual(VALIDATOR.find_legacy_python_symbols(source), [(1, "legacy_aer_home")])
-        self.assertEqual(VALIDATOR.find_legacy_python_symbols("class ArenaError:\\n    pass\\n"), [])
+        self.assertEqual(VALIDATOR.find_legacy_python_symbols("class ArenaError:\n    pass\n"), [])
 
     def test_path_token_scan_flags_legacy_file_and_folder_names(self):
         self.assertIsNotNone(VALIDATOR.LEGACY_PATH_TOKEN.search("src/aer_runtime/main.py"))
