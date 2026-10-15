@@ -79,34 +79,44 @@ The tests cover the full 18-stage graph, missing-handler rejection, security-gat
 
 ## Active-agent and tool integration
 
-Use `portable.vibe_coding_adapters` to connect the canonical graph to host-provided active agents and concrete research, design, repository, test, review, deployment, and observability tools. The adapter boundary is intentional: AUREN discovers and routes only capabilities that the host has explicitly registered; it does not assume that a browser, external research service, repository write credential, cloud account, or deployment provider is installed.
+Use `portable.vibe_coding_adapters` to connect the canonical graph to AUREN's live agent runtime and concrete research, design, repository, test, review, deployment, and observability tools. `build_host_adapter_registry` composes one active-agent dispatcher with capability-specific host tools, then `build_integrated_vibe_coding_graph` binds the resulting registrations to all 18 stages.
 
 ```python
 from portable.vibe_coding_adapters import (
-    AdapterRegistration,
-    VibeAdapterRegistry,
+    build_host_adapter_registry,
     build_integrated_vibe_coding_graph,
-    default_stage_capabilities,
 )
-from portable.vibe_coding import VibeStage
 
-registry = VibeAdapterRegistry(max_risk="high")
-# Register each actual host tool/agent with the stages and capabilities it supports.
-# invoke(request) must call that tool and return the stage's structured outputs,
-# including source-linked evidence. Do not register a mock as a production adapter.
-registry.register(AdapterRegistration(
-    adapter_id="host-research-agent",
-    version="2026-10-01",
-    stages=(VibeStage.RESEARCH,),
-    capabilities=frozenset(default_stage_capabilities()["research"]),
-    invoke=research_adapter.invoke,
-    risk="medium",
-    evidence_quality=0.8,
-))
+# Wrap AUREN's live GraphAgentTeam/provider runtime in this callable.
+# Each tool is a real, permission-scoped host adapter, not a placeholder.
+tools = {
+    "product": product_discovery_tool,
+    "research": research_tool,
+    "web_search": web_search_tool,
+    "accessibility": accessibility_checker,
+    "design": design_tool,
+    "repository": repository_tool,
+    "security": security_scanner,
+    "task_planning": task_planner,
+    "environment": environment_inspector,
+    "test_execution": test_runner,
+    "independent_review": independent_reviewer,
+    "deployment": deployment_adapter,
+    "preview": preview_adapter,
+    "browser": browser_qa_adapter,
+    "release": guarded_release_adapter,
+    "observability": observability_adapter,
+    "rollback": rollback_readiness_adapter,
+}
+registry = build_host_adapter_registry(
+    active_agent=graph_agent_dispatch,
+    tools=tools,
+    max_risk="high",
+)
 graph = build_integrated_vibe_coding_graph(registry, checkpoint_writer=persist)
 ```
 
-The integration maps each stage to explicit capability requirements. Host adapters can wrap the existing `GraphAgentTeam` / specialist registry, `CapabilityFabric` and `ProviderFabric`, `agency_codebase_context` for bounded repository retrieval, `agency_validators` for artifact-specific evidence checks, and the release lifecycle / deployment provider. Tool calls receive the stage, intent, prior outputs, selected adapter identity, required capabilities, and advisory specialist candidates. The host remains responsible for binding real provider APIs, credentials, sandboxing, and repository/environment access.
+Every tool receives the stage, task intent, sanitized allowlisted context, prior-stage outputs, and adapter identity. Secret-bearing state fields are removed/redacted; production approval is withheld from non-production stages. Research must return source-backed evidence. Design artifacts, repository artifacts, test results, independent review findings, deployment receipts, release revision/approval receipts, and monitoring signals must come from their designated tool adapters; the agent cannot invent these authoritative fields. The host remains responsible for binding actual provider APIs, credentials, sandboxing, repository permissions, and deployment environments.
 
 ### Adaptive routing and self-evolution
 
