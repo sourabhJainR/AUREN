@@ -67,3 +67,19 @@ For high-risk work or repeated failures, record the exact failure signature and 
 Require explicit approval for destructive, irreversible, production, financial, privacy-sensitive, or external-message actions. Never bypass security, permission, scope, or regression gates.
 
 Skills are orchestration surfaces and `skills are orchestration surfaces` that reuse canonical repository, context, evidence, and provenance stores. `interactive-documentation` remains a composed skill using canonical evidence and provenance.
+
+
+## Repository-native approach recommendation
+
+Before planning non-trivial work, inspect the target repository rather than recommending a generic pattern from memory.
+
+1. Identify the actual language and framework from changed files, manifests/lockfiles, build configuration, declared versions, and existing tests. Prefer the version actually pinned by the repo; call unknown versions out explicitly.
+2. Search for maintained implementations and conventions that already solve the same problem. Reuse or extend the current owner; do not add a parallel scheduler, memory store, policy engine, repository abstraction, or dependency without evidence.
+3. Recommend one best-fit algorithm/workflow/design pattern and briefly compare credible alternatives. Explain correctness, complexity, performance/resource cost, maintainability, security/authority, operational recovery, and compatibility trade-offs that matter to this task.
+4. Use idioms and APIs supported by the detected language/framework version. If version/API support cannot be verified, do not guess; flag the uncertainty and choose a compatible known path or request evidence.
+5. Include focused tests, regression checks, failure/restart behavior, migration and rollback strategy. For trivial changes, keep this lightweight rather than forcing a pattern catalogue.
+6. Record the selected approach and inspected evidence in the existing task context and EngineeringDesignGuard receipt. Recommendations are advisory—not proof, permission, approval, or a substitute for tests.
+
+## Provider quota and long-running task recovery
+
+When a provider reports quota exhaustion or rate limiting, persist a wait state and checkpoint, respect provider reset/Retry-After metadata, and let the local supervisor sleep until work is due. Do not keep pinging an exhausted provider or spend model tokens while idle. Unknown/permanent exhaustion must become an actionable blocked state after bounded retries, not an infinite loop. Resume through the existing ExecutionController lease and verification gates; preserve evidence and do not replay completed non-idempotent side effects. Treat provider context as disposable and compact using the existing runtime, failing closed if protected contract/evidence cannot fit.
