@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import unittest
+import tempfile
+from pathlib import Path
 
 from portable.vibe_coding import STAGE_ORDER, VibeStage
 from portable.vibe_coding_adapters import (
@@ -193,6 +195,22 @@ class VibeCodingAdapterTests(unittest.TestCase):
         self.assertNotIn("production_approval", seen["state"])
         self.assertNotIn("password", seen["prior_stage_outputs"].get("idea", {}))
         self.assertEqual(seen["prior_stage_outputs"]["idea"]["summary"], "safe")
+
+
+    def test_learning_snapshot_persists_and_restores_evidence_provenance(self):
+        registry = self.populated_registry()
+        registry.record_evaluation(
+            "adapter-research", workflow_id="workflow-a",
+            passed=True, evidence_refs=["evidence://research/one"],
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "machine-state" / "learning.json"
+            registry.save_snapshot(target)
+            restored = self.populated_registry()
+            restored.load_snapshot(target)
+        snapshot = restored.snapshot()
+        self.assertIn("evidence://research/one", snapshot["evaluations"]["adapter-research"]["evidence_refs"])
+        self.assertEqual(snapshot["evaluations"]["adapter-research"]["successes"], 1)
 
     def test_learning_snapshot_detects_tampering(self):
         registry = self.populated_registry()
