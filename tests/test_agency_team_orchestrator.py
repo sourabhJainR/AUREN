@@ -50,10 +50,7 @@ class AgentTeamOrchestratorTests(unittest.TestCase):
         self.assertEqual(spawned, ["a"])
         self.assertIn("b", run.stopped_units)
 
-if __name__ == "__main__": unittest.main()
-
-
-    def test_governance_gateway_blocks_protected_specialist_scope_before_spawn(self):
+def test_governance_gateway_blocks_protected_specialist_scope_before_spawn(self):
         gateway = ActionGovernanceGateway(ActionPolicy(
             allowed_capabilities=frozenset({"repository.read", "repository.write"}),
             protected_targets=(".github/workflows",),
@@ -94,3 +91,5 @@ if __name__ == "__main__": unittest.main()
         self.assertEqual(spawned, ["inspect"])
         self.assertTrue(gateway.verify_trace()["passed"])
         self.assertIn("action_completed", [event["event"] for event in gateway.events])
+
+if __name__ == "__main__": unittest.main()
