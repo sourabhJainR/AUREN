@@ -634,9 +634,12 @@ class ExecutionController:
         now = _now()
         with sqlite3.connect(self.db_path, timeout=10) as db:
             cursor = db.execute(
-                "UPDATE tasks SET state=?,updated_at=?,heartbeat_at=?,lease_until=NULL,lease_token=NULL "
+                "UPDATE tasks SET state=?,updated_at=?,heartbeat_at=?,lease_until=NULL,lease_token=NULL,"
+                "quota_attempts=CASE WHEN ?='completed' THEN 0 ELSE quota_attempts END,"
+                "quota_reason=CASE WHEN ?='completed' THEN NULL ELSE quota_reason END,"
+                "quota_blocked=CASE WHEN ?='completed' THEN 0 ELSE quota_blocked END "
                 "WHERE id=? AND state='running' AND lease_token=? AND lease_generation=?",
-                (state, now, now, task.id, task.lease_token, task.lease_generation),
+                (state, now, now, state, state, state, task.id, task.lease_token, task.lease_generation),
             )
         return cursor.rowcount == 1
 
@@ -760,7 +763,9 @@ class ExecutionController:
             if retry_at is None and not blocked:
                 retry_at = now_dt + timedelta(seconds=min(21600, 60 * (2 ** (quota_attempts - 1))))
             state = "blocked_quota" if blocked else "waiting_quota"
-            detail = f"{type(exc).__name__}: {str(exc)[:500]}"
+            # Provider exception text can contain request details or credentials;
+            # persist a bounded category, not raw provider payloads.
+            detail = f"{type(exc).__name__}: provider quota/rate-limit response; automatic retry is bounded"
             db.execute(
                 "UPDATE tasks SET state=?,updated_at=?,heartbeat_at=?,lease_until=NULL,lease_token=NULL,"
                 "quota_provider=?,quota_reason=?,quota_attempts=?,next_retry_at=?,quota_blocked=? "
@@ -791,6 +796,21 @@ class ExecutionController:
                 (current.astimezone(timezone.utc).isoformat(), limit),
             ).fetchall()
         return [str(row[0]) for row in rows]
+
+    def quota_status(self, task_id: str) -> dict[str, Any] | None:
+        """Expose the durable wait/block reason without leaking provider exception text."""
+        with sqlite3.connect(self.db_path, timeout=10) as db:
+            row = db.execute(
+                "SELECT state,quota_provider,quota_reason,quota_attempts,next_retry_at,quota_blocked "
+                "FROM tasks WHERE id=?", (task_id,),
+            ).fetchone()
+        if not row:
+            return None
+        return {
+            "state": str(row[0]), "provider": str(row[1] or "unknown"),
+            "reason": str(row[2] or ""), "attempts": int(row[3] or 0),
+            "next_retry_at": row[4], "operator_action_required": bool(row[5]),
+        }
 
     def seconds_until_quota_due(self, *, now: datetime | None = None) -> float | None:
         """Return the delay to the nearest quota wake; None means no scheduled quota wait."""
