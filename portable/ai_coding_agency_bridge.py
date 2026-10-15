@@ -9,6 +9,7 @@ from .agency_multi_specialist import SpecialistResourceProfile, build_specialist
 from .agency_provenance import ProvenanceLedger
 from .agency_release import ReleaseDecision, decide_release
 from .agency_runtime import Assignment, ExecutionResult, TaskProfile, execute
+from .agency_quality import ReviewFinding
 from .action_governance import ActionGovernanceGateway, ActionRequest, ApprovalReceipt
 
 @dataclass(frozen=True)
@@ -77,7 +78,7 @@ def run_coding_task(task:CodingTask,worker:Callable[[TaskProfile,list[Assignment
                 return {
                     "deliverables": [], "verification": [],
                     "dimensions": {}, "hard_gates": {"action_governance": False},
-                    "findings": ["action_governance:explicit_write_scope_missing"],
+                    "findings": [ReviewFinding("blocker", "action_governance:explicit_write_scope_missing")],
                     "evidence": [],
                 }
 
@@ -94,7 +95,7 @@ def run_coding_task(task:CodingTask,worker:Callable[[TaskProfile,list[Assignment
                     return {
                         "deliverables": [], "verification": [],
                         "dimensions": {}, "hard_gates": {"action_governance": False},
-                        "findings": ["action_governance:task_protected_path"],
+                        "findings": [ReviewFinding("blocker", "action_governance:task_protected_path")],
                         "evidence": [],
                     }
                 request = ActionRequest(
@@ -112,7 +113,7 @@ def run_coding_task(task:CodingTask,worker:Callable[[TaskProfile,list[Assignment
                     return {
                         "deliverables": [], "verification": [],
                         "dimensions": {}, "hard_gates": {"action_governance": False},
-                        "findings": [f"action_governance:{verdict.reason}"],
+                        "findings": [ReviewFinding("blocker", f"action_governance:{verdict.reason}")],
                         "evidence": [],
                     }
                 checked.append((request, approval))
@@ -128,7 +129,7 @@ def run_coding_task(task:CodingTask,worker:Callable[[TaskProfile,list[Assignment
                 return {
                     "deliverables": [], "verification": [],
                     "dimensions": {}, "hard_gates": {"action_governance": False},
-                    "findings": [f"action_governance:{result.verdict.reason}"],
+                    "findings": [ReviewFinding("blocker", f"action_governance:{result.verdict.reason}")],
                     "evidence": [],
                 }
             return captured[0]
