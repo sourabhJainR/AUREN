@@ -89,6 +89,8 @@ class ArenaPromotionGate:
         else:
             if not baseline_observation.accepted or baseline_observation.reasons:
                 reasons.append("baseline Arena observation was rejected")
+            if not baseline_observation.production_attested:
+                reasons.append("baseline Arena observation lacks production-attested provenance")
             if isinstance(evidence_ledger, ArenaEvidenceObservationLedger):
                 matches = [
                     item for item in evidence_ledger.records
