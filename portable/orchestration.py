@@ -705,6 +705,8 @@ class Orchestrator:
                     return NodeResult(node.name, NodeStatus.PASSED, attempts, output, evidence, repair_count=repairs)
                 last_error = "evaluator rejected node output"
                 evidence.append(Evidence("evaluation-failure", last_error, node.name))
+            except ExecutionBudgetExceeded:
+                raise
             except Exception as exc:
                 last_error = f"{type(exc).__name__}: {exc}"
                 evidence.append(Evidence("execution-error", last_error, node.name))
