@@ -15,7 +15,10 @@ from portable.vibe_coding_host import (
     LocalProjectTool,
     LocalTestExecutionTool,
     MCPStdioToolAdapter,
+    JournaledToolAdapter,
+    SideEffectJournal,
     VerifiedResearchTool,
+    _worktree_digest,
     load_host_config,
 )
 
@@ -138,6 +141,65 @@ class VibeCodingHostTests(unittest.TestCase):
             )
             result = tool({"stage": "research", "intent": "test", "state": {"workspace_root": str(project)}})
             self.assertEqual(result["competitors"], ["example.com"])
+
+    def test_side_effect_journal_reuses_completed_receipt_without_replaying(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "project"
+            init_git(root)
+            journal = SideEffectJournal(Path(temp) / "state" / "operations.sqlite3")
+            calls = []
+            def delegate(_request):
+                calls.append("called")
+                return {"deployment_receipt": "receipt-1", "status": "passed"}
+            adapter = JournaledToolAdapter(delegate, journal, capability="agent")
+            request = {
+                "stage": "development",
+                "state": {"vibe_coding_workflow_id": "journal-test", "workspace_root": str(root)},
+                "intent": "change a feature",
+            }
+            self.assertEqual(adapter(request)["deployment_receipt"], "receipt-1")
+            self.assertEqual(adapter(request)["deployment_receipt"], "receipt-1")
+            self.assertEqual(calls, ["called"])
+            self.assertEqual(journal.status("journal-test", "development", "agent")["status"], "completed")
+
+    def test_uncertain_side_effect_fails_closed_until_operator_reviews_exact_worktree(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "project"
+            init_git(root)
+            journal = SideEffectJournal(Path(temp) / "state" / "operations.sqlite3")
+            calls = []
+            def flaky(_request):
+                calls.append("called")
+                (root / "partial.txt").write_text("partial operation", encoding="utf-8")
+                if len(calls) == 1:
+                    raise RuntimeError("simulated process interruption after partial write")
+                return {"artifacts": ["partial.txt"], "status": "passed"}
+            adapter = JournaledToolAdapter(flaky, journal, capability="agent")
+            request = {
+                "stage": "development",
+                "state": {"vibe_coding_workflow_id": "uncertain-test", "workspace_root": str(root)},
+                "intent": "change a feature",
+            }
+            with self.assertRaisesRegex(RuntimeError, "interruption"):
+                adapter(request)
+            with self.assertRaisesRegex(Exception, "uncertain outcome"):
+                adapter(request)
+            self.assertEqual(calls, ["called"])
+            reviewed_digest = _worktree_digest(root)
+            with self.assertRaisesRegex(PermissionError, "explicit operator authorization"):
+                journal.resolve_uncertain(
+                    "uncertain-test", "development", "agent", action="retry",
+                    workspace_root=root, expected_worktree_digest=reviewed_digest,
+                    external_state_evidence="operator://review-1", reason="Reviewed partial write",
+                )
+            journal.resolve_uncertain(
+                "uncertain-test", "development", "agent", action="retry",
+                workspace_root=root, expected_worktree_digest=reviewed_digest,
+                external_state_evidence="operator://review-1", reason="Reviewed partial write",
+                authorized=True,
+            )
+            self.assertEqual(adapter(request)["status"], "passed")
+            self.assertEqual(calls, ["called", "called"])
 
     def test_durable_checkpoint_is_bound_to_project_intent_head_and_adapter_config(self):
         with tempfile.TemporaryDirectory() as temp:
