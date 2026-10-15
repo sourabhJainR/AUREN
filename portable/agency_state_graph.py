@@ -349,7 +349,7 @@ class CompiledStateGraph:
                             for future in futures.values(): future.cancel()
                             cancellation_event.set()
                             executor.shutdown(wait=False, cancel_futures=True)
-                            self._checkpoint(checkpoint, run_id, step - 1, current, next_nodes, trace)
+                            self._checkpoint(checkpoint, run_id, step - 1, current, next_nodes, trace, guard)
                             return GraphRun(run_id, dict(current), tuple(events), tuple(trace), step - 1, True)
                         try:
                             results_by_name[name] = futures[name].result(timeout=node_timeout_seconds)
@@ -370,13 +370,18 @@ class CompiledStateGraph:
                     for future in futures.values(): future.cancel()
                     cancellation_event.set()
                     executor.shutdown(wait=False, cancel_futures=True)
+                    self._checkpoint(checkpoint, run_id, step - 1, current, next_nodes, trace, guard)
                     if parallel_failure_mode == "fail_fast":
                         raise TimeoutError("parallel node exceeded timeout") from exc
+                except BaseException:
+                    executor.shutdown(wait=False, cancel_futures=True)
+                    self._checkpoint(checkpoint, run_id, step - 1, current, next_nodes, trace, guard)
+                    raise
                 else:
                     executor.shutdown(wait=True)
             for name in sequential:
                 if cancellation and cancellation.is_set():
-                    self._checkpoint(checkpoint, run_id, step - 1, current, next_nodes, trace)
+                    self._checkpoint(checkpoint, run_id, step - 1, current, next_nodes, trace, guard)
                     return GraphRun(run_id, dict(current), tuple(events), tuple(trace), step - 1, True)
                 try:
                     results_by_name[name] = self._run_node_with_timeout(name, snapshot, node_timeout_seconds, cancellation_event, guard, f"{run_id}:{step}:{name}")
@@ -384,7 +389,7 @@ class CompiledStateGraph:
                     self._checkpoint(checkpoint, run_id, step - 1, current, next_nodes, trace, guard)
                     raise
             if cancellation_event.is_set():
-                self._checkpoint(checkpoint, run_id, step - 1, current, next_nodes, trace)
+                self._checkpoint(checkpoint, run_id, step - 1, current, next_nodes, trace, guard)
                 return GraphRun(run_id, dict(current), tuple(events), tuple(trace), step - 1, True)
             for name in next_nodes:
                 if name == StateGraph.END or name in isolated_failures: continue
@@ -396,7 +401,7 @@ class CompiledStateGraph:
             next_set: list[str] = []
             for name in next_nodes:
                 if name != StateGraph.END and name not in isolated_failures: next_set.extend(self._next(name, current))
-            next_nodes = list(dict.fromkeys(next_set)); self._checkpoint(checkpoint, run_id, step, current, next_nodes, trace)
+            next_nodes = list(dict.fromkeys(next_set)); self._checkpoint(checkpoint, run_id, step, current, next_nodes, trace, guard)
             if StateGraph.END in next_nodes: next_nodes = []
         return GraphRun(run_id, dict(current), tuple(events), tuple(trace), step)
 
