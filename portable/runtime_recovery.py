@@ -98,7 +98,7 @@ class RuntimeExecutionGuard:
     def observe_failure(self, *, node: str, state: Mapping[str, Any], error: BaseException) -> int:
         if not isinstance(node, str) or not node.strip():
             raise ValueError("node is required")
-        signature = _digest([node, state, type(error).__qualname__, str(error)[:1000]])
+        signature = node + ":" + _digest([state, type(error).__qualname__, str(error)[:1000]])
         with self._lock:
             count = self._failures.get(signature, 0) + 1
             self._failures[signature] = count
