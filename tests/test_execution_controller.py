@@ -509,3 +509,60 @@ def test_provider_resume_checkpoint_tampering_fails_closed(tmp_path: Path):
     tampered["provider_resume_state"] = tampered_provider
     with pytest.raises(ValueError, match="provider resume checkpoint digest mismatch"):
         controller.save_graph_checkpoint("provider-tamper", tampered)
+
+
+def test_rate_limited_provider_resumes_after_reset_from_supervisor_checkpoint(tmp_path: Path):
+    from datetime import datetime, timezone
+    from portable.crew_adapters import TaskRetryBudget
+    from portable.resumable_provider import ProviderCallError, ResumableProviderExecutor
+    from portable.state_graph import GraphAgentTeam
+
+    reset_at = "2026-10-15T12:01:00+00:00"
+
+    class RateLimitGraph:
+        def __init__(self, resumed):
+            self.resumed = resumed
+
+        def digest(self):
+            return "c" * 64
+
+        def run(self, task_id, intent, state):
+            budget = TaskRetryBudget.resume(state["auren_retry_budget"])
+            def limited(_request, _key):
+                raise ProviderCallError("rate limited", status_code=429, reset_at=reset_at)
+            providers = (
+                {"a": limited, "b": limited}
+                if not self.resumed
+                else {"a": limited, "b": lambda request, key: {"resumed": True}}
+            )
+            executor = ResumableProviderExecutor(
+                task_id=task_id,
+                stage_id="long-operation",
+                providers=providers,
+                provider_versions={"a": "v1", "b": "v2"},
+                preferred_provider="a" if not self.resumed else "b",
+                retry_budget=budget,
+                persist=state["auren_provider_resume_persist"],
+                checkpoint=state.get("auren_provider_resume_state"),
+            )
+            return executor.run(
+                {"intent": intent},
+                now=datetime(2026, 10, 15, 12, 0 if not self.resumed else 1, tzinfo=timezone.utc),
+            )
+
+    controller = ExecutionController(tmp_path)
+    first = controller.execute_graph(
+        GraphAgentTeam(graph=RateLimitGraph(False)), "rate-limited-task", "long operation"
+    )
+    assert first["status"] == "deferred"
+    saved = controller.load_graph_checkpoint("rate-limited-task")
+    assert saved["provider_resume_state"]["status"] == "deferred"
+    assert saved["retry_budget"]["used_retries"] == 1
+
+    second = controller.execute_graph(
+        GraphAgentTeam(graph=RateLimitGraph(True)), "rate-limited-task", "long operation"
+    )
+    assert second == {"resumed": True}
+    final = controller.load_graph_checkpoint("rate-limited-task")
+    assert final["provider_resume_state"]["status"] == "completed"
+    assert final["retry_budget"]["used_retries"] == 1
