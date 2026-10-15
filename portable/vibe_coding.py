@@ -105,7 +105,11 @@ def validate_stage_output(stage: VibeStage, output: Any) -> tuple[bool, str]:
         return False, "stage status must be completed or passed"
     if not _nonempty(output.get("evidence")):
         return False, "stage must provide evidence"
-    missing = [field for field in SPEC_BY_STAGE[stage].required_fields if not _nonempty(output.get(field))]
+    missing = [
+        field for field in SPEC_BY_STAGE[stage].required_fields
+        if not _nonempty(output.get(field))
+        and not (stage == VibeStage.SECURITY_REVIEW and field == "findings" and isinstance(output.get(field), list))
+    ]
     if missing:
         return False, "missing required stage outputs: " + ", ".join(missing)
 
