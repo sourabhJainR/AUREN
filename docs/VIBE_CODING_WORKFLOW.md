@@ -111,7 +111,7 @@ tools = {
 registry = build_host_adapter_registry(
     active_agent=graph_agent_dispatch,
     tools=tools,
-    max_risk="high",
+    max_risk="critical",
 )
 graph = build_integrated_vibe_coding_graph(registry, checkpoint_writer=persist)
 ```
