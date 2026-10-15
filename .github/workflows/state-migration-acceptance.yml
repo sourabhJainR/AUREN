@@ -1,0 +1,55 @@
+name: State Migration Acceptance
+
+on:
+  pull_request:
+    paths:
+      - "portable/state_migration.py"
+      - "portable/state_paths.py"
+      - "portable/state_migration_plan.py"
+      - "scripts/migrate_auren_state.py"
+      - "tests/test_state_migration*.py"
+      - "tests/test_state_paths.py"
+      - "docs/STATE_MIGRATION_RUNBOOK.md"
+      - ".github/workflows/state-migration-acceptance.yml"
+  push:
+    branches: [main]
+    paths:
+      - "portable/state_migration.py"
+      - "portable/state_paths.py"
+      - "portable/state_migration_plan.py"
+      - "scripts/migrate_auren_state.py"
+      - "tests/test_state_migration*.py"
+      - "tests/test_state_paths.py"
+      - "docs/STATE_MIGRATION_RUNBOOK.md"
+      - ".github/workflows/state-migration-acceptance.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: state-migration-acceptance-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  migration-contract:
+    name: Migration contract (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - name: Check out exact tested revision
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Verify dry-run, copy, idempotency, conflict, and interruption recovery
+        run: |
+          python -m unittest -v \
+            tests.test_state_migration \
+            tests.test_state_migration_cli \
+            tests.test_state_migration_plan \
+            tests.test_state_paths
