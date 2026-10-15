@@ -628,7 +628,9 @@ def test_resume_pending_continues_independent_work_around_live_lease(tmp_path: P
     with sqlite3.connect(controller.db_path) as db:
         db.execute("UPDATE tasks SET updated_at='2000-01-01T00:00:00+00:00' WHERE id=?", (blocked.id,))
 
-    scores = controller.resume_pending(limit=2)
+    # The recovery batch limit applies to eligible work. The oldest row is
+    # intentionally the still-live lease, which must not starve this task.
+    scores = controller.resume_pending(limit=1)
 
     assert len(scores) == 1
     assert controller.task(blocked.id).state == "running"
