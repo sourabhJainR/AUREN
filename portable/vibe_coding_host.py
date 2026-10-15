@@ -154,17 +154,19 @@ class SideEffectJournal:
         if os.name != "nt":
             os.chmod(self.path.parent, 0o700)
         with closing(self._connect()) as connection:
+            connection.execute("PRAGMA journal_mode=WAL")
             connection.execute("CREATE TABLE IF NOT EXISTS operations (operation_key TEXT PRIMARY KEY, payload_json TEXT NOT NULL, digest TEXT NOT NULL)")
-        if os.name != "nt" and self.path.exists():
-            os.chmod(self.path, 0o600)
-            for suffix in ("-wal", "-shm"):
-                sidecar = Path(str(self.path) + suffix)
-                if sidecar.exists():
-                    os.chmod(sidecar, 0o600)
+        self._secure_permissions()
+
+    def _secure_permissions(self) -> None:
+        if os.name != "nt":
+            for candidate in (self.path, Path(str(self.path) + "-wal"), Path(str(self.path) + "-shm")):
+                if candidate.exists():
+                    os.chmod(candidate, 0o600)
 
     def _connect(self):
         connection = sqlite3.connect(self.path, timeout=15, isolation_level=None)
-        connection.execute("PRAGMA journal_mode=WAL")
+        connection.execute("PRAGMA busy_timeout=15000")
         connection.execute("PRAGMA synchronous=FULL")
         return connection
 
@@ -211,6 +213,7 @@ class SideEffectJournal:
                 }
                 self._write(connection, key, payload)
                 connection.commit()
+                self._secure_permissions()
                 return None
             payload = self._decode(row)
             if payload.get("request_digest") != request_digest:
@@ -229,6 +232,7 @@ class SideEffectJournal:
                 payload["updated_at"] = time.time()
                 self._write(connection, key, payload)
                 connection.commit()
+                self._secure_permissions()
                 return None
             connection.rollback()
             if status == "aborted":
@@ -292,6 +296,7 @@ class SideEffectJournal:
             payload["updated_at"] = time.time()
             self._write(connection, key, payload)
             connection.commit()
+        self._secure_permissions()
 
     def status(self, workflow_id: str, stage: str, capability: str) -> Mapping[str, Any] | None:
         key = self._key(workflow_id, stage, capability)
@@ -1257,7 +1262,15 @@ class LocalVibeCodingHost:
             "reviewer_provider": self.config.reviewer_provider,
             "mcp_tools": {key: {k: v for k, v in value.items() if k != "env_allowlist"} for key, value in sorted(self.config.mcp_tools.items())},
             "test_commands": self.config.test_commands,
+            "env_allowlist": self.config.env_allowlist,
+            "agent_timeout_seconds": self.config.agent_timeout_seconds,
+            "test_timeout_seconds": self.config.test_timeout_seconds,
             "allow_workspace_writes": self.config.allow_workspace_writes,
+            "browser_qa_required": self.config.browser_qa_required,
+            "browser_qa_rationale": self.config.browser_qa_rationale,
+            "preview_deployment_required": self.config.preview_deployment_required,
+            "preview_deployment_rationale": self.config.preview_deployment_rationale,
+            "security_tool_required": self.config.security_tool_required,
         })
         learning_path = self.state_root / "adapter-learning.json"
         project_tool = LocalProjectTool(workspace, lease.base_revision, allow_workspace_writes=self.config.allow_workspace_writes)
