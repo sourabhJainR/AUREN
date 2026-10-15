@@ -117,6 +117,30 @@ class VibeCodingAdapterTests(unittest.TestCase):
         self.assertEqual(candidates[0]["status"], "candidate_only")
         self.assertIn("holdout_transfer", candidates[0]["required_next_gates"])
 
+
+    def test_adapter_context_redacts_secrets_and_withholds_release_authority(self):
+        registry = VibeAdapterRegistry()
+        stage = VibeStage.RESEARCH
+        seen = {}
+        def invoke(request):
+            seen.update(request)
+            return output_for(stage, request["state"])
+        registry.register(AdapterRegistration(
+            "research-safe", "1", (stage,),
+            frozenset(default_stage_capabilities()[stage.value]),
+            invoke,
+        ))
+        registry.invoke(stage, {
+            "intent": "Research product",
+            "api_token": "do-not-forward",
+            "production_approval": {"approved": True, "approved_by": "operator"},
+            "previous": {"password": "do-not-forward", "summary": "safe"},
+        })
+        self.assertNotIn("api_token", seen["state"])
+        self.assertNotIn("production_approval", seen["state"])
+        self.assertNotIn("password", seen["prior_stage_outputs"].get("previous", {}))
+        self.assertEqual(seen["prior_stage_outputs"]["previous"]["summary"], "safe")
+
     def test_learning_snapshot_detects_tampering(self):
         registry = self.populated_registry()
         snapshot = registry.snapshot()
