@@ -338,7 +338,7 @@ class CompiledStateGraph:
             results_by_name: dict[str, tuple[Mapping[str, Any], int]] = {}
             isolated_failures: set[str] = set()
             if cancellation and cancellation.is_set():
-                self._checkpoint(checkpoint, run_id, step - 1, current, next_nodes, trace)
+                self._checkpoint(checkpoint, run_id, step - 1, current, next_nodes, trace, guard)
                 return GraphRun(run_id, dict(current), tuple(events), tuple(trace), step - 1, True)
             if parallel:
                 executor = ThreadPoolExecutor(max_workers=min(max_parallel_nodes, len(parallel)))
