@@ -170,3 +170,10 @@ def test_action_verbs_are_allowlisted():
     verdict = gateway.evaluate(make_request(action="shell.exec"))
     assert verdict.decision == "deny"
     assert verdict.reason == "action_not_allowlisted"
+
+
+
+def test_absolute_workspace_target_cannot_bypass_protected_path():
+    gateway = make_gateway()
+    request = make_request(target="/workspace/repository/.github/workflows/build.yml")
+    assert gateway.evaluate(request).decision == "approval_required"
