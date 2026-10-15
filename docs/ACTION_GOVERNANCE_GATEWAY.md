@@ -7,7 +7,7 @@ The action gateway brings a deterministic policy decision point to consequential
 ## Contract
 
 1. Every proposed action is represented by an `ActionRequest` with a run/action identity, actor, capability, action, target, risk class, optional idempotency key, and evidence references.
-2. Capabilities are allowlisted. Unknown capabilities fail closed.
+2. Capabilities and action verbs are allowlisted. Unknown capabilities and verbs fail closed.
 3. Protected targets, release actions, and configured high-impact actions require an approval receipt bound to the exact request fingerprint.
 4. Approval is valid only when a host-supplied `approval_verifier` accepts it. If no verifier is configured, approval-required actions remain blocked.
 5. Release/merge/deploy actions require evidence references. External effects require idempotency keys when the policy says so.
@@ -16,7 +16,7 @@ The action gateway brings a deterministic policy decision point to consequential
 
 ## Integrating with AUREN
 
-Use the gateway at the last trusted boundary before a tool, repository mutation, specialist handoff with side effects, external API, deployment, or release. Agents may propose actions; they must not be the authority that grants their own permissions. Persist events through AUREN's canonical evidence/journal owner when integrating into a production execution path, and bind records to the candidate commit SHA and external effect receipt.
+Use the gateway at the last trusted boundary before a tool, repository mutation, specialist handoff with side effects, external API, deployment, or release. Mutating specialist work must declare explicit `write_paths`; a missing write scope is blocked when the gateway is enabled. Agents may propose actions; they must not be the authority that grants their own permissions. Persist events through AUREN's canonical evidence/journal owner when integrating into a production execution path, and bind records to the candidate commit SHA and external effect receipt.
 
 Example:
 
