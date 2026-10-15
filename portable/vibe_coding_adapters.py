@@ -384,7 +384,7 @@ class VibeAdapterRegistry:
         target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         if os.name != "nt":
             os.chmod(target.parent, 0o700)
-        payload = json.dumps(self.snapshot(), sort_keys=True, indent=2, ensure_ascii=False, allow_nan=False) + "\\n"
+        payload = json.dumps(self.snapshot(), sort_keys=True, indent=2, ensure_ascii=False, allow_nan=False) + "\n"
         descriptor, temporary_name = tempfile.mkstemp(prefix=f".{target.name}.", suffix=".tmp", dir=target.parent)
         try:
             if os.name != "nt":
