@@ -666,9 +666,13 @@ class GraphAgentTeam:
             # review receipts, and the task-scoped retry budget.
             persist_handoff_checkpoint(handoffs.snapshot())
 
-        def enqueue_handoff(source_crew: str, target_crew: str, task: str) -> dict[str, Any]:
+        def enqueue_handoff(
+            source_crew: str, target_crew: str, task: str, source_proposal_digest: str = ""
+        ) -> dict[str, Any]:
             if not dispatch_active["value"]:
                 raise RuntimeError("handoffs may only be enqueued during graph execution")
+            if require_persistence and not source_proposal_digest:
+                raise ValueError("durable handoffs require the source proposal digest")
             if source_crew not in selected_ids:
                 raise ValueError(f"handoff source crew {source_crew} is not assigned to this graph task")
             source = self.crews[source_crew]
@@ -679,6 +683,7 @@ class GraphAgentTeam:
                 source_plan_digest=plan.digest,
                 allowed_handoffs=source.handoffs_to,
                 selected_crews=tuple(selected_ids),
+                source_proposal_digest=source_proposal_digest,
             )
             refresh_checkpoint_state()
             if item is None:
@@ -688,7 +693,8 @@ class GraphAgentTeam:
                     "task": task.strip(),
                     "source_plan_digest": plan.digest,
                     "attempt": 0,
-                    "handoff_id": handoffs.handoff_id_for(source_crew, target_crew, task, plan.digest),
+                    "handoff_id": handoffs.handoff_id_for(source_crew, target_crew, task, plan.digest, source_proposal_digest),
+                    "source_proposal_digest": source_proposal_digest,
                     "status": "already_completed",
                 }
             return {
@@ -698,6 +704,7 @@ class GraphAgentTeam:
                 "source_plan_digest": item.source_plan_digest,
                 "attempt": item.attempt,
                 "handoff_id": item.handoff_id,
+                "source_proposal_digest": item.source_proposal_digest,
                 "status": "queued",
             }
 
@@ -713,6 +720,7 @@ class GraphAgentTeam:
                 "source_plan_digest": item.source_plan_digest,
                 "attempt": item.attempt,
                 "handoff_id": item.handoff_id,
+                "source_proposal_digest": item.source_proposal_digest,
             }
 
         def retry_handoff(record: Mapping[str, Any], retryable: bool) -> dict[str, Any] | None:
@@ -722,6 +730,7 @@ class GraphAgentTeam:
                 CrewHandoff(
                     record["source_crew"], record["target_crew"], record["task"],
                     record["source_plan_digest"], record.get("attempt", 0), record.get("handoff_id", ""),
+                    record.get("source_proposal_digest", ""), "",
                 ),
                 retryable=retryable,
             )
@@ -735,6 +744,7 @@ class GraphAgentTeam:
                 "source_plan_digest": item.source_plan_digest,
                 "attempt": item.attempt,
                 "handoff_id": item.handoff_id,
+                "source_proposal_digest": item.source_proposal_digest,
             }
 
         def complete_handoff(record: Mapping[str, Any]) -> None:
@@ -743,7 +753,12 @@ class GraphAgentTeam:
             handoff = CrewHandoff(
                 record["source_crew"], record["target_crew"], record["task"],
                 record["source_plan_digest"], record.get("attempt", 0), record.get("handoff_id", ""),
+                record.get("source_proposal_digest", ""), record.get("target_proposal_digest", ""),
             )
+            if require_persistence and (
+                not handoff.source_proposal_digest or not handoff.target_proposal_digest
+            ):
+                raise ValueError("durable handoff completion requires source and target proposal digests")
             handoffs.validate_claimed(handoff)
             reviewer = self.independent_handoff_reviewer
             if reviewer is None:
@@ -766,6 +781,10 @@ class GraphAgentTeam:
                 or not isinstance(raw_review.get("reason"), str) or not raw_review["reason"].strip()
             ):
                 raise ValueError("independent handoff review receipt failed identity or evidence validation")
+            if require_persistence and not {
+                handoff.source_proposal_digest, handoff.target_proposal_digest
+            }.issubset(set(refs)):
+                raise ValueError("independent handoff review must reference both proposal digests")
             if raw_review["status"] != "pass":
                 raise PermissionError("independent handoff review did not pass")
             review_payload = dict(raw_review)
