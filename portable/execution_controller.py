@@ -862,14 +862,18 @@ class ExecutionController:
             "schema_version", "handoff_checkpoint", "retry_budget",
             "task_id", "intent_digest", "crew_plan_digest",
         }
-        allowed_fields = (
-            expected_fields,
-            expected_fields | {"provider_resume_state"},
-            expected_fields | {"runtime_guard"},
-            expected_fields | {"provider_resume_state", "runtime_guard"},
-        )
-        if set(payload) not in allowed_fields:
+        optional_fields = {"provider_resume_state", "runtime_guard", "repository", "head_sha"}
+        if not expected_fields <= set(payload) or set(payload) - expected_fields - optional_fields:
             raise ValueError("supervisor handoff checkpoint envelope has missing or unknown fields")
+        if ("repository" in payload) != ("head_sha" in payload):
+            raise ValueError("checkpoint repository and head_sha must be supplied together")
+        if "repository" in payload:
+            repository = payload.get("repository")
+            head_sha = payload.get("head_sha")
+            if not isinstance(repository, str) or not repository.strip():
+                raise ValueError("checkpoint repository must be non-empty text")
+            if not isinstance(head_sha, str) or not re.fullmatch(r"[0-9a-f]{40}", head_sha):
+                raise ValueError("checkpoint head_sha must be a full lowercase commit SHA")
         if payload.get("schema_version") != "auren-task-handoff-envelope-v1":
             raise ValueError("unsupported supervisor handoff checkpoint envelope")
         if payload.get("task_id") != task_id:
@@ -932,7 +936,7 @@ class ExecutionController:
                     old = json.loads(old_encoded)
                 except (TypeError, json.JSONDecodeError) as exc:
                     raise ValueError("stored graph checkpoint is malformed; explicit recovery is required") from exc
-                for key in ("intent_digest", "crew_plan_digest"):
+                for key in ("intent_digest", "crew_plan_digest", "repository", "head_sha"):
                     if old.get(key) != payload.get(key):
                         raise ValueError(f"graph checkpoint {key} is immutable for a task")
             db.execute(
@@ -957,20 +961,22 @@ class ExecutionController:
         if not already_recorded:
             import os
             import subprocess
-            head_sha = ""
+            head_sha = payload.get("head_sha", "")
             try:
-                head_sha = subprocess.run(
-                    ["git", "-C", str(self.root), "rev-parse", "--verify", "HEAD^{commit}"],
-                    check=True, capture_output=True, text=True, timeout=2,
-                ).stdout.strip()
+                if not head_sha:
+                    head_sha = subprocess.run(
+                        ["git", "-C", str(self.root), "rev-parse", "--verify", "HEAD^{commit}"],
+                        check=True, capture_output=True, text=True, timeout=2,
+                    ).stdout.strip()
             except (OSError, subprocess.SubprocessError):
                 pass
+            repository = payload.get("repository", os.environ.get("AUREN_REPOSITORY_SLUG", ""))
             self.evidence_capture.record(
                 "crew_handoff_checkpoint_persisted",
                 work_unit_id=task_id,
                 task_id=task_id,
                 status="verified",
-                repository=os.environ.get("AUREN_REPOSITORY_SLUG", ""),
+                repository=repository,
                 head_sha=head_sha,
                 artifact_digest=digest,
                 evidence_uri=f"urn:auren:crew-checkpoint:{hashlib.sha256(task_id.encode('utf-8')).hexdigest()}:{digest}",
@@ -983,6 +989,22 @@ class ExecutionController:
                        if isinstance(payload.get("provider_resume_state"), Mapping) else {}),
                 },
                 event_id=event_id,
+            )
+        # The canonical ledger is the indexed, immutable evidence owner. This
+        # local receipt proves checkpoint bytes/revision linkage only; its signer
+        # label explicitly does not claim an independent cryptographic attestation.
+        repository = payload.get("repository")
+        head_sha = payload.get("head_sha")
+        if repository and head_sha:
+            self.evidence_ledger.record(
+                evidence_id=event_id,
+                repository=repository,
+                head_sha=head_sha,
+                evidence_type="crew_handoff_checkpoint",
+                status="verified",
+                source_uri=f"urn:auren:crew-checkpoint:{hashlib.sha256(task_id.encode('utf-8')).hexdigest()}:{digest}",
+                payload_digest=digest,
+                signer_id="local-supervisor-unattested",
             )
 
     def load_graph_checkpoint(self, task_id: str) -> dict[str, Any] | None:
