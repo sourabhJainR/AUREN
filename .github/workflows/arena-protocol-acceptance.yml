@@ -53,6 +53,7 @@ jobs:
           set -o pipefail
           python -m unittest -v \
             tests.test_arena_acceptance \
+            tests.test_arena_campaign_packet \
             tests.test_arena_run_receipt \
             tests.test_arena_trust \
             tests.test_container_sandboxed_arena \
