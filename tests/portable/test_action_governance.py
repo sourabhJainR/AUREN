@@ -162,3 +162,11 @@ def test_trace_tampering_is_detected():
     gateway.evaluate(make_request())
     gateway._events[0]["reason"] = "forged"
     assert gateway.verify_trace()["passed"] is False
+
+
+
+def test_action_verbs_are_allowlisted():
+    gateway = make_gateway()
+    verdict = gateway.evaluate(make_request(action="shell.exec"))
+    assert verdict.decision == "deny"
+    assert verdict.reason == "action_not_allowlisted"
