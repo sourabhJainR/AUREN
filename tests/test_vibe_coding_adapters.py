@@ -92,6 +92,7 @@ class VibeCodingAdapterTests(unittest.TestCase):
         authority = {
             VibeStage.RESEARCH: {"research": ("market_evidence", "competitors")},
             VibeStage.PRD: {"product": ("requirements", "acceptance_criteria")},
+            VibeStage.PROJECT_RULES: {"repository": ("rules",)},
             VibeStage.DESIGN: {"design": ("design_artifacts",)},
             VibeStage.TASK_BREAKDOWN: {"task_planning": ("tasks",)},
             VibeStage.SETUP: {"repository": ("repository", "environment")},
