@@ -195,36 +195,38 @@ def build_vibe_coding_graph(
                     # A resumed stage returns its validated receipt; its side
                     # effects are never replayed just because the process restarted.
                     return dict(checkpoint.outputs[_stage.value])
+            precomputed_result: Mapping[str, Any] | None = None
             if _stage == VibeStage.PRODUCTION_DEPLOY:
                 disabled = state.get("production_deployment_required") is False
                 if disabled:
                     rationale = state.get("production_deployment_rationale")
                     if not isinstance(rationale, str) or not rationale.strip():
                         raise PermissionError("disabling production deployment requires an explicit rationale")
-                    return {
+                    precomputed_result = {
                         "status": "not_applicable",
                         "rationale": rationale,
                         "evidence": ["production deployment explicitly disabled by task policy"],
                     }
-                approval = state.get("production_approval")
-                if not isinstance(approval, Mapping) or approval.get("approved") is not True:
-                    raise PermissionError("production deployment blocked: explicit production_approval is required")
-                if not _nonempty(approval.get("approved_by")) or not _nonempty(approval.get("approved_at")):
-                    raise PermissionError("production deployment blocked: approver and timestamp are required")
-                final_revision = str(state.get("final_code_revision", "")).strip()
-                verified_revision = str(state.get("verified_code_revision", "")).strip()
-                if not final_revision or not verified_revision or final_revision != verified_revision:
-                    raise PermissionError("production deployment blocked: final revision must have exact-head verification")
+                else:
+                    approval = state.get("production_approval")
+                    if not isinstance(approval, Mapping) or approval.get("approved") is not True:
+                        raise PermissionError("production deployment blocked: explicit production_approval is required")
+                    if not _nonempty(approval.get("approved_by")) or not _nonempty(approval.get("approved_at")):
+                        raise PermissionError("production deployment blocked: approver and timestamp are required")
+                    final_revision = str(state.get("final_code_revision", "")).strip()
+                    verified_revision = str(state.get("verified_code_revision", "")).strip()
+                    if not final_revision or not verified_revision or final_revision != verified_revision:
+                        raise PermissionError("production deployment blocked: final revision must have exact-head verification")
             if _stage == VibeStage.PREVIEW_DEPLOYMENT and state.get("preview_deployment_required") is False:
                 rationale = state.get("preview_deployment_rationale")
                 if not isinstance(rationale, str) or not rationale.strip():
                     raise PermissionError("disabling preview deployment requires an explicit rationale")
-                return {
+                precomputed_result = {
                     "status": "not_applicable",
                     "rationale": rationale,
                     "evidence": ["preview deployment explicitly disabled by task policy"],
                 }
-            result = _handler(state)
+            result = precomputed_result if precomputed_result is not None else _handler(state)
             if not isinstance(result, Mapping):
                 raise TypeError(f"{_stage.value} handler must return a mapping")
             valid, reason = validate_stage_output(_stage, result)
