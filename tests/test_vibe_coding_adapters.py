@@ -134,12 +134,12 @@ class VibeCodingAdapterTests(unittest.TestCase):
             "intent": "Research product",
             "api_token": "do-not-forward",
             "production_approval": {"approved": True, "approved_by": "operator"},
-            "previous": {"password": "do-not-forward", "summary": "safe"},
+            "idea": {"password": "do-not-forward", "summary": "safe"},
         })
         self.assertNotIn("api_token", seen["state"])
         self.assertNotIn("production_approval", seen["state"])
-        self.assertNotIn("password", seen["prior_stage_outputs"].get("previous", {}))
-        self.assertEqual(seen["prior_stage_outputs"]["previous"]["summary"], "safe")
+        self.assertNotIn("password", seen["prior_stage_outputs"].get("idea", {}))
+        self.assertEqual(seen["prior_stage_outputs"]["idea"]["summary"], "safe")
 
     def test_learning_snapshot_detects_tampering(self):
         registry = self.populated_registry()
