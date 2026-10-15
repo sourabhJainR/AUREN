@@ -16,6 +16,10 @@ AUREN's current repository includes graph-based specialist proposal adapters, du
 
 The repository currently reports no open pull requests. Closed pull requests must still be checked individually for merge status before being counted as merged. See [all pull requests](https://github.com/sourabhJainR/AUREN/pulls) and [recent changes](https://github.com/sourabhJainR/AUREN/commits/main).
 
+## Engineering-team pilot
+
+For teams evaluating AUREN on a real repository, start with the [fixed-scope engineering reliability pilot](docs/ENGINEERING_PILOT_OFFER.md), the [outcome scorecard](docs/ENGINEERING_OUTCOME_SCORECARD.md), and the [security/data-flow worksheet](docs/SECURITY_DATA_FLOW_TEMPLATE.md). These are working templates, not claims of measured customer outcomes or completed security audits. The pilot should measure baseline versus assisted task lead time, review effort, regression outcomes, verification coverage, evidence completeness, intervention count and cost while preserving the customer's existing review and CI gates.
+
 ## Support AUREN
 
 AUREN is an open-source project, and community support helps fund the time and resources needed to keep improving it. If you find the project useful or want to support its development, you can [buy me a coffee](https://buymeacoffee.com/sourabhjainr).
