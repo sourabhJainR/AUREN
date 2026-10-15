@@ -18,7 +18,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping
 
-from .agent_capabilities import PersistentMemory
+from .agent_capabilities import PersistentMemory, redact, sanitize_untrusted
 from .context_graph import ContextGraph, ContextNode
 from .context_engine import ContextItem
 
@@ -192,6 +192,8 @@ class MemoryOrchestrator:
             raise ValueError("memory text must be non-empty")
         if not isinstance(source, str) or not source.strip():
             raise ValueError("memory source must be non-empty")
+        clean_text = sanitize_untrusted(text.strip())
+        clean_source = redact(source.strip())
         if not 0 <= confidence <= 1:
             raise ValueError("confidence must be between 0 and 1")
         if ttl_seconds is not None and ttl_seconds <= 0:
@@ -200,7 +202,7 @@ class MemoryOrchestrator:
         if kind == "kv_cache":
             if self.cache is None:
                 return MemoryWriteResult("unavailable", kind, None, "existing context cache module unavailable")
-            page = self.cache.put("memory-cache", text, stable=bool(verified))
+            page = self.cache.put("memory-cache", clean_text, stable=bool(verified))
             self._metrics["writes"] += 1
             return MemoryWriteResult("cached", kind, page.page_id)
 
@@ -208,7 +210,7 @@ class MemoryOrchestrator:
             scope = (str(task_id or "default"), kind)
             ttl = self.sensory_ttl_seconds if kind == "sensory" and ttl_seconds is None else ttl_seconds
             item = self._ephemeral_envelope(
-                kind=kind, text=text.strip(), source=source.strip(), confidence=confidence,
+                kind=kind, text=clean_text, source=clean_source, confidence=confidence,
                 verified=verified, evidence_ids=evidence, intent_digest=intent_digest,
                 ttl_seconds=ttl if kind == "sensory" else None,
             )
@@ -227,11 +229,17 @@ class MemoryOrchestrator:
             self._metrics["writes"] += 1
             return MemoryWriteResult("observed", kind, None, "use metrics() for current memory state")
 
+        if not approved:
+            self._metrics["denied_writes"] += 1
+            return MemoryWriteResult("approval_required", kind, None, "durable memory writes require explicit approval")
+        if parent_memory_id and self.graph.get_node(parent_memory_id) is None:
+            raise KeyError(f"parent memory node not found: {parent_memory_id}")
+
         callback = self.owner_callbacks.get(kind)
         if callback is not None:
             self._metrics["owner_callback_calls"] += 1
             outcome = callback(
-                project=self.project, text=text.strip(), source=source.strip(), task_id=task_id,
+                project=self.project, text=clean_text, source=clean_source, task_id=task_id,
                 evidence_ids=evidence, intent_digest=intent_digest, confidence=confidence,
                 verified=verified, approved=approved,
             )
@@ -239,19 +247,15 @@ class MemoryOrchestrator:
             return MemoryWriteResult("delegated", kind, str(getattr(outcome, "id", "") or "") or None,
                                      "handled by registered canonical owner")
 
-        if not approved:
-            self._metrics["denied_writes"] += 1
-            return MemoryWriteResult("approval_required", kind, None, "durable memory writes require explicit approval")
-
         record = self.memory.remember(
-            self.project, kind, text.strip(), intent_digest=intent_digest,
+            self.project, kind, clean_text, intent_digest=intent_digest,
             confidence=confidence, verified=verified, approved=True,
         )
         if record is None:
             self._metrics["denied_writes"] += 1
             return MemoryWriteResult("approval_required", kind, None, "canonical memory owner rejected the write")
         node = ContextNode(
-            node_id=record.id, kind=kind, label=text.strip()[:240], source=source.strip(),
+            node_id=record.id, kind=kind, label=record.text[:240], source=clean_source,
             confidence=confidence,
             properties={
                 "evidence_ids": list(evidence), "intent_digest": intent_digest,
@@ -261,7 +265,7 @@ class MemoryOrchestrator:
         )
         self.graph.upsert_node(node)
         if parent_memory_id:
-            self.graph.link(parent_memory_id, "contains", record.id, source=source.strip(), confidence=confidence,
+            self.graph.link(parent_memory_id, "contains", record.id, source=clean_source, confidence=confidence,
                             properties={"memory_kind": kind, "task_id": task_id})
         self._metrics["writes"] += 1
         return MemoryWriteResult("stored", kind, record.id)
