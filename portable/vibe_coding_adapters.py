@@ -164,7 +164,8 @@ class VibeAdapterRegistry:
         reliability = 0.65 * stats.success_rate + 0.35 * item.historical_success
         cost_penalty = min(item.estimated_cost, 10.0) / 50
         latency_penalty = min(item.estimated_latency_ms, 60000) / 600000
-        return 0.55 * reliability + 0.35 * item.evidence_quality - cost_penalty - latency_penalty
+        exploration_bonus = self.exploration / math.sqrt(stats.attempts + 1)
+        return 0.55 * reliability + 0.35 * item.evidence_quality - cost_penalty - latency_penalty + exploration_bonus
 
     def select(self, stage: VibeStage, capabilities: Sequence[str] | None = None) -> AdapterRegistration:
         candidates = self.discover(stage, capabilities)
