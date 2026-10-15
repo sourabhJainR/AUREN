@@ -6,6 +6,7 @@ from portable.agency_adaptive_planning import BenchmarkHistory, BenchmarkObserva
 from portable.agency_artifact_regression import snapshot_artifact
 from portable.agency_multi_specialist import SpecialistResourceProfile
 from portable.ai_coding_agency_bridge import CodingTask, run_coding_task, verify_provenance
+from portable.action_governance import ActionGovernanceGateway, ActionPolicy
 
 
 class AICodingAgencyBridgeTests(unittest.TestCase):
@@ -99,6 +100,86 @@ class AICodingAgencyBridgeTests(unittest.TestCase):
         self.assertEqual(len(result.execution.assignments), 1)
         verify_provenance(result)
 
+
+
+    def test_governance_gateway_blocks_mutation_without_explicit_write_scope(self):
+        gateway = ActionGovernanceGateway(ActionPolicy(
+            allowed_capabilities=frozenset({"repository.read", "repository.write"}),
+        ))
+        task = CodingTask("run-governed-1", "implement API validation", mutation_mode="bounded")
+        calls = []
+        result = run_coding_task(
+            task, lambda profile, assignments: calls.append("worker") or self._worker(profile, assignments),
+            governance_gateway=gateway, run_id="governed-bridge-1",
+        )
+        self.assertFalse(result.ready)
+        self.assertEqual(calls, [])
+        self.assertTrue(any(f.message == "action_governance:explicit_write_scope_missing" for f in result.execution.findings))
+        self.assertFalse(result.execution.hard_gates["action_governance"])
+
+    def test_governance_gateway_allows_explicit_scoped_coding_task(self):
+        gateway = ActionGovernanceGateway(ActionPolicy(
+            allowed_capabilities=frozenset({"repository.read", "repository.write"}),
+            protected_targets=("main", ".github/workflows"),
+        ))
+        task = CodingTask(
+            "run-governed-2", "implement API validation",
+            mutation_mode="bounded", allowed_artifact_changes=("src/api.py",),
+        )
+        calls = []
+        result = run_coding_task(
+            task, lambda profile, assignments: calls.append("worker") or self._worker(profile, assignments),
+            governance_gateway=gateway, run_id="governed-bridge-2",
+        )
+        self.assertTrue(result.ready)
+        self.assertEqual(calls, ["worker"])
+        self.assertTrue(gateway.verify_trace()["passed"])
+        self.assertIn("action_completed", [event["event"] for event in gateway.events])
+
+    def test_governance_gateway_blocks_task_protected_path(self):
+        gateway = ActionGovernanceGateway(ActionPolicy(
+            allowed_capabilities=frozenset({"repository.read", "repository.write"}),
+        ))
+        task = CodingTask(
+            "run-governed-3", "edit secret config",
+            mutation_mode="bounded", allowed_artifact_changes=("src/secrets.py",),
+            protected_paths=("src",),
+        )
+        calls = []
+        result = run_coding_task(
+            task, lambda profile, assignments: calls.append("worker") or self._worker(profile, assignments),
+            governance_gateway=gateway, run_id="governed-bridge-3",
+        )
+        self.assertFalse(result.ready)
+        self.assertEqual(calls, [])
+        self.assertTrue(any(f.message == "action_governance:task_protected_path" for f in result.execution.findings))
+
+    def test_governance_gateway_requires_explicit_run_id(self):
+        gateway = ActionGovernanceGateway(ActionPolicy(
+            allowed_capabilities=frozenset({"repository.read", "repository.write"}),
+        ))
+        with self.assertRaisesRegex(ValueError, "run_id is required"):
+            run_coding_task(CodingTask("run-governed-4", "read API", mutation_mode="read-only"),
+                            self._worker, governance_gateway=gateway)
+
+
+    def test_high_risk_governed_coding_requires_approval(self):
+        gateway = ActionGovernanceGateway(ActionPolicy(
+            allowed_capabilities=frozenset({"repository.read", "repository.write"}),
+        ))
+        task = CodingTask(
+            "run-governed-5", "modify authentication flow",
+            risk="critical", mutation_mode="bounded",
+            allowed_artifact_changes=("src/auth.py",),
+        )
+        calls = []
+        result = run_coding_task(
+            task, lambda profile, assignments: calls.append("worker") or self._worker(profile, assignments),
+            governance_gateway=gateway, run_id="governed-bridge-5",
+        )
+        self.assertFalse(result.ready)
+        self.assertEqual(calls, [])
+        self.assertTrue(any(f.message == "action_governance:trusted_approval_missing_or_invalid" for f in result.execution.findings))
 
 if __name__ == "__main__":
     unittest.main()
