@@ -392,7 +392,6 @@ class ExecutionController:
                 expected_head = context.get("expected_head")
                 promotion_expected_head = expected_head if isinstance(expected_head, str) else None
                 approvers = context.get("authorized_approvers")
-                evidence_ids = context.get("known_evidence_ids")
                 if not isinstance(record, Mapping):
                     return False, "promotion gate rejected task: trusted decision record is missing", ("promotion-gate:rejected",)
                 promotion = record.get("promotion")
@@ -405,8 +404,15 @@ class ExecutionController:
                     ), ("promotion-gate:rejected",)
                 if isinstance(approvers, str) or not isinstance(approvers, (list, tuple, set, frozenset)):
                     return False, "promotion gate rejected task: authorized approver context is malformed", ("promotion-gate:rejected",)
-                if isinstance(evidence_ids, str) or not isinstance(evidence_ids, (list, tuple, set, frozenset)):
-                    return False, "promotion gate rejected task: canonical evidence context is malformed", ("promotion-gate:rejected",)
+                if not isinstance(expected_repository, str) or not expected_repository.strip():
+                    return False, "promotion gate rejected task: trusted repository context is missing", ("promotion-gate:rejected",)
+                if not isinstance(expected_head, str) or not re.fullmatch(r"[0-9a-f]{40}", expected_head):
+                    return False, "promotion gate rejected task: trusted candidate head is invalid", ("promotion-gate:rejected",)
+                # Resolve evidence from the controller-owned canonical ledger. A provider
+                # or record-supplied list must never self-authorize cited evidence IDs.
+                evidence_ids = self.evidence_ledger.known_evidence_ids(
+                    repository=expected_repository, head_sha=expected_head,
+                )
                 require_valid_decision_record(
                     record,
                     expected_repository=expected_repository,

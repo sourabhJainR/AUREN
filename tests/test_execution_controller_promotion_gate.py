@@ -100,6 +100,13 @@ class ExecutionControllerPromotionGateTests(unittest.TestCase):
             "passed_checks": ["required-ci"], "skipped_checks": [],
         })
         self.controller = ExecutionController(Path(self.temp.name))
+        for evidence_id, evidence_type in (("run-1", "ci-run"), ("approval-1", "approval"), ("rollback-test-1", "rollback-rehearsal")):
+            self.controller.evidence_ledger.record(
+                evidence_id=evidence_id, repository=REPOSITORY, head_sha=HEAD_SHA,
+                evidence_type=evidence_type, status="passed",
+                source_uri=f"urn:auren:test-evidence:{evidence_id}",
+                payload_digest="a" * 64, signer_id="test-operator",
+            )
         self.controller.register_handler("trusted-context", trusted_promotion_context, execution_class="context_provider")
         self.controller.register_handler("trusted-ci", trusted_ci_evidence, execution_class="context_provider")
         self.controller.register_handler(
@@ -259,8 +266,9 @@ class ExecutionControllerPromotionGateTests(unittest.TestCase):
             )
 
 
-    def test_unknown_evidence_and_unauthorized_approver_block_side_effects(self):
-        _PROMOTION_CONTEXT["known_evidence_ids"] = ["approval-1"]
+    def test_provider_cannot_self_authorize_evidence_ids_and_unauthorized_approver_blocks(self):
+        _PROMOTION_CONTEXT["known_evidence_ids"] = ["run-1", "approval-1", "rollback-test-1", "forged-id"]
+        _PROMOTION_CONTEXT["decision_record"]["checks"][0]["evidence_id"] = "forged-id"
         task = self.submit()
         self.controller.run_once(task.id)
         self.assertEqual(self.controller.task(task.id).state, "failed")
@@ -288,7 +296,7 @@ class ExecutionControllerPromotionGateTests(unittest.TestCase):
         self.assertEqual(_PROMOTION_SIDE_EFFECTS, [])
 
     def test_unknown_approval_evidence_blocks_promotion(self):
-        _PROMOTION_CONTEXT["known_evidence_ids"] = ["run-1"]
+        _PROMOTION_CONTEXT["decision_record"]["promotion"]["approval_evidence_id"] = "unknown-approval"
         task = self.submit()
         self.controller.run_once(task.id)
         self.assertEqual(self.controller.task(task.id).state, "failed")
