@@ -9,6 +9,7 @@ receipts are fabricated when a tool is absent.
 from __future__ import annotations
 
 import hashlib
+import ipaddress
 import json
 import os
 import platform
@@ -22,6 +23,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
+from urllib.parse import urlparse
 
 from .provider_fabric import ProviderFabric
 from .vibe_coding import STAGE_ORDER, STAGE_SPECS, VibeCodingCheckpoint, VibeStage
@@ -301,8 +303,14 @@ class MCPStdioToolAdapter:
             content = result.get("content", [])
             text_items = [item.get("text", "") for item in content if isinstance(item, Mapping) and item.get("type") == "text"]
             if text_items:
-                return _json_object("\n".join(text_items))
-            raise ValueError("MCP tool must return structuredContent or JSON text")
+                text = "\n".join(text_items)
+                try:
+                    return _json_object(text)
+                except ValueError:
+                    # Search tools often return plain-text result lists; the research
+                    # adapter below must extract real HTTPS locators before accepting them.
+                    return {"text": text, "evidence": [{"source": f"mcp:{self.tool_name}", "locator": f"mcp://{self.tool_name}"}]}
+            raise ValueError("MCP tool must return structuredContent or text content")
         finally:
             try:
                 if proc.stdin:
@@ -312,6 +320,78 @@ class MCPStdioToolAdapter:
             except (OSError, subprocess.TimeoutExpired):
                 proc.kill()
                 proc.wait(timeout=2)
+
+
+class VerifiedResearchTool:
+    """Turn configured search-tool output into source-located research evidence."""
+
+    _URL = re.compile(r"https://[^\\s<>\\\"')]+", re.I)
+
+    def __init__(self, search_tool: Any, *, min_sources: int = 2) -> None:
+        if not callable(search_tool):
+            raise TypeError("search_tool must be callable")
+        if not 1 <= min_sources <= 10:
+            raise ValueError("min_sources must be between 1 and 10")
+        self.search_tool = search_tool
+        self.min_sources = min_sources
+
+    @staticmethod
+    def _public_https_url(value: str) -> tuple[str, str] | None:
+        url = value.rstrip(".,;:!?)]}")
+        try:
+            parsed = urlparse(url)
+            host = (parsed.hostname or "").lower().rstrip(".")
+            if parsed.scheme != "https" or not host or "." not in host or parsed.username or parsed.password:
+                return None
+            try:
+                address = ipaddress.ip_address(host)
+                if not address.is_global:
+                    return None
+            except ValueError:
+                if host in {"localhost", "localhost.localdomain"} or host.endswith((".local", ".internal", ".test")):
+                    return None
+            return url, host
+        except ValueError:
+            return None
+
+    def __call__(self, request: Mapping[str, Any]) -> Mapping[str, Any]:
+        prior = request.get("prior_stage_outputs", {})
+        idea = prior.get(VibeStage.IDEA.value, {}) if isinstance(prior, Mapping) else {}
+        problem = idea.get("problem", "") if isinstance(idea, Mapping) else ""
+        intent = str(request.get("intent", "")).strip()
+        query = " ".join(part for part in (intent, str(problem).strip(), "alternatives competitors user needs") if part)
+        search_request = dict(request)
+        search_request["intent"] = query
+        search_request["query"] = query
+        raw = self.search_tool(search_request)
+        if not isinstance(raw, Mapping):
+            raise AdapterUnavailable("configured search tool returned no structured result")
+        text = raw.get("text")
+        if not isinstance(text, str):
+            text = json.dumps(dict(raw), ensure_ascii=False, sort_keys=True)
+        evidence: list[dict[str, str]] = []
+        seen: set[str] = set()
+        for candidate in self._URL.findall(text):
+            parsed = self._public_https_url(candidate)
+            if parsed is None:
+                continue
+            url, host = parsed
+            if url in seen:
+                continue
+            seen.add(url)
+            evidence.append({"source": host, "locator": url, "excerpt": text[max(0, text.find(candidate) - 180):text.find(candidate) + len(candidate) + 320][:500]})
+            if len(evidence) >= 10:
+                break
+        if len(evidence) < self.min_sources:
+            raise AdapterUnavailable(
+                f"research needs at least {self.min_sources} distinct public HTTPS source locators from the configured search tool; got {len(evidence)}"
+            )
+        return {
+            "market_evidence": evidence,
+            "competitors": sorted({item["source"] for item in evidence}),
+            "evidence": evidence,
+            "search_query": query,
+        }
 
 
 class LocalProjectTool:
@@ -905,6 +985,8 @@ class LocalVibeCodingHost:
             if reviewer.provider == agent.provider:
                 raise ValueError("independent reviewer provider must differ from the implementation provider")
             tools["independent_review"] = IndependentReviewTool(reviewer, author_provider=agent.provider)
+        if "research" not in self.config.mcp_tools and "web_search" in tools:
+            tools["research"] = VerifiedResearchTool(tools["web_search"])
         missing = [name for name in ("research", "web_search", "independent_review") if name not in tools or isinstance(tools[name], BlockedSideEffectTool)]
         if missing:
             raise AdapterUnavailable("configure actual MCP tools for required capabilities: " + ", ".join(missing))
