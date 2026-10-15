@@ -48,7 +48,9 @@ def test_quota_wait_is_durable_and_resumes_only_when_due(tmp_path):
 
     # A fresh controller instance must recover the same SQLite task and handler.
     controller = ExecutionController(tmp_path)
-    due = datetime.fromisoformat(retry_at) + timedelta(seconds=1)
+    retry_time = datetime.fromisoformat(retry_at)
+    assert 9.9 <= controller.seconds_until_quota_due(now=retry_time - timedelta(seconds=10)) <= 10.1
+    due = retry_time + timedelta(seconds=1)
     assert controller.wake_due_quota_tasks(now=due, limit=10) == [task.id]
     assert _state(controller, task.id)[0] == "pending"
     assert controller.run_once(task.id) is not None
