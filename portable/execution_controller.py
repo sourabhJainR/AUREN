@@ -40,6 +40,37 @@ def _handler_tokens(name: str) -> frozenset[str]:
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
+def _git_repository_identity(root: Path) -> tuple[str, str] | None:
+    """Resolve a stable local repository slug and HEAD for evidence lineage."""
+    import os
+    import subprocess
+
+    try:
+        head = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "--verify", "HEAD^{commit}"],
+            check=True, capture_output=True, text=True, timeout=2,
+        ).stdout.strip().lower()
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if not re.fullmatch(r"[0-9a-f]{40}", head):
+        return None
+    repository = os.environ.get("AUREN_REPOSITORY_SLUG", "").strip()
+    if not repository:
+        try:
+            remote = subprocess.run(
+                ["git", "-C", str(root), "config", "--get", "remote.origin.url"],
+                check=True, capture_output=True, text=True, timeout=2,
+            ).stdout.strip()
+        except (OSError, subprocess.SubprocessError):
+            remote = ""
+        match = re.search(r"(?:[:/])([^/:\\s]+/[^/:\\s]+?)(?:\\.git)?$", remote)
+        if match:
+            repository = match.group(1)
+    if not re.fullmatch(r"[^/\\s]+/[^/\\s]+", repository):
+        return None
+    return repository, head
+
+
 
 @dataclass(frozen=True)
 class DurableTask:
@@ -1053,13 +1084,21 @@ class ExecutionController:
             if saved is not None:
                 state["auren_supervisor_checkpoint_envelope"] = saved
             prior_writer = graph.handoff_checkpoint_writer
+            identity = (
+                (saved["repository"], saved["head_sha"])
+                if saved is not None and "repository" in saved and "head_sha" in saved
+                else _git_repository_identity(self.root)
+            )
 
             def persist_checkpoint(checkpoint_task_id: str, envelope: Mapping[str, Any]) -> None:
                 if checkpoint_task_id != task_id:
                     raise ValueError("crew checkpoint task_id does not match active supervisor task")
-                self.save_graph_checkpoint(task_id, envelope)
+                durable_envelope = dict(envelope)
+                if identity is not None:
+                    durable_envelope["repository"], durable_envelope["head_sha"] = identity
+                self.save_graph_checkpoint(task_id, durable_envelope)
                 if prior_writer is not None:
-                    prior_writer(checkpoint_task_id, envelope)
+                    prior_writer(checkpoint_task_id, durable_envelope)
 
             # Pass supervisor authority per invocation; do not mutate a shared graph
             # object, which may be executing independent tasks concurrently.
