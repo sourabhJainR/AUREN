@@ -1260,7 +1260,7 @@ class LocalVibeCodingHost:
         tool_config_digest = _digest({
             "provider": self.config.provider,
             "reviewer_provider": self.config.reviewer_provider,
-            "mcp_tools": {key: {k: v for k, v in value.items() if k != "env_allowlist"} for key, value in sorted(self.config.mcp_tools.items())},
+            "mcp_tools": {key: dict(value) for key, value in sorted(self.config.mcp_tools.items())},
             "test_commands": self.config.test_commands,
             "env_allowlist": self.config.env_allowlist,
             "agent_timeout_seconds": self.config.agent_timeout_seconds,
@@ -1272,12 +1272,12 @@ class LocalVibeCodingHost:
             "preview_deployment_rationale": self.config.preview_deployment_rationale,
             "security_tool_required": self.config.security_tool_required,
         })
-        learning_path = self.state_root / "adapter-learning.json"
         project_tool = LocalProjectTool(workspace, lease.base_revision, allow_workspace_writes=self.config.allow_workspace_writes)
         test_tool = LocalTestExecutionTool(workspace, self.config.test_commands, timeout_seconds=self.config.test_timeout_seconds, env_allowlist=self.config.env_allowlist)
         agent = ProviderCliAgent(provider=self.config.provider, allow_workspace_writes=self.config.allow_workspace_writes, timeout_seconds=self.config.agent_timeout_seconds, env_allowlist=self.config.env_allowlist)
         journal = SideEffectJournal(self.state_root / "operations.sqlite3")
         active_agent = JournaledToolAdapter(agent, journal, capability="agent")
+        reviewer: ProviderCliAgent | None = None
         tools: dict[str, Any] = {
             "product": LocalProductTool(),
             "repository": project_tool,
@@ -1324,7 +1324,17 @@ class LocalVibeCodingHost:
             raise AdapterUnavailable("security_tool_required is true but no external security MCP tool is configured")
         if not self.config.browser_qa_required:
             tools["browser"] = LocalBrowserTool()
-        registry = build_host_adapter_registry(active_agent, tools, version="local-host-v1", max_risk="critical")
+        tool_config_digest = _digest({
+            "host_config": tool_config_digest,
+            "active_provider": agent.provider,
+            "active_provider_version": agent.capability.version,
+            "reviewer_provider": reviewer.provider if reviewer is not None else self.config.reviewer_provider,
+            "reviewer_provider_version": reviewer.capability.version if reviewer is not None else None,
+        })
+        learning_path = self.state_root / f"adapter-learning-{tool_config_digest[:12]}.json"
+        registry = build_host_adapter_registry(
+            active_agent, tools, version=f"local-host-v1-{tool_config_digest[:16]}", max_risk="critical"
+        )
         registry.attach_learning_store(learning_path)
         checkpoints = DurableVibeCheckpointStore(self.state_root / "checkpoints")
         def persist(snapshot: Mapping[str, Any]) -> None:
