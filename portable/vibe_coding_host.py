@@ -189,7 +189,14 @@ def _find_object(value: Any) -> dict[str, Any] | None:
                     found = _find_object(item.get("text") if isinstance(item, dict) else item)
                     if found is not None:
                         return found
-        if any(key in value for key in ("problem", "market_evidence", "requirements", "design_artifacts", "artifacts", "tests_run", "findings", "review_summary", "deployment_receipt", "signals")):
+        if any(key in value for key in (
+            "problem", "market_evidence", "requirements", "acceptance_criteria",
+            "design_artifacts", "artifacts", "tests_run", "findings", "review_summary",
+            "deployment_receipt", "signals", "personas", "user_needs", "success_metrics",
+            "technology_decisions", "architecture_decisions", "tasks", "reviewer",
+            "blocking_findings", "qa_results", "user_feedback", "rollback_thresholds",
+            "environment", "repository", "rules", "preview_url", "competitors",
+        )) or ("status" in value and len(value) > 1):
             return value
     if isinstance(value, list):
         for item in reversed(value):
