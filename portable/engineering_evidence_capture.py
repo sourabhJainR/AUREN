@@ -29,6 +29,7 @@ _EVENT_TYPES = frozenset({
     "regression_failed", "recovery_selected", "task_completed", "task_failed",
     "external_evidence_observed", "rollback_started", "rollback_completed",
     "rollback_failed", "crew_handoff_checkpoint_persisted",
+    "task_quota_wait", "task_quota_blocked",
 })
 _SOURCE_TYPES = frozenset({
     "auren_runtime", "ci", "external_evaluator", "oracle_custody",
