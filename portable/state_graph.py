@@ -535,11 +535,16 @@ class GraphAgentTeam:
                 raise ValueError("supervisor checkpoint crew-plan digest does not match active plan")
             saved_handoffs = supervisor_envelope.get("handoff_checkpoint")
             saved_budget = supervisor_envelope.get("retry_budget")
+            saved_provider_resume = supervisor_envelope.get("provider_resume_state")
             if not isinstance(saved_handoffs, Mapping) or not isinstance(saved_budget, Mapping):
                 raise ValueError("supervisor checkpoint requires handoff and retry-budget snapshots")
+            if saved_provider_resume is not None and not isinstance(saved_provider_resume, Mapping):
+                raise ValueError("supervisor provider resume state must be a mapping")
             # The supervisor-provided checkpoint is authoritative over caller state.
             state["auren_crew_handoff_checkpoint_data"] = dict(saved_handoffs)
             state["auren_retry_budget"] = dict(saved_budget)
+            if isinstance(saved_provider_resume, Mapping):
+                state["auren_provider_resume_state"] = dict(saved_provider_resume)
         # Reserved fields are overwritten, so caller payloads cannot self-authorize
         # a different crew plan or broaden the declared crew authority.
         state["auren_crew_plan"] = plan.to_payload()
@@ -588,6 +593,8 @@ class GraphAgentTeam:
                     "task_id": task_id,
                     "intent_digest": plan.intent_digest,
                     "crew_plan_digest": plan.digest,
+                    **({"provider_resume_state": dict(state["auren_provider_resume_state"])}
+                       if isinstance(state.get("auren_provider_resume_state"), Mapping) else {}),
                 })
 
         persist_callback = persist_handoff_checkpoint if checkpoint_writer is not None else None
@@ -606,6 +613,24 @@ class GraphAgentTeam:
         def refresh_checkpoint_state() -> None:
             state["auren_crew_handoff_checkpoint_data"] = handoffs.snapshot()
             state["auren_retry_budget"] = retry_budget.snapshot()
+
+        def persist_provider_resume(snapshot: Mapping[str, Any]) -> None:
+            if not dispatch_active["value"]:
+                raise RuntimeError("provider resume checkpoints may only be persisted during graph execution")
+            if not isinstance(snapshot, Mapping):
+                raise ValueError("provider resume checkpoint must be a mapping")
+            supplied = snapshot.get("digest")
+            payload = {key: value for key, value in snapshot.items() if key != "digest"}
+            canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
+            expected = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+            if not isinstance(supplied, str) or supplied != expected:
+                raise ValueError("provider resume checkpoint digest mismatch")
+            if snapshot.get("task_id") != task_id:
+                raise ValueError("provider resume checkpoint task_id does not match active graph task")
+            state["auren_provider_resume_state"] = dict(snapshot)
+            # Persist through the same atomic supervisor envelope as handoffs,
+            # review receipts, and the task-scoped retry budget.
+            persist_handoff_checkpoint(handoffs.snapshot())
 
         def enqueue_handoff(source_crew: str, target_crew: str, task: str) -> dict[str, Any]:
             if not dispatch_active["value"]:
@@ -730,6 +755,8 @@ class GraphAgentTeam:
         state["auren_crew_handoff_complete"] = complete_handoff
         state["auren_crew_handoff_checkpoint_data"] = handoffs.snapshot()
         state["auren_retry_budget"] = retry_budget.snapshot()
+        state["auren_provider_resume_persist"] = persist_provider_resume
+        state["auren_provider_resume_state"] = dict(state.get("auren_provider_resume_state", {}))
         state["auren_crew_handoff_checkpoint"] = handoffs.snapshot
         state["auren_crew_rollback_readiness"] = rollback_readiness
         try:
