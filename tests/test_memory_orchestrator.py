@@ -90,7 +90,7 @@ class MemoryOrchestratorTests(unittest.TestCase):
             self.coordinator.remember(
                 "working", f"note for {task_id}", source="agent", task_id=task_id,
             )
-        self.assertEqual([], self.coordinator.recall(
+        self.assertEqual((), self.coordinator.recall(
             "note", kinds=("working",), task_id="t1", budget_chars=100,
         ).memories)
         self.assertEqual(3, self.coordinator.metrics()["working_entries"])
