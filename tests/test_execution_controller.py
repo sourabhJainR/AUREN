@@ -637,6 +637,270 @@ def test_resume_pending_continues_independent_work_around_live_lease(tmp_path: P
     assert controller.task(independent.id).state == "completed"
 
 
+def test_supervisor_checkpoint_rejects_stale_handoff_and_retry_state(tmp_path: Path):
+    import pytest
+    from portable.crew_adapters import GraphHandoffController, TaskRetryBudget
+
+    controller = ExecutionController(tmp_path)
+    stale = _supervisor_checkpoint_envelope("monotonic-task")
+    budget = TaskRetryBudget(max_retries=3)
+    queue = GraphHandoffController(max_attempts=3, retry_budget=budget)
+    item = queue.enqueue(
+        source_crew="frontend_ui",
+        target_crew="qa_reviewer",
+        task="review accessible UI",
+        source_plan_digest=stale["crew_plan_digest"],
+        allowed_handoffs=("qa_reviewer",),
+        selected_crews=("frontend_ui", "qa_reviewer"),
+    )
+    assert item is not None
+    stale["retry_budget"] = budget.snapshot()
+    stale["handoff_checkpoint"] = queue.snapshot()
+    controller.save_graph_checkpoint("monotonic-task", stale)
+
+    claimed = queue.claim_next(graph_node_active=True)
+    assert claimed is not None
+    receipt_payload = {
+        "schema_version": "auren-handoff-review-receipt-v1",
+        "reviewer_id": "independent-qa",
+        "reviewer_version": "test-v1",
+        "status": "pass",
+        "evidence_refs": ["test://review/monotonic-task"],
+        "reason": "Review passed in the test harness.",
+    }
+    import hashlib
+    import json
+    receipt_payload["digest"] = hashlib.sha256(
+        json.dumps(receipt_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    queue.mark_completed(claimed, independent_review_passed=True, review_receipt=receipt_payload)
+    completed = dict(stale)
+    completed["retry_budget"] = budget.snapshot()
+    completed["handoff_checkpoint"] = queue.snapshot()
+    controller.save_graph_checkpoint("monotonic-task", completed)
+
+    with pytest.raises(ValueError, match="terminal handoff decision"):
+        controller.save_graph_checkpoint("monotonic-task", stale)
+    loaded = controller.load_graph_checkpoint("monotonic-task")
+    assert loaded is not None
+    assert loaded["handoff_checkpoint"]["completed_ids"] == [item.handoff_id]
+    assert loaded["handoff_checkpoint"]["completion_receipts"][item.handoff_id]["status"] == "pass"
+
+
+def test_supervisor_checkpoint_rejects_retry_budget_refund(tmp_path: Path):
+    import pytest
+    from portable.crew_adapters import TaskRetryBudget
+
+    controller = ExecutionController(tmp_path)
+    initial = _supervisor_checkpoint_envelope("retry-refund-task")
+    controller.save_graph_checkpoint("retry-refund-task", initial)
+    budget = TaskRetryBudget(max_retries=3)
+    assert budget.consume(component="crew_handoff", operation_key="handoff:stable:retry:1")
+    advanced = _supervisor_checkpoint_envelope("retry-refund-task")
+    advanced["retry_budget"] = budget.snapshot()
+    advanced["handoff_checkpoint"] = {
+        **advanced["handoff_checkpoint"],
+        "retry_budget": budget.snapshot(),
+    }
+    payload = {key: value for key, value in advanced["handoff_checkpoint"].items() if key != "digest"}
+    import hashlib
+    import json
+    advanced["handoff_checkpoint"]["digest"] = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    controller.save_graph_checkpoint("retry-refund-task", advanced)
+    with pytest.raises(ValueError, match="refund or rewrite consumed retry budget"):
+        controller.save_graph_checkpoint("retry-refund-task", initial)
+
+
+def test_handoff_queue_survives_supervisor_restart_without_duplicate_dispatch(tmp_path: Path):
+    from portable.crew_adapters import GraphHandoffController, TaskRetryBudget
+
+    first = ExecutionController(tmp_path)
+    envelope = _supervisor_checkpoint_envelope("handoff-restart-task", "restart handoff")
+    budget = TaskRetryBudget.resume(envelope["retry_budget"])
+    handoffs = GraphHandoffController(
+        max_attempts=3,
+        retry_budget=budget,
+        persist=lambda snapshot: first.save_graph_checkpoint(
+            "handoff-restart-task",
+            {
+                **envelope,
+                "handoff_checkpoint": dict(snapshot),
+                "retry_budget": budget.snapshot(),
+            },
+        ),
+        require_persistence=True,
+    )
+    queued = handoffs.enqueue(
+        source_crew="frontend_ui",
+        target_crew="qa_reviewer",
+        task="review once",
+        source_plan_digest=envelope["crew_plan_digest"],
+        allowed_handoffs=("qa_reviewer",),
+        selected_crews=("frontend_ui", "qa_reviewer"),
+    )
+    assert queued is not None
+
+    # Simulate process exit after a durable claim but before review completion.
+    claimed = handoffs.claim_next(graph_node_active=True)
+    assert claimed is not None
+    second_process = ExecutionController(tmp_path)
+    saved = second_process.load_graph_checkpoint("handoff-restart-task")
+    assert saved is not None
+    resumed_budget = TaskRetryBudget.resume(saved["retry_budget"])
+    resumed = GraphHandoffController.resume(
+        saved["handoff_checkpoint"],
+        retry_budget=resumed_budget,
+        persist=lambda snapshot: second_process.save_graph_checkpoint(
+            "handoff-restart-task",
+            {
+                **saved,
+                "handoff_checkpoint": dict(snapshot),
+                "retry_budget": resumed_budget.snapshot(),
+            },
+        ),
+        require_persistence=True,
+    )
+    # The interrupted in-flight claim is requeued under its original idempotency key.
+    retry = resumed.claim_next(graph_node_active=True)
+    assert retry is not None
+    assert retry.handoff_id == queued.handoff_id
+    duplicate = resumed.enqueue(
+        source_crew="frontend_ui",
+        target_crew="qa_reviewer",
+        task="review once",
+        source_plan_digest=envelope["crew_plan_digest"],
+        allowed_handoffs=("qa_reviewer",),
+        selected_crews=("frontend_ui", "qa_reviewer"),
+    )
+    assert duplicate is not None
+    assert duplicate.handoff_id == queued.handoff_id
+    assert len(resumed.snapshot()["queued"]) == 0
+    assert len(resumed.snapshot()["in_flight"]) == 1
+
+
+def test_exhausted_handoff_retry_budget_is_terminal_and_cannot_be_resurrected(tmp_path: Path):
+    import pytest
+    from portable.crew_adapters import GraphHandoffController, TaskRetryBudget
+
+    controller = ExecutionController(tmp_path)
+    envelope = _supervisor_checkpoint_envelope("exhausted-handoff-task")
+    budget = TaskRetryBudget(max_retries=0)
+    queue = GraphHandoffController(max_attempts=3, retry_budget=budget)
+    item = queue.enqueue(
+        source_crew="frontend_ui",
+        target_crew="qa_reviewer",
+        task="bounded retry",
+        source_plan_digest=envelope["crew_plan_digest"],
+        allowed_handoffs=("qa_reviewer",),
+        selected_crews=("frontend_ui", "qa_reviewer"),
+    )
+    assert item is not None
+    envelope["retry_budget"] = budget.snapshot()
+    envelope["handoff_checkpoint"] = queue.snapshot()
+    controller.save_graph_checkpoint("exhausted-handoff-task", envelope)
+
+    claimed = queue.claim_next(graph_node_active=True)
+    assert claimed is not None
+    assert queue.retry(claimed, retryable=True) is None
+    terminal = dict(envelope)
+    terminal["retry_budget"] = budget.snapshot()
+    terminal["handoff_checkpoint"] = queue.snapshot()
+    controller.save_graph_checkpoint("exhausted-handoff-task", terminal)
+
+    with pytest.raises(ValueError, match="resurrect a terminal handoff"):
+        controller.save_graph_checkpoint("exhausted-handoff-task", envelope)
+    saved = controller.load_graph_checkpoint("exhausted-handoff-task")
+    assert saved is not None
+    assert saved["handoff_checkpoint"]["queued"] == []
+    assert saved["handoff_checkpoint"]["in_flight"] == []
+    assert saved["retry_budget"]["remaining"] == 0
+
+
+def test_real_graph_team_handoff_resumes_through_supervisor_after_two_interruptions(tmp_path: Path):
+    import pytest
+    from portable.state_graph import GraphAgentTeam
+
+    intent = "Build a frontend UI and complete accessibility QA review"
+    handoff_task = "review accessible UI implementation"
+    interruptions = []
+
+    class InterruptibleGraph:
+        states = ()
+
+        def __init__(self, phase):
+            self.phase = phase
+
+        def digest(self):
+            return "a" * 64
+
+        def run(self, task_id, goal, state):
+            if self.phase == "enqueue":
+                plan = state["auren_crew_plan"]
+                selected = {item["crew_id"] for item in plan["assignments"]}
+                assert {"frontend_ui", "qa_reviewer"}.issubset(selected)
+                first = state["auren_crew_handoff_enqueue"](
+                    "frontend_ui", "qa_reviewer", handoff_task
+                )
+                duplicate = state["auren_crew_handoff_enqueue"](
+                    "frontend_ui", "qa_reviewer", handoff_task
+                )
+                assert duplicate["handoff_id"] == first["handoff_id"]
+                interruptions.append(first["handoff_id"])
+                raise RuntimeError("simulated process interruption after durable enqueue")
+            record = state["auren_crew_handoff_claim"]()
+            assert record is not None
+            if self.phase == "claim":
+                interruptions.append(record["handoff_id"])
+                raise RuntimeError("simulated process interruption after durable claim")
+            state["auren_crew_handoff_complete"](record)
+            return {"completed": True, "handoff_id": record["handoff_id"]}
+
+    def independent_review(_handoff):
+        return {
+            "schema_version": "auren-handoff-review-receipt-v1",
+            "reviewer_id": "integration-qa",
+            "reviewer_version": "v1",
+            "status": "pass",
+            "evidence_refs": ["test://supervisor/independent-review"],
+            "reason": "Independent review passed in the integration test.",
+        }
+
+    def make_team(phase):
+        return GraphAgentTeam(
+            graph=InterruptibleGraph(phase),
+            independent_handoff_reviewer=independent_review,
+            independent_handoff_reviewer_id="integration-qa",
+            independent_handoff_reviewer_version="v1",
+        )
+
+    first_process = ExecutionController(tmp_path)
+    with pytest.raises(RuntimeError, match="after durable enqueue"):
+        first_process.execute_graph(make_team("enqueue"), "real-handoff-task", intent)
+
+    second_process = ExecutionController(tmp_path)
+    saved_after_enqueue = second_process.load_graph_checkpoint("real-handoff-task")
+    assert saved_after_enqueue is not None
+    assert len(saved_after_enqueue["handoff_checkpoint"]["queued"]) == 1
+    with pytest.raises(RuntimeError, match="after durable claim"):
+        second_process.execute_graph(make_team("claim"), "real-handoff-task", intent)
+
+    third_process = ExecutionController(tmp_path)
+    saved_after_claim = third_process.load_graph_checkpoint("real-handoff-task")
+    assert saved_after_claim is not None
+    assert len(saved_after_claim["handoff_checkpoint"]["in_flight"]) == 1
+    result = third_process.execute_graph(make_team("complete"), "real-handoff-task", intent)
+
+    assert result["completed"] is True
+    assert interruptions[0] == interruptions[1] == result["handoff_id"]
+    final = third_process.load_graph_checkpoint("real-handoff-task")
+    assert final is not None
+    assert final["handoff_checkpoint"]["completed_ids"] == [result["handoff_id"]]
+    assert final["handoff_checkpoint"]["completion_receipts"][result["handoff_id"]]["reviewer_id"] == "integration-qa"
+    assert final["retry_budget"]["digest"] == final["handoff_checkpoint"]["retry_budget"]["digest"]
+
+
 def test_supervised_cross_crew_handoff_is_revision_indexed_and_not_replayed(tmp_path: Path, monkeypatch):
     import hashlib
     import subprocess
@@ -762,4 +1026,3 @@ def test_supervised_cross_crew_handoff_is_revision_indexed_and_not_replayed(tmp_
     resumed = second_controller.load_graph_checkpoint("cross-crew-task")
     assert resumed is not None
     assert resumed["handoff_checkpoint"]["completed_ids"] == first_envelope["handoff_checkpoint"]["completed_ids"]
-
