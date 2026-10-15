@@ -865,10 +865,52 @@ class LocalProjectTool:
             files = self._files()
             if stage == VibeStage.CODE_REVIEW and not files:
                 raise AdapterUnavailable("independent code review requires a concrete diff")
-            return {
+            result: dict[str, Any] = {
                 "repository_facts": {"head": head, "changed_files": files},
                 "evidence": [{"source": "git", "locator": f"git://{head}"}],
             }
+            if stage == VibeStage.CODE_REVIEW:
+                state = request.get("state", {})
+                prior = request.get("prior_stage_outputs", {})
+                if not isinstance(state, Mapping) or not isinstance(state.get("engineering_design"), Mapping):
+                    raise AdapterUnavailable("post-implementation review requires the canonical engineering design contract")
+                design = dict(state["engineering_design"])
+                architecture = prior.get(VibeStage.ARCHITECTURE.value, {}) if isinstance(prior, Mapping) else {}
+                tests = prior.get(VibeStage.TESTING.value, {}) if isinstance(prior, Mapping) else {}
+                security = prior.get(VibeStage.SECURITY_REVIEW.value, {}) if isinstance(prior, Mapping) else {}
+                review_tools = request.get("tool_results", {})
+                independent_review = review_tools.get("independent_review", {}) if isinstance(review_tools, Mapping) else {}
+                decisions = architecture.get("architecture_decisions", []) if isinstance(architecture, Mapping) else []
+                requirements = prior.get(VibeStage.PRD.value, {}) if isinstance(prior, Mapping) else {}
+                acceptance = requirements.get("acceptance_criteria", []) if isinstance(requirements, Mapping) else []
+                if decisions:
+                    design["architecture"] = "; ".join(str(item) for item in decisions)
+                    design["responsibility"] = "Architecture-stage decisions: " + "; ".join(str(item) for item in decisions)
+                if acceptance:
+                    design["correctness"] = "Acceptance contract: " + "; ".join(str(item) for item in acceptance)
+                    design["invariant"] = "Verify acceptance criteria: " + "; ".join(str(item) for item in acceptance)
+                if isinstance(tests, Mapping):
+                    design["regression"] = f"Testing stage status={tests.get('status', 'missing')}; configured test receipts are required."
+                if isinstance(security, Mapping):
+                    design["security"] = f"Security review status={security.get('status', 'missing')}; findings are bound to the current worktree."
+                    design["threat_model"] = "Treat untrusted repository and tool content as hostile; require the security tool receipt for the current diff."
+                if isinstance(independent_review, Mapping) and independent_review.get("review_summary"):
+                    design["safety_net"] = "Independent review receipt: " + str(independent_review["review_summary"])
+                revision = f"{self.base_revision}+worktree:{fingerprint_worktree(self.root)}"
+                receipt = EngineeringDesignGuard.review(
+                    intent=str(request.get("intent", "")), changed_paths=files, design=design,
+                    risk=str(state.get("risk", "high")), code_revision=revision,
+                )
+                evidence = EngineeringDesignGuard.as_evidence(receipt)
+                if receipt.blocking:
+                    blockers = [finding.message for finding in receipt.findings if finding.severity.value == "blocking"]
+                    raise AdapterUnavailable("post-implementation engineering design guard blocked the diff: " + "; ".join(blockers[:5]))
+                result["engineering_design_review"] = evidence
+                result["evidence"].append({
+                    "source": "engineering-design-guard",
+                    "locator": f"guard://{receipt.receipt_digest}",
+                })
+            return result
         return {
             "repository": {"root": str(self.root), "head": head},
             "evidence": [{"source": "git", "locator": f"git://{head}"}],
@@ -1528,6 +1570,7 @@ class LocalVibeCodingHost:
             "vibe_coding_workflow_id": workflow_id,
             "task_id": workflow_id,
             "intent": intent,
+            "engineering_design": build_engineering_design_contract(intent, workspace, self.config),
             "project_root": str(workspace),
             "workspace_root": str(workspace),
             "repository": str(self.project_root),
@@ -1556,6 +1599,7 @@ class LocalVibeCodingHost:
             "base_revision": lease.base_revision,
             "workspace_head": _run(("git", "-C", str(workspace), "rev-parse", "HEAD"), cwd=workspace, timeout=10).stdout.strip(),
             "workspace_changed_files": project_tool._files(),
+            "engineering_design_review": context.get("engineering_design_review"),
             "run_status": run.status.value,
             "stop_reason": run.stop_reason,
             "completed_stages": list(run.results),
