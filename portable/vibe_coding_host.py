@@ -286,7 +286,14 @@ class MCPStdioToolAdapter:
                 if mapping == "$request":
                     args[name] = dict(request)
                 elif isinstance(mapping, str) and mapping.startswith("$"):
-                    args[name] = request.get(mapping[1:], "")
+                    value: Any = request
+                    for part in mapping[1:].split("."):
+                        if isinstance(value, Mapping):
+                            value = value.get(part)
+                        else:
+                            value = None
+                            break
+                    args[name] = value
                 else:
                     args[name] = mapping
             proc.stdin.write(json.dumps({
@@ -320,6 +327,30 @@ class MCPStdioToolAdapter:
             except (OSError, subprocess.TimeoutExpired):
                 proc.kill()
                 proc.wait(timeout=2)
+
+
+class MemoizedToolAdapter:
+    """Avoid duplicate external search calls within one workflow stage."""
+
+    def __init__(self, delegate: Any) -> None:
+        self.delegate = delegate
+        self._cache: dict[tuple[str, str], Mapping[str, Any]] = {}
+        self._lock = threading.Lock()
+
+    def __call__(self, request: Mapping[str, Any]) -> Mapping[str, Any]:
+        state = request.get("state", {})
+        workflow_id = str(state.get("vibe_coding_workflow_id", "unknown")) if isinstance(state, Mapping) else "unknown"
+        key = (workflow_id, str(request.get("stage", "")))
+        with self._lock:
+            cached = self._cache.get(key)
+        if cached is not None:
+            return dict(cached)
+        result = self.delegate(request)
+        if not isinstance(result, Mapping):
+            raise TypeError("memoized host tool must return a mapping")
+        with self._lock:
+            self._cache[key] = dict(result)
+        return dict(result)
 
 
 class VerifiedResearchTool:
@@ -1019,6 +1050,8 @@ class LocalVibeCodingHost:
             if reviewer.provider == agent.provider:
                 raise ValueError("independent reviewer provider must differ from the implementation provider")
             tools["independent_review"] = IndependentReviewTool(reviewer, author_provider=agent.provider)
+        if "web_search" in self.config.mcp_tools:
+            tools["web_search"] = MemoizedToolAdapter(tools["web_search"])
         if "research" not in self.config.mcp_tools and "web_search" in tools:
             tools["research"] = VerifiedResearchTool(tools["web_search"])
         missing = [name for name in ("research", "web_search", "independent_review") if name not in tools or isinstance(tools[name], BlockedSideEffectTool)]
