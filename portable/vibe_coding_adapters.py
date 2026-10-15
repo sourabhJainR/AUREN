@@ -117,6 +117,13 @@ class AdapterRegistration:
             raise ValueError("adapter must serve at least one stage and have a callable")
         if self.risk not in {"low", "medium", "high", "critical"}:
             raise ValueError("adapter risk must be low, medium, high, or critical")
+        risk_rank = {"low": 0, "medium": 1, "high": 2, "critical": 3}
+        inherent_risk = max(
+            risk_rank[next(spec.risk for spec in STAGE_SPECS if spec.stage == stage)]
+            for stage in self.stages
+        )
+        if risk_rank[self.risk] < inherent_risk:
+            raise ValueError("adapter risk cannot understate the inherent risk of a served stage")
         for name in ("evidence_quality", "historical_success"):
             value = getattr(self, name)
             if not math.isfinite(value) or not 0 <= value <= 1:
