@@ -204,7 +204,7 @@ The source checkout must be clean. With workspace writes explicitly enabled, AUR
 
 ### Cross-session receipts
 
-- Adapter outcomes and independent evaluation evidence auto-persist to `~/.auren/vibe-coding/adapter-learning.json`, with atomic replacement and private permissions. The same registered adapter IDs must be present when restoring a receipt.
+- Adapter outcomes and independent evaluation evidence auto-persist to `~/.auren/vibe-coding/adapter-learning-<config-digest>.json`, with atomic replacement and private permissions. Receipts are configuration-bound so results from a different provider/tool setup are never silently mixed. The same registered adapter IDs must be present when restoring a receipt.
 - Workflow checkpoints are stored under `~/.auren/vibe-coding/checkpoints/` and bind the exact workflow ID, project identity, intent digest, base commit, worktree path, and adapter configuration digest. A changed binding fails closed rather than replaying old stage outputs.
 - Candidate promotion remains proposal-only. The local host does not turn ordinary successful runs into independent Arena evidence, and adapter scores never authorize a release.
 - Production deployment is intentionally disabled by the local validation runner. A production release must use the canonical graph with an explicit approver/timestamp, independent security and code-review receipts, a verified full commit SHA, and release receipts matching that exact revision. The configured deployment tool must also enforce its own environment protection and rollback controls.
@@ -218,3 +218,27 @@ python -m py_compile portable/vibe_coding_host.py scripts/run_vibe_coding_projec
 ```
 
 These tests exercise actual Git worktrees, subprocess execution, MCP stdio requests, checkpoint binding, and receipt persistence. They do not by themselves prove that an operator's specific provider, search, browser, security, cloud, or rollback service is configured and live; the real-project run report is the evidence for that host configuration.
+
+
+### Uncertain side effects and rollback
+
+The SQLite journal at `~/.auren/vibe-coding/operations.sqlite3` records a side-effect intent before development or deployment operations and stores the receipt after success. If the process stops between those points, AUREN blocks automatic replay. After inspecting the isolated diff and checking the external system's state, an operator can explicitly authorize a retry against the exact worktree fingerprint:
+
+```python
+from portable.vibe_coding_host import SideEffectJournal, fingerprint_worktree
+
+workflow_id = "project-feature-20261015"
+worktree = "/home/user/.auren/vibe-coding/worktrees/project-feature-20261015"
+journal = SideEffectJournal("~/.auren/vibe-coding/operations.sqlite3")
+journal.resolve_uncertain(
+    workflow_id, "development", "agent",
+    action="retry",  # or "abort"
+    workspace_root=worktree,
+    expected_worktree_digest=fingerprint_worktree(worktree),
+    external_state_evidence="operator://incident-or-change-record",
+    reason="Reviewed the partial worktree and verified no external release occurred",
+    authorized=True,
+)
+```
+
+Do not authorize a retry until the referenced external-state evidence has been checked. To discard the isolated worktree, use `IsolatedGitWorktree.rollback(authorized=True)` only after reviewing the report and confirming the workflow ID/base revision; this does not roll back a production service. Production rollback remains the configured deployment provider's responsibility and must be exercised under its own authorization.
