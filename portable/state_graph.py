@@ -9,6 +9,7 @@ from typing import Any, Callable, Mapping
 
 from .orchestration import Graph, Node, NodeKind, NodeStatus, OrchestrationRun, Orchestrator
 from .crew_adapters import CrewHandoff, GraphHandoffController, TaskRetryBudget, rollback_readiness
+from .runtime_recovery import RuntimeExecutionGuard
 
 _FORBIDDEN_CREW_AUTHORITIES = frozenset({
     "merge", "promote", "self_approve", "approve_own_work", "bypass_review",
@@ -593,7 +594,20 @@ class GraphAgentTeam:
         else:
             retry_budget = TaskRetryBudget(max_retries=state.get("auren_retry_budget_limit", 3))
 
+        runtime_snapshot = state.get("auren_runtime_guard")
+        runtime_guard = (
+            RuntimeExecutionGuard.resume(runtime_snapshot)
+            if isinstance(runtime_snapshot, Mapping)
+            else RuntimeExecutionGuard(max_steps=max(1, len(self.graph.states)), max_attempts=32)
+        )
+        state["_auren_runtime_execution_guard"] = runtime_guard
+
         def persist_handoff_checkpoint(snapshot: Mapping[str, Any]) -> None:
+            # Reconcile all retry charges from the durable task ledger into the
+            # same runtime budget used by graph nodes. This is monotonic across resume.
+            for charge in retry_budget.snapshot()["charges"]:
+                runtime_guard.charge_attempt("shared-retry:" + charge["operation_key"])
+            state["auren_runtime_guard"] = runtime_guard.snapshot()
             state["auren_crew_handoff_checkpoint_data"] = dict(snapshot)
             state["auren_retry_budget"] = retry_budget.snapshot()
             if checkpoint_writer is not None:
