@@ -72,6 +72,19 @@ def _git_repository_identity(root: Path) -> tuple[str, str] | None:
 
 
 
+class ProviderQuotaError(RuntimeError):
+    """Provider adapter signal for a quota/rate-limit response.
+
+    retry_after may be seconds or an absolute timezone-aware datetime. Set
+    permanent=True for exhausted account quota requiring human intervention.
+    """
+    def __init__(self, message: str, *, provider: str = "unknown", retry_after: Any = None, permanent: bool = False):
+        super().__init__(message)
+        self.provider = provider
+        self.retry_after = retry_after
+        self.permanent = permanent
+
+
 @dataclass(frozen=True)
 class DurableTask:
     id: str
@@ -116,7 +129,9 @@ class ExecutionController:
               state TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0,
               work_unit_id TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
               heartbeat_at TEXT, lease_until TEXT,
-              lease_generation INTEGER NOT NULL DEFAULT 0, lease_token TEXT);
+              lease_generation INTEGER NOT NULL DEFAULT 0, lease_token TEXT,
+              quota_provider TEXT, quota_reason TEXT, quota_attempts INTEGER NOT NULL DEFAULT 0,
+              next_retry_at TEXT, quota_blocked INTEGER NOT NULL DEFAULT 0);
             CREATE TABLE IF NOT EXISTS graph_checkpoints(
               task_id TEXT PRIMARY KEY,
               envelope_json TEXT NOT NULL,
@@ -140,6 +155,14 @@ class ExecutionController:
                 db.execute("ALTER TABLE tasks ADD COLUMN lease_generation INTEGER NOT NULL DEFAULT 0")
             if "lease_token" not in columns:
                 db.execute("ALTER TABLE tasks ADD COLUMN lease_token TEXT")
+            # Additive migration preserves existing task and checkpoint data.
+            for column, declaration in (
+                ("quota_provider", "TEXT"), ("quota_reason", "TEXT"),
+                ("quota_attempts", "INTEGER NOT NULL DEFAULT 0"),
+                ("next_retry_at", "TEXT"), ("quota_blocked", "INTEGER NOT NULL DEFAULT 0"),
+            ):
+                if column not in columns:
+                    db.execute(f"ALTER TABLE tasks ADD COLUMN {column} {declaration}")
         self.evidence_ledger = CanonicalEvidenceLedger(
             self.root / ".auren" / "canonical-evidence.sqlite3"
         )
@@ -652,6 +675,112 @@ class ExecutionController:
         self.heartbeat(task)
         return result
 
+    @staticmethod
+    def _retry_after_datetime(value: Any, now: datetime) -> datetime | None:
+        """Parse Retry-After seconds or an absolute date; reject ambiguous values."""
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return now + timedelta(seconds=max(0, float(value)))
+        if isinstance(value, str) and value.strip():
+            try:
+                return now + timedelta(seconds=max(0, float(value.strip())))
+            except ValueError:
+                try:
+                    parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+                except ValueError:
+                    from email.utils import parsedate_to_datetime
+                    try:
+                        parsed = parsedate_to_datetime(value.strip())
+                    except (TypeError, ValueError, OverflowError):
+                        return None
+                if parsed.tzinfo is None:
+                    return None
+                return max(now, parsed.astimezone(timezone.utc))
+        return None
+
+    @staticmethod
+    def _quota_signal(exc: Exception) -> tuple[bool, str, Any, bool]:
+        """Return quota classification from a typed signal or HTTP-like error."""
+        if isinstance(exc, ProviderQuotaError):
+            return True, str(exc.provider or "unknown"), exc.retry_after, bool(exc.permanent)
+        status = getattr(exc, "status_code", None) or getattr(getattr(exc, "response", None), "status_code", None)
+        headers = getattr(exc, "headers", None) or getattr(getattr(exc, "response", None), "headers", None) or {}
+        if status in (402, "402"):
+            return True, str(getattr(exc, "provider", "unknown")), None, True
+        if status in (429, "429"):
+            retry_after = (headers.get("Retry-After") or headers.get("retry-after")) if hasattr(headers, "get") else None
+            return True, str(getattr(exc, "provider", "unknown")), retry_after, False
+        return False, "", None, False
+
+    def _pause_for_quota(self, task: DurableTask, exc: Exception) -> bool:
+        """Release a task lease into a durable, token-free wait state."""
+        now_dt = datetime.now(timezone.utc)
+        is_quota, provider, retry_after, permanent = self._quota_signal(exc)
+        if not is_quota or not task.lease_token or task.lease_generation < 1:
+            return False
+        with sqlite3.connect(self.db_path, timeout=10) as db:
+            row = db.execute(
+                "SELECT quota_attempts FROM tasks WHERE id=? AND state='running' AND lease_token=? AND lease_generation=?",
+                (task.id, task.lease_token, task.lease_generation),
+            ).fetchone()
+            if not row:
+                raise LeaseLostError("stale worker cannot park a task after quota exhaustion")
+            quota_attempts = int(row[0] or 0) + 1
+            retry_at = self._retry_after_datetime(retry_after, now_dt)
+            # Permanent account quota or repeated unhinted 429s require intervention.
+            blocked = permanent or (retry_at is None and quota_attempts >= 5)
+            if retry_at is None and not blocked:
+                retry_at = now_dt + timedelta(seconds=min(21600, 60 * (2 ** (quota_attempts - 1))))
+            state = "blocked_quota" if blocked else "waiting_quota"
+            detail = f"{type(exc).__name__}: {str(exc)[:500]}"
+            db.execute(
+                "UPDATE tasks SET state=?,updated_at=?,heartbeat_at=?,lease_until=NULL,lease_token=NULL,"
+                "quota_provider=?,quota_reason=?,quota_attempts=?,next_retry_at=?,quota_blocked=? "
+                "WHERE id=? AND state='running' AND lease_token=? AND lease_generation=?",
+                (state, now_dt.isoformat(), now_dt.isoformat(), provider[:100], detail,
+                 quota_attempts, retry_at.isoformat() if retry_at and not blocked else None,
+                 int(blocked), task.id, task.lease_token, task.lease_generation),
+            )
+        self._capture_event("task_quota_wait" if not blocked else "task_quota_blocked", task,
+                            status=state, metadata={"provider": provider[:100], "quota_attempts": quota_attempts,
+                            "next_retry_at": retry_at.isoformat() if retry_at and not blocked else None})
+        self.company.record(task.work_unit_id, "execution", state, detail,
+                            (f"handler:{task.handler}", f"provider:{provider[:100]}"))
+        if blocked:
+            self.company._transition(task.work_unit_id, "waiting_external")
+        return True
+
+    def due_quota_task_ids(self, *, now: datetime | None = None, limit: int = 20) -> list[str]:
+        """Return only due waits; local SQLite reads do not contact providers."""
+        if type(limit) is not int or limit < 1:
+            raise ValueError("limit must be a positive integer")
+        current = now or datetime.now(timezone.utc)
+        if current.tzinfo is None:
+            raise ValueError("now must be timezone-aware")
+        with sqlite3.connect(self.db_path, timeout=10) as db:
+            rows = db.execute(
+                "SELECT id FROM tasks WHERE state='waiting_quota' AND next_retry_at IS NOT NULL "
+                "AND next_retry_at<=? ORDER BY next_retry_at,created_at LIMIT ?",
+                (current.astimezone(timezone.utc).isoformat(), limit),
+            ).fetchall()
+        return [str(row[0]) for row in rows]
+
+    def wake_due_quota_tasks(self, *, now: datetime | None = None, limit: int = 20) -> list[str]:
+        """Make due waits eligible for the existing supervisor; never calls a model."""
+        ids = self.due_quota_task_ids(now=now, limit=limit)
+        if not ids:
+            return []
+        current = now or datetime.now(timezone.utc)
+        stamp = current.astimezone(timezone.utc).isoformat()
+        with sqlite3.connect(self.db_path, timeout=10) as db:
+            db.execute("BEGIN IMMEDIATE")
+            for task_id in ids:
+                db.execute(
+                    "UPDATE tasks SET state='pending',updated_at=?,next_retry_at=NULL,quota_reason=NULL "
+                    "WHERE id=? AND state='waiting_quota' AND next_retry_at IS NOT NULL AND next_retry_at<=?",
+                    (stamp, task_id, stamp),
+                )
+        return ids
+
     def run_once(self, task_id: str) -> TrustScore | None:
         task = self._claim(task_id)
         if task is None:
@@ -677,6 +806,8 @@ class ExecutionController:
         except LeaseLostError:
             raise
         except Exception as exc:
+            if self._pause_for_quota(task, exc):
+                return None
             if not self._finalize_claim(task, "failed"):
                 raise LeaseLostError(
                     "task lease was lost; stale worker cannot overwrite the current task outcome"
@@ -722,6 +853,7 @@ class ExecutionController:
         """Resume eligible work without letting a live lease consume the scan budget."""
         if type(limit) is not int or limit < 1:
             raise ValueError("resume limit must be a positive integer")
+        self.wake_due_quota_tasks(limit=limit)
         now = datetime.now(timezone.utc)
         with sqlite3.connect(self.db_path) as db:
             rows = db.execute(
@@ -1112,4 +1244,4 @@ class ExecutionController:
         return Orchestrator(graph).run(task_id, intent, context)
 
 
-__all__ = ["ExecutionController", "DurableTask", "Handler"]
+__all__ = ["ExecutionController", "DurableTask", "Handler", "ProviderQuotaError", "LeaseLostError"]
