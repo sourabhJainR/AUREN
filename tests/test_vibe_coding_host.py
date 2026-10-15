@@ -250,6 +250,8 @@ class VibeCodingHostTests(unittest.TestCase):
                 },
                 "browser_qa_required": False,
                 "browser_qa_rationale": "Project has no browser surface in this validation scope",
+                "preview_deployment_required": False,
+                "preview_deployment_rationale": "No preview environment is configured for this validation",
             }
             path.write_text(json.dumps(config), encoding="utf-8")
             os.chmod(path, 0o644)
