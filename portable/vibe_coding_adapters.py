@@ -76,6 +76,11 @@ _SIDE_EFFECT_STAGES = frozenset({
     VibeStage.DEVELOPMENT, VibeStage.PREVIEW_DEPLOYMENT,
     VibeStage.PRODUCTION_DEPLOY,
 })
+_POST_AGENT_TOOL_STAGES = frozenset({
+    VibeStage.DEVELOPMENT, VibeStage.TESTING, VibeStage.SECURITY_REVIEW,
+    VibeStage.CODE_REVIEW, VibeStage.PREVIEW_DEPLOYMENT, VibeStage.QA_TESTING,
+    VibeStage.PRODUCTION_DEPLOY, VibeStage.MONITORING,
+})
 _TOOL_AUTHORITY: dict[VibeStage, dict[str, tuple[str, ...]]] = {
     VibeStage.RESEARCH: {"research": ("market_evidence", "competitors")},
     VibeStage.PRD: {"product": ("requirements", "acceptance_criteria")},
@@ -498,25 +503,41 @@ def build_host_adapter_registry(
                       _capabilities: tuple[str, ...] = capabilities) -> Mapping[str, Any]:
             tool_results: dict[str, Mapping[str, Any]] = {}
             tool_evidence: list[Any] = []
-            for capability in _capabilities:
-                if capability == "agent":
-                    continue
-                tool_request = dict(request)
-                tool_request["capability"] = capability
-                tool_result = tools[capability](tool_request)
-                if not isinstance(tool_result, Mapping):
-                    raise TypeError(f"tool adapter {capability} must return a mapping")
-                tool_results[capability] = dict(tool_result)
-                evidence = tool_result.get("evidence", [])
-                if isinstance(evidence, list):
-                    tool_evidence.extend(evidence)
-                elif evidence:
-                    tool_evidence.append(evidence)
-            agent_request = dict(request)
-            agent_request["tool_results"] = tool_results
-            agent_output = active_agent(agent_request)
-            if not isinstance(agent_output, Mapping):
-                raise TypeError("active agent dispatcher must return a structured mapping")
+            agent_output: dict[str, Any] = {}
+            agent_first = _stage in _POST_AGENT_TOOL_STAGES
+
+            def invoke_tools(stage_output: Mapping[str, Any] | None = None) -> None:
+                for capability in _capabilities:
+                    if capability == "agent":
+                        continue
+                    tool_request = dict(request)
+                    tool_request["capability"] = capability
+                    if stage_output is not None:
+                        tool_request["stage_output"] = _safe_payload(dict(stage_output))
+                    tool_result = tools[capability](tool_request)
+                    if not isinstance(tool_result, Mapping):
+                        raise TypeError(f"tool adapter {capability} must return a mapping")
+                    tool_results[capability] = dict(tool_result)
+                    evidence = tool_result.get("evidence", [])
+                    if isinstance(evidence, list):
+                        tool_evidence.extend(evidence)
+                    elif evidence:
+                        tool_evidence.append(evidence)
+
+            if agent_first:
+                if "agent" in _capabilities:
+                    agent_output = dict(active_agent(dict(request, tool_results={})))
+                invoke_tools(agent_output)
+            else:
+                invoke_tools()
+                if "agent" in _capabilities:
+                    agent_request = dict(request)
+                    agent_request["tool_results"] = tool_results
+                    raw_agent_output = active_agent(agent_request)
+                    if not isinstance(raw_agent_output, Mapping):
+                        raise TypeError("active agent dispatcher must return a structured mapping")
+                    agent_output = dict(raw_agent_output)
+
             merged = dict(agent_output)
             evidence = merged.get("evidence", [])
             evidence_items = list(evidence) if isinstance(evidence, list) else ([evidence] if evidence else [])
@@ -530,7 +551,8 @@ def build_host_adapter_registry(
                 )
                 if not source_backed:
                     raise AdapterUnavailable("research stage requires source-backed evidence from the research tool")
-            # Tool-owned fields cannot be invented by the language model.
+            # Tool-owned fields cannot be invented by the agent; tool results must
+            # be from the post-mutation state for testing, review, and deployment.
             for capability, fields in _TOOL_AUTHORITY.get(_stage, {}).items():
                 tool_result = tool_results.get(capability, {})
                 missing_fields = [field for field in fields if field not in tool_result or tool_result[field] is None]
@@ -538,7 +560,6 @@ def build_host_adapter_registry(
                     raise AdapterUnavailable(
                         f"{_stage.value} requires {capability} tool receipts for: {', '.join(missing_fields)}"
                     )
-            # Concrete tool results are authoritative over generated descriptions/claims.
             for capability in _capabilities:
                 if capability == "agent":
                     continue
