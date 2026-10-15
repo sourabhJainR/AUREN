@@ -110,15 +110,27 @@ class ResumableProviderExecutor:
         preferred = checkpoint.get("preferred_provider")
         attempted = checkpoint.get("attempted_providers")
         deferred = checkpoint.get("deferred_until")
-        if preferred not in self.providers or not isinstance(attempted, list) or any(x not in self.providers for x in attempted):
-            raise ValueError("provider resume checkpoint contains an unknown provider")
-        if not isinstance(deferred, Mapping) or any(k not in self.providers or not isinstance(v, str) for k, v in deferred.items()):
+        if not isinstance(preferred, str) or not preferred.strip() or not isinstance(attempted, list):
+            raise ValueError("provider resume checkpoint contains invalid provider identity")
+        if any(not isinstance(x, str) or not x.strip() for x in attempted):
+            raise ValueError("provider resume checkpoint contains invalid attempted provider")
+        if not isinstance(deferred, Mapping) or any(not isinstance(k, str) or not isinstance(v, str) for k, v in deferred.items()):
             raise ValueError("provider resume checkpoint has invalid rate-limit state")
         for value in deferred.values():
             _parse_time(value)
         if checkpoint.get("status") not in {"ready", "deferred", "completed", "failed"}:
             raise ValueError("provider resume checkpoint has invalid status")
+        # Provider sets can change across restart. Keep only cooldowns/attempt
+        # metadata for currently registered providers and use the new operator
+        # preference when the prior provider was removed.
         self._state = dict(payload)
+        self._state["preferred_provider"] = preferred if preferred in self.providers else self.preferred_provider
+        self._state["attempted_providers"] = [x for x in attempted if x in self.providers]
+        self._state["deferred_until"] = {k: v for k, v in deferred.items() if k in self.providers}
+        saved_budget = checkpoint.get("retry_budget")
+        if not isinstance(saved_budget, Mapping):
+            raise ValueError("provider checkpoint requires the shared task retry budget")
+        self.retry_budget.merge_snapshot(saved_budget)
 
     def snapshot(self) -> dict[str, Any]:
         payload = dict(self._state)
