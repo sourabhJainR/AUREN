@@ -7,6 +7,28 @@ from threading import Event, Lock
 from typing import Any, Mapping
 
 
+def _stable_json_value(value: Any) -> Any:
+    """Project runtime state to a deterministic, JSON-safe fingerprint.
+
+    Runtime contexts may contain live guards, callbacks, adapters, or other
+    capabilities. Fingerprints include their type marker, never object reprs,
+    memory addresses, or executable objects.
+    """
+    if value is None or isinstance(value, (str, bool, int)):
+        return value
+    if isinstance(value, float):
+        return value if value == value and abs(value) != float("inf") else {"__type__": "non-finite-float"}
+    if isinstance(value, Mapping):
+        return {
+            str(key): _stable_json_value(item)
+            for key, item in sorted(value.items(), key=lambda pair: str(pair[0]))
+            if str(key) != "_auren_runtime_execution_guard"
+        }
+    if isinstance(value, (list, tuple)):
+        return [_stable_json_value(item) for item in value]
+    return {"__type__": type(value).__qualname__}
+
+
 def _digest(value: object) -> str:
     try:
         raw = json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
@@ -103,7 +125,7 @@ class RuntimeExecutionGuard:
     def observe_failure(self, *, node: str, state: Mapping[str, Any], error: BaseException) -> int:
         if not isinstance(node, str) or not node.strip():
             raise ValueError("node is required")
-        signature = node + ":" + _digest([state, type(error).__qualname__, str(error)[:1000]])
+        signature = node + ":" + _digest([_stable_json_value(state), type(error).__qualname__, str(error)[:1000]])
         with self._lock:
             count = self._failures.get(signature, 0) + 1
             self._failures[signature] = count
@@ -114,7 +136,7 @@ class RuntimeExecutionGuard:
             return count
 
     def observe_progress(self, *, node: str, state: Mapping[str, Any]) -> None:
-        signature = _digest([node, state])
+        signature = _digest([node, _stable_json_value(state)])
         with self._lock:
             self._failures = {
                 key: value for key, value in self._failures.items()
