@@ -127,7 +127,7 @@ class ProviderCliAgent:
         self.fabric = ProviderFabric()
         discovered = self.fabric.discover()
         preferred = (provider,) if provider else ("codex", "claude")
-        self.provider = next((name for name in preferred if name in discovered), "")
+        self.provider = next((name for name in preferred if name in discovered and discovered[name].command), "")
         if not self.provider:
             raise AdapterUnavailable("no supported local agent CLI discovered; install/configure codex or claude")
         self.capability = discovered[self.provider]
@@ -580,6 +580,32 @@ class LocalSecurityTool:
         }
 
 
+class IndependentReviewTool:
+    """Run an independent, read-only provider and bind its identity to the review receipt."""
+
+    def __init__(self, reviewer: ProviderCliAgent, *, author_provider: str) -> None:
+        if reviewer.provider == author_provider:
+            raise ValueError("independent reviewer must use a different provider")
+        self.reviewer = reviewer
+        self.author_provider = author_provider
+
+    def __call__(self, request: Mapping[str, Any]) -> Mapping[str, Any]:
+        review_request = dict(request)
+        review_request["stage"] = VibeStage.CODE_REVIEW.value
+        review_request["purpose"] = "Independently review the current isolated worktree diff; do not modify files."
+        result = dict(self.reviewer(review_request))
+        for field in ("review_summary", "status", "blocking_findings"):
+            if field not in result:
+                raise AdapterUnavailable(f"independent reviewer omitted required field: {field}")
+        result["author"] = f"provider:{self.author_provider}"
+        result["reviewer"] = f"provider:{self.reviewer.provider}"
+        result["evidence"] = list(result.get("evidence", [])) + [{
+            "source": "independent-provider-review",
+            "locator": f"provider://{self.reviewer.provider}/review",
+        }]
+        return result
+
+
 class LocalBrowserTool:
     """A truthful no-browser-surface receipt; actual browser QA must be MCP-configured."""
 
@@ -871,7 +897,7 @@ class LocalVibeCodingHost:
                 timeout_seconds=int(spec.get("timeout_seconds", 30)),
                 env_allowlist=tuple(spec.get("env_allowlist", self.config.env_allowlist)),
             )
-        if self.config.reviewer_provider:
+        if self.config.reviewer_provider and "independent_review" not in self.config.mcp_tools:
             reviewer = ProviderCliAgent(
                 provider=self.config.reviewer_provider, allow_workspace_writes=False,
                 timeout_seconds=self.config.agent_timeout_seconds, env_allowlist=self.config.env_allowlist,
@@ -884,6 +910,8 @@ class LocalVibeCodingHost:
             raise AdapterUnavailable("configure actual MCP tools for required capabilities: " + ", ".join(missing))
         if self.config.browser_qa_required and "browser" not in self.config.mcp_tools:
             raise AdapterUnavailable("browser_qa_required is true but no browser MCP adapter is configured")
+        if self.config.security_tool_required and "security" not in self.config.mcp_tools:
+            raise AdapterUnavailable("security_tool_required is true but no external security MCP tool is configured")
         if not self.config.browser_qa_required:
             tools["browser"] = LocalBrowserTool()
         registry = build_host_adapter_registry(agent, tools, version="local-host-v1", max_risk="critical")
