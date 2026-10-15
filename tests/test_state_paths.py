@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+import subprocess
+import sys
 import tempfile
 import unittest
 from contextlib import contextmanager
@@ -312,6 +314,61 @@ class SessionCheckpointDurabilityTests(unittest.TestCase):
             self.assertEqual(restored.remaining_batches, checkpoint.remaining_batches)
             self.assertEqual(restored.intent, checkpoint.intent)
             self.assertEqual(restored.state_digest, checkpoint.state_digest)
+
+
+
+class StateMigrationPreflightCliTests(unittest.TestCase):
+    def _run_cli(self, canonical: Path, legacy: Path):
+        repo_root = Path(__file__).resolve().parents[1]
+        return subprocess.run(
+            [
+                sys.executable, "-m", "scripts.plan_state_migration",
+                "--canonical-root", str(canonical),
+                "--legacy-root", str(legacy),
+            ],
+            cwd=repo_root,
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=15,
+        )
+
+    def test_cli_emits_read_only_plan_and_does_not_create_canonical_root(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            legacy, canonical = base / ".aer", base / ".auren"
+            source = legacy / "sessions" / "session-cli.json"
+            source.parent.mkdir(parents=True)
+            source.write_text('{"session_id":"cli"}\\n', encoding="utf-8")
+
+            result = self._run_cli(canonical, legacy)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            plan = json.loads(result.stdout)
+            self.assertTrue(plan["safe_to_apply"])
+            self.assertEqual(plan["items"][0]["action"], "copy")
+            self.assertFalse(canonical.exists())
+            self.assertTrue(source.is_file())
+
+    def test_cli_returns_two_for_conflict_without_mutating_either_copy(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            legacy, canonical = base / ".aer", base / ".auren"
+            source = legacy / "sessions" / "session-cli.json"
+            target = canonical / "sessions" / "session-cli.json"
+            source.parent.mkdir(parents=True)
+            target.parent.mkdir(parents=True)
+            source.write_text('{"session_id":"legacy"}\\n', encoding="utf-8")
+            target.write_text('{"session_id":"canonical"}\\n', encoding="utf-8")
+
+            result = self._run_cli(canonical, legacy)
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            plan = json.loads(result.stdout)
+            self.assertFalse(plan["safe_to_apply"])
+            self.assertEqual(plan["conflicts"], ["sessions/session-cli.json"])
+            self.assertEqual(source.read_text(encoding="utf-8"), '{"session_id":"legacy"}\\n')
+            self.assertEqual(target.read_text(encoding="utf-8"), '{"session_id":"canonical"}\\n')
 
 
 if __name__ == "__main__":
