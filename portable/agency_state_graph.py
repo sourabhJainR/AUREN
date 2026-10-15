@@ -453,6 +453,8 @@ class CompiledStateGraph:
                     terminal_failure = attempt >= policy.max_attempts or not policy.allows(exc)
                     if guard is not None and terminal_failure:
                         guard.observe_failure(node=name, state=state, error=exc)
+                    if isinstance(exc, ExecutionBudgetExceeded):
+                        raise
                     if cancellation is not None and cancellation.is_set():
                         raise TimeoutError(f"node {name} cancelled") from exc
                     if terminal_failure:
