@@ -11,6 +11,7 @@ if str(RUNTIME) not in sys.path:
     sys.path.insert(0, str(RUNTIME))
 from context_cache import ContextPageCache
 from portable.agent_capabilities import PersistentMemory
+from portable.context_engine import ContextEngine, ContextPolicy
 from portable.memory_orchestrator import MemoryBudgetError, MemoryOrchestrator, MEMORY_KINDS
 
 
@@ -60,6 +61,19 @@ class MemoryOrchestratorTests(unittest.TestCase):
         self.assertEqual(1, len(second.memories))
         self.assertGreaterEqual(second.cache_hits, 1)
         self.assertEqual("docs", second.memories[0].source)
+
+    def test_canonical_context_engine_packs_required_memory_from_router(self):
+        result = self.coordinator.remember(
+            "semantic", "verified repository uses bounded state transitions", source="architecture",
+            approved=True, verified=True,
+        )
+        engine = ContextEngine(ContextPolicy(max_chars=400, max_items=5, max_item_chars=300, output_chars=300))
+        packed = engine.pack_from_memory(
+            self.coordinator, "bounded state transitions", kinds=("semantic",),
+            required_memory_ids=(result.memory_id,),
+        )
+        self.assertIn("verified repository uses bounded state transitions", packed)
+        self.assertIn(result.memory_id, packed)
 
     def test_working_memory_retains_multiple_entries_per_task_and_is_bounded(self):
         self.coordinator.remember("working", "first working note", source="agent", task_id="t1")
