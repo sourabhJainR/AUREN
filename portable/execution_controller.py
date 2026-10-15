@@ -678,6 +678,10 @@ class ExecutionController:
     @staticmethod
     def _retry_after_datetime(value: Any, now: datetime) -> datetime | None:
         """Parse Retry-After seconds or an absolute date; reject ambiguous values."""
+        if isinstance(value, datetime):
+            if value.tzinfo is None:
+                return None
+            return max(now, value.astimezone(timezone.utc))
         if isinstance(value, (int, float)) and not isinstance(value, bool):
             return now + timedelta(seconds=max(0, float(value)))
         if isinstance(value, str) and value.strip():
@@ -708,6 +712,22 @@ class ExecutionController:
             return True, str(getattr(exc, "provider", "unknown")), None, True
         if status in (429, "429"):
             retry_after = (headers.get("Retry-After") or headers.get("retry-after")) if hasattr(headers, "get") else None
+            if retry_after is None and hasattr(headers, "get"):
+                # Common provider reset headers carry either an ISO date or Unix epoch.
+                for key in (
+                    "x-ratelimit-reset", "x-ratelimit-reset-requests", "x-ratelimit-reset-tokens",
+                    "anthropic-ratelimit-requests-reset", "anthropic-ratelimit-tokens-reset",
+                ):
+                    reset = headers.get(key)
+                    if not reset:
+                        continue
+                    try:
+                        epoch = float(reset)
+                    except (TypeError, ValueError):
+                        retry_after = reset
+                    else:
+                        retry_after = datetime.fromtimestamp(epoch, tz=timezone.utc) if epoch >= 1_000_000_000 else reset
+                    break
             return True, str(getattr(exc, "provider", "unknown")), retry_after, False
         return False, "", None, False
 
