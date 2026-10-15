@@ -116,3 +116,44 @@ class StateMigrationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+    def test_sqlite_state_copy_restart_integrity_and_source_rollback(self) -> None:
+        import sqlite3
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / ".aer"
+            source.mkdir()
+            source_db = source / "execution.sqlite3"
+            with sqlite3.connect(source_db) as db:
+                db.execute("CREATE TABLE sessions(session_id TEXT PRIMARY KEY, goal TEXT NOT NULL)")
+                db.execute("INSERT INTO sessions VALUES(?, ?)", ("session-1", "resume safely"))
+                db.commit()
+
+            destination = root / ".auren"
+            dry_run = migrate_state_root(source, destination, dry_run=True)
+            self.assertEqual(dry_run.status, "dry_run")
+            self.assertFalse(destination.exists())
+
+            applied = migrate_state_root(source, destination, dry_run=False)
+            self.assertEqual(applied.status, "copied_verified_source_retained")
+            self.assertEqual(applied.manifest_sha256, inspect_state_migration(source, destination).manifest_sha256)
+
+            # A fresh connection models the new process opening the migrated store.
+            with sqlite3.connect(destination / "execution.sqlite3") as db:
+                self.assertEqual(db.execute("PRAGMA integrity_check").fetchone()[0], "ok")
+                self.assertEqual(
+                    db.execute("SELECT goal FROM sessions WHERE session_id=?", ("session-1",)).fetchone(),
+                    ("resume safely",),
+                )
+
+            # Rollback keeps the original state usable; the migration never removes it.
+            with sqlite3.connect(source_db) as db:
+                self.assertEqual(db.execute("PRAGMA integrity_check").fetchone()[0], "ok")
+                self.assertEqual(
+                    db.execute("SELECT goal FROM sessions WHERE session_id=?", ("session-1",)).fetchone(),
+                    ("resume safely",),
+                )
+            self.assertTrue(source_db.exists())
+            self.assertTrue((destination / "execution.sqlite3").exists())
