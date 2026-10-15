@@ -277,17 +277,23 @@ class ArenaEvidenceObservation:
             raise ValueError("accepted evidence cannot contain rejection reasons")
         if not self.accepted and not self.reasons:
             raise ValueError("rejected evidence must preserve at least one reason")
-        expected = hashlib.sha256(json.dumps({
+        observation_payload = {
             "campaign_digest": self.campaign_digest,
             "run_receipt_digest": self.run_receipt_digest,
             "causal_evidence_digest": self.causal_evidence_digest,
             "capability_id": self.capability_id,
             "intervention_id": self.intervention_id,
             "accepted": self.accepted,
-            "production_attested": self.production_attested,
             "reasons": self.reasons,
             "chain_digest": self.chain_digest,
-        }, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+        }
+        # Keep old observation digests stable; only new production-provenance
+        # observations add the new field to the content-addressed payload.
+        if self.production_attested:
+            observation_payload["production_attested"] = True
+        expected = hashlib.sha256(json.dumps(
+            observation_payload, sort_keys=True, separators=(",", ":")
+        ).encode("utf-8")).hexdigest()
         if self.observation_digest and self.observation_digest != expected:
             raise ValueError("observation_digest does not match observation contents")
         object.__setattr__(self, "observation_digest", expected)
