@@ -188,7 +188,7 @@ class AICodingAgencyBridgeTests(unittest.TestCase):
             "../.github/workflows/build.yml",
             "C:\\repo\\src\\api.py",
             "src/../.github/workflows/build.yml",
-            "src/\\x00api.py",
+            "src/" + chr(0) + "api.py",
         )
         for index, unsafe_scope in enumerate(unsafe_scopes):
             with self.subTest(scope=repr(unsafe_scope)):
