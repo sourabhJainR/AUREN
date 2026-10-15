@@ -75,3 +75,51 @@ python -m unittest discover -s tests -p 'test_vibe_coding.py' -v
 ```
 
 The tests cover the full 18-stage graph, missing-handler rejection, security-gate blocking, production authorization, checkpoint tampering and restart/resume without replaying completed stages.
+
+
+## Active-agent and tool integration
+
+Use `portable.vibe_coding_adapters` to connect the canonical graph to host-provided active agents and concrete research, design, repository, test, review, deployment, and observability tools. The adapter boundary is intentional: AUREN discovers and routes only capabilities that the host has explicitly registered; it does not assume that a browser, external research service, repository write credential, cloud account, or deployment provider is installed.
+
+```python
+from portable.vibe_coding_adapters import (
+    AdapterRegistration,
+    VibeAdapterRegistry,
+    build_integrated_vibe_coding_graph,
+    default_stage_capabilities,
+)
+
+registry = VibeAdapterRegistry(max_risk="high")
+# Register each actual host tool/agent with the stages and capabilities it supports.
+# invoke(request) must call that tool and return the stage's structured outputs,
+# including source-linked evidence. Do not register a mock as a production adapter.
+registry.register(AdapterRegistration(
+    adapter_id="host-research-agent",
+    version="2026-10-01",
+    stages=(VibeStage.RESEARCH,),
+    capabilities=frozenset(default_stage_capabilities()["research"]),
+    invoke=research_adapter.invoke,
+    risk="medium",
+    evidence_quality=0.8,
+))
+graph = build_integrated_vibe_coding_graph(registry, checkpoint_writer=persist)
+```
+
+The integration maps each stage to explicit capability requirements. Host adapters can wrap the existing `GraphAgentTeam` / specialist registry, `CapabilityFabric` and `ProviderFabric`, `agency_codebase_context` for bounded repository retrieval, `agency_validators` for artifact-specific evidence checks, and the release lifecycle / deployment provider. Tool calls receive the stage, intent, prior outputs, selected adapter identity, required capabilities, and advisory specialist candidates. The host remains responsible for binding real provider APIs, credentials, sandboxing, and repository/environment access.
+
+### Adaptive routing and self-evolution
+
+- Adapter selection ranks eligible registrations by smoothed observed success, evidence quality, cost, and latency, while respecting a configurable maximum risk. Missing capabilities fail fast rather than silently invoking a no-op.
+- Record independent workflow outcomes with evidence references. A candidate is proposed only after at least five observations across three distinct workflow IDs and a sufficiently high smoothed success rate.
+- Candidate proposals are **not promoted automatically**. Isolated regression, independent review, security review, and holdout-transfer evidence are required before a separately authorized promotion path can act.
+- Learning snapshots are versioned and digest-checked. Digests detect accidental edits; they are not signatures or proof of trusted storage.
+- The integration makes one adapter call per stage. It does not blindly retry uncertain external side effects. A failure blocks downstream stages and is handled by the existing bounded recovery/supervisor policy.
+- Production deployment remains behind the existing explicit approval and exact verified-revision gate. Agent selection and learned success scores never grant merge, approval, release, or Guard authority.
+
+Verify the adapter integration:
+
+```bash
+python -m unittest discover -s tests -p 'test_vibe_coding*.py' -v
+```
+
+This proves the local adapter contract and simulated end-to-end graph path only. Actual external agent/provider access, cloud deployment, independent Arena evaluation, and operator-run rollback still require evidence from the configured environment.
