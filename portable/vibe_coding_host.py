@@ -21,6 +21,7 @@ import subprocess
 import tempfile
 import threading
 import time
+from contextlib import closing
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -152,10 +153,14 @@ class SideEffectJournal:
         self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         if os.name != "nt":
             os.chmod(self.path.parent, 0o700)
-        with self._connect() as connection:
+        with closing(self._connect()) as connection:
             connection.execute("CREATE TABLE IF NOT EXISTS operations (operation_key TEXT PRIMARY KEY, payload_json TEXT NOT NULL, digest TEXT NOT NULL)")
         if os.name != "nt" and self.path.exists():
             os.chmod(self.path, 0o600)
+            for suffix in ("-wal", "-shm"):
+                sidecar = Path(str(self.path) + suffix)
+                if sidecar.exists():
+                    os.chmod(sidecar, 0o600)
 
     def _connect(self):
         connection = sqlite3.connect(self.path, timeout=15, isolation_level=None)
@@ -195,7 +200,7 @@ class SideEffectJournal:
 
     def begin(self, workflow_id: str, stage: str, capability: str, request_digest: str) -> Mapping[str, Any] | None:
         key = self._key(workflow_id, stage, capability)
-        with self._connect() as connection:
+        with closing(self._connect()) as connection:
             connection.execute("BEGIN IMMEDIATE")
             row = connection.execute("SELECT payload_json,digest FROM operations WHERE operation_key=?", (key,)).fetchone()
             if row is None:
@@ -236,7 +241,7 @@ class SideEffectJournal:
         sanitized = _safe_payload(dict(result))
         if not isinstance(sanitized, Mapping):
             raise TypeError("side-effect result must sanitize to a mapping")
-        with self._connect() as connection:
+        with closing(self._connect()) as connection:
             connection.execute("BEGIN IMMEDIATE")
             row = connection.execute("SELECT payload_json,digest FROM operations WHERE operation_key=?", (key,)).fetchone()
             payload = self._decode(row)
@@ -270,7 +275,7 @@ class SideEffectJournal:
         if actual_digest != expected_worktree_digest:
             raise ValueError("reviewed worktree digest does not match current worktree state")
         key = self._key(workflow_id, stage, capability)
-        with self._connect() as connection:
+        with closing(self._connect()) as connection:
             connection.execute("BEGIN IMMEDIATE")
             row = connection.execute("SELECT payload_json,digest FROM operations WHERE operation_key=?", (key,)).fetchone()
             payload = self._decode(row)
@@ -290,7 +295,7 @@ class SideEffectJournal:
 
     def status(self, workflow_id: str, stage: str, capability: str) -> Mapping[str, Any] | None:
         key = self._key(workflow_id, stage, capability)
-        with self._connect() as connection:
+        with closing(self._connect()) as connection:
             row = connection.execute("SELECT payload_json,digest FROM operations WHERE operation_key=?", (key,)).fetchone()
         return self._decode(row) if row is not None else None
 
@@ -1258,6 +1263,8 @@ class LocalVibeCodingHost:
         project_tool = LocalProjectTool(workspace, lease.base_revision, allow_workspace_writes=self.config.allow_workspace_writes)
         test_tool = LocalTestExecutionTool(workspace, self.config.test_commands, timeout_seconds=self.config.test_timeout_seconds, env_allowlist=self.config.env_allowlist)
         agent = ProviderCliAgent(provider=self.config.provider, allow_workspace_writes=self.config.allow_workspace_writes, timeout_seconds=self.config.agent_timeout_seconds, env_allowlist=self.config.env_allowlist)
+        journal = SideEffectJournal(self.state_root / "operations.sqlite3")
+        active_agent = JournaledToolAdapter(agent, journal, capability="agent")
         tools: dict[str, Any] = {
             "product": LocalProductTool(),
             "repository": project_tool,
@@ -1291,6 +1298,8 @@ class LocalVibeCodingHost:
             tools["independent_review"] = IndependentReviewTool(reviewer, author_provider=agent.provider)
         if "web_search" in self.config.mcp_tools:
             tools["web_search"] = MemoizedToolAdapter(tools["web_search"])
+        for capability in ("deployment", "preview", "release"):
+            tools[capability] = JournaledToolAdapter(tools[capability], journal, capability=capability)
         if "research" not in self.config.mcp_tools and "web_search" in tools:
             tools["research"] = VerifiedResearchTool(tools["web_search"])
         missing = [name for name in ("research", "web_search", "independent_review") if name not in tools or isinstance(tools[name], BlockedSideEffectTool)]
@@ -1302,7 +1311,7 @@ class LocalVibeCodingHost:
             raise AdapterUnavailable("security_tool_required is true but no external security MCP tool is configured")
         if not self.config.browser_qa_required:
             tools["browser"] = LocalBrowserTool()
-        registry = build_host_adapter_registry(agent, tools, version="local-host-v1", max_risk="critical")
+        registry = build_host_adapter_registry(active_agent, tools, version="local-host-v1", max_risk="critical")
         registry.attach_learning_store(learning_path)
         checkpoints = DurableVibeCheckpointStore(self.state_root / "checkpoints")
         def persist(snapshot: Mapping[str, Any]) -> None:
@@ -1364,6 +1373,9 @@ class LocalVibeCodingHost:
 
 
 __all__ = [
-    "DurableVibeCheckpointStore", "IsolatedGitWorktree", "LocalVibeCodingHost",
-    "MCPStdioToolAdapter", "ProviderCliAgent", "VibeHostConfig", "load_host_config",
+    "DurableVibeCheckpointStore", "IndependentReviewTool", "IsolatedGitWorktree",
+    "JournaledToolAdapter", "LocalAccessibilityTool", "LocalBrowserTool", "LocalDesignTool",
+    "LocalProjectTool", "LocalSecurityTool", "LocalTestExecutionTool", "LocalVibeCodingHost",
+    "MCPStdioToolAdapter", "MemoizedToolAdapter", "ProviderCliAgent", "SideEffectJournal",
+    "VerifiedResearchTool", "VibeHostConfig", "load_host_config",
 ]
