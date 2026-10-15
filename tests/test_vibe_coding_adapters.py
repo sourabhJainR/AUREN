@@ -111,8 +111,16 @@ class VibeCodingAdapterTests(unittest.TestCase):
             stage = VibeStage(request["stage"])
             stage_output = output_for(stage, request["state"])
             fields = authority.get(stage, {}).get(capability, ())
+            extra = {}
+            if stage == VibeStage.PREVIEW_DEPLOYMENT and capability == "deployment":
+                extra["environment"] = "preview"
+            if stage == VibeStage.PREVIEW_DEPLOYMENT and capability == "preview":
+                extra.update({"preview_url": "http://127.0.0.1:8123", "health_status": "passed"})
+            if stage == VibeStage.PRODUCTION_DEPLOY and capability == "release":
+                extra["environment"] = "production"
             return {
                 **{field: stage_output[field] for field in fields if field in stage_output},
+                **extra,
                 "evidence": [{"source": capability, "locator": f"tool://{stage.value}/{capability}"}],
             }
         tools = {
