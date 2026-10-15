@@ -16,6 +16,7 @@ import platform
 import queue
 import re
 import shutil
+import sqlite3
 import subprocess
 import tempfile
 import threading
@@ -32,6 +33,7 @@ from .vibe_coding_adapters import (
     VibeAdapterRegistry,
     build_host_adapter_registry,
     build_integrated_vibe_coding_graph,
+    _safe_payload,
 )
 from .orchestration import Orchestrator, RunStatus
 
@@ -113,6 +115,216 @@ def _run(argv: Sequence[str], *, cwd: Path, timeout: float, env: Mapping[str, st
         list(argv), cwd=str(cwd), input=input_text, text=True, capture_output=True,
         timeout=timeout, check=False, shell=False, env=dict(env or _safe_env()),
     )
+
+
+def _worktree_digest(workspace_root: str | Path) -> str:
+    root = Path(workspace_root).expanduser().resolve()
+    diff = subprocess.run(
+        ["git", "-C", str(root), "diff", "HEAD", "--binary"],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=20, check=False, shell=False,
+    )
+    if diff.returncode:
+        raise RuntimeError("cannot fingerprint worktree diff for side-effect recovery")
+    untracked = subprocess.run(
+        ["git", "-C", str(root), "ls-files", "--others", "--exclude-standard", "-z"],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=20, check=False, shell=False,
+    )
+    if untracked.returncode:
+        raise RuntimeError("cannot enumerate untracked files for side-effect recovery")
+    digest = hashlib.sha256(diff.stdout)
+    for raw_path in sorted(item for item in untracked.stdout.split(b"\\0") if item):
+        relative = Path(os.fsdecode(raw_path))
+        target = (root / relative).resolve()
+        if root not in target.parents or not target.is_file():
+            raise PermissionError("untracked path escaped workspace during side-effect recovery")
+        digest.update(str(relative).encode("utf-8"))
+        digest.update(target.read_bytes())
+    return digest.hexdigest()
+
+
+class SideEffectJournal:
+    """SQLite-backed cross-process exactly-once guard for uncertain host side effects."""
+
+    SCHEMA = "auren-vibe-side-effect-v1"
+
+    def __init__(self, path: str | Path) -> None:
+        self.path = Path(path).expanduser().resolve()
+        self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        if os.name != "nt":
+            os.chmod(self.path.parent, 0o700)
+        with self._connect() as connection:
+            connection.execute("CREATE TABLE IF NOT EXISTS operations (operation_key TEXT PRIMARY KEY, payload_json TEXT NOT NULL, digest TEXT NOT NULL)")
+        if os.name != "nt" and self.path.exists():
+            os.chmod(self.path, 0o600)
+
+    def _connect(self):
+        connection = sqlite3.connect(self.path, timeout=15, isolation_level=None)
+        connection.execute("PRAGMA journal_mode=WAL")
+        connection.execute("PRAGMA synchronous=FULL")
+        return connection
+
+    @staticmethod
+    def _key(workflow_id: str, stage: str, capability: str) -> str:
+        if not _WORKFLOW_ID.fullmatch(workflow_id) or not stage.strip() or not re.fullmatch(r"[a-zA-Z0-9_-]+", capability):
+            raise ValueError("invalid side-effect journal identity")
+        return f"{workflow_id}:{stage}:{capability}"
+
+    @staticmethod
+    def _seal(payload: Mapping[str, Any]) -> tuple[str, str]:
+        encoded = json.dumps(dict(payload), sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
+        return encoded, _digest(dict(payload))
+
+    @staticmethod
+    def _decode(row: Any) -> dict[str, Any]:
+        if row is None:
+            raise KeyError("side-effect journal record not found")
+        payload = json.loads(row[0])
+        if not isinstance(payload, dict) or _digest(payload) != row[1]:
+            raise ValueError("side-effect journal digest mismatch")
+        if payload.get("schema_version") != SideEffectJournal.SCHEMA:
+            raise ValueError("unsupported side-effect journal schema")
+        return payload
+
+    def _write(self, connection: Any, key: str, payload: Mapping[str, Any]) -> None:
+        encoded, digest = self._seal(payload)
+        connection.execute(
+            "INSERT INTO operations(operation_key,payload_json,digest) VALUES(?,?,?) "
+            "ON CONFLICT(operation_key) DO UPDATE SET payload_json=excluded.payload_json,digest=excluded.digest",
+            (key, encoded, digest),
+        )
+
+    def begin(self, workflow_id: str, stage: str, capability: str, request_digest: str) -> Mapping[str, Any] | None:
+        key = self._key(workflow_id, stage, capability)
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute("SELECT payload_json,digest FROM operations WHERE operation_key=?", (key,)).fetchone()
+            if row is None:
+                payload = {
+                    "schema_version": self.SCHEMA, "workflow_id": workflow_id, "stage": stage,
+                    "capability": capability, "request_digest": request_digest, "status": "started",
+                    "result": None, "resolution": None, "updated_at": time.time(),
+                }
+                self._write(connection, key, payload)
+                connection.commit()
+                return None
+            payload = self._decode(row)
+            if payload.get("request_digest") != request_digest:
+                connection.rollback()
+                raise AdapterUnavailable("side-effect request changed across resume; explicit operator review is required")
+            status = payload.get("status")
+            if status == "completed":
+                result = payload.get("result")
+                if not isinstance(result, Mapping):
+                    connection.rollback()
+                    raise ValueError("completed side-effect receipt lacks a structured result")
+                connection.commit()
+                return dict(result)
+            if status == "retry_authorized":
+                payload["status"] = "started"
+                payload["updated_at"] = time.time()
+                self._write(connection, key, payload)
+                connection.commit()
+                return None
+            connection.rollback()
+            if status == "aborted":
+                raise AdapterUnavailable("side effect was explicitly aborted by the operator")
+            raise AdapterUnavailable("prior side effect has an uncertain outcome; inspect evidence and resolve the journal before retrying")
+
+    def complete(self, workflow_id: str, stage: str, capability: str, request_digest: str,
+                 result: Mapping[str, Any]) -> None:
+        key = self._key(workflow_id, stage, capability)
+        sanitized = _safe_payload(dict(result))
+        if not isinstance(sanitized, Mapping):
+            raise TypeError("side-effect result must sanitize to a mapping")
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute("SELECT payload_json,digest FROM operations WHERE operation_key=?", (key,)).fetchone()
+            payload = self._decode(row)
+            if payload.get("status") != "started" or payload.get("request_digest") != request_digest:
+                connection.rollback()
+                raise ValueError("side-effect completion does not match a started operation")
+            payload["status"] = "completed"
+            payload["result"] = dict(sanitized)
+            payload["updated_at"] = time.time()
+            self._write(connection, key, payload)
+            connection.commit()
+        if os.name != "nt":
+            os.chmod(self.path, 0o600)
+            for suffix in ("-wal", "-shm"):
+                sidecar = Path(str(self.path) + suffix)
+                if sidecar.exists():
+                    os.chmod(sidecar, 0o600)
+
+    def resolve_uncertain(
+        self, workflow_id: str, stage: str, capability: str, *, action: str,
+        workspace_root: str | Path, expected_worktree_digest: str,
+        external_state_evidence: str, reason: str, authorized: bool = False,
+    ) -> None:
+        if authorized is not True:
+            raise PermissionError("uncertain side-effect resolution requires explicit operator authorization")
+        if action not in {"retry", "abort"}:
+            raise ValueError("resolution action must be retry or abort")
+        if not reason.strip() or not external_state_evidence.strip():
+            raise ValueError("resolution requires a reason and an external-state evidence reference")
+        actual_digest = _worktree_digest(workspace_root)
+        if actual_digest != expected_worktree_digest:
+            raise ValueError("reviewed worktree digest does not match current worktree state")
+        key = self._key(workflow_id, stage, capability)
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute("SELECT payload_json,digest FROM operations WHERE operation_key=?", (key,)).fetchone()
+            payload = self._decode(row)
+            if payload.get("status") != "started":
+                connection.rollback()
+                raise ValueError("only an uncertain started operation can be resolved")
+            payload["status"] = "retry_authorized" if action == "retry" else "aborted"
+            payload["resolution"] = {
+                "action": action, "reason": reason.strip(),
+                "external_state_evidence": external_state_evidence.strip(),
+                "worktree_digest": actual_digest, "authorized": True,
+                "resolved_at": time.time(),
+            }
+            payload["updated_at"] = time.time()
+            self._write(connection, key, payload)
+            connection.commit()
+
+    def status(self, workflow_id: str, stage: str, capability: str) -> Mapping[str, Any] | None:
+        key = self._key(workflow_id, stage, capability)
+        with self._connect() as connection:
+            row = connection.execute("SELECT payload_json,digest FROM operations WHERE operation_key=?", (key,)).fetchone()
+        return self._decode(row) if row is not None else None
+
+
+class JournaledToolAdapter:
+    """Journal side-effecting stages before invocation and cache completed receipts."""
+
+    def __init__(self, delegate: Any, journal: SideEffectJournal, *, capability: str) -> None:
+        if not callable(delegate):
+            raise TypeError("journaled delegate must be callable")
+        self.delegate = delegate
+        self.journal = journal
+        self.capability = capability
+
+    def __call__(self, request: Mapping[str, Any]) -> Mapping[str, Any]:
+        stage = str(request.get("stage", ""))
+        if stage not in {VibeStage.DEVELOPMENT.value, VibeStage.PREVIEW_DEPLOYMENT.value, VibeStage.PRODUCTION_DEPLOY.value}:
+            result = self.delegate(request)
+            if not isinstance(result, Mapping):
+                raise TypeError("host adapter must return a mapping")
+            return dict(result)
+        state = request.get("state", {})
+        workflow_id = str(state.get("vibe_coding_workflow_id", state.get("task_id", ""))) if isinstance(state, Mapping) else ""
+        if not workflow_id:
+            raise AdapterUnavailable("side-effecting adapter requires a stable workflow ID")
+        request_digest = _digest(_safe_payload(dict(request)))
+        cached = self.journal.begin(workflow_id, stage, self.capability, request_digest)
+        if cached is not None:
+            return dict(cached)
+        result = self.delegate(request)
+        if not isinstance(result, Mapping):
+            raise TypeError("side-effecting adapter must return a structured mapping")
+        self.journal.complete(workflow_id, stage, self.capability, request_digest, result)
+        return dict(_safe_payload(dict(result)))
 
 
 class ProviderCliAgent:
