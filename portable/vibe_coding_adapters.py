@@ -32,7 +32,7 @@ _STAGE_STATE_KEYS = frozenset({
     "production_deployment_required", "production_deployment_rationale",
     "production_approval", "final_code_revision", "verified_code_revision",
     "environment", "requirements", "acceptance_criteria",
-    "browser_qa_required", "browser_qa_rationale",
+    "browser_qa_required", "browser_qa_rationale", "adapter_config_digest",
 })
 
 
