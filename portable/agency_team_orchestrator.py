@@ -64,6 +64,12 @@ class AgentTeamOrchestrator:
                 capability = "repository.write" if mutating else "repository.read"
                 risk = "write" if mutating else "read"
                 targets = unit.write_paths if mutating else unit.read_paths
+                if mutating and not targets:
+                    return AgentOutput(
+                        unit.unit_id, "blocked",
+                        findings=("write_scope_missing",),
+                        detail="AUREN governance requires explicit write_paths for mutating specialist work",
+                    )
                 if not targets:
                     targets = (unit.unit_id,)
                 checked: list[tuple[ActionRequest, ApprovalReceipt | None]] = []
