@@ -93,6 +93,24 @@ class MemoryOrchestratorTests(unittest.TestCase):
                 required_memory_ids=(result.memory_id,), budget_chars=8,
             )
 
+    def test_hierarchical_memory_links_into_the_canonical_context_graph(self):
+        parent = self.coordinator.remember(
+            "semantic", "repository architecture", source="architecture-doc",
+            approved=True, verified=True,
+        )
+        child = self.coordinator.remember(
+            "hierarchical", "execution controller is a runtime component", source="architecture-doc",
+            approved=True, parent_memory_id=parent.memory_id,
+        )
+        edge = self.coordinator.graph.neighbors(parent.memory_id, relation="contains")[0]
+        self.assertEqual(child.memory_id, edge.target_id)
+        recall = self.coordinator.recall(
+            "execution controller", kinds=("hierarchical",), budget_chars=200,
+        )
+        items = self.coordinator.context_items(recall)
+        self.assertEqual(child.memory_id, items[0].refs[0])
+        self.assertEqual("hierarchical", items[0].kind)
+
     def test_owner_callback_is_reused_for_specialized_memory(self):
         calls = []
         def owner(**kwargs):
