@@ -134,3 +134,13 @@ python -m unittest discover -s tests -p 'test_vibe_coding*.py' -v
 ```
 
 This proves the local adapter contract and simulated end-to-end graph path only. Actual external agent/provider access, cloud deployment, independent Arena evaluation, and operator-run rollback still require evidence from the configured environment.
+
+Persist adapter-learning feedback separately from the workflow checkpoint using a machine-scoped path (for example under `~/.auren/`):
+
+```python
+registry.save_snapshot("~/.auren/vibe-coding/adapter-learning.json")
+# On the next process/session, after registering the same adapter IDs:
+registry.load_snapshot("~/.auren/vibe-coding/adapter-learning.json")
+```
+
+The receipt retains evaluation counts, distinct workflow IDs, and evidence references. Use only trusted machine-scoped storage; the digest detects changes but does not authenticate who wrote the snapshot.
