@@ -394,7 +394,7 @@ def build_host_adapter_registry(
     tools: Mapping[str, Adapter],
     *,
     version: str = "host-registered",
-    max_risk: str = "high",
+    max_risk: str = "critical",
     risk_by_stage: Mapping[VibeStage | str, str] | None = None,
 ) -> VibeAdapterRegistry:
     """Wire one active-agent dispatcher plus concrete capability tools into all stages.
@@ -418,6 +418,10 @@ def build_host_adapter_registry(
         stage = key if isinstance(key, VibeStage) else VibeStage(str(key))
         if value not in {"low", "medium", "high", "critical"}:
             raise ValueError(f"invalid adapter risk for {stage.value}")
+        inherent_risk = next(spec.risk for spec in STAGE_SPECS if spec.stage == stage)
+        risk_rank = {"low": 0, "medium": 1, "high": 2, "critical": 3}
+        if risk_rank[value] < risk_rank[inherent_risk]:
+            raise ValueError(f"adapter risk for {stage.value} cannot understate its stage risk ({inherent_risk})")
         risk_overrides[stage] = value
 
     required_tools = sorted({
@@ -495,7 +499,9 @@ def build_host_adapter_registry(
             stages=(stage,),
             capabilities=frozenset(set(capabilities) | {"agent"}),
             invoke=composite,
-            risk=risk_overrides.get(stage, "medium"),
+            risk=risk_overrides.get(
+                stage, next(spec.risk for spec in STAGE_SPECS if spec.stage == stage)
+            ),
             evidence_quality=0.65,
             historical_success=0.5,
             external_side_effects=stage in _SIDE_EFFECT_STAGES,
