@@ -862,7 +862,12 @@ class ExecutionController:
             "schema_version", "handoff_checkpoint", "retry_budget",
             "task_id", "intent_digest", "crew_plan_digest",
         }
-        allowed_fields = (expected_fields, expected_fields | {"provider_resume_state"})
+        allowed_fields = (
+            expected_fields,
+            expected_fields | {"provider_resume_state"},
+            expected_fields | {"runtime_guard"},
+            expected_fields | {"provider_resume_state", "runtime_guard"},
+        )
         if set(payload) not in allowed_fields:
             raise ValueError("supervisor handoff checkpoint envelope has missing or unknown fields")
         if payload.get("schema_version") != "auren-task-handoff-envelope-v1":
@@ -887,6 +892,12 @@ class ExecutionController:
         if embedded.snapshot()["digest"] != budget.snapshot()["digest"]:
             raise ValueError("handoff and supervisor retry-budget checkpoints disagree")
         GraphHandoffController.resume(checkpoint, retry_budget=budget)
+        runtime_guard = payload.get("runtime_guard")
+        if runtime_guard is not None:
+            if not isinstance(runtime_guard, Mapping):
+                raise ValueError("runtime guard checkpoint must be a mapping")
+            from .runtime_recovery import RuntimeExecutionGuard
+            RuntimeExecutionGuard.resume(runtime_guard)
         provider_resume = payload.get("provider_resume_state")
         if provider_resume is not None:
             if not isinstance(provider_resume, Mapping):
