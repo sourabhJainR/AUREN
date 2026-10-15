@@ -377,7 +377,10 @@ class VibeAdapterRegistry:
 
     def save_snapshot(self, path: str | Path) -> Path:
         """Atomically persist a learning receipt with private file permissions."""
-        target = Path(path).expanduser().resolve()
+        untrusted_target = Path(path).expanduser()
+        if untrusted_target.is_symlink():
+            raise ValueError("adapter-learning snapshot target must not be a symlink")
+        target = untrusted_target.resolve()
         target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         if os.name != "nt":
             os.chmod(target.parent, 0o700)
