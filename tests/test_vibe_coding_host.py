@@ -235,6 +235,114 @@ class VibeCodingHostTests(unittest.TestCase):
                     adapter_config_digest="config-digest",
                 )
 
+    @unittest.skipIf(os.name == "nt", "isolated host integration currently targets POSIX provider CLIs")
+    def test_complete_host_workflow_on_isolated_clone_of_real_auren_project(self):
+        repository = Path(__file__).resolve().parents[1]
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            project = base / "auren-project"
+            subprocess.run(
+                ["git", "clone", "--local", "--no-hardlinks", str(repository), str(project)],
+                check=True, text=True, capture_output=True,
+            )
+            bin_dir = base / "bin"
+            bin_dir.mkdir()
+            codex = bin_dir / "codex"
+            codex_source = """#!/usr/bin/env python3
+import json, sys
+from pathlib import Path
+if "--version" in sys.argv:
+    print("codex host-test 1.0")
+    raise SystemExit(0)
+prompt = json.loads(sys.stdin.read())
+stage = prompt["stage"]
+outputs = {
+ "idea": {"problem": "Make a small, testable Python feature", "success_metrics": ["acceptance tests pass"]},
+ "define_user": {"personas": ["developer"], "user_needs": ["simple deterministic behavior"]},
+ "prd": {"requirements": ["implement addition"], "acceptance_criteria": ["add returns the sum"]},
+ "choose_tech_stack": {"technology_decisions": ["Python standard library"], "tradeoffs": ["minimal dependencies"]},
+ "architecture": {"architecture_decisions": ["keep add in src/feature.py"]},
+ "task_breakdown": {"tasks": ["implement add", "run tests"]},
+ "development": {"artifacts": ["src/feature.py"]},
+}
+if stage == "development":
+    Path("src").mkdir(parents=True, exist_ok=True)
+    Path("src/feature.py").write_text("def add(a, b): return a + b" + chr(10), encoding="utf-8")
+output = dict(outputs.get(stage, {}))
+output["status"] = "passed"
+output["evidence"] = [{"source": "codex-host-test", "locator": "agent://" + stage}]
+print(json.dumps({"type": "item.completed", "item": {"type": "agent_message", "text": json.dumps(output)}}))
+"""
+            codex.write_text(codex_source, encoding="utf-8")
+            codex.chmod(0o755)
+            search_server = base / "search_mcp.py"
+            security_server = base / "security_mcp.py"
+            review_server = base / "review_mcp.py"
+            fake_mcp_server(search_server, plain_text=True)
+            fake_mcp_server(security_server, structured={
+                "findings": [], "critical_findings": 0, "status": "passed",
+                "evidence": [{"source": "test-security-tool", "locator": "security://diff-scan"}],
+            })
+            fake_mcp_server(review_server, structured={
+                "reviewer": "independent-mcp-reviewer", "review_summary": "Reviewed isolated diff",
+                "status": "passed", "blocking_findings": 0,
+                "evidence": [{"source": "test-review-tool", "locator": "review://isolated-diff"}],
+            })
+            config_path = base / "host.json"
+            config = {
+                "schema_version": "auren-vibe-host-config-v1",
+                "provider": "codex",
+                "allow_workspace_writes": True,
+                "test_commands": [[
+                    sys.executable, "-m", "unittest",
+                    "tests.test_vibe_coding", "tests.test_vibe_coding_adapters",
+                ]],
+                "mcp_tools": {
+                    "web_search": {
+                        "argv": [sys.executable, str(search_server)], "tool_name": "search",
+                        "argument_map": {"query": "$intent"},
+                    },
+                    "security": {
+                        "argv": [sys.executable, str(security_server)], "tool_name": "scan",
+                        "argument_map": {"request": "$request"},
+                    },
+                    "independent_review": {
+                        "argv": [sys.executable, str(review_server)], "tool_name": "review",
+                        "argument_map": {"request": "$request"},
+                    },
+                },
+                "browser_qa_required": False,
+                "browser_qa_rationale": "This integration target validates a Python library, not a browser UI",
+                "preview_deployment_required": False,
+                "preview_deployment_rationale": "No external preview deployment is authorized in CI",
+                "security_tool_required": True,
+            }
+            config_path.write_text(json.dumps(config), encoding="utf-8")
+            os.chmod(config_path, 0o600)
+            previous_path = os.environ.get("PATH", "")
+            os.environ["PATH"] = str(bin_dir) + os.pathsep + previous_path
+            try:
+                host_config = load_host_config(config_path)
+                report = LocalVibeCodingHost(project, config=host_config, state_root=base / "auren-state").run(
+                    "auren-host-e2e", "Implement a small deterministic addition feature"
+                )
+            finally:
+                os.environ["PATH"] = previous_path
+            self.assertEqual(report["run_status"], "accepted", report["stop_reason"])
+            self.assertEqual(len(report["stage_statuses"]), 18)
+            self.assertFalse(report["production_deployment_performed"])
+            self.assertFalse(report["merge_or_publish_performed"])
+            self.assertIn("src/feature.py", report["workspace_changed_files"])
+            self.assertTrue((Path(report["workspace_root"]) / "src" / "feature.py").is_file())
+            self.assertFalse((project / "src" / "feature.py").exists())
+            self.assertTrue(Path(report["learning_receipt"]).is_file())
+            self.assertTrue(Path(report["checkpoint_receipt"]).is_file())
+            source_status = subprocess.run(
+                ["git", "-C", str(project), "status", "--porcelain"],
+                check=True, text=True, capture_output=True,
+            ).stdout
+            self.assertEqual(source_status.strip(), "")
+
     @unittest.skipIf(os.name == "nt", "POSIX file permission contract")
     def test_host_config_requires_private_file_and_explicit_security_adapter(self):
         with tempfile.TemporaryDirectory() as temp:
