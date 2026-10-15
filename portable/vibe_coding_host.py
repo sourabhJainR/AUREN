@@ -427,7 +427,8 @@ class LocalProjectTool:
                 "evidence": [{"source": "local-runtime", "locator": "runtime://environment"}],
             }
         head = self._git("rev-parse", "HEAD")
-        remote = self._git("remote", "get-url", "origin") if self._git("remote") else ""
+        remote_result = _run(("git", "-C", str(self.root), "remote", "get-url", "origin"), cwd=self.root, timeout=10)
+        remote = remote_result.stdout.strip() if remote_result.returncode == 0 else ""
         if stage == VibeStage.SETUP:
             return {
                 "repository": {"root": str(self.root), "remote": remote or "local-only", "base_revision": self.base_revision},
@@ -840,6 +841,8 @@ class IsolatedGitWorktree:
         return self.path
 
     def rollback(self, *, authorized: bool = False) -> str:
+        if not self.base_revision:
+            raise RuntimeError("worktree rollback requires a verified base revision")
         if authorized is not True:
             raise PermissionError("isolated worktree rollback requires explicit operator authorization")
         if not self.path.exists():
@@ -865,13 +868,17 @@ class VibeHostConfig:
     test_timeout_seconds: int = 300
     browser_qa_required: bool = True
     browser_qa_rationale: str = ""
-    security_tool_required: bool = False
+    security_tool_required: bool = True
 
 
 def load_host_config(path: str | Path | None = None) -> VibeHostConfig:
     source = Path(path or (Path.home() / ".auren" / "vibe-coding" / "host.json")).expanduser()
+    if source.is_symlink():
+        raise PermissionError("host config must not be a symlink")
     if not source.is_file():
         raise FileNotFoundError(f"host config is required: {source}; see docs/VIBE_CODING_WORKFLOW.md")
+    if os.name != "nt" and source.stat().st_mode & 0o077:
+        raise PermissionError("host config permissions must be private (0600)")
     raw = json.loads(source.read_text(encoding="utf-8"))
     if not isinstance(raw, dict) or raw.get("schema_version") != _CONFIG_SCHEMA:
         raise ValueError("unsupported vibe-coding host config schema")
@@ -881,6 +888,13 @@ def load_host_config(path: str | Path | None = None) -> VibeHostConfig:
     mcp_tools = raw.get("mcp_tools", {})
     if not isinstance(mcp_tools, dict):
         raise ValueError("mcp_tools must be an object")
+    allowed_capabilities = {
+        "product", "research", "web_search", "accessibility", "design", "repository",
+        "security", "task_planning", "environment", "test_execution", "independent_review",
+        "deployment", "preview", "browser", "release", "observability", "rollback",
+    }
+    if set(mcp_tools) - allowed_capabilities:
+        raise ValueError("mcp_tools contains unknown capability names: " + ", ".join(sorted(set(mcp_tools) - allowed_capabilities)))
     env_allowlist = raw.get("env_allowlist", [])
     if not isinstance(env_allowlist, list) or any(not isinstance(x, str) or not re.fullmatch(r"[A-Z_][A-Z0-9_]*", x) for x in env_allowlist):
         raise ValueError("env_allowlist must contain environment variable names")
@@ -895,7 +909,27 @@ def load_host_config(path: str | Path | None = None) -> VibeHostConfig:
             raise ValueError(f"MCP tool {name} requires an argv array")
         if not isinstance(spec.get("tool_name"), str) or not spec["tool_name"].strip():
             raise ValueError(f"MCP tool {name} requires tool_name")
+        argument_map = spec.get("argument_map", {"request": "$request"})
+        if not isinstance(argument_map, dict) or any(not isinstance(key, str) or not key.strip() for key in argument_map):
+            raise ValueError(f"MCP tool {name} argument_map must be an object")
+        tool_env = spec.get("env_allowlist", env_allowlist)
+        if not isinstance(tool_env, list) or any(not isinstance(x, str) or not re.fullmatch(r"[A-Z_][A-Z0-9_]*", x) for x in tool_env):
+            raise ValueError(f"MCP tool {name} env_allowlist must contain environment variable names")
+        timeout = spec.get("timeout_seconds", 30)
+        if type(timeout) is not int or not 1 <= timeout <= 300:
+            raise ValueError(f"MCP tool {name} timeout_seconds must be 1..300")
         tools[name] = spec
+    browser_required = raw.get("browser_qa_required", True)
+    if type(browser_required) is not bool:
+        raise ValueError("browser_qa_required must be a boolean")
+    browser_rationale = raw.get("browser_qa_rationale", "")
+    if not isinstance(browser_rationale, str) or (not browser_required and not browser_rationale.strip()):
+        raise ValueError("browser QA not-applicable requires an explicit rationale")
+    security_required = raw.get("security_tool_required", True)
+    if type(security_required) is not bool:
+        raise ValueError("security_tool_required must be a boolean")
+    if security_required and "security" not in tools:
+        raise ValueError("security_tool_required is true but no external security MCP tool is configured")
     return VibeHostConfig(
         provider=raw.get("provider"),
         reviewer_provider=raw.get("reviewer_provider"),
@@ -905,9 +939,9 @@ def load_host_config(path: str | Path | None = None) -> VibeHostConfig:
         env_allowlist=tuple(env_allowlist),
         agent_timeout_seconds=int(raw.get("agent_timeout_seconds", 180)),
         test_timeout_seconds=int(raw.get("test_timeout_seconds", 300)),
-        browser_qa_required=bool(raw.get("browser_qa_required", True)),
-        browser_qa_rationale=str(raw.get("browser_qa_rationale", "")),
-        security_tool_required=bool(raw.get("security_tool_required", False)),
+        browser_qa_required=browser_required,
+        browser_qa_rationale=browser_rationale,
+        security_tool_required=security_required,
     )
 
 
