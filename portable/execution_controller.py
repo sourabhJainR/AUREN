@@ -990,18 +990,10 @@ class ExecutionController:
                 "SELECT 1 FROM engineering_events WHERE event_id=?", (event_id,)
             ).fetchone()
         if not already_recorded:
-            import os
-            import subprocess
+            # Never attach a current repository identity to a legacy/unbound
+            # checkpoint after the work has already happened.
             head_sha = payload.get("head_sha", "")
-            try:
-                if not head_sha:
-                    head_sha = subprocess.run(
-                        ["git", "-C", str(self.root), "rev-parse", "--verify", "HEAD^{commit}"],
-                        check=True, capture_output=True, text=True, timeout=2,
-                    ).stdout.strip()
-            except (OSError, subprocess.SubprocessError):
-                pass
-            repository = payload.get("repository", os.environ.get("AUREN_REPOSITORY_SLUG", ""))
+            repository = payload.get("repository", "")
             self.evidence_capture.record(
                 "crew_handoff_checkpoint_persisted",
                 work_unit_id=task_id,
