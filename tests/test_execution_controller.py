@@ -432,8 +432,11 @@ def test_provider_resume_uses_canonical_graph_checkpoint_and_evidence(tmp_path: 
             executor = ResumableProviderExecutor(
                 task_id=task_id,
                 stage_id="proposal",
-                providers={"primary": lambda request, key: {"proposal": "ok"}},
-                provider_versions={"primary": "v1"},
+                providers={
+                    "primary": lambda request, key: (_ for _ in ()).throw(ConnectionResetError("reset")),
+                    "backup": lambda request, key: {"proposal": "ok"},
+                },
+                provider_versions={"primary": "v1", "backup": "v2"},
                 preferred_provider="primary",
                 retry_budget=budget,
                 persist=state["auren_provider_resume_persist"],
@@ -455,6 +458,8 @@ def test_provider_resume_uses_canonical_graph_checkpoint_and_evidence(tmp_path: 
     provider_state = envelope["provider_resume_state"]
     assert provider_state["task_id"] == "provider-task"
     assert provider_state["status"] == "completed"
+    assert envelope["retry_budget"]["used_retries"] == 1
+    assert envelope["handoff_checkpoint"]["retry_budget"]["digest"] == envelope["retry_budget"]["digest"]
     assert len(provider_state["digest"]) == 64
     assert "forged" not in provider_state
     with sqlite3.connect(controller.evidence_capture.path) as db:
