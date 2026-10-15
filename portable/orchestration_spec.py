@@ -171,7 +171,8 @@ class OrchestrationSpec:
             "max_attempts": self.max_attempts,
             "deadline_seconds": self.deadline_seconds,
             "nodes": [
-                asdict(node) for node in sorted(self.nodes, key=lambda item: item.node_id)
+                {**asdict(node), "required_evidence": list(node.required_evidence)}
+                for node in sorted(self.nodes, key=lambda item: item.node_id)
             ],
             "edges": [
                 asdict(edge) for edge in sorted(self.edges, key=lambda item: (item.source, item.target, item.condition))
@@ -295,9 +296,9 @@ def compare_orchestration_trials(trials: Iterable[OrchestrationTrial]) -> dict[s
         successes = sum(row.passed for row in holdout)
         low, high = _wilson(successes, len(holdout))
         recovery = [row for row in group if row.recovery_expected]
-        repeated: dict[str, list[str]] = {}
+        repeated: dict[tuple[str, str, str], list[str]] = {}
         for row in group:
-            repeated.setdefault(row.repeat_group, []).append(row.outcome_digest)
+            repeated.setdefault((row.task_family, row.split, row.repeat_group), []).append(row.outcome_digest)
         repeat_groups = [values for values in repeated.values() if len(values) > 1]
         summaries[framework] = {
             "trial_count": len(group),
