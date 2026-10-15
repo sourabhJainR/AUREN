@@ -69,7 +69,7 @@ def _json_object(text: str) -> dict[str, Any]:
 def _find_object(value: Any) -> dict[str, Any] | None:
     if isinstance(value, dict):
         # Prefer explicit structured content, then common provider result envelopes.
-        for key in ("structuredContent", "structured_content", "output", "result", "text", "content"):
+        for key in ("structuredContent", "structured_content", "output", "result", "text", "content", "item", "message", "response", "final"):
             nested = value.get(key)
             if isinstance(nested, dict):
                 found = _find_object(nested)
@@ -150,6 +150,14 @@ class ProviderCliAgent:
         if mutating and not self.allow_workspace_writes:
             raise PermissionError("development blocked: workspace writes were not explicitly enabled")
         required = next(spec.required_fields for spec in STAGE_SPECS if spec.stage == stage)
+        if stage == VibeStage.CODE_REVIEW:
+            required = ("reviewer", "review_summary", "status", "blocking_findings")
+        elif stage == VibeStage.SECURITY_REVIEW:
+            required = ("findings", "status", "critical_findings")
+        elif stage == VibeStage.TESTING:
+            required = ("tests_run", "status")
+        elif stage == VibeStage.QA_TESTING:
+            required = ("qa_results", "user_feedback", "status")
         prompt_payload = {
             "schema_version": "auren-vibe-agent-prompt-v1",
             "stage": stage.value,
@@ -350,13 +358,17 @@ class LocalProjectTool:
             if not self.allow_workspace_writes:
                 raise PermissionError("development receipt blocked: isolated workspace writes were not enabled")
             files = self._files()
-            if not files:
-                raise AdapterUnavailable("development produced no changed or new files in the isolated worktree")
+            prior = request.get("prior_stage_outputs", {})
+            design = prior.get(VibeStage.DESIGN.value, {}) if isinstance(prior, Mapping) else {}
+            design_paths = set(design.get("design_artifacts", [])) if isinstance(design, Mapping) else set()
+            implementation_files = [item for item in files if item not in design_paths]
+            if not implementation_files:
+                raise AdapterUnavailable("development produced no implementation artifact beyond the design brief")
             check = _run(("git", "-C", str(self.root), "diff", "--check", self.base_revision), cwd=self.root, timeout=15)
             if check.returncode:
                 raise RuntimeError("development diff contains whitespace errors")
             return {
-                "artifacts": files,
+                "artifacts": implementation_files,
                 "evidence": [{"source": "git-diff", "locator": f"git://{self.base_revision}..WORKTREE"}],
             }
         if stage == VibeStage.PROJECT_RULES:
@@ -470,7 +482,11 @@ class LocalAccessibilityTool:
         design = prd.get("design_artifacts", []) if isinstance(prd, Mapping) else []
         paths = design if isinstance(design, list) else []
         if not paths:
-            # Current-stage design artifacts are supplied by the companion design adapter.
+            # The design tool runs immediately before this adapter in the same stage.
+            results = request.get("tool_results", {})
+            design_result = results.get("design", {}) if isinstance(results, Mapping) else {}
+            paths = design_result.get("design_artifacts", []) if isinstance(design_result, Mapping) else []
+        if not paths:
             paths = request.get("stage_output", {}).get("design_artifacts", [])
         findings = []
         for item in paths:
@@ -801,6 +817,8 @@ class LocalVibeCodingHost:
         self.state_root = Path(state_root or (Path.home() / ".auren" / "vibe-coding")).expanduser().resolve()
         if not self.project_root.is_dir():
             raise ValueError("project_root must be an existing directory")
+        if not config.allow_workspace_writes:
+            raise PermissionError("the complete product lifecycle requires explicit isolated-worktree writes; source checkout remains untouched")
 
     def run(self, workflow_id: str, intent: str, *, max_total_attempts: int = 32):
         if not _WORKFLOW_ID.fullmatch(workflow_id):
@@ -853,6 +871,14 @@ class LocalVibeCodingHost:
                 timeout_seconds=int(spec.get("timeout_seconds", 30)),
                 env_allowlist=tuple(spec.get("env_allowlist", self.config.env_allowlist)),
             )
+        if self.config.reviewer_provider:
+            reviewer = ProviderCliAgent(
+                provider=self.config.reviewer_provider, allow_workspace_writes=False,
+                timeout_seconds=self.config.agent_timeout_seconds, env_allowlist=self.config.env_allowlist,
+            )
+            if reviewer.provider == agent.provider:
+                raise ValueError("independent reviewer provider must differ from the implementation provider")
+            tools["independent_review"] = IndependentReviewTool(reviewer, author_provider=agent.provider)
         missing = [name for name in ("research", "web_search", "independent_review") if name not in tools or isinstance(tools[name], BlockedSideEffectTool)]
         if missing:
             raise AdapterUnavailable("configure actual MCP tools for required capabilities: " + ", ".join(missing))
@@ -871,7 +897,7 @@ class LocalVibeCodingHost:
             )
         graph = build_integrated_vibe_coding_graph(registry, checkpoint_writer=persist)
         context: dict[str, Any] = {
-            "risk": "high" if self.config.allow_workspace_writes else "low",
+            "risk": "high",
             "vibe_coding_workflow_id": workflow_id,
             "task_id": workflow_id,
             "intent": intent,
