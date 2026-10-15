@@ -50,7 +50,7 @@ class AgentTeamOrchestratorTests(unittest.TestCase):
         self.assertEqual(spawned, ["a"])
         self.assertIn("b", run.stopped_units)
 
-def test_governance_gateway_blocks_protected_specialist_scope_before_spawn(self):
+    def test_governance_gateway_blocks_protected_specialist_scope_before_spawn(self):
         gateway = ActionGovernanceGateway(ActionPolicy(
             allowed_capabilities=frozenset({"repository.read", "repository.write"}),
             protected_targets=(".github/workflows",),
