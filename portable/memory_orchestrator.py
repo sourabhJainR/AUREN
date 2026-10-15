@@ -20,6 +20,7 @@ from typing import Any, Callable, Iterable, Mapping
 
 from .agent_capabilities import PersistentMemory
 from .context_graph import ContextGraph, ContextNode
+from .context_engine import ContextItem
 
 MEMORY_KINDS = (
     "episodic", "semantic", "working", "procedural", "sensory",
@@ -183,6 +184,7 @@ class MemoryOrchestrator:
         verified: bool = False,
         approved: bool = False,
         ttl_seconds: float | None = None,
+        parent_memory_id: str | None = None,
     ) -> MemoryWriteResult:
         """Write to the owner for this memory kind; durable writes require approval."""
         kind = self._validate_kind(kind)
@@ -258,6 +260,9 @@ class MemoryOrchestrator:
             created_at=record.created_at,
         )
         self.graph.upsert_node(node)
+        if parent_memory_id:
+            self.graph.link(parent_memory_id, "contains", record.id, source=source.strip(), confidence=confidence,
+                            properties={"memory_kind": kind, "task_id": task_id})
         self._metrics["writes"] += 1
         return MemoryWriteResult("stored", kind, record.id)
 
@@ -376,6 +381,19 @@ class MemoryOrchestrator:
         self._metrics["cache_misses"] += cache_misses
         self._metrics["budget_omissions"] += omitted
         return MemoryRecall(tuple(selected), rendered, len(rendered), budget_chars, cache_hits, cache_misses, omitted)
+
+    @staticmethod
+    def context_items(recall: MemoryRecall) -> list[ContextItem]:
+        """Adapt selected memories to the existing ContextEngine contract."""
+        items: list[ContextItem] = []
+        for memory in recall.memories:
+            priority = DEFAULT_PRIORITY.get(memory.kind, 0) + int(memory.confidence * 10)
+            refs = tuple(dict.fromkeys((memory.memory_id, *memory.evidence_ids)))
+            items.append(ContextItem(
+                kind=memory.kind, text=memory.text, source=memory.source,
+                priority=priority, verified=memory.verified, refs=refs,
+            ))
+        return items
 
     def metrics(self) -> dict[str, int | float]:
         """Read-only, bounded telemetry; does not write a memory record or call an LLM."""
