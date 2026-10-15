@@ -23,7 +23,7 @@ class MemoryOrchestratorTests(unittest.TestCase):
         self.cache = ContextPageCache(page_chars=256)
         self.coordinator = MemoryOrchestrator(
             self.root, "project-a", memory=self.db, context_cache=self.cache,
-            max_working_entries=3, max_working_chars=40,
+            max_working_entries=3, max_working_chars=100,
             max_sensory_entries=3, sensory_ttl_seconds=0.03,
         )
 
@@ -70,6 +70,17 @@ class MemoryOrchestratorTests(unittest.TestCase):
         )
         self.assertEqual(2, len(recall.memories))
         self.assertNotIn("third working note", recall.text)
+
+    def test_working_memory_evicts_oldest_entry_at_entry_limit(self):
+        for task_id in ("t1", "t2", "t3", "t4"):
+            self.coordinator.remember(
+                "working", f"note for {task_id}", source="agent", task_id=task_id,
+            )
+        self.assertEqual([], self.coordinator.recall(
+            "note", kinds=("working",), task_id="t1", budget_chars=100,
+        ).memories)
+        self.assertEqual(3, self.coordinator.metrics()["working_entries"])
+        self.assertGreaterEqual(self.coordinator.metrics()["evictions"], 1)
 
     def test_sensory_memory_expires_without_background_polling(self):
         self.coordinator.remember("sensory", "temporary browser observation", source="browser", task_id="t1")
