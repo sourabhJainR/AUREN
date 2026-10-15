@@ -70,6 +70,8 @@ class VibeCodingLifecycleTests(unittest.TestCase):
         context = {
             "production_approval": {"approved": True, "approved_by": "release-manager", "approved_at": "2026-10-15T12:00:00Z"},
             "vibe_coding_workflow_id": "workflow-18",
+            "final_code_revision": "abc123",
+            "verified_code_revision": "abc123",
         }
         run = Orchestrator(graph, max_total_attempts=32).run("workflow-18", "Build the product", context)
         self.assertEqual(run.status, RunStatus.ACCEPTED, run.stop_reason)
@@ -100,6 +102,8 @@ class VibeCodingLifecycleTests(unittest.TestCase):
             "vibe_coding_workflow_id": "resume-1",
             "vibe_coding_checkpoint": saved[-1],
             "production_approval": {"approved": True, "approved_by": "release-manager", "approved_at": "2026-10-15T12:00:00Z"},
+            "final_code_revision": "abc123",
+            "verified_code_revision": "abc123",
         }
         second = Orchestrator(second_graph, max_total_attempts=32).run("resume-1", "Build app", resumed_context)
         self.assertEqual(second.status, RunStatus.ACCEPTED, second.stop_reason)
