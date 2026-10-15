@@ -63,10 +63,10 @@ def _git_repository_identity(root: Path) -> tuple[str, str] | None:
             ).stdout.strip()
         except (OSError, subprocess.SubprocessError):
             remote = ""
-        match = re.search(r"(?:[:/])([^/:\\s]+/[^/:\\s]+?)(?:\\.git)?$", remote)
+        match = re.search(r"(?:[:/])([^/:\s]+/[^/:\s]+?)(?:\.git)?$", remote)
         if match:
             repository = match.group(1)
-    if not re.fullmatch(r"[^/\\s]+/[^/\\s]+", repository):
+    if not re.fullmatch(r"[^/\s]+/[^/\s]+", repository):
         return None
     return repository, head
 
