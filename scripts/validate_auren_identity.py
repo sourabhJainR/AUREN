@@ -168,7 +168,7 @@ PATTERNS = (
 OLD_FILENAME = re.compile(r"(^|/)aer[_-][^/]+$", re.IGNORECASE)
 # Match the legacy token as a complete identifier segment, not words such as Arena.
 LEGACY_SYMBOL_TOKEN = re.compile(r"(?i)(?:^|_)aer(?:_|$)")
-LEGACY_PATH_TOKEN = re.compile(r"(?i)(?:^|/)\.?aer(?:/|$)|(?:^|/)aer[_-][^/]+$")
+LEGACY_PATH_TOKEN = re.compile(r"(?i)(?:^|/)\.?aer(?:/|$)|(?:^|/)aer[_-][^/]+(?:/|$)")
 
 
 def find_legacy_python_symbols(content: str) -> list[tuple[int, str]]:
