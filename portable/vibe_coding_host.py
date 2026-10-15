@@ -325,7 +325,7 @@ class MCPStdioToolAdapter:
 class VerifiedResearchTool:
     """Turn configured search-tool output into source-located research evidence."""
 
-    _URL = re.compile(r"https://[^\\s<>\\\"')]+", re.I)
+    _URL = re.compile(r"https://[^\s<>\"')]+", re.I)
 
     def __init__(self, search_tool: Any, *, min_sources: int = 2) -> None:
         if not callable(search_tool):
