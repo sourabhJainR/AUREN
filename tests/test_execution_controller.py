@@ -1,5 +1,8 @@
 from pathlib import Path
-
+import os
+import sqlite3
+import subprocess
+import sys
 
 from portable.execution_controller import ExecutionController
 
@@ -566,3 +569,46 @@ def test_rate_limited_provider_resumes_after_reset_from_supervisor_checkpoint(tm
     final = controller.load_graph_checkpoint("rate-limited-task")
     assert final["provider_resume_state"]["status"] == "completed"
     assert final["retry_budget"]["used_retries"] == 1
+
+
+def crash_once_handler(payload):
+    """Exit the worker process on its first real invocation, then recover."""
+    marker = Path(payload["marker"])
+    if not marker.exists():
+        marker.write_text("started", encoding="utf-8")
+        os._exit(73)
+    return {"success": True, "detail": "recovered after process death", "evidence": ["process-restart"]}
+
+
+def test_real_process_death_resumes_running_handler(tmp_path: Path):
+    root = tmp_path / "state"
+    marker = tmp_path / "handler-started"
+    task_id_file = tmp_path / "task-id"
+    script = (
+        "from pathlib import Path; "
+        "from portable.execution_controller import ExecutionController; "
+        "from test_execution_controller import crash_once_handler; "
+        f"root=Path({str(root)!r}); marker={str(marker)!r}; task_file=Path({str(task_id_file)!r}); "
+        "c=ExecutionController(root); "
+        "c.register_handler('tests.crash_once_handler', crash_once_handler, execution_class='read_only'); "
+        "t=c.submit('tests.crash_once_handler', {'marker': marker}); "
+        "task_file.write_text(t.id, encoding='utf-8'); c.run_once(t.id)"
+    )
+    env = dict(os.environ)
+    env["PYTHONPATH"] = os.pathsep.join(
+        filter(None, [str(Path(__file__).resolve().parents[1]), str(Path(__file__).resolve().parent), env.get("PYTHONPATH", "")])
+    )
+    child = subprocess.run([sys.executable, "-c", script], env=env, timeout=30, check=False)
+    assert child.returncode == 73
+    assert marker.exists()
+    task_id = task_id_file.read_text(encoding="utf-8")
+
+    # A killed process cannot renew its lease. Expire it explicitly to model
+    # the host lease-reaper boundary without sleeping for the five-minute TTL.
+    controller = ExecutionController(root)
+    with sqlite3.connect(controller.db_path) as db:
+        db.execute("UPDATE tasks SET lease_until='2000-01-01T00:00:00+00:00' WHERE id=?", (task_id,))
+    scores = controller.resume_pending()
+    assert scores
+    assert controller.task(task_id).state == "completed"
+    assert controller.task(task_id).attempts == 2
