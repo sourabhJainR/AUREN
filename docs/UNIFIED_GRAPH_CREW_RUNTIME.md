@@ -73,6 +73,12 @@ register_crew_adapters({
 
 The example names illustrate the registration shape; the variables must be real, reviewed adapter instances. Registration rejects unknown crew IDs, mismatched adapter IDs, missing `propose(request)`, missing stable configuration digests, and adapters without an explicit `implementation_version`. The version is included in the adapter configuration digest so planner/finalizer implementation changes invalidate stale crew plans and checkpoints. A per-task option cannot disable a constructor-level crew requirement. High/critical or sensitive mutation/review phases fail closed for missing selected adapters; read-only planning can continue. The crew node is marked external, and graph node execution is bounded by the configured resource timeout.
 
+## Supervisor evidence binding
+
+When the active project root is a Git repository and a repository slug is configured (or resolved from its origin), the supervisor captures that repository and HEAD once for a new task and preserves the identity across resume. Each durable handoff checkpoint is digest-checked in supervisor SQLite and indexed in the canonical evidence ledger against that exact revision. Legacy checkpoints without revision identity remain explicitly unbound on resume; AUREN must not retroactively attribute them to the current HEAD.
+
+The local ledger row uses the explicit signer label `local-supervisor-unattested`: it proves local checkpoint integrity and revision linkage, **not** a cryptographic signature, an independently operated QA attestation, or external custody. Independent reviewer receipts remain bound into the handoff checkpoint; promotion still requires the separately configured Guard/decision-record verification and real operator-run acceptance.
+
 ## Required invariants
 
 1. A single immutable intent digest follows every graph node, crew proposal, handoff, retry, checkpoint, evidence item, and final report.
