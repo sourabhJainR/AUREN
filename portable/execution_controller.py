@@ -745,8 +745,7 @@ class ExecutionController:
                             "next_retry_at": retry_at.isoformat() if retry_at and not blocked else None})
         self.company.record(task.work_unit_id, "execution", state, detail,
                             (f"handler:{task.handler}", f"provider:{provider[:100]}"))
-        if blocked:
-            self.company._transition(task.work_unit_id, "waiting_external")
+        self.company._transition(task.work_unit_id, "waiting_external")
         return True
 
     def due_quota_task_ids(self, *, now: datetime | None = None, limit: int = 20) -> list[str]:
@@ -771,15 +770,48 @@ class ExecutionController:
             return []
         current = now or datetime.now(timezone.utc)
         stamp = current.astimezone(timezone.utc).isoformat()
+        work_units: list[str] = []
         with sqlite3.connect(self.db_path, timeout=10) as db:
             db.execute("BEGIN IMMEDIATE")
             for task_id in ids:
-                db.execute(
+                row = db.execute(
+                    "SELECT work_unit_id FROM tasks WHERE id=? AND state='waiting_quota' "
+                    "AND next_retry_at IS NOT NULL AND next_retry_at<=?", (task_id, stamp),
+                ).fetchone()
+                if not row:
+                    continue
+                cursor = db.execute(
                     "UPDATE tasks SET state='pending',updated_at=?,next_retry_at=NULL,quota_reason=NULL "
                     "WHERE id=? AND state='waiting_quota' AND next_retry_at IS NOT NULL AND next_retry_at<=?",
                     (stamp, task_id, stamp),
                 )
-        return ids
+                if cursor.rowcount == 1:
+                    work_units.append(str(row[0]))
+        for work_unit_id in work_units:
+            self.company._transition(work_unit_id, "running")
+        return [task_id for task_id in ids if self.task(task_id).state == "pending"]
+
+    def unblock_quota_task(self, task_id: str, *, operator_reason: str) -> bool:
+        """Explicitly release a permanently blocked quota task after operator action."""
+        if not isinstance(operator_reason, str) or not operator_reason.strip():
+            raise ValueError("operator_reason is required to unblock quota work")
+        now = _now()
+        with sqlite3.connect(self.db_path, timeout=10) as db:
+            row = db.execute(
+                "SELECT work_unit_id FROM tasks WHERE id=? AND state='blocked_quota'", (task_id,),
+            ).fetchone()
+            if not row:
+                return False
+            cursor = db.execute(
+                "UPDATE tasks SET state='pending',updated_at=?,next_retry_at=NULL,quota_reason=NULL,"
+                "quota_blocked=0,quota_attempts=0 WHERE id=? AND state='blocked_quota'", (now, task_id),
+            )
+        if cursor.rowcount != 1:
+            return False
+        self.company.record(str(row[0]), "execution", "operator_unblocked", operator_reason.strip(),
+                            (f"task:{task_id}", "operator-override:quota"))
+        self.company._transition(str(row[0]), "running")
+        return True
 
     def run_once(self, task_id: str) -> TrustScore | None:
         task = self._claim(task_id)
