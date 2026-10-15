@@ -68,6 +68,7 @@ class VibeCodingLifecycleTests(unittest.TestCase):
         saved = []
         graph = build_vibe_coding_graph(self.handlers(counts), checkpoint_writer=lambda value: saved.append(value))
         context = {
+            "risk": "low",
             "production_approval": {"approved": True, "approved_by": "release-manager", "approved_at": "2026-10-15T12:00:00Z"},
             "vibe_coding_workflow_id": "workflow-18",
             "final_code_revision": "abc123",
@@ -90,7 +91,7 @@ class VibeCodingLifecycleTests(unittest.TestCase):
             self.handlers(counts, fail_stage=VibeStage.SETUP),
             checkpoint_writer=lambda value: saved.append(value),
         )
-        context = {"vibe_coding_workflow_id": "resume-1"}
+        context = {"risk": "low", "vibe_coding_workflow_id": "resume-1"}
         first = Orchestrator(first_graph, max_total_attempts=32).run("resume-1", "Build app", context)
         self.assertEqual(first.status, RunStatus.FAILED)
         self.assertEqual(saved[-1]["completed"], [stage.value for stage in STAGE_ORDER[:9]])
@@ -99,6 +100,7 @@ class VibeCodingLifecycleTests(unittest.TestCase):
         second_handlers = self.handlers(counts)
         second_graph = build_vibe_coding_graph(second_handlers, checkpoint_writer=lambda value: saved.append(value))
         resumed_context = {
+            "risk": "low",
             "vibe_coding_workflow_id": "resume-1",
             "vibe_coding_checkpoint": saved[-1],
             "production_approval": {"approved": True, "approved_by": "release-manager", "approved_at": "2026-10-15T12:00:00Z"},
@@ -122,6 +124,7 @@ class VibeCodingLifecycleTests(unittest.TestCase):
             "local-cli",
             "Build a local CLI",
             {
+                "risk": "low",
                 "preview_deployment_required": False,
                 "preview_deployment_rationale": "A local-only CLI has no hosted preview surface",
                 "production_deployment_required": False,
@@ -146,7 +149,7 @@ class VibeCodingLifecycleTests(unittest.TestCase):
             return result
         handlers[VibeStage.SECURITY_REVIEW] = insecure
         run = Orchestrator(build_vibe_coding_graph(handlers), max_total_attempts=32).run(
-            "security-block", "Build safely"
+            "security-block", "Build safely", {"risk": "low"}
         )
         self.assertEqual(run.status, RunStatus.FAILED)
         self.assertNotIn(VibeStage.CODE_REVIEW.value, counts)
@@ -156,7 +159,7 @@ class VibeCodingLifecycleTests(unittest.TestCase):
         counts = {}
         handlers = self.handlers(counts)
         run = Orchestrator(build_vibe_coding_graph(handlers), max_total_attempts=32).run(
-            "no-prod-approval", "Build product"
+            "no-prod-approval", "Build product", {"risk": "low"}
         )
         self.assertEqual(run.status, RunStatus.FAILED)
         self.assertNotIn(VibeStage.PRODUCTION_DEPLOY.value, counts)
