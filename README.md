@@ -588,4 +588,4 @@ AUREN includes an evidence-gated, 18-stage vibe-coding lifecycle for product wor
 
 The lifecycle is an explicit dependency graph, not a prompt-only checklist. Every stage needs a handler and evidence-backed outputs; failed gates block dependent work. It supports durable per-stage checkpoints and restart/resume without replaying completed handlers. Production deployment requires an explicit approval envelope and a release receipt bound to the exact reviewed revision. Preview/production deployment may be marked not applicable only with an explicit rationale and evidence.
 
-See [docs/VIBE_CODING_WORKFLOW.md](docs/VIBE_CODING_WORKFLOW.md) for stage contracts, integration, restart/resume, and safety rules.
+The runnable host entry point is `scripts/run_vibe_coding_project.py`; it discovers local Codex/Claude CLIs, connects configured MCP tools, runs in an isolated Git worktree, persists configuration-bound learning/checkpoints, and journals uncertain side effects. See [docs/VIBE_CODING_WORKFLOW.md](docs/VIBE_CODING_WORKFLOW.md) for the host config contract, real-project validation command, restart/resume, and safety rules.
