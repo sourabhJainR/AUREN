@@ -307,9 +307,21 @@ class CompiledStateGraph:
         existing = checkpoint.load(run_id) if resume and checkpoint else None
         if resume and checkpoint and existing is None:
             raise ValueError(f"no checkpoint available to resume run {run_id}")
-        guard = RuntimeExecutionGuard.resume(existing.runtime_guard, cancellation_event=cancellation_event) if existing and existing.runtime_guard else RuntimeExecutionGuard(max_steps=max_steps, max_attempts=max_attempts, deadline_seconds=deadline_seconds, cancellation_event=cancellation_event)
-        if existing and existing.runtime_guard is None:
-            raise ValueError("checkpoint lacks runtime guard state; explicit recovery is required")
+        if existing and existing.runtime_guard:
+            guard = RuntimeExecutionGuard.resume(existing.runtime_guard, cancellation_event=cancellation_event)
+        else:
+            guard = RuntimeExecutionGuard(
+                max_steps=max_steps, max_attempts=max_attempts,
+                deadline_seconds=deadline_seconds, cancellation_event=cancellation_event,
+            )
+            if existing:
+                # Legacy checkpoints lack exact attempt history. Reconstruct a
+                # conservative minimum from completed steps and trace; never
+                # grant an unbounded allowance or replay the entire old budget.
+                for _ in range(min(existing.step, max_steps)):
+                    guard.charge_step()
+                for index, node_name in enumerate(existing.trace):
+                    guard.charge_attempt(f"legacy-resume:{index}:{node_name}")
         current: dict[str, Any] = dict(existing.state if existing else state)
         next_nodes = list(existing.next_nodes if existing else self._g._edges[StateGraph.START])
         events: list[GraphEvent] = []
