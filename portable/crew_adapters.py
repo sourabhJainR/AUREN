@@ -557,6 +557,8 @@ class CrewHandoff:
     source_plan_digest: str
     attempt: int = 0
     handoff_id: str = ""
+    source_proposal_digest: str = ""
+    target_proposal_digest: str = ""
 
 
 class GraphHandoffController:
@@ -600,14 +602,24 @@ class GraphHandoffController:
             ) from self._persistence_failure
 
     @staticmethod
-    def _handoff_id(source_crew: str, target_crew: str, task: str, source_plan_digest: str) -> str:
+    def _handoff_id(
+        source_crew: str, target_crew: str, task: str, source_plan_digest: str,
+        source_proposal_digest: str = "",
+    ) -> str:
         payload = [source_crew, target_crew, task.strip(), source_plan_digest]
+        # Preserve v1-v3 identities for legacy checkpoints; new proposal-bound
+        # handoffs include the exact source proposal digest in their idempotency key.
+        if source_proposal_digest:
+            payload.append(source_proposal_digest)
         return hashlib.sha256(json.dumps(payload, separators=(",", ":")).encode("utf-8")).hexdigest()
 
     @classmethod
-    def handoff_id_for(cls, source_crew: str, target_crew: str, task: str, source_plan_digest: str) -> str:
-        """Return the stable idempotency key used by enqueue and checkpoint receipts."""
-        return cls._handoff_id(source_crew, target_crew, task, source_plan_digest)
+    def handoff_id_for(
+        cls, source_crew: str, target_crew: str, task: str, source_plan_digest: str,
+        source_proposal_digest: str = "",
+    ) -> str:
+        """Return the stable idempotency key bound to the source proposal when available."""
+        return cls._handoff_id(source_crew, target_crew, task, source_plan_digest, source_proposal_digest)
 
     def _persist(self) -> None:
         self._ensure_healthy()
@@ -631,6 +643,7 @@ class GraphHandoffController:
         source_plan_digest: str,
         allowed_handoffs: Sequence[str],
         selected_crews: Sequence[str],
+        source_proposal_digest: str = "",
     ) -> CrewHandoff | None:
         if target_crew not in allowed_handoffs:
             raise PermissionError(f"handoff {source_crew}->{target_crew} is not declared by crew contract")
@@ -638,7 +651,11 @@ class GraphHandoffController:
             raise PermissionError(f"handoff target crew is not assigned to the graph plan: {target_crew}")
         if not task.strip() or not source_plan_digest.strip():
             raise ValueError("handoff task and source plan digest are required")
-        handoff_id = self._handoff_id(source_crew, target_crew, task, source_plan_digest)
+        if source_proposal_digest and not re.fullmatch(r"[0-9a-f]{64}", source_proposal_digest):
+            raise ValueError("source_proposal_digest must be a lowercase SHA-256 digest")
+        if self.require_persistence and not source_proposal_digest:
+            raise ValueError("durable handoffs require a source proposal digest")
+        handoff_id = self._handoff_id(source_crew, target_crew, task, source_plan_digest, source_proposal_digest)
         with self._lock:
             self._ensure_healthy()
             for queued in self._queue:
@@ -652,7 +669,7 @@ class GraphHandoffController:
                 if handoff_id not in self._completion_receipts:
                     raise ValueError("completed handoff lacks a durable independent review receipt")
                 return None
-            handoff = CrewHandoff(source_crew, target_crew, task.strip(), source_plan_digest, 0, handoff_id)
+            handoff = CrewHandoff(source_crew, target_crew, task.strip(), source_plan_digest, 0, handoff_id, source_proposal_digest, "")
             if handoff_id in self._seen_ids:
                 raise ValueError(
                     "handoff was already claimed or completed; duplicate dispatch is blocked"
@@ -684,7 +701,8 @@ class GraphHandoffController:
             # field before consuming budget or mutating queue/in-flight state.
             self.validate_claimed(handoff)
             handoff_id = handoff.handoff_id or self._handoff_id(
-                handoff.source_crew, handoff.target_crew, handoff.task, handoff.source_plan_digest
+                handoff.source_crew, handoff.target_crew, handoff.task, handoff.source_plan_digest,
+                handoff.source_proposal_digest,
             )
             if not retryable or handoff.attempt + 1 >= self.max_attempts:
                 self._in_flight.pop(handoff_id, None)
@@ -722,6 +740,7 @@ class GraphHandoffController:
                 or claimed.task != handoff.task
                 or claimed.source_plan_digest != handoff.source_plan_digest
                 or claimed.attempt != handoff.attempt
+                or claimed.source_proposal_digest != handoff.source_proposal_digest
             ):
                 raise ValueError("handoff completion record does not match the claimed handoff")
 
@@ -771,7 +790,14 @@ class GraphHandoffController:
             self.validate_claimed(handoff)
             if not isinstance(review_receipt, Mapping):
                 raise PermissionError("handoff completion requires a durable independent review receipt")
+            if self.require_persistence:
+                if not re.fullmatch(r"[0-9a-f]{64}", handoff.source_proposal_digest or "") or not re.fullmatch(r"[0-9a-f]{64}", handoff.target_proposal_digest or ""):
+                    raise PermissionError("durable handoff completion requires source and target proposal digests")
             validated_receipt = self._validate_independent_review_receipt(review_receipt)
+            if self.require_persistence and not {
+                handoff.source_proposal_digest, handoff.target_proposal_digest
+            }.issubset(set(validated_receipt["evidence_refs"])):
+                raise PermissionError("independent review receipt must reference both proposal digests")
             if validated_receipt["status"] != "pass":
                 raise PermissionError("a rejected review receipt cannot mark a handoff successful")
             key = (handoff.source_crew, handoff.target_crew, hashlib.sha256(handoff.task.encode()).hexdigest())
@@ -797,7 +823,14 @@ class GraphHandoffController:
             self.validate_claimed(handoff)
             if not isinstance(review_receipt, Mapping):
                 raise PermissionError("terminal rejection requires an independent review receipt")
+            if self.require_persistence:
+                if not re.fullmatch(r"[0-9a-f]{64}", handoff.source_proposal_digest or "") or not re.fullmatch(r"[0-9a-f]{64}", handoff.target_proposal_digest or ""):
+                    raise PermissionError("durable handoff rejection requires source and target proposal digests")
             validated_receipt = self._validate_independent_review_receipt(review_receipt)
+            if self.require_persistence and not {
+                handoff.source_proposal_digest, handoff.target_proposal_digest
+            }.issubset(set(validated_receipt["evidence_refs"])):
+                raise PermissionError("independent review receipt must reference both proposal digests")
             if validated_receipt["status"] != "reject":
                 raise PermissionError("mark_rejected requires a reject review receipt")
             key = (handoff.source_crew, handoff.target_crew, hashlib.sha256(handoff.task.encode()).hexdigest())
@@ -819,18 +852,20 @@ class GraphHandoffController:
         """JSON-safe checkpoint for the supervisor's canonical task store."""
         with self._lock:
             payload = {
-                "schema_version": "auren-crew-handoff-checkpoint-v3",
+                "schema_version": "auren-crew-handoff-checkpoint-v4",
                 "max_attempts": self.max_attempts,
                 "queued": [
                     {"source_crew": h.source_crew, "target_crew": h.target_crew,
                      "task": h.task, "source_plan_digest": h.source_plan_digest,
-                     "attempt": h.attempt, "handoff_id": h.handoff_id}
+                     "attempt": h.attempt, "handoff_id": h.handoff_id,
+                     "source_proposal_digest": h.source_proposal_digest}
                     for h in self._queue
                 ],
                 "in_flight": [
                     {"source_crew": h.source_crew, "target_crew": h.target_crew,
                      "task": h.task, "source_plan_digest": h.source_plan_digest,
-                     "attempt": h.attempt, "handoff_id": h.handoff_id}
+                     "attempt": h.attempt, "handoff_id": h.handoff_id,
+                     "source_proposal_digest": h.source_proposal_digest}
                     for h in sorted(self._in_flight.values(), key=lambda item: item.handoff_id)
                 ],
                 "seen_ids": sorted(self._seen_ids),
@@ -855,12 +890,12 @@ class GraphHandoffController:
     ) -> "GraphHandoffController":
         if not isinstance(checkpoint, Mapping) or checkpoint.get("schema_version") not in {
             "auren-crew-handoff-checkpoint-v1", "auren-crew-handoff-checkpoint-v2",
-            "auren-crew-handoff-checkpoint-v3"
+            "auren-crew-handoff-checkpoint-v3", "auren-crew-handoff-checkpoint-v4"
         }:
             raise ValueError("unsupported handoff checkpoint")
         supplied_digest = checkpoint.get("digest")
-        if checkpoint.get("schema_version") in {"auren-crew-handoff-checkpoint-v2", "auren-crew-handoff-checkpoint-v3"} and not supplied_digest:
-            raise ValueError("handoff checkpoint digest is required for schema v2/v3")
+        if checkpoint.get("schema_version") in {"auren-crew-handoff-checkpoint-v2", "auren-crew-handoff-checkpoint-v3", "auren-crew-handoff-checkpoint-v4"} and not supplied_digest:
+            raise ValueError("handoff checkpoint digest is required for schema v2/v3/v4")
         if supplied_digest is not None:
             payload = {key: value for key, value in checkpoint.items() if key != "digest"}
             expected_digest = hashlib.sha256(
@@ -902,11 +937,16 @@ class GraphHandoffController:
                 raise ValueError("invalid handoff checkpoint fields")
             if type(attempt) is not int or not 0 <= attempt < controller.max_attempts:
                 raise ValueError("checkpoint handoff attempt is outside retry budget")
-            expected_id = cls._handoff_id(source, target, task, plan_digest)
+            source_proposal_digest = raw.get("source_proposal_digest", "")
+            if not isinstance(source_proposal_digest, str) or (source_proposal_digest and not re.fullmatch(r"[0-9a-f]{64}", source_proposal_digest)):
+                raise ValueError("invalid source proposal digest in handoff checkpoint")
+            if checkpoint.get("schema_version") == "auren-crew-handoff-checkpoint-v4" and not source_proposal_digest:
+                raise ValueError("v4 handoff checkpoint requires source proposal digest")
+            expected_id = cls._handoff_id(source, target, task, plan_digest, source_proposal_digest)
             handoff_id = raw.get("handoff_id", expected_id)
             if handoff_id != expected_id:
                 raise ValueError("handoff checkpoint ID does not match its payload")
-            return CrewHandoff(source, target, task, plan_digest, attempt, expected_id)
+            return CrewHandoff(source, target, task, plan_digest, attempt, expected_id, source_proposal_digest, "")
 
         for raw in queued:
             if not isinstance(raw, Mapping):
@@ -939,7 +979,7 @@ class GraphHandoffController:
             not isinstance(value, str) or not value.strip() for value in completed_ids
         ):
             raise ValueError("invalid completed handoff IDs")
-        if checkpoint.get("schema_version") == "auren-crew-handoff-checkpoint-v3":
+        if checkpoint.get("schema_version") in {"auren-crew-handoff-checkpoint-v3", "auren-crew-handoff-checkpoint-v4"}:
             if len(completed_ids) != len(set(completed_ids)):
                 raise ValueError("duplicate completed handoff ID")
             if not set(completed_ids).issubset(set(saved_seen)):
@@ -950,7 +990,7 @@ class GraphHandoffController:
         completion_receipts = checkpoint.get("completion_receipts", {})
         if not isinstance(completion_receipts, Mapping):
             raise ValueError("invalid completed handoff review receipts")
-        if checkpoint.get("schema_version") == "auren-crew-handoff-checkpoint-v3":
+        if checkpoint.get("schema_version") in {"auren-crew-handoff-checkpoint-v3", "auren-crew-handoff-checkpoint-v4"}:
             if set(completion_receipts) != set(completed_ids):
                 raise ValueError("every completed handoff must retain its independent review receipt")
             for handoff_id, receipt in completion_receipts.items():
