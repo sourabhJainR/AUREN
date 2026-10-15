@@ -26,6 +26,7 @@ from portable.identity_compat import canonical_runtime_home, canonicalize_auren_
 from typing import Any, Callable, Mapping
 from .execution_strategy import ExecutionStrategy, execution_strategy
 from .engineering_design_guard import EngineeringDesignGuard
+from .runtime_recovery import ExecutionBudgetExceeded, NoProgressDetected, RuntimeExecutionGuard
 
 
 class NodeKind(str, Enum):
@@ -359,6 +360,29 @@ class Orchestrator:
     def run(self, task_id: str, intent: str, context: Mapping[str, Any] | None = None) -> OrchestrationRun:
         run = OrchestrationRun(task_id=task_id, intent_digest=self.intent_digest(intent), environment_fingerprint=self.environment_fingerprint(context))
         state: dict[str, Any] = dict(context or {})
+        raw_guard = state.get("_auren_runtime_execution_guard")
+        if isinstance(raw_guard, RuntimeExecutionGuard):
+            guard = raw_guard
+        else:
+            deadline_seconds = None
+            raw_deadline = state.get("auren_deadline_at")
+            if isinstance(raw_deadline, str):
+                try:
+                    parsed_deadline = datetime.fromisoformat(raw_deadline)
+                    if parsed_deadline.tzinfo is not None:
+                        deadline_seconds = max(0.001, (parsed_deadline.astimezone(timezone.utc) - datetime.now(timezone.utc)).total_seconds())
+                except ValueError:
+                    pass
+            saved_guard = state.get("auren_runtime_guard")
+            if isinstance(saved_guard, Mapping):
+                guard = RuntimeExecutionGuard.resume(saved_guard)
+            else:
+                guard = RuntimeExecutionGuard(
+                    max_steps=max(1, len(self.graph.order())),
+                    max_attempts=self.max_total_attempts,
+                    deadline_seconds=deadline_seconds,
+                )
+        state["_auren_runtime_execution_guard"] = guard
         state["intent_digest"] = run.intent_digest
 
         changed_paths = state.get("changed_paths", state.get("files", ()))
@@ -456,8 +480,36 @@ class Orchestrator:
                 "risk": node.risk,
                 "attempt_limit": attempt_limit,
             })
-            result = self._execute_node(node, state, run, total_attempts, max_attempts_override=attempt_limit)
+            try:
+                guard.charge_step()
+                result = self._execute_node(node, state, run, total_attempts, guard=guard, max_attempts_override=attempt_limit)
+                if result.status == NodeStatus.FAILED and result.error:
+                    guard.observe_failure(node=node.name, state=state, error=RuntimeError(result.error))
+                else:
+                    guard.observe_progress(node=node.name, state=state)
+            except NoProgressDetected as exc:
+                run.status = RunStatus.FAILED
+                run.stop_reason = str(exc)
+                run.trajectory.append({"event": "runtime-recovery-stop", "status": "failed", "reason": str(exc)})
+                state["auren_runtime_guard"] = guard.snapshot()
+                persist_guard = state.get("auren_runtime_guard_persist")
+                if callable(persist_guard):
+                    persist_guard(guard.snapshot())
+                return run
+            except ExecutionBudgetExceeded as exc:
+                run.status = RunStatus.BLOCKED
+                run.stop_reason = str(exc)
+                run.trajectory.append({"event": "runtime-budget-exhausted", "status": "blocked", "reason": str(exc)})
+                state["auren_runtime_guard"] = guard.snapshot()
+                persist_guard = state.get("auren_runtime_guard_persist")
+                if callable(persist_guard):
+                    persist_guard(guard.snapshot())
+                return run
             run.results[node.name] = result
+            state["auren_runtime_guard"] = guard.snapshot()
+            persist_guard = state.get("auren_runtime_guard_persist")
+            if callable(persist_guard):
+                persist_guard(guard.snapshot())
             total_attempts += result.attempts
             run.trajectory.append({"node": node.name, "status": result.status.value, "attempts": result.attempts, "repairs": result.repair_count})
             if result.evidence:
@@ -590,6 +642,7 @@ class Orchestrator:
         run: OrchestrationRun,
         total_attempts: int,
         *,
+        guard: RuntimeExecutionGuard | None = None,
         max_attempts_override: int | None = None,
     ) -> NodeResult:
         attempts = 0
@@ -629,12 +682,17 @@ class Orchestrator:
                 return NodeResult(node.name, NodeStatus.FAILED, attempts, last_output, evidence, failure, repair_count=repairs)
             attempts += 1
             try:
+                if guard is not None:
+                    guard.check()
+                    guard.charge_attempt(f"{run.task_id}:{node.name}:attempt:{guard.attempts_used + 1}")
                 if isinstance(state, dict) and isinstance(state.get("auren_deadline_at"), str):
                     deadline = datetime.fromisoformat(state["auren_deadline_at"]).astimezone(timezone.utc)
                     state["auren_remaining_seconds"] = max(
                         0.0, (deadline - datetime.now(timezone.utc)).total_seconds()
                     )
                 output = node.run(state)
+                if guard is not None:
+                    guard.check()
                 last_output = output
                 failure = deadline_failure()
                 if failure:
@@ -647,6 +705,8 @@ class Orchestrator:
                     return NodeResult(node.name, NodeStatus.PASSED, attempts, output, evidence, repair_count=repairs)
                 last_error = "evaluator rejected node output"
                 evidence.append(Evidence("evaluation-failure", last_error, node.name))
+            except ExecutionBudgetExceeded:
+                raise
             except Exception as exc:
                 last_error = f"{type(exc).__name__}: {exc}"
                 evidence.append(Evidence("execution-error", last_error, node.name))

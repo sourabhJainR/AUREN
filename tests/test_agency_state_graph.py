@@ -129,6 +129,70 @@ class StateGraphTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             graph.compile().invoke({}, max_steps=3)
 
+    def test_runtime_attempt_budget_is_shared_across_graph_nodes(self):
+        calls = []
+        graph = StateGraph()
+        graph.add_node("first", lambda state: (calls.append("first") or {"first": True}))
+        graph.add_node("second", lambda state: (calls.append("second") or {"second": True}))
+        graph.add_edge(StateGraph.START, "first").add_edge("first", "second")
+        graph.add_edge("second", StateGraph.END)
+        store = InMemoryCheckpointStore()
+        from portable.runtime_recovery import ExecutionBudgetExceeded
+        with self.assertRaises(ExecutionBudgetExceeded):
+            graph.compile().invoke({}, run_id="budget", checkpoint=store, max_attempts=1)
+        self.assertEqual(calls, ["first"])
+        self.assertIsNotNone(store.load("budget").runtime_guard)
+
+    def test_repeated_terminal_failure_across_resume_stops_without_false_success(self):
+        graph = StateGraph()
+        calls = []
+        def broken(_state):
+            calls.append(1)
+            raise ValueError("stable failure")
+        graph.add_node("broken", broken, retry_policy=RetryPolicy(1))
+        graph.add_edge(StateGraph.START, "broken").add_edge("broken", StateGraph.END)
+        store = InMemoryCheckpointStore()
+        with self.assertRaisesRegex(ValueError, "stable failure"):
+            graph.compile().invoke({}, run_id="repeat", checkpoint=store)
+        from portable.runtime_recovery import NoProgressDetected
+        with self.assertRaises(NoProgressDetected):
+            graph.compile().invoke({}, run_id="repeat", checkpoint=store, resume=True)
+        self.assertEqual(len(calls), 2)
+        self.assertTrue(store.load("repeat").runtime_guard["cancelled"])
+
+    def test_legacy_checkpoint_resumes_with_a_bounded_migrated_budget(self):
+        from portable.agency_state_graph import Checkpoint
+        store = InMemoryCheckpointStore()
+        store.save(Checkpoint("legacy", 0, {}, ("work",)))
+        graph = StateGraph()
+        graph.add_node("work", lambda _state: {"done": True})
+        graph.add_edge(StateGraph.START, "work").add_edge("work", StateGraph.END)
+        result = graph.compile().invoke({}, run_id="legacy", checkpoint=store, resume=True)
+        self.assertTrue(result.state["done"])
+        self.assertIsNotNone(store.load("legacy").runtime_guard)
+
+    def test_deadline_overrun_rejects_late_node_result(self):
+        import time
+        from portable.runtime_recovery import ExecutionBudgetExceeded
+        graph = StateGraph()
+        graph.add_node("slow", lambda _state: (time.sleep(0.03) or {"done": True}))
+        graph.add_edge(StateGraph.START, "slow").add_edge("slow", StateGraph.END)
+        with self.assertRaises(ExecutionBudgetExceeded):
+            graph.compile().invoke({}, deadline_seconds=0.005)
+
+    def test_isolated_node_failure_cannot_be_reported_as_success(self):
+        graph = StateGraph()
+        graph.add_node("broken", lambda _state: (_ for _ in ()).throw(ValueError("failed")))
+        graph.add_node("healthy", lambda _state: {"healthy": True})
+        graph.add_edge(StateGraph.START, "broken").add_edge(StateGraph.START, "healthy")
+        graph.add_edge("broken", StateGraph.END).add_edge("healthy", StateGraph.END)
+        result = graph.compile().invoke(
+            {}, parallel_nodes=lambda _name: True, max_parallel_nodes=2,
+            parallel_failure_mode="isolate",
+        )
+        self.assertTrue(result.interrupted)
+        self.assertTrue(any(event.status == "failed-isolated" for event in result.events))
+
 
 if __name__ == "__main__":
     unittest.main()
