@@ -92,6 +92,58 @@ class AdaptiveRuntimeRecoveryIntegrationTests(unittest.TestCase):
                 context={"auren_max_iterations": 1000000},
             )
 
+    def test_default_runtime_continues_independent_work_when_dependency_is_blocked(self):
+        calls = []
+
+        def fail_critical(_state):
+            calls.append("critical")
+            raise RuntimeError("required dependency failed")
+
+        def dependent(_state):
+            calls.append("dependent")
+            return "must not run"
+
+        def independent(_state):
+            calls.append("independent")
+            return "safe independent work completed"
+
+        graph = Graph([
+            Node("a-critical", NodeKind.DETERMINISTIC, fail_critical, critical=True),
+            Node("b-dependent", NodeKind.DETERMINISTIC, dependent, depends_on=("a-critical",), critical=False),
+            Node("z-independent", NodeKind.DETERMINISTIC, independent, critical=False),
+        ])
+        runtime = AdaptiveRuntime(graph, state_root=self.root / "state")
+        with self.assertRaisesRegex(RuntimeError, "stopped safely"):
+            runtime.run(
+                session_id="blocked-dependency-session",
+                task_id="blocked-dependency-task",
+                project_root=self.root,
+                intent="continue safe independent work around a blocked dependency",
+                context={"auren_max_iterations": 1},
+            )
+
+        self.assertEqual(calls, ["critical", "independent"])
+        with sqlite3.connect(runtime.execution_controller.db_path) as db:
+            work_id = db.execute(
+                "SELECT work_unit_id FROM sessions WHERE session_id=?",
+                ("blocked-dependency-session:blocked-dependency-task",),
+            ).fetchone()[0]
+        attempts = runtime.recovery_ledger.attempts(work_id)
+        self.assertEqual(len(attempts), 1)
+        self.assertEqual(attempts[0].outcome, "failed")
+        checkpoint = runtime.recovery_ledger.get_checkpoint(work_id, "execution")
+        self.assertIsNotNone(checkpoint)
+        self.assertEqual(checkpoint.status, "blocked")
+        self.assertIn("required dependency failed", checkpoint.payload["last_failure"])
+
+        # A fresh runtime sees the same blocked terminal checkpoint; it must not
+        # silently convert a failed critical dependency into an accepted run.
+        resumed = AdaptiveRuntime(graph, state_root=self.root / "state")
+        resumed_checkpoint = resumed.recovery_ledger.get_checkpoint(work_id, "execution")
+        self.assertIsNotNone(resumed_checkpoint)
+        self.assertEqual(resumed_checkpoint.status, "blocked")
+        self.assertEqual(resumed_checkpoint.payload["outcome"], "blocked")
+
 
 if __name__ == "__main__":
     unittest.main()
