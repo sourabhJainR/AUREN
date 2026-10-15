@@ -129,6 +129,47 @@ class StateGraphTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             graph.compile().invoke({}, max_steps=3)
 
+    def test_runtime_attempt_budget_is_shared_across_graph_nodes(self):
+        calls = []
+        graph = StateGraph()
+        graph.add_node("first", lambda state: (calls.append("first") or {"first": True}))
+        graph.add_node("second", lambda state: (calls.append("second") or {"second": True}))
+        graph.add_edge(StateGraph.START, "first").add_edge("first", "second")
+        graph.add_edge("second", StateGraph.END)
+        store = InMemoryCheckpointStore()
+        from portable.runtime_recovery import ExecutionBudgetExceeded
+        with self.assertRaises(ExecutionBudgetExceeded):
+            graph.compile().invoke({}, run_id="budget", checkpoint=store, max_attempts=1)
+        self.assertEqual(calls, ["first"])
+        self.assertIsNotNone(store.load("budget").runtime_guard)
+
+    def test_repeated_terminal_failure_across_resume_stops_without_false_success(self):
+        graph = StateGraph()
+        calls = []
+        def broken(_state):
+            calls.append(1)
+            raise ValueError("stable failure")
+        graph.add_node("broken", broken, retry_policy=RetryPolicy(1))
+        graph.add_edge(StateGraph.START, "broken").add_edge("broken", StateGraph.END)
+        store = InMemoryCheckpointStore()
+        with self.assertRaisesRegex(ValueError, "stable failure"):
+            graph.compile().invoke({}, run_id="repeat", checkpoint=store)
+        from portable.runtime_recovery import NoProgressDetected
+        with self.assertRaises(NoProgressDetected):
+            graph.compile().invoke({}, run_id="repeat", checkpoint=store, resume=True)
+        self.assertEqual(len(calls), 2)
+        self.assertTrue(store.load("repeat").runtime_guard["cancelled"])
+
+    def test_resume_rejects_checkpoint_without_recovery_budget(self):
+        from portable.agency_state_graph import Checkpoint
+        store = InMemoryCheckpointStore()
+        store.save(Checkpoint("legacy", 0, {}, ("work",)))
+        graph = StateGraph()
+        graph.add_node("work", lambda _state: {"done": True})
+        graph.add_edge(StateGraph.START, "work").add_edge("work", StateGraph.END)
+        with self.assertRaisesRegex(ValueError, "lacks runtime guard"):
+            graph.compile().invoke({}, run_id="legacy", checkpoint=store, resume=True)
+
 
 if __name__ == "__main__":
     unittest.main()
