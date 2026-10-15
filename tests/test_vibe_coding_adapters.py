@@ -107,7 +107,7 @@ class VibeCodingAdapterTests(unittest.TestCase):
             frozenset(default_stage_capabilities()[stage.value]),
             lambda _request: {}, historical_success=0.95, evidence_quality=0.95,
         ))
-        for index in range(5):
+        for index in range(6):
             registry.record_evaluation(
                 "research", workflow_id=f"workflow-{index % 3}",
                 passed=True, evidence_refs=[f"evidence://{index}"],
