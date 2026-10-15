@@ -19,7 +19,7 @@ from portable.vibe_coding_host import (
     JournaledToolAdapter,
     SideEffectJournal,
     VerifiedResearchTool,
-    _worktree_digest,
+    fingerprint_worktree,
     load_host_config,
 )
 
@@ -186,16 +186,16 @@ class VibeCodingHostTests(unittest.TestCase):
             with self.assertRaisesRegex(Exception, "uncertain outcome"):
                 adapter(request)
             self.assertEqual(calls, ["called"])
-            reviewed_digest = _worktree_digest(root)
+            reviewed_digest = fingerprint_worktree(root)
             with self.assertRaisesRegex(PermissionError, "explicit operator authorization"):
                 journal.resolve_uncertain(
                     "uncertain-test", "development", "agent", action="retry",
-                    workspace_root=root, expected_worktree_digest=reviewed_digest,
+                    workspace_root=root, expectedfingerprint_worktree=reviewed_digest,
                     external_state_evidence="operator://review-1", reason="Reviewed partial write",
                 )
             journal.resolve_uncertain(
                 "uncertain-test", "development", "agent", action="retry",
-                workspace_root=root, expected_worktree_digest=reviewed_digest,
+                workspace_root=root, expectedfingerprint_worktree=reviewed_digest,
                 external_state_evidence="operator://review-1", reason="Reviewed partial write",
                 authorized=True,
             )
