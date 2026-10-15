@@ -415,3 +415,154 @@ def test_graph_team_rejects_checkpoint_for_stale_intent_or_crew_plan():
     envelope["crew_plan_digest"] = "f" * 64
     with pytest.raises(ValueError, match="crew-plan digest"):
         team.run("task-checkpoint", intent, {"auren_supervisor_checkpoint_envelope": envelope})
+
+
+def test_provider_resume_uses_canonical_graph_checkpoint_and_evidence(tmp_path: Path):
+    import sqlite3
+    from portable.crew_adapters import TaskRetryBudget
+    from portable.resumable_provider import ResumableProviderExecutor
+    from portable.state_graph import GraphAgentTeam
+
+    class ProviderCheckpointGraph:
+        def digest(self):
+            return "a" * 64
+
+        def run(self, task_id, intent, state):
+            budget = TaskRetryBudget.resume(state["auren_retry_budget"])
+            executor = ResumableProviderExecutor(
+                task_id=task_id,
+                stage_id="proposal",
+                providers={
+                    "primary": lambda request, key: (_ for _ in ()).throw(ConnectionResetError("reset")),
+                    "backup": lambda request, key: {"proposal": "ok"},
+                },
+                provider_versions={"primary": "v1", "backup": "v2"},
+                preferred_provider="primary",
+                retry_budget=budget,
+                persist=state["auren_provider_resume_persist"],
+            )
+            self.result = executor.run({"intent": intent})
+            return self.result
+
+    controller = ExecutionController(tmp_path)
+    graph = ProviderCheckpointGraph()
+    result = controller.execute_graph(
+        GraphAgentTeam(graph=graph),
+        "provider-task",
+        "resume provider work",
+        {"auren_provider_resume_state": {"forged": True}},
+    )
+    assert result == {"proposal": "ok"}
+    envelope = controller.load_graph_checkpoint("provider-task")
+    assert envelope is not None
+    provider_state = envelope["provider_resume_state"]
+    assert provider_state["task_id"] == "provider-task"
+    assert provider_state["status"] == "completed"
+    assert envelope["retry_budget"]["used_retries"] == 1
+    assert envelope["handoff_checkpoint"]["retry_budget"]["digest"] == envelope["retry_budget"]["digest"]
+    assert len(provider_state["digest"]) == 64
+    assert "forged" not in provider_state
+    with sqlite3.connect(controller.evidence_capture.path) as db:
+        rows = db.execute(
+            "SELECT metadata_json FROM engineering_events "
+            "WHERE event_type='crew_handoff_checkpoint_persisted'"
+        ).fetchall()
+    assert rows
+    assert any(provider_state["digest"] in row[0] for row in rows)
+
+
+def test_provider_resume_checkpoint_tampering_fails_closed(tmp_path: Path):
+    import hashlib
+    import pytest
+    from portable.crew_adapters import GraphHandoffController, TaskRetryBudget
+
+    controller = ExecutionController(tmp_path)
+    envelope = _supervisor_checkpoint_envelope("provider-tamper")
+    provider_payload = {
+        "schema_version": "auren-provider-resume-v1",
+        "task_id": "provider-tamper",
+        "stage_id": "proposal",
+        "preferred_provider": "p",
+        "attempted_providers": [],
+        "deferred_until": {},
+        "status": "ready",
+        "result_digest": None,
+        "retry_budget": envelope["retry_budget"],
+        "provider_versions": {"p": "1"},
+        "provider_configuration_digest": hashlib.sha256(
+            b'{"preferred":"p","versions":{"p":"1"}}'
+        ).hexdigest(),
+    }
+    provider_payload["digest"] = hashlib.sha256(
+        __import__("json").dumps(
+            provider_payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        ).encode("utf-8")
+    ).hexdigest()
+    envelope["provider_resume_state"] = provider_payload
+    controller.save_graph_checkpoint("provider-tamper", envelope)
+    loaded = controller.load_graph_checkpoint("provider-tamper")
+    assert loaded["provider_resume_state"]["digest"] == provider_payload["digest"]
+
+    tampered = dict(loaded)
+    tampered_provider = dict(tampered["provider_resume_state"])
+    tampered_provider["status"] = "completed"
+    tampered["provider_resume_state"] = tampered_provider
+    with pytest.raises(ValueError, match="provider resume checkpoint digest mismatch"):
+        controller.save_graph_checkpoint("provider-tamper", tampered)
+
+
+def test_rate_limited_provider_resumes_after_reset_from_supervisor_checkpoint(tmp_path: Path):
+    from datetime import datetime, timezone
+    from portable.crew_adapters import TaskRetryBudget
+    from portable.resumable_provider import ProviderCallError, ResumableProviderExecutor
+    from portable.state_graph import GraphAgentTeam
+
+    reset_at = "2026-10-15T12:01:00+00:00"
+
+    class RateLimitGraph:
+        def __init__(self, resumed):
+            self.resumed = resumed
+
+        def digest(self):
+            return "c" * 64
+
+        def run(self, task_id, intent, state):
+            budget = TaskRetryBudget.resume(state["auren_retry_budget"])
+            def limited(_request, _key):
+                raise ProviderCallError("rate limited", status_code=429, reset_at=reset_at)
+            providers = (
+                {"a": limited, "b": limited}
+                if not self.resumed
+                else {"a": limited, "b": lambda request, key: {"resumed": True}}
+            )
+            executor = ResumableProviderExecutor(
+                task_id=task_id,
+                stage_id="long-operation",
+                providers=providers,
+                provider_versions={"a": "v1", "b": "v2"},
+                preferred_provider="a" if not self.resumed else "b",
+                retry_budget=budget,
+                persist=state["auren_provider_resume_persist"],
+                checkpoint=state.get("auren_provider_resume_state"),
+            )
+            return executor.run(
+                {"intent": intent},
+                now=datetime(2026, 10, 15, 12, 0 if not self.resumed else 1, tzinfo=timezone.utc),
+            )
+
+    controller = ExecutionController(tmp_path)
+    first = controller.execute_graph(
+        GraphAgentTeam(graph=RateLimitGraph(False)), "rate-limited-task", "long operation"
+    )
+    assert first["status"] == "deferred"
+    saved = controller.load_graph_checkpoint("rate-limited-task")
+    assert saved["provider_resume_state"]["status"] == "deferred"
+    assert saved["retry_budget"]["used_retries"] == 1
+
+    second = controller.execute_graph(
+        GraphAgentTeam(graph=RateLimitGraph(True)), "rate-limited-task", "long operation"
+    )
+    assert second == {"resumed": True}
+    final = controller.load_graph_checkpoint("rate-limited-task")
+    assert final["provider_resume_state"]["status"] == "completed"
+    assert final["retry_budget"]["used_retries"] == 1

@@ -833,7 +833,8 @@ class ExecutionController:
             "schema_version", "handoff_checkpoint", "retry_budget",
             "task_id", "intent_digest", "crew_plan_digest",
         }
-        if set(payload) != expected_fields:
+        allowed_fields = (expected_fields, expected_fields | {"provider_resume_state"})
+        if set(payload) not in allowed_fields:
             raise ValueError("supervisor handoff checkpoint envelope has missing or unknown fields")
         if payload.get("schema_version") != "auren-task-handoff-envelope-v1":
             raise ValueError("unsupported supervisor handoff checkpoint envelope")
@@ -857,6 +858,20 @@ class ExecutionController:
         if embedded.snapshot()["digest"] != budget.snapshot()["digest"]:
             raise ValueError("handoff and supervisor retry-budget checkpoints disagree")
         GraphHandoffController.resume(checkpoint, retry_budget=budget)
+        provider_resume = payload.get("provider_resume_state")
+        if provider_resume is not None:
+            if not isinstance(provider_resume, Mapping):
+                raise ValueError("provider resume state must be a mapping")
+            provider_digest = provider_resume.get("digest")
+            provider_payload = {key: value for key, value in provider_resume.items() if key != "digest"}
+            canonical = json.dumps(
+                provider_payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
+            )
+            expected_provider_digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+            if not isinstance(provider_digest, str) or provider_digest != expected_provider_digest:
+                raise ValueError("provider resume checkpoint digest mismatch")
+            if provider_resume.get("task_id") != task_id:
+                raise ValueError("provider resume checkpoint task_id does not match supervisor context")
         return payload
 
     def save_graph_checkpoint(self, task_id: str, envelope: Mapping[str, Any]) -> None:
@@ -924,6 +939,8 @@ class ExecutionController:
                     "checkpoint_digest": digest,
                     "crew_plan_digest": payload["crew_plan_digest"],
                     "retry_budget_digest": payload["retry_budget"]["digest"],
+                    **({"provider_resume_digest": payload["provider_resume_state"]["digest"]}
+                       if isinstance(payload.get("provider_resume_state"), Mapping) else {}),
                 },
                 event_id=event_id,
             )
@@ -966,6 +983,8 @@ class ExecutionController:
                 "auren_crew_handoff_checkpoint_data",
                 "auren_crew_handoff_checkpoint",
                 "auren_retry_budget",
+                "auren_provider_resume_state",
+                "auren_provider_resume_persist",
             ):
                 state.pop(reserved, None)
             saved = self.load_graph_checkpoint(task_id)
