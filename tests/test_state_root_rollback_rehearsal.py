@@ -12,23 +12,23 @@ class StateRootRollbackRehearsalTests(unittest.TestCase):
     def test_migrate_activate_and_rollback_preserves_both_roots(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            legacy = root / ".aer"
-            legacy.mkdir()
-            (legacy / "checkpoint.json").write_text('{"run":"last-known-good"}', encoding="utf-8")
+            source_root = root / "prior-state"
+            source_root.mkdir()
+            (source_root / "checkpoint.json").write_text('{"run":"last-known-good"}', encoding="utf-8")
             canonical = root / ".auren"
             pointer = root / "active-state-root"
 
-            old_digest = inspect_state_migration(legacy, root / "unused").manifest_sha256
-            migration = migrate_state_root(legacy, canonical, dry_run=False)
+            old_digest = inspect_state_migration(source_root, root / "unused").manifest_sha256
+            migration = migrate_state_root(source_root, canonical, dry_run=False)
             self.assertEqual(migration.status, "copied_verified_source_retained")
             new_digest = inspect_state_migration(canonical, root / "unused2").manifest_sha256
 
             self.assertEqual(activate_state_root(canonical, pointer, expected_manifest_sha256=new_digest), str(canonical.resolve()))
             self.assertEqual(pointer.read_text().strip(), str(canonical.resolve()))
 
-            self.assertEqual(rollback_state_root(legacy, pointer, expected_manifest_sha256=old_digest), str(legacy.resolve()))
-            self.assertEqual(pointer.read_text().strip(), str(legacy.resolve()))
-            self.assertTrue((legacy / "checkpoint.json").exists())
+            self.assertEqual(rollback_state_root(source_root, pointer, expected_manifest_sha256=old_digest), str(source_root.resolve()))
+            self.assertEqual(pointer.read_text().strip(), str(source_root.resolve()))
+            self.assertTrue((source_root / "checkpoint.json").exists())
             self.assertTrue((canonical / "checkpoint.json").exists())
 
     def test_wrong_digest_never_changes_active_pointer(self):
