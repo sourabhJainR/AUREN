@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import hashlib
 import json
+import re
 import time
 from typing import Any, Callable, Mapping, Sequence
 from threading import RLock
@@ -718,6 +719,7 @@ class GraphHandoffController:
             retry = CrewHandoff(
                 handoff.source_crew, handoff.target_crew, handoff.task,
                 handoff.source_plan_digest, handoff.attempt + 1, handoff_id,
+                handoff.source_proposal_digest, "",
             )
             self._in_flight.pop(handoff_id, None)
             self._queue.append(retry)
@@ -729,7 +731,8 @@ class GraphHandoffController:
         with self._lock:
             self._ensure_healthy()
             handoff_id = handoff.handoff_id or self._handoff_id(
-                handoff.source_crew, handoff.target_crew, handoff.task, handoff.source_plan_digest
+                handoff.source_crew, handoff.target_crew, handoff.task, handoff.source_plan_digest,
+                handoff.source_proposal_digest,
             )
             claimed = self._in_flight.get(handoff_id)
             if claimed is None:
