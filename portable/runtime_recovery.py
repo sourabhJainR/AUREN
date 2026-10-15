@@ -82,9 +82,9 @@ class RuntimeExecutionGuard:
         if not isinstance(operation_key, str) or not operation_key.strip():
             raise ValueError("operation_key is required")
         with self._lock:
-            self._check_locked()
             if operation_key in self._charged:
                 return False
+            self._check_locked()
             if self._attempts >= self.max_attempts:
                 raise ExecutionBudgetExceeded(f"task attempt budget exhausted ({self.max_attempts})")
             self._charged.add(operation_key)
