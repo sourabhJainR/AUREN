@@ -275,3 +275,10 @@ trace -> evaluate -> learn -> regression -> shadow -> canary -> promote -> monit
 ```
 
 Learned behavior remains advisory and safety/security controls remain authoritative.
+
+
+## Vibe-coding orchestration
+
+The portable runtime exposes `portable.vibe_coding` as the canonical 18-stage product lifecycle graph. Callers provide stage handlers; AUREN enforces dependency order, stage-specific evidence contracts, failure blocking, durable checkpoint receipts, and restart/resume without replaying completed stages. Production deployment requires an explicit approval envelope and a release receipt bound to the reviewed revision.
+
+See [../docs/VIBE_CODING_WORKFLOW.md](../docs/VIBE_CODING_WORKFLOW.md) for the complete contract and example.
