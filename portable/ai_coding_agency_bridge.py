@@ -66,7 +66,12 @@ def run_coding_task(task:CodingTask,worker:Callable[[TaskProfile,list[Assignment
         def effective_worker(task_profile: TaskProfile, assignments: list[Assignment]) -> Mapping[str, object]:
             mutating = task_profile.mutation_mode != "read-only"
             capability = "repository.write" if mutating else "repository.read"
-            risk_class = "write" if mutating else "read"
+            task_risk = str(task_profile.risk).strip().lower()
+            risk_class = (
+                "read" if not mutating
+                else "release" if task_risk in {"high", "critical"}
+                else "write"
+            )
             targets = tuple(effective_task.allowed_artifact_changes) if mutating else (effective_task.task_id,)
             if mutating and not targets:
                 return {
