@@ -4,7 +4,7 @@ import unittest
 import tempfile
 from pathlib import Path
 
-from portable.vibe_coding import STAGE_ORDER, VibeStage
+from portable.vibe_coding import STAGE_ORDER, STAGE_SPECS, VibeStage
 from portable.vibe_coding_adapters import (
     AdapterRegistration,
     AdapterUnavailable,
@@ -58,7 +58,7 @@ class VibeCodingAdapterTests(unittest.TestCase):
                 stages=(stage,),
                 capabilities=frozenset(required),
                 invoke=invoke,
-                risk="low",
+                risk=next(spec.risk for spec in STAGE_SPECS if spec.stage == stage),
                 evidence_quality=0.9,
                 historical_success=0.9,
             ))
@@ -165,7 +165,7 @@ class VibeCodingAdapterTests(unittest.TestCase):
         registry.register(AdapterRegistration(
             "research", "1", (stage,),
             frozenset(default_stage_capabilities()[stage.value]),
-            lambda _request: {}, historical_success=0.95, evidence_quality=0.95,
+            lambda _request: {}, risk="medium", historical_success=0.95, evidence_quality=0.95,
         ))
         for index in range(6):
             registry.record_evaluation(
@@ -188,7 +188,7 @@ class VibeCodingAdapterTests(unittest.TestCase):
         registry.register(AdapterRegistration(
             "research-safe", "1", (stage,),
             frozenset(default_stage_capabilities()[stage.value]),
-            invoke,
+            invoke, risk="medium",
         ))
         registry.invoke(stage, {
             "intent": "Research product",
