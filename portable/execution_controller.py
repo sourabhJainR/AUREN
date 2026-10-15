@@ -935,6 +935,46 @@ class ExecutionController:
                 for key in ("intent_digest", "crew_plan_digest"):
                     if old.get(key) != payload.get(key):
                         raise ValueError(f"graph checkpoint {key} is immutable for a task")
+                # A valid digest proves integrity, not freshness. Never allow an
+                # older checkpoint to refund retry charges or resurrect a terminal
+                # handoff after a newer supervisor checkpoint has been committed.
+                from .crew_adapters import TaskRetryBudget
+                old_budget = TaskRetryBudget.resume(old["retry_budget"])
+                new_budget = TaskRetryBudget.resume(payload["retry_budget"])
+                old_charges = {item["operation_key"]: item["component"] for item in old_budget.snapshot()["charges"]}
+                new_charges = {item["operation_key"]: item["component"] for item in new_budget.snapshot()["charges"]}
+                if any(new_charges.get(key) != component for key, component in old_charges.items()):
+                    raise ValueError("stale graph checkpoint would refund or rewrite consumed retry budget")
+                old_handoffs = old["handoff_checkpoint"]
+                new_handoffs = payload["handoff_checkpoint"]
+                old_seen = set(old_handoffs.get("seen_ids", []))
+                new_seen = set(new_handoffs.get("seen_ids", []))
+                if not old_seen.issubset(new_seen):
+                    raise ValueError("stale graph checkpoint would forget previously observed handoffs")
+                old_completed = set(old_handoffs.get("completed_ids", []))
+                new_completed = set(new_handoffs.get("completed_ids", []))
+                if not old_completed.issubset(new_completed):
+                    raise ValueError("stale graph checkpoint would undo a terminal handoff decision")
+                old_receipts = old_handoffs.get("completion_receipts", {})
+                new_receipts = new_handoffs.get("completion_receipts", {})
+                if any(new_receipts.get(key) != receipt for key, receipt in old_receipts.items()):
+                    raise ValueError("stale graph checkpoint would rewrite an independent review receipt")
+                def active_attempts(snapshot):
+                    result = {}
+                    for status in ("queued", "in_flight"):
+                        for item in snapshot.get(status, []):
+                            handoff_id = item.get("handoff_id")
+                            attempt = item.get("attempt")
+                            if isinstance(handoff_id, str) and type(attempt) is int:
+                                result[handoff_id] = max(result.get(handoff_id, -1), attempt)
+                    return result
+                old_active = active_attempts(old_handoffs)
+                new_active = active_attempts(new_handoffs)
+                for handoff_id, attempt in old_active.items():
+                    if handoff_id in new_active and new_active[handoff_id] < attempt:
+                        raise ValueError("stale graph checkpoint would rewind a handoff attempt")
+                if new_completed.intersection(new_active):
+                    raise ValueError("graph checkpoint cannot reactivate a completed handoff")
             db.execute(
                 "INSERT INTO graph_checkpoints(task_id,envelope_json,envelope_digest,updated_at) "
                 "VALUES(?,?,?,?) ON CONFLICT(task_id) DO UPDATE SET "
