@@ -144,3 +144,77 @@ registry.load_snapshot("~/.auren/vibe-coding/adapter-learning.json")
 ```
 
 The receipt retains evaluation counts, distinct workflow IDs, and evidence references. Use only trusted machine-scoped storage; the digest detects changes but does not authenticate who wrote the snapshot.
+
+
+## Runnable host integration and real-project validation
+
+The runnable entry point is `scripts/run_vibe_coding_project.py`. It connects AUREN's discovered local agent CLI, actual Git worktree state, configured test commands, local design/accessibility artifacts, and MCP tools using JSON-RPC stdio. It does not depend on the ChatGPT connector being available inside the AUREN process.
+
+### Operator configuration
+
+Create `~/.auren/vibe-coding/host.json` with mode `0600`. The config is executable policy: every command is an explicit argument array, never a shell string. Use pinned, reviewed MCP server commands and the actual tool names exposed by each server.
+
+```json
+{
+  "schema_version": "auren-vibe-host-config-v1",
+  "provider": "codex",
+  "reviewer_provider": "claude",
+  "allow_workspace_writes": true,
+  "test_commands": [
+    ["python", "-m", "unittest", "discover", "-s", "tests", "-p", "test*.py"]
+  ],
+  "env_allowlist": [],
+  "agent_timeout_seconds": 180,
+  "test_timeout_seconds": 300,
+  "browser_qa_required": false,
+  "browser_qa_rationale": "This target is a CLI/library project without a browser surface",
+  "preview_deployment_required": false,
+  "preview_deployment_rationale": "No isolated preview environment is configured for this validation",
+  "security_tool_required": true,
+  "mcp_tools": {
+    "web_search": {
+      "argv": ["/absolute/path/to/reviewed-search-mcp-server"],
+      "tool_name": "actual_search_tool_name",
+      "argument_map": {"query": "$intent"},
+      "timeout_seconds": 30
+    },
+    "security": {
+      "argv": ["/absolute/path/to/reviewed-security-mcp-server"],
+      "tool_name": "actual_security_scan_tool_name",
+      "argument_map": {"request": "$request"},
+      "timeout_seconds": 120
+    }
+  }
+}
+```
+
+The paths and tool names above are schema placeholders, not installed integrations. Replace them with real local MCP servers. If the project has a browser UI, configure `browser_qa_required=true`, `preview_deployment_required=true`, and actual `browser`, `deployment`, and `preview` MCP tools. Preview receipts must identify a non-production environment, return an HTTPS or loopback URL, and report `health_status="passed"`. The research adapter extracts source locators from the configured search tool and refuses to pass with fewer than two distinct public HTTPS sources. A separate `independent_review` MCP tool can be used instead of a reviewer CLI; otherwise configure a reviewer provider different from the implementation provider.
+
+### Run against a real Git project
+
+```bash
+python scripts/run_vibe_coding_project.py \
+  --project /absolute/path/to/clean/git/checkout \
+  --workflow-id project-feature-20261015 \
+  --intent "Describe the concrete feature to implement" \
+  --config ~/.auren/vibe-coding/host.json
+```
+
+The source checkout must be clean. With workspace writes explicitly enabled, AUREN creates a detached worktree under `~/.auren/vibe-coding/worktrees/`; it never edits the source checkout, pushes a branch, creates a PR, merges, or publishes. The isolated worktree is retained for inspection and review. If the run stops at a gate, the JSON report identifies the blocked stage; uncertain tool side effects are not silently retried.
+
+### Cross-session receipts
+
+- Adapter outcomes and independent evaluation evidence auto-persist to `~/.auren/vibe-coding/adapter-learning.json`, with atomic replacement and private permissions. The same registered adapter IDs must be present when restoring a receipt.
+- Workflow checkpoints are stored under `~/.auren/vibe-coding/checkpoints/` and bind the exact workflow ID, project identity, intent digest, base commit, worktree path, and adapter configuration digest. A changed binding fails closed rather than replaying old stage outputs.
+- Candidate promotion remains proposal-only. The local host does not turn ordinary successful runs into independent Arena evidence, and adapter scores never authorize a release.
+- Production deployment is intentionally disabled by the local validation runner. A production release must use the canonical graph with an explicit approver/timestamp, independent security and code-review receipts, a verified full commit SHA, and release receipts matching that exact revision. The configured deployment tool must also enforce its own environment protection and rollback controls.
+
+### Host integration tests
+
+```bash
+PYTHONPATH=.:.ai-harness python -m unittest \
+  tests.test_vibe_coding tests.test_vibe_coding_adapters tests.test_vibe_coding_host -v
+python -m py_compile portable/vibe_coding_host.py scripts/run_vibe_coding_project.py
+```
+
+These tests exercise actual Git worktrees, subprocess execution, MCP stdio requests, checkpoint binding, and receipt persistence. They do not by themselves prove that an operator's specific provider, search, browser, security, cloud, or rollback service is configured and live; the real-project run report is the evidence for that host configuration.
