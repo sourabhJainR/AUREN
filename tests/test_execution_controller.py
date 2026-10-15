@@ -635,3 +635,79 @@ def test_resume_pending_continues_independent_work_around_live_lease(tmp_path: P
     assert len(scores) == 1
     assert controller.task(blocked.id).state == "running"
     assert controller.task(independent.id).state == "completed"
+
+
+def test_supervisor_checkpoint_rejects_stale_handoff_and_retry_state(tmp_path: Path):
+    import pytest
+    from portable.crew_adapters import GraphHandoffController, TaskRetryBudget
+
+    controller = ExecutionController(tmp_path)
+    stale = _supervisor_checkpoint_envelope("monotonic-task")
+    budget = TaskRetryBudget(max_retries=3)
+    queue = GraphHandoffController(max_attempts=3, retry_budget=budget)
+    item = queue.enqueue(
+        source_crew="frontend_ui",
+        target_crew="qa_reviewer",
+        task="review accessible UI",
+        source_plan_digest=stale["crew_plan_digest"],
+        allowed_handoffs=("qa_reviewer",),
+        selected_crews=("frontend_ui", "qa_reviewer"),
+    )
+    assert item is not None
+    stale["retry_budget"] = budget.snapshot()
+    stale["handoff_checkpoint"] = queue.snapshot()
+    controller.save_graph_checkpoint("monotonic-task", stale)
+
+    claimed = queue.claim_next(graph_node_active=True)
+    assert claimed is not None
+    receipt_payload = {
+        "schema_version": "auren-handoff-review-receipt-v1",
+        "reviewer_id": "independent-qa",
+        "reviewer_version": "test-v1",
+        "status": "pass",
+        "evidence_refs": ["test://review/monotonic-task"],
+        "reason": "Review passed in the test harness.",
+    }
+    import hashlib
+    import json
+    receipt_payload["digest"] = hashlib.sha256(
+        json.dumps(receipt_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    queue.mark_completed(claimed, independent_review_passed=True, review_receipt=receipt_payload)
+    completed = dict(stale)
+    completed["retry_budget"] = budget.snapshot()
+    completed["handoff_checkpoint"] = queue.snapshot()
+    controller.save_graph_checkpoint("monotonic-task", completed)
+
+    with pytest.raises(ValueError, match="terminal handoff decision"):
+        controller.save_graph_checkpoint("monotonic-task", stale)
+    loaded = controller.load_graph_checkpoint("monotonic-task")
+    assert loaded is not None
+    assert loaded["handoff_checkpoint"]["completed_ids"] == [item.handoff_id]
+    assert loaded["handoff_checkpoint"]["completion_receipts"][item.handoff_id]["status"] == "pass"
+
+
+def test_supervisor_checkpoint_rejects_retry_budget_refund(tmp_path: Path):
+    import pytest
+    from portable.crew_adapters import TaskRetryBudget
+
+    controller = ExecutionController(tmp_path)
+    initial = _supervisor_checkpoint_envelope("retry-refund-task")
+    controller.save_graph_checkpoint("retry-refund-task", initial)
+    budget = TaskRetryBudget(max_retries=3)
+    assert budget.consume(component="crew_handoff", operation_key="handoff:stable:retry:1")
+    advanced = _supervisor_checkpoint_envelope("retry-refund-task")
+    advanced["retry_budget"] = budget.snapshot()
+    advanced["handoff_checkpoint"] = {
+        **advanced["handoff_checkpoint"],
+        "retry_budget": budget.snapshot(),
+    }
+    payload = {key: value for key, value in advanced["handoff_checkpoint"].items() if key != "digest"}
+    import hashlib
+    import json
+    advanced["handoff_checkpoint"]["digest"] = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    controller.save_graph_checkpoint("retry-refund-task", advanced)
+    with pytest.raises(ValueError, match="refund or rewrite consumed retry budget"):
+        controller.save_graph_checkpoint("retry-refund-task", initial)
