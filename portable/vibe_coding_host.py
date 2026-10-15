@@ -734,12 +734,17 @@ class LocalBrowserTool:
 class LocalObservabilityTool:
     def __call__(self, request: Mapping[str, Any]) -> Mapping[str, Any]:
         state = request.get("state", {})
-        preview_required = isinstance(state, Mapping) and state.get("preview_deployment_required") is True
         production_required = isinstance(state, Mapping) and state.get("production_deployment_required") is True
-        if preview_required or production_required:
-            raise AdapterUnavailable("live deployment telemetry must be provided by a configured observability MCP tool")
+        if production_required:
+            raise AdapterUnavailable("production telemetry must be provided by a configured observability MCP tool")
+        prior = request.get("prior_stage_outputs", {})
+        preview = prior.get(VibeStage.PREVIEW_DEPLOYMENT.value, {}) if isinstance(prior, Mapping) else {}
+        preview_url = preview.get("preview_url") if isinstance(preview, Mapping) else None
+        signals = ["isolated-worktree state", "automated test exit status", "security baseline status"]
+        if preview_url:
+            signals.append(f"local preview endpoint: {preview_url}")
         return {
-            "signals": ["isolated-worktree state", "automated test exit status", "security baseline status"],
+            "signals": signals,
             "alerts": ["no production deployment was performed; live service telemetry is unavailable"],
             "rollback_thresholds": ["discard or reset only the isolated worktree after explicit operator authorization if acceptance gates fail"],
             "evidence": [{"source": "local-validation", "locator": "monitoring://isolated-project-validation"}],
@@ -899,6 +904,8 @@ class VibeHostConfig:
     test_timeout_seconds: int = 300
     browser_qa_required: bool = True
     browser_qa_rationale: str = ""
+    preview_deployment_required: bool = False
+    preview_deployment_rationale: str = "No preview environment is configured; this validation remains local-only"
     security_tool_required: bool = True
 
 
@@ -956,6 +963,14 @@ def load_host_config(path: str | Path | None = None) -> VibeHostConfig:
     browser_rationale = raw.get("browser_qa_rationale", "")
     if not isinstance(browser_rationale, str) or (not browser_required and not browser_rationale.strip()):
         raise ValueError("browser QA not-applicable requires an explicit rationale")
+    preview_required = raw.get("preview_deployment_required", False)
+    if type(preview_required) is not bool:
+        raise ValueError("preview_deployment_required must be a boolean")
+    preview_rationale = raw.get("preview_deployment_rationale", "")
+    if not isinstance(preview_rationale, str) or (not preview_required and not preview_rationale.strip()):
+        raise ValueError("preview deployment not-applicable requires an explicit rationale")
+    if preview_required and not {"deployment", "preview"}.issubset(mcp_tools):
+        raise ValueError("preview deployment requires configured deployment and preview MCP tools")
     security_required = raw.get("security_tool_required", True)
     if type(security_required) is not bool:
         raise ValueError("security_tool_required must be a boolean")
@@ -972,6 +987,8 @@ def load_host_config(path: str | Path | None = None) -> VibeHostConfig:
         test_timeout_seconds=int(raw.get("test_timeout_seconds", 300)),
         browser_qa_required=browser_required,
         browser_qa_rationale=browser_rationale,
+        preview_deployment_required=preview_required,
+        preview_deployment_rationale=preview_rationale,
         security_tool_required=security_required,
     )
 
@@ -1084,8 +1101,8 @@ class LocalVibeCodingHost:
             "base_revision": lease.base_revision,
             "browser_qa_required": self.config.browser_qa_required,
             "browser_qa_rationale": self.config.browser_qa_rationale,
-            "preview_deployment_required": False,
-            "preview_deployment_rationale": "Local validation is isolated; no preview environment or deployment credentials are authorized",
+            "preview_deployment_required": self.config.preview_deployment_required,
+            "preview_deployment_rationale": self.config.preview_deployment_rationale,
             "production_deployment_required": False,
             "production_deployment_rationale": "Validation run only; production release is intentionally disabled",
         }
