@@ -6,6 +6,7 @@ from portable.orchestration_spec import (
     WorkflowEdgeSpec,
     WorkflowNodeSpec,
     compare_orchestration_trials,
+    assess_orchestration_promotion,
 )
 
 
@@ -108,12 +109,41 @@ class OrchestrationSpecTests(unittest.TestCase):
         self.assertEqual(metrics["recovery_success_rate"], 2 / 3)
         self.assertEqual(metrics["repeat_consistency_rate"], 1.0)
         self.assertIn("evaluator independence", result["limitations"][1])
+        self.assertFalse(result["comparison_ready"])
+        self.assertFalse(result["binding_consistency"]["workflow"])
 
     def test_comparison_rejects_missing_holdout_and_invalid_digests(self):
         with self.assertRaisesRegex(ValueError, "no sealed_holdout"):
             compare_orchestration_trials([trial("t1", "framework-a", "development", True)])
         with self.assertRaisesRegex(ValueError, "SHA-256"):
             compare_orchestration_trials([trial("t2", "framework-a", "sealed_holdout", True, evidence_digest="not-a-digest")])
+
+
+    def test_promotion_requires_exact_workflow_benchmark_policy_and_bounded_execution(self):
+        workflow_digest = "1" * 64
+        benchmark_digest = "2" * 64
+        rows = [
+            trial("p1", "candidate", "sealed_holdout", True, workflow_digest=workflow_digest, benchmark_digest=benchmark_digest, policy_digest=POLICY_DIGEST, termination_bounded=True),
+            trial("p2", "candidate", "sealed_holdout", True, repeat_group="case-2", workflow_digest=workflow_digest, benchmark_digest=benchmark_digest, policy_digest=POLICY_DIGEST, termination_bounded=True),
+        ]
+        result = assess_orchestration_promotion(rows, framework="candidate", expected_workflow_digest=workflow_digest, expected_benchmark_digest=benchmark_digest, expected_policy_digest=POLICY_DIGEST)
+        self.assertTrue(result["accepted"], result["reasons"])
+        self.assertFalse(result["external_custody_verified"])
+        self.assertFalse(result["sandbox_isolation_verified"])
+
+    def test_promotion_fails_closed_on_policy_violation_and_unbounded_run(self):
+        rows = [trial("p1", "candidate", "sealed_holdout", True, unauthorized_actions=1, workflow_digest="1" * 64, benchmark_digest="2" * 64, policy_digest=POLICY_DIGEST, termination_bounded=False)]
+        result = assess_orchestration_promotion(rows, framework="candidate", expected_workflow_digest="1" * 64, expected_benchmark_digest="2" * 64, expected_policy_digest=POLICY_DIGEST)
+        self.assertFalse(result["accepted"])
+        self.assertIn("unauthorized_action_observed", result["reasons"])
+        self.assertIn("termination_not_proven_bounded", result["reasons"])
+
+    def test_promotion_rejects_wrong_benchmark_digest_and_low_holdout_rate(self):
+        rows = [trial("p1", "candidate", "sealed_holdout", False, workflow_digest="1" * 64, benchmark_digest="3" * 64, policy_digest=POLICY_DIGEST, termination_bounded=True)]
+        result = assess_orchestration_promotion(rows, framework="candidate", expected_workflow_digest="1" * 64, expected_benchmark_digest="2" * 64, expected_policy_digest=POLICY_DIGEST)
+        self.assertFalse(result["accepted"])
+        self.assertIn("benchmark_digest_mismatch_or_missing", result["reasons"])
+        self.assertIn("holdout_threshold_not_met", result["reasons"])
 
 
 if __name__ == "__main__":
