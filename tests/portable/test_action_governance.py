@@ -52,6 +52,12 @@ def test_protected_target_requires_verified_request_bound_approval():
     assert not gateway.evaluate(wrong_request, approval=receipt).allowed
 
 
+def test_target_normalization_cannot_bypass_protected_path():
+    gateway = make_gateway()
+    request = make_request(target="src/../../.github/workflows/build.yml")
+    assert gateway.evaluate(request).decision == "approval_required"
+
+
 def test_approval_fails_closed_when_no_verifier_is_configured():
     gateway = make_gateway()
     request = make_request(action="merge", target="main", evidence_refs=("ci:sha:abc",))
@@ -89,7 +95,31 @@ def test_handler_runs_only_after_allow_and_trace_verifies():
     assert result.executed
     assert called == ["ran"]
     assert gateway.verify_trace()["passed"]
-    assert [event["event"] for event in gateway.events] == ["policy_verdict", "action_completed"]
+    assert [event["event"] for event in gateway.events] == [
+        "policy_verdict", "action_started", "action_completed"
+    ]
+
+
+def test_duplicate_action_identity_is_not_executed_twice():
+    gateway = make_gateway()
+    called = []
+    first = gateway.execute(make_request(), lambda: called.append("ran") or "ok")
+    second = gateway.execute(make_request(), lambda: called.append("ran-again") or "ok")
+    assert first.executed
+    assert not second.executed
+    assert second.verdict.reason == "duplicate_action_identity"
+    assert called == ["ran"]
+    assert gateway.verify_trace()["passed"]
+
+
+def test_arbitrary_handler_result_does_not_break_receipt_creation():
+    class Result:
+        pass
+
+    gateway = make_gateway()
+    result = gateway.execute(make_request(), Result)
+    assert result.executed
+    assert len(result.result_digest) == 64
 
 
 def test_handler_failure_is_traced_without_storing_exception_message():
