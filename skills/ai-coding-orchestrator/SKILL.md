@@ -76,12 +76,11 @@ Inspect manifests, pinned language/framework versions, existing implementations 
 On quota/rate-limit, persist task/checkpoint, honor Retry-After/reset, release the lease and sleep until due. No provider/LLM calls while idle. Reuse ExecutionController, PersistentSupervisorDaemon and the existing compactor. Bound retries; park permanent/unknown exhaustion for operator action. Never truncate protected constraints/evidence or replay committed effects; revalidate leases/gates on resume.
 
 
-## Memory routing and resource use
 
-For tasks that need continuity across phases or restarts, use `portable.memory_orchestrator.MemoryOrchestrator` as the single routing facade. Reuse its existing owners: `PersistentMemory` for durable content, `ContextGraph` for provenance/hierarchy, `.ai-harness/runtime/task_memory.py` and `portable.dream_memory.DreamMemory` for evidence-backed learning, `portable.execution_controller.ExecutionController` for executable prospective work, and `.ai-harness/runtime/context_cache.py` for content-addressed pages. Register explicit owner callbacks at the composition root; never create a competing database, queue, cache, or scheduler.
+## Memory routing
 
-Keep working memory task-scoped and bounded; sensory memory expires lazily; meta-memory is read-only telemetry; durable writes require approval; retrieval is ranked and hard-budgeted; required content that cannot fit fails closed. No model/provider calls are made for local retrieval, compaction, metrics or idle periods. Do not promote observations to verified procedural rules without evidence.
+Use \`portable.memory_orchestrator.MemoryOrchestrator\` as the single routing facade. Reuse \`PersistentMemory\`, \`ContextGraph\`, \`ContextEngine\`, the existing context cache, task-memory ledger, \`DreamMemory\`, and \`ExecutionController\`; connect specialized owners through callbacks, never duplicate their stores or queues. Keep working/sensory state bounded and task-scoped, require approval for durable writes, preserve provenance, and fail closed when required context exceeds budget. Idle recall/metrics must not call a model.
 
 ## Tests and coverage
 
-Use the repository's standard `unittest` discovery and test naming. Test behavior through public orchestration methods, including routing, scope, TTL/eviction, provenance, budgets, restart-safe durable stores, and zero-provider-call idle behavior. For passive DTO/POCO-style dataclasses, use the repository's class-level `# pragma: no cover` convention; never exclude behavior-bearing methods or branches.
+Use repository \`unittest\` conventions. Test routing, scope, TTL/eviction, provenance, hard budgets and callbacks. Passive DTO dataclasses may use class-level \`# pragma: no cover\`; never exclude behavior-bearing logic.
