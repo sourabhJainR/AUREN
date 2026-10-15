@@ -46,6 +46,8 @@ def test_quota_wait_is_durable_and_resumes_only_when_due(tmp_path):
     assert blocked == 0
     assert controller.due_quota_task_ids(now=datetime.now(timezone.utc), limit=10) == []
 
+    # A fresh controller instance must recover the same SQLite task and handler.
+    controller = ExecutionController(tmp_path)
     due = datetime.fromisoformat(retry_at) + timedelta(seconds=1)
     assert controller.wake_due_quota_tasks(now=due, limit=10) == [task.id]
     assert _state(controller, task.id)[0] == "pending"
@@ -70,3 +72,5 @@ def test_permanent_quota_exhaustion_parks_without_polling(tmp_path):
     assert controller.due_quota_task_ids(limit=10) == []
     assert controller.run_once(task.id) is None
     assert _quota_calls == 1
+    assert controller.unblock_quota_task(task.id, operator_reason="Provider account quota replenished")
+    assert _state(controller, task.id)[0] == "pending"
