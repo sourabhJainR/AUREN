@@ -241,7 +241,7 @@ class MemoryOrchestrator:
             outcome = callback(
                 project=self.project, text=clean_text, source=clean_source, task_id=task_id,
                 evidence_ids=evidence, intent_digest=intent_digest, confidence=confidence,
-                verified=verified, approved=approved,
+                verified=verified, approved=approved, parent_memory_id=parent_memory_id,
             )
             self._metrics["writes"] += 1
             return MemoryWriteResult("delegated", kind, str(getattr(outcome, "id", "") or "") or None,
