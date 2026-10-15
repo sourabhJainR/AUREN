@@ -788,7 +788,8 @@ class GraphHandoffController:
         with self._lock:
             self._ensure_healthy()
             handoff_id = handoff.handoff_id or self._handoff_id(
-                handoff.source_crew, handoff.target_crew, handoff.task, handoff.source_plan_digest
+                handoff.source_crew, handoff.target_crew, handoff.task, handoff.source_plan_digest,
+                handoff.source_proposal_digest,
             )
             self.validate_claimed(handoff)
             if not isinstance(review_receipt, Mapping):
@@ -821,7 +822,8 @@ class GraphHandoffController:
         with self._lock:
             self._ensure_healthy()
             handoff_id = handoff.handoff_id or self._handoff_id(
-                handoff.source_crew, handoff.target_crew, handoff.task, handoff.source_plan_digest
+                handoff.source_crew, handoff.target_crew, handoff.task, handoff.source_plan_digest,
+                handoff.source_proposal_digest,
             )
             self.validate_claimed(handoff)
             if not isinstance(review_receipt, Mapping):
