@@ -73,6 +73,21 @@ _SIDE_EFFECT_STAGES = frozenset({
     VibeStage.DEVELOPMENT, VibeStage.PREVIEW_DEPLOYMENT,
     VibeStage.PRODUCTION_DEPLOY,
 })
+_TOOL_AUTHORITY: dict[VibeStage, dict[str, tuple[str, ...]]] = {
+    VibeStage.RESEARCH: {"research": ("market_evidence", "competitors")},
+    VibeStage.PRD: {"product": ("requirements", "acceptance_criteria")},
+    VibeStage.DESIGN: {"design": ("design_artifacts",)},
+    VibeStage.TASK_BREAKDOWN: {"task_planning": ("tasks",)},
+    VibeStage.SETUP: {"repository": ("repository", "environment")},
+    VibeStage.DEVELOPMENT: {"repository": ("artifacts",)},
+    VibeStage.TESTING: {"test_execution": ("tests_run", "status")},
+    VibeStage.SECURITY_REVIEW: {"security": ("findings", "status", "critical_findings")},
+    VibeStage.CODE_REVIEW: {"independent_review": ("reviewer", "review_summary", "status", "blocking_findings")},
+    VibeStage.PREVIEW_DEPLOYMENT: {"deployment": ("deployment_receipt",)},
+    VibeStage.QA_TESTING: {"test_execution": ("qa_results", "user_feedback", "status")},
+    VibeStage.PRODUCTION_DEPLOY: {"release": ("release_receipt", "deployed_revision", "reviewed_revision", "approval")},
+    VibeStage.MONITORING: {"observability": ("signals", "alerts", "rollback_thresholds")},
+}
 
 
 class AdapterUnavailable(RuntimeError):
@@ -412,6 +427,14 @@ def build_host_adapter_registry(
             merged = dict(agent_output)
             evidence = merged.get("evidence", [])
             evidence_items = list(evidence) if isinstance(evidence, list) else ([evidence] if evidence else [])
+            # Tool-owned fields cannot be invented by the language model.
+            for capability, fields in _TOOL_AUTHORITY.get(_stage, {}).items():
+                tool_result = tool_results.get(capability, {})
+                missing_fields = [field for field in fields if field not in tool_result or tool_result[field] is None]
+                if missing_fields:
+                    raise AdapterUnavailable(
+                        f"{_stage.value} requires {capability} tool receipts for: {', '.join(missing_fields)}"
+                    )
             # Concrete tool results are authoritative over generated descriptions/claims.
             for capability in _capabilities:
                 if capability == "agent":
