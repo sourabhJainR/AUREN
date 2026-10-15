@@ -48,9 +48,9 @@ class OrchestratorRun:
 
 def _safe_repo_path(value: str) -> str:
     """Normalize a repository-relative path and reject traversal/absolute scopes."""
-    if not isinstance(value, str) or not value.strip() or "\\x00" in value:
+    if not isinstance(value, str) or not value.strip() or "\x00" in value:
         raise ValueError("write scope paths must be non-empty strings without NUL bytes")
-    raw = value.replace("\\\\", "/").strip()
+    raw = value.replace("\\", "/").strip()
     if raw.startswith("/") or (len(raw) >= 2 and raw[1] == ":"):
         raise ValueError("write scope paths must be repository-relative")
     parts = raw.split("/")
