@@ -13,6 +13,7 @@ from dataclasses import dataclass
 import json
 from hashlib import sha256
 from threading import Event
+from portable.runtime_recovery import ExecutionBudgetExceeded, NoProgressDetected, RuntimeExecutionGuard
 from typing import Any, Callable, Mapping, MutableMapping, Protocol, Sequence
 
 State = MutableMapping[str, Any]
@@ -158,6 +159,7 @@ class Checkpoint:
     next_nodes: tuple[str, ...]
     trace: tuple[str, ...] = ()
     state_digest: str = ""
+    runtime_guard: dict[str, Any] | None = None
 
     def __post_init__(self) -> None:
         validate_state(self.state, label="checkpoint.state")
@@ -295,7 +297,7 @@ class StateGraph:
 class CompiledStateGraph:
     def __init__(self, graph: StateGraph) -> None: self._g = graph
 
-    def invoke(self, state: Mapping[str, Any], *, run_id: str = "run", checkpoint: CheckpointStore | None = None, resume: bool = False, max_steps: int = 100, parallel_nodes: Callable[[str], bool] | None = None, max_parallel_nodes: int = 1, node_timeout_seconds: float | None = None, cancellation: Event | None = None, parallel_failure_mode: str = "fail_fast") -> GraphRun:
+    def invoke(self, state: Mapping[str, Any], *, run_id: str = "run", checkpoint: CheckpointStore | None = None, resume: bool = False, max_steps: int = 100, parallel_nodes: Callable[[str], bool] | None = None, max_parallel_nodes: int = 1, node_timeout_seconds: float | None = None, cancellation: Event | None = None, parallel_failure_mode: str = "fail_fast", max_attempts: int = 12, deadline_seconds: float | None = None) -> GraphRun:
         validate_state(state)
         cancellation_event = cancellation if cancellation is not None else Event()
         if max_steps < 1: raise ValueError("max_steps must be positive")
@@ -303,6 +305,11 @@ class CompiledStateGraph:
         if parallel_failure_mode not in {"fail_fast", "isolate"}: raise ValueError("parallel_failure_mode must be fail_fast or isolate")
         if node_timeout_seconds is not None and node_timeout_seconds <= 0: raise ValueError("node_timeout_seconds must be positive")
         existing = checkpoint.load(run_id) if resume and checkpoint else None
+        if resume and checkpoint and existing is None:
+            raise ValueError(f"no checkpoint available to resume run {run_id}")
+        guard = RuntimeExecutionGuard.resume(existing.runtime_guard, cancellation_event=cancellation_event) if existing and existing.runtime_guard else RuntimeExecutionGuard(max_steps=max_steps, max_attempts=max_attempts, deadline_seconds=deadline_seconds, cancellation_event=cancellation_event)
+        if existing and existing.runtime_guard is None:
+            raise ValueError("checkpoint lacks runtime guard state; explicit recovery is required")
         current: dict[str, Any] = dict(existing.state if existing else state)
         next_nodes = list(existing.next_nodes if existing else self._g._edges[StateGraph.START])
         events: list[GraphEvent] = []
@@ -311,14 +318,19 @@ class CompiledStateGraph:
         skip_before_once = existing is not None
         while next_nodes:
             if cancellation_event.is_set():
-                self._checkpoint(checkpoint, run_id, step, current, next_nodes, trace)
+                self._checkpoint(checkpoint, run_id, step, current, next_nodes, trace, guard)
                 return GraphRun(run_id, dict(current), tuple(events), tuple(trace), step, True)
-            if step >= max_steps: raise RuntimeError(f"graph exceeded max_steps={max_steps}")
+            if step >= max_steps: raise ExecutionBudgetExceeded(f"graph exceeded max_steps={max_steps}")
+            try:
+                guard.charge_step()
+            except ExecutionBudgetExceeded:
+                self._checkpoint(checkpoint, run_id, step, current, next_nodes, trace, guard)
+                raise
             step += 1; snapshot = dict(current)
             if not skip_before_once:
                 for name in next_nodes:
                     if name != StateGraph.END and name in self._g._before:
-                        self._checkpoint(checkpoint, run_id, step - 1, current, next_nodes, trace)
+                        self._checkpoint(checkpoint, run_id, step - 1, current, next_nodes, trace, guard)
                         raise GraphInterrupt(run_id, step - 1, dict(current), tuple(next_nodes), f"interrupted before {name}")
             skip_before_once = False
             parallel = [name for name in next_nodes if name != StateGraph.END and parallel_nodes and parallel_nodes(name)]
@@ -330,7 +342,7 @@ class CompiledStateGraph:
                 return GraphRun(run_id, dict(current), tuple(events), tuple(trace), step - 1, True)
             if parallel:
                 executor = ThreadPoolExecutor(max_workers=min(max_parallel_nodes, len(parallel)))
-                futures = {name: executor.submit(self._run_node, name, snapshot, cancellation_event) for name in parallel}
+                futures = {name: executor.submit(self._run_node, name, snapshot, cancellation_event, guard, f"{run_id}:{step}:{name}") for name in parallel}
                 try:
                     for name in parallel:
                         if cancellation and cancellation.is_set():
@@ -366,7 +378,7 @@ class CompiledStateGraph:
                 if cancellation and cancellation.is_set():
                     self._checkpoint(checkpoint, run_id, step - 1, current, next_nodes, trace)
                     return GraphRun(run_id, dict(current), tuple(events), tuple(trace), step - 1, True)
-                results_by_name[name] = self._run_node_with_timeout(name, snapshot, node_timeout_seconds, cancellation_event)
+                results_by_name[name] = self._run_node_with_timeout(name, snapshot, node_timeout_seconds, cancellation_event, guard, f"{run_id}:{step}:{name}")
             if cancellation_event.is_set():
                 self._checkpoint(checkpoint, run_id, step - 1, current, next_nodes, trace)
                 return GraphRun(run_id, dict(current), tuple(events), tuple(trace), step - 1, True)
@@ -375,7 +387,7 @@ class CompiledStateGraph:
                 output, attempts = results_by_name[name]
                 self._merge(current, output); events.append(GraphEvent(step, name, "completed", attempts)); trace.append(name)
                 if name in self._g._after:
-                    next_after = self._next(name, current); self._checkpoint(checkpoint, run_id, step, current, next_after, trace)
+                    next_after = self._next(name, current); self._checkpoint(checkpoint, run_id, step, current, next_after, trace, guard)
                     raise GraphInterrupt(run_id, step, dict(current), tuple(next_after), f"interrupted after {name}")
             next_set: list[str] = []
             for name in next_nodes:
@@ -384,16 +396,16 @@ class CompiledStateGraph:
             if StateGraph.END in next_nodes: next_nodes = []
         return GraphRun(run_id, dict(current), tuple(events), tuple(trace), step)
 
-    def _checkpoint(self, store: CheckpointStore | None, run_id: str, step: int, state: Mapping[str, Any], next_nodes: Sequence[str], trace: Sequence[str]) -> None:
-        if store: store.save(Checkpoint(run_id, step, dict(state), tuple(next_nodes), tuple(trace)))
+    def _checkpoint(self, store: CheckpointStore | None, run_id: str, step: int, state: Mapping[str, Any], next_nodes: Sequence[str], trace: Sequence[str], guard: RuntimeExecutionGuard) -> None:
+        if store: store.save(Checkpoint(run_id, step, dict(state), tuple(next_nodes), tuple(trace), runtime_guard=guard.snapshot()))
 
     def _run_node_with_timeout(
-        self, name: str, state: Mapping[str, Any], timeout: float | None, cancellation: Event
+        self, name: str, state: Mapping[str, Any], timeout: float | None, cancellation: Event, guard: RuntimeExecutionGuard, operation_prefix: str
     ) -> tuple[Mapping[str, Any], int]:
         if timeout is None:
-            return self._run_node(name, state, cancellation)
+            return self._run_node(name, state, cancellation, guard, operation_prefix)
         executor = ThreadPoolExecutor(max_workers=1)
-        future = executor.submit(self._run_node, name, state, cancellation)
+        future = executor.submit(self._run_node, name, state, cancellation, guard, operation_prefix)
         try:
             result = future.result(timeout=timeout)
         except FutureTimeoutError as exc:
@@ -406,7 +418,7 @@ class CompiledStateGraph:
             return result
 
     def _run_node(
-        self, name: str, state: Mapping[str, Any], cancellation: Event | None = None
+        self, name: str, state: Mapping[str, Any], cancellation: Event | None = None, guard: RuntimeExecutionGuard | None = None, operation_prefix: str = "graph"
     ) -> tuple[Mapping[str, Any], int]:
         token: Token[Event | None] = _ACTIVE_CANCELLATION.set(cancellation)
         try:
@@ -416,12 +428,22 @@ class CompiledStateGraph:
                 if cancellation is not None and cancellation.is_set():
                     raise TimeoutError(f"node {name} cancelled before attempt {attempt}")
                 try:
+                    if guard is not None:
+                        guard.check()
+                        guard.charge_attempt(f"{operation_prefix}:attempt:{attempt}")
                     output = self._g._nodes[name](dict(state))
                     if not isinstance(output, Mapping): raise TypeError(f"node {name} must return a mapping")
                     validate_state(output, label=f"node {name} output")
+                    if guard is not None:
+                        guard.observe_progress(node=name, state=state)
                     return dict(output), attempt
                 except BaseException as exc:
                     last = exc
+                    if guard is not None:
+                        try:
+                            guard.observe_failure(node=name, state=state, error=exc)
+                        except NoProgressDetected:
+                            raise
                     if cancellation is not None and cancellation.is_set():
                         raise TimeoutError(f"node {name} cancelled") from exc
                     if attempt >= policy.max_attempts or not policy.allows(exc): raise
