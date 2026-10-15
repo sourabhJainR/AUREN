@@ -24,7 +24,7 @@ if not result.passed:
 ## Safety contract
 
 - OpenShell CLI availability is mandatory. If the CLI is missing or cannot be invoked, the adapter raises and **does not fall back to host execution**.
-- A policy file and a curated workspace directory are mandatory. AUREN records the policy digest; the caller/operator remains responsible for reviewing the policy's actual filesystem, syscall, and network allowances.
+- A policy file and a curated workspace directory are mandatory. The exact policy bytes are copied to a read-only temporary snapshot before launch; AUREN records that policy digest and a workspace-tree digest. The workspace must not contain symlinks, and any observed workspace mutation during execution fails the result; the caller/operator remains responsible for reviewing the policy's actual filesystem, syscall, and network allowances.
 - Provider names may be supplied, but credential values are never accepted by this adapter or placed in command-line arguments.
 - Sandbox names are generated per invocation. Commands run with `--no-keep`; on timeout the adapter attempts to delete the sandbox and returns a failed timeout receipt.
 - Raw stdout/stderr are returned to the caller but are excluded from `as_evidence()`; the evidence projection includes output digests and byte counts to reduce accidental secret leakage.
