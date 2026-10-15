@@ -44,6 +44,10 @@ def test_quota_wait_is_durable_and_resumes_only_when_due(tmp_path):
     assert retry_at is not None
     assert provider == "test-provider"
     assert blocked == 0
+    status = controller.quota_status(task.id)
+    assert status["state"] == "waiting_quota"
+    assert status["operator_action_required"] is False
+    assert "provider quota/rate-limit" in status["reason"]
     assert controller.due_quota_task_ids(now=datetime.now(timezone.utc), limit=10) == []
 
     # A fresh controller instance must recover the same SQLite task and handler.
@@ -71,6 +75,7 @@ def test_permanent_quota_exhaustion_parks_without_polling(tmp_path):
     assert retry_at is None
     assert provider == "test-provider"
     assert blocked == 1
+    assert controller.quota_status(task.id)["operator_action_required"] is True
     assert controller.due_quota_task_ids(limit=10) == []
     assert controller.run_once(task.id) is None
     assert _quota_calls == 1
