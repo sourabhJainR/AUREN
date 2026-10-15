@@ -1353,6 +1353,7 @@ class LocalVibeCodingHost:
             "workspace_root": str(workspace),
             "repository": str(self.project_root),
             "base_revision": lease.base_revision,
+            "adapter_config_digest": tool_config_digest,
             "browser_qa_required": self.config.browser_qa_required,
             "browser_qa_rationale": self.config.browser_qa_rationale,
             "preview_deployment_required": self.config.preview_deployment_required,
