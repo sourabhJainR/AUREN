@@ -418,6 +418,7 @@ def assess_orchestration_promotion(
 
     return {
         "accepted": not reasons,
+        "promotion_ready": False,
         "framework": framework,
         "reasons": reasons,
         "trial_count": len(rows),
