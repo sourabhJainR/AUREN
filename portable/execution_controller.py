@@ -683,7 +683,10 @@ class ExecutionController:
                 return None
             return max(now, value.astimezone(timezone.utc))
         if isinstance(value, (int, float)) and not isinstance(value, bool):
-            return now + timedelta(seconds=max(0, float(value)))
+            try:
+                return now + timedelta(seconds=max(0, float(value)))
+            except (OverflowError, ValueError):
+                return None
         if isinstance(value, str) and value.strip():
             try:
                 return now + timedelta(seconds=max(0, float(value.strip())))
@@ -726,7 +729,13 @@ class ExecutionController:
                     except (TypeError, ValueError):
                         retry_after = reset
                     else:
-                        retry_after = datetime.fromtimestamp(epoch, tz=timezone.utc) if epoch >= 1_000_000_000 else reset
+                        if epoch >= 1_000_000_000:
+                            try:
+                                retry_after = datetime.fromtimestamp(epoch, tz=timezone.utc)
+                            except (OverflowError, OSError, ValueError):
+                                retry_after = None
+                        else:
+                            retry_after = reset
                     break
             return True, str(getattr(exc, "provider", "unknown")), retry_after, False
         return False, "", None, False
