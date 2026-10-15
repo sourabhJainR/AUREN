@@ -26,7 +26,7 @@ class ExtensionRegistryTests(unittest.TestCase):
             self.assertIn("capabilities", value)
             self.assertIn("policy", value)
 
-    def test_aer_is_not_a_core_extension(self):
+    def test_legacy_product_name_is_not_a_core_extension(self):
         entry = extension_registry.REGISTRY.read_text(encoding="utf-8")
         self.assertNotIn("[extensions.aer]", entry)
         self.assertNotIn("github.com/sourabhJainR/AUREN", entry)
