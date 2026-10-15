@@ -152,7 +152,7 @@ def _run(argv: Sequence[str], *, cwd: Path, timeout: float, env: Mapping[str, st
     )
 
 
-def _worktree_digest(workspace_root: str | Path) -> str:
+def fingerprint_worktree(workspace_root: str | Path) -> str:
     root = Path(workspace_root).expanduser().resolve()
     diff = subprocess.run(
         ["git", "-C", str(root), "diff", "HEAD", "--binary"],
@@ -303,7 +303,7 @@ class SideEffectJournal:
 
     def resolve_uncertain(
         self, workflow_id: str, stage: str, capability: str, *, action: str,
-        workspace_root: str | Path, expected_worktree_digest: str,
+        workspace_root: str | Path, expectedfingerprint_worktree: str,
         external_state_evidence: str, reason: str, authorized: bool = False,
     ) -> None:
         if authorized is not True:
@@ -312,8 +312,8 @@ class SideEffectJournal:
             raise ValueError("resolution action must be retry or abort")
         if not reason.strip() or not external_state_evidence.strip():
             raise ValueError("resolution requires a reason and an external-state evidence reference")
-        actual_digest = _worktree_digest(workspace_root)
-        if actual_digest != expected_worktree_digest:
+        actual_digest = fingerprint_worktree(workspace_root)
+        if actual_digest != expectedfingerprint_worktree:
             raise ValueError("reviewed worktree digest does not match current worktree state")
         key = self._key(workflow_id, stage, capability)
         with closing(self._connect()) as connection:
@@ -1386,7 +1386,7 @@ class LocalVibeCodingHost:
             tools["independent_review"] = IndependentReviewTool(reviewer, author_provider=agent.provider)
         if "web_search" in self.config.mcp_tools:
             tools["web_search"] = MemoizedToolAdapter(tools["web_search"])
-        for capability in ("deployment", "preview", "release"):
+        for capability in ("deployment", "release"):
             tools[capability] = JournaledToolAdapter(tools[capability], journal, capability=capability)
         if "research" not in self.config.mcp_tools and "web_search" in tools:
             tools["research"] = VerifiedResearchTool(tools["web_search"])
@@ -1474,5 +1474,5 @@ __all__ = [
     "JournaledToolAdapter", "LocalAccessibilityTool", "LocalBrowserTool", "LocalDesignTool",
     "LocalProjectTool", "LocalSecurityTool", "LocalTestExecutionTool", "LocalVibeCodingHost",
     "MCPIndependentReviewTool", "MCPStdioToolAdapter", "MemoizedToolAdapter", "ProviderCliAgent", "SideEffectJournal",
-    "VerifiedResearchTool", "VibeHostConfig", "load_host_config",
+    "VerifiedResearchTool", "VibeHostConfig", "fingerprint_worktree", "load_host_config",
 ]
