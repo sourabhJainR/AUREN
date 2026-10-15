@@ -120,6 +120,11 @@ class VibeCodingAdapterTests(unittest.TestCase):
         }
         def active_agent(request):
             return output_for(VibeStage(request["stage"]), request["state"])
+        with self.assertRaisesRegex(ValueError, "cannot understate"):
+            build_host_adapter_registry(
+                active_agent, tools,
+                risk_by_stage={VibeStage.PRODUCTION_DEPLOY: "high"},
+            )
         registry = build_host_adapter_registry(active_agent, tools, max_risk="critical")
         graph = build_integrated_vibe_coding_graph(registry)
         context = {
