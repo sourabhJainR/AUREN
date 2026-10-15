@@ -688,14 +688,37 @@ class ExecutionController:
         return self.company.finish(task.work_unit_id, success=success, reason=detail, evidence=evidence)
 
     def resume_pending(self, *, limit: int = 20) -> list[TrustScore]:
-        """Resume pending/running work after process or host restart."""
+        """Resume eligible work without letting a live lease consume the scan budget."""
+        if type(limit) is not int or limit < 1:
+            raise ValueError("resume limit must be a positive integer")
+        now = datetime.now(timezone.utc)
         with sqlite3.connect(self.db_path) as db:
             rows = db.execute(
-                "SELECT id FROM tasks WHERE state IN ('pending','running') ORDER BY updated_at LIMIT ?",
-                (limit,),
+                "SELECT id,state,lease_until FROM tasks "
+                "WHERE state IN ('pending','running') ORDER BY updated_at",
             ).fetchall()
+
+        # Apply the limit to eligible tasks, not merely the oldest rows. Otherwise
+        # one live lease at the head of the queue can starve every pending task
+        # whenever callers use a small recovery batch size. Missing, malformed,
+        # or timezone-naive leases remain ambiguous and fail closed.
+        task_ids: list[str] = []
+        for task_id, state, lease_until in rows:
+            if state == "pending":
+                task_ids.append(str(task_id))
+            elif state == "running" and lease_until:
+                try:
+                    lease_time = datetime.fromisoformat(str(lease_until))
+                except ValueError:
+                    continue
+                if lease_time.tzinfo is None or lease_time > now:
+                    continue
+                task_ids.append(str(task_id))
+            if len(task_ids) >= limit:
+                break
+
         scores = []
-        for (task_id,) in rows:
+        for task_id in task_ids:
             score = self.run_once(task_id)
             if score is not None:
                 scores.append(score)
