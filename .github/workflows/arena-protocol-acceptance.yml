@@ -1,0 +1,81 @@
+name: Arena Protocol Acceptance
+
+on:
+  pull_request:
+    paths:
+      - "portable/*arena*.py"
+      - "portable/sealed_*.py"
+      - "portable/external_evaluator_gateway.py"
+      - "portable/arena_run_receipt.py"
+      - "tests/test_*arena*.py"
+      - "tests/test_external_evaluation_campaign.py"
+      - "tests/test_external_generalization_runner.py"
+      - ".github/workflows/arena-protocol-acceptance.yml"
+  push:
+    branches: [main]
+    paths:
+      - "portable/*arena*.py"
+      - "portable/sealed_*.py"
+      - "portable/external_evaluator_gateway.py"
+      - "portable/arena_run_receipt.py"
+      - "tests/test_*arena*.py"
+      - "tests/test_external_evaluation_campaign.py"
+      - "tests/test_external_generalization_runner.py"
+      - ".github/workflows/arena-protocol-acceptance.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: arena-protocol-acceptance-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  protocol-contract:
+    name: Arena protocol (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - name: Check out exact tested revision
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Run Arena protocol, custody, replay, and cross-domain regressions
+        shell: bash
+        run: |
+          set -o pipefail
+          python -m unittest -v \
+            tests.test_arena_acceptance \
+            tests.test_arena_run_receipt \
+            tests.test_arena_trust \
+            tests.test_container_sandboxed_arena \
+            tests.test_container_sandboxed_arena_integration \
+            tests.test_external_evaluation_campaign \
+            tests.test_external_evaluator_gateway \
+            tests.test_external_evaluator_gateway_budget \
+            tests.test_external_generalization_runner \
+            tests.test_generalization_arena \
+            tests.test_independent_arena \
+            tests.test_isolated_arena_runner \
+            tests.test_sealed_arena_boundary \
+            tests.test_sealed_arena_custody \
+            tests.test_sealed_arena_exchange \
+            tests.test_sealed_arena_policy \
+            tests.test_sealed_arena_replay_concurrency \
+            tests.test_sealed_arena_signature \
+            tests.test_sealed_cross_domain_arena 2>&1 | tee arena-protocol-tests.log
+      - name: Retain exact-head protocol test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: arena-protocol-tests-py${{ matrix.python-version }}-${{ github.sha }}
+          path: arena-protocol-tests.log
+          if-no-files-found: warn
+          retention-days: 30
