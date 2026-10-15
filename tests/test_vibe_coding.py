@@ -111,6 +111,30 @@ class VibeCodingLifecycleTests(unittest.TestCase):
             self.assertEqual(counts[stage.value], 1, f"{stage.value} should not replay")
         self.assertEqual(counts[VibeStage.SETUP.value], 2)
 
+    def test_non_applicable_deployment_decisions_are_checkpointed(self):
+        counts = {}
+        saved = []
+        graph = build_vibe_coding_graph(
+            self.handlers(counts),
+            checkpoint_writer=lambda value: saved.append(value),
+        )
+        run = Orchestrator(graph, max_total_attempts=32).run(
+            "local-cli",
+            "Build a local CLI",
+            {
+                "preview_deployment_required": False,
+                "preview_deployment_rationale": "A local-only CLI has no hosted preview surface",
+                "production_deployment_required": False,
+                "production_deployment_rationale": "This task requests a local CLI, not a release",
+            },
+        )
+        self.assertEqual(run.status, RunStatus.ACCEPTED, run.stop_reason)
+        self.assertEqual(len(saved), 18)
+        self.assertEqual(saved[14]["outputs"][VibeStage.PREVIEW_DEPLOYMENT.value]["status"], "not_applicable")
+        self.assertEqual(saved[16]["outputs"][VibeStage.PRODUCTION_DEPLOY.value]["status"], "not_applicable")
+        self.assertNotIn(VibeStage.PREVIEW_DEPLOYMENT.value, counts)
+        self.assertNotIn(VibeStage.PRODUCTION_DEPLOY.value, counts)
+
     def test_security_gate_failure_blocks_all_later_stages(self):
         counts = {}
         handlers = self.handlers(counts)
