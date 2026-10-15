@@ -133,7 +133,7 @@ def _worktree_digest(workspace_root: str | Path) -> str:
     if untracked.returncode:
         raise RuntimeError("cannot enumerate untracked files for side-effect recovery")
     digest = hashlib.sha256(diff.stdout)
-    for raw_path in sorted(item for item in untracked.stdout.split(b"\\0") if item):
+    for raw_path in sorted(item for item in untracked.stdout.split(b"\0") if item):
         relative = Path(os.fsdecode(raw_path))
         target = (root / relative).resolve()
         if root not in target.parents or not target.is_file():
