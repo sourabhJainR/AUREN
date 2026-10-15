@@ -14,6 +14,7 @@ from portable.vibe_coding_host import (
     IsolatedGitWorktree,
     LocalProjectTool,
     LocalTestExecutionTool,
+    LocalVibeCodingHost,
     MCPStdioToolAdapter,
     JournaledToolAdapter,
     SideEffectJournal,
@@ -297,6 +298,7 @@ print(json.dumps({"type": "item.completed", "item": {"type": "agent_message", "t
                     sys.executable, "-m", "unittest",
                     "tests.test_vibe_coding", "tests.test_vibe_coding_adapters",
                 ]],
+                "env_allowlist": ["PYTHONPATH"],
                 "mcp_tools": {
                     "web_search": {
                         "argv": [sys.executable, str(search_server)], "tool_name": "search",
@@ -320,7 +322,9 @@ print(json.dumps({"type": "item.completed", "item": {"type": "agent_message", "t
             config_path.write_text(json.dumps(config), encoding="utf-8")
             os.chmod(config_path, 0o600)
             previous_path = os.environ.get("PATH", "")
+            previous_pythonpath = os.environ.get("PYTHONPATH")
             os.environ["PATH"] = str(bin_dir) + os.pathsep + previous_path
+            os.environ["PYTHONPATH"] = str(project) + os.pathsep + str(project / ".ai-harness")
             try:
                 host_config = load_host_config(config_path)
                 report = LocalVibeCodingHost(project, config=host_config, state_root=base / "auren-state").run(
@@ -328,6 +332,10 @@ print(json.dumps({"type": "item.completed", "item": {"type": "agent_message", "t
                 )
             finally:
                 os.environ["PATH"] = previous_path
+                if previous_pythonpath is None:
+                    os.environ.pop("PYTHONPATH", None)
+                else:
+                    os.environ["PYTHONPATH"] = previous_pythonpath
             self.assertEqual(report["run_status"], "accepted", report["stop_reason"])
             self.assertEqual(len(report["stage_statuses"]), 18)
             self.assertFalse(report["production_deployment_performed"])
