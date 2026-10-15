@@ -971,6 +971,8 @@ def load_host_config(path: str | Path | None = None) -> VibeHostConfig:
         raise ValueError("preview deployment not-applicable requires an explicit rationale")
     if preview_required and not {"deployment", "preview"}.issubset(mcp_tools):
         raise ValueError("preview deployment requires configured deployment and preview MCP tools")
+    if browser_required and not preview_required:
+        raise ValueError("browser QA requires an explicitly configured isolated preview deployment; otherwise disable browser QA with a rationale")
     security_required = raw.get("security_tool_required", True)
     if type(security_required) is not bool:
         raise ValueError("security_tool_required must be a boolean")
