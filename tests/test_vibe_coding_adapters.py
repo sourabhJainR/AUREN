@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import unittest
 import tempfile
+import os
 from pathlib import Path
 
 from portable.vibe_coding import STAGE_ORDER, STAGE_SPECS, VibeStage
@@ -201,6 +202,30 @@ class VibeCodingAdapterTests(unittest.TestCase):
         self.assertNotIn("password", seen["prior_stage_outputs"].get("idea", {}))
         self.assertEqual(seen["prior_stage_outputs"]["idea"]["summary"], "safe")
 
+
+    def test_learning_store_autosaves_invocations_and_evaluations_across_registry_instances(self):
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "private" / "learning.json"
+            first = self.populated_registry()
+            first.attach_learning_store(target)
+            first.invoke(
+                VibeStage.IDEA,
+                {"risk": "low", "vibe_coding_workflow_id": "session-a", "intent": "Build a product"},
+                capabilities=default_stage_capabilities()[VibeStage.IDEA.value],
+            )
+            first.record_evaluation(
+                "adapter-idea", workflow_id="evaluation-a",
+                passed=True, evidence_refs=["evidence://independent/one"],
+            )
+            self.assertTrue(target.is_file())
+            if os.name != "nt":
+                self.assertEqual(target.stat().st_mode & 0o777, 0o600)
+            second = self.populated_registry()
+            second.attach_learning_store(target)
+            snapshot = second.snapshot()
+            self.assertEqual(snapshot["stats"]["adapter-idea"]["successes"], 1)
+            self.assertEqual(snapshot["evaluations"]["adapter-idea"]["successes"], 1)
+            self.assertIn("evidence://independent/one", snapshot["evaluations"]["adapter-idea"]["evidence_refs"])
 
     def test_learning_snapshot_persists_and_restores_evidence_provenance(self):
         registry = self.populated_registry()
