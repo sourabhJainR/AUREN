@@ -92,4 +92,22 @@ class AgentTeamOrchestratorTests(unittest.TestCase):
         self.assertTrue(gateway.verify_trace()["passed"])
         self.assertIn("action_completed", [event["event"] for event in gateway.events])
 
+
+    def test_governance_gateway_blocks_mutating_unit_without_write_scope(self):
+        gateway = ActionGovernanceGateway(ActionPolicy(
+            allowed_capabilities=frozenset({"repository.read", "repository.write"}),
+        ))
+        units = (WorkUnit("change", "change", specialist="builder", mutation_mode="bounded"),)
+        spawned = []
+        run = AgentTeamOrchestrator().run(
+            units, evidence_digest="E6",
+            spawn=lambda unit, evidence: spawned.append(unit.unit_id) or AgentOutput(unit.unit_id, "done"),
+            verify=lambda unit, output, evidence: (True, "v"),
+            review=lambda unit, output, evidence, verification: (True, "r"),
+            governance_gateway=gateway, run_id="governed-run-3",
+        )
+        self.assertFalse(run.passed)
+        self.assertEqual(spawned, [])
+        self.assertEqual(run.outputs[0].findings, ("write_scope_missing",))
+
 if __name__ == "__main__": unittest.main()
