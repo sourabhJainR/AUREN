@@ -612,3 +612,24 @@ def test_real_process_death_resumes_running_handler(tmp_path: Path):
     assert scores
     assert controller.task(task_id).state == "completed"
     assert controller.task(task_id).attempts == 2
+
+
+
+def test_resume_pending_continues_independent_work_around_live_lease(tmp_path: Path):
+    controller = ExecutionController(tmp_path)
+    controller.register_handler("tests.durable_handler", durable_handler, execution_class="read_only")
+    blocked = controller.submit("tests.durable_handler", {"id": "held"})
+    independent = controller.submit("tests.durable_handler", {"id": "independent"})
+
+    # Simulate another live worker owning the first task. Its lease must not be
+    # stolen, but it must not prevent unrelated pending work from progressing.
+    claimed = controller._claim(blocked.id)
+    assert claimed is not None
+    with sqlite3.connect(controller.db_path) as db:
+        db.execute("UPDATE tasks SET updated_at='2000-01-01T00:00:00+00:00' WHERE id=?", (blocked.id,))
+
+    scores = controller.resume_pending(limit=2)
+
+    assert len(scores) == 1
+    assert controller.task(blocked.id).state == "running"
+    assert controller.task(independent.id).state == "completed"
