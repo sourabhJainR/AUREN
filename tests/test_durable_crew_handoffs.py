@@ -86,10 +86,6 @@ class DurableHandoffLedgerTests(unittest.TestCase):
                 ledger.enqueue(handoff_id="h2", source_crew="api", target_crew="qa", task="review", payload={})
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
     def test_claim_attempt_budget_is_durable_across_restart(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "queue.json"
@@ -116,3 +112,7 @@ if __name__ == "__main__":
                 with self.subTest(value=value):
                     with self.assertRaisesRegex(ValueError, "max_attempts"):
                         DurableHandoffLedger(path, max_attempts=value)
+
+
+if __name__ == "__main__":
+    unittest.main()
