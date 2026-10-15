@@ -114,7 +114,7 @@ class AICodingAgencyBridgeTests(unittest.TestCase):
         )
         self.assertFalse(result.ready)
         self.assertEqual(calls, [])
-        self.assertIn("action_governance:explicit_write_scope_missing", result.execution.findings)
+        self.assertTrue(any(f.message == "action_governance:explicit_write_scope_missing" for f in result.execution.findings))
         self.assertFalse(result.execution.hard_gates["action_governance"])
 
     def test_governance_gateway_allows_explicit_scoped_coding_task(self):
@@ -152,7 +152,7 @@ class AICodingAgencyBridgeTests(unittest.TestCase):
         )
         self.assertFalse(result.ready)
         self.assertEqual(calls, [])
-        self.assertIn("action_governance:task_protected_path", result.execution.findings)
+        self.assertTrue(any(f.message == "action_governance:task_protected_path" for f in result.execution.findings))
 
     def test_governance_gateway_requires_explicit_run_id(self):
         gateway = ActionGovernanceGateway(ActionPolicy(
@@ -179,7 +179,7 @@ class AICodingAgencyBridgeTests(unittest.TestCase):
         )
         self.assertFalse(result.ready)
         self.assertEqual(calls, [])
-        self.assertIn("action_governance:trusted_approval_missing_or_invalid", result.execution.findings)
+        self.assertTrue(any(f.message == "action_governance:trusted_approval_missing_or_invalid" for f in result.execution.findings))
 
 if __name__ == "__main__":
     unittest.main()
