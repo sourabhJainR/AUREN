@@ -521,6 +521,10 @@ class GraphAgentTeam:
         if require_persistence and checkpoint_writer is None:
             raise ValueError("durable handoff checkpoint writer is required by task policy")
         state = dict(context or {})
+        # Provider checkpoint callbacks/state are supervisor-owned; never accept
+        # caller-supplied resume data as authoritative.
+        state.pop("auren_provider_resume_state", None)
+        state.pop("auren_provider_resume_persist", None)
         supervisor_envelope = state.pop("auren_supervisor_checkpoint_envelope", None)
         if supervisor_envelope is not None:
             if not isinstance(supervisor_envelope, Mapping):
@@ -756,7 +760,6 @@ class GraphAgentTeam:
         state["auren_crew_handoff_checkpoint_data"] = handoffs.snapshot()
         state["auren_retry_budget"] = retry_budget.snapshot()
         state["auren_provider_resume_persist"] = persist_provider_resume
-        state["auren_provider_resume_state"] = dict(state.get("auren_provider_resume_state", {}))
         state["auren_crew_handoff_checkpoint"] = handoffs.snapshot
         state["auren_crew_rollback_readiness"] = rollback_readiness
         try:
