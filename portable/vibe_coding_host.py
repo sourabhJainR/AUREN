@@ -16,6 +16,7 @@ import platform
 import queue
 import re
 import shutil
+import signal
 import sqlite3
 import subprocess
 import tempfile
@@ -506,6 +507,7 @@ class MCPStdioToolAdapter:
         proc = subprocess.Popen(
             list(self.argv), cwd=str(cwd), stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             text=True, bufsize=1, shell=False, env=_safe_env(self.env_allowlist),
+            start_new_session=(os.name != "nt"),
         )
         responses: queue.Queue[str] = queue.Queue()
         stderr_chunks: list[str] = []
@@ -581,10 +583,19 @@ class MCPStdioToolAdapter:
             try:
                 if proc.stdin:
                     proc.stdin.close()
-                proc.terminate()
+                if os.name != "nt":
+                    os.killpg(proc.pid, signal.SIGTERM)
+                else:
+                    proc.terminate()
                 proc.wait(timeout=2)
             except (OSError, subprocess.TimeoutExpired):
-                proc.kill()
+                try:
+                    if os.name != "nt":
+                        os.killpg(proc.pid, signal.SIGKILL)
+                    else:
+                        proc.kill()
+                except OSError:
+                    pass
                 proc.wait(timeout=2)
             for stream in (proc.stdout, proc.stderr):
                 if stream is not None:
@@ -1005,9 +1016,12 @@ class MCPIndependentReviewTool:
         reviewer = str(result["reviewer"]).strip()
         if not reviewer or reviewer.casefold().removeprefix("provider:") == self.author_provider.casefold().removeprefix("provider:"):
             raise AdapterUnavailable("independent reviewer identity must differ from the implementation provider")
+        raw_evidence = result.get("evidence", [])
+        if not isinstance(raw_evidence, list):
+            raise AdapterUnavailable("independent review evidence must be a list")
         result["author"] = f"provider:{self.author_provider}"
         result["reviewer"] = reviewer
-        result["evidence"] = list(result.get("evidence", [])) + [{
+        result["evidence"] = raw_evidence + [{
             "source": "independent-review-mcp",
             "locator": f"mcp://independent-review/{reviewer}",
         }]
