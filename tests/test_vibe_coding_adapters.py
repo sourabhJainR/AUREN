@@ -7,6 +7,7 @@ from portable.vibe_coding_adapters import (
     AdapterRegistration,
     AdapterUnavailable,
     VibeAdapterRegistry,
+    build_host_adapter_registry,
     build_integrated_vibe_coding_graph,
     default_stage_capabilities,
 )
@@ -82,6 +83,58 @@ class VibeCodingAdapterTests(unittest.TestCase):
         self.assertEqual(list(run.results), [stage.value for stage in STAGE_ORDER])
         for stage in STAGE_ORDER:
             self.assertEqual(registry._stats[f"adapter-{stage.value}"].successes, 1)
+
+
+    def test_host_factory_composes_active_agent_and_authoritative_tool_receipts(self):
+        authority = {
+            VibeStage.RESEARCH: {"research": ("market_evidence", "competitors")},
+            VibeStage.PRD: {"product": ("requirements", "acceptance_criteria")},
+            VibeStage.DESIGN: {"design": ("design_artifacts",)},
+            VibeStage.TASK_BREAKDOWN: {"task_planning": ("tasks",)},
+            VibeStage.SETUP: {"repository": ("repository", "environment")},
+            VibeStage.DEVELOPMENT: {"repository": ("artifacts",)},
+            VibeStage.TESTING: {"test_execution": ("tests_run", "status")},
+            VibeStage.SECURITY_REVIEW: {"security": ("findings", "status", "critical_findings")},
+            VibeStage.CODE_REVIEW: {"independent_review": ("reviewer", "review_summary", "status", "blocking_findings")},
+            VibeStage.PREVIEW_DEPLOYMENT: {"deployment": ("deployment_receipt",)},
+            VibeStage.QA_TESTING: {"test_execution": ("qa_results", "user_feedback", "status")},
+            VibeStage.PRODUCTION_DEPLOY: {"release": ("release_receipt", "deployed_revision", "reviewed_revision", "approval")},
+            VibeStage.MONITORING: {"observability": ("signals", "alerts", "rollback_thresholds")},
+        }
+        capabilities = {
+            cap for values in default_stage_capabilities().values() for cap in values if cap != "agent"
+        }
+        def tool_for(request, capability):
+            stage = VibeStage(request["stage"])
+            stage_output = output_for(stage, request["state"])
+            fields = authority.get(stage, {}).get(capability, ())
+            return {
+                **{field: stage_output[field] for field in fields if field in stage_output},
+                "evidence": [{"source": capability, "locator": f"tool://{stage.value}/{capability}"}],
+            }
+        tools = {
+            capability: (lambda request, _capability=capability: tool_for(request, _capability))
+            for capability in capabilities
+        }
+        def active_agent(request):
+            return output_for(VibeStage(request["stage"]), request["state"])
+        registry = build_host_adapter_registry(active_agent, tools, max_risk="critical")
+        graph = build_integrated_vibe_coding_graph(registry)
+        context = {
+            "risk": "low",
+            "vibe_coding_workflow_id": "host-factory-run",
+            "production_approval": {
+                "approved": True, "approved_by": "release-manager",
+                "approved_at": "2026-10-15T12:00:00Z",
+            },
+            "final_code_revision": "revision-123",
+            "verified_code_revision": "revision-123",
+        }
+        run = Orchestrator(graph, max_total_attempts=32).run(
+            "host-factory-run", "Build a product", context
+        )
+        self.assertEqual(run.status, RunStatus.ACCEPTED, run.stop_reason)
+        self.assertEqual(len(run.results), 18)
 
     def test_missing_capability_adapter_fails_closed_before_graph_creation(self):
         registry = self.populated_registry()
