@@ -88,6 +88,7 @@ from portable.vibe_coding_adapters import (
     build_integrated_vibe_coding_graph,
     default_stage_capabilities,
 )
+from portable.vibe_coding import VibeStage
 
 registry = VibeAdapterRegistry(max_risk="high")
 # Register each actual host tool/agent with the stages and capabilities it supports.
