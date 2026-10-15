@@ -656,7 +656,7 @@ def test_supervised_cross_crew_handoff_is_revision_indexed_and_not_replayed(tmp_
     git("commit", "-m", "seed supervised handoff fixture", "-q")
     head_sha = git("rev-parse", "HEAD").lower()
     git("remote", "add", "origin", "https://github.com/acme/auren-fixture.git")
-    monkeypatch.setenv("AUREN_REPOSITORY_SLUG", "acme/auren-fixture")
+    monkeypatch.delenv("AUREN_REPOSITORY_SLUG", raising=False)  # Exercise origin-URL slug resolution.
 
     class Adapter:
         def __init__(self, crew_id):
