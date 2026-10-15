@@ -181,5 +181,60 @@ class AICodingAgencyBridgeTests(unittest.TestCase):
         self.assertEqual(calls, [])
         self.assertTrue(any(f.message == "action_governance:trusted_approval_missing_or_invalid" for f in result.execution.findings))
 
+
+
+    def test_governance_gateway_rejects_parent_traversal_in_write_scope(self):
+        gateway = ActionGovernanceGateway(ActionPolicy(
+            allowed_capabilities=frozenset({"repository.read", "repository.write"}),
+        ))
+        task = CodingTask(
+            "run-governed-traversal", "edit source",
+            mutation_mode="bounded",
+            allowed_artifact_changes=("../.github/workflows/build.yml",),
+        )
+        calls = []
+        result = run_coding_task(
+            task, lambda profile, assignments: calls.append("worker") or self._worker(profile, assignments),
+            governance_gateway=gateway, run_id="governed-traversal",
+        )
+        self.assertFalse(result.ready)
+        self.assertEqual(calls, [])
+        self.assertTrue(any(
+            f.message.startswith("action_governance:invalid_write_scope:")
+            for f in result.execution.findings
+        ))
+
+    def test_governed_worker_request_binds_every_preflighted_path(self):
+        gateway = ActionGovernanceGateway(ActionPolicy(
+            allowed_capabilities=frozenset({"repository.read", "repository.write"}),
+        ))
+        captured_requests = []
+        original_execute = gateway.execute
+
+        def capture_execute(request, handler, **kwargs):
+            captured_requests.append(request)
+            return original_execute(request, handler, **kwargs)
+
+        gateway.execute = capture_execute
+        task = CodingTask(
+            "run-governed-multi-scope", "implement API and tests",
+            mutation_mode="bounded",
+            allowed_artifact_changes=("src/api.py", "tests/test_api.py"),
+        )
+        calls = []
+        result = run_coding_task(
+            task, lambda profile, assignments: calls.append("worker") or self._worker(profile, assignments),
+            governance_gateway=gateway, run_id="governed-multi-scope",
+        )
+        self.assertTrue(result.ready)
+        self.assertEqual(calls, ["worker"])
+        self.assertEqual(len(captured_requests), 1)
+        self.assertEqual(
+            captured_requests[0].evidence_refs,
+            ("scope:src/api.py", "scope:tests/test_api.py"),
+        )
+        self.assertEqual(captured_requests[0].action_id, "run-governed-multi-scope:coding-worker")
+        self.assertTrue(gateway.verify_trace()["passed"])
+
 if __name__ == "__main__":
     unittest.main()
