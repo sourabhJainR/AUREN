@@ -44,6 +44,7 @@ class PromotionEvidenceChain:
     attestation_evidence_digest: str = ""
     causal_evidence_ids: tuple[str, ...] = ()
     isolation_evidence_digest: str = ""
+    production_attested: bool = False
     _verification_seal: object = field(default=None, init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
@@ -64,6 +65,8 @@ class PromotionEvidenceChain:
             raise ValueError("attestation_evidence_digest must be a string")
         if not isinstance(self.isolation_evidence_digest, str):
             raise ValueError("isolation_evidence_digest must be a string")
+        if type(self.production_attested) is not bool:
+            raise ValueError("production_attested must be a boolean")
         if not isinstance(self.causal_evidence_ids, tuple) or any(
             not isinstance(item, str) or not item.strip() for item in self.causal_evidence_ids
         ):
@@ -235,6 +238,7 @@ class PromotionEvidenceChainBuilder:
             attestation_evidence_digest=attested_campaign.evidence_digest,
             causal_evidence_ids=causal.evidence_ids,
             isolation_evidence_digest=isolation_digest,
+            production_attested=attested_campaign.production_trustworthy,
         )
         object.__setattr__(chain, "_verification_seal", _VERIFIED_CHAIN_SEAL)
         return chain
@@ -253,6 +257,7 @@ class ArenaEvidenceObservation:
     reasons: tuple[str, ...]
     chain_digest: str
     observation_digest: str = ""
+    production_attested: bool = False
 
     def __post_init__(self) -> None:
         for name in (
@@ -264,6 +269,8 @@ class ArenaEvidenceObservation:
                 raise ValueError(f"{name} must be a non-empty string")
         if type(self.accepted) is not bool:
             raise ValueError("accepted must be a boolean")
+        if type(self.production_attested) is not bool:
+            raise ValueError("production_attested must be a boolean")
         if not isinstance(self.reasons, tuple) or any(not isinstance(x, str) or not x.strip() for x in self.reasons):
             raise ValueError("reasons must be a tuple of non-empty strings")
         if self.accepted and self.reasons:
@@ -277,6 +284,7 @@ class ArenaEvidenceObservation:
             "capability_id": self.capability_id,
             "intervention_id": self.intervention_id,
             "accepted": self.accepted,
+            "production_attested": self.production_attested,
             "reasons": self.reasons,
             "chain_digest": self.chain_digest,
         }, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
@@ -299,12 +307,14 @@ class ArenaEvidenceObservation:
             "attestation_evidence_digest": chain.attestation_evidence_digest,
             "causal_evidence_ids": chain.causal_evidence_ids,
             "isolation_evidence_digest": chain.isolation_evidence_digest,
+            "production_attested": chain.production_attested,
         }, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
         accepted = chain.complete and chain.builder_verified
         reasons = () if accepted else (chain.reasons if chain.reasons else ("evidence chain is incomplete",))
         return cls(
             chain.campaign_digest, chain.run_receipt_digest, chain.causal_evidence_digest,
             chain.capability_id, chain.intervention_id, accepted, tuple(reasons), chain_digest,
+            production_attested=chain.production_attested,
         )
 
 
@@ -356,6 +366,7 @@ class ArenaEvidenceObservationLedger:
             "capability_id": observation.capability_id,
             "intervention_id": observation.intervention_id,
             "accepted": observation.accepted,
+            "production_attested": observation.production_attested,
             "reasons": observation.reasons,
             "chain_digest": observation.chain_digest,
             "observation_digest": observation.observation_digest,
