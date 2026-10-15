@@ -116,7 +116,7 @@ def _write_private_json(path: str | Path, payload: Mapping[str, Any]) -> Path:
             os.fchmod(descriptor, 0o600)
         with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
             json.dump(dict(payload), stream, sort_keys=True, indent=2, ensure_ascii=False, allow_nan=False)
-            stream.write("\\n")
+            stream.write("\n")
             stream.flush()
             os.fsync(stream.fileno())
         os.replace(temp_name, target)
