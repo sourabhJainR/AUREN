@@ -623,6 +623,13 @@ class GraphAgentTeam:
                 raise RuntimeError("provider resume checkpoints may only be persisted during graph execution")
             if not isinstance(snapshot, Mapping):
                 raise ValueError("provider resume checkpoint must be a mapping")
+            provider_budget = snapshot.get("retry_budget")
+            if not isinstance(provider_budget, Mapping):
+                raise ValueError("provider resume checkpoint requires the shared retry budget")
+            # Reconcile charges monotonically into the graph-owned budget before
+            # persisting the same snapshot that handoffs and review receipts use.
+            retry_budget.merge_snapshot(provider_budget)
+            state["auren_retry_budget"] = retry_budget.snapshot()
             supplied = snapshot.get("digest")
             payload = {key: value for key, value in snapshot.items() if key != "digest"}
             canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
