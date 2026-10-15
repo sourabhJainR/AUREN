@@ -99,5 +99,16 @@ class OpenShellSandboxBackendTests(unittest.TestCase):
             invalid.validate()
 
 
+
+    def test_workspace_mutation_during_execution_fails_closed(self):
+        def runner(args, **kwargs):
+            (self.workspace / "unexpected.py").write_text("mutated", encoding="utf-8")
+            return SimpleNamespace(returncode=0, stdout="done", stderr="")
+        backend = OpenShellSandboxBackend(runner=runner, which=lambda name: "/usr/bin/openshell")
+        result = backend.execute(self.request)
+        self.assertFalse(result.workspace_stable)
+        self.assertFalse(result.passed)
+        self.assertFalse(result.as_evidence()["workspace_stable"])
+
 if __name__ == "__main__":
     unittest.main()
