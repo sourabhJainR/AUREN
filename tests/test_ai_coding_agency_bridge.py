@@ -183,26 +183,35 @@ class AICodingAgencyBridgeTests(unittest.TestCase):
 
 
 
-    def test_governance_gateway_rejects_parent_traversal_in_write_scope(self):
-        gateway = ActionGovernanceGateway(ActionPolicy(
-            allowed_capabilities=frozenset({"repository.read", "repository.write"}),
-        ))
-        task = CodingTask(
-            "run-governed-traversal", "edit source",
-            mutation_mode="bounded",
-            allowed_artifact_changes=("../.github/workflows/build.yml",),
+    def test_governance_gateway_rejects_unsafe_write_scopes(self):
+        unsafe_scopes = (
+            "../.github/workflows/build.yml",
+            "C:\\repo\\src\\api.py",
+            "src/../.github/workflows/build.yml",
+            "src/\\x00api.py",
         )
-        calls = []
-        result = run_coding_task(
-            task, lambda profile, assignments: calls.append("worker") or self._worker(profile, assignments),
-            governance_gateway=gateway, run_id="governed-traversal",
-        )
-        self.assertFalse(result.ready)
-        self.assertEqual(calls, [])
-        self.assertTrue(any(
-            f.message.startswith("action_governance:invalid_write_scope:")
-            for f in result.execution.findings
-        ))
+        for index, unsafe_scope in enumerate(unsafe_scopes):
+            with self.subTest(scope=repr(unsafe_scope)):
+                gateway = ActionGovernanceGateway(ActionPolicy(
+                    allowed_capabilities=frozenset({"repository.read", "repository.write"}),
+                ))
+                task = CodingTask(
+                    f"run-governed-unsafe-{index}", "edit source",
+                    mutation_mode="bounded",
+                    allowed_artifact_changes=(unsafe_scope,),
+                )
+                calls = []
+                result = run_coding_task(
+                    task, lambda profile, assignments: calls.append("worker") or self._worker(profile, assignments),
+                    governance_gateway=gateway, run_id=f"governed-unsafe-{index}",
+                )
+                self.assertFalse(result.ready)
+                self.assertEqual(calls, [])
+                self.assertTrue(any(
+                    f.message.startswith("action_governance:invalid_write_scope:")
+                    for f in result.execution.findings
+                ))
+
 
     def test_governed_worker_request_binds_every_preflighted_path(self):
         gateway = ActionGovernanceGateway(ActionPolicy(
