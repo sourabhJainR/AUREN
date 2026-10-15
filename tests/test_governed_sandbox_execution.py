@@ -86,8 +86,10 @@ class GovernedSandboxExecutionTests(unittest.TestCase):
         self.assertEqual(evidence["kind"], "auren.governed_sandbox_execution")
         self.assertEqual(evidence["policy_decision"], "allow")
         self.assertEqual(evidence["sandbox"]["backend"], "nvidia-openshell")
-        self.assertNotIn("stdout", repr(evidence))
-        self.assertNotIn("stderr", repr(evidence))
+        self.assertNotIn("'stdout':", repr(evidence))
+        self.assertNotIn("'stderr':", repr(evidence))
+        self.assertIn("stdout_digest", evidence["sandbox"])
+        self.assertIn("stderr_digest", evidence["sandbox"])
         self.assertEqual([e["event"] for e in gateway.events], [
             "policy_verdict", "action_started", "action_completed"
         ])
