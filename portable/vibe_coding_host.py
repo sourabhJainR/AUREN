@@ -102,6 +102,40 @@ def _find_object(value: Any) -> dict[str, Any] | None:
     return None
 
 
+def _write_private_json(path: str | Path, payload: Mapping[str, Any]) -> Path:
+    untrusted_target = Path(path).expanduser()
+    if untrusted_target.is_symlink():
+        raise PermissionError("private receipt target must not be a symlink")
+    target = untrusted_target.resolve()
+    target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if os.name != "nt":
+        os.chmod(target.parent, 0o700)
+    descriptor, temp_name = tempfile.mkstemp(prefix=f".{target.name}.", suffix=".tmp", dir=target.parent)
+    try:
+        if os.name != "nt":
+            os.fchmod(descriptor, 0o600)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            json.dump(dict(payload), stream, sort_keys=True, indent=2, ensure_ascii=False, allow_nan=False)
+            stream.write("\\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temp_name, target)
+        if os.name != "nt":
+            os.chmod(target, 0o600)
+        try:
+            directory_fd = os.open(target.parent, os.O_RDONLY)
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
+        except OSError:
+            pass
+    finally:
+        if os.path.exists(temp_name):
+            os.unlink(temp_name)
+    return target
+
+
 def _safe_env(allowlist: Sequence[str] = ()) -> dict[str, str]:
     base_names = ("PATH", "HOME", "USERPROFILE", "TMP", "TEMP", "TMPDIR", "SYSTEMROOT", "LANG", "LC_ALL", "TERM")
     allowed = set(base_names) | set(allowlist)
@@ -149,7 +183,10 @@ class SideEffectJournal:
     SCHEMA = "auren-vibe-side-effect-v1"
 
     def __init__(self, path: str | Path) -> None:
-        self.path = Path(path).expanduser().resolve()
+        untrusted_path = Path(path).expanduser()
+        if untrusted_path.is_symlink():
+            raise PermissionError("side-effect journal path must not be a symlink")
+        self.path = untrusted_path.resolve()
         self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         if os.name != "nt":
             os.chmod(self.path.parent, 0o700)
@@ -1092,10 +1129,15 @@ class IsolatedGitWorktree:
             raise RuntimeError("unable to resolve source checkout HEAD")
         self.base_revision = head.stdout.strip()
         self.worktree_root.mkdir(parents=True, exist_ok=True, mode=0o700)
+        if os.name != "nt":
+            os.chmod(self.worktree_root, 0o700)
         if self.path.exists():
             top_worktree = _run(("git", "-C", str(self.path), "rev-parse", "--show-toplevel"), cwd=self.path, timeout=10)
             if top_worktree.returncode or Path(top_worktree.stdout.strip()).resolve() != self.path:
                 raise PermissionError("existing worktree path is not a valid Git worktree")
+            listing = _run(("git", "-C", str(self.project_root), "worktree", "list", "--porcelain"), cwd=self.project_root, timeout=10)
+            if listing.returncode or f"worktree {self.path}" not in listing.stdout.splitlines():
+                raise PermissionError("existing directory is not registered as a worktree of the source checkout")
             existing_head = _run(("git", "-C", str(self.path), "rev-parse", "HEAD"), cwd=self.path, timeout=10)
             if existing_head.returncode or existing_head.stdout.strip() != self.base_revision:
                 raise ValueError("existing worktree base revision differs; refusing unsafe resume")
