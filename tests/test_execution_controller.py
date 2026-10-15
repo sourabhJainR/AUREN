@@ -827,6 +827,8 @@ def test_real_graph_team_handoff_resumes_through_supervisor_after_two_interrupti
     interruptions = []
 
     class InterruptibleGraph:
+        states = ()
+
         def __init__(self, phase):
             self.phase = phase
 
