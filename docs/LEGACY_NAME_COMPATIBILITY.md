@@ -4,6 +4,8 @@ AUREN is the current product identity. New code, user-facing UI, active document
 
 This register intentionally distinguishes compatibility from stale branding. Do not blindly rename a compatibility token when doing so would break an existing operator configuration or a test's intended input.
 
+Internal Python API names must still be canonical. The state-root resolver is exposed as `legacy_state_home()` (not a legacy-branded symbol); its implementation may recognize historical `.aer` and `AER_HOME` inputs solely to locate existing data. That read-compatibility boundary is separate from current code identifiers. New identifiers, functions, tests, files, and folders must use `AUREN`/`auren` naming unless the spelling is an explicitly documented external legacy token or historical record.
+
 ## Retained legacy references
 
 | Reference | Classification | Required treatment |

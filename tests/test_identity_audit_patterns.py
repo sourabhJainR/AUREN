@@ -14,6 +14,17 @@ SPEC.loader.exec_module(VALIDATOR)
 
 
 class CaseInsensitiveIdentityAuditTests(unittest.TestCase):
+    def test_python_symbol_scan_ignores_strings_and_flags_legacy_identifiers(self):
+        source = "def legacy_aer_home():\n    auren_state = \"legacy_aer_home\"\n    return auren_state\n"
+        self.assertEqual(VALIDATOR.find_legacy_python_symbols(source), [(1, "legacy_aer_home")])
+        self.assertEqual(VALIDATOR.find_legacy_python_symbols("class ArenaError:\n    pass\n"), [])
+
+    def test_path_token_scan_flags_legacy_file_and_folder_names(self):
+        self.assertIsNotNone(VALIDATOR.LEGACY_PATH_TOKEN.search("src/aer_runtime/main.py"))
+        self.assertIsNotNone(VALIDATOR.LEGACY_PATH_TOKEN.search("src/.aer/config.json"))
+        self.assertIsNone(VALIDATOR.LEGACY_PATH_TOKEN.search("portable/independent_arena.py"))
+        self.assertIsNone(VALIDATOR.LEGACY_PATH_TOKEN.search("tests/test_aer_runtime.py"))
+
     def test_environment_and_internal_identifiers_are_case_insensitive(self):
         samples = (
             "AER_NETWORK_ALLOWED",

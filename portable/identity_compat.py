@@ -63,7 +63,7 @@ def canonical_auren_home(
     return base / CANONICAL_HOME_NAME
 
 
-def legacy_aer_home(
+def legacy_state_home(
     *,
     home: str | Path | None = None,
     environ: Mapping[str, str] | None = None,
@@ -126,7 +126,7 @@ def canonical_runtime_home(
     from portable.state_paths import AurenStatePaths
 
     canonical = canonical_auren_home(home=home, environ=environ)
-    legacy = legacy_aer_home(home=home, environ=environ)
+    legacy = legacy_state_home(home=home, environ=environ)
     return AurenStatePaths.prepare(canonical_root=canonical, legacy_root=legacy).root
 
 
@@ -147,4 +147,4 @@ def project_state_dir(
     return canonical
 
 
-__all__ = ["AUREN_CHECKPOINT_STATE_SCHEMA_VERSION", "LEGACY_CHECKPOINT_STATE_KEYS", "auren_home", "canonical_auren_home", "canonical_runtime_home", "canonicalize_auren_checkpoint_state", "get_auren_env", "legacy_aer_home", "project_state_dir"]
+__all__ = ["AUREN_CHECKPOINT_STATE_SCHEMA_VERSION", "LEGACY_CHECKPOINT_STATE_KEYS", "auren_home", "canonical_auren_home", "canonical_runtime_home", "canonicalize_auren_checkpoint_state", "get_auren_env", "legacy_state_home", "project_state_dir"]

@@ -8,7 +8,7 @@ from portable.user_experience import build_status, render_json, run_demo, run_do
 
 
 class UserExperienceTests(unittest.TestCase):
-    def test_doctor_reports_uninstalled_aer_as_warning_not_failure(self):
+    def test_doctor_reports_uninstalled_legacy_install_as_warning_not_failure(self):
         with tempfile.TemporaryDirectory() as temp:
             project = Path(temp) / "project"
             project.mkdir()
