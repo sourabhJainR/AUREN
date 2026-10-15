@@ -1,6 +1,7 @@
 from __future__ import annotations
 import unittest
 from portable.agency_team_orchestrator import AgentOutput, AgentTeamOrchestrator, WorkUnit
+from portable.action_governance import ActionGovernanceGateway, ActionPolicy
 
 class AgentTeamOrchestratorTests(unittest.TestCase):
     def test_team_spawns_parallel_research_and_gates_before_dependents(self):
@@ -50,3 +51,46 @@ class AgentTeamOrchestratorTests(unittest.TestCase):
         self.assertIn("b", run.stopped_units)
 
 if __name__ == "__main__": unittest.main()
+
+
+    def test_governance_gateway_blocks_protected_specialist_scope_before_spawn(self):
+        gateway = ActionGovernanceGateway(ActionPolicy(
+            allowed_capabilities=frozenset({"repository.read", "repository.write"}),
+            protected_targets=(".github/workflows",),
+        ))
+        units = (WorkUnit("inspect", "inspect", specialist="explorer", read_paths=(".github/workflows",)),)
+        spawned = []
+        def spawn(unit, evidence):
+            spawned.append(unit.unit_id)
+            return AgentOutput(unit.unit_id, "done")
+        run = AgentTeamOrchestrator().run(
+            units, evidence_digest="E4", spawn=spawn,
+            verify=lambda unit, output, evidence: (True, "v"),
+            review=lambda unit, output, evidence, verification: (True, "r"),
+            governance_gateway=gateway, run_id="governed-run",
+        )
+        self.assertFalse(run.passed)
+        self.assertEqual(spawned, [])
+        self.assertEqual(run.outputs[0].status, "blocked")
+        self.assertEqual(run.outputs[0].findings, ("trusted_approval_missing_or_invalid",))
+        self.assertTrue(gateway.verify_trace()["passed"])
+
+    def test_governance_gateway_allows_scoped_specialist_and_records_execution(self):
+        gateway = ActionGovernanceGateway(ActionPolicy(
+            allowed_capabilities=frozenset({"repository.read", "repository.write"}),
+        ))
+        units = (WorkUnit("inspect", "inspect", specialist="explorer", read_paths=("src",)),)
+        spawned = []
+        def spawn(unit, evidence):
+            spawned.append(unit.unit_id)
+            return AgentOutput(unit.unit_id, "done")
+        run = AgentTeamOrchestrator().run(
+            units, evidence_digest="E5", spawn=spawn,
+            verify=lambda unit, output, evidence: (True, "v"),
+            review=lambda unit, output, evidence, verification: (True, "r"),
+            governance_gateway=gateway, run_id="governed-run-2",
+        )
+        self.assertTrue(run.passed)
+        self.assertEqual(spawned, ["inspect"])
+        self.assertTrue(gateway.verify_trace()["passed"])
+        self.assertIn("action_completed", [event["event"] for event in gateway.events])
