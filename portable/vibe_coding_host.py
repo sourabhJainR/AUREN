@@ -1430,9 +1430,7 @@ class LocalVibeCodingHost:
             "merge_or_publish_performed": False,
         }
         report["digest"] = _digest(report)
-        report_path = self.state_root / "reports" / f"{workflow_id}.json"
-        report_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-        report_path.write_text(json.dumps(report, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+        report_path = _write_private_json(self.state_root / "reports" / f"{workflow_id}.json", report)
         if run.status != RunStatus.ACCEPTED:
             raise RuntimeError(f"vibe-coding workflow did not pass all gates: {run.stop_reason}; report={report_path}")
         return report
