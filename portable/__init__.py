@@ -235,3 +235,7 @@ __all__ += ["DomainTransferEvidence", "AttestedDomainTransferEvidenceBuilder"]
 
 from .external_transfer_evidence_coordinator import ExternalTransferEvidence, ExternalTransferEvidenceCoordinator
 __all__ += ["ExternalTransferEvidence", "ExternalTransferEvidenceCoordinator"]
+
+
+from .arena_promotion_gate import ArenaPromotionDecision, ArenaPromotionGate
+__all__ += ["ArenaPromotionDecision", "ArenaPromotionGate"]
