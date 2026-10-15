@@ -635,3 +635,131 @@ def test_resume_pending_continues_independent_work_around_live_lease(tmp_path: P
     assert len(scores) == 1
     assert controller.task(blocked.id).state == "running"
     assert controller.task(independent.id).state == "completed"
+
+
+def test_supervised_cross_crew_handoff_is_revision_indexed_and_not_replayed(tmp_path: Path, monkeypatch):
+    import hashlib
+    import subprocess
+    from portable.state_graph import GraphAgentTeam
+
+    def git(*args):
+        return subprocess.run(
+            ["git", "-C", str(tmp_path), *args],
+            check=True, capture_output=True, text=True, timeout=5,
+        ).stdout.strip()
+
+    git("init", "-q")
+    git("config", "user.email", "auren-test@example.invalid")
+    git("config", "user.name", "AUREN integration test")
+    (tmp_path / "seed.txt").write_text("checkpoint identity fixture", encoding="utf-8")
+    git("add", "seed.txt")
+    git("commit", "-m", "seed supervised handoff fixture", "-q")
+    head_sha = git("rev-parse", "HEAD").lower()
+    git("remote", "add", "origin", "https://github.com/acme/auren-fixture.git")
+    monkeypatch.setenv("AUREN_REPOSITORY_SLUG", "acme/auren-fixture")
+
+    class Adapter:
+        def __init__(self, crew_id):
+            self.crew_id = crew_id
+            self.implementation_version = "integration-test-v1"
+            self.calls = 0
+            self.configuration_digest = hashlib.sha256(crew_id.encode()).hexdigest()
+
+        def propose(self, request):
+            self.calls += 1
+            checks = {
+                name: {"status": "pass", "evidence_refs": [f"test:{self.crew_id}:{index}"]}
+                for index, name in enumerate(request["acceptance_checks"])
+            }
+            proposal = {
+                "schema_version": "auren-crew-proposal-v1",
+                "recommendation": f"{self.crew_id} proposal",
+                "artifacts": [f"proposal:{self.crew_id}"],
+                "evidence_refs": [f"test:evidence:{self.crew_id}"],
+                "uncertainty": [],
+                "blockers": [],
+                "acceptance_check_results": checks,
+            }
+            if self.crew_id == "backend_api":
+                proposal["handoff_requests"] = [{
+                    "target_crew": "qa_reviewer",
+                    "task": "Independently verify the backend API proposal",
+                }]
+            return proposal
+
+    source = Adapter("backend_api")
+    target = Adapter("qa_reviewer")
+
+    class HandoffGraph:
+        def digest(self):
+            return "a" * 64
+
+        def run(self, task_id, intent, state):
+            source_record = state["auren_crew_dispatch"](
+                "backend_api", "Implement the backend API", {"evidence_refs": ["test:source"]}
+            )
+            request = source_record["proposal"]["handoff_requests"][0]
+            queued = state["auren_crew_handoff_enqueue"](
+                "backend_api", request["target_crew"], request["task"]
+            )
+            if queued["status"] != "queued":
+                return {"handoff_status": queued["status"], "handoff_id": queued["handoff_id"]}
+            claimed = state["auren_crew_handoff_claim"]()
+            assert claimed is not None
+            state["auren_crew_dispatch"](
+                claimed["target_crew"], claimed["task"], {"handoff_id": claimed["handoff_id"]}
+            )
+            state["auren_crew_handoff_complete"](claimed)
+            return {"handoff_status": "completed", "handoff_id": claimed["handoff_id"]}
+
+    def reviewer(handoff):
+        return {
+            "schema_version": "auren-handoff-review-receipt-v1",
+            "reviewer_id": "independent-qa-fixture",
+            "reviewer_version": "qa-v1",
+            "status": "pass",
+            "evidence_refs": ["test:qa:reviewed-proposal", "test:qa:acceptance"],
+            "reason": "fixture independently checked proposal evidence and acceptance",
+        }
+
+    def new_team():
+        return GraphAgentTeam(
+            graph=HandoffGraph(),
+            agents={"backend_api": source, "qa_reviewer": target},
+            independent_handoff_reviewer=reviewer,
+            independent_handoff_reviewer_id="independent-qa-fixture",
+            independent_handoff_reviewer_version="qa-v1",
+        )
+
+    first_controller = ExecutionController(tmp_path)
+    first = first_controller.execute_graph(
+        new_team(), "cross-crew-task", "backend API implementation with QA review", {}
+    )
+    assert first["handoff_status"] == "completed"
+    first_envelope = first_controller.load_graph_checkpoint("cross-crew-task")
+    assert first_envelope is not None
+    assert first_envelope["repository"] == "acme/auren-fixture"
+    assert first_envelope["head_sha"] == head_sha
+    receipt_map = first_envelope["handoff_checkpoint"]["completion_receipts"]
+    assert len(receipt_map) == 1
+    assert receipt_map[next(iter(receipt_map))]["reviewer_id"] == "independent-qa-fixture"
+    assert first_envelope["retry_budget"]["digest"] == first_envelope["handoff_checkpoint"]["retry_budget"]["digest"]
+
+    evidence_ids = first_controller.evidence_ledger.known_evidence_ids(
+        repository="acme/auren-fixture", head_sha=head_sha
+    )
+    assert any(item.startswith("crew-checkpoint:") for item in evidence_ids)
+
+    # A new supervisor instance proves the persisted terminal receipt is restored;
+    # the source proposal can replay, but the target's external work must not repeat.
+    second_controller = ExecutionController(tmp_path)
+    second = second_controller.execute_graph(
+        new_team(), "cross-crew-task", "backend API implementation with QA review", {}
+    )
+    assert second["handoff_status"] == "already_completed"
+    assert source.calls == 2
+    assert target.calls == 1
+    resumed = second_controller.load_graph_checkpoint("cross-crew-task")
+    assert resumed is not None
+    assert resumed["handoff_checkpoint"]["completed_ids"] == first_envelope["handoff_checkpoint"]["completed_ids"]
+
