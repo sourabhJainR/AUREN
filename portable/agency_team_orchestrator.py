@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from hashlib import sha256
 from typing import Callable, Protocol, Sequence
 from .agency_execution_plan import SpecialistWork, build_plan, ExecutionPlan
+from .action_governance import ActionGovernanceGateway, ActionRequest, ApprovalReceipt
 
 @dataclass(frozen=True)
 class WorkUnit:
@@ -37,6 +38,7 @@ class AgentSpawner(Protocol):
     def __call__(self, unit: WorkUnit, evidence_digest: str) -> AgentOutput: ...
 Verifier = Callable[[WorkUnit, AgentOutput, str], tuple[bool, str]]
 Reviewer = Callable[[WorkUnit, AgentOutput, str, str], tuple[bool, str]]
+ApprovalProvider = Callable[[WorkUnit, ActionRequest], ApprovalReceipt | None]
 
 class AgentTeamOrchestrator:
     """Split work into complete units, spawn agents, and gate each unit early."""
@@ -48,12 +50,58 @@ class AgentTeamOrchestrator:
         by_id = {u.unit_id: u for u in units}
         if len(by_id) != len(units): raise ValueError("unit IDs must be unique")
         return build_plan(tuple(SpecialistWork(u.specialist, u.role, u.mutation_mode, u.read_paths, u.write_paths, tuple(by_id[d].specialist for d in u.depends_on if d in by_id), u.priority) for u in units))
-    def run(self, units: Sequence[WorkUnit], *, evidence_digest: str, spawn: AgentSpawner, verify: Verifier, review: Reviewer) -> TeamRun:
+    def run(self, units: Sequence[WorkUnit], *, evidence_digest: str, spawn: AgentSpawner, verify: Verifier, review: Reviewer, governance_gateway: ActionGovernanceGateway | None = None, approval_provider: ApprovalProvider | None = None, run_id: str = "team-run") -> TeamRun:
         if not evidence_digest.strip(): raise ValueError("evidence_digest is required")
         normalized = tuple(units); by_id = {u.unit_id: u for u in normalized}
         if len(by_id) != len(normalized): raise ValueError("unit IDs must be unique")
         if any(d not in by_id for u in normalized for d in u.depends_on): raise ValueError("unknown unit dependency")
         plan = self.plan(normalized)
+
+        effective_spawn = spawn
+        if governance_gateway is not None:
+            def effective_spawn(unit: WorkUnit, digest: str) -> AgentOutput:
+                mutating = unit.mutation_mode != "read-only"
+                capability = "repository.write" if mutating else "repository.read"
+                risk = "write" if mutating else "read"
+                targets = unit.write_paths if mutating else unit.read_paths
+                if not targets:
+                    targets = (unit.unit_id,)
+                checked: list[tuple[ActionRequest, ApprovalReceipt | None]] = []
+                for index, target in enumerate(targets):
+                    request = ActionRequest(
+                        run_id=run_id,
+                        action_id=f"{unit.unit_id}:scope:{index}",
+                        actor=unit.specialist,
+                        capability=capability,
+                        action="specialist.execute",
+                        target=target,
+                        risk=risk,
+                    )
+                    approval = approval_provider(unit, request) if approval_provider else None
+                    verdict = governance_gateway.evaluate(request, approval=approval)
+                    if not verdict.allowed:
+                        return AgentOutput(
+                            unit.unit_id, "blocked",
+                            findings=(verdict.reason,),
+                            detail=f"AUREN governance blocked specialist execution: {verdict.reason}",
+                        )
+                    checked.append((request, approval))
+
+                request, approval = checked[0]
+                captured: list[AgentOutput] = []
+                result = governance_gateway.execute(
+                    request,
+                    lambda: captured.append(spawn(unit, digest)) or captured[-1],
+                    approval=approval,
+                )
+                if not result.executed or not captured:
+                    return AgentOutput(
+                        unit.unit_id, "blocked",
+                        findings=(result.verdict.reason,),
+                        detail=f"AUREN governance blocked specialist execution: {result.verdict.reason}",
+                    )
+                return captured[0]
+
         dependencies = {u.unit_id: u.depends_on for u in normalized}
         completed: set[str] = set(); blocked: set[str] = set(); outputs: dict[str, AgentOutput] = {}; gates: dict[str, UnitGate] = {}; remaining = set(by_id)
         while remaining:
@@ -65,11 +113,19 @@ class AgentTeamOrchestrator:
             results: list[tuple[str, AgentOutput]] = []
             if parallel:
                 with ThreadPoolExecutor(max_workers=min(self.max_parallel, len(parallel))) as pool:
-                    futures = {pool.submit(spawn, by_id[u], evidence_digest): u for u in parallel}
+                    futures = {pool.submit(effective_spawn, by_id[u], evidence_digest): u for u in parallel}
                     for future in as_completed(futures): results.append((futures[future], future.result()))
-            for unit_id in mutation: results.append((unit_id, spawn(by_id[unit_id], evidence_digest)))
+            for unit_id in mutation: results.append((unit_id, effective_spawn(by_id[unit_id], evidence_digest)))
             for unit_id, output in sorted(results):
                 outputs[unit_id] = output
+                if output.status.lower() in {"blocked", "failed", "error"}:
+                    gates[unit_id] = UnitGate(
+                        unit_id, False, False, "", None,
+                        f"agent execution {output.status.lower()}",
+                    )
+                    blocked.add(unit_id)
+                    blocked.update(d for d in remaining if unit_id in dependencies[d])
+                    continue
                 ok, verification_digest = verify(by_id[unit_id], output, evidence_digest)
                 if not ok:
                     gates[unit_id] = UnitGate(unit_id, False, False, verification_digest, None, "early verification failed"); blocked.add(unit_id); blocked.update(d for d in remaining if unit_id in dependencies[d]); continue
