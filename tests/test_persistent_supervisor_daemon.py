@@ -1,6 +1,7 @@
 from portable.orchestration import Node, NodeKind, Graph
 from portable.state_graph import StateGraph, GraphAgentTeam
 from portable.autonomous_daemon import PersistentSupervisorDaemon
+from unittest.mock import patch
 
 def test_explicit_state_graph_and_team_personas():
     graph = StateGraph.from_nodes([
@@ -20,3 +21,15 @@ def test_daemon_checkpoint_detects_and_recovers_stale(tmp_path):
     checkpoint = daemon.checkpoint()
     assert checkpoint.healthy
     assert checkpoint.reviewed >= 0
+
+
+def test_idle_checkpoint_skips_redundant_review_writes(tmp_path):
+    daemon = PersistentSupervisorDaemon(tmp_path)
+
+    def unexpected_review(**kwargs):
+        raise AssertionError("idle supervisor must not write repeated self-review events")
+
+    with patch.object(daemon.controller, "self_review", unexpected_review):
+        checkpoint = daemon.checkpoint()
+    assert checkpoint.reviewed == 0
+    assert checkpoint.healthy

@@ -79,8 +79,10 @@ def compact(text: str, *, budget_chars: int = 12000) -> CompactionResult:
 
     selected: list[str] = []
     used = 0
+    protected_names = {name for name, _ in protected}
     for name, body in protected + list(reversed(ordinary)):
-        cleaned = _dedupe_lines(body)
+        # Protected contract/evidence is never deduplicated or truncated.
+        cleaned = body if name in protected_names else _dedupe_lines(body)
         block = f"## {name}\n{cleaned}".strip()
         if not block:
             continue
@@ -88,6 +90,11 @@ def compact(text: str, *, budget_chars: int = 12000) -> CompactionResult:
             selected.append(block)
             used += len(block) + 2
             continue
+        if name in protected_names:
+            raise ValueError(
+                "protected context sections exceed the compaction budget; "
+                "split the task or raise the budget instead of truncating required constraints"
+            )
         remaining = budget - used - 80
         if remaining > 200:
             selected.append(block[:remaining].rstrip() + "\n[section compacted]")

@@ -62,7 +62,9 @@ class PersistentSupervisorDaemon:
                 task.id, reason=f"stale heartbeat detected; alternate={chosen or 'none'}; {last_reason}"
             )
         scores = self.controller.resume_pending(limit=self.max_tasks_per_tick)
-        reviewed = self.controller.self_review(limit=self.max_tasks_per_tick)
+        # Avoid writing duplicate review events on every idle tick. Active or
+        # recovered work is reviewed; idle health checks remain local/read-only.
+        reviewed = self.controller.self_review(limit=self.max_tasks_per_tick) if scores or stale else 0
         score = min((s.score for s in scores), default=1.0)
         findings = tuple(self.controller.health_findings())
         healthy = not findings and score >= 0.50
@@ -115,7 +117,12 @@ class PersistentSupervisorDaemon:
             # Short sleep slices keep stop/cancel signals responsive even when
             # the configured checkpoint interval is long. This is an iterative
             # loop, not recursive retry; failure budgets guarantee termination.
-            remaining = interval
+            # Reuse the controller's durable quota schedule. If a provider
+            # supplied a reset time sooner than the regular health cadence, wake
+            # at that deadline; otherwise remain in low-cost local sleep. No model
+            # call is made by this timer calculation.
+            quota_delay = self.controller.seconds_until_quota_due()
+            remaining = min(interval, max(1.0, quota_delay)) if quota_delay is not None else interval
             while remaining > 0:
                 if stop is not None and stop():
                     return
