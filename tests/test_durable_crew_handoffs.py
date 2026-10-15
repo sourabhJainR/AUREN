@@ -50,6 +50,31 @@ class DurableHandoffLedgerTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "digest mismatch"):
                 DurableHandoffLedger(path)
 
+    def test_failed_atomic_replace_preserves_last_durable_checkpoint(self):
+        from unittest.mock import patch
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "queue.json"
+            ledger = DurableHandoffLedger(path)
+            ledger.enqueue(
+                handoff_id="durable-1", source_crew="api", target_crew="qa",
+                task="review", payload={"change": "known-good"},
+            )
+            durable_bytes = path.read_bytes()
+
+            # Simulate a crash/failure at the atomic publication boundary.
+            with patch("portable.durable_crew_handoffs.os.replace", side_effect=OSError("injected replace failure")):
+                with self.assertRaisesRegex(OSError, "injected replace failure"):
+                    ledger.enqueue(
+                        handoff_id="not-durable", source_crew="api", target_crew="qa",
+                        task="review", payload={"change": "must-not-persist"},
+                    )
+
+            self.assertEqual(path.read_bytes(), durable_bytes)
+            self.assertEqual(list(Path(tmp).glob(".queue.json.*.tmp")), [])
+            resumed = DurableHandoffLedger(path)
+            self.assertEqual([record["handoff_id"] for record in resumed.records], ["durable-1"])
+
     def test_cross_crew_and_capacity_contracts(self):
         with tempfile.TemporaryDirectory() as tmp:
             ledger = DurableHandoffLedger(Path(tmp) / "queue.json", max_records=1)
