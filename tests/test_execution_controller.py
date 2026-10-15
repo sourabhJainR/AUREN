@@ -778,3 +778,41 @@ def test_handoff_queue_survives_supervisor_restart_without_duplicate_dispatch(tm
     assert duplicate.handoff_id == queued.handoff_id
     assert len(resumed.snapshot()["queued"]) == 0
     assert len(resumed.snapshot()["in_flight"]) == 1
+
+
+def test_exhausted_handoff_retry_budget_is_terminal_and_cannot_be_resurrected(tmp_path: Path):
+    import pytest
+    from portable.crew_adapters import GraphHandoffController, TaskRetryBudget
+
+    controller = ExecutionController(tmp_path)
+    envelope = _supervisor_checkpoint_envelope("exhausted-handoff-task")
+    budget = TaskRetryBudget(max_retries=0)
+    queue = GraphHandoffController(max_attempts=3, retry_budget=budget)
+    item = queue.enqueue(
+        source_crew="frontend_ui",
+        target_crew="qa_reviewer",
+        task="bounded retry",
+        source_plan_digest=envelope["crew_plan_digest"],
+        allowed_handoffs=("qa_reviewer",),
+        selected_crews=("frontend_ui", "qa_reviewer"),
+    )
+    assert item is not None
+    envelope["retry_budget"] = budget.snapshot()
+    envelope["handoff_checkpoint"] = queue.snapshot()
+    controller.save_graph_checkpoint("exhausted-handoff-task", envelope)
+
+    claimed = queue.claim_next(graph_node_active=True)
+    assert claimed is not None
+    assert queue.retry(claimed, retryable=True) is None
+    terminal = dict(envelope)
+    terminal["retry_budget"] = budget.snapshot()
+    terminal["handoff_checkpoint"] = queue.snapshot()
+    controller.save_graph_checkpoint("exhausted-handoff-task", terminal)
+
+    with pytest.raises(ValueError, match="resurrect a terminal handoff"):
+        controller.save_graph_checkpoint("exhausted-handoff-task", envelope)
+    saved = controller.load_graph_checkpoint("exhausted-handoff-task")
+    assert saved is not None
+    assert saved["handoff_checkpoint"]["queued"] == []
+    assert saved["handoff_checkpoint"]["in_flight"] == []
+    assert saved["retry_budget"]["remaining"] == 0
