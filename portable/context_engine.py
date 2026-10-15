@@ -9,7 +9,7 @@ from __future__ import annotations
 import hashlib
 import re
 from dataclasses import dataclass, field
-from typing import Iterable, Mapping, Sequence
+from typing import Any, Iterable, Mapping, Sequence
 
 
 @dataclass(frozen=True)
@@ -124,6 +124,34 @@ class ContextEngine:
             refs = f" [{', '.join(item.refs)}]" if item.refs else ""
             blocks.append(f"### {item.kind}{refs}\n{item.text}")
         return _compact("\n\n".join(blocks), self.policy.max_chars)
+
+    def pack_from_memory(
+        self,
+        memory_orchestrator: Any,
+        query: str,
+        *,
+        kinds: Iterable[str] = ("working", "prospective", "episodic", "procedural", "semantic", "hierarchical", "reflective", "sensory"),
+        task_id: str | None = None,
+        intent_digest: str | None = None,
+        required_memory_ids: Sequence[str] = (),
+    ) -> str:
+        """Retrieve through the canonical memory router and pack without losing required items."""
+        recall = memory_orchestrator.recall(
+            query, kinds=kinds, task_id=task_id, intent_digest=intent_digest,
+            budget_chars=self.policy.max_chars, required_memory_ids=required_memory_ids,
+        )
+        items = memory_orchestrator.context_items(recall)
+        required_texts = [
+            item.text for item in recall.memories if item.memory_id in set(required_memory_ids)
+        ]
+        selected = self.select(items, required=required_texts)
+        selected_texts = {item.text for item in selected}
+        if any(text not in selected_texts for text in required_texts):
+            raise ValueError("required memory cannot fit ContextEngine item or count budget")
+        packed = self.pack(selected, required=required_texts)
+        if any(text not in packed for text in required_texts):
+            raise ValueError("required memory would be lost during context packing")
+        return packed
 
     def from_memory(self, rows: Iterable[Mapping[str, object]], *, limit: int | None = None) -> list[ContextItem]:
         items: list[ContextItem] = []
