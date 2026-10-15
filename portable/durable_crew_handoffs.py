@@ -32,11 +32,16 @@ def _digest(value: Any) -> str:
 class DurableHandoffLedger:
     """Atomic checkpointed handoff queue with stable IDs and fail-closed review."""
 
-    def __init__(self, path: str | Path, *, max_records: int = 10000) -> None:
+    def __init__(
+        self, path: str | Path, *, max_records: int = 10000, max_attempts: int = 5,
+    ) -> None:
         if type(max_records) is not int or not 1 <= max_records <= 1_000_000:
             raise ValueError("max_records must be between 1 and 1000000")
+        if type(max_attempts) is not int or not 1 <= max_attempts <= 100:
+            raise ValueError("max_attempts must be between 1 and 100")
         self.path = Path(path)
         self.max_records = max_records
+        self.max_attempts = max_attempts
         self._lock = RLock()
         self._records: dict[str, dict[str, Any]] = {}
         if self.path.exists():
@@ -148,6 +153,16 @@ class DurableHandoffLedger:
                 raise KeyError(handoff_id)
             if record["state"] == "completed" or record["state"] == "rejected":
                 raise ValueError("terminal handoff cannot be claimed")
+            if record["attempts"] >= self.max_attempts:
+                # Exhaustion is durable and terminal: repeated restarts must not
+                # turn a bounded retry policy into an infinite delivery loop.
+                record["state"] = "rejected"
+                record["review_receipt"] = {
+                    "reason": "handoff attempt budget exhausted",
+                    "independent": False,
+                }
+                self._save()
+                raise RuntimeError("handoff attempt budget exhausted")
             record["state"] = "in_flight"
             record["attempts"] += 1
             self._save()

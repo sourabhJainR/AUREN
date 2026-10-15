@@ -86,5 +86,33 @@ class DurableHandoffLedgerTests(unittest.TestCase):
                 ledger.enqueue(handoff_id="h2", source_crew="api", target_crew="qa", task="review", payload={})
 
 
+    def test_claim_attempt_budget_is_durable_across_restart(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "queue.json"
+            ledger = DurableHandoffLedger(path, max_attempts=2)
+            ledger.enqueue(handoff_id="bounded", source_crew="api", target_crew="qa", task="review", payload={})
+            self.assertEqual(ledger.claim("bounded")["attempts"], 1)
+            # An interrupted in-flight delivery can be claimed once more.
+            restarted = DurableHandoffLedger(path, max_attempts=2)
+            self.assertEqual(restarted.claim("bounded")["attempts"], 2)
+
+            # The next restart cannot retry forever: exhaustion is persisted.
+            recovered = DurableHandoffLedger(path, max_attempts=2)
+            with self.assertRaisesRegex(RuntimeError, "attempt budget exhausted"):
+                recovered.claim("bounded")
+            final = DurableHandoffLedger(path, max_attempts=2).get("bounded")
+            self.assertEqual(final["state"], "rejected")
+            self.assertEqual(final["attempts"], 2)
+            self.assertEqual(final["review_receipt"]["reason"], "handoff attempt budget exhausted")
+
+    def test_claim_attempt_budget_must_be_bounded_positive_integer(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "queue.json"
+            for value in (0, -1, 1.5, True, 101):
+                with self.subTest(value=value):
+                    with self.assertRaisesRegex(ValueError, "max_attempts"):
+                        DurableHandoffLedger(path, max_attempts=value)
+
+
 if __name__ == "__main__":
     unittest.main()
