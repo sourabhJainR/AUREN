@@ -54,7 +54,7 @@ def test_protected_target_requires_verified_request_bound_approval():
 
 def test_target_normalization_cannot_bypass_protected_path():
     gateway = make_gateway()
-    request = make_request(target="src/../../.github/workflows/build.yml")
+    request = make_request(target="src/../.github/workflows/build.yml")
     assert gateway.evaluate(request).decision == "approval_required"
 
 
