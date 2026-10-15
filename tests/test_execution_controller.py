@@ -587,7 +587,7 @@ def test_real_process_death_resumes_running_handler(tmp_path: Path):
     script = (
         "from pathlib import Path; "
         "from portable.execution_controller import ExecutionController; "
-        "from tests.test_execution_controller import crash_once_handler; "
+        "from test_execution_controller import crash_once_handler; "
         f"root=Path({str(root)!r}); marker={str(marker)!r}; task_file=Path({str(task_id_file)!r}); "
         "c=ExecutionController(root); "
         "c.register_handler('tests.crash_once_handler', crash_once_handler, execution_class='read_only'); "
@@ -596,7 +596,7 @@ def test_real_process_death_resumes_running_handler(tmp_path: Path):
     )
     env = dict(os.environ)
     env["PYTHONPATH"] = os.pathsep.join(
-        filter(None, [str(Path(__file__).resolve().parents[1]), env.get("PYTHONPATH", "")])
+        filter(None, [str(Path(__file__).resolve().parents[1]), str(Path(__file__).resolve().parent), env.get("PYTHONPATH", "")])
     )
     child = subprocess.run([sys.executable, "-c", script], env=env, timeout=30, check=False)
     assert child.returncode == 73
