@@ -9,52 +9,61 @@ def test_ci_wait_records_pass_after_pending(tmp_path: Path):
     score = company.trust(unit.id)
     assert score.components["ci"] == 1.0
 
-import pytest
+
+import tempfile
+import unittest
+from unittest.mock import patch
 
 
-def test_ci_wait_rejects_invalid_time_budgets(tmp_path: Path):
-    company = AutonomousCompany(tmp_path)
-    unit = company.start("invalid ci budget")
-    with pytest.raises(ValueError, match="poll_seconds"):
-        company.wait_for_ci(unit.id, lambda: ("pending", "", ()), poll_seconds=0)
-    with pytest.raises(ValueError, match="timeout_seconds"):
-        company.wait_for_ci(unit.id, lambda: ("pending", "", ()), timeout_seconds=float("inf"))
-    with pytest.raises(ValueError, match="max_polls"):
-        company.wait_for_ci(unit.id, lambda: ("pending", "", ()), max_polls=0)
+class CiWaitLoopBoundsTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.company = AutonomousCompany(Path(self.temp.name))
+
+    def test_ci_wait_rejects_invalid_time_budgets(self):
+        unit = self.company.start("invalid ci budget")
+        with self.assertRaisesRegex(ValueError, "poll_seconds"):
+            self.company.wait_for_ci(unit.id, lambda: ("pending", "", ()), poll_seconds=0)
+        with self.assertRaisesRegex(ValueError, "timeout_seconds"):
+            self.company.wait_for_ci(unit.id, lambda: ("pending", "", ()), timeout_seconds=float("inf"))
+        with self.assertRaisesRegex(ValueError, "max_polls"):
+            self.company.wait_for_ci(unit.id, lambda: ("pending", "", ()), max_polls=0)
+
+    def test_ci_wait_poll_budget_terminates_pending_provider(self):
+        unit = self.company.start("bounded ci polls")
+        calls = []
+        result = self.company.wait_for_ci(
+            unit.id,
+            lambda: calls.append(1) or ("pending", "still running", ()),
+            poll_seconds=0.001,
+            timeout_seconds=2,
+            max_polls=2,
+        )
+        self.assertEqual(result, "poll_limit")
+        self.assertEqual(len(calls), 2)
+
+    def test_ci_wait_can_be_cancelled_responsively_during_sleep(self):
+        import portable.autonomous_company as module
+
+        unit = self.company.start("cancel ci wait")
+        stopped = {"value": False}
+        calls = []
+
+        def fake_sleep(_seconds):
+            stopped["value"] = True
+
+        with patch.object(module.time, "sleep", side_effect=fake_sleep):
+            result = self.company.wait_for_ci(
+                unit.id,
+                lambda: calls.append(1) or ("pending", "still running", ()),
+                poll_seconds=30,
+                timeout_seconds=60,
+                stop=lambda: stopped["value"],
+            )
+        self.assertEqual(result, "cancelled")
+        self.assertEqual(len(calls), 1)
 
 
-def test_ci_wait_poll_budget_terminates_pending_provider(tmp_path: Path):
-    company = AutonomousCompany(tmp_path)
-    unit = company.start("bounded ci polls")
-    calls = []
-    result = company.wait_for_ci(
-        unit.id,
-        lambda: calls.append(1) or ("pending", "still running", ()),
-        poll_seconds=0.001,
-        timeout_seconds=2,
-        max_polls=2,
-    )
-    assert result == "poll_limit"
-    assert len(calls) == 2
-
-
-def test_ci_wait_can_be_cancelled_responsively_during_sleep(tmp_path: Path, monkeypatch):
-    import portable.autonomous_company as module
-
-    company = AutonomousCompany(tmp_path)
-    unit = company.start("cancel ci wait")
-    stopped = {"value": False}
-    calls = []
-    def fake_sleep(_seconds):
-        stopped["value"] = True
-
-    monkeypatch.setattr(module.time, "sleep", fake_sleep)
-    result = company.wait_for_ci(
-        unit.id,
-        lambda: calls.append(1) or ("pending", "still running", ()),
-        poll_seconds=30,
-        timeout_seconds=60,
-        stop=lambda: stopped["value"],
-    )
-    assert result == "cancelled"
-    assert len(calls) == 1
+if __name__ == "__main__":
+    unittest.main()
