@@ -8,6 +8,7 @@ the existing content-addressed context cache is reused.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 import hashlib
 import importlib.util
 import re
@@ -133,8 +134,8 @@ class MemoryOrchestrator:
         self.max_sensory_entries = max_sensory_entries
         self.sensory_ttl_seconds = float(sensory_ttl_seconds)
         self.owner_callbacks = dict(owner_callbacks or {})
-        self._working: dict[tuple[str, str], MemoryEnvelope] = {}
-        self._sensory: dict[tuple[str, str], MemoryEnvelope] = {}
+        self._working: dict[tuple[str, str, str], MemoryEnvelope] = {}
+        self._sensory: dict[tuple[str, str, str], MemoryEnvelope] = {}
         self._lock = threading.RLock()
         self._metrics = {
             "writes": 0, "denied_writes": 0, "recalls": 0, "recall_hits": 0,
@@ -165,7 +166,7 @@ class MemoryOrchestrator:
         ).hexdigest()[:24]
         return MemoryEnvelope(
             digest, kind, text, source, confidence, verified, evidence, intent_digest,
-            __import__("datetime").datetime.fromtimestamp(now, __import__("datetime").timezone.utc).isoformat(),
+            __import__("datetime").datetime.fromtimestamp(now, timezone.utc).isoformat(),
             now + ttl_seconds if ttl_seconds is not None else None,
         )
 
@@ -191,6 +192,8 @@ class MemoryOrchestrator:
             raise ValueError("memory source must be non-empty")
         if not 0 <= confidence <= 1:
             raise ValueError("confidence must be between 0 and 1")
+        if ttl_seconds is not None and ttl_seconds <= 0:
+            raise ValueError("ttl_seconds must be positive")
         evidence = tuple(sorted({str(item).strip() for item in evidence_ids if str(item).strip()}))
         if kind == "kv_cache":
             if self.cache is None:
@@ -209,7 +212,7 @@ class MemoryOrchestrator:
             )
             with self._lock:
                 target = self._working if kind == "working" else self._sensory
-                target[scope] = item
+                target[(scope[0], scope[1], item.memory_id)] = item
                 self._trim_ephemeral(
                     target, self.max_working_entries if kind == "working" else self.max_sensory_entries,
                     self.max_working_chars if kind == "working" else None,
@@ -258,7 +261,7 @@ class MemoryOrchestrator:
         self._metrics["writes"] += 1
         return MemoryWriteResult("stored", kind, record.id)
 
-    def _trim_ephemeral(self, target: dict[tuple[str, str], MemoryEnvelope], max_entries: int,
+    def _trim_ephemeral(self, target: dict[tuple[str, str, str], MemoryEnvelope], max_entries: int,
                         max_chars: int | None) -> None:
         now = time.time()
         expired = [key for key, item in target.items() if item.expires_at is not None and item.expires_at <= now]
@@ -281,7 +284,7 @@ class MemoryOrchestrator:
                 del target[key]
                 self._metrics["expired"] += 1
             items = [
-                item for (task, item_kind), item in target.items()
+                item for (task, item_kind, _memory_id), item in target.items()
                 if item_kind == kind and task == scope
                 and (not terms or terms.intersection(self._terms(item.text)))
             ]
