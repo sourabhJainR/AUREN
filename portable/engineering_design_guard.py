@@ -197,7 +197,7 @@ class EngineeringDesignGuard:
             languages.append("Python")
             evidence.extend(name for name in ("pyproject.toml", "setup.cfg", "setup.py", "requirements.txt") if name in manifest_text)
             pyproject = manifest_text.get("pyproject.toml", "")
-            version_match = re.search(r"(?im)^\\s*requires-python\\s*=\\s*['\\"]([^'\\"]+)", pyproject)
+            version_match = re.search(r"(?im)^\s*requires-python\s*=\s*['\"]([^'\"]+)", pyproject)
             if version_match:
                 versions.append("Python requires-python " + version_match.group(1))
             for workflow in list((root / ".github" / "workflows").glob("*.yml"))[:20] + list((root / ".github" / "workflows").glob("*.yaml"))[:20] if (root / ".github" / "workflows").is_dir() else []:
@@ -205,7 +205,7 @@ class EngineeringDesignGuard:
                     text = workflow.read_text(encoding="utf-8")[:100_000]
                 except OSError:
                     continue
-                matrix = sorted(set(re.findall(r"(?m)^\\s*python-version:\\s*['\\"]?([0-9]+\\.[0-9]+)", text)))
+                matrix = sorted(set(re.findall(r"(?m)^\s*python-version:\s*['\"]?([0-9]+\.[0-9]+)", text)))
                 if matrix:
                     versions.append("CI tests Python " + ", ".join(matrix))
                     evidence.append(workflow.relative_to(root).as_posix())
@@ -232,19 +232,19 @@ class EngineeringDesignGuard:
         if "Cargo.toml" in manifest_text:
             languages.append("Rust")
             evidence.append("Cargo.toml")
-            match = re.search(r"(?m)^\\s*rust-version\\s*=\\s*['\\"]([^'\\"]+)", manifest_text["Cargo.toml"])
+            match = re.search(r"(?m)^\s*rust-version\s*=\s*['\"]([^'\"]+)", manifest_text["Cargo.toml"])
             if match:
                 versions.append("Rust " + match.group(1))
         if "go.mod" in manifest_text:
             languages.append("Go")
             evidence.append("go.mod")
-            match = re.search(r"(?m)^go\\s+([0-9.]+)", manifest_text["go.mod"])
+            match = re.search(r"(?m)^go\s+([0-9.]+)", manifest_text["go.mod"])
             if match:
                 versions.append("Go " + match.group(1))
         if "pom.xml" in manifest_text:
             languages.append("Java")
             evidence.append("pom.xml")
-            match = re.search(r"<maven\\.compiler\\.(?:release|source)>\\s*([^<]+)", manifest_text["pom.xml"])
+            match = re.search(r"<maven\.compiler\.(?:release|source)>\s*([^<]+)", manifest_text["pom.xml"])
             if match:
                 versions.append("Java compiler level " + match.group(1).strip())
         if csproj_paths:
@@ -252,7 +252,7 @@ class EngineeringDesignGuard:
             evidence.extend(path.name for path in csproj_paths)
             for name, text in manifest_text.items():
                 if name.endswith(".csproj"):
-                    match = re.search(r"<TargetFrameworks?>\\s*([^<]+)", text)
+                    match = re.search(r"<TargetFrameworks?>\s*([^<]+)", text)
                     if match:
                         versions.append(".NET target " + match.group(1).strip())
         return {
@@ -261,7 +261,7 @@ class EngineeringDesignGuard:
             "evidence": tuple(dict.fromkeys(evidence)),
             "frameworks": tuple(
                 name for name in ("Django", "FastAPI", "Flask", "React", "Next.js", "Vue", "Angular", "Express")
-                if any(re.search(rf"(?i)\\b{re.escape(token)}\\b", text) for text in manifest_text.values()
+                if any(token.casefold() in text.casefold() for text in manifest_text.values()
                        for token in ({
                            "Django": ("django",), "FastAPI": ("fastapi",), "Flask": ("flask",),
                            "React": ("react",), "Next.js": ("next",), "Vue": ("vue",),
