@@ -202,7 +202,7 @@ class MemoryOrchestrator:
         if kind == "kv_cache":
             if self.cache is None:
                 return MemoryWriteResult("unavailable", kind, None, "existing context cache module unavailable")
-            page = self.cache.put("memory-cache", clean_text, stable=bool(verified))
+            page = self.cache.put("memory:kv_cache", clean_text, stable=bool(verified))
             self._metrics["writes"] += 1
             return MemoryWriteResult("cached", kind, page.page_id)
 
@@ -282,7 +282,7 @@ class MemoryOrchestrator:
             del target[oldest]
             self._metrics["evictions"] += 1
 
-    def _ephemeral_recall(self, kind: str, query: str, task_id: str | None) -> list[MemoryEnvelope]:
+    def _ephemeral_recall(self, kind: str, query: str, task_id: str | None, intent_digest: str | None = None) -> list[MemoryEnvelope]:
         now = time.time()
         target = self._working if kind == "working" else self._sensory
         scope = str(task_id or "default")
@@ -295,6 +295,7 @@ class MemoryOrchestrator:
             items = [
                 item for (task, item_kind, _memory_id), item in target.items()
                 if item_kind == kind and task == scope
+                and (intent_digest is None or item.intent_digest == intent_digest)
                 and (not terms or terms.intersection(self._terms(item.text)))
             ]
         items.sort(key=lambda item: (item.verified, item.confidence, item.created_at), reverse=True)
@@ -323,8 +324,16 @@ class MemoryOrchestrator:
         candidates: list[MemoryEnvelope] = []
         for kind in kind_list:
             if kind in EPHEMERAL_KINDS:
-                candidates.extend(self._ephemeral_recall(kind, query, task_id))
-            elif kind in {"kv_cache", "meta_memory"}:
+                candidates.extend(self._ephemeral_recall(kind, query, task_id, intent_digest))
+            elif kind == "kv_cache":
+                if self.cache is not None:
+                    for page in self.cache.search("memory:kv_cache", query, budget_chars=budget_chars):
+                        candidates.append(MemoryEnvelope(
+                            page.page_id, "kv_cache", page.text, "context-page-cache",
+                            1.0 if page.stable else 0.0, page.stable, (), intent_digest,
+                            datetime.now(timezone.utc).isoformat(),
+                        ))
+            elif kind == "meta_memory":
                 continue
             else:
                 for record in self.memory.search(self.project, query, intent_digest=intent_digest, limit=100):
