@@ -279,6 +279,29 @@ class GuardedExecutionCheckpoint:
         checkpoint.payload()
         return checkpoint
 
+    def to_dict(self) -> dict[str, Any]:
+        value = self.payload()
+        value["digest"] = self.digest
+        return value
+
+    @classmethod
+    def from_dict(cls, raw: Mapping[str, Any]) -> "GuardedExecutionCheckpoint":
+        if not isinstance(raw, Mapping):
+            raise TypeError("checkpoint must be a mapping")
+        supplied = raw.get("digest")
+        payload = {key: value for key, value in raw.items() if key != "digest"}
+        checkpoint = cls(
+            authority_digest=str(payload.get("authority_digest", "")),
+            repository_revision=str(payload.get("repository_revision", "")),
+            sequence=payload.get("sequence"),
+            guard_snapshot=payload.get("guard_snapshot", {}),
+            previous_checkpoint_digest=str(payload.get("previous_checkpoint_digest", "")),
+            schema_version=str(payload.get("schema_version", "")),
+        )
+        if not isinstance(supplied, str) or supplied != checkpoint.digest:
+            raise ValueError("checkpoint digest mismatch")
+        return checkpoint
+
     def restore(
         self,
         authority: ExecutionAuthorityBinding,
