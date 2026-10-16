@@ -32,8 +32,16 @@ SCHEMA_VERSION = "auren-ai-era-principles-v1"
 ALLOWED_RISKS = {"low", "medium", "high", "critical"}
 
 def canonical_registry() -> dict[str, Any]:
-    return {"schema_version": SCHEMA_VERSION, "principles": [dict(p) for p in PRINCIPLES],
-            "policy": "Traceability registry only; existing AUREN guards remain authoritative."}
+    exception_policy = (
+        "Apply only when relevant to task risk and scope; any not_applicable decision must state a "
+        "specific reason. Never waive user approval, security, authority, independent verification, "
+        "required promotion gates, or rollback obligations for consequential changes."
+    )
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "principles": [dict(p, exception_policy=exception_policy) for p in PRINCIPLES],
+        "policy": "Traceability registry only; existing AUREN guards remain authoritative.",
+    }
 
 def registry_digest() -> str:
     raw = json.dumps(canonical_registry(), sort_keys=True, separators=(",", ":")).encode()
