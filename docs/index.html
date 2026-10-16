@@ -112,19 +112,19 @@ and report open risks.</code></pre>
 <h2>Latest implementation and verification</h2>
 <p class="lead">Documentation review updated 16 October 2026. Implementation claims below are bounded by repository evidence—not a claim of independently verified general intelligence.</p>
 <div class="grid">
-<div class="card"><h3>Specialists dispatched through the graph</h3><p>Integration coverage exercises eight specialist roles through the real <code>GraphAgentTeam → StateGraph → auren_crew_dispatch → adapter → approved tool registry</code> path, with per-specialist tool scopes, pending independent review and secret-boundary assertions. <a href="https://github.com/sourabhJainR/AUREN/pull/515">Implementation PR</a></p></div>
-<div class="card"><h3>Cross-platform runtime resilience</h3><p>The runtime resilience matrix passes on Ubuntu and Windows with Python 3.11 and 3.12. It covers durable state, SQLite handle closure, evidence ingestion, concurrent claims and graph timeout/retry contracts. <a href="https://github.com/sourabhJainR/AUREN/pull/513">CI hardening PR</a></p></div>
-<div class="card"><h3>Durable replay protection</h3><p>A SQLite-backed attestation replay registry provides durable, transactionally claimed one-time IDs across processes sharing the same database file. <a href="https://github.com/sourabhJainR/AUREN/pull/514">Implementation PR</a></p></div>
+<div class="card"><h3>Durable supervisor-owned handoffs</h3><p>PRs <a href="https://github.com/sourabhJainR/AUREN/pull/658">#658</a> and <a href="https://github.com/sourabhJainR/AUREN/pull/661">#661</a> harden retry-budget accounting and exercise enqueue/claim interruption, supervisor restart, SQLite resume, idempotent replay, independent review, and retry-budget alignment.</p></div>
+<div class="card"><h3>AI-era principles in the runtime contract</h3><p>PR <a href="https://github.com/sourabhJainR/AUREN/pull/668">#668</a> adds the 20-principle registry and records a digest-bound receipt before graph execution, while preserving existing authority, verification, recovery, and promotion gates.</p></div>
+<div class="card"><h3>Canonical state and safe migration</h3><p>The default runtime uses <code>~/.auren</code> and preserves legacy state while failing closed on conflicts. Automated coverage is in place; an operator-controlled migration and rollback rehearsal remains open in <a href="https://github.com/sourabhJainR/AUREN/issues/534">issue #534</a>.</p></div>
 </div>
 <h3>Evidence status: what is—and is not—verified</h3>
 <table class="table">
 <thead><tr><th>Gate</th><th>Current status</th><th>Evidence boundary</th></tr></thead>
 <tbody>
-<tr><td>Repository CI on <code>main</code></td><td><strong class="good">Passed</strong></td><td>The reviewed implementation revision passed AI Harness, architecture, bundle, runtime resilience, and cleanup checks. Re-check the live Actions runs for the current main revision before release.</td></tr>
-<tr><td>Public Pages deployment workflow</td><td><strong class="good">Passed</strong></td><td>Pages publication is confirmed only when the deployment workflow completes successfully for the merged revision; repository CI alone does not prove that the public site has refreshed.</td></tr>
+<tr><td>Repository CI</td><td><strong>Revision-specific</strong></td><td>Checks must be inspected for the exact commit under review. Green PR checks prove repository behavior at that revision only, not external evaluation or production rollout.</td></tr>
+<tr><td>Public Pages deployment</td><td><strong>Verify per revision</strong></td><td>After a site change merges, confirm the deployment workflow and deployed commit before claiming the public page has refreshed.</td></tr>
 <tr><td>Independent external corpus and evaluator</td><td><strong>Pending</strong></td><td>Requires an independently controlled sealed corpus, oracle, signed campaign results and fresh holdout. <a href="https://github.com/sourabhJainR/AUREN/issues/404">Track issue #404</a>.</td></tr>
-<tr><td>Independent sandbox-isolation audit</td><td><strong>Pending</strong></td><td>Requires an external operator/auditor and independently verified audit evidence. <a href="https://github.com/sourabhJainR/AUREN/issues/471">Track issue #471</a>.</td></tr>
-<tr><td>Live migration and rollback rehearsal</td><td><strong>Pending</strong></td><td>Repository CI does not test a user's real installation state. <a href="https://github.com/sourabhJainR/AUREN/issues/379">Track issue #379</a>.</td></tr>
+<tr><td>Independent sandbox-isolation audit</td><td><strong>Pending</strong></td><td>The signed-attestation gate is implemented, but an independent audit of actual host/runtime isolation remains separate. <a href="https://github.com/sourabhJainR/AUREN/issues/471">See the closed implementation issue</a>.</td></tr>
+<tr><td>Live migration and rollback rehearsal</td><td><strong>Pending</strong></td><td>Repository CI does not test a user's real installation state. Preserve both roots until a staging/operator rehearsal is accepted. <a href="https://github.com/sourabhJainR/AUREN/issues/534">Track issue #534</a>.</td></tr>
 </tbody></table>
 <p class="small">The transfer scores below are values from checked-in test fixtures only. They are not externally measured AUREN performance and should not be presented as such.</p>
 </div></section>
