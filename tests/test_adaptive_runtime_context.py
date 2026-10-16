@@ -50,6 +50,28 @@ class AdaptiveRuntimeContextTests(unittest.TestCase):
             scheduler.close()
             memory.close()
 
+    def test_memory_orchestration_is_owned_by_runtime_and_shares_canonical_store(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            graph = Graph([Node("agent", NodeKind.AGENT, lambda context: "ok", critical=True, risk="low")])
+            runtime, memory, scheduler = self._runtime(root, graph)
+            project_key = runtime.session_store.project_key(root)
+            orchestrator = runtime.memory_orchestrator(root)
+            self.assertIs(orchestrator, runtime.memory_orchestrator(root))
+            self.assertEqual(memory.path, orchestrator.graph.memory.path)
+            saved = orchestrator.remember(
+                "semantic", "repository uses explicit bounded memory budgets",
+                source="architecture", approved=True, verified=True,
+            )
+            packed = runtime.pack_memory_context(
+                root, "bounded memory budgets", required_memory_ids=(saved.memory_id,),
+            )
+            self.assertIn("repository uses explicit bounded memory budgets", packed)
+            self.assertIn(saved.memory_id, packed)
+            self.assertTrue(memory.search(project_key, "bounded memory budgets", limit=5))
+            scheduler.close()
+            memory.close()
+
     def test_runtime_feeds_beliefs_into_plan_and_learning_is_offloaded(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
