@@ -67,17 +67,3 @@ For high-risk work or repeated failures, record the exact failure signature and 
 Require explicit approval for destructive, irreversible, production, financial, privacy-sensitive, or external-message actions. Never bypass security, permission, scope, or regression gates.
 
 Skills are orchestration surfaces and `skills are orchestration surfaces` that reuse canonical repository, context, evidence, and provenance stores. `interactive-documentation` remains a composed skill using canonical evidence and provenance.
-
-
-## Repository-native design advice
-Inspect manifests, pinned language/framework versions, existing implementations and tests. Reuse current owners. Recommend a best-fit algorithm/workflow/pattern and compare realistic alternatives on correctness, complexity, security, performance, maintainability and operations. Verify APIs against pinned versions; flag unknowns. Include tests, failure/restart, migration and rollback. Record evidence in existing task context/EngineeringDesignGuard.
-
-## Quota recovery
-On quota/rate-limit, persist task/checkpoint, honor Retry-After/reset, release the lease and sleep until due. No provider/LLM calls while idle. Reuse ExecutionController, PersistentSupervisorDaemon and the existing compactor. Bound retries; park permanent/unknown exhaustion for operator action. Never truncate protected constraints/evidence or replay committed effects; revalidate leases/gates on resume.
-
-
-
-
-
-## Repository-native design advice
-Before non-trivial changes, use `AdaptiveRuntime.recommend_design(...)` / `EngineeringDesignGuard.recommend_approaches(..., risk=...)` with the actual repository root, task intent, changed paths and risk. Inspect manifest/version evidence and existing reuse candidates; compare alternatives and trade-offs, then verify the chosen approach. Unknown framework/version facts remain unresolved. Recommendations never replace tests, authorization, review or promotion gates.
