@@ -143,7 +143,7 @@ class MemoryOrchestrator:
         self._metrics = {
             "writes": 0, "denied_writes": 0, "recalls": 0, "recall_hits": 0,
             "cache_hits": 0, "cache_misses": 0, "evictions": 0, "expired": 0,
-            "budget_omissions": 0, "owner_callback_calls": 0,
+            "budget_omissions": 0, "owner_callback_calls": 0, "durable_searches": 0,
         }
 
     @staticmethod
@@ -327,6 +327,13 @@ class MemoryOrchestrator:
         kind_list = tuple(dict.fromkeys(self._validate_kind(kind) for kind in kinds))
         required_ids = set(required_memory_ids)
         candidates: list[MemoryEnvelope] = []
+        durable_records = []
+        if any(kind in DURABLE_KINDS for kind in kind_list):
+            # One indexed query serves every requested durable category.
+            durable_records = self.memory.search(
+                self.project, query, intent_digest=intent_digest, limit=100,
+            )
+            self._metrics["durable_searches"] += 1
         for kind in kind_list:
             if kind in EPHEMERAL_KINDS:
                 candidates.extend(self._ephemeral_recall(kind, query, task_id, intent_digest))
@@ -338,10 +345,8 @@ class MemoryOrchestrator:
                             1.0 if page.stable else 0.0, page.stable, (), intent_digest,
                             datetime.now(timezone.utc).isoformat(),
                         ))
-            elif kind == "meta_memory":
-                continue
-            else:
-                for record in self.memory.search(self.project, query, intent_digest=intent_digest, limit=100):
+            elif kind in DURABLE_KINDS:
+                for record in durable_records:
                     if record.category != kind:
                         continue
                     node = self.graph.get_node(record.id)
@@ -351,6 +356,8 @@ class MemoryOrchestrator:
                         record.confidence, record.verified, tuple(props.get("evidence_ids", ())),
                         record.intent_digest, record.created_at,
                     ))
+            elif kind == "meta_memory":
+                continue
         unique = {item.memory_id: item for item in candidates}
         terms = self._terms(query)
         ranked = sorted(
