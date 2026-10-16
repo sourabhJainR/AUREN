@@ -342,7 +342,7 @@ class MemoryOrchestrator:
                     for page in self.cache.search("memory:kv_cache", query, budget_chars=budget_chars):
                         candidates.append(MemoryEnvelope(
                             page.page_id, "kv_cache", page.text, "context-page-cache",
-                            1.0 if page.stable else 0.0, page.stable, (), intent_digest,
+                            0.0, False, (), intent_digest,
                             datetime.now(timezone.utc).isoformat(),
                         ))
             elif kind in DURABLE_KINDS:
