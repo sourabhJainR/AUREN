@@ -74,3 +74,6 @@ Inspect manifests, pinned language/framework versions, existing implementations 
 
 ## Quota recovery
 On quota/rate-limit, persist task/checkpoint, honor Retry-After/reset, release the lease and sleep until due. No provider/LLM calls while idle. Reuse ExecutionController, PersistentSupervisorDaemon and the existing compactor. Bound retries; park permanent/unknown exhaustion for operator action. Never truncate protected constraints/evidence or replay committed effects; revalidate leases/gates on resume.
+
+
+
