@@ -96,6 +96,14 @@ class MemoryOrchestratorTests(unittest.TestCase):
         self.assertEqual(3, self.coordinator.metrics()["working_entries"])
         self.assertGreaterEqual(self.coordinator.metrics()["evictions"], 1)
 
+    def test_ephemeral_memory_rejects_oversized_entries_without_false_success(self):
+        result = self.coordinator.remember(
+            "working", "x" * 101, source="agent", task_id="oversized",
+        )
+        self.assertEqual("budget_exceeded", result.status)
+        self.assertIsNone(result.memory_id)
+        self.assertEqual(0, self.coordinator.metrics()["working_entries"])
+
     def test_sensory_memory_expires_without_background_polling(self):
         self.coordinator.remember("sensory", "temporary browser observation", source="browser", task_id="t1")
         self.assertEqual(1, len(self.coordinator.recall(
