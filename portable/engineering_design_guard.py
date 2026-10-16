@@ -205,7 +205,8 @@ class EngineeringDesignGuard:
                     text = workflow.read_text(encoding="utf-8")[:100_000]
                 except OSError:
                     continue
-                matrix = sorted(set(re.findall(r"(?m)^\s*python-version:\s*['\"]?([0-9]+\.[0-9]+)", text)))
+                matrix_lines = re.findall(r"(?m)^\s*python-version:\s*([^\n]+)", text)
+                matrix = sorted(set(re.findall(r"([0-9]+\.[0-9]+)", "\n".join(matrix_lines))))
                 if matrix:
                     versions.append("CI tests Python " + ", ".join(matrix))
                     evidence.append(workflow.relative_to(root).as_posix())
