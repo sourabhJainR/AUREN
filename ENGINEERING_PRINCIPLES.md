@@ -137,6 +137,10 @@ The principle is selected based on the actual deployment and storage model. Do n
 - Isolate untrusted/new capabilities. Promotion requires independent evaluation and exact-head evidence; preserve the last trusted version and a measurable rollback trigger.
 - Record plans, ownership, tool calls, resource usage, evidence, and terminal state. Cross-domain generalization claims require evaluation outside the development domain.
 
+## Pre-implementation blind-spot review
+
+Before non-trivial implementation, challenge the request for contradictions, unsupported assumptions, missing observable acceptance criteria, and hidden compatibility/security/operational constraints. Record findings in the existing orchestration evidence; unresolved explicit conflicts stop dependent graph execution until a decision is documented. Use a constructive format: explain the concern, ask the smallest useful question, recommend a path with trade-offs, and offer a reversible alternative. Continue independent, safe discovery where possible. Deterministic patterns are not complete semantic reasoning; a clear heuristic result does not certify that the requirements are consistent. See [the implementation policy](.ai-harness/ENGINEERING_DESIGN_POLICY.md), [review tests](tests/test_preimplementation_review.py), and [current architecture](docs/ARCHITECTURE_CURRENT.md).
+
 ## Required task lifecycle
 
 1. **Classify:** task type, risk, affected boundaries, acceptance criteria, non-goals, and stopping condition.
