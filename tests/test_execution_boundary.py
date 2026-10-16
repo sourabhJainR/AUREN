@@ -20,7 +20,7 @@ class ExecutionBoundaryTests(unittest.TestCase):
             run_id="run-1",
             task_id="task-1",
             repository_digest="repo-digest",
-            repository_revision="abc123", repository_digest="repo-digest",
+            repository_revision="abc123",
             principal="agent:reviewed-worker",
             allowed_capabilities=("source.read", "source.write"),
             allowed_actions=("read", "edit", "test"),
@@ -116,18 +116,18 @@ class ExecutionBoundaryTests(unittest.TestCase):
         self.assertTrue(guard.charge_attempt("task-1:step-1"))
         checkpoint = GuardedExecutionCheckpoint.capture(binding, guard, sequence=7)
         restored = checkpoint.restore(
-            binding, expected_repository_revision="abc123", repository_digest="repo-digest", minimum_sequence=7,
+            binding, expected_repository_revision="abc123", minimum_sequence=7,
         )
         self.assertEqual(restored.attempts_used, 1)
         self.assertFalse(restored.charge_attempt("task-1:step-1"))
         self.assertEqual(restored.attempts_used, 1)
 
         with self.assertRaisesRegex(ValueError, "authority binding mismatch"):
-            checkpoint.restore(self.binding(principal="agent:other"), expected_repository_revision="abc123", repository_digest="repo-digest")
+            checkpoint.restore(self.binding(principal="agent:other"), expected_repository_revision="abc123")
         with self.assertRaisesRegex(ValueError, "repository revision mismatch"):
-            checkpoint.restore(binding, expected_repository_revision="def456", repository_digest="repo-digest")
+            checkpoint.restore(binding, expected_repository_revision="def456")
         with self.assertRaisesRegex(ValueError, "replay or sequence rollback"):
-            checkpoint.restore(binding, expected_repository_revision="abc123", repository_digest="repo-digest", minimum_sequence=8)
+            checkpoint.restore(binding, expected_repository_revision="abc123", minimum_sequence=8)
 
     def test_p3_checkpoint_serialization_detects_tampering(self):
         binding = self.binding()
@@ -146,7 +146,7 @@ class ExecutionBoundaryTests(unittest.TestCase):
         guard = RuntimeExecutionGuard(max_steps=2, max_attempts=1)
         guard.charge_attempt("only-attempt")
         checkpoint = GuardedExecutionCheckpoint.capture(binding, guard, sequence=1)
-        restored = checkpoint.restore(binding, expected_repository_revision="abc123", repository_digest="repo-digest")
+        restored = checkpoint.restore(binding, expected_repository_revision="abc123")
         with self.assertRaises(ExecutionBudgetExceeded):
             restored.charge_attempt("second-attempt")
 
