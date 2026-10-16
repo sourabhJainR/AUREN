@@ -153,6 +153,36 @@ class MemoryOrchestratorTests(unittest.TestCase):
         self.assertEqual("ledger-1", result.memory_id)
         self.assertEqual(("ci-1",), calls[0]["evidence_ids"])
 
+    def test_kv_cache_recall_reads_existing_pages_without_creating_a_store(self):
+        written = self.coordinator.remember(
+            "kv_cache", "stable repository conventions and test-first workflow", source="docs",
+            verified=True,
+        )
+        before = self.cache.stats()["pages"]
+        recall = self.coordinator.recall(
+            "repository conventions", kinds=("kv_cache",), budget_chars=200,
+        )
+        self.assertEqual(1, len(recall.memories))
+        self.assertEqual(written.memory_id, recall.memories[0].memory_id)
+        self.assertIn("test-first workflow", recall.text)
+        self.assertEqual(before, self.cache.stats()["pages"])
+        self.assertGreaterEqual(recall.cache_hits, 1)
+
+    def test_working_memory_respects_intent_scope(self):
+        self.coordinator.remember(
+            "working", "same task but first intent", source="agent",
+            task_id="shared-task", intent_digest="intent-a",
+        )
+        self.coordinator.remember(
+            "working", "same task but second intent", source="agent",
+            task_id="shared-task", intent_digest="intent-b",
+        )
+        recall = self.coordinator.recall(
+            "same task", kinds=("working",), task_id="shared-task",
+            intent_digest="intent-a", budget_chars=200,
+        )
+        self.assertEqual(["same task but first intent"], [item.text for item in recall.memories])
+
     def test_kv_cache_and_meta_memory_do_not_create_second_durable_store(self):
         cached = self.coordinator.remember("kv_cache", "stable repository conventions", source="docs")
         meta = self.coordinator.remember("meta_memory", "do not persist metrics as memories", source="runtime")
