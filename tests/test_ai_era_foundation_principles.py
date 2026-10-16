@@ -14,8 +14,8 @@ def test_registry_has_twenty_unique_principles_with_existing_owner_and_test():
     assert registry["schema_version"] == "auren-ai-era-principles-v1"
     assert [p["id"] for p in PRINCIPLES] == EXPECTED_IDS
     assert len({p["id"] for p in PRINCIPLES}) == 20
-    for p in PRINCIPLES:
-        assert p["meaning"] and p["name"]
+    for p in registry["principles"]:
+        assert p["meaning"] and p["name"] and p["exception_policy"]
         assert (ROOT / p["owner"]).is_file(), p["id"]
         assert (ROOT / p["test"]).is_file(), p["id"]
 
