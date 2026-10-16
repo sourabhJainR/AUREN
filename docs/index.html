@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="description" content="AUREN — provider-neutral AI engineering system for evidence-backed execution, verification and continuous learning.">
+<meta name="description" content="AUREN is a provider-neutral AI engineering system with six governed domains, bounded agent orchestration, durable memory, independent evaluation, verification and evidence-gated learning.">
 <title>AUREN | Evidence-backed AI Engineering</title>
 <style>
 :root{--bg:#08111f;--panel:#101c2e;--panel2:#14243a;--text:#edf4ff;--muted:#9fb0c7;--line:#263850;--accent:#74b9ff;--good:#70d6a1;--warn:#ffd166;--max:1120px}
@@ -17,13 +17,27 @@ pre{overflow:auto;background:#050b14;border:1px solid var(--line);border-radius:
 </style>
 </head>
 <body>
-<nav><div class="wrap inner"><strong>AUREN</strong><span><a href="#system">System</a><a href="#principles">Principles</a><a href="#demo">Demo</a><a href="#results">Results</a><a href="#latest">Latest</a><a href="#deploy">Deploy</a><a href="#support">Support</a><a href="https://github.com/sourabhJainR/AUREN">GitHub</a></span></div></nav>
+<nav><div class="wrap inner"><strong>AUREN</strong><span><a href="#about">About</a><a href="#system">System</a><a href="#principles">Principles</a><a href="#demo">Demo</a><a href="#results">Results</a><a href="#latest">Latest</a><a href="#deploy">Deploy</a><a href="#support">Support</a><a href="https://github.com/sourabhJainR/AUREN">GitHub</a></span></div></nav>
 <header class="hero wrap">
 <div class="eyebrow">Autonomous Unified Reasoning &amp; Engineering Network · v1.0.4</div>
 <h1>AI engineering that learns from evidence.</h1>
 <p>AUREN is a provider-neutral AI engineering system that turns software work into a bounded, auditable learning loop: understand the repository, plan, execute, verify, review, record evidence, evaluate what actually transfers, and promote or roll back learned strategies only when the gates pass.</p>
 <div class="buttons"><a class="btn primary" href="#demo">See the demo</a><a class="btn" href="https://github.com/sourabhJainR/AUREN">View source</a><a class="btn" href="#deploy">Deploy AUREN</a><a class="btn" href="#support">Support AUREN</a></div>
 </header>
+
+<section id="about"><div class="wrap">
+<h2>About AUREN</h2>
+<p class="lead">AUREN (Autonomous Unified Reasoning &amp; Engineering Network) is a provider-neutral AI engineering and orchestration system. It coordinates software work through explicit intent, repository context, bounded planning and execution, verification, review, durable evidence, and guarded learning. It is designed to improve engineering reliability—not to treat model output, stored memory, or learning signals as authority.</p>
+<div class="grid">
+<div class="card"><h3>Core</h3><p>World model, self model, reasoning, and goals.</p></div>
+<div class="card"><h3>Engine</h3><p>Planning, StateGraph execution, agent teams, and resource routing.</p></div>
+<div class="card"><h3>Memory</h3><p>Episodic, semantic, engineering, and evidence-graph persistence with provenance.</p></div>
+<div class="card"><h3>Learning</h3><p>Experimentation, causal attribution, capability invention, and curriculum evolution—without granting authority.</p></div>
+<div class="card"><h3>Arena</h3><p>Independent evaluation, sealed holdouts, transfer testing, and attestation. External independence still requires external evidence.</p></div>
+<div class="card"><h3>Guard</h3><p>Security, authority, verification, canary, promotion, and rollback controls.</p></div>
+</div>
+<p class="small">The runtime registry and receipt improve traceability; neither alone proves that every control is fully enforced in every deployment. See the <a href="https://github.com/sourabhJainR/AUREN/blob/main/docs/ARCHITECTURE_CURRENT.md">current architecture</a> and <a href="https://github.com/sourabhJainR/AUREN/blob/main/docs/AI_ERA_FOUNDATION_PRINCIPLES.md">AI-era foundation principles</a>.</p>
+</div></section>
 
 <section id="system"><div class="wrap">
 <h2>How AUREN works</h2><p class="lead">Execution authority and learning are deliberately separated. Active engineering stays policy-gated and bounded. Learning becomes advisory only after independent evaluation, regression protection and promotion/rollback evidence.</p>
@@ -96,7 +110,7 @@ and report open risks.</code></pre>
 
 <section id="latest"><div class="wrap">
 <h2>Latest implementation and verification</h2>
-<p class="lead">Repository status checked on 13 October 2026 against <code>main</code> at <code>baae7a7</code>. These are implementation and CI results—not a claim of independently verified general intelligence.</p>
+<p class="lead">Documentation review updated 16 October 2026. Implementation claims below are bounded by repository evidence—not a claim of independently verified general intelligence.</p>
 <div class="grid">
 <div class="card"><h3>Specialists dispatched through the graph</h3><p>Integration coverage exercises eight specialist roles through the real <code>GraphAgentTeam → StateGraph → auren_crew_dispatch → adapter → approved tool registry</code> path, with per-specialist tool scopes, pending independent review and secret-boundary assertions. <a href="https://github.com/sourabhJainR/AUREN/pull/515">Implementation PR</a></p></div>
 <div class="card"><h3>Cross-platform runtime resilience</h3><p>The runtime resilience matrix passes on Ubuntu and Windows with Python 3.11 and 3.12. It covers durable state, SQLite handle closure, evidence ingestion, concurrent claims and graph timeout/retry contracts. <a href="https://github.com/sourabhJainR/AUREN/pull/513">CI hardening PR</a></p></div>
@@ -106,8 +120,8 @@ and report open risks.</code></pre>
 <table class="table">
 <thead><tr><th>Gate</th><th>Current status</th><th>Evidence boundary</th></tr></thead>
 <tbody>
-<tr><td>Repository CI on <code>main</code></td><td><strong class="good">Passed</strong></td><td>Current main's AI Harness, architecture, bundle, runtime resilience, traceability and cleanup workflows report success.</td></tr>
-<tr><td>Public Pages deployment workflow</td><td><strong class="good">Passed</strong></td><td>GitHub Actions build and deploy jobs completed successfully for the current main revision.</td></tr>
+<tr><td>Repository CI on <code>main</code></td><td><strong class="good">Passed</strong></td><td>The reviewed implementation revision passed AI Harness, architecture, bundle, runtime resilience, and cleanup checks. Re-check the live Actions runs for the current main revision before release.</td></tr>
+<tr><td>Public Pages deployment workflow</td><td><strong class="good">Passed</strong></td><td>Pages publication is confirmed only when the deployment workflow completes successfully for the merged revision; repository CI alone does not prove that the public site has refreshed.</td></tr>
 <tr><td>Independent external corpus and evaluator</td><td><strong>Pending</strong></td><td>Requires an independently controlled sealed corpus, oracle, signed campaign results and fresh holdout. <a href="https://github.com/sourabhJainR/AUREN/issues/404">Track issue #404</a>.</td></tr>
 <tr><td>Independent sandbox-isolation audit</td><td><strong>Pending</strong></td><td>Requires an external operator/auditor and independently verified audit evidence. <a href="https://github.com/sourabhJainR/AUREN/issues/471">Track issue #471</a>.</td></tr>
 <tr><td>Live migration and rollback rehearsal</td><td><strong>Pending</strong></td><td>Repository CI does not test a user's real installation state. <a href="https://github.com/sourabhJainR/AUREN/issues/379">Track issue #379</a>.</td></tr>
