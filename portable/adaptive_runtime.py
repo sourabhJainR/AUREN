@@ -14,7 +14,7 @@ from .capability_fabric import Capability, CapabilityFabric, ProviderAdapter, Pr
 from .context_graph import ContextGraph
 from .context_engine import ContextEngine
 from .memory_orchestrator import MemoryOrchestrator
-from .engineering_design_guard import EngineeringDesignGuard, RepositoryDesignRecommendation
+from .engineering_design_guard import EngineeringDesignGuard
 from .context_resolver import ContextResolution, ContextResolver
 from .cognitive_controller import CognitiveController
 from .cognitive_learning import BeliefContext, LearningSignal
@@ -127,11 +127,10 @@ class AdaptiveRuntime:
         intent: str,
         *,
         changed_paths: Iterable[str] = (),
-        risk: str = "medium",
-    ) -> RepositoryDesignRecommendation:
-        """Proactively recommend a repository-native approach before non-trivial work."""
-        return EngineeringDesignGuard.recommend_for_repository(
-            project_root, intent, changed_paths=changed_paths, risk=risk,
+    ) -> dict[str, object]:
+        """Expose the canonical evidence-backed repository approach advisor."""
+        return EngineeringDesignGuard.recommend_approaches(
+            project_root, intent, changed_paths=changed_paths,
         )
 
     def memory_orchestrator(self, project_root: Path | str) -> MemoryOrchestrator:
