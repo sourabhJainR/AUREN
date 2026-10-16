@@ -818,7 +818,7 @@ class EngineeringDesignGuard:
         """
         if not isinstance(intent, str) or not intent.strip():
             raise ValueError("intent is required")
-        if risk.strip().lower() not in {"low", "medium", "high", "critical"}:
+        if not isinstance(risk, str) or risk.strip().lower() not in {"low", "medium", "high", "critical"}:
             raise ValueError("risk must be one of: low, medium, high, critical")
         root = Path(repository_root).expanduser().resolve()
         if not root.is_dir():
