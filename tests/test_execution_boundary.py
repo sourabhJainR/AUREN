@@ -3,11 +3,12 @@ from __future__ import annotations
 
 import unittest
 
-from portable.action_governance import ActionRequest
+from portable.action_governance import ActionGovernanceGateway, ActionPolicy, ActionRequest
 from portable.execution_boundary import (
     ExecutionAuthorityBinding,
     GuardedExecutionCheckpoint,
     execution_surface_audit,
+    execute_bound_action,
 )
 from portable.runtime_recovery import ExecutionBudgetExceeded, RuntimeExecutionGuard
 
@@ -76,6 +77,28 @@ class ExecutionBoundaryTests(unittest.TestCase):
         allowed, reason = binding.authorize(self.request(), repository_revision="abc123", attempts_used=0, now=50.0)
         self.assertFalse(allowed)
         self.assertEqual(reason, "execution_authority_expired")
+
+    def test_p2_bound_execution_denies_before_handler_and_then_uses_gateway(self):
+        binding = self.binding()
+        gateway = ActionGovernanceGateway(ActionPolicy(
+            allowed_capabilities=frozenset({"source.write"}),
+            allowed_actions=frozenset({"edit"}),
+        ))
+        calls = []
+        denied = execute_bound_action(
+            gateway, binding, self.request(actor="agent:spoofed"),
+            lambda: calls.append("ran"), repository_revision="abc123",
+        )
+        self.assertFalse(denied.executed)
+        self.assertEqual(denied.verdict.reason, "principal_mismatch")
+        self.assertEqual(calls, [])
+
+        accepted = execute_bound_action(
+            gateway, binding, self.request(), lambda: calls.append("ran") or "ok",
+            repository_revision="abc123",
+        )
+        self.assertTrue(accepted.executed)
+        self.assertEqual(calls, ["ran"])
 
     def test_p2_binding_digest_changes_when_scope_changes(self):
         self.assertNotEqual(
