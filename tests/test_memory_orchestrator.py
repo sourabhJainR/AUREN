@@ -244,7 +244,7 @@ class MemoryOrchestratorTests(unittest.TestCase):
                     "ownership provenance rollback", kinds=("semantic", "episodic"),
                     budget_chars=420, required_memory_ids=(saved.memory_id,),
                 )
-                self.assertLessEqual(recall.chars, 420)
+                self.assertLessEqual(recall.chars_used, 420)
                 self.assertIn(saved.memory_id, {item.memory_id for item in recall.memories})
                 self.assertIn(
                     "preserve ownership, provenance, and rollback evidence", recall.text,
