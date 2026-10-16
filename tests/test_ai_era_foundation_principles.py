@@ -2,7 +2,6 @@
 import hashlib
 import json
 from pathlib import Path
-import pytest
 from portable.ai_era_principles import PRINCIPLES, build_contract_receipt, canonical_registry, registry_digest
 from portable.orchestration import Graph, Node, NodeKind, Orchestrator, RunStatus
 
@@ -32,10 +31,13 @@ def test_receipt_is_deterministic_and_binds_intent_paths_risk_revision_and_regis
     assert build_contract_receipt("Implement principles", ["portable/orchestration.py"], "high", "def456")["digest"] != digest
 
 def test_receipt_rejects_missing_intent_and_unknown_risk():
-    with pytest.raises(ValueError, match="non-empty intent"):
-        build_contract_receipt(" ", [], "low")
-    with pytest.raises(ValueError, match="risk must be one of"):
-        build_contract_receipt("task", [], "unbounded")
+    for args, expected in [((" ", [], "low"), "non-empty intent"), (("task", [], "unbounded"), "risk must be one of")]:
+        try:
+            build_contract_receipt(*args)
+        except ValueError as error:
+            assert expected in str(error)
+        else:
+            raise AssertionError(f"expected ValueError containing {expected!r}")
 
 def test_orchestrator_records_principle_receipt_before_graph_nodes():
     observed = []
