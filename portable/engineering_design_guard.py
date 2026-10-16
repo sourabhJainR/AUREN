@@ -12,6 +12,7 @@ import json
 import re
 from dataclasses import dataclass
 from enum import Enum
+from pathlib import Path
 from typing import Iterable, Mapping
 
 
@@ -165,6 +166,259 @@ class EngineeringDesignGuard:
         if not isinstance(intent, str) or not intent.strip():
             raise ValueError("engineering design intent must be non-empty text")
         return hashlib.sha256(intent.strip().encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def _repository_stack(root: Path) -> dict[str, object]:
+        """Detect only stack facts backed by repository manifests or CI."""
+        root = Path(root)
+        manifest_names = (
+            "pyproject.toml", "setup.cfg", "setup.py", "requirements.txt",
+            "package.json", "Cargo.toml", "go.mod", "pom.xml",
+        )
+        manifest_text: dict[str, str] = {}
+        for name in manifest_names:
+            path = root / name
+            if path.is_file():
+                try:
+                    manifest_text[name] = path.read_text(encoding="utf-8")[:200_000]
+                except OSError:
+                    continue
+        csproj_paths = list(root.glob("*.csproj"))[:10]
+        for path in csproj_paths:
+            try:
+                manifest_text[path.name] = path.read_text(encoding="utf-8")[:100_000]
+            except OSError:
+                continue
+
+        languages: list[str] = []
+        versions: list[str] = []
+        evidence: list[str] = []
+        if any(name in manifest_text for name in ("pyproject.toml", "setup.cfg", "setup.py", "requirements.txt")) or (root / "portable").is_dir():
+            languages.append("Python")
+            evidence.extend(name for name in ("pyproject.toml", "setup.cfg", "setup.py", "requirements.txt") if name in manifest_text)
+            pyproject = manifest_text.get("pyproject.toml", "")
+            version_match = re.search(r"(?im)^\s*requires-python\s*=\s*['\"]([^'\"]+)", pyproject)
+            if version_match:
+                versions.append("Python requires-python " + version_match.group(1))
+            for workflow in list((root / ".github" / "workflows").glob("*.yml"))[:20] + list((root / ".github" / "workflows").glob("*.yaml"))[:20] if (root / ".github" / "workflows").is_dir() else []:
+                try:
+                    text = workflow.read_text(encoding="utf-8")[:100_000]
+                except OSError:
+                    continue
+                matrix_lines = re.findall(r"(?m)^\s*python-version:\s*([^\n]+)", text)
+                matrix = sorted(set(re.findall(r"([0-9]+\.[0-9]+)", "\n".join(matrix_lines))))
+                if matrix:
+                    versions.append("CI tests Python " + ", ".join(matrix))
+                    evidence.append(workflow.relative_to(root).as_posix())
+            if (root / "scripts" / "run_full_suite.py").is_file():
+                suite = (root / "scripts" / "run_full_suite.py").read_text(encoding="utf-8")[:30_000]
+                if "unittest" in suite and "discover" in suite:
+                    versions.append("test runner unittest discover")
+                    evidence.append("scripts/run_full_suite.py")
+                elif "pytest" in suite:
+                    versions.append("test runner pytest")
+                    evidence.append("scripts/run_full_suite.py")
+        if "package.json" in manifest_text:
+            languages.append("JavaScript/TypeScript")
+            evidence.append("package.json")
+            try:
+                package = json.loads(manifest_text["package.json"])
+                node = package.get("engines", {}).get("node")
+                if node:
+                    versions.append("Node.js " + str(node))
+                deps = {**package.get("dependencies", {}), **package.get("devDependencies", {})}
+                versions.extend(f"{name} {deps[name]}" for name in ("react", "next", "vue", "angular", "express") if name in deps)
+            except (ValueError, AttributeError, TypeError):
+                versions.append("package.json present but unreadable; framework unresolved")
+        if "Cargo.toml" in manifest_text:
+            languages.append("Rust")
+            evidence.append("Cargo.toml")
+            match = re.search(r"(?m)^\s*rust-version\s*=\s*['\"]([^'\"]+)", manifest_text["Cargo.toml"])
+            if match:
+                versions.append("Rust " + match.group(1))
+        if "go.mod" in manifest_text:
+            languages.append("Go")
+            evidence.append("go.mod")
+            match = re.search(r"(?m)^go\s+([0-9.]+)", manifest_text["go.mod"])
+            if match:
+                versions.append("Go " + match.group(1))
+        if "pom.xml" in manifest_text:
+            languages.append("Java")
+            evidence.append("pom.xml")
+            match = re.search(r"<maven\.compiler\.(?:release|source)>\s*([^<]+)", manifest_text["pom.xml"])
+            if match:
+                versions.append("Java compiler level " + match.group(1).strip())
+        if csproj_paths:
+            languages.append("C#/.NET")
+            evidence.extend(path.name for path in csproj_paths)
+            for name, text in manifest_text.items():
+                if name.endswith(".csproj"):
+                    match = re.search(r"<TargetFrameworks?>\s*([^<]+)", text)
+                    if match:
+                        versions.append(".NET target " + match.group(1).strip())
+        return {
+            "languages": tuple(dict.fromkeys(languages)),
+            "versions": tuple(dict.fromkeys(versions)),
+            "evidence": tuple(dict.fromkeys(evidence)),
+            "frameworks": tuple(
+                name for name in ("Django", "FastAPI", "Flask", "React", "Next.js", "Vue", "Angular", "Express")
+                if any(token.casefold() in text.casefold() for text in manifest_text.values()
+                       for token in ({
+                           "Django": ("django",), "FastAPI": ("fastapi",), "Flask": ("flask",),
+                           "React": ("react",), "Next.js": ("next",), "Vue": ("vue",),
+                           "Angular": ("@angular", "angular"), "Express": ("express",),
+                       }[name]))
+            ),
+        }
+
+    @classmethod
+    def recommend_approaches(
+        cls, root: Path | str, intent: str, changed_paths: Iterable[str] = (),
+        *, risk: str = "medium",
+    ) -> dict[str, object]:
+        """Return bounded, evidence-linked approach options for the detected repository stack.
+
+        Recommendations are deterministic suggestions, not proof or an execution
+        decision. Unknown stack versions stay unknown; callers still own approval,
+        verification, security policy and promotion gates.
+        """
+        if not isinstance(intent, str) or not intent.strip():
+            raise ValueError("recommendation intent must be non-empty text")
+        if not isinstance(risk, str) or risk.strip().lower() not in {"low", "medium", "high", "critical"}:
+            raise ValueError("risk must be one of: low, medium, high, critical")
+        risk = risk.strip().lower()
+        root = Path(root).resolve()
+        paths = tuple(str(path) for path in changed_paths)
+        profile = cls._repository_stack(root)
+        stack_known = bool(profile["languages"])
+        text = (intent + " " + " ".join(paths)).casefold()
+        evidence = list(profile["evidence"])
+        recommendations: list[dict[str, object]] = []
+
+        def add(pattern: str, approach: str, rationale: str, tradeoffs: str,
+                alternatives: tuple[str, ...] = (), proof: tuple[str, ...] = ()) -> None:
+            recommendations.append({
+                "pattern": pattern, "approach": approach, "rationale": rationale,
+                "tradeoffs": tradeoffs, "alternatives": alternatives,
+                "repository_evidence": tuple(dict.fromkeys((*evidence, *proof))),
+                "stack": profile, "requires_stack_confirmation": not stack_known,
+            })
+
+        if any(word in text for word in ("memory", "context", "token", "cache", "compaction")):
+            reuse = tuple(path for path in (
+                "portable/memory_orchestrator.py", "portable/persistent_memory.py",
+                "portable/context_graph.py", "portable/context_engine.py",
+                ".ai-harness/runtime/context_cache.py", ".ai-harness/runtime/auto_compaction.py",
+            ) if (root / path).is_file())
+            if reuse:
+                add("bounded retrieval + content-addressed cache",
+                    "Reuse the existing memory/context owners; rank scoped evidence before packing, keep required contracts intact, and fail closed when they do not fit.",
+                    "The repository already has canonical durable memory, provenance graph, context packing, and cache primitives.",
+                    "Improves reuse and bounds memory movement; ranking adds small CPU work and can omit low-ranked optional context.",
+                    ("Create a new store/cache only if measured limits of the canonical owners are demonstrated.",), reuse)
+            else:
+                add("bounded retrieval + explicit lifetime",
+                    "Separate durable evidence from task-local working state; add TTL only to disposable observations and preserve required context.",
+                    "The task concerns context/memory but no canonical memory owner was found in the scanned repository.",
+                    "Bounds context and resource use; durable state requires schema and migration ownership.",
+                    ("Confirm the stack and existing storage owner before implementation.",))
+
+        if any(word in text for word in ("quota", "rate limit", "retry", "resume", "provider reset", "token exhausted")):
+            reuse = tuple(path for path in (
+                "portable/execution_controller.py", "portable/autonomous_daemon.py",
+                ".ai-harness/TOKEN_POLICY.md", ".ai-harness/runtime/auto_compaction.py",
+            ) if (root / path).is_file())
+            add("durable state machine + deadline scheduling",
+                "Persist waiting state and provider reset deadline; honor Retry-After, use bounded backoff only when reset is unknown, and sleep locally without provider polling.",
+                "Avoids busy loops, repeated side effects and token consumption while blocked.",
+                "Adds durable state transitions and restart checks; reset metadata must be preserved by the provider adapter.",
+                ("Use provider switching only when explicitly authorized and policy-equivalent.",), reuse)
+
+        if any(word in text for word in ("test", "coverage", "regression", "bug", "refactor")):
+            if "Python" in profile["languages"] and any("unittest" in str(x) for x in profile["versions"]):
+                test_runner = "Use repository unittest discovery and behavior-focused regression tests."
+            elif "Python" in profile["languages"] and any("pytest" in str(x).lower() for x in profile["versions"]):
+                test_runner = "Use the repository's detected pytest runner and behavior-focused regression tests."
+            else:
+                test_runner = "Reuse the repository's detected test runner; if no runner is evidenced, ask before adding a dependency."
+            add("characterization-first incremental change", test_runner,
+                "Existing tests and conventions reduce false positives and avoid adding a competing test framework.",
+                "Fast focused feedback; broader integration tests still needed for lifecycle and failure semantics.",
+                ("For passive Python DTO dataclasses, use class-level # pragma: no cover only when supported by repo convention.",),
+                tuple(path for path in ("tests", "scripts/run_full_suite.py") if (root / path).exists()))
+
+        if any(word in text for word in ("database", "persist", "store", "migration", "query")):
+            reuse = tuple(path for path in (
+                "portable/persistent_memory.py", "portable/context_graph.py",
+                ".ai-harness/runtime/task_memory.py",
+            ) if (root / path).is_file())
+            add("single source of truth + transactional persistence",
+                "Extend the canonical repository store, use idempotent writes and explicit transaction boundaries, and reuse existing indexes/FTS before introducing a second store.",
+                "Reduces split-brain state, duplicate migrations and inconsistent retention.",
+                "Central ownership simplifies recovery but requires respecting the existing schema, locks and data budget.",
+                ("Add a separate store only when isolation, scale or workload evidence requires it.",), reuse)
+
+        if any(word in text for word in ("concurrent", "parallel", "async", "race", "deadlock", "background")):
+            reuse = tuple(path for path in (
+                "portable/execution_controller.py", "portable/autonomous_daemon.py",
+                "portable/agent_memory.py",
+            ) if (root / path).is_file())
+            add("bounded concurrency + explicit ownership",
+                "Reuse existing leases, locks and supervisor lifecycle; define cancellation, idempotency and a maximum in-flight budget before adding workers.",
+                "Prevents duplicate execution, unbounded resource use and hidden scheduler loops.",
+                "Bounded throughput is predictable; more serialization may reduce peak parallelism.",
+                ("Use message passing when shared mutable state cannot be made safe.",), reuse)
+
+        if any(word in text for word in ("deduplicate", "dedup", "unique ids", "membership lookup", "duplicate ids")):
+            add("single-pass hash-based deduplication",
+                "Use a set for membership and a dict keyed by stable identity to deduplicate in one pass; preserve input order explicitly when callers rely on it.",
+                "Avoids nested membership scans and typically reduces O(n²) comparison work to O(n) expected time.",
+                "Uses O(n) auxiliary memory and requires a trustworthy stable key; sort-based approaches may be preferable when ordering is the primary requirement.",
+                ("Use sort-and-scan when a deterministic total order is required and O(n log n) is acceptable.",),
+                tuple(path for path in ("portable/agent_capabilities.py", "portable/context_graph.py") if (root / path).is_file()))
+
+        if any(word in text for word in ("top-k", "rank", "ranking", "retrieval", "search results")):
+            add("indexed retrieval + bounded selection",
+                "Reuse the existing FTS/indexed query path; use a bounded heap for top-k when k is small, or a full deterministic sort when callers need a complete ranking.",
+                "Reduces irrelevant context and can avoid sorting the entire candidate set for small top-k requests.",
+                "Heap selection is O(n log k) but has more implementation complexity; full sort is simpler and gives a complete stable order.",
+                ("Use database ranking/indexes when the canonical store already supports the query.",),
+                tuple(path for path in ("portable/agent_capabilities.py", "portable/context_engine.py", "portable/context_graph.py") if (root / path).is_file()))
+
+        if any(word in text for word in ("dependency graph", "topological", "workflow order", "cycle detection", "dag")):
+            add("DAG validation + topological scheduling",
+                "Represent dependencies as adjacency lists, detect cycles before execution, and topologically order only ready work; reuse the existing state/task graph where present.",
+                "Makes dependency order explicit and isolates blocked tasks without spinning independent work.",
+                "Runs in O(V+E) time; requires cycle diagnostics and clear semantics for optional versus hard dependencies.",
+                ("Use a state machine for sequential lifecycles; use a DAG only when independent branches or dependency edges are real.",),
+                tuple(path for path in ("portable/agency_state_graph.py", "portable/execution_controller.py", "portable/task_planner.py") if (root / path).is_file()))
+
+        if any(word in text for word in ("large file", "large log", "streaming", "unbounded input", "memory footprint")):
+            add("streaming + bounded working set",
+                "Process records incrementally and cap retained state; persist checkpoints at committed boundaries instead of materializing unbounded input.",
+                "Bounds peak memory and improves restart recovery on large inputs.",
+                "Streaming complicates global ordering and rollback; checkpoint cadence trades write overhead against replay cost.",
+                ("Use chunked batch processing when downstream operations require bounded groups.",),
+                tuple(path for path in (".ai-harness/runtime/auto_compaction.py", "portable/execution_controller.py") if (root / path).is_file()))
+
+        if not recommendations:
+            add("smallest repository-native change",
+                "Inspect nearby implementations, language/framework versions, test conventions and callers; extend the existing owner and verify the exact changed paths.",
+                "No specific algorithm/pattern trigger was evidenced, so avoid imposing architecture by decoration.",
+                "Keeps scope and migration risk low; deeper profiling may be needed if performance is the actual constraint.",
+                ("Ask for clarification if the task depends on an unknown framework/version or a material design choice.",))
+        required_gates = (
+            ("independent review", "exact-head CI", "rollback rehearsal", "recovery/idempotency tests")
+            if risk in {"high", "critical"}
+            else ("focused regression tests", "exact-head CI", "diff review")
+        )
+        return {
+            "stack": profile,
+            "risk": risk,
+            "required_gates": required_gates,
+            "needs_stack_confirmation": not stack_known,
+            "recommendations": recommendations[:4],
+        }
 
     @classmethod
     def _is_code_change(cls, paths: tuple[str, ...]) -> bool:

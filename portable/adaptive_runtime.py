@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
@@ -12,6 +13,9 @@ from .adaptive_tuning import AdaptiveTuner, MaintenanceReceipt
 from .automation_scheduler import AutomationScheduler
 from .capability_fabric import Capability, CapabilityFabric, ProviderAdapter, ProviderAdapterRegistry
 from .context_graph import ContextGraph
+from .context_engine import ContextEngine
+from .memory_orchestrator import MemoryOrchestrator
+from .engineering_design_guard import EngineeringDesignGuard
 from .context_resolver import ContextResolution, ContextResolver
 from .cognitive_controller import CognitiveController
 from .cognitive_learning import BeliefContext, LearningSignal
@@ -76,6 +80,8 @@ class AdaptiveRuntime:
         self.hooks = hooks or HookBus()
         self.capability_fabric = capability_fabric or CapabilityFabric()
         self.persistent_memory = persistent_memory or PersistentMemory(state / "memory" / "memory.db")
+        self._memory_orchestrators: dict[str, MemoryOrchestrator] = {}
+        self._memory_orchestrators_lock = threading.RLock()
         self.automation_scheduler = automation_scheduler or AutomationScheduler(state / "automation" / "automation.db")
         self.output_quality = output_quality or OutputQualityGate()
         self.provider_adapters = provider_adapters or ProviderAdapterRegistry()
@@ -116,6 +122,57 @@ class AdaptiveRuntime:
         return self.output_quality.evaluate(acceptance_met=acceptance_met, verification_passed=verification_passed,
                                             evidence_count=evidence_count, diff_clean=diff_clean,
                                             scope_clean=scope_clean, unresolved=unresolved)
+
+    def recommend_design(
+        self,
+        project_root: Path | str,
+        intent: str,
+        *,
+        changed_paths: Iterable[str] = (),
+        risk: str = "medium",
+    ) -> dict[str, object]:
+        """Expose the canonical evidence-backed repository design advisor."""
+        return EngineeringDesignGuard.recommend_approaches(
+            project_root, intent, changed_paths, risk=risk,
+        )
+
+    def memory_orchestrator(self, project_root: Path | str) -> MemoryOrchestrator:
+        """Return the project-scoped memory facade over AUREN's canonical memory database."""
+        root = Path(project_root).expanduser().resolve()
+        project_key = self.session_store.project_key(root)
+        with self._memory_orchestrators_lock:
+            if project_key not in self._memory_orchestrators:
+                self._memory_orchestrators[project_key] = MemoryOrchestrator(
+                    root, project_key, memory=self.persistent_memory,
+                )
+            return self._memory_orchestrators[project_key]
+
+    def pack_memory_context(
+        self,
+        project_root: Path | str,
+        task: str,
+        *,
+        task_id: str | None = None,
+        required_memory_ids: Sequence[str] = (),
+        budget_chars: int = 4_200,
+    ) -> str:
+        """Pack project/task memory with the canonical ContextEngine, fail-closed on required state."""
+        engine = ContextEngine()
+        # Keep the orchestrator's retrieval budget no larger than the packer's
+        # item budget; the engine separately enforces item-count and output caps.
+        recall = self.memory_orchestrator(project_root).recall(
+            task, task_id=task_id, budget_chars=min(budget_chars, engine.policy.max_chars),
+            required_memory_ids=required_memory_ids,
+        )
+        items = self.memory_orchestrator(project_root).context_items(recall)
+        required = [item.text for item in recall.memories if item.memory_id in set(required_memory_ids)]
+        selected = engine.select(items, required=required)
+        if any(text not in {item.text for item in selected} for text in required):
+            raise ValueError("required memory cannot fit ContextEngine item/count budget")
+        packed = engine.pack(selected, required=required)
+        if any(text not in packed for text in required):
+            raise ValueError("required memory would be lost during ContextEngine packing")
+        return packed
 
     def resolve_context(self, project_root: Path | str, task: str, *, node_id: str | None = None,
                         workspace_id: str | None = None, required: Sequence[str] = (),

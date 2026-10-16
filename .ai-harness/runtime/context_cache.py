@@ -63,6 +63,26 @@ class ContextPageCache:
         chunks = [value[i : i + self.page_chars] for i in range(0, len(value), self.page_chars)]
         return [self.put(kind, chunk, stable=stable) for chunk in chunks]
 
+    def search(self, kind: str, query: str, *, budget_chars: int = 8_000) -> list[ContextPage]:
+        """Return matching existing pages without creating pages or contacting a provider."""
+        if budget_chars < 1:
+            raise ValueError("budget_chars must be positive")
+        terms = {term.casefold() for term in query.split() if len(term) > 1}
+        pages = [page for page in self._pages.values() if page.kind == kind]
+        if terms:
+            pages = [page for page in pages if terms.intersection(
+                {term.casefold() for term in page.text.split()}
+            )]
+            pages.sort(key=lambda page: (
+                len(terms.intersection({term.casefold() for term in page.text.split()})),
+                page.stable,
+            ), reverse=True)
+        selected = self.select(pages, budget_chars)
+        self.hits += len(selected)
+        if not selected:
+            self.misses += 1
+        return selected
+
     @staticmethod
     def select(pages: Iterable[ContextPage], budget_chars: int) -> list[ContextPage]:
         selected: list[ContextPage] = []

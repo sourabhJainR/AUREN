@@ -66,6 +66,10 @@ Before creating a new class, function, adapter, client, query path, repository m
 
 Reuse must not change externally observable usage without an explicit requirement. Preserve public API shape, caller contracts, configuration behavior, lifecycle ordering, persisted data contracts, command flows, and user-facing workflow. A smaller diff is not a valid reason to bypass required functionality or safety behavior.
 
+## Proactive repository-native approach recommendations
+
+For every non-trivial task, call `EngineeringDesignGuard.recommend_approaches(root, intent, changed_paths)` before committing to a design. The deterministic advisor scans bounded repository manifests, CI and canonical-owner paths; it reports only evidenced languages/frameworks/versions, candidate algorithms or patterns, trade-offs, alternatives and source paths. It must prefer existing owners and repository test conventions, avoid dependencies/framework assumptions without manifest evidence, and set `needs_stack_confirmation` when the stack cannot be established. Recommendations are advisory: acceptance, user authority, tests, security gates and promotion remain separate. Add rules only when tied to a real repository pattern and regression tests; do not build a generic pattern catalogue disconnected from the working stack.
+
 ### 3. Architecture and dependency direction
 
 Keep business policy independent from frameworks, transports, persistence, vendors, and deployment details. Inner policy owns the interfaces it needs; outer adapters implement them. Organize by capability/use case/domain where that makes ownership clearer. Enforce important boundaries mechanically when practical.
@@ -177,3 +181,8 @@ Use the 12-family taxonomy in [ENGINEERING_PRINCIPLES.md](../ENGINEERING_PRINCIP
 For distributed work, require explicit consistency and CAP/PACELC choices only where replicas, partitions, remote dependencies, or multiple writers make them meaningful. Record a single-writer/local-state boundary when that is the real model. Do not claim consensus, quorum, ACID, exactly-once effects, SLOs, or recovery guarantees unless the runtime/store and evidence support them.
 
 For every applicable task, the lifecycle is: classify task/risk; select principle families; record risks, authority, invariants, ownership, side effects and recovery; implement proportionately; verify with suitable tests or evidence; bind evidence to the exact final revision; and preserve rollback/forward recovery for risky changes. A declared principle or design receipt is a contract to verify, not proof that the implementation satisfies it.
+
+
+## Repository-native approach recommendation
+
+Before a non-trivial implementation, call `EngineeringDesignGuard.recommend_approaches(repository_root, intent, changed_paths, risk=...)` (or `AdaptiveRuntime.recommend_design(...)`). Review its repository-manifest/CI evidence, existing-owner candidates, suggested algorithm and workflow, alternatives, complexity/resource trade-offs, required verification, and rollback gates. Use recommendations to choose among approaches that fit the current language, framework, versions, and conventions; do not add a new stack, dependency, store, scheduler, or abstraction merely because a pattern is available. Unknown or conflicting stack evidence must remain unresolved and be verified before version-specific APIs are selected. The advisor is deterministic and advisory: it never substitutes for tests, review, authorization, or promotion gates.
