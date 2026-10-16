@@ -209,6 +209,9 @@ class MemoryOrchestrator:
             return MemoryWriteResult("cached", kind, page.page_id)
 
         if kind in EPHEMERAL_KINDS:
+            char_limit = self.max_working_chars if kind == "working" else self.max_sensory_chars
+            if len(clean_text) > char_limit:
+                return MemoryWriteResult("budget_exceeded", kind, None, f"memory exceeds {char_limit}-character {kind} budget")
             scope = (str(task_id or "default"), kind)
             ttl = self.sensory_ttl_seconds if kind == "sensory" and ttl_seconds is None else ttl_seconds
             item = self._ephemeral_envelope(
