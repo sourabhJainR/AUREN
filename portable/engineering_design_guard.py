@@ -849,7 +849,7 @@ class EngineeringDesignGuard:
             if match:
                 versions.append(f"Python {match.group(1)} (declared constraint)")
             for framework in ("fastapi", "django", "flask", "pydantic", "pytest"):
-                match = re.search(rf"(?im)^\s*['\"]?{framework}(?:\[[^\]]+\])?\s*=\s*['\"]?([^,'\"\s]+)", pyproject)
+                match = re.search(rf"(?i)['\"]?{framework}(?:\[[^\]]+\])?['\"]?\s*(?:==|>=|<=|~=|=)\s*['\"]?([0-9][^,'\"\s]*)", pyproject)
                 if match:
                     frameworks.append(framework)
                     versions.append(f"{framework} {match.group(1)} (declared)")
