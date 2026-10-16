@@ -324,6 +324,7 @@ class MemoryOrchestrator:
         """
         if budget_chars < 1:
             raise ValueError("budget_chars must be positive")
+        before = self.cache.stats() if self.cache is not None else {"hits": 0, "misses": 0}
         kind_list = tuple(dict.fromkeys(self._validate_kind(kind) for kind in kinds))
         required_ids = set(required_memory_ids)
         candidates: list[MemoryEnvelope] = []
@@ -388,7 +389,6 @@ class MemoryOrchestrator:
                 omitted += 1
         if required_ids - {item.memory_id for item in selected}:
             raise MemoryBudgetError("one or more required memories were not found or did not fit")
-        before = self.cache.stats() if self.cache is not None else {"hits": 0, "misses": 0}
         if self.cache is not None:
             for item in selected:
                 if item.kind == "kv_cache":
