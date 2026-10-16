@@ -8,13 +8,13 @@ A provider-neutral AI engineering system that turns software work into a measura
 
 AUREN separates **execution authority from learning**. Active runs operate under bounded, policy-gated execution; learning is recorded as evidence and can influence future runs only after independent evaluation, regression checks, and promotion/rollback decisions. The result is an engineering system designed to improve from observed outcomes while remaining auditable, reproducible, and fail-closed when evidence is insufficient.
 
-## Project status (updated 2026-10-13)
+## Project status (reviewed 2026-10-16)
 
 AUREN's current repository includes graph-based specialist proposal adapters, durable execution and recovery paths, cross-platform runtime resilience tests, and guarded evidence/promotion workflows. The public Pages site is published at [AUREN Pages](https://sourabhjainr.github.io/AUREN/).
 
 **Evidence boundaries:** repository CI and deployment checks demonstrate repository-level behavior only. Independent external evaluation and corpus provenance, a separately operated isolation audit, and an operator-run live migration/rollback rehearsal remain separate gates and must not be described as completed until their evidence is recorded. Checked-in transfer fixtures are not independent benchmark results. Specialist adapters propose work; graph policy, verification, and promotion gates retain authority.
 
-The repository currently reports no open pull requests. Closed pull requests must still be checked individually for merge status before being counted as merged. See [all pull requests](https://github.com/sourabhJainR/AUREN/pulls) and [recent changes](https://github.com/sourabhJainR/AUREN/commits/main).
+Pull-request and merge status changes continuously; use the [live pull-request list](https://github.com/sourabhJainR/AUREN/pulls) and [recent main-branch commits](https://github.com/sourabhJainR/AUREN/commits/main) rather than relying on a copied status count.
 
 ## AI-era foundation principles
 
