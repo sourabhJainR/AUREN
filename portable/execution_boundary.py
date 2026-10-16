@@ -13,6 +13,7 @@ import posixpath
 import time
 from typing import Any, Mapping, Sequence
 
+from .action_governance import ActionGovernanceGateway, ApprovalReceipt, GovernedResult, PolicyVerdict
 from .runtime_recovery import RuntimeExecutionGuard
 
 
@@ -221,6 +222,42 @@ class ExecutionAuthorityBinding:
         return True, "execution_authority_valid"
 
 
+def execute_bound_action(
+    gateway: ActionGovernanceGateway,
+    authority: ExecutionAuthorityBinding,
+    request: Any,
+    handler: Any,
+    *,
+    repository_revision: str,
+    attempts_used: int = 0,
+    approval: ApprovalReceipt | None = None,
+) -> GovernedResult:
+    """Enforce execution binding before delegating to the canonical action gateway.
+
+    This wrapper is the safe integration point for callers that have an authority
+    binding. A binding denial is recorded as a policy verdict and the handler is
+    never invoked. The gateway still makes its own allowlist/approval decision.
+    """
+    if not callable(handler):
+        raise TypeError("handler must be callable")
+    allowed, reason = authority.authorize(
+        request,
+        repository_revision=repository_revision,
+        attempts_used=attempts_used,
+    )
+    if not allowed:
+        fingerprint_fn = getattr(request, "fingerprint", None)
+        if not callable(fingerprint_fn):
+            raise TypeError("request must expose fingerprint()")
+        verdict = PolicyVerdict(
+            decision="deny",
+            reason=reason,
+            request_fingerprint=fingerprint_fn(),
+        )
+        return GovernedResult(executed=False, verdict=verdict)
+    return gateway.execute(request, handler, approval=approval)
+
+
 @dataclass(frozen=True)
 class GuardedExecutionCheckpoint:
     """Integrity-bound runtime guard snapshot associated with an authority digest.
@@ -338,4 +375,5 @@ __all__ = [
     "ExecutionSurface",
     "GuardedExecutionCheckpoint",
     "execution_surface_audit",
+    "execute_bound_action",
 ]
