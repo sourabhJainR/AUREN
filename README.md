@@ -16,6 +16,12 @@ AUREN's current repository includes graph-based specialist proposal adapters, du
 
 Pull-request and merge status changes continuously; use the [live pull-request list](https://github.com/sourabhJainR/AUREN/pulls) and [recent main-branch commits](https://github.com/sourabhJainR/AUREN/commits/main) rather than relying on a copied status count.
 
+## Pre-implementation blind-spot review
+
+Before graph execution, AUREN records a structured review of requirements, assumptions, acceptance criteria, constraints, non-goals, likely blind spots, and contradictory requirements. Common explicit conflicts can block implementation before side effects; a documented resolution stays in the receipt. Vague terms such as “fast”, “secure”, or “scalable” prompt measurable questions and flexible options rather than arbitrary hard stops. Semantic planner/reviewer findings supplement deterministic checks, which cannot guarantee complete contradiction detection.
+
+The review should be constructive: explain why a concern matters, ask the smallest useful question, recommend an option with trade-offs, and offer narrower/reversible alternatives. User-owned decisions are not silently inferred; independent safe discovery may continue while dependent implementation waits. See [Engineering Design Policy](.ai-harness/ENGINEERING_DESIGN_POLICY.md) and [grilling and rework](skills/engineering/grilling-and-rework.md).
+
 ## AI-era foundation principles
 
 AUREN now maintains a canonical, machine-readable catalogue of 20 AI-era engineering principles in [`portable/ai_era_principles.py`](portable/ai_era_principles.py), documented in [AI-era Foundation Principles](docs/AI_ERA_FOUNDATION_PRINCIPLES.md). They extend established practices such as SOLID, DRY, YAGNI, and KISS with controls for autonomous agents, tool authority, context integrity, independent evaluation, recovery, learning, and evidence-based promotion.
