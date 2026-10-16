@@ -66,6 +66,10 @@ Before creating a new class, function, adapter, client, query path, repository m
 
 Reuse must not change externally observable usage without an explicit requirement. Preserve public API shape, caller contracts, configuration behavior, lifecycle ordering, persisted data contracts, command flows, and user-facing workflow. A smaller diff is not a valid reason to bypass required functionality or safety behavior.
 
+## Proactive repository-native approach recommendations
+
+For every non-trivial task, call `EngineeringDesignGuard.recommend_approaches(root, intent, changed_paths)` before committing to a design. The deterministic advisor scans bounded repository manifests, CI and canonical-owner paths; it reports only evidenced languages/frameworks/versions, candidate algorithms or patterns, trade-offs, alternatives and source paths. It must prefer existing owners and repository test conventions, avoid dependencies/framework assumptions without manifest evidence, and set `needs_stack_confirmation` when the stack cannot be established. Recommendations are advisory: acceptance, user authority, tests, security gates and promotion remain separate. Add rules only when tied to a real repository pattern and regression tests; do not build a generic pattern catalogue disconnected from the working stack.
+
 ### 3. Architecture and dependency direction
 
 Keep business policy independent from frameworks, transports, persistence, vendors, and deployment details. Inner policy owns the interfaces it needs; outer adapters implement them. Organize by capability/use case/domain where that makes ownership clearer. Enforce important boundaries mechanically when practical.
