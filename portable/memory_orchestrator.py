@@ -391,6 +391,8 @@ class MemoryOrchestrator:
         before = self.cache.stats() if self.cache is not None else {"hits": 0, "misses": 0}
         if self.cache is not None:
             for item in selected:
+                if item.kind == "kv_cache":
+                    continue  # a cache hit is read-only; do not duplicate its own page
                 self.cache.put(f"memory:{item.kind}", item.text, stable=item.verified)
         # Rendering always uses the selected records so the cache cannot silently omit
         # a required item due to its own independent page-selection budget.
