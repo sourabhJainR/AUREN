@@ -364,6 +364,38 @@ class EngineeringDesignGuard:
                 "Bounded throughput is predictable; more serialization may reduce peak parallelism.",
                 ("Use message passing when shared mutable state cannot be made safe.",), reuse)
 
+        if any(word in text for word in ("deduplicate", "dedup", "unique ids", "membership lookup", "duplicate ids")):
+            add("single-pass hash-based deduplication",
+                "Use a set for membership and a dict keyed by stable identity to deduplicate in one pass; preserve input order explicitly when callers rely on it.",
+                "Avoids nested membership scans and typically reduces O(n²) comparison work to O(n) expected time.",
+                "Uses O(n) auxiliary memory and requires a trustworthy stable key; sort-based approaches may be preferable when ordering is the primary requirement.",
+                ("Use sort-and-scan when a deterministic total order is required and O(n log n) is acceptable.",),
+                tuple(path for path in ("portable/agent_capabilities.py", "portable/context_graph.py") if (root / path).is_file()))
+
+        if any(word in text for word in ("top-k", "rank", "ranking", "retrieval", "search results")):
+            add("indexed retrieval + bounded selection",
+                "Reuse the existing FTS/indexed query path; use a bounded heap for top-k when k is small, or a full deterministic sort when callers need a complete ranking.",
+                "Reduces irrelevant context and can avoid sorting the entire candidate set for small top-k requests.",
+                "Heap selection is O(n log k) but has more implementation complexity; full sort is simpler and gives a complete stable order.",
+                ("Use database ranking/indexes when the canonical store already supports the query.",),
+                tuple(path for path in ("portable/agent_capabilities.py", "portable/context_engine.py", "portable/context_graph.py") if (root / path).is_file()))
+
+        if any(word in text for word in ("dependency graph", "topological", "workflow order", "cycle detection", "dag")):
+            add("DAG validation + topological scheduling",
+                "Represent dependencies as adjacency lists, detect cycles before execution, and topologically order only ready work; reuse the existing state/task graph where present.",
+                "Makes dependency order explicit and isolates blocked tasks without spinning independent work.",
+                "Runs in O(V+E) time; requires cycle diagnostics and clear semantics for optional versus hard dependencies.",
+                ("Use a state machine for sequential lifecycles; use a DAG only when independent branches or dependency edges are real.",),
+                tuple(path for path in ("portable/agency_state_graph.py", "portable/execution_controller.py", "portable/task_planner.py") if (root / path).is_file()))
+
+        if any(word in text for word in ("large file", "large log", "streaming", "unbounded input", "memory footprint")):
+            add("streaming + bounded working set",
+                "Process records incrementally and cap retained state; persist checkpoints at committed boundaries instead of materializing unbounded input.",
+                "Bounds peak memory and improves restart recovery on large inputs.",
+                "Streaming complicates global ordering and rollback; checkpoint cadence trades write overhead against replay cost.",
+                ("Use chunked batch processing when downstream operations require bounded groups.",),
+                tuple(path for path in (".ai-harness/runtime/auto_compaction.py", "portable/execution_controller.py") if (root / path).is_file()))
+
         if not recommendations:
             add("smallest repository-native change",
                 "Inspect nearby implementations, language/framework versions, test conventions and callers; extend the existing owner and verify the exact changed paths.",
