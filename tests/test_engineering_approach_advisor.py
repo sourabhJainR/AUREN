@@ -25,8 +25,10 @@ class EngineeringApproachAdvisorTests(unittest.TestCase):
 
     def test_retry_recommendation_prefers_existing_durable_supervisor(self):
         result = EngineeringDesignGuard.recommend_approaches(
-            ROOT, "Handle provider quota exhaustion and resume after reset",
+            ROOT, "Handle provider quota exhaustion and resume after reset", risk="high",
         )
+        self.assertEqual("high", result["risk"])
+        self.assertIn("rollback rehearsal", result["required_gates"])
         self.assertTrue(any("durable state machine" in item["pattern"] for item in result["recommendations"]))
         item = next(item for item in result["recommendations"] if "durable state machine" in item["pattern"])
         self.assertIn("portable/execution_controller.py", item["repository_evidence"])
