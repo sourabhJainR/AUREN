@@ -228,7 +228,7 @@ class MemoryOrchestratorTests(unittest.TestCase):
             )
             for index in range(12):
                 coordinator.remember(
-                    "episodic", f"bounded historical observation {index}: " + ("optional detail " * 8),
+                    "episodic", f"ownership provenance rollback optional detail {index}: " + ("optional detail " * 8),
                     source="test", approved=True, verified=index % 3 == 0,
                 )
 
