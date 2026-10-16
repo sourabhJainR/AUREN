@@ -14,7 +14,7 @@ import time
 from typing import Any, Mapping, Sequence
 
 from .action_governance import ActionGovernanceGateway, ApprovalReceipt, GovernedResult, PolicyVerdict
-from .runtime_recovery import RuntimeExecutionGuard
+from .runtime_recovery import ExecutionBudgetExceeded, RuntimeExecutionGuard
 
 
 def _canonical(value: Any) -> bytes:
@@ -235,7 +235,8 @@ def execute_bound_action(
     *,
     repository_revision: str,
     repository_digest: str,
-    attempts_used: int = 0,
+    budget_id: str,
+    execution_guard: RuntimeExecutionGuard,
     approval: ApprovalReceipt | None = None,
 ) -> GovernedResult:
     """Enforce execution binding before delegating to the canonical action gateway.
@@ -246,22 +247,31 @@ def execute_bound_action(
     """
     if not callable(handler):
         raise TypeError("handler must be callable")
+    if not isinstance(execution_guard, RuntimeExecutionGuard):
+        raise TypeError("execution_guard must be the task-owned RuntimeExecutionGuard")
+    fingerprint_fn = getattr(request, "fingerprint", None)
+    if not callable(fingerprint_fn):
+        raise TypeError("request must expose fingerprint()")
+    if budget_id != authority.budget_id:
+        return GovernedResult(False, PolicyVerdict("deny", "budget_identity_mismatch", fingerprint_fn()))
+    if execution_guard.max_attempts > authority.max_attempts:
+        return GovernedResult(False, PolicyVerdict("deny", "budget_limit_exceeds_authority", fingerprint_fn()))
     allowed, reason = authority.authorize(
         request,
         repository_revision=repository_revision,
         repository_digest=repository_digest,
-        attempts_used=attempts_used,
+        attempts_used=execution_guard.attempts_used,
     )
     if not allowed:
-        fingerprint_fn = getattr(request, "fingerprint", None)
-        if not callable(fingerprint_fn):
-            raise TypeError("request must expose fingerprint()")
-        verdict = PolicyVerdict(
-            decision="deny",
-            reason=reason,
-            request_fingerprint=fingerprint_fn(),
-        )
-        return GovernedResult(executed=False, verdict=verdict)
+        return GovernedResult(executed=False, verdict=PolicyVerdict(
+            decision="deny", reason=reason, request_fingerprint=fingerprint_fn(),
+        ))
+    try:
+        charged = execution_guard.charge_attempt(f"{authority.budget_id}:{request.action_id}")
+    except ExecutionBudgetExceeded:
+        charged = False
+    if not charged:
+        return GovernedResult(False, PolicyVerdict("deny", "attempt_budget_exhausted_or_duplicate", fingerprint_fn()))
     return gateway.execute(request, handler, approval=approval)
 
 
