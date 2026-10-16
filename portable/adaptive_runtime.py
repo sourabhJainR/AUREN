@@ -14,6 +14,7 @@ from .capability_fabric import Capability, CapabilityFabric, ProviderAdapter, Pr
 from .context_graph import ContextGraph
 from .context_engine import ContextEngine
 from .memory_orchestrator import MemoryOrchestrator
+from .engineering_design_guard import EngineeringDesignGuard, RepositoryDesignRecommendation
 from .context_resolver import ContextResolution, ContextResolver
 from .cognitive_controller import CognitiveController
 from .cognitive_learning import BeliefContext, LearningSignal
@@ -119,6 +120,19 @@ class AdaptiveRuntime:
         return self.output_quality.evaluate(acceptance_met=acceptance_met, verification_passed=verification_passed,
                                             evidence_count=evidence_count, diff_clean=diff_clean,
                                             scope_clean=scope_clean, unresolved=unresolved)
+
+    def recommend_design(
+        self,
+        project_root: Path | str,
+        intent: str,
+        *,
+        changed_paths: Iterable[str] = (),
+        risk: str = "medium",
+    ) -> RepositoryDesignRecommendation:
+        """Proactively recommend a repository-native approach before non-trivial work."""
+        return EngineeringDesignGuard.recommend_for_repository(
+            project_root, intent, changed_paths=changed_paths, risk=risk,
+        )
 
     def memory_orchestrator(self, project_root: Path | str) -> MemoryOrchestrator:
         """Return the project-scoped memory facade over AUREN's canonical memory database."""
