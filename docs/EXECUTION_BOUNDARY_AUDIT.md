@@ -18,9 +18,9 @@ The inventory is deterministic and testable; it is not a dynamic proof that ever
 
 ## P2 — Bind authority to the actual execution
 
-`ExecutionAuthorityBinding` binds one run/task to a repository digest and exact revision, principal, allowed capabilities/actions/targets, budget identifier, attempt limit, and optional expiry. Its digest changes when the scope changes. `authorize()` rejects mismatched identity, stale revision, unapproved capability/action, out-of-scope target, exhausted attempts, or expired authority before a caller executes the request.
+`ExecutionAuthorityBinding` binds one run/task to a repository digest and exact revision, principal, allowed capabilities/actions/targets, budget identifier, attempt limit, and optional expiry. Its digest changes when the scope changes. `authorize()` rejects mismatched identity, stale revision, unapproved capability/action, out-of-scope target, exhausted attempts, or expired authority. `execute_bound_action()` enforces that preflight and then delegates to the existing `ActionGovernanceGateway`; a denied binding never invokes the handler.
 
-This is an explicit preflight contract, not an OS sandbox or cryptographic identity service. It must be combined with `ActionGovernanceGateway`; approval verification remains host-injected, and the host must obtain the repository revision from a trusted source rather than from the agent's own claim. File-system adapters should resolve symlinks and enforce canonical roots at the actual I/O boundary; lexical path checks alone are not sufficient for filesystem security.
+This is an explicit preflight contract, not an OS sandbox or cryptographic identity service. Callers with a binding should use `execute_bound_action()` rather than bypassing the wrapper; direct gateway calls remain supported for compatibility and are not retroactively bound. Approval verification remains host-injected, and the host must obtain the repository revision from a trusted source rather than from the agent's own claim. File-system adapters should resolve symlinks and enforce canonical roots at the actual I/O boundary; lexical path checks alone are not sufficient for filesystem security.
 
 ## P3 — Preserve recovery state across restart
 
