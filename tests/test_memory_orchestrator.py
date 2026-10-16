@@ -75,6 +75,19 @@ class MemoryOrchestratorTests(unittest.TestCase):
         self.assertIn("verified repository uses bounded state transitions", packed)
         self.assertIn(result.memory_id, packed)
 
+    def test_recall_uses_one_indexed_query_for_all_durable_memory_kinds(self):
+        for kind in ("episodic", "semantic", "procedural"):
+            self.coordinator.remember(
+                kind, f"repository fact for {kind}", source="docs", approved=True,
+            )
+        before = self.coordinator.metrics()["durable_searches"]
+        recall = self.coordinator.recall(
+            "repository fact", kinds=("episodic", "semantic", "procedural"),
+            budget_chars=400,
+        )
+        self.assertEqual(3, len(recall.memories))
+        self.assertEqual(1, self.coordinator.metrics()["durable_searches"] - before)
+
     def test_working_memory_retains_multiple_entries_per_task_and_is_bounded(self):
         self.coordinator.remember("working", "first working note", source="agent", task_id="t1")
         self.coordinator.remember("working", "second working note", source="agent", task_id="t1")
