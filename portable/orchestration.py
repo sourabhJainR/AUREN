@@ -26,6 +26,7 @@ from portable.identity_compat import canonical_runtime_home, canonicalize_auren_
 from typing import Any, Callable, Mapping
 from .execution_strategy import ExecutionStrategy, execution_strategy
 from .engineering_design_guard import EngineeringDesignGuard
+from .ai_era_principles import build_contract_receipt as build_ai_era_principle_receipt
 from .runtime_recovery import ExecutionBudgetExceeded, NoProgressDetected, RuntimeExecutionGuard
 
 
@@ -402,6 +403,29 @@ class Orchestrator:
             default="medium",
         ))
         code_revision = str(state.get("code_revision", ""))
+        # Record the canonical AI-era principle catalogue against this exact run
+        # before any graph node can perform side effects. Existing design,
+        # authority, verification, recovery, and promotion gates remain decisive.
+        principle_receipt = build_ai_era_principle_receipt(
+            intent=intent,
+            changed_paths=changed_paths,
+            risk=risk,
+            code_revision=code_revision,
+        )
+        state["ai_era_principles_contract"] = principle_receipt
+        run.record(Evidence(
+            "ai-era-principles-contract",
+            json.dumps(principle_receipt, sort_keys=True, separators=(",", ":")),
+            "portable.ai_era_principles",
+        ))
+        run.trajectory.append({
+            "event": "ai_era_principles_contract",
+            "principle_count": len(principle_receipt["principles"]),
+            "registry_digest": principle_receipt["registry_digest"],
+            "receipt_digest": principle_receipt["digest"],
+            "intent_digest": principle_receipt["intent_digest"],
+            "code_revision": principle_receipt["code_revision"],
+        })
         receipt = EngineeringDesignGuard.review(
             intent=intent,
             changed_paths=changed_paths,
