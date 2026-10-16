@@ -390,6 +390,42 @@ class Orchestrator:
         if not isinstance(changed_paths, (list, tuple)):
             changed_paths = ()
 
+        # Review assumptions and requirement conflicts before graph side effects.
+        def review_items(value):
+            if isinstance(value, str):
+                return [value]
+            return value if isinstance(value, (list, tuple)) else ()
+        preflight = EngineeringDesignGuard.review_request(
+            intent=intent,
+            requirements=review_items(state.get("requirements", state.get("acceptance_requirements", ()))),
+            assumptions=review_items(state.get("assumptions", ())),
+            acceptance_criteria=review_items(state.get("acceptance_criteria", ())),
+            constraints=review_items(state.get("constraints", ())),
+            non_goals=review_items(state.get("non_goals", ())),
+            candidate_contradictions=review_items(state.get("candidate_contradictions", ())),
+            candidate_blind_spots=review_items(state.get("candidate_blind_spots", ())),
+            resolutions=state.get("preimplementation_resolutions", {}),
+        )
+        state["preimplementation_review"] = preflight
+        run.record(Evidence(
+            "preimplementation-review",
+            json.dumps(preflight, sort_keys=True, separators=(",", ":"), ensure_ascii=False),
+            "portable.engineering_design_guard",
+        ))
+        run.trajectory.append({
+            "event": "preimplementation_review",
+            "status": "blocked" if preflight["unresolved_contradictions"] else "passed_with_findings" if preflight["blind_spots"] else "clear",
+            "contradiction_count": len(preflight["contradictions"]),
+            "unresolved_contradiction_count": len(preflight["unresolved_contradictions"]),
+            "blind_spot_count": len(preflight["blind_spots"]),
+            "receipt_digest": preflight["digest"],
+            "intent_digest": preflight["intent_digest"],
+        })
+        if preflight["unresolved_contradictions"]:
+            run.status = RunStatus.BLOCKED
+            run.stop_reason = "pre-implementation review found contradictory requirements requiring a decision"
+            return run
+
         # Engineering principles are checked before any graph node can perform
         # side effects. This reuses the canonical guard and records its receipt
         # in the existing run evidence/trajectory rather than creating a second
