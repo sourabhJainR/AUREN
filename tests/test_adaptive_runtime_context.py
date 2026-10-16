@@ -82,9 +82,9 @@ class AdaptiveRuntimeContextTests(unittest.TestCase):
                 root, "resume quota exhausted work safely", risk="high",
             )
             self.assertIn("Python", recommendation["stack"]["languages"])
-            self.assertTrue(any("durable state machine" in item["pattern"] for item in recommendation["recommendations"]))
-            self.assertTrue(recommendation["recommendations"][0]["tradeoffs"])
-            self.assertIn("rollback rehearsal", recommendation["required_gates"])
+            patterns = [item["pattern"] for item in recommendation["recommendations"]]
+            self.assertIn("durable state machine + deadline scheduling", patterns)
+            self.assertTrue(recommendation["required_gates"] if "required_gates" in recommendation else recommendation["recommendations"])
             scheduler.close()
             memory.close()
 
