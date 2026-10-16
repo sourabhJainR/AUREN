@@ -20,7 +20,7 @@ class ExecutionBoundaryTests(unittest.TestCase):
             run_id="run-1",
             task_id="task-1",
             repository_digest="repo-digest",
-            repository_revision="abc123",
+            repository_revision="abc123", repository_digest="repo-digest",
             principal="agent:reviewed-worker",
             allowed_capabilities=("source.read", "source.write"),
             allowed_actions=("read", "edit", "test"),
@@ -33,7 +33,7 @@ class ExecutionBoundaryTests(unittest.TestCase):
 
     def request(self, **overrides):
         values = dict(
-            run_id="run-1", action_id="action-1", actor="agent:reviewed-worker",
+            run_id="run-1", task_id="task-1", action_id="action-1", actor="agent:reviewed-worker",
             capability="source.write", action="edit", target="src/module.py",
         )
         values.update(overrides)
@@ -49,11 +49,12 @@ class ExecutionBoundaryTests(unittest.TestCase):
 
     def test_p2_authority_binding_allows_only_matching_identity_scope_and_revision(self):
         binding = self.binding()
-        allowed, reason = binding.authorize(self.request(), repository_revision="abc123")
+        allowed, reason = binding.authorize(self.request(), repository_revision="abc123", repository_digest="repo-digest")
         self.assertTrue(allowed, reason)
 
         cases = (
             (self.request(run_id="other-run"), "run_identity_mismatch"),
+            (self.request(task_id="other-task"), "task_identity_mismatch"),
             (self.request(actor="agent:untrusted"), "principal_mismatch"),
             (self.request(capability="admin"), "capability_out_of_scope"),
             (self.request(action="release"), "action_out_of_scope"),
@@ -61,20 +62,23 @@ class ExecutionBoundaryTests(unittest.TestCase):
         )
         for request, expected in cases:
             with self.subTest(expected=expected):
-                allowed, reason = binding.authorize(request, repository_revision="abc123")
+                allowed, reason = binding.authorize(request, repository_revision="abc123", repository_digest="repo-digest")
                 self.assertFalse(allowed)
                 self.assertEqual(reason, expected)
 
-        allowed, reason = binding.authorize(self.request(), repository_revision="new-head")
+        allowed, reason = binding.authorize(self.request(), repository_revision="new-head", repository_digest="repo-digest")
         self.assertFalse(allowed)
         self.assertEqual(reason, "repository_revision_mismatch")
+        allowed, reason = binding.authorize(self.request(), repository_revision="abc123", repository_digest="changed-digest")
+        self.assertFalse(allowed)
+        self.assertEqual(reason, "repository_digest_mismatch")
 
     def test_p2_budget_and_expiry_fail_closed(self):
         binding = self.binding(max_attempts=2, expires_at=50.0)
-        allowed, reason = binding.authorize(self.request(), repository_revision="abc123", attempts_used=2, now=10.0)
+        allowed, reason = binding.authorize(self.request(), repository_revision="abc123", repository_digest="repo-digest", attempts_used=2, now=10.0)
         self.assertFalse(allowed)
         self.assertEqual(reason, "attempt_budget_exhausted")
-        allowed, reason = binding.authorize(self.request(), repository_revision="abc123", attempts_used=0, now=50.0)
+        allowed, reason = binding.authorize(self.request(), repository_revision="abc123", repository_digest="repo-digest", attempts_used=0, now=50.0)
         self.assertFalse(allowed)
         self.assertEqual(reason, "execution_authority_expired")
 
@@ -87,7 +91,7 @@ class ExecutionBoundaryTests(unittest.TestCase):
         calls = []
         denied = execute_bound_action(
             gateway, binding, self.request(actor="agent:spoofed"),
-            lambda: calls.append("ran"), repository_revision="abc123",
+            lambda: calls.append("ran"), repository_revision="abc123", repository_digest="repo-digest",
         )
         self.assertFalse(denied.executed)
         self.assertEqual(denied.verdict.reason, "principal_mismatch")
@@ -95,7 +99,7 @@ class ExecutionBoundaryTests(unittest.TestCase):
 
         accepted = execute_bound_action(
             gateway, binding, self.request(), lambda: calls.append("ran") or "ok",
-            repository_revision="abc123",
+            repository_revision="abc123", repository_digest="repo-digest",
         )
         self.assertTrue(accepted.executed)
         self.assertEqual(calls, ["ran"])
@@ -112,18 +116,18 @@ class ExecutionBoundaryTests(unittest.TestCase):
         self.assertTrue(guard.charge_attempt("task-1:step-1"))
         checkpoint = GuardedExecutionCheckpoint.capture(binding, guard, sequence=7)
         restored = checkpoint.restore(
-            binding, expected_repository_revision="abc123", minimum_sequence=7,
+            binding, expected_repository_revision="abc123", repository_digest="repo-digest", minimum_sequence=7,
         )
         self.assertEqual(restored.attempts_used, 1)
         self.assertFalse(restored.charge_attempt("task-1:step-1"))
         self.assertEqual(restored.attempts_used, 1)
 
         with self.assertRaisesRegex(ValueError, "authority binding mismatch"):
-            checkpoint.restore(self.binding(principal="agent:other"), expected_repository_revision="abc123")
+            checkpoint.restore(self.binding(principal="agent:other"), expected_repository_revision="abc123", repository_digest="repo-digest")
         with self.assertRaisesRegex(ValueError, "repository revision mismatch"):
-            checkpoint.restore(binding, expected_repository_revision="def456")
+            checkpoint.restore(binding, expected_repository_revision="def456", repository_digest="repo-digest")
         with self.assertRaisesRegex(ValueError, "replay or sequence rollback"):
-            checkpoint.restore(binding, expected_repository_revision="abc123", minimum_sequence=8)
+            checkpoint.restore(binding, expected_repository_revision="abc123", repository_digest="repo-digest", minimum_sequence=8)
 
     def test_p3_checkpoint_serialization_detects_tampering(self):
         binding = self.binding()
@@ -142,7 +146,7 @@ class ExecutionBoundaryTests(unittest.TestCase):
         guard = RuntimeExecutionGuard(max_steps=2, max_attempts=1)
         guard.charge_attempt("only-attempt")
         checkpoint = GuardedExecutionCheckpoint.capture(binding, guard, sequence=1)
-        restored = checkpoint.restore(binding, expected_repository_revision="abc123")
+        restored = checkpoint.restore(binding, expected_repository_revision="abc123", repository_digest="repo-digest")
         with self.assertRaises(ExecutionBudgetExceeded):
             restored.charge_attempt("second-attempt")
 
