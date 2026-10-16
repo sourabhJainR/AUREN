@@ -1,7 +1,10 @@
 """Regression tests for P0 inventory, P2 authority binding, and P3 resume safety."""
 from __future__ import annotations
 
+import hashlib
+import json
 import unittest
+from dataclasses import asdict
 
 from portable.action_governance import ActionGovernanceGateway, ActionPolicy, ActionRequest
 from portable.execution_boundary import (
@@ -38,6 +41,18 @@ class ExecutionBoundaryTests(unittest.TestCase):
         )
         values.update(overrides)
         return ActionRequest(**values)
+
+    def test_legacy_action_fingerprint_is_unchanged_without_task_binding(self):
+        request = ActionRequest(
+            run_id="run-legacy", action_id="action-legacy", actor="agent",
+            capability="source.read", action="read", target="src/module.py",
+        )
+        legacy_payload = asdict(request)
+        legacy_payload.pop("task_id", None)
+        expected = hashlib.sha256(
+            json.dumps(legacy_payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+        ).hexdigest()
+        self.assertEqual(request.fingerprint(), expected)
 
     def test_p0_inventory_is_deterministic_and_discloses_assurance_gaps(self):
         first = execution_surface_audit()
