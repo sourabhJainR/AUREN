@@ -79,11 +79,11 @@ class AdaptiveRuntimeContextTests(unittest.TestCase):
             graph = Graph([Node("agent", NodeKind.AGENT, lambda context: "ok", critical=True, risk="low")])
             runtime, memory, scheduler = self._runtime(root, graph)
             recommendation = runtime.recommend_design(
-                root, "resume quota exhausted work safely", risk="high",
+                root, "resume quota exhausted work safely",
             )
-            self.assertIn("Python", recommendation.languages)
-            self.assertIn("Circuit breaker", recommendation.patterns)
-            self.assertTrue(recommendation.rollback)
+            self.assertIn("Python", recommendation["stack"]["languages"])
+            self.assertTrue(any("durable state machine" in item["pattern"] for item in recommendation["recommendations"]))
+            self.assertTrue(recommendation["recommendations"][0]["tradeoffs"])
             scheduler.close()
             memory.close()
 
