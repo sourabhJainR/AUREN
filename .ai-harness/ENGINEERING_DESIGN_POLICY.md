@@ -2,6 +2,18 @@
 
 This policy distills the engineering intent of the 14 rule sets in `mattpocock/agent-rules-books` into one repository-native operating model. It is guidance for the AUREN system, not copied book text and not a substitute for the books.
 
+## Pre-implementation blind-spot and assumption review
+
+Before implementation begins, AUREN must constructively challenge the request rather than merely restate it. The canonical `EngineeringDesignGuard.review_request(...)` records requirements, assumptions, observable acceptance criteria, constraints, non-goals, reviewer-supplied concerns, and authorized resolutions. It checks common explicit conflict pairs, flags vague or unverified assumptions, and offers a focused question plus flexible paths forward.
+
+- Unresolved explicit contradictions stop graph execution before side effects. Do not silently decide a user-owned product or compatibility trade-off.
+- A documented resolution is retained with the review receipt; resolving a finding does not prove the resulting design is correct.
+- Missing acceptance criteria and vague terms such as “fast”, “secure”, “robust”, or “scalable” generate constructive questions/options, not automatic blockers by themselves.
+- Semantic review remains required: planners/reviewers should add candidate contradictions and blind spots that simple deterministic patterns cannot recognize. No findings is not proof that a request is consistent.
+- Recommend an option with trade-offs, offer a narrower/reversible alternative, and continue independent discovery that does not depend on the open decision. Never turn a recommendation into consent.
+
+The review is stored in the existing run evidence and trajectory; it does not create a parallel memory or policy engine. See `portable/engineering_design_guard.py`, `portable/orchestration.py`, and `tests/test_preimplementation_review.py`.
+
 ## Source coverage
 
 | Source | Constructive contribution to AUREN |
