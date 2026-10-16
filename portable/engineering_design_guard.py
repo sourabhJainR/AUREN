@@ -211,7 +211,7 @@ class EngineeringDesignGuard:
                     evidence.append(workflow.relative_to(root).as_posix())
             if (root / "scripts" / "run_full_suite.py").is_file():
                 suite = (root / "scripts" / "run_full_suite.py").read_text(encoding="utf-8")[:30_000]
-                if "unittest discover" in suite:
+                if "unittest" in suite and "discover" in suite:
                     versions.append("test runner unittest discover")
                     evidence.append("scripts/run_full_suite.py")
                 elif "pytest" in suite:
