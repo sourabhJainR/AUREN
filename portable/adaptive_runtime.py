@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
@@ -80,6 +81,7 @@ class AdaptiveRuntime:
         self.capability_fabric = capability_fabric or CapabilityFabric()
         self.persistent_memory = persistent_memory or PersistentMemory(state / "memory" / "memory.db")
         self._memory_orchestrators: dict[str, MemoryOrchestrator] = {}
+        self._memory_orchestrators_lock = threading.RLock()
         self.automation_scheduler = automation_scheduler or AutomationScheduler(state / "automation" / "automation.db")
         self.output_quality = output_quality or OutputQualityGate()
         self.provider_adapters = provider_adapters or ProviderAdapterRegistry()
@@ -138,11 +140,12 @@ class AdaptiveRuntime:
         """Return the project-scoped memory facade over AUREN's canonical memory database."""
         root = Path(project_root).expanduser().resolve()
         project_key = self.session_store.project_key(root)
-        if project_key not in self._memory_orchestrators:
-            self._memory_orchestrators[project_key] = MemoryOrchestrator(
-                root, project_key, memory=self.persistent_memory,
-            )
-        return self._memory_orchestrators[project_key]
+        with self._memory_orchestrators_lock:
+            if project_key not in self._memory_orchestrators:
+                self._memory_orchestrators[project_key] = MemoryOrchestrator(
+                    root, project_key, memory=self.persistent_memory,
+                )
+            return self._memory_orchestrators[project_key]
 
     def pack_memory_context(
         self,
