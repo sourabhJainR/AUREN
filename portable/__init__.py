@@ -21,7 +21,7 @@ from .automation_scheduler import AutomationScheduler, Schedule
 from .output_quality import OutputQualityGate, QualityResult
 from .feedback_loop import BoundedLoop, LoopAction, LoopDefinition, LoopPass, LoopRunReceipt, VerificationResult
 from .agency_provenance import ProvenanceLedger, ProvenanceRecord
-from .engineering_design_guard import DesignDimension, DesignFinding, DesignReviewReceipt, EngineeringDesignGuard, FindingSeverity, RepositoryDesignRecommendation
+from .engineering_design_guard import DesignDimension, DesignFinding, DesignReviewReceipt, EngineeringDesignGuard, FindingSeverity
 from .agency_state_graph import Checkpoint, CompiledStateGraph, ConvergenceGuard, EdgeContract, GraphEvent, GraphInterrupt, GraphRun, InMemoryCheckpointStore, NodeContract, RetryPolicy, StateGraph
 from .decision_fabric import ChoiceDecision, DecisionBatch, DecisionFabric, DecisionPolicy, DecisionQuestion, DecisionRecipe, NoulDecision, PolicyDecision, ScoreDecision
 from .adaptive_decision import AdaptiveInferencePolicy, HttpDecisionProvider, InferenceDecision, INFERENCE_DEPTH_RECIPE
@@ -88,7 +88,7 @@ __all__ = [
     "MemoryRecord", "PersistentMemory", "AgentMemory", "ContextEngine", "ContextItem", "ContextPolicy",
     "Handoff", "handoff_from_output", "DreamMemory", "AutomationScheduler", "Schedule", "OutputQualityGate", "QualityResult",
     "BoundedLoop", "LoopAction", "LoopDefinition", "LoopPass", "LoopRunReceipt", "VerificationResult",
-    "ProvenanceLedger", "ProvenanceRecord", "DesignDimension", "DesignFinding", "DesignReviewReceipt", "EngineeringDesignGuard", "FindingSeverity", "RepositoryDesignRecommendation",
+    "ProvenanceLedger", "ProvenanceRecord", "DesignDimension", "DesignFinding", "DesignReviewReceipt", "EngineeringDesignGuard", "FindingSeverity",
     "Checkpoint", "CompiledStateGraph", "ConvergenceGuard", "EdgeContract", "GraphEvent", "GraphInterrupt", "GraphRun", "InMemoryCheckpointStore", "NodeContract", "RetryPolicy", "StateGraph",
     "ChoiceDecision", "DecisionBatch", "DecisionFabric", "DecisionPolicy", "DecisionQuestion", "DecisionRecipe", "NoulDecision", "PolicyDecision", "ScoreDecision", "AdaptiveInferencePolicy", "INFERENCE_DEPTH_RECIPE", "HttpDecisionProvider", "InferenceDecision", "ExperienceRouter", "ExperienceSummary",
     "AgencyReceipt", "CycleObservation", "RecursiveAgency", "WorkItem",
