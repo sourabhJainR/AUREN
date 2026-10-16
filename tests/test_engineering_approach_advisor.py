@@ -31,6 +31,15 @@ class EngineeringApproachAdvisorTests(unittest.TestCase):
         self.assertIn("portable/execution_controller.py", item["repository_evidence"])
         self.assertIn("without provider polling", item["approach"])
 
+    def test_algorithm_recommendation_explains_complexity_and_tradeoffs(self):
+        result = EngineeringDesignGuard.recommend_approaches(
+            ROOT, "Deduplicate events by id while preserving input order",
+        )
+        item = next(item for item in result["recommendations"] if "hash-based deduplication" in item["pattern"])
+        self.assertIn("O(n)", item["rationale"])
+        self.assertIn("O(n) auxiliary memory", item["tradeoffs"])
+        self.assertIn("portable/agent_capabilities.py", item["repository_evidence"])
+
     def test_unknown_repository_stack_is_not_guessed(self):
         with tempfile.TemporaryDirectory() as directory:
             result = EngineeringDesignGuard.recommend_approaches(
