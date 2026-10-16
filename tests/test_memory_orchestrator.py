@@ -185,6 +185,7 @@ class MemoryOrchestratorTests(unittest.TestCase):
         )
         self.assertEqual(1, len(recall.memories))
         self.assertEqual(written.memory_id, recall.memories[0].memory_id)
+        self.assertFalse(recall.memories[0].verified)
         self.assertIn("test-first workflow", recall.text)
         self.assertEqual(before, self.cache.stats()["pages"])
         self.assertGreaterEqual(recall.cache_hits, 1)
