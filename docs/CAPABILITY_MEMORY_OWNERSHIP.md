@@ -68,4 +68,4 @@ Retrieval must obey a hard character budget, use task/intent scope, prioritize r
 
 
 ## Proactive design recommendation
-`AdaptiveRuntime.recommend_design(project_root, intent, changed_paths=...)` delegates to the existing `EngineeringDesignGuard.recommend_approaches` and inspects local manifests plus a bounded source scan. It returns an advisory algorithm/workflow/pattern recommendation, trade-offs, reuse candidates, verification and rollback guidance. Unknown stacks/versions are surfaced rather than guessed; recommendations do not add dependencies or authorize a change.
+`AdaptiveRuntime.recommend_design(project_root, intent, changed_paths=..., risk=...)` delegates to the existing `EngineeringDesignGuard.recommend_approaches` and inspects local manifests plus a bounded source scan. It returns an advisory algorithm/workflow/pattern recommendation, trade-offs, reuse candidates, verification and rollback guidance. Unknown stacks/versions are surfaced rather than guessed; recommendations do not add dependencies or authorize a change.
