@@ -6,6 +6,62 @@ from portable.engineering_design_guard import (
 
 
 
+def test_repository_recommendation_uses_declared_stack_and_task_forces(tmp_path):
+    (tmp_path / "pyproject.toml").write_text(
+        "[project]\nrequires-python = \">=3.11\"\ndependencies = [\"fastapi>=0.115\"]\n",
+        encoding="utf-8",
+    )
+    tests = tmp_path / "tests"
+    tests.mkdir()
+    (tests / "test_api.py").write_text("import unittest\n", encoding="utf-8")
+    source = tmp_path / "src"
+    source.mkdir()
+    (source / "quota_service.py").write_text("class QuotaService: pass\n", encoding="utf-8")
+
+    recommendation = EngineeringDesignGuard.recommend_for_repository(
+        tmp_path, "resume provider work after quota exhaustion",
+        changed_paths=("src/quota_service.py",), risk="high",
+    )
+
+    assert recommendation.status == "advisory"
+    assert "Python" in recommendation.languages
+    assert any("3.11" in version for version in recommendation.versions)
+    assert "Circuit breaker" in recommendation.patterns
+    assert any("quota_service.py" in path for path in recommendation.reuse_candidates)
+    assert "src/quota_service.py" in recommendation.evidence_paths
+    assert any("Retry-After" in item for item in recommendation.verification)
+
+
+def test_repository_recommendation_does_not_invent_framework_when_stack_is_unknown(tmp_path):
+    recommendation = EngineeringDesignGuard.recommend_for_repository(
+        tmp_path, "implement a small deterministic parser",
+    )
+
+    assert recommendation.status == "needs_stack_evidence"
+    assert recommendation.languages == ()
+    assert any("No recognized root manifest" in warning for warning in recommendation.warnings)
+    assert recommendation.patterns
+    assert any("existing test framework" in item for item in recommendation.verification)
+
+
+def test_memory_recommendation_prefers_existing_canonical_owners(tmp_path):
+    portable = tmp_path / "portable"
+    portable.mkdir()
+    (portable / "memory_orchestrator.py").write_text("class MemoryOrchestrator: pass\n", encoding="utf-8")
+    (portable / "context_engine.py").write_text("class ContextEngine: pass\n", encoding="utf-8")
+    (tmp_path / "setup.py").write_text("# Python package\n", encoding="utf-8")
+
+    recommendation = EngineeringDesignGuard.recommend_for_repository(
+        tmp_path, "bound memory cache and context retrieval",
+    )
+
+    assert recommendation.status == "advisory"
+    assert "Repository" in recommendation.patterns
+    assert "portable/memory_orchestrator.py" in recommendation.reuse_candidates
+    assert "portable/context_engine.py" in recommendation.reuse_candidates
+    assert any("second memory database" in item for item in recommendation.alternatives)
+
+
 def test_receipt_digest_binds_canonical_changed_paths_and_risk():
     base = EngineeringDesignGuard.review(
         intent="Update project metadata",
