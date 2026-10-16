@@ -10,6 +10,7 @@ Knowledge fabric: `.ai-harness/KNOWLEDGE_FABRIC_POLICY.md`.
 Canonical memory routing: `portable/memory_orchestrator.py`; ownership rules: `docs/CAPABILITY_MEMORY_OWNERSHIP.md`.
 Engineering design policy: `.ai-harness/ENGINEERING_DESIGN_POLICY.md`.
 Root engineering principles contract: `ENGINEERING_PRINCIPLES.md` (mandatory task-time applicability and evidence rules).
+AI-era principle registry: `portable/ai_era_principles.py`; canonical catalogue: `docs/AI_ERA_FOUNDATION_PRINCIPLES.md`.
 Deterministic design gate: `portable/engineering_design_guard.py`.
 Optional extension registry: `.ai-harness/extension_registry.toml`.
 Deployment guide: `docs/DEPLOYMENT.md`.
