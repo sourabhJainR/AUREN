@@ -49,7 +49,7 @@ When an older API must remain, implement it as a thin adapter and add a conforma
 
 ## Memory orchestration and resource policy
 
-Use `portable.memory_orchestrator.MemoryOrchestrator` as the routing facade, not as a new store. It delegates durable records to `PersistentMemory`, provenance to `ContextGraph` in the same SQLite database, and reusable prompt pages to the existing `ContextPageCache`. The caller may bind procedural, reflective, hierarchical or prospective writes to existing task-memory, DreamMemory, graph and ExecutionController owners through explicit callbacks.
+Use `portable.adaptive_runtime.AdaptiveRuntime.memory_orchestrator(project_root)` as the runtime-owned entry point to `portable.memory_orchestrator.MemoryOrchestrator`, not as a new store. It delegates durable records to `PersistentMemory`, provenance/hierarchy to `ContextGraph` in the same SQLite database, retrieval packing to `ContextEngine`, and reusable prompt pages to the existing `ContextPageCache`. `AdaptiveRuntime.pack_memory_context(...)` provides a fail-closed bounded context path. The cache exposes read-only bounded search for existing KV-style pages; cache lookup must not create a new page or contact a provider. The caller may bind procedural, reflective, hierarchical or prospective writes to existing task-memory, DreamMemory, graph and ExecutionController owners through explicit callbacks.
 
 | Memory type | Lifetime / canonical route | Safety rule |
 |---|---|---|
