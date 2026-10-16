@@ -102,7 +102,7 @@ class MemoryOrchestratorTests(unittest.TestCase):
             "browser observation", kinds=("sensory",), task_id="t1", budget_chars=200,
         ).memories))
         time.sleep(0.05)
-        self.assertEqual([], self.coordinator.recall(
+        self.assertEqual((), self.coordinator.recall(
             "browser observation", kinds=("sensory",), task_id="t1", budget_chars=200,
         ).memories)
         self.assertGreaterEqual(self.coordinator.metrics()["expired"], 1)
