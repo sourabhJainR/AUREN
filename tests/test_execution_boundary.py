@@ -92,6 +92,7 @@ class ExecutionBoundaryTests(unittest.TestCase):
         denied = execute_bound_action(
             gateway, binding, self.request(actor="agent:spoofed"),
             lambda: calls.append("ran"), repository_revision="abc123", repository_digest="repo-digest",
+            budget_id="budget-1", execution_guard=RuntimeExecutionGuard(max_steps=10, max_attempts=3),
         )
         self.assertFalse(denied.executed)
         self.assertEqual(denied.verdict.reason, "principal_mismatch")
@@ -100,6 +101,7 @@ class ExecutionBoundaryTests(unittest.TestCase):
         accepted = execute_bound_action(
             gateway, binding, self.request(), lambda: calls.append("ran") or "ok",
             repository_revision="abc123", repository_digest="repo-digest",
+            budget_id="budget-1", execution_guard=RuntimeExecutionGuard(max_steps=10, max_attempts=3),
         )
         self.assertTrue(accepted.executed)
         self.assertEqual(calls, ["ran"])
