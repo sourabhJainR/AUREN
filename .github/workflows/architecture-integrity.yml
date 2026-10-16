@@ -116,6 +116,8 @@ jobs:
         run: python -m unittest tests.test_capability_coverage_matrix -v
       - name: Run expanded engineering principle guard regressions
         run: python -m unittest tests.test_engineering_design_guard tests.test_engineering_principles_enforcement tests.test_orchestration_engineering_guard -v
+      - name: Run unified memory orchestration and repository-native design advisor regressions
+        run: python -m unittest tests.test_memory_orchestrator tests.test_adaptive_runtime_context tests.test_engineering_approach_advisor -v
       - name: Compile dependency-free portable runtime
         run: python -m compileall -q portable scripts
       - name: Record exact-head CI evidence
