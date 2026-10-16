@@ -16,6 +16,41 @@ AUREN's current repository includes graph-based specialist proposal adapters, du
 
 The repository currently reports no open pull requests. Closed pull requests must still be checked individually for merge status before being counted as merged. See [all pull requests](https://github.com/sourabhJainR/AUREN/pulls) and [recent changes](https://github.com/sourabhJainR/AUREN/commits/main).
 
+## AI-era foundation principles
+
+AUREN now maintains a canonical, machine-readable catalogue of 20 AI-era engineering principles in [`portable/ai_era_principles.py`](portable/ai_era_principles.py), documented in [AI-era Foundation Principles](docs/AI_ERA_FOUNDATION_PRINCIPLES.md). They extend established practices such as SOLID, DRY, YAGNI, and KISS with controls for autonomous agents, tool authority, context integrity, independent evaluation, recovery, learning, and evidence-based promotion.
+
+| Principle | Required behavior |
+|---|---|
+| IPACT — Intent Before Action | Set intent, constraints, acceptance criteria, and stopping conditions before work. |
+| VERA — Verification Before Acceptance | Accept outcomes only with relevant verification evidence. |
+| PACT — Permission And Control of Tools | Keep actions within granted authority and scope. |
+| INVAR — Invariant Preservation | Preserve correctness, security, compatibility, and resource invariants. |
+| TRACE — Traceable Results And Claims Engineering | Link important claims to sources, revisions, and evidence. |
+| R3 — Recover, Resume, Roll Back | Make interruption and recovery safe and testable. |
+| RAIL — Resource-bounded Autonomous Iteration Limits | Bound retries, time, cost, and resources; stop stalled loops. |
+| CIG — Context Integrity Guard | Use relevant, current context and surface conflicts. |
+| BLAST — Bounded Limits And Scoped Trust | Contain failures and limit blast radius. |
+| INDEP — Independent Evaluation Protocol | Challenge results beyond the producer's own claims. |
+| OWN — Ownership With Named Accountability | Assign clear ownership to tasks, transitions, and handoffs. |
+| LEARN — Learning Evaluated Against Regression and Novelty | Learn from validated outcomes without weakening safeguards. |
+| DELTA — Defensible Engineering with Limited, Targeted Alterations | Make the smallest justified change that meets the requirement. |
+| HANDOFF — Handoff And Negotiated Definition Of Function | Specify delegation scope, inputs, outputs, acceptance, and failure behavior. |
+| DEGRADE — Designed, Efficient, Adaptive Graceful Recovery Under Degraded Environments | Preserve safe core behavior or pause safely when dependencies fail. |
+| TRUST — Treat Retrieved Untrusted Sources Thoughtfully | Separate untrusted content from instructions, permissions, and verified facts. |
+| PROMOTE — Proof-Required Operational Maturation Of Tested Enhancements | Promote capabilities only after required evaluation and rollback checks. |
+| ECONOMY — Engineering Cost Optimization Measured Over the Full Lifecycle, Not Yield Alone | Optimize full lifecycle cost and risk, not output speed alone. |
+| MEASURE — Metrics, Evidence, And Results Evaluated | Measure outcomes, quality, recovery, and cost, not activity alone. |
+| CONTEXT — Context Is an Engineering Dependency | Retrieve relevant, current, authoritative context before acting. |
+
+### How this is integrated
+
+- The existing `EngineeringDesignGuard` remains the canonical design-review gate; no parallel policy engine is introduced.
+- The existing orchestrator records a deterministic receipt before graph execution, binding the principle registry to the task intent, changed paths, risk, and supplied code revision.
+- Existing authority, verification, memory/context, recovery, independent-evaluation, and promotion/rollback gates remain responsible for enforcement.
+- Focused regression tests cover registry completeness, owner/test traceability, receipt integrity, and recording before graph-node side effects.
+- A receipt is traceability evidence, not proof that every control is fully enforced. External evaluator independence and operator-run production rollback still need their own evidence.
+
 ## Engineering-team pilot
 
 For teams evaluating AUREN on a real repository, start with the [fixed-scope engineering reliability pilot](docs/ENGINEERING_PILOT_OFFER.md), the [outcome scorecard](docs/ENGINEERING_OUTCOME_SCORECARD.md), and the [security/data-flow worksheet](docs/SECURITY_DATA_FLOW_TEMPLATE.md). These are working templates, not claims of measured customer outcomes or completed security audits. The pilot should measure baseline versus assisted task lead time, review effort, regression outcomes, verification coverage, evidence completeness, intervention count and cost while preserving the customer's existing review and CI gates.
