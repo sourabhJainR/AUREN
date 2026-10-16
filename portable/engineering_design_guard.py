@@ -463,6 +463,102 @@ class EngineeringDesignGuard:
         return tuple(sorted(dimensions, key=lambda d: d.value))
 
     @classmethod
+    def review_request(
+        cls, *, intent: str, requirements: Iterable[str] = (),
+        assumptions: Iterable[str] = (), acceptance_criteria: Iterable[str] = (),
+        constraints: Iterable[str] = (), non_goals: Iterable[str] = (),
+        candidate_contradictions: Iterable[str] = (), candidate_blind_spots: Iterable[str] = (),
+        resolutions: Mapping[str, str] | None = None,
+    ) -> dict[str, object]:
+        """Review a request for common conflicts and blind spots before side effects.
+
+        Deterministic checks are intentionally conservative; planners/reviewers may
+        add semantic findings. This is not a claim of complete contradiction detection.
+        """
+        def clean(values: Iterable[str] | None, limit: int = 40) -> list[str]:
+            if isinstance(values, str):
+                values = [values]
+            if values is None or not isinstance(values, Iterable):
+                values = ()
+            result: list[str] = []
+            for value in values:
+                if isinstance(value, str):
+                    value = " ".join(value.split())[:600]
+                    if value and value not in result:
+                        result.append(value)
+                if len(result) >= limit:
+                    break
+            return result
+
+        reqs, assumptions_list = clean(requirements), clean(assumptions)
+        criteria, constraints_list, goals = clean(acceptance_criteria), clean(constraints), clean(non_goals)
+        candidate_conflicts, candidate_blind = clean(candidate_contradictions), clean(candidate_blind_spots)
+        if not isinstance(resolutions, Mapping):
+            resolutions = {}
+        resolved = {str(k).strip(): str(v).strip() for k, v in resolutions.items() if str(k).strip() and str(v).strip()}
+        text = " ".join([intent, *reqs, *constraints_list, *goals]).lower()
+
+        rules = (
+            ("compatibility-vs-breaking-change", r"backward.compatib|preserve existing (?:api|contract|behavior)", r"breaking change|remove (?:the )?(?:existing )?api|incompatible api", "Backward compatibility conflicts with a requested breaking/API-removal change."),
+            ("dependency-policy-conflict", r"no (?:new )?(?:third.party |external )?dependencies|dependency.free|without adding dependencies", r"add (?:a )?(?:new )?dependency|introduce (?:the )?\w+ package|install (?:the )?\w+ package", "A dependency-free constraint conflicts with a request to add/install a dependency."),
+            ("data-retention-vs-deletion", r"preserve (?:all )?(?:existing )?(?:data|records|state)|no data loss|retain (?:all )?(?:legacy )?(?:data|records|state)", r"delete (?:all )?(?:legacy )?(?:data|records|state)|drop (?:the )?(?:existing )?(?:table|database|state)|purge (?:all )?(?:records|data)", "Data/state preservation conflicts with a requested deletion or destructive drop."),
+            ("zero-downtime-vs-maintenance", r"zero.downtime|no downtime|without service interruption", r"maintenance window|take (?:the )?service offline|planned downtime", "A zero-downtime requirement conflicts with a planned outage/maintenance window."),
+            ("approval-policy-conflict", r"without (?:human )?approval|no approval required|fully autonomous", r"approval required before every action|human approval for every step|must approve each action", "The autonomy request conflicts with a requirement for approval before every action."),
+            ("offline-vs-network-dependency", r"offline.only|no network access|must work without internet|air.gapped", r"call (?:an )?external api|fetch from the internet|requires? network access|remote service dependency", "An offline/no-network constraint conflicts with a required remote service/API call."),
+            ("no-change-vs-implementation", r"no code changes|do not modify (?:any )?(?:files|code)|documentation.only", r"implement (?:the )?(?:feature|functionality|runtime change)|modify (?:the )?(?:runtime|source code)", "A no-code/documentation-only constraint conflicts with a request for runtime/source implementation."),
+        )
+        conflicts: list[dict[str, str]] = []
+        for rule_id, left, right, message in rules:
+            if re.search(left, text, re.I) and re.search(right, text, re.I):
+                conflicts.append({"id": rule_id, "message": message, "status": "resolved" if rule_id in resolved else "unresolved", "resolution": resolved.get(rule_id, "")})
+        for i, item in enumerate(candidate_conflicts):
+            key = f"reviewer-conflict-{i + 1}"
+            conflicts.append({"id": key, "message": item, "status": "resolved" if key in resolved else "unresolved", "resolution": resolved.get(key, "")})
+
+        blind_spots: list[dict[str, str]] = []
+        if not criteria and (reqs or len(intent.strip()) > 80):
+            blind_spots.append({"id": "missing-observable-acceptance", "message": "No explicit, observable acceptance criteria were supplied.", "question": "What result would demonstrate success, and what should deliberately remain unchanged?", "options": "Add 2–5 observable checks; use a small example/fixture; or record why acceptance is intentionally qualitative.", "severity": "warning"})
+        vague_rules = (
+            (r"\bfast(?:er|est)?\b|\blow.latency\b|\bhigh.performance\b", "Performance is described qualitatively.", "Which workload and latency/throughput/resource budget should define 'fast'?", "Set a measurable budget; compare against a baseline; or defer benchmarking for this low-risk change."),
+            (r"\bscalable\b|\bscale to\b", "Scalability is asserted without a scale envelope.", "What data volume, concurrency, growth rate, or deployment size must be supported?", "Name a target envelope; preserve current limits; or split capacity planning into a follow-up."),
+            (r"\bsecure\b|\bfully secure\b|\bsafe\b", "Security/safety is stated without a threat or authority boundary.", "Which assets, trust boundaries, permissions, and abuse cases matter here?", "State the threat model and least-privilege boundary; reuse an existing gate; or scope the claim more narrowly."),
+            (r"\ball\b|\bevery\b|\balways\b|\bnever\b", "A universal requirement may hide edge cases or an impractical guarantee.", "Are there explicit exceptions, compatibility cases, or bounded conditions?", "Define scope and exceptions; add representative edge cases; or narrow the guarantee."),
+            (r"\bautomatic(?:ally)?\b|\bautonomous\b|\bself.?healing\b", "Automation/autonomy may obscure authority, stop conditions, or rollback.", "Which actions are allowed without approval, and what requires a pause or rollback?", "Define autonomy and stop budgets; use advisory-only behavior; or require approval for consequential actions."),
+            (r"\b(latest|best|optimal|intuitive|robust|user.friendly)\b", "A subjective or time-sensitive term needs a shared interpretation.", "What evidence or user outcome should make this choice 'best/robust/current'?", "Name evaluation criteria; compare a few options; or delegate a reversible low-risk choice."),
+        )
+        seen: set[str] = set()
+        for pattern, message, question, options in vague_rules:
+            if re.search(pattern, text, re.I) and message not in seen:
+                seen.add(message)
+                blind_spots.append({"id": f"vague-{len(blind_spots)+1}", "message": message, "question": question, "options": options, "severity": "warning"})
+        for i, item in enumerate(candidate_blind):
+            blind_spots.append({"id": f"reviewer-blind-spot-{i+1}", "message": item, "question": "What evidence would confirm or falsify this concern?", "options": "Inspect repository evidence; add a focused test; compare alternatives; or record the risk as accepted by the appropriate owner.", "severity": "warning"})
+        for i, item in enumerate(assumptions_list):
+            if re.search(r"\b(assume|assuming|presume|probably|should just|obviously|surely|without evidence)\b", item, re.I):
+                blind_spots.append({"id": f"assumption-{i+1}", "message": f"Unverified assumption: {item}", "question": "Can repository evidence, a test, or a bounded experiment verify this before implementation?", "options": "Verify now; make the change resilient if false; or keep it explicit as a reversible, low-risk assumption.", "severity": "warning"})
+        unresolved = [item for item in conflicts if item["status"] == "unresolved"]
+        questions = [item["question"] for item in blind_spots]
+        if unresolved:
+            questions.insert(0, "Which conflicting requirement should take precedence? Choose an option or offer a third approach; AUREN will not silently choose for you.")
+        payload: dict[str, object] = {
+            "schema_version": "auren-preimplementation-review-v1",
+            "intent_digest": cls.intent_digest(intent),
+            "requirements": reqs, "assumptions": assumptions_list, "acceptance_criteria": criteria,
+            "constraints": constraints_list, "non_goals": goals, "contradictions": conflicts,
+            "unresolved_contradictions": unresolved, "blind_spots": blind_spots,
+            "clarifying_questions": questions,
+            "collaborative_options": [
+                "Recommended: resolve material conflicts and define observable acceptance checks before implementation.",
+                "Alternative: continue independent, reversible discovery while the user-owned decision remains open.",
+                "Alternative: choose a narrower, reversible implementation that preserves both constraints where possible.",
+            ],
+            "implementation_may_start": not unresolved,
+            "limitations": "Deterministic patterns catch common explicit conflicts, not every semantic contradiction. Include independent planner/reviewer findings; no findings is not proof that requirements are consistent.",
+        }
+        payload["digest"] = hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")).hexdigest()
+        return payload
+
+    @classmethod
     def review(
         cls,
         *,
