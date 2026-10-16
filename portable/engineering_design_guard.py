@@ -274,6 +274,7 @@ class EngineeringDesignGuard:
     @classmethod
     def recommend_approaches(
         cls, root: Path | str, intent: str, changed_paths: Iterable[str] = (),
+        *, risk: str = "medium",
     ) -> dict[str, object]:
         """Return bounded, evidence-linked approach options for the detected repository stack.
 
@@ -283,6 +284,9 @@ class EngineeringDesignGuard:
         """
         if not isinstance(intent, str) or not intent.strip():
             raise ValueError("recommendation intent must be non-empty text")
+        if not isinstance(risk, str) or risk.strip().lower() not in {"low", "medium", "high", "critical"}:
+            raise ValueError("risk must be one of: low, medium, high, critical")
+        risk = risk.strip().lower()
         root = Path(root).resolve()
         paths = tuple(str(path) for path in changed_paths)
         profile = cls._repository_stack(root)
@@ -403,8 +407,15 @@ class EngineeringDesignGuard:
                 "No specific algorithm/pattern trigger was evidenced, so avoid imposing architecture by decoration.",
                 "Keeps scope and migration risk low; deeper profiling may be needed if performance is the actual constraint.",
                 ("Ask for clarification if the task depends on an unknown framework/version or a material design choice.",))
+        required_gates = (
+            ("independent review", "exact-head CI", "rollback rehearsal", "recovery/idempotency tests")
+            if risk in {"high", "critical"}
+            else ("focused regression tests", "exact-head CI", "diff review")
+        )
         return {
             "stack": profile,
+            "risk": risk,
+            "required_gates": required_gates,
             "needs_stack_confirmation": not stack_known,
             "recommendations": recommendations[:4],
         }
