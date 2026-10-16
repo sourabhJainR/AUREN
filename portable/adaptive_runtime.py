@@ -129,9 +129,9 @@ class AdaptiveRuntime:
         changed_paths: Iterable[str] = (),
         risk: str = "medium",
     ) -> dict[str, object]:
-        """Expose the canonical evidence-backed repository approach advisor."""
+        """Expose the canonical evidence-backed repository design advisor."""
         return EngineeringDesignGuard.recommend_approaches(
-            project_root, intent, changed_paths=changed_paths, risk=risk,
+            project_root, intent, changed_paths, risk=risk,
         )
 
     def memory_orchestrator(self, project_root: Path | str) -> MemoryOrchestrator:
