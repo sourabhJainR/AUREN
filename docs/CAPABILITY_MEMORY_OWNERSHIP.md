@@ -65,3 +65,7 @@ Use `portable.adaptive_runtime.AdaptiveRuntime.memory_orchestrator(project_root)
 | KV-style cache | Existing content-addressed `ContextPageCache` | Process-local; not durable memory or a provider GPU KV cache |
 
 Retrieval must obey a hard character budget, use task/intent scope, prioritize required/verified/relevant items, and fail closed if required memory is missing or does not fit. Idle reads and metrics must not invoke a model or provider. Eviction and TTL apply only to disposable process-local state; durable records, graph lineage, evidence receipts and rollback data are not evicted by the coordinator. Use the repository's standard `unittest` patterns. Passive dataclass DTOs may use the established class-level `# pragma: no cover` pattern; behavior belongs in the orchestrator and must be tested.
+
+
+## Proactive design recommendation
+`AdaptiveRuntime.recommend_design(project_root, intent, changed_paths=..., risk=...)` delegates to the canonical `EngineeringDesignGuard` and inspects local manifests plus a bounded source scan. It returns an advisory algorithm/workflow/pattern recommendation, trade-offs, reuse candidates, verification and rollback guidance. Unknown stacks/versions are surfaced rather than guessed; recommendations do not add dependencies or authorize a change.
