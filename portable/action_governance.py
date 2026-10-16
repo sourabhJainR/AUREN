@@ -71,6 +71,7 @@ class ActionRequest:
     risk: str = "write"
     idempotency_key: str = ""
     evidence_refs: tuple[str, ...] = ()
+    task_id: str = ""
 
     def validate(self) -> None:
         for name in ("run_id", "action_id", "actor", "capability", "action", "target"):
