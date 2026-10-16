@@ -236,6 +236,14 @@ class GuardedExecutionCheckpoint:
     guard_snapshot: Mapping[str, Any]
     previous_checkpoint_digest: str = ""
     schema_version: str = "auren-guarded-checkpoint-v1"
+    checkpoint_digest: str = ""
+
+    def __post_init__(self) -> None:
+        computed = _digest(self.payload())
+        if self.checkpoint_digest and self.checkpoint_digest != computed:
+            raise ValueError("checkpoint digest mismatch")
+        if not self.checkpoint_digest:
+            object.__setattr__(self, "checkpoint_digest", computed)
 
     def payload(self) -> dict[str, Any]:
         if self.schema_version != "auren-guarded-checkpoint-v1":
@@ -257,7 +265,10 @@ class GuardedExecutionCheckpoint:
 
     @property
     def digest(self) -> str:
-        return _digest(self.payload())
+        computed = _digest(self.payload())
+        if computed != self.checkpoint_digest:
+            raise ValueError("checkpoint digest mismatch")
+        return self.checkpoint_digest
 
     @classmethod
     def capture(
@@ -310,6 +321,7 @@ class GuardedExecutionCheckpoint:
         minimum_sequence: int = 0,
     ) -> RuntimeExecutionGuard:
         payload = self.payload()
+        self.digest  # Revalidate nested checkpoint data against the captured digest.
         if self.authority_digest != authority.digest:
             raise ValueError("checkpoint authority binding mismatch")
         if self.repository_revision != expected_repository_revision or expected_repository_revision != authority.repository_revision:
