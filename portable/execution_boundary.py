@@ -187,20 +187,25 @@ class ExecutionAuthorityBinding:
         request: Any,
         *,
         repository_revision: str,
+        repository_digest: str,
         attempts_used: int = 0,
         now: float | None = None,
     ) -> tuple[bool, str]:
         """Check a request before it reaches the action gateway or executor."""
         self.validate()
-        for attr in ("run_id", "actor", "capability", "action", "target"):
+        for attr in ("run_id", "task_id", "actor", "capability", "action", "target"):
             if not hasattr(request, attr):
                 return False, f"request_field_missing:{attr}"
         if request.run_id != self.run_id:
             return False, "run_identity_mismatch"
+        if request.task_id != self.task_id:
+            return False, "task_identity_mismatch"
         if request.actor != self.principal:
             return False, "principal_mismatch"
         if repository_revision != self.repository_revision:
             return False, "repository_revision_mismatch"
+        if repository_digest != self.repository_digest:
+            return False, "repository_digest_mismatch"
         if request.capability not in self.allowed_capabilities:
             return False, "capability_out_of_scope"
         if request.action not in self.allowed_actions:
@@ -229,6 +234,7 @@ def execute_bound_action(
     handler: Any,
     *,
     repository_revision: str,
+    repository_digest: str,
     attempts_used: int = 0,
     approval: ApprovalReceipt | None = None,
 ) -> GovernedResult:
@@ -243,6 +249,7 @@ def execute_bound_action(
     allowed, reason = authority.authorize(
         request,
         repository_revision=repository_revision,
+        repository_digest=repository_digest,
         attempts_used=attempts_used,
     )
     if not allowed:
