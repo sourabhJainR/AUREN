@@ -77,7 +77,11 @@ class ContextPageCache:
                 len(terms.intersection({term.casefold() for term in page.text.split()})),
                 page.stable,
             ), reverse=True)
-        return self.select(pages, budget_chars)
+        selected = self.select(pages, budget_chars)
+        self.hits += len(selected)
+        if not selected:
+            self.misses += 1
+        return selected
 
     @staticmethod
     def select(pages: Iterable[ContextPage], budget_chars: int) -> list[ContextPage]:
