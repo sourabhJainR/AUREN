@@ -77,3 +77,7 @@ On quota/rate-limit, persist task/checkpoint, honor Retry-After/reset, release t
 
 
 
+
+
+## Repository-native design advice
+Before non-trivial changes, use `AdaptiveRuntime.recommend_design(...)` / `EngineeringDesignGuard.recommend_for_repository(...)` with the actual repository root, task intent, changed paths and risk. Inspect manifest/version evidence and existing reuse candidates; compare alternatives and trade-offs, then verify the chosen approach. Unknown framework/version facts remain unresolved. Recommendations never replace tests, authorization, review or promotion gates.
