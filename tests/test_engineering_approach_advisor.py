@@ -21,6 +21,7 @@ class EngineeringApproachAdvisorTests(unittest.TestCase):
         recommendation = result["recommendations"][0]
         self.assertIn("portable/context_engine.py", recommendation["repository_evidence"])
         self.assertTrue(any("unittest discover" in item for item in result["stack"]["versions"]))
+        self.assertTrue(any("CI tests Python 3.11, 3.12" in item for item in result["stack"]["versions"]))
 
     def test_retry_recommendation_prefers_existing_durable_supervisor(self):
         result = EngineeringDesignGuard.recommend_approaches(
