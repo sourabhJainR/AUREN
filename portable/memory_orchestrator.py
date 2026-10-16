@@ -112,12 +112,13 @@ class MemoryOrchestrator:
         max_working_entries: int = 64,
         max_working_chars: int = 24_000,
         max_sensory_entries: int = 32,
+        max_sensory_chars: int = 12_000,
         sensory_ttl_seconds: float = 300.0,
         owner_callbacks: Mapping[str, Callable[..., Any]] | None = None,
     ) -> None:
         if not isinstance(project, str) or not project.strip():
             raise ValueError("project must be a non-empty string")
-        if min(max_working_entries, max_working_chars, max_sensory_entries) < 1:
+        if min(max_working_entries, max_working_chars, max_sensory_entries, max_sensory_chars) < 1:
             raise ValueError("memory bounds must be positive")
         if sensory_ttl_seconds <= 0:
             raise ValueError("sensory_ttl_seconds must be positive")
@@ -133,6 +134,7 @@ class MemoryOrchestrator:
         self.max_working_entries = max_working_entries
         self.max_working_chars = max_working_chars
         self.max_sensory_entries = max_sensory_entries
+        self.max_sensory_chars = max_sensory_chars
         self.sensory_ttl_seconds = float(sensory_ttl_seconds)
         self.owner_callbacks = dict(owner_callbacks or {})
         self._working: dict[tuple[str, str, str], MemoryEnvelope] = {}
@@ -212,14 +214,14 @@ class MemoryOrchestrator:
             item = self._ephemeral_envelope(
                 kind=kind, text=clean_text, source=clean_source, confidence=confidence,
                 verified=verified, evidence_ids=evidence, intent_digest=intent_digest,
-                ttl_seconds=ttl if kind == "sensory" else None,
+                ttl_seconds=ttl if kind == "sensory" or ttl_seconds is not None else None,
             )
             with self._lock:
                 target = self._working if kind == "working" else self._sensory
                 target[(scope[0], scope[1], item.memory_id)] = item
                 self._trim_ephemeral(
                     target, self.max_working_entries if kind == "working" else self.max_sensory_entries,
-                    self.max_working_chars if kind == "working" else None,
+                    self.max_working_chars if kind == "working" else self.max_sensory_chars,
                 )
                 self._metrics["writes"] += 1
             return MemoryWriteResult("stored_ephemeral", kind, item.memory_id)
@@ -415,6 +417,7 @@ class MemoryOrchestrator:
             result["working_entries"] = len(self._working)
             result["working_chars"] = sum(len(item.text) for item in self._working.values())
             result["sensory_entries"] = len(self._sensory)
+            result["sensory_chars"] = sum(len(item.text) for item in self._sensory.values())
             result["durable_kinds"] = len(DURABLE_KINDS)
             if self.cache is not None:
                 result.update({f"cache_{key}": value for key, value in self.cache.stats().items()})
