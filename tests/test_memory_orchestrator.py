@@ -215,6 +215,43 @@ class MemoryOrchestratorTests(unittest.TestCase):
         self.coordinator.metrics()
         self.assertEqual(before, self.coordinator.metrics()["writes"])
 
+    def test_repeated_recall_and_restart_preserve_required_memory_under_fixed_budget(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            db_path = root / "durable-memory.sqlite3"
+            store = PersistentMemory(db_path, require_approval=True)
+            cache = ContextPageCache(page_chars=256)
+            coordinator = MemoryOrchestrator(root, "soak-project", memory=store, context_cache=cache)
+            saved = coordinator.remember(
+                "semantic", "acceptance contract: preserve ownership, provenance, and rollback evidence",
+                source="verified-contract", approved=True, verified=True,
+            )
+            for index in range(12):
+                coordinator.remember(
+                    "episodic", f"bounded historical observation {index}: " + ("optional detail " * 8),
+                    source="test", approved=True, verified=index % 3 == 0,
+                )
+
+            for cycle in range(120):
+                if cycle in {30, 60, 90}:
+                    store.close()
+                    store = PersistentMemory(db_path, require_approval=True)
+                    cache = ContextPageCache(page_chars=256)
+                    coordinator = MemoryOrchestrator(
+                        root, "soak-project", memory=store, context_cache=cache,
+                    )
+                recall = coordinator.recall(
+                    "ownership provenance rollback", kinds=("semantic", "episodic"),
+                    budget_chars=420, required_memory_ids=(saved.memory_id,),
+                )
+                self.assertLessEqual(recall.chars, 420)
+                self.assertIn(saved.memory_id, {item.memory_id for item in recall.memories})
+                self.assertIn(
+                    "preserve ownership, provenance, and rollback evidence", recall.text,
+                )
+                self.assertLessEqual(cache.stats()["pages"], 16)
+            store.close()
+
     def test_invalid_inputs_fail_early(self):
         with self.assertRaises(ValueError):
             self.coordinator.remember("unknown", "text", source="test")
