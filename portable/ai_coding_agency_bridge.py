@@ -25,13 +25,13 @@ class CodingTask:
     mutation_mode: str="bounded"
     support_limit: int=2
     protected_paths: tuple[str,...]=()
-    allowed_read_paths: tuple[str,...]=()
     allowed_artifact_changes: tuple[str,...]=()
     workspace_root: str|None=None
     context_query: str|None=None
     context_token_budget: int=4000
     context_max_files: int=12
     context_graph_hops: int=2
+    allowed_read_paths: tuple[str,...]=()
 
 @dataclass
 class OrchestratorRun:
