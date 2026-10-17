@@ -14,7 +14,7 @@ The code-owned inventory lives in `portable/execution_boundary.py` as `EXECUTION
 | Engineering recovery | `portable/engineering_recovery.py:EngineeringRecoveryLedger` | SQLite-backed attempt/checkpoint ledger and exact-head CI helper | Does not sandbox workers or make external effects idempotent |
 | Provider failover/resume | `portable/resumable_provider.py:ResumableProviderExecutor` | Pinned provider versions, task/stage identity, retry budget, persistence callbacks | Irreversible effects still require downstream idempotency and a durable outbox/inbox |
 
-The inventory is deterministic and testable; it is not a dynamic proof that every runtime path uses these controls. Follow-up adoption should trace actual call sites and ensure all consequential actions go through the same canonical governance path.
+The inventory is deterministic and testable; it is not a dynamic proof that every runtime path uses these controls. The P0 registry also names every reviewed direct `ActionGovernanceGateway.execute()` call site and its disposition. An AST regression test scans production `portable/` code and fails when a direct call is added, removed, or moved without updating the reviewed registry. This is a change-detection gate—not proof that legacy callers are authority-bound. The next adoption step remains to migrate consequential callers to the bound path, with a call-site regression test for each integration.
 
 ## P2 — Bind authority to the actual execution
 
@@ -37,7 +37,7 @@ python -m unittest tests.test_execution_boundary tests.test_execution_contract -
 python -m unittest tests.test_runtime_recovery -v
 ```
 
-The execution-boundary tests cover deterministic inventory, identity/scope/revision rejection, budget and expiry limits, authority digest changes, checkpoint tampering, exact-revision restore, replay-sequence rejection, and preserved attempt charges. If the runtime recovery test module is named differently in a future revision, discover the canonical test path rather than silently skipping it.
+The execution-boundary tests cover deterministic inventory, explicit direct-gateway call-site policy (including AST change detection), identity/scope/revision rejection, budget and expiry limits, authority digest changes, checkpoint tampering, exact-revision restore, replay-sequence rejection, and preserved attempt charges. If the runtime recovery test module is named differently in a future revision, discover the canonical test path rather than silently skipping it.
 
 ## Rollback
 

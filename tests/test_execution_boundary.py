@@ -1,15 +1,18 @@
 """Regression tests for P0 inventory, P2 authority binding, and P3 resume safety."""
 from __future__ import annotations
 
+import ast
 import hashlib
 import json
 import math
 import tempfile
 import unittest
 from dataclasses import asdict
+from pathlib import Path
 
 from portable.action_governance import ActionGovernanceGateway, ActionPolicy, ActionRequest
 from portable.execution_boundary import (
+    DIRECT_GATEWAY_CALLSITE_POLICY,
     ExecutionAuthorityBinding,
     ExecutionCheckpointConflict,
     ExecutionCheckpointStore,
@@ -70,6 +73,54 @@ class ExecutionBoundaryTests(unittest.TestCase):
         self.assertIn("coding-agency", action_surface["existing_control"])
         self.assertIn("specialist-team", action_surface["existing_control"])
         self.assertIn("not yet mandatory", action_surface["remaining_gap"])
+
+    def test_p0_every_direct_gateway_execute_callsite_is_explicitly_reviewed(self):
+        root = Path(__file__).resolve().parents[1]
+        portable_root = root / "portable"
+        actual = set()
+
+        class GatewayCallVisitor(ast.NodeVisitor):
+            def __init__(self, relative_path):
+                self.relative_path = relative_path
+                self.scope = []
+
+            def visit_FunctionDef(self, node):
+                self.scope.append(node.name)
+                self.generic_visit(node)
+                self.scope.pop()
+
+            visit_AsyncFunctionDef = visit_FunctionDef
+
+            def visit_Call(self, node):
+                func = node.func
+                if (
+                    isinstance(func, ast.Attribute)
+                    and func.attr == "execute"
+                    and isinstance(func.value, ast.Name)
+                    and func.value.id in {"gateway", "governance_gateway"}
+                ):
+                    actual.add((self.relative_path, ".".join(self.scope)))
+                self.generic_visit(node)
+
+        for source in sorted(portable_root.rglob("*.py")):
+            relative_path = source.relative_to(root).as_posix()
+            visitor = GatewayCallVisitor(relative_path)
+            visitor.visit(ast.parse(source.read_text(encoding="utf-8"), filename=relative_path))
+
+        expected = {(item["path"], item["scope"]) for item in DIRECT_GATEWAY_CALLSITE_POLICY}
+        self.assertEqual(
+            actual,
+            expected,
+            "New or moved direct gateway calls require explicit review and a bound-mode regression test.",
+        )
+        self.assertEqual(len(DIRECT_GATEWAY_CALLSITE_POLICY), len(expected))
+        self.assertTrue(all(item["disposition"].strip() for item in DIRECT_GATEWAY_CALLSITE_POLICY))
+        self.assertEqual(
+            sum(item["disposition"] == "canonical-after-authority-preflight" for item in DIRECT_GATEWAY_CALLSITE_POLICY),
+            1,
+        )
+        audit = execution_surface_audit()
+        self.assertEqual(audit["direct_gateway_call_sites"], [dict(item) for item in DIRECT_GATEWAY_CALLSITE_POLICY])
 
     def test_p2_authority_binding_allows_only_matching_identity_scope_and_revision(self):
         binding = self.binding()
