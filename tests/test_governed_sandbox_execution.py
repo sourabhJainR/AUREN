@@ -119,7 +119,7 @@ class GovernedSandboxExecutionTests(unittest.TestCase):
         backend = FakeBackend()
         guard = RuntimeExecutionGuard(max_steps=10, max_attempts=3)
         receipt = execute_governed_sandbox(
-            gateway, backend, make_action(target="secrets/credentials.json"), make_request(),
+            gateway, backend, make_action(task_id="task-1", target="secrets/credentials.json"), make_request(),
             authority=self.make_authority(),
             repository_revision="abc123",
             repository_digest="repo-digest",
