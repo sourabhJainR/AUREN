@@ -4,6 +4,46 @@ The AUREN Engineering Console is a local, read-only web UI for understanding wha
 
 It reads existing AUREN state and repository intelligence. It does not become a second orchestrator, scheduler, policy engine, memory store, or execution authority.
 
+## Unified AUREN × Muxin control center
+
+The unified control center is served by the installed AUREN dashboard server at **http://127.0.0.1:8765/control-center**. Start the server first; keep its terminal/process running while using the browser.
+
+### Install or update, then start
+
+1. Install/update AUREN using the repository's supported installer or release bundle. The active installation is under `~/.auren/current` on Linux/macOS or `%USERPROFILE%\.auren\current` on Windows.
+2. Open a terminal in the repository you want AUREN to work on.
+3. Start the dashboard, passing that repository as the project root:
+
+~~~bash
+python ~/.auren/current/auren_cli.py dashboard --project-root /path/to/your/repository
+~~~
+
+Windows PowerShell:
+
+~~~powershell
+python "$HOME\.auren\current\auren_cli.py" dashboard --project-root "C:\path\to\your\repository"
+~~~
+
+4. Open **http://127.0.0.1:8765/control-center**. If you selected a custom port, use that port in the URL. The control center tries the same-origin `/api/control-center` endpoint automatically; use **Connect local console** if you need to reconnect.
+
+For a source checkout, run `python auren_cli.py dashboard --project-root .` from the checkout and open the same `/control-center` path.
+
+### Working with the control center
+
+- **Overview:** check active/recent sessions, progress, learnings, model discovery, and evidence gates. Refresh to request a fresh snapshot.
+- **Sessions:** open **Details** to inspect reported stage, changed paths, blocker, owner, and checkpoint/evidence digest. Export JSON for a point-in-time snapshot.
+- **Learnings:** search source-backed memory records. A missing source, confidence, verification flag, or evidence ID remains missing; the dashboard does not manufacture evidence or promote a learning.
+- **Local LLMs / routing:** model discovery reports what the local endpoint exposes. The routing action submits a task to `POST /api/route`; it currently uses coding capability and private privacy mode, with bounded attempts and timeout. Private/restricted tasks must not be sent to a remote fallback. Remote execution is not enabled by default.
+- **Evidence & gates:** treat the view as an observability aid, not as proof that CI, review, independent evaluation, or a merge gate passed. Confirm those in the repository's actual CI and pull request.
+- **New session:** in this control-center prototype, this creates a browser-local planning card only. It does **not** start an AUREN agent run. Do not mistake it for execution.
+- **Demo and live data:** when no API is reachable, the UI may show example data. Confirm the connection banner says connected before relying on session details.
+
+### Using AUREN for engineering work
+
+Use AUREN's CLI/orchestrator to start and govern engineering tasks; use the control center to observe the resulting runtime state. Set the repository root correctly, state the task and acceptance criteria, let AUREN run its policy and verification gates, and check the resulting tests/CI evidence before accepting changes. Do not use a dashboard progress percentage or model response alone as completion evidence.
+
+Keep the server bound to `127.0.0.1` for normal use. Do not expose it on a public or untrusted network. Never put credentials, API keys, tokens, or private prompts in session notes or exported snapshots.
+
 ## What the UI shows
 
 - Current and recently active EngineeringEpisodes

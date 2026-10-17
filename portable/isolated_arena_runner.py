@@ -182,6 +182,12 @@ def run_campaign_isolated(
                 except subprocess.TimeoutExpired as exc:
                     _kill_policy_process_tree(process)
                     process.wait()
+                    # The process-group signal can race with a descendant being
+                    # created as the parent handles SIGTERM/SIGKILL on a loaded
+                    # runner. Reap the leader, then signal the same group again
+                    # before returning so late descendants cannot outlive timeout.
+                    if os.name == "posix":
+                        _kill_policy_process_tree(process)
                     writer.join(timeout=1.0)
                     reader.join(timeout=1.0)
                     if deadline - time.monotonic() <= 0:
