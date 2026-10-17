@@ -48,7 +48,7 @@ class ControlCenterApiTests(unittest.TestCase):
         html = (Path(__file__).resolve().parents[1] / "site" / "control-center.html").read_text(encoding="utf-8")
         self.assertIn("/api/control-center", html)
         self.assertIn("applySnapshot", html)
-        self.assertIn("No values are inferred as proof", html)
+        self.assertIn("no values are inferred as proof", html)
         self.assertIn("No learning attached", html)
 
 if __name__ == "__main__":
