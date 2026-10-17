@@ -26,7 +26,7 @@ This is an explicit preflight contract, not an OS sandbox or cryptographic ident
 
 `GuardedExecutionCheckpoint` associates a `RuntimeExecutionGuard` snapshot with the authority digest, exact repository revision, sequence number, and prior-checkpoint digest. It verifies serialized checkpoint integrity, rejects unknown fields, authority/revision mismatch and a sequence older than the caller's persisted minimum, and restores the existing budget rather than creating a fresh one. Capture and restore both enforce that the nested attempt budget cannot exceed the authority ceiling.
 
-Replay prevention requires the persistence owner to retain the highest accepted sequence in trusted storage and supply it as `minimum_sequence`. A digest is integrity evidence, not a signature; an attacker able to rewrite both checkpoint and digest is outside this value object's threat boundary. Cancellation remains cooperative, and irreversible side effects require downstream idempotency.
+Replay prevention requires the persistence owner to retain the highest accepted sequence in trusted storage and supply it as `minimum_sequence`. `ExecutionCheckpointStore` provides a SQLite-backed latest-checkpoint record with transaction-serialized monotonic sequence checks and predecessor-digest linkage. It keeps only the latest checkpoint per authority, not a full immutable history. A digest is integrity evidence, not a signature; an attacker able to rewrite the database and recompute hashes is outside this store's threat boundary. Cancellation remains cooperative, and irreversible side effects require downstream idempotency.
 
 ## Regression gates
 
