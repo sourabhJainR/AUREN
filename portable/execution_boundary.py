@@ -96,6 +96,34 @@ EXECUTION_SURFACE_INVENTORY: tuple[ExecutionSurface, ...] = (
 )
 
 
+# Reviewed direct ActionGovernanceGateway.execute call sites. The test suite
+# compares this registry with an AST scan of portable/ so a new direct call
+# cannot silently bypass review. Legacy adapter entries remain compatibility
+# branches; authority-bound branches must continue to use execute_bound_action.
+DIRECT_GATEWAY_CALLSITE_POLICY: tuple[dict[str, str], ...] = (
+    {
+        "path": "portable/execution_boundary.py",
+        "scope": "execute_bound_action",
+        "disposition": "canonical-after-authority-preflight",
+    },
+    {
+        "path": "portable/governed_sandbox_execution.py",
+        "scope": "execute_governed_sandbox",
+        "disposition": "legacy-compatibility-branch; bound mode uses execute_bound_action",
+    },
+    {
+        "path": "portable/ai_coding_agency_bridge.py",
+        "scope": "run_coding_task.effective_worker",
+        "disposition": "legacy-compatibility-branch; bound mode uses execute_bound_action",
+    },
+    {
+        "path": "portable/agency_team_orchestrator.py",
+        "scope": "run.effective_spawn",
+        "disposition": "legacy-compatibility-branch; bound mode uses execute_bound_action",
+    },
+)
+
+
 def execution_surface_audit() -> dict[str, Any]:
     """Return a deterministic inventory report with explicit assurance boundaries."""
     surfaces = [
@@ -112,6 +140,7 @@ def execution_surface_audit() -> dict[str, Any]:
     report = {
         "schema_version": "auren-execution-surface-audit-v1",
         "surfaces": surfaces,
+        "direct_gateway_call_sites": [dict(item) for item in DIRECT_GATEWAY_CALLSITE_POLICY],
         "coverage": {
             "task_identity": "partial",
             "action_authority": "present_with_caller_enforcement",
