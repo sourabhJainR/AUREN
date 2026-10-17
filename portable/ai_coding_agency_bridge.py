@@ -25,6 +25,7 @@ class CodingTask:
     mutation_mode: str="bounded"
     support_limit: int=2
     protected_paths: tuple[str,...]=()
+    allowed_read_paths: tuple[str,...]=()
     allowed_artifact_changes: tuple[str,...]=()
     workspace_root: str|None=None
     context_query: str|None=None
@@ -118,12 +119,25 @@ def run_coding_task(task:CodingTask,worker:Callable[[TaskProfile,list[Assignment
                 else "release" if task_risk in {"high", "critical"}
                 else "write"
             )
-            targets = tuple(effective_task.allowed_artifact_changes) if mutating else (effective_task.task_id,)
+            targets = (
+                tuple(effective_task.allowed_artifact_changes)
+                if mutating
+                else tuple(effective_task.allowed_read_paths) if execution_authority is not None
+                else (effective_task.task_id,)
+            )
             if mutating and not targets:
                 return {
                     "deliverables": [], "verification": [],
                     "dimensions": {}, "hard_gates": {"action_governance": False},
                     "findings": [ReviewFinding("blocker", "action_governance:explicit_write_scope_missing")],
+                    "evidence": [],
+                }
+
+            if execution_authority is not None and not mutating and not targets:
+                return {
+                    "deliverables": [], "verification": [],
+                    "dimensions": {}, "hard_gates": {"action_governance": False},
+                    "findings": [ReviewFinding("blocker", "action_governance:explicit_read_scope_missing")],
                     "evidence": [],
                 }
 
