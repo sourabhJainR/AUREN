@@ -65,6 +65,11 @@ class ExecutionBoundaryTests(unittest.TestCase):
         self.assertGreaterEqual(len(first["surfaces"]), 5)
         self.assertIn("not_proven_by_repository_inventory", first["coverage"]["trusted_isolation"])
         self.assertTrue(any("callers" in gap for gap in first["gaps"]))
+        action_surface = next(surface for surface in first["surfaces"] if surface["name"] == "action-authorization")
+        self.assertIn("OpenShell", action_surface["existing_control"])
+        self.assertIn("coding-agency", action_surface["existing_control"])
+        self.assertIn("specialist-team", action_surface["existing_control"])
+        self.assertIn("not yet mandatory", action_surface["remaining_gap"])
 
     def test_p2_authority_binding_allows_only_matching_identity_scope_and_revision(self):
         binding = self.binding()
