@@ -13,8 +13,9 @@ measurements, and empty limitation statements.
   evaluator owner, and sandbox auditor. The verifier must establish identities
   using deployment-controlled trust roots; different strings are not proof of
   different people or organizations.
-- Run the exact same campaign twice with fresh nonces. Result digests must match;
-  receipt digests must differ.
+- Run the exact same campaign twice with distinct run IDs and fresh nonces. Result
+  digests must match; receipt digests must differ. Reusing a run identity is rejected
+  even when the nonce changes.
 - Record a matched baseline, resource costs, and explicit limitations.
 - Preserve evidence that nonce replay, receipt tampering, corpus mismatch,
   invalid signatures, role overlap, missing isolation, and partial receipts are
