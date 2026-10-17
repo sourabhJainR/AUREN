@@ -142,7 +142,7 @@ class ExecutionBoundaryTests(unittest.TestCase):
 
     def test_p3_checkpoint_restores_budget_only_for_same_authority_and_revision(self):
         binding = self.binding()
-        guard = RuntimeExecutionGuard(max_steps=10, max_attempts=4, deadline_seconds=30)
+        guard = RuntimeExecutionGuard(max_steps=10, max_attempts=3, deadline_seconds=30)
         self.assertTrue(guard.charge_attempt("task-1:step-1"))
         checkpoint = GuardedExecutionCheckpoint.capture(binding, guard, sequence=7)
         restored = checkpoint.restore(
@@ -170,6 +170,40 @@ class ExecutionBoundaryTests(unittest.TestCase):
         encoded["sequence"] = 2
         with self.assertRaisesRegex(ValueError, "checkpoint digest mismatch"):
             GuardedExecutionCheckpoint.from_dict(encoded)
+
+    def test_p3_capture_rejects_budget_larger_than_authority(self):
+        with self.assertRaisesRegex(ValueError, "attempt budget exceeds execution authority"):
+            GuardedExecutionCheckpoint.capture(
+                self.binding(max_attempts=2),
+                RuntimeExecutionGuard(max_steps=5, max_attempts=3),
+                sequence=1,
+            )
+
+    def test_p3_restore_rejects_oversized_nested_budget_even_if_checkpoint_digest_is_valid(self):
+        binding = self.binding(max_attempts=2)
+        oversized_guard = RuntimeExecutionGuard(max_steps=5, max_attempts=3)
+        checkpoint = GuardedExecutionCheckpoint(
+            authority_digest=binding.digest,
+            repository_revision=binding.repository_revision,
+            sequence=1,
+            guard_snapshot=oversized_guard.snapshot(),
+        )
+        with self.assertRaisesRegex(ValueError, "attempt budget exceeds execution authority"):
+            checkpoint.restore(binding, expected_repository_revision="abc123")
+
+    def test_p3_checkpoint_decoder_rejects_unknown_fields_and_invalid_sequence_floor(self):
+        binding = self.binding()
+        checkpoint = GuardedExecutionCheckpoint.capture(
+            binding, RuntimeExecutionGuard(max_steps=5, max_attempts=2), sequence=1,
+        )
+        encoded = checkpoint.to_dict()
+        encoded["untrusted_extra"] = "ignored-field-attack"
+        with self.assertRaisesRegex(ValueError, "missing or unknown fields"):
+            GuardedExecutionCheckpoint.from_dict(encoded)
+        with self.assertRaisesRegex(ValueError, "minimum_sequence"):
+            checkpoint.restore(binding, expected_repository_revision="abc123", minimum_sequence=-1)
+        with self.assertRaisesRegex(ValueError, "minimum_sequence"):
+            checkpoint.restore(binding, expected_repository_revision="abc123", minimum_sequence=True)
 
     def test_p3_restored_budget_still_stops_and_does_not_reset_charges(self):
         binding = self.binding()
