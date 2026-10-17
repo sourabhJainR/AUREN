@@ -219,7 +219,10 @@ class ExecutionAuthorityBinding:
             return False, "capability_out_of_scope"
         if request.action not in self.allowed_actions:
             return False, "action_out_of_scope"
-        target = _normal_path(request.target)
+        try:
+            target = _normal_path(request.target)
+        except ValueError:
+            return False, "invalid_target_path"
         allowed = any(
             target == root or target.startswith(root.rstrip("/") + "/")
             for root in (_normal_path(p) for p in self.allowed_targets)
