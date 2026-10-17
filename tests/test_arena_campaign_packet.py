@@ -70,6 +70,12 @@ class ArenaCampaignPacketTests(unittest.TestCase):
         with self.assertRaisesRegex(CampaignPacketError, "result digests differ"):
             validate_campaign_packet(data, verify_external_attestation=lambda _: True)
 
+    def test_repeat_run_identity_must_be_unique_even_when_nonces_differ(self):
+        data = packet()
+        data["runs"][1]["run_id"] = data["runs"][0]["run_id"]
+        with self.assertRaisesRegex(CampaignPacketError, "distinct run identities"):
+            validate_campaign_packet(data, verify_external_attestation=lambda _: True)
+
     def test_all_negative_controls_must_reject(self):
         data = packet()
         data["negative_controls"]["role_overlap"]["outcome"] = "accepted"

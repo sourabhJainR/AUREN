@@ -112,6 +112,8 @@ def validate_campaign_packet(
         if run["outcome"] != "completed":
             raise CampaignPacketError(f"runs[{index}] did not complete")
         normalized_runs.append(dict(run))
+    if normalized_runs[0]["run_id"] == normalized_runs[1]["run_id"]:
+        raise CampaignPacketError("repeat runs must use distinct run identities")
     if normalized_runs[0]["run_nonce"] == normalized_runs[1]["run_nonce"]:
         raise CampaignPacketError("repeat runs must use distinct nonces")
     if normalized_runs[0]["result_digest"] != normalized_runs[1]["result_digest"]:
