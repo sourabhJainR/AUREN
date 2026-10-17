@@ -9,7 +9,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 import hashlib
 import json
+import math
 import posixpath
+import re
 import time
 from typing import Any, Mapping, Sequence
 
@@ -34,8 +36,13 @@ def _normal_path(value: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError("target path is required")
     normalized = posixpath.normpath(value.replace("\\", "/").strip())
-    if normalized in {".", ".."} or normalized.startswith("../"):
-        raise ValueError("target path must not escape its declared root")
+    if (
+        normalized in {".", ".."}
+        or normalized.startswith("../")
+        or normalized.startswith("/")
+        or re.match(r"^[A-Za-z]:", normalized)
+    ):
+        raise ValueError("target path must be a repository-relative path within its declared root")
     return normalized.rstrip("/") or "."
 
 
@@ -156,9 +163,11 @@ class ExecutionAuthorityBinding:
         if type(self.max_attempts) is not int or self.max_attempts < 1:
             raise ValueError("max_attempts must be a positive integer")
         if self.expires_at is not None and (
-            isinstance(self.expires_at, bool) or not isinstance(self.expires_at, (int, float))
+            isinstance(self.expires_at, bool)
+            or not isinstance(self.expires_at, (int, float))
+            or not math.isfinite(self.expires_at)
         ):
-            raise ValueError("expires_at must be a timestamp")
+            raise ValueError("expires_at must be a finite timestamp")
 
     def to_dict(self) -> dict[str, Any]:
         self.validate()
@@ -222,6 +231,8 @@ class ExecutionAuthorityBinding:
         if attempts_used >= self.max_attempts:
             return False, "attempt_budget_exhausted"
         current_time = time.time() if now is None else now
+        if isinstance(current_time, bool) or not isinstance(current_time, (int, float)) or not math.isfinite(current_time):
+            return False, "invalid_authority_check_time"
         if self.expires_at is not None and current_time >= self.expires_at:
             return False, "execution_authority_expired"
         return True, "execution_authority_valid"
