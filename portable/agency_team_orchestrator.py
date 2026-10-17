@@ -59,6 +59,8 @@ class AgentTeamOrchestrator:
         if any(d not in by_id for u in normalized for d in u.depends_on): raise ValueError("unknown unit dependency")
         if governance_gateway is not None and not run_id.strip():
             raise ValueError("run_id is required when governance gateway is enabled")
+        if execution_authorities is None and execution_guards is not None:
+            raise ValueError("execution_authorities are required when execution_guards are supplied")
         if execution_authorities is not None:
             if governance_gateway is None:
                 raise ValueError("governance_gateway is required when execution authorities are supplied")
