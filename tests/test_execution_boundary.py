@@ -6,7 +6,9 @@ import hashlib
 import json
 import math
 import tempfile
+import threading
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 from pathlib import Path
 
@@ -294,6 +296,47 @@ class ExecutionBoundaryTests(unittest.TestCase):
             )
             with self.assertRaisesRegex(ExecutionCheckpointConflict, "predecessor digest mismatch"):
                 store.save(fork, binding)
+
+    def test_p3_concurrent_checkpoint_writers_cannot_overwrite_same_sequence(self):
+        binding = self.binding()
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ExecutionCheckpointStore(f"{tmp}/execution-checkpoints.sqlite3")
+            initial_guard = RuntimeExecutionGuard(max_steps=10, max_attempts=3)
+            initial_guard.charge_attempt("initial")
+            first = GuardedExecutionCheckpoint.capture(binding, initial_guard, sequence=1)
+            store.save(first, binding)
+
+            guard_a = RuntimeExecutionGuard(max_steps=10, max_attempts=3)
+            guard_a.charge_attempt("writer-a")
+            guard_b = RuntimeExecutionGuard(max_steps=10, max_attempts=3)
+            guard_b.charge_attempt("writer-b")
+            guard_b.charge_attempt("writer-b-second")
+            candidate_a = GuardedExecutionCheckpoint.capture(
+                binding, guard_a, sequence=2, previous_checkpoint_digest=first.digest,
+            )
+            candidate_b = GuardedExecutionCheckpoint.capture(
+                binding, guard_b, sequence=2, previous_checkpoint_digest=first.digest,
+            )
+            barrier = threading.Barrier(2)
+
+            def attempt_save(checkpoint):
+                barrier.wait(timeout=5)
+                try:
+                    return ("saved", store.save(checkpoint, binding))
+                except ExecutionCheckpointConflict as exc:
+                    return ("rejected", str(exc))
+
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                outcomes = list(pool.map(attempt_save, (candidate_a, candidate_b)))
+
+            self.assertEqual(sum(status == "saved" for status, _ in outcomes), 1)
+            self.assertEqual(sum(status == "rejected" for status, _ in outcomes), 1)
+            rejected = next(message for status, message in outcomes if status == "rejected")
+            self.assertIn("sequence must increase monotonically", rejected)
+            latest = store.latest(binding)
+            self.assertIsNotNone(latest)
+            self.assertEqual(latest.sequence, 2)
+            self.assertIn(latest.digest, {candidate_a.digest, candidate_b.digest})
 
     def test_p3_durable_store_rejects_checkpoint_for_another_authority(self):
         binding = self.binding()
