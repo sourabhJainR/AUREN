@@ -7,6 +7,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 from .engineering_dashboard import EngineeringDashboard
 from .muxin_session_adapter import LocalModelDiscovery, MuxinSessionAdapter
+from .hybrid_model_router import HybridModelRouter, TaskRouteRequest
 
 UI_ROOT = Path(__file__).resolve().parent.parent / "dashboard"
 CONTROL_CENTER = Path(__file__).resolve().parent.parent / "site" / "control-center.html"
@@ -26,6 +27,38 @@ class _Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
+    def do_POST(self):
+        path = urlparse(self.path).path
+        if path != "/api/route":
+            self._send(404, b'{"error":"not found"}', "application/json")
+            return
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            if length < 1 or length > 65536:
+                raise ValueError("request body size is outside the allowed limit")
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+            if not isinstance(payload, dict) or not isinstance(payload.get("task"), str) or not payload["task"].strip():
+                raise ValueError("task must be a non-empty string")
+            request = TaskRouteRequest(
+                task=payload["task"][:60000],
+                capability=str(payload.get("capability", "general"))[:80],
+                privacy=str(payload.get("privacy", "private"))[:40],
+                max_attempts=min(3, max(1, int(payload.get("max_attempts", 2)))),
+                timeout_seconds=min(120.0, max(0.1, float(payload.get("timeout_seconds", 30.0)))),
+            )
+            result = HybridModelRouter().route(request)
+            body = json.dumps({
+                "provider": result.provider, "model": result.model, "success": result.success,
+                "attempts": result.attempts, "latency_ms": result.latency_ms,
+                "resource_usage": result.resource_usage, "fallback_reason": result.fallback_reason,
+                "result": result.result, "error": result.error,
+            }, separators=(",", ":")).encode()
+            self._send(200 if result.success else 503, body, "application/json; charset=utf-8")
+        except (ValueError, TypeError, json.JSONDecodeError) as exc:
+            self._send(400, json.dumps({"error": str(exc)}).encode(), "application/json; charset=utf-8")
+        except Exception:
+            self._send(503, b'{"error":"routing request failed"}', "application/json; charset=utf-8")
 
     def do_GET(self):
         path = urlparse(self.path).path
