@@ -467,6 +467,10 @@ class ExecutionCheckpointStore:
         authority: ExecutionAuthorityBinding,
     ) -> str:
         authority.validate()
+        if checkpoint.authority_digest != authority.digest:
+            raise ExecutionCheckpointConflict("checkpoint authority binding mismatch")
+        if checkpoint.repository_revision != authority.repository_revision:
+            raise ExecutionCheckpointConflict("checkpoint repository revision mismatch")
         checkpoint.restore(
             authority,
             expected_repository_revision=authority.repository_revision,
