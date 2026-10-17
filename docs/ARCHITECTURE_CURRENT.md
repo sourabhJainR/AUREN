@@ -78,6 +78,12 @@ Core → Engine → external action
 
 Learning may propose change. Arena may establish independent evidence. **Only Guard-authorized contracts may cause consequential lifecycle mutation.**
 
+## Execution-boundary adoption status
+
+The execution authority contract now has opt-in adapters at the governed sandbox, AI coding agency, and specialist-team spawn boundaries. Authority-bound team execution requires a run/task-matched binding and task-owned budget guard for every work unit, explicit repository paths, and host-supplied repository revision/digest. These checks run before the worker is invoked and are covered by regression tests.
+
+The compatibility path remains available where callers do not provide bindings, so this is not a claim that every consequential call site is universally bound. Hosts must derive repository identity from a trusted checkout, enforce path scope at actual filesystem/process boundaries, persist checkpoints in trusted storage, and retain downstream idempotency for irreversible effects. Repository CI does not establish OS isolation or independently operated Arena evidence.
+
 ## Architectural invariants
 
 1. AUREN is the sole current product/runtime identity.
