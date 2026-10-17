@@ -12,8 +12,10 @@ import json
 import math
 import posixpath
 import re
+import sqlite3
 import time
-from typing import Any, Mapping, Sequence
+from pathlib import Path
+from typing import Any, Mapping
 
 from .action_governance import ActionGovernanceGateway, ApprovalReceipt, GovernedResult, PolicyVerdict
 from .runtime_recovery import ExecutionBudgetExceeded, RuntimeExecutionGuard
@@ -402,9 +404,127 @@ class GuardedExecutionCheckpoint:
         return RuntimeExecutionGuard.resume(payload["guard_snapshot"])
 
 
+class ExecutionCheckpointConflict(RuntimeError):
+    """Checkpoint save was stale, replayed, or linked to a different chain."""
+
+
+class ExecutionCheckpointStore:
+    """SQLite-backed latest-checkpoint store with monotonic sequence and hash linkage.
+
+    The database path is an explicit trust boundary: use a host-owned location
+    with restrictive permissions. SQLite transactions serialize concurrent writers;
+    the store rejects stale sequence numbers and chain forks instead of silently
+    overwriting newer recovery state.
+    """
+
+    def __init__(self, path: str | Path) -> None:
+        self.path = Path(path).expanduser()
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        with self._connect() as db:
+            db.execute(
+                """CREATE TABLE IF NOT EXISTS execution_checkpoints (
+                    authority_digest TEXT PRIMARY KEY,
+                    repository_revision TEXT NOT NULL,
+                    sequence INTEGER NOT NULL,
+                    checkpoint_digest TEXT NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    updated_at REAL NOT NULL
+                )"""
+            )
+
+    def _connect(self) -> sqlite3.Connection:
+        db = sqlite3.connect(self.path, timeout=10, isolation_level=None)
+        db.row_factory = sqlite3.Row
+        return db
+
+    def save(
+        self,
+        checkpoint: GuardedExecutionCheckpoint,
+        authority: ExecutionAuthorityBinding,
+    ) -> str:
+        checkpoint.payload()
+        checkpoint_digest = checkpoint.digest
+        if checkpoint.authority_digest != authority.digest:
+            raise ExecutionCheckpointConflict("checkpoint authority binding mismatch")
+        if checkpoint.repository_revision != authority.repository_revision:
+            raise ExecutionCheckpointConflict("checkpoint repository revision mismatch")
+        payload_json = json.dumps(checkpoint.to_dict(), sort_keys=True, separators=(",", ":"), allow_nan=False)
+        with self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            try:
+                row = db.execute(
+                    "SELECT sequence, checkpoint_digest, repository_revision FROM execution_checkpoints WHERE authority_digest=?",
+                    (authority.digest,),
+                ).fetchone()
+                if row is None:
+                    if checkpoint.previous_checkpoint_digest:
+                        raise ExecutionCheckpointConflict("first checkpoint must not reference a missing predecessor")
+                else:
+                    if row["repository_revision"] != checkpoint.repository_revision:
+                        raise ExecutionCheckpointConflict("repository revision changed within checkpoint chain")
+                    if checkpoint.sequence <= int(row["sequence"]):
+                        raise ExecutionCheckpointConflict("checkpoint sequence must increase monotonically")
+                    if checkpoint.previous_checkpoint_digest != row["checkpoint_digest"]:
+                        raise ExecutionCheckpointConflict("checkpoint predecessor digest mismatch")
+                db.execute(
+                    """INSERT INTO execution_checkpoints
+                       (authority_digest, repository_revision, sequence, checkpoint_digest, payload_json, updated_at)
+                       VALUES(?,?,?,?,?,?)
+                       ON CONFLICT(authority_digest) DO UPDATE SET
+                         repository_revision=excluded.repository_revision,
+                         sequence=excluded.sequence,
+                         checkpoint_digest=excluded.checkpoint_digest,
+                         payload_json=excluded.payload_json,
+                         updated_at=excluded.updated_at""",
+                    (authority.digest, checkpoint.repository_revision, checkpoint.sequence,
+                     checkpoint_digest, payload_json, time.time()),
+                )
+                db.execute("COMMIT")
+            except Exception:
+                db.execute("ROLLBACK")
+                raise
+        return checkpoint_digest
+
+    def latest(self, authority: ExecutionAuthorityBinding) -> GuardedExecutionCheckpoint | None:
+        authority.validate()
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT repository_revision, sequence, checkpoint_digest, payload_json FROM execution_checkpoints WHERE authority_digest=?",
+                (authority.digest,),
+            ).fetchone()
+        if row is None:
+            return None
+        if row["repository_revision"] != authority.repository_revision:
+            raise ExecutionCheckpointConflict("stored checkpoint repository revision mismatch")
+        raw = json.loads(row["payload_json"])
+        checkpoint = GuardedExecutionCheckpoint.from_dict(raw)
+        if checkpoint.digest != row["checkpoint_digest"] or checkpoint.sequence != int(row["sequence"]):
+            raise ExecutionCheckpointConflict("stored checkpoint row does not match its payload")
+        if checkpoint.authority_digest != authority.digest:
+            raise ExecutionCheckpointConflict("stored checkpoint authority mismatch")
+        return checkpoint
+
+    def restore_latest(
+        self,
+        authority: ExecutionAuthorityBinding,
+        *,
+        expected_repository_revision: str,
+    ) -> RuntimeExecutionGuard:
+        checkpoint = self.latest(authority)
+        if checkpoint is None:
+            raise LookupError("no checkpoint exists for this execution authority")
+        return checkpoint.restore(
+            authority,
+            expected_repository_revision=expected_repository_revision,
+            minimum_sequence=checkpoint.sequence,
+        )
+
+
 __all__ = [
     "EXECUTION_SURFACE_INVENTORY",
     "ExecutionAuthorityBinding",
+    "ExecutionCheckpointConflict",
+    "ExecutionCheckpointStore",
     "ExecutionSurface",
     "GuardedExecutionCheckpoint",
     "execution_surface_audit",
