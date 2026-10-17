@@ -160,6 +160,8 @@ class ExecutionAuthorityBinding:
                 raise ValueError(f"{name} must contain non-empty values")
             if len(set(values)) != len(values):
                 raise ValueError(f"{name} must not contain duplicates")
+        for target in self.allowed_targets:
+            _normal_path(target)
         if type(self.max_attempts) is not int or self.max_attempts < 1:
             raise ValueError("max_attempts must be a positive integer")
         if self.expires_at is not None and (
