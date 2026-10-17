@@ -4,12 +4,15 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import tempfile
 import unittest
 from dataclasses import asdict
 
 from portable.action_governance import ActionGovernanceGateway, ActionPolicy, ActionRequest
 from portable.execution_boundary import (
     ExecutionAuthorityBinding,
+    ExecutionCheckpointConflict,
+    ExecutionCheckpointStore,
     GuardedExecutionCheckpoint,
     execution_surface_audit,
     execute_bound_action,
@@ -204,6 +207,48 @@ class ExecutionBoundaryTests(unittest.TestCase):
             checkpoint.restore(binding, expected_repository_revision="abc123", minimum_sequence=-1)
         with self.assertRaisesRegex(ValueError, "minimum_sequence"):
             checkpoint.restore(binding, expected_repository_revision="abc123", minimum_sequence=True)
+
+    def test_p3_durable_store_enforces_monotonic_chain_and_restores_budget(self):
+        binding = self.binding()
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ExecutionCheckpointStore(f"{tmp}/execution-checkpoints.sqlite3")
+            guard = RuntimeExecutionGuard(max_steps=10, max_attempts=3, deadline_seconds=30)
+            self.assertTrue(guard.charge_attempt("budget-1:action-1"))
+            first = GuardedExecutionCheckpoint.capture(binding, guard, sequence=1)
+            first_digest = store.save(first, binding)
+            self.assertEqual(first_digest, first.digest)
+
+            with self.assertRaisesRegex(ExecutionCheckpointConflict, "increase monotonically"):
+                store.save(first, binding)
+
+            self.assertTrue(guard.charge_attempt("budget-1:action-2"))
+            second = GuardedExecutionCheckpoint.capture(
+                binding, guard, sequence=2, previous_checkpoint_digest=first.digest,
+            )
+            store.save(second, binding)
+            loaded = store.latest(binding)
+            self.assertIsNotNone(loaded)
+            self.assertEqual(loaded.digest, second.digest)
+            restored = store.restore_latest(binding, expected_repository_revision="abc123")
+            self.assertEqual(restored.attempts_used, 2)
+            self.assertFalse(restored.charge_attempt("budget-1:action-1"))
+
+            fork = GuardedExecutionCheckpoint.capture(
+                binding, guard, sequence=3, previous_checkpoint_digest=first.digest,
+            )
+            with self.assertRaisesRegex(ExecutionCheckpointConflict, "predecessor digest mismatch"):
+                store.save(fork, binding)
+
+    def test_p3_durable_store_rejects_checkpoint_for_another_authority(self):
+        binding = self.binding()
+        other = self.binding(principal="agent:other")
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ExecutionCheckpointStore(f"{tmp}/execution-checkpoints.sqlite3")
+            checkpoint = GuardedExecutionCheckpoint.capture(
+                binding, RuntimeExecutionGuard(max_steps=3, max_attempts=2), sequence=0,
+            )
+            with self.assertRaisesRegex(ExecutionCheckpointConflict, "authority binding mismatch"):
+                store.save(checkpoint, other)
 
     def test_p3_restored_budget_still_stops_and_does_not_reset_charges(self):
         binding = self.binding()
