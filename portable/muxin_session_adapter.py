@@ -15,6 +15,8 @@ from typing import Any, Callable
 
 from .engineering_dashboard import EngineeringDashboard
 from .session_state import SessionCheckpoint, SessionStore
+from .memory_orchestrator import MemoryOrchestrator
+from .hybrid_model_router import HybridModelRouter
 
 _STAGE_ORDER = (
     "queued", "planning", "running", "testing", "reviewing", "verified", "completed"
@@ -45,7 +47,26 @@ class MuxinSessionAdapter:
         self.project_root = Path(project_root).expanduser().resolve()
         self.session_store = session_store or SessionStore()
         self.dashboard = dashboard or EngineeringDashboard(self.project_root)
-        self.learning_reader = learning_reader
+        self.learning_reader = learning_reader or self._canonical_learnings
+
+    def _canonical_learnings(self) -> list[dict[str, Any]]:
+        """Read learnings through the existing canonical memory/provenance graph."""
+        try:
+            memory = MemoryOrchestrator(self.project_root, self.project_root.name)
+            recall = memory.recall(
+                "learning lesson verified improvement failure test evidence",
+                kinds=("procedural", "semantic", "reflective", "episodic", "hierarchical"),
+                budget_chars=6000,
+            )
+            return [{
+                "id": item.memory_id, "title": item.text[:160], "detail": item.text,
+                "source": item.source, "confidence": item.confidence,
+                "status": "verified" if item.verified else "recorded",
+                "evidence": list(item.evidence_ids), "created_at": item.created_at,
+                "kind": item.kind,
+            } for item in recall.memories]
+        except Exception:
+            return []
 
     def sessions(self) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
@@ -103,6 +124,8 @@ class MuxinSessionAdapter:
             except Exception:
                 # A failed optional learning projection must not break the console.
                 learnings = []
+        router = HybridModelRouter()
+        route_snapshot = router.snapshot()
         return {
             "schema_version": 1,
             "generated_at": dashboard.get("generated_at"),
@@ -110,7 +133,10 @@ class MuxinSessionAdapter:
             "sessions": sessions,
             "learnings": learnings[:100],
             "dashboard": dashboard,
-            "source": "AUREN durable checkpoints and engineering dashboard",
+            "models": route_snapshot["local_discovery"],
+            "routing": route_snapshot["policy"],
+            "resources": route_snapshot["resource_usage"],
+            "source": "AUREN durable checkpoints, canonical memory provenance graph, and engineering dashboard",
         }
 
 
