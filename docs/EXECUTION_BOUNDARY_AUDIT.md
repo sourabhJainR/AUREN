@@ -26,7 +26,7 @@ This is an explicit preflight contract, not an OS sandbox or cryptographic ident
 
 `GuardedExecutionCheckpoint` associates a `RuntimeExecutionGuard` snapshot with the authority digest, exact repository revision, sequence number, and prior-checkpoint digest. It verifies serialized checkpoint integrity, rejects unknown fields, authority/revision mismatch and a sequence older than the caller's persisted minimum, and restores the existing budget rather than creating a fresh one. Capture and restore both enforce that the nested attempt budget cannot exceed the authority ceiling.
 
-Replay prevention requires the persistence owner to retain the highest accepted sequence in trusted storage and supply it as `minimum_sequence`. `ExecutionCheckpointStore` provides a SQLite-backed latest-checkpoint record with transaction-serialized monotonic sequence checks and predecessor-digest linkage. It keeps only the latest checkpoint per authority, not a full immutable history. A digest is integrity evidence, not a signature; an attacker able to rewrite the database and recompute hashes is outside this store's threat boundary. Cancellation remains cooperative, and irreversible side effects require downstream idempotency.
+Replay prevention requires the persistence owner to retain the highest accepted sequence in trusted storage and supply it as `minimum_sequence`. `ExecutionCheckpointStore` provides a SQLite-backed latest-checkpoint record with transaction-serialized monotonic sequence checks and predecessor-digest linkage. It keeps only the latest checkpoint per authority, not a full immutable history. A concurrent-writer regression test races two different checkpoints at the same sequence and verifies that SQLite transaction serialization accepts exactly one writer and preserves a single monotonic head. A digest is integrity evidence, not a signature; an attacker able to rewrite the database and recompute hashes is outside this store's threat boundary. Cancellation remains cooperative, and irreversible side effects require downstream idempotency.
 
 ## Regression gates
 
@@ -37,7 +37,7 @@ python -m unittest tests.test_execution_boundary tests.test_execution_contract -
 python -m unittest tests.test_runtime_recovery -v
 ```
 
-The execution-boundary tests cover deterministic inventory, explicit direct-gateway call-site policy (including AST change detection), identity/scope/revision rejection, budget and expiry limits, authority digest changes, checkpoint tampering, exact-revision restore, replay-sequence rejection, and preserved attempt charges. If the runtime recovery test module is named differently in a future revision, discover the canonical test path rather than silently skipping it.
+The execution-boundary tests cover deterministic inventory, explicit direct-gateway call-site policy (including AST change detection), identity/scope/revision rejection, budget and expiry limits, authority digest changes, checkpoint tampering, exact-revision restore, replay-sequence rejection, preserved attempt charges, and concurrent checkpoint-writer serialization. If the runtime recovery test module is named differently in a future revision, discover the canonical test path rather than silently skipping it.
 
 ## Rollback
 
