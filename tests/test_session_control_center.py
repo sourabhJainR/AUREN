@@ -54,5 +54,24 @@ class SessionControlCenterTests(unittest.TestCase):
         self.assertIn("latency_ms", result)
 
 
+    def test_checkpoint_recovery_clears_error_and_increments_attempt(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            store = SessionStore(root / "sessions")
+            checkpoint = SessionCheckpoint(
+                session_id="recover-1", task_id="task-1",
+                project_key=store.project_key(root), stage="running",
+                project_root=str(root), attempt=1, last_error="temporary provider failure",
+            )
+            store.save(checkpoint)
+            recovered = store.recover("recover-1", next_stage="planning")
+            self.assertIsNotNone(recovered)
+            self.assertEqual("planning", recovered.stage)
+            self.assertEqual(2, recovered.attempt)
+            self.assertIsNone(recovered.last_error)
+            self.assertIsNotNone(store.load("recover-1"))
+
+
+
 if __name__ == "__main__":
     unittest.main()
