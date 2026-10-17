@@ -437,7 +437,7 @@ class ExecutionCheckpointStore:
     def __init__(self, path: str | Path) -> None:
         self.path = Path(path).expanduser()
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        if self.path.exists() and self.path.is_symlink():
+        if self.path.is_symlink():
             raise ValueError("checkpoint database path must not be a symbolic link")
         with closing(self._connect()) as db:
             db.execute(
