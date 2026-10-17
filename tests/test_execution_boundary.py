@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import unittest
 from dataclasses import asdict
 
@@ -120,6 +121,18 @@ class ExecutionBoundaryTests(unittest.TestCase):
         )
         self.assertTrue(accepted.executed)
         self.assertEqual(calls, ["ran"])
+
+    def test_p2_rejects_absolute_paths_and_non_finite_expiry(self):
+        with self.assertRaisesRegex(ValueError, "repository-relative"):
+            self.binding(allowed_targets=("/tmp",)).validate()
+        with self.assertRaisesRegex(ValueError, "finite timestamp"):
+            self.binding(expires_at=math.nan).validate()
+        allowed, reason = self.binding().authorize(
+            self.request(target="/workspace/src/module.py"),
+            repository_revision="abc123", repository_digest="repo-digest",
+        )
+        self.assertFalse(allowed)
+        self.assertEqual(reason, "target_out_of_scope")
 
     def test_p2_binding_digest_changes_when_scope_changes(self):
         self.assertNotEqual(
