@@ -7,6 +7,8 @@ assert trust. Repository fixtures are not external campaign evidence.
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import math
 import re
 from collections.abc import Callable, Mapping
@@ -43,6 +45,26 @@ def _object(value: Any, fields: set[str], name: str) -> Mapping[str, Any]:
     if not isinstance(value, Mapping) or set(value) != fields:
         raise CampaignPacketError(f"{name} has unknown or missing fields")
     return value
+
+
+def campaign_content_digest(packet: Mapping[str, Any]) -> str:
+    """Digest all campaign content except the attestation envelope itself.
+
+    The external signer signs this digest. Excluding the full attestation object
+    avoids signature self-reference while binding the digest to every substantive
+    packet field, including run receipts, corpus/evaluator identity and controls.
+    """
+    if not isinstance(packet, Mapping):
+        raise CampaignPacketError("campaign packet must be a mapping")
+    payload = {key: value for key, value in packet.items() if key != "attestation"}
+    try:
+        canonical = json.dumps(
+            payload, sort_keys=True, separators=(",", ":"),
+            ensure_ascii=True, allow_nan=False,
+        ).encode("utf-8")
+    except (TypeError, ValueError):
+        raise CampaignPacketError("campaign content is not canonical JSON") from None
+    return hashlib.sha256(canonical).hexdigest()
 
 
 def validate_campaign_packet(
@@ -89,7 +111,10 @@ def validate_campaign_packet(
     attestation = _object(p["attestation"], {"signer_id", "key_id", "signature", "campaign_digest"}, "attestation")
     for key in ("signer_id", "key_id", "signature"):
         _text(attestation[key], f"attestation.{key}")
-    _digest(attestation["campaign_digest"], "attestation.campaign_digest")
+    declared_campaign_digest = _digest(attestation["campaign_digest"], "attestation.campaign_digest")
+    expected_campaign_digest = campaign_content_digest(p)
+    if declared_campaign_digest != expected_campaign_digest:
+        raise CampaignPacketError("attestation campaign digest does not match canonical campaign content")
     if not callable(verify_external_attestation):
         raise CampaignPacketError("trusted external attestation verifier is required")
     try:
