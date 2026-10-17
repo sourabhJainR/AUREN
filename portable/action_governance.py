@@ -71,6 +71,7 @@ class ActionRequest:
     risk: str = "write"
     idempotency_key: str = ""
     evidence_refs: tuple[str, ...] = ()
+    task_id: str = ""
 
     def validate(self) -> None:
         for name in ("run_id", "action_id", "actor", "capability", "action", "target"):
@@ -83,7 +84,11 @@ class ActionRequest:
             raise ValueError("evidence_refs must contain non-empty strings")
 
     def fingerprint(self) -> str:
-        return _digest(asdict(self))
+        payload = asdict(self)
+        # Preserve fingerprints for legacy requests that do not opt into task binding.
+        if not payload.get("task_id"):
+            payload.pop("task_id", None)
+        return _digest(payload)
 
 
 @dataclass(frozen=True)
