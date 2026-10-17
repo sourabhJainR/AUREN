@@ -6,6 +6,7 @@ host authorization, trusted persistence, OS isolation, or downstream idempotency
 """
 from __future__ import annotations
 
+from contextlib import closing
 from dataclasses import dataclass
 import hashlib
 import json
@@ -420,7 +421,7 @@ class ExecutionCheckpointStore:
     def __init__(self, path: str | Path) -> None:
         self.path = Path(path).expanduser()
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        with self._connect() as db:
+        with closing(self._connect()) as db:
             db.execute(
                 """CREATE TABLE IF NOT EXISTS execution_checkpoints (
                     authority_digest TEXT PRIMARY KEY,
@@ -449,7 +450,7 @@ class ExecutionCheckpointStore:
         if checkpoint.repository_revision != authority.repository_revision:
             raise ExecutionCheckpointConflict("checkpoint repository revision mismatch")
         payload_json = json.dumps(checkpoint.to_dict(), sort_keys=True, separators=(",", ":"), allow_nan=False)
-        with self._connect() as db:
+        with closing(self._connect()) as db:
             db.execute("BEGIN IMMEDIATE")
             try:
                 row = db.execute(
@@ -487,7 +488,7 @@ class ExecutionCheckpointStore:
 
     def latest(self, authority: ExecutionAuthorityBinding) -> GuardedExecutionCheckpoint | None:
         authority.validate()
-        with self._connect() as db:
+        with closing(self._connect()) as db:
             row = db.execute(
                 "SELECT repository_revision, sequence, checkpoint_digest, payload_json FROM execution_checkpoints WHERE authority_digest=?",
                 (authority.digest,),
