@@ -199,6 +199,27 @@ class AICodingAgencyBridgeTests(unittest.TestCase):
         self.assertEqual(guard.attempts_used, 0)
         self.assertTrue(any("authority_binding:target_out_of_scope" in f.message for f in result.execution.findings))
 
+    def test_authority_bound_read_only_task_requires_explicit_read_paths(self):
+        gateway = ActionGovernanceGateway(ActionPolicy(
+            allowed_capabilities=frozenset({"repository.read", "repository.write"}),
+        ))
+        task = CodingTask("run-bound-read-1", "inspect API", mutation_mode="read-only")
+        guard = RuntimeExecutionGuard(max_steps=10, max_attempts=3)
+        calls = []
+        result = run_coding_task(
+            task, lambda profile, assignments: calls.append("worker") or self._worker(profile, assignments),
+            governance_gateway=gateway, run_id="governed-bound-read-1",
+            execution_authority=self._authority(
+                task.task_id, "governed-bound-read-1",
+                allowed_capabilities=("repository.read",),
+            ),
+            repository_revision="abc123", repository_digest="repo-digest",
+            budget_id="budget-1", execution_guard=guard,
+        )
+        self.assertFalse(result.ready)
+        self.assertEqual(calls, [])
+        self.assertTrue(any("explicit_read_scope_missing" in f.message for f in result.execution.findings))
+
     def test_authority_binding_requires_host_revision_digest_and_task_guard(self):
         gateway = ActionGovernanceGateway(ActionPolicy(
             allowed_capabilities=frozenset({"repository.read", "repository.write"}),
