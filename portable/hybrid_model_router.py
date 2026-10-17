@@ -6,11 +6,10 @@ attempt/time budget. Resource metrics are best-effort and labelled when absent.
 """
 from __future__ import annotations
 import json
-import os
 import time
 import urllib.error
 import urllib.request
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 from typing import Any, Callable
 
 
@@ -45,8 +44,27 @@ class HybridModelRouter:
             discovery = LocalModelDiscovery()
         self.discovery = discovery
         self.remote_executor = remote_executor
-        self.local_executor = local_executor
+        self.local_executor = local_executor or self._execute_local
         self.resource_reader = resource_reader or self._resources
+
+    def _execute_local(self, request: TaskRouteRequest, model: str) -> Any:
+        """Run a bounded Ollama-compatible generation request against loopback only."""
+        base_url = getattr(self.discovery, "base_url", "http://127.0.0.1:11434").rstrip("/")
+        if not base_url.startswith(("http://127.0.0.1:", "http://localhost:", "http://[::1]:")):
+            raise ValueError("local inference endpoint must use loopback HTTP")
+        timeout = max(0.1, min(float(request.timeout_seconds), 120.0))
+        payload = json.dumps({"model": model, "prompt": request.task, "stream": False,
+                              "options": {"num_predict": 1024}}).encode("utf-8")
+        req = urllib.request.Request(base_url + "/api/generate", data=payload,
+            headers={"Content-Type": "application/json", "Accept": "application/json"}, method="POST")
+        with urllib.request.urlopen(req, timeout=timeout) as response:
+            raw = response.read(1024 * 1024 + 1)
+        if len(raw) > 1024 * 1024:
+            raise ValueError("local model response exceeds size limit")
+        decoded = json.loads(raw.decode("utf-8"))
+        if not isinstance(decoded, dict) or not isinstance(decoded.get("response"), str):
+            raise ValueError("local model returned an invalid response")
+        return decoded["response"]
 
     @staticmethod
     def _resources():
@@ -101,7 +119,10 @@ class HybridModelRouter:
                     reason = "overall timeout budget exhausted"
                     break
                 try:
-                    value = self.local_executor(bounded, model)
+                    remaining = max(0.1, timeout - (time.monotonic() - started))
+                    attempt_request = TaskRouteRequest(bounded.task, bounded.capability, bounded.privacy,
+                                                       bounded.max_attempts, remaining)
+                    value = self.local_executor(attempt_request, model)
                     return RouteResult("local", model, True, 1,
                         round((time.monotonic()-started)*1000, 2),
                         {"before": before, "after": self.resource_reader()},
@@ -130,7 +151,10 @@ class HybridModelRouter:
                 reason = "overall timeout budget exhausted"
                 break
             try:
-                value = self.remote_executor(bounded)
+                remaining = max(0.1, timeout - (time.monotonic() - started))
+                attempt_request = TaskRouteRequest(bounded.task, bounded.capability, bounded.privacy,
+                                                   bounded.max_attempts, remaining)
+                value = self.remote_executor(attempt_request)
                 return RouteResult("remote", None, True, attempt+1,
                     round((time.monotonic()-started)*1000, 2),
                     {"before": before, "after": self.resource_reader()}, reason, value)
