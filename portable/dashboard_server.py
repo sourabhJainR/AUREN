@@ -6,26 +6,48 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
 from .engineering_dashboard import EngineeringDashboard
+from .muxin_session_adapter import LocalModelDiscovery, MuxinSessionAdapter
+
 UI_ROOT = Path(__file__).resolve().parent.parent / "dashboard"
+CONTROL_CENTER = Path(__file__).resolve().parent.parent / "site" / "control-center.html"
+
 
 class _Handler(BaseHTTPRequestHandler):
     dashboard = None
+    control_center = None
     ui_root = UI_ROOT
+    control_center_path = CONTROL_CENTER
+
     def _send(self, status, body, content_type):
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
     def do_GET(self):
         path = urlparse(self.path).path
         if path == "/api/dashboard":
             body = json.dumps(self.dashboard.snapshot().as_dict(), separators=(",", ":")).encode()
             self._send(200, body, "application/json; charset=utf-8")
             return
+        if path == "/api/control-center":
+            try:
+                snapshot = self.control_center.snapshot()
+                snapshot["models"] = LocalModelDiscovery().discover()
+                body = json.dumps(snapshot, separators=(",", ":")).encode()
+                self._send(200, body, "application/json; charset=utf-8")
+            except Exception:
+                # Keep the local console responsive; report a bounded error without internals.
+                self._send(503, b'{"error":"control center snapshot unavailable"}', "application/json; charset=utf-8")
+            return
         if path == "/api/health":
-            self._send(200, b'{"status":"ok"}', "application/json")
+            self._send(200, b'{"status":"ok"}', "application/json; charset=utf-8")
+            return
+        if path == "/control-center":
+            self._serve(self.control_center_path, "text/html; charset=utf-8")
             return
         if path in {"/", "/index.html"}:
             self._serve(self.ui_root / "index.html", "text/html; charset=utf-8")
@@ -33,27 +55,43 @@ class _Handler(BaseHTTPRequestHandler):
         if path.startswith("/assets/"):
             target = self.ui_root / path.removeprefix("/assets/")
             if target.is_file() and target.resolve().is_relative_to(self.ui_root.resolve()):
-                self._serve(target, self._content_type(target)); return
+                self._serve(target, self._content_type(target))
+                return
         self._send(404, b'{"error":"not found"}', "application/json")
+
     def _serve(self, path, content_type):
-        try: body = path.read_bytes()
+        try:
+            body = path.read_bytes()
         except OSError:
-            self._send(404, b'{"error":"not found"}', "application/json"); return
+            self._send(404, b'{"error":"not found"}', "application/json")
+            return
         self._send(200, body, content_type)
+
     @staticmethod
     def _content_type(path):
-        return {".css":"text/css; charset=utf-8",".js":"text/javascript; charset=utf-8",
-                ".svg":"image/svg+xml",".json":"application/json"}.get(path.suffix.lower(),"application/octet-stream")
-    def log_message(self, format, *args): return
+        return {".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8",
+                ".svg": "image/svg+xml", ".json": "application/json"}.get(path.suffix.lower(), "application/octet-stream")
+
+    def log_message(self, format, *args):
+        return
+
 
 def serve(project_root=".", host="127.0.0.1", port=8765):
     dashboard = EngineeringDashboard(project_root)
-    handler = type("AERDashboardHandler", (_Handler,), {"dashboard": dashboard, "ui_root": UI_ROOT})
+    control_center = MuxinSessionAdapter(project_root, dashboard=dashboard)
+    handler = type("AERDashboardHandler", (_Handler,), {
+        "dashboard": dashboard, "control_center": control_center,
+        "ui_root": UI_ROOT, "control_center_path": CONTROL_CENTER,
+    })
     server = ThreadingHTTPServer((host, port), handler)
     print(f"AUREN Engineering Console: http://{host}:{port}")
-    try: server.serve_forever()
-    except KeyboardInterrupt: pass
-    finally: server.server_close()
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.server_close()
+
 
 def main():
     parser = argparse.ArgumentParser(description="Run the local AUREN engineering dashboard.")
@@ -63,4 +101,6 @@ def main():
     args = parser.parse_args()
     serve(args.project_root, args.host, args.port)
 
-if __name__ == "__main__": main()
+
+if __name__ == "__main__":
+    main()
