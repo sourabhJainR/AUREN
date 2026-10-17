@@ -70,6 +70,14 @@ class AgentTeamOrchestrator:
                 raise ValueError("repository_digest is required for authority-bound team execution")
             if execution_guards is None:
                 raise ValueError("task-owned execution_guards are required for authority-bound team execution")
+            if set(execution_authorities) != set(by_id):
+                missing = sorted(set(by_id) - set(execution_authorities))
+                extra = sorted(set(execution_authorities) - set(by_id))
+                raise ValueError(f"one execution authority per team unit is required; missing={missing}, extra={extra}")
+            if set(execution_guards or {}) != set(by_id):
+                missing = sorted(set(by_id) - set(execution_guards or {}))
+                extra = sorted(set(execution_guards or {}) - set(by_id))
+                raise ValueError(f"one task-owned execution guard per team unit is required; missing={missing}, extra={extra}")
             for unit_id, authority in execution_authorities.items():
                 if unit_id not in by_id:
                     raise ValueError(f"execution authority references unknown unit: {unit_id}")
