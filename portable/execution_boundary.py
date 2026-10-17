@@ -69,8 +69,8 @@ EXECUTION_SURFACE_INVENTORY: tuple[ExecutionSurface, ...] = (
     ExecutionSurface(
         "action-authorization", "Capability/action allowlists and approval checks",
         "portable/action_governance.py:ActionGovernanceGateway",
-        "Policy verdicts, approval binding, external-effect idempotency and tamper-evident event chain",
-        "Callers must route consequential actions through the gateway; trace is not trusted storage",
+        "Policy verdicts, approval binding, external-effect idempotency, tamper-evident event chain, and opt-in authority-bound OpenShell adapter",
+        "Binding is not yet mandatory across every consequential caller; trace is not trusted storage",
     ),
     ExecutionSurface(
         "runtime-budget-and-cancellation", "Bounded steps, attempts, deadlines and repeated-failure stop",
