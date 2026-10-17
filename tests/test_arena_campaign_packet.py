@@ -1,5 +1,3 @@
-import hashlib
-import json
 import unittest
 
 from portable.arena_campaign_packet import (
