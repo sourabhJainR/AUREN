@@ -2,8 +2,10 @@ import unittest
 from types import SimpleNamespace
 
 from portable.action_governance import ActionGovernanceGateway, ActionPolicy, ActionRequest
+from portable.execution_boundary import ExecutionAuthorityBinding
 from portable.governed_sandbox_execution import execute_governed_sandbox
 from portable.openshell_sandbox import OpenShellExecutionRequest
+from portable.runtime_recovery import RuntimeExecutionGuard
 
 
 class FakeBackend:
@@ -94,6 +96,52 @@ class GovernedSandboxExecutionTests(unittest.TestCase):
             "policy_verdict", "action_started", "action_completed"
         ])
         self.assertTrue(gateway.verify_trace()["passed"])
+
+    def test_authority_bound_sandbox_rejects_stale_revision_before_launch(self):
+        gateway = self.make_gateway()
+        backend = FakeBackend()
+        authority = ExecutionAuthorityBinding(
+            execution_id="exec-1", run_id="run-1", task_id="task-1",
+            repository_digest="repo-digest", repository_revision="abc123",
+            principal="auren-host",
+            allowed_capabilities=("repository.write",),
+            allowed_actions=("specialist.execute",),
+            allowed_targets=("src",),
+            budget_id="budget-1", max_attempts=2,
+        )
+        receipt = execute_governed_sandbox(
+            gateway, backend, make_action(task_id="task-1"), make_request(),
+            execution_authority=authority,
+            repository_revision="stale-head", repository_digest="repo-digest",
+            budget_id="budget-1",
+            execution_guard=RuntimeExecutionGuard(max_steps=5, max_attempts=2),
+        )
+        self.assertFalse(receipt.action_executed)
+        self.assertEqual(receipt.policy_verdict.reason, "repository_revision_mismatch")
+        self.assertEqual(backend.calls, [])
+
+    def test_authority_bound_sandbox_preserves_budget_and_launches_only_in_scope(self):
+        gateway = self.make_gateway()
+        backend = FakeBackend()
+        authority = ExecutionAuthorityBinding(
+            execution_id="exec-2", run_id="run-1", task_id="task-2",
+            repository_digest="repo-digest", repository_revision="abc123",
+            principal="auren-host",
+            allowed_capabilities=("repository.write",),
+            allowed_actions=("specialist.execute",),
+            allowed_targets=("src",),
+            budget_id="budget-2", max_attempts=2,
+        )
+        guard = RuntimeExecutionGuard(max_steps=5, max_attempts=2)
+        receipt = execute_governed_sandbox(
+            gateway, backend, make_action(task_id="task-2"), make_request(),
+            execution_authority=authority,
+            repository_revision="abc123", repository_digest="repo-digest",
+            budget_id="budget-2", execution_guard=guard,
+        )
+        self.assertTrue(receipt.passed)
+        self.assertEqual(len(backend.calls), 1)
+        self.assertEqual(guard.attempts_used, 1)
 
     def test_nonzero_sandbox_result_is_not_reported_as_passed(self):
         gateway = self.make_gateway()
