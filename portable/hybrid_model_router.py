@@ -13,7 +13,6 @@ import urllib.request
 from dataclasses import dataclass, asdict
 from typing import Any, Callable
 
-from .muxin_session_adapter import LocalModelDiscovery
 
 @dataclass(frozen=True)
 class TaskRouteRequest:
@@ -41,7 +40,10 @@ class HybridModelRouter:
                  remote_executor: Callable[[TaskRouteRequest], Any] | None = None,
                  local_executor: Callable[[TaskRouteRequest, str], Any] | None = None,
                  resource_reader: Callable[[], dict[str, Any]] | None = None):
-        self.discovery = discovery or LocalModelDiscovery()
+        if discovery is None:
+            from .muxin_session_adapter import LocalModelDiscovery
+            discovery = LocalModelDiscovery()
+        self.discovery = discovery
         self.remote_executor = remote_executor
         self.local_executor = local_executor
         self.resource_reader = resource_reader or self._resources
