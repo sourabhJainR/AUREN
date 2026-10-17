@@ -350,6 +350,10 @@ class GuardedExecutionCheckpoint:
         previous_checkpoint_digest: str = "",
     ) -> "GuardedExecutionCheckpoint":
         authority.validate()
+        if not isinstance(guard, RuntimeExecutionGuard):
+            raise TypeError("guard must be the task-owned RuntimeExecutionGuard")
+        if guard.max_attempts > authority.max_attempts:
+            raise ValueError("checkpoint attempt budget exceeds execution authority")
         checkpoint = cls(
             authority_digest=authority.digest,
             repository_revision=authority.repository_revision,
@@ -369,6 +373,12 @@ class GuardedExecutionCheckpoint:
     def from_dict(cls, raw: Mapping[str, Any]) -> "GuardedExecutionCheckpoint":
         if not isinstance(raw, Mapping):
             raise TypeError("checkpoint must be a mapping")
+        allowed_keys = {
+            "schema_version", "authority_digest", "repository_revision", "sequence",
+            "guard_snapshot", "previous_checkpoint_digest", "digest",
+        }
+        if set(raw) != allowed_keys:
+            raise ValueError("checkpoint contains missing or unknown fields")
         supplied = raw.get("digest")
         payload = {key: value for key, value in raw.items() if key != "digest"}
         checkpoint = cls(
@@ -396,10 +406,17 @@ class GuardedExecutionCheckpoint:
             raise ValueError("checkpoint authority binding mismatch")
         if self.repository_revision != expected_repository_revision or expected_repository_revision != authority.repository_revision:
             raise ValueError("checkpoint repository revision mismatch")
+        if type(minimum_sequence) is not int or minimum_sequence < 0:
+            raise ValueError("minimum_sequence must be a non-negative integer")
         if self.sequence < minimum_sequence:
             raise ValueError("checkpoint replay or sequence rollback detected")
-        # RuntimeExecutionGuard.resume validates its own snapshot digest and bounds.
-        return RuntimeExecutionGuard.resume(payload["guard_snapshot"])
+        # Validate the nested budget before returning any resumed execution capability.
+        restored = RuntimeExecutionGuard.resume(payload["guard_snapshot"])
+        if restored.max_attempts > authority.max_attempts:
+            raise ValueError("checkpoint attempt budget exceeds execution authority")
+        if restored.attempts_used > authority.max_attempts:
+            raise ValueError("checkpoint attempts used exceed execution authority")
+        return restored
 
 
 __all__ = [
