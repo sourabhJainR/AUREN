@@ -14,7 +14,6 @@ from .action_governance import (
     ActionGovernanceGateway,
     ActionRequest,
     ApprovalReceipt,
-    GovernedResult,
     PolicyVerdict,
 )
 from .execution_boundary import ExecutionAuthorityBinding, execute_bound_action
