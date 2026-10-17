@@ -132,7 +132,7 @@ class ExecutionBoundaryTests(unittest.TestCase):
             repository_revision="abc123", repository_digest="repo-digest",
         )
         self.assertFalse(allowed)
-        self.assertEqual(reason, "target_out_of_scope")
+        self.assertEqual(reason, "invalid_target_path")
 
     def test_p2_binding_digest_changes_when_scope_changes(self):
         self.assertNotEqual(
