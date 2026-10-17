@@ -16,6 +16,8 @@ from .action_governance import (
     ApprovalReceipt,
     PolicyVerdict,
 )
+from .execution_boundary import ExecutionAuthorityBinding, execute_bound_action
+from .runtime_recovery import RuntimeExecutionGuard
 from .openshell_sandbox import (
     OpenShellExecutionRequest,
     OpenShellExecutionResult,
@@ -60,6 +62,11 @@ def execute_governed_sandbox(
     sandbox_request: OpenShellExecutionRequest,
     *,
     approval: ApprovalReceipt | None = None,
+    execution_authority: ExecutionAuthorityBinding | None = None,
+    repository_revision: str | None = None,
+    repository_digest: str | None = None,
+    budget_id: str | None = None,
+    execution_guard: RuntimeExecutionGuard | None = None,
 ) -> GovernedSandboxReceipt:
     """Authorize before invoking OpenShell; never fall back to host execution.
 
@@ -68,11 +75,28 @@ def execute_governed_sandbox(
     deliberately does not infer that mapping from path names.
     """
     captured: list[OpenShellExecutionResult] = []
-    result = gateway.execute(
-        action,
-        lambda: captured.append(backend.execute(sandbox_request)) or captured[-1].as_evidence(),
-        approval=approval,
-    )
+    handler = lambda: captured.append(backend.execute(sandbox_request)) or captured[-1].as_evidence()
+    binding_args = (repository_revision, repository_digest, budget_id, execution_guard)
+    if execution_authority is None:
+        if any(value is not None for value in binding_args):
+            raise ValueError("execution_authority is required when bound execution arguments are supplied")
+        result = gateway.execute(action, handler, approval=approval)
+    else:
+        if (
+            not isinstance(repository_revision, str) or not repository_revision
+            or not isinstance(repository_digest, str) or not repository_digest
+            or not isinstance(budget_id, str) or not budget_id
+            or not isinstance(execution_guard, RuntimeExecutionGuard)
+        ):
+            raise ValueError("bound sandbox execution requires repository revision/digest, budget_id, and execution_guard")
+        result = execute_bound_action(
+            gateway, execution_authority, action, handler,
+            repository_revision=repository_revision,
+            repository_digest=repository_digest,
+            budget_id=budget_id,
+            execution_guard=execution_guard,
+            approval=approval,
+        )
     if not result.executed:
         return GovernedSandboxReceipt(False, result.verdict, None)
     if not captured:
