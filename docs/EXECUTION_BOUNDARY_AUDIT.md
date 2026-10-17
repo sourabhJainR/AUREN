@@ -24,7 +24,7 @@ This is an explicit preflight contract, not an OS sandbox or cryptographic ident
 
 ## P3 — Preserve recovery state across restart
 
-`GuardedExecutionCheckpoint` associates a `RuntimeExecutionGuard` snapshot with the authority digest, exact repository revision, sequence number, and prior-checkpoint digest. It verifies serialized checkpoint integrity, rejects authority/revision mismatch and a sequence older than the caller's persisted minimum, and restores the existing budget rather than creating a fresh one.
+`GuardedExecutionCheckpoint` associates a `RuntimeExecutionGuard` snapshot with the authority digest, exact repository revision, sequence number, and prior-checkpoint digest. It verifies serialized checkpoint integrity, rejects unknown fields, authority/revision mismatch and a sequence older than the caller's persisted minimum, and restores the existing budget rather than creating a fresh one. Capture and restore both enforce that the nested attempt budget cannot exceed the authority ceiling.
 
 Replay prevention requires the persistence owner to retain the highest accepted sequence in trusted storage and supply it as `minimum_sequence`. A digest is integrity evidence, not a signature; an attacker able to rewrite both checkpoint and digest is outside this value object's threat boundary. Cancellation remains cooperative, and irreversible side effects require downstream idempotency.
 
