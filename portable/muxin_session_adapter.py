@@ -57,11 +57,14 @@ class MuxinSessionAdapter:
             checkpoint = self.session_store.load(path.stem)
             if checkpoint is None:
                 continue
+            expected_project_key = self.session_store.project_key(self.project_root)
+            if checkpoint.project_key != expected_project_key:
+                continue
             if checkpoint.project_root:
                 try:
                     if Path(checkpoint.project_root).expanduser().resolve() != self.project_root:
                         continue
-                except OSError:
+                except (OSError, RuntimeError, ValueError):
                     continue
             rows.append(self._session_record(checkpoint))
         return rows
