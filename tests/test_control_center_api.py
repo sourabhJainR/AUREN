@@ -4,7 +4,7 @@ import tempfile
 import threading
 import unittest
 from pathlib import Path
-from urllib.request import urlopen
+from urllib.request import urlopen, Request
 
 from portable.dashboard_server import _Handler
 from portable.engineering_dashboard import EngineeringDashboard
@@ -43,6 +43,14 @@ class ControlCenterApiTests(unittest.TestCase):
         self.assertIn("routing", payload)
         self.assertIn("resources", payload)
         self.assertEqual([], payload["learnings"])
+
+    def test_route_api_rejects_invalid_payload_without_running_a_model(self):
+        base = "http://127.0.0.1:%d" % self.server.server_port
+        request = Request(base + "/api/route", data=b'{"task":""}',
+                          headers={"Content-Type": "application/json"}, method="POST")
+        with self.assertRaises(Exception) as caught:
+            urlopen(request, timeout=2)
+        self.assertEqual(400, caught.exception.code)
 
     def test_ui_contains_live_endpoint_and_no_fabricated_success_in_live_mapping(self):
         html = (Path(__file__).resolve().parents[1] / "site" / "control-center.html").read_text(encoding="utf-8")
