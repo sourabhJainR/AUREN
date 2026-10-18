@@ -8,9 +8,10 @@ from __future__ import annotations
 import json
 import time
 import urllib.request
-from .local_endpoint import open_loopback_request, validate_loopback_base_url
 from dataclasses import dataclass
 from typing import Any, Callable
+
+from .local_endpoint import open_loopback_request, validate_loopback_base_url
 
 
 @dataclass(frozen=True)
