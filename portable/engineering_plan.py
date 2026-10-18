@@ -253,7 +253,7 @@ class EngineeringPlanRun:
         ids = [task.task_id for task in self.tasks]
         if len(set(ids)) != len(ids):
             raise ValueError("run task IDs must be unique")
-        _canonical(dict(self.handoff))
+        _canonical(_thaw_json(self.handoff))
 
     def to_dict(self) -> dict[str, Any]:
         return {
