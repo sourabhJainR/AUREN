@@ -305,6 +305,18 @@ class AdaptiveRuntime:
         work_id = self.execution_controller.work_unit_for_session(f"{session_id}:{task_id}", f"{task_id}: {intent}")
         saved_checkpoint = self.recovery_ledger.get_checkpoint(work_id, "execution")
         saved_payload = saved_checkpoint.payload if saved_checkpoint is not None else {}
+        if saved_checkpoint is not None and saved_checkpoint.status == "in_progress":
+            raise RuntimeError(
+                "in-progress execution checkpoint lacks a resumable graph-state envelope; explicit recovery is required"
+            )
+        if (
+            saved_checkpoint is not None
+            and saved_checkpoint.status == "blocked"
+            and not isinstance(saved_payload.get("runtime_guard"), Mapping)
+        ):
+            raise RuntimeError(
+                "legacy blocked checkpoint lacks the shared runtime guard; explicit recovery is required"
+            )
         supplied_deadline = context.get("auren_deadline_at")
         persisted_deadline = saved_payload.get("deadline_at") if isinstance(saved_payload, Mapping) else None
         deadline_value = supplied_deadline or persisted_deadline
