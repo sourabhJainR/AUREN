@@ -137,6 +137,67 @@ class AdaptiveRuntimeRecoveryIntegrationTests(unittest.TestCase):
             restored.snapshot()["charged_operations"],
         )
 
+    def test_interrupted_provider_charge_survives_restart_without_replay(self):
+        graph = Graph([Node("work", NodeKind.DETERMINISTIC, lambda state: "ok")])
+        state_root = self.root / "interrupted-provider-state"
+        runtime = AdaptiveRuntime(graph, state_root=state_root)
+        session_id = "interrupted-provider-session"
+        task_id = "interrupted-provider-task"
+        intent = "persist provider charge before dispatch and never replay incomplete work"
+        operation_key = "provider-call:stable-request-1"
+        calls = []
+
+        class SimulatedProcessInterruption(BaseException):
+            pass
+
+        def interrupted_execution(**kwargs):
+            calls.append("first-process")
+            context = dict(kwargs.get("context") or {})
+            guard = context["_auren_runtime_execution_guard"]
+            guard.charge_attempt(operation_key)
+            context["auren_runtime_guard_persist"](guard.snapshot())
+            # Simulate abrupt process loss after the durable pre-dispatch receipt.
+            raise SimulatedProcessInterruption()
+
+        runtime._run_once = interrupted_execution
+        with self.assertRaises(SimulatedProcessInterruption):
+            runtime.run(
+                session_id=session_id,
+                task_id=task_id,
+                project_root=self.root,
+                intent=intent,
+                enrich_context=False,
+                enrich_cognition=False,
+            )
+
+        with sqlite3.connect(runtime.execution_controller.db_path) as db:
+            work_id = db.execute(
+                "SELECT work_unit_id FROM sessions WHERE session_id=?",
+                (f"{session_id}:{task_id}",),
+            ).fetchone()[0]
+        interrupted_checkpoint = runtime.recovery_ledger.get_checkpoint(work_id, "execution")
+        self.assertIsNotNone(interrupted_checkpoint)
+        self.assertEqual("in_progress", interrupted_checkpoint.status)
+        charged = interrupted_checkpoint.payload["runtime_guard"]["charged_operations"]
+        self.assertIn(operation_key, charged)
+        self.assertEqual(len(charged), len(set(charged)))
+
+        resumed = AdaptiveRuntime(graph, state_root=state_root)
+        resumed._run_once = lambda **_kwargs: calls.append("replayed") or None
+        with self.assertRaisesRegex(RuntimeError, "explicit recovery is required"):
+            resumed.run(
+                session_id=session_id,
+                task_id=task_id,
+                project_root=self.root,
+                intent=intent,
+                enrich_context=False,
+                enrich_cognition=False,
+            )
+        self.assertEqual(["first-process"], calls)
+        restored_guard = RuntimeExecutionGuard.resume(interrupted_checkpoint.payload["runtime_guard"])
+        self.assertFalse(restored_guard.charge_attempt(operation_key))
+        self.assertEqual(charged, restored_guard.snapshot()["charged_operations"])
+
     def test_default_runtime_migrates_legacy_sessions_on_startup(self):
         legacy = self.root / ".aer"
         canonical = self.root / ".auren"
