@@ -1,6 +1,7 @@
 """Hybrid routing policy and bounded fallback regression tests."""
 import unittest
 from portable.hybrid_model_router import HybridModelRouter, TaskRouteRequest
+from portable.runtime_recovery import RuntimeExecutionGuard
 
 class Discovery:
     def __init__(self, names): self.names = names
@@ -40,6 +41,39 @@ class HybridRouterTests(unittest.TestCase):
         self.assertEqual(1, len(calls))
         self.assertEqual("local", result.provider)
         self.assertIn("privacy policy", result.error)
+
+    def test_route_with_context_reuses_graph_guard_across_provider_calls(self):
+        calls = []
+        guard = RuntimeExecutionGuard(max_steps=4, max_attempts=1)
+        context = {"_auren_runtime_execution_guard": guard}
+        router = HybridModelRouter(
+            discovery=Discovery([]),
+            remote_executor=lambda request: calls.append(request) or "ok",
+            resource_reader=lambda: {},
+        )
+
+        first = router.route_with_context(
+            TaskRouteRequest("public summary", "general", privacy="public", max_attempts=1),
+            context,
+        )
+        second = router.route_with_context(
+            TaskRouteRequest("another public summary", "general", privacy="public", max_attempts=1),
+            context,
+        )
+
+        self.assertTrue(first.success)
+        self.assertFalse(second.success)
+        self.assertEqual(1, len(calls))
+        self.assertEqual(1, guard.attempts_used)
+
+    def test_route_with_context_rejects_forged_guard_before_discovery(self):
+        discovery = Discovery([])
+        router = HybridModelRouter(discovery=discovery, resource_reader=lambda: {})
+        with self.assertRaisesRegex(TypeError, "invalid execution guard"):
+            router.route_with_context(
+                TaskRouteRequest("public summary", "general", privacy="public"),
+                {"_auren_runtime_execution_guard": object()},
+            )
 
     def test_attempts_are_clamped_to_three(self):
         calls = []
