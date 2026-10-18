@@ -56,6 +56,14 @@ Guard-controlled canary / promotion / rollback
 Outcome evidence -> advisory learning -> future task policy
 ```
 
+## Shared execution budget contract
+
+`AdaptiveRuntime.run()` owns one live `RuntimeExecutionGuard` for the complete supervised task. The same object is passed into each supervisor iteration, then reused by `Orchestrator` graph nodes and `GraphAgentTeam` rather than creating a fresh per-layer budget. The guard snapshot is stored with the supervisor recovery checkpoint and resumed only from that trusted ledger; caller-supplied live guard objects or snapshots are ignored.
+
+Graph nodes and specialist adapters that need model inference should call `HybridModelRouter.route_with_context(request, state)` (or explicitly pass `state["_auren_runtime_execution_guard"]` to `route(..., execution_guard=...)`). Model discovery is blocked before probing when the shared attempt budget is already exhausted. The route-local attempt/deadline limits remain in force and cannot enlarge the shared task budget. Python callbacks that ignore cancellation remain non-preemptible; hard termination requires a process-isolated adapter.
+
+Regression coverage verifies guard identity across supervisor retries, checkpoint/resume of charged attempts, specialist-graph guard reuse, and that a second model route cannot execute or even discover models after the shared attempt budget is consumed.
+
 ## Trusted adapter bootstrap
 
 The runtime does not invent provider-backed crew adapters. A trusted host creates each `ApprovedToolCrewAdapter` with an explicit read-only `ApprovedToolRegistry`, then registers the configured mapping before task execution:
