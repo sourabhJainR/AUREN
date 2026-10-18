@@ -116,7 +116,6 @@ class HybridModelRouter:
         # Private/restricted data must remain local. No remote fallback is allowed.
         last_local_model = None
         if candidates and self.local_executor:
-            last_local_model = candidates[0]
             for model in candidates[:attempts_limit]:
                 if time.monotonic() - started >= timeout:
                     reason = "overall timeout budget exhausted"
