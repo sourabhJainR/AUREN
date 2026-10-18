@@ -63,14 +63,15 @@ class EngineeringContextPacketTests(unittest.TestCase):
         self.assertIn("revert implementation", first.rollback_plan)
 
     def test_optional_context_is_pruned_before_mandatory_contract(self):
-        packet = self.build(max_bytes=1800)
+        packet = self.build(max_bytes=1410)
         packet.verify()
         self.assertTrue(packet.policy_constraints)
         self.assertTrue(packet.approvals)
         self.assertTrue(packet.rollback_plan)
         self.assertTrue(packet.acceptance_criteria)
         self.assertTrue(packet.next_safe_action)
-        self.assertLessEqual(packet.serialized_size, 1800)
+        self.assertLessEqual(packet.serialized_size, 1410)
+        self.assertLess(len(packet.optional_context), 2)
 
     def test_oversized_mandatory_context_fails_closed(self):
         with self.assertRaisesRegex(ValueError, "mandatory context packet exceeds"):
