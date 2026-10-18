@@ -4,6 +4,7 @@ import unittest
 
 from portable.orchestration import Node, NodeKind, RunStatus
 from portable.state_graph import CrewDefinition, GraphAgentTeam, StateGraph
+from portable.runtime_recovery import ExecutionBudgetExceeded
 
 
 class ProposalAgent:
@@ -113,6 +114,23 @@ class GraphAgentCrewTests(unittest.TestCase):
         self.assertEqual(set(frontend.requests[0]["allowed_authorities"]) & {"merge", "promote"}, set())
         with self.assertRaisesRegex(RuntimeError, "only available during graph execution"):
             observed["auren_crew_dispatch"]("frontend_ui", "late call")
+
+    def test_duplicate_specialist_proposal_is_not_reexecuted(self):
+        frontend = ProposalAgent("frontend_ui")
+        observed = {}
+
+        def run_node(state):
+            observed["state"] = state
+            state["auren_crew_dispatch"]("frontend_ui", "Design the login screen")
+            with self.assertRaisesRegex(ExecutionBudgetExceeded, "already charged"):
+                state["auren_crew_dispatch"]("frontend_ui", "Design the login screen")
+            return "completed"
+
+        team, _graph = self.make_team(run_node, agents={"frontend_ui": frontend})
+        result = team.run("duplicate-proposal", "frontend UI")
+        self.assertEqual(RunStatus.ACCEPTED, result.status)
+        self.assertEqual(1, len(frontend.requests))
+        self.assertEqual(2, observed["state"]["_auren_runtime_execution_guard"].attempts_used)
 
     def test_dispatch_rejects_unstructured_or_unsupported_proposals(self):
         observed = {}
