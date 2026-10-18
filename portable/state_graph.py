@@ -293,8 +293,9 @@ def _dispatch_crew_proposal(
     if agent is None:
         raise ValueError(f"no registered proposal agent for crew {crew_id}")
     proposer = getattr(agent, "propose", None)
-    if not callable(proposer):
-        raise TypeError("crew agents must expose a side-effect-free propose(request) interface")
+    guarded_proposer = getattr(agent, "propose_with_execution_guard", None)
+    if not callable(proposer) and not callable(guarded_proposer):
+        raise TypeError("crew agents must expose a side-effect-free proposal interface")
     if not isinstance(task, str) or not task.strip():
         raise ValueError("crew task must be non-empty text")
     if evidence is not None and not isinstance(evidence, Mapping):
@@ -325,15 +326,16 @@ def _dispatch_crew_proposal(
         json.dumps(request, sort_keys=True, separators=(",", ":"))
     except (TypeError, ValueError) as exc:
         raise ValueError("crew proposal request must be JSON-serializable") from exc
-    guarded_proposer = getattr(agent, "propose_with_execution_guard", None)
     if execution_guard is not None and callable(guarded_proposer):
         proposal = guarded_proposer(
             request,
             execution_guard=execution_guard,
             execution_guard_persist=execution_guard_persist,
         )
-    else:
+    elif callable(proposer):
         proposal = proposer(request)
+    else:
+        raise TypeError("guard-aware proposal adapter requires the shared execution guard")
     if not isinstance(proposal, Mapping):
         raise ValueError("crew proposal must be a structured mapping")
     required_fields = {
