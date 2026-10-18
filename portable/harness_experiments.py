@@ -6,7 +6,7 @@ and the controller fails closed when its receipt does not attest to that enforce
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 import hashlib
 import json
 import math
@@ -252,6 +252,7 @@ class HarnessExperimentController:
                 self.guard.check()
                 checkpoint("propose", status="in_progress", details={"depth": depth})
                 proposal_base = best[1] if best is not None else base
+                parent_digest = best[2] if best is not None else base_digest
                 proposed = propose(self._copy_json(proposal_base), task, depth, manifest.seed + depth)
                 if not isinstance(proposed, Sequence) or isinstance(proposed, (str, bytes)):
                     raise ValueError("propose must return a sequence of declarative candidates")
@@ -272,13 +273,13 @@ class HarnessExperimentController:
                         continue
                     candidate_digests.append(digest)
                     checkpoint("candidate_probe", status="in_progress", details={
-                        "depth": depth, "candidate_index": index, "candidate_digest": digest
+                        "depth": depth, "parent_digest": parent_digest, "candidate_index": index, "candidate_digest": digest
                     })
                     self.guard.charge_attempt(f"harness:{manifest.run_id}:candidate:{digest}:probe")
                     probe_receipt = self._receipt(
                         probe(self._copy_json(candidate), task, manifest_payload, "candidate"), kind="probe"
                     )
-                    evidence.append({"kind": "candidate_probe", "depth": depth, "digest": digest, "receipt": probe_receipt})
+                    evidence.append({"kind": "candidate_probe", "depth": depth, "parent_digest": parent_digest, "digest": digest, "receipt": probe_receipt})
                     if not self._isolation_receipt(probe_receipt, manifest, digest):
                         evidence.append({"kind": "candidate_rejected", "digest": digest, "reason": "isolation receipt invalid"})
                         checkpoint("candidate_rejected", status="rejected", details={
@@ -290,7 +291,7 @@ class HarnessExperimentController:
                     judge_receipt = self._receipt(
                         judge(self._copy_json(candidate), probe_receipt, manifest_payload), kind="judge"
                     )
-                    evidence.append({"kind": "candidate_judge", "depth": depth, "digest": digest, "receipt": judge_receipt})
+                    evidence.append({"kind": "candidate_judge", "depth": depth, "parent_digest": parent_digest, "digest": digest, "receipt": judge_receipt})
                     if not self._judge_receipt(judge_receipt, manifest, digest):
                         evidence.append({"kind": "candidate_rejected", "digest": digest, "reason": "evaluator receipt invalid"})
                         continue
