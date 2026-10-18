@@ -64,6 +64,49 @@ class AdaptiveRuntimeRecoveryIntegrationTests(unittest.TestCase):
         self.assertEqual([item.hypothesis for item in resumed_attempts], [item.hypothesis for item in attempts])
         self.assertEqual(resumed.recovery_ledger.get_checkpoint(work_id, "execution").payload["recovery_mode"], "alternate-plan")
 
+    def test_supervisor_shares_and_checkpoints_one_runtime_guard_across_retries(self):
+        graph = Graph([Node("work", NodeKind.DETERMINISTIC, lambda state: "ok")])
+        runtime = AdaptiveRuntime(graph, state_root=self.root / "shared-guard-state")
+        seen_guards = []
+
+        def failing_execution(**kwargs):
+            context = dict(kwargs.get("context") or {})
+            guard = context.get("_auren_runtime_execution_guard")
+            self.assertIsNotNone(guard)
+            seen_guards.append(guard)
+            guard.charge_attempt(f"provider-call:{len(seen_guards)}")
+            raise RuntimeError("exercise shared budget checkpoint")
+
+        runtime._run_once = failing_execution
+        with self.assertRaisesRegex(RuntimeError, "stopped safely"):
+            runtime.run(
+                session_id="shared-guard-session",
+                task_id="shared-guard-task",
+                project_root=self.root,
+                intent="prove shared runtime budget across supervisor retries",
+                context={"auren_max_iterations": 3},
+            )
+
+        self.assertEqual(3, len(seen_guards))
+        self.assertTrue(all(guard is seen_guards[0] for guard in seen_guards))
+        self.assertEqual(6, seen_guards[0].attempts_used)  # 3 supervisor + 3 provider attempts
+
+        with sqlite3.connect(runtime.execution_controller.db_path) as db:
+            work_id = db.execute(
+                "SELECT work_unit_id FROM sessions WHERE session_id=?",
+                ("shared-guard-session:shared-guard-task",),
+            ).fetchone()[0]
+        checkpoint = runtime.recovery_ledger.get_checkpoint(work_id, "execution")
+        self.assertIsNotNone(checkpoint)
+        restored = __import__("portable.runtime_recovery", fromlist=["RuntimeExecutionGuard"]).RuntimeExecutionGuard.resume(
+            checkpoint.payload["runtime_guard"]
+        )
+        self.assertEqual(6, restored.attempts_used)
+        self.assertEqual(
+            checkpoint.payload["runtime_guard"]["digest"],
+            restored.snapshot()["digest"],
+        )
+
     def test_default_runtime_migrates_legacy_sessions_on_startup(self):
         legacy = self.root / ".aer"
         canonical = self.root / ".auren"
