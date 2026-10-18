@@ -114,6 +114,7 @@ class HybridModelRouter:
         reason = None
         attempts_used = 0
         # Private/restricted data must remain local. No remote fallback is allowed.
+        last_local_model = None
         if candidates and self.local_executor:
             last_local_model = candidates[0]
             for model in candidates[:attempts_limit]:
@@ -127,6 +128,9 @@ class HybridModelRouter:
                     attempt_request = TaskRouteRequest(bounded.task, bounded.capability, bounded.privacy,
                                                        bounded.max_attempts, remaining)
                     value = self.local_executor(attempt_request, model)
+                    if time.monotonic() - started >= timeout:
+                        reason = "overall timeout budget exhausted"
+                        break
                     return RouteResult("local", model, True, attempts_used,
                         round((time.monotonic()-started)*1000, 2),
                         {"before": before, "after": self.resource_reader()},
@@ -150,25 +154,34 @@ class HybridModelRouter:
                 round((time.monotonic()-started)*1000, 2),
                 {"before": before, "after": self.resource_reader()}, reason,
                 error="No eligible executor configured")
+        remote_attempts = 0
         for _ in range(max(0, attempts_limit - attempts_used)):
             if time.monotonic() - started >= timeout:
                 reason = "overall timeout budget exhausted"
                 break
             try:
                 attempts_used += 1
+                remote_attempts += 1
                 remaining = max(0.1, timeout - (time.monotonic() - started))
                 attempt_request = TaskRouteRequest(bounded.task, bounded.capability, bounded.privacy,
                                                    bounded.max_attempts, remaining)
                 value = self.remote_executor(attempt_request)
+                if time.monotonic() - started >= timeout:
+                    reason = "overall timeout budget exhausted"
+                    break
                 return RouteResult("remote", None, True, attempts_used,
                     round((time.monotonic()-started)*1000, 2),
                     {"before": before, "after": self.resource_reader()}, reason, value)
             except Exception as exc:
                 reason = type(exc).__name__
-        return RouteResult("remote", None, False, attempts_used,
-            round((time.monotonic()-started)*1000, 2),
+        return RouteResult(
+            "remote" if remote_attempts else ("local" if last_local_model else "none"),
+            None if remote_attempts else last_local_model,
+            False, attempts_used, round((time.monotonic()-started)*1000, 2),
             {"before": before, "after": self.resource_reader()}, reason,
-            error="Eligible execution failed within bounded retry budget")
+            error=("Eligible execution failed within bounded retry budget" if remote_attempts
+                   else "Attempt budget or deadline exhausted before remote execution"),
+        )
 
     def snapshot(self) -> dict[str, Any]:
         return {"local_discovery": self.discovery.discover(),
