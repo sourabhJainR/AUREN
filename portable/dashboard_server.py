@@ -28,8 +28,36 @@ class _Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _origin_is_local(self):
+        origin = self.headers.get("Origin")
+        if not origin:
+            return True  # CLI and same-origin legacy clients may omit Origin.
+        try:
+            parsed = urlparse(origin)
+            port = parsed.port
+        except ValueError:
+            return False
+        return (
+            parsed.scheme == "http"
+            and parsed.hostname in {"127.0.0.1", "localhost"}
+            and port == self.server.server_port
+            and parsed.username is None
+            and parsed.password is None
+            and parsed.path in {"", "/"}
+            and not parsed.query
+            and not parsed.fragment
+        )
+
+    def _guard_api_origin(self, path):
+        if path.startswith("/api/") and not self._origin_is_local():
+            self._send(403, b'{"error":"untrusted origin"}', "application/json; charset=utf-8")
+            return False
+        return True
+
     def do_POST(self):
         path = urlparse(self.path).path
+        if not self._guard_api_origin(path):
+            return
         if path != "/api/route":
             self._send(404, b'{"error":"not found"}', "application/json")
             return
@@ -62,6 +90,8 @@ class _Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         path = urlparse(self.path).path
+        if not self._guard_api_origin(path):
+            return
         if path == "/api/dashboard":
             body = json.dumps(self.dashboard.snapshot().as_dict(), separators=(",", ":")).encode()
             self._send(200, body, "application/json; charset=utf-8")
@@ -110,6 +140,8 @@ class _Handler(BaseHTTPRequestHandler):
 
 
 def serve(project_root=".", host="127.0.0.1", port=8765):
+    if host not in {"127.0.0.1", "localhost"}:
+        raise ValueError("dashboard server only binds to loopback; remote access requires a separately secured deployment")
     dashboard = EngineeringDashboard(project_root)
     control_center = MuxinSessionAdapter(project_root, dashboard=dashboard)
     handler = type("AERDashboardHandler", (_Handler,), {
