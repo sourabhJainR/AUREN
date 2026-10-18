@@ -218,6 +218,22 @@ class HarnessExperimentControllerTests(unittest.TestCase):
         self.assertEqual([self.base_digest], rollback_calls)
         self.assertFalse(result.success)
 
+    def test_timeout_after_adoption_attempt_rolls_back_and_stays_unscored(self):
+        rollback_calls = []
+        def timed_out_adoption(candidate, expected):
+            raise TimeoutError("adoption response lost after possible activation")
+        result = self.run(
+            adopt=timed_out_adoption,
+            rollback=lambda expected: rollback_calls.append(expected) or {
+                "restored": True, "active_digest": expected
+            },
+        )
+        self.assertEqual("unscored", result.status)
+        self.assertFalse(result.success)
+        self.assertTrue(result.rollback_attempted)
+        self.assertTrue(result.rollback_succeeded)
+        self.assertEqual([self.base_digest], rollback_calls)
+
     def test_persistence_failure_cannot_report_success(self):
         calls = []
         def persist(snapshot):
