@@ -147,6 +147,23 @@ class HarnessExperimentControllerTests(unittest.TestCase):
         self.assertFalse(result.success)
         self.assertEqual([], adopted)
 
+    def test_candidate_receipt_for_another_harness_is_rejected(self):
+        adopted = []
+        def mismatched_probe(candidate, task, manifest, stage):
+            receipt = self.probe(candidate, task, manifest, stage)
+            if stage == "candidate":
+                receipt["harness_digest"] = "f" * 64
+            return receipt
+        result = self.run(
+            probe=mismatched_probe,
+            adopt=lambda candidate, expected: adopted.append(candidate) or {
+                "atomic": True, "active_digest": canonical_digest(candidate)
+            },
+        )
+        self.assertEqual("rejected", result.status)
+        self.assertFalse(result.success)
+        self.assertEqual([], adopted)
+
     def test_no_improvement_is_rejected(self):
         result = self.run(
             propose=lambda base, task, depth, seed: [
