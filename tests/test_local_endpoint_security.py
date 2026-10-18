@@ -4,10 +4,11 @@ from urllib.request import Request
 
 from portable.local_endpoint import (
     _NoRedirectHandler,
-    open_loopback_request,
     validate_loopback_base_url,
 )
 from portable.hybrid_model_router import HybridModelRouter, TaskRouteRequest
+from portable.muxin_session_adapter import MuxinSessionAdapter
+from portable.session_state import SessionCheckpoint
 
 
 class _Discovery:
@@ -48,6 +49,14 @@ class LocalEndpointSecurityTests(unittest.TestCase):
         self.assertIsNone(handler.redirect_request(
             request, None, 302, "Found", {}, "http://example.invalid/collect"
         ))
+
+    def test_unknown_checkpoint_stage_is_not_reported_as_running(self):
+        checkpoint = SessionCheckpoint(
+            session_id="session-1", task_id="task-1", project_key="project", stage="future-stage"
+        )
+        record = MuxinSessionAdapter._session_record(checkpoint)
+        self.assertEqual("unverified", record["status"])
+        self.assertEqual(0, record["progress"])
 
     def test_local_attempt_count_reports_actual_attempts(self):
         attempted = []
