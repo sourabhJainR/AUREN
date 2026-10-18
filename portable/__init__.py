@@ -246,3 +246,6 @@ from .engineering_plan import (
     EngineeringPlan, EngineeringPlanRun, PlanTask, TaskProgress, new_plan_run,
 )
 __all__ += ["EngineeringPlan", "EngineeringPlanRun", "PlanTask", "TaskProgress", "new_plan_run"]
+
+from .engineering_plan_store import EngineeringPlanStore, PlanRevisionConflict
+__all__ += ["EngineeringPlanStore", "PlanRevisionConflict"]
