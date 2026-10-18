@@ -249,3 +249,7 @@ __all__ += ["EngineeringPlan", "EngineeringPlanRun", "PlanTask", "TaskProgress",
 
 from .engineering_plan_store import EngineeringPlanStore, PlanRevisionConflict
 __all__ += ["EngineeringPlanStore", "PlanRevisionConflict"]
+
+
+from .engineering_context_packet import EngineeringContextPacket, build_context_packet
+__all__ += ["EngineeringContextPacket", "build_context_packet"]
