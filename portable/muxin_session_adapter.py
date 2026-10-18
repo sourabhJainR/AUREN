@@ -17,6 +17,7 @@ from .engineering_dashboard import EngineeringDashboard
 from .session_state import SessionCheckpoint, SessionStore
 from .memory_orchestrator import MemoryOrchestrator
 from .hybrid_model_router import HybridModelRouter
+from .local_endpoint import open_loopback_request, validate_loopback_base_url
 
 _STAGE_ORDER = (
     "queued", "planning", "running", "testing", "reviewing", "verified", "completed"
@@ -51,22 +52,19 @@ class MuxinSessionAdapter:
 
     def _canonical_learnings(self) -> list[dict[str, Any]]:
         """Read learnings through the existing canonical memory/provenance graph."""
-        try:
-            memory = MemoryOrchestrator(self.project_root, self.project_root.name)
-            recall = memory.recall(
-                "learning lesson verified improvement failure test evidence",
-                kinds=("procedural", "semantic", "reflective", "episodic", "hierarchical"),
-                budget_chars=6000,
-            )
-            return [{
-                "id": item.memory_id, "title": item.text[:160], "detail": item.text,
-                "source": item.source, "confidence": item.confidence,
-                "status": "verified" if item.verified else "recorded",
-                "evidence": list(item.evidence_ids), "created_at": item.created_at,
-                "kind": item.kind,
-            } for item in recall.memories]
-        except Exception:
-            return []
+        memory = MemoryOrchestrator(self.project_root, self.project_root.name)
+        recall = memory.recall(
+            "learning lesson verified improvement failure test evidence",
+            kinds=("procedural", "semantic", "reflective", "episodic", "hierarchical"),
+            budget_chars=6000,
+        )
+        return [{
+            "id": item.memory_id, "title": item.text[:160], "detail": item.text,
+            "source": item.source, "confidence": item.confidence,
+            "status": "verified" if item.verified else "recorded",
+            "evidence": list(item.evidence_ids), "created_at": item.created_at,
+            "kind": item.kind,
+        } for item in recall.memories]
 
     def sessions(self) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
@@ -94,9 +92,11 @@ class MuxinSessionAdapter:
     def _session_record(checkpoint: SessionCheckpoint) -> dict[str, Any]:
         stage = (checkpoint.stage or "unknown").strip().lower()
         progress = stage_progress(stage)
+        known_stages = set(_STAGE_ORDER) | _TERMINAL_FAILURES
         status = "blocked" if stage in _TERMINAL_FAILURES or checkpoint.last_error else (
             "complete" if stage in {"completed", "verified"} else
-            "waiting" if stage == "queued" else "running"
+            "waiting" if stage == "queued" else
+            "running" if stage in known_stages else "unverified"
         )
         return {
             "session_id": checkpoint.session_id,
@@ -118,12 +118,15 @@ class MuxinSessionAdapter:
         dashboard = self.dashboard.snapshot().as_dict()
         sessions = self.sessions()
         learnings: list[dict[str, Any]] = []
+        learning_status = "available" if self.learning_reader is not None else "disabled"
+        learning_error = None
         if self.learning_reader is not None:
             try:
                 learnings = self.learning_reader()
-            except Exception:
-                # A failed optional learning projection must not break the console.
-                learnings = []
+            except Exception as exc:
+                # Keep the console responsive but never disguise failed retrieval as empty memory.
+                learning_status = "unavailable"
+                learning_error = type(exc).__name__
         router = HybridModelRouter()
         route_snapshot = router.snapshot()
         return {
@@ -132,6 +135,8 @@ class MuxinSessionAdapter:
             "project": dashboard.get("project"),
             "sessions": sessions,
             "learnings": learnings[:100],
+            "learning_status": learning_status,
+            "learning_error": learning_error,
             "dashboard": dashboard,
             "models": route_snapshot["local_discovery"],
             "routing": route_snapshot["policy"],
@@ -148,16 +153,14 @@ class LocalModelDiscovery:
 
     def __init__(self, base_url: str | None = None, timeout_seconds: float = 0.75) -> None:
         configured = base_url or os.environ.get("AUREN_LOCAL_MODEL_URL", "http://127.0.0.1:11434")
-        if not configured.startswith(("http://127.0.0.1:", "http://localhost:", "http://[::1]:")):
-            raise ValueError("local model endpoint must use loopback HTTP")
-        self.base_url = configured.rstrip("/")
+        self.base_url = validate_loopback_base_url(configured)
         self.timeout_seconds = max(0.1, min(float(timeout_seconds), 2.0))
 
     def discover(self) -> dict[str, Any]:
         started = time.monotonic()
         request = urllib.request.Request(self.base_url + "/api/tags", headers={"Accept": "application/json"})
         try:
-            with urllib.request.urlopen(request, timeout=self.timeout_seconds) as response:
+            with open_loopback_request(request, timeout=self.timeout_seconds) as response:
                 payload = response.read(_MAX_RESPONSE_BYTES + 1)
                 if len(payload) > _MAX_RESPONSE_BYTES:
                     raise ValueError("local model response exceeds size limit")

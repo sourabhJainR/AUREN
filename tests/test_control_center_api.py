@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from urllib.request import urlopen, Request
 
-from portable.dashboard_server import _Handler
+from portable.dashboard_server import _Handler, serve
 from portable.engineering_dashboard import EngineeringDashboard
 from portable.muxin_session_adapter import MuxinSessionAdapter
 from http.server import ThreadingHTTPServer
@@ -52,12 +52,44 @@ class ControlCenterApiTests(unittest.TestCase):
             urlopen(request, timeout=2)
         self.assertEqual(400, caught.exception.code)
 
+    def test_route_api_rejects_untrusted_browser_origin(self):
+        base = "http://127.0.0.1:%d" % self.server.server_port
+        request = Request(
+            base + "/api/route", data=b'{"task":"private task"}',
+            headers={"Content-Type": "application/json", "Origin": "http://attacker.example"},
+            method="POST",
+        )
+        with self.assertRaises(Exception) as caught:
+            urlopen(request, timeout=2)
+        self.assertEqual(403, caught.exception.code)
+
+    def test_learning_retrieval_failure_is_not_reported_as_empty(self):
+        def unavailable():
+            raise OSError("memory store unavailable")
+        root = Path(self.temp.name)
+        self.server.RequestHandlerClass.control_center = MuxinSessionAdapter(
+            root, dashboard=EngineeringDashboard(root), learning_reader=unavailable
+        )
+        base = "http://127.0.0.1:%d" % self.server.server_port
+        with urlopen(base + "/api/control-center", timeout=5) as response:
+            payload = json.load(response)
+        self.assertEqual("unavailable", payload["learning_status"])
+        self.assertEqual("OSError", payload["learning_error"])
+        self.assertEqual([], payload["learnings"])
+
+    def test_server_refuses_non_loopback_bind(self):
+        with self.assertRaises(ValueError):
+            serve(project_root=self.temp.name, host="0.0.0.0", port=8765)
+
     def test_ui_contains_live_endpoint_and_no_fabricated_success_in_live_mapping(self):
         html = (Path(__file__).resolve().parents[1] / "site" / "control-center.html").read_text(encoding="utf-8")
         self.assertIn("/api/control-center", html)
         self.assertIn("applySnapshot", html)
         self.assertIn("no values are inferred as proof", html)
         self.assertIn("No learning attached", html)
+        self.assertIn('"unverified"].includes(r.status)', html)
+        self.assertIn("Canonical memory unavailable", html)
+        self.assertIn('value="unverified"', html)
 
 if __name__ == "__main__":
     unittest.main()

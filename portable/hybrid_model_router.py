@@ -7,10 +7,11 @@ attempt/time budget. Resource metrics are best-effort and labelled when absent.
 from __future__ import annotations
 import json
 import time
-import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from typing import Any, Callable
+
+from .local_endpoint import open_loopback_request, validate_loopback_base_url
 
 
 @dataclass(frozen=True)
@@ -49,15 +50,15 @@ class HybridModelRouter:
 
     def _execute_local(self, request: TaskRouteRequest, model: str) -> Any:
         """Run a bounded Ollama-compatible generation request against loopback only."""
-        base_url = getattr(self.discovery, "base_url", "http://127.0.0.1:11434").rstrip("/")
-        if not base_url.startswith(("http://127.0.0.1:", "http://localhost:", "http://[::1]:")):
-            raise ValueError("local inference endpoint must use loopback HTTP")
+        base_url = validate_loopback_base_url(
+            getattr(self.discovery, "base_url", "http://127.0.0.1:11434")
+        )
         timeout = max(0.1, min(float(request.timeout_seconds), 120.0))
         payload = json.dumps({"model": model, "prompt": request.task, "stream": False,
                               "options": {"num_predict": 1024}}).encode("utf-8")
         req = urllib.request.Request(base_url + "/api/generate", data=payload,
             headers={"Content-Type": "application/json", "Accept": "application/json"}, method="POST")
-        with urllib.request.urlopen(req, timeout=timeout) as response:
+        with open_loopback_request(req, timeout=timeout) as response:
             raw = response.read(1024 * 1024 + 1)
         if len(raw) > 1024 * 1024:
             raise ValueError("local model response exceeds size limit")
@@ -112,25 +113,32 @@ class HybridModelRouter:
                       if m.get("name") and self._capable(m["name"], bounded.capability)]
         private = bounded.privacy.casefold() not in {"public", "non_sensitive"}
         reason = None
+        attempts_used = 0
         # Private/restricted data must remain local. No remote fallback is allowed.
+        last_local_model = None
         if candidates and self.local_executor:
             for model in candidates[:attempts_limit]:
                 if time.monotonic() - started >= timeout:
                     reason = "overall timeout budget exhausted"
                     break
                 try:
+                    attempts_used += 1
+                    last_local_model = model
                     remaining = max(0.1, timeout - (time.monotonic() - started))
                     attempt_request = TaskRouteRequest(bounded.task, bounded.capability, bounded.privacy,
                                                        bounded.max_attempts, remaining)
                     value = self.local_executor(attempt_request, model)
-                    return RouteResult("local", model, True, 1,
+                    if time.monotonic() - started >= timeout:
+                        reason = "overall timeout budget exhausted"
+                        break
+                    return RouteResult("local", model, True, attempts_used,
                         round((time.monotonic()-started)*1000, 2),
                         {"before": before, "after": self.resource_reader()},
                         reason, value)
                 except Exception as exc:
                     reason = type(exc).__name__
             if private:
-                return RouteResult("local", candidates[0], False, min(attempts_limit, len(candidates)),
+                return RouteResult("local", last_local_model, False, attempts_used,
                     round((time.monotonic()-started)*1000, 2),
                     {"before": before, "after": self.resource_reader()}, reason,
                     error="Local execution failed; privacy policy forbids remote fallback")
@@ -142,28 +150,38 @@ class HybridModelRouter:
                 error="No capable local route; privacy policy forbids remote fallback")
         # Remote execution is opt-in and only for explicitly non-sensitive tasks.
         if self.remote_executor is None:
-            return RouteResult("none", None, False, 0,
+            return RouteResult("none", None, False, attempts_used,
                 round((time.monotonic()-started)*1000, 2),
                 {"before": before, "after": self.resource_reader()}, reason,
                 error="No eligible executor configured")
-        for attempt in range(attempts_limit):
+        remote_attempts = 0
+        for _ in range(max(0, attempts_limit - attempts_used)):
             if time.monotonic() - started >= timeout:
                 reason = "overall timeout budget exhausted"
                 break
             try:
+                attempts_used += 1
+                remote_attempts += 1
                 remaining = max(0.1, timeout - (time.monotonic() - started))
                 attempt_request = TaskRouteRequest(bounded.task, bounded.capability, bounded.privacy,
                                                    bounded.max_attempts, remaining)
                 value = self.remote_executor(attempt_request)
-                return RouteResult("remote", None, True, attempt+1,
+                if time.monotonic() - started >= timeout:
+                    reason = "overall timeout budget exhausted"
+                    break
+                return RouteResult("remote", None, True, attempts_used,
                     round((time.monotonic()-started)*1000, 2),
                     {"before": before, "after": self.resource_reader()}, reason, value)
             except Exception as exc:
                 reason = type(exc).__name__
-        return RouteResult("remote", None, False, attempts_limit,
-            round((time.monotonic()-started)*1000, 2),
+        return RouteResult(
+            "remote" if remote_attempts else ("local" if last_local_model else "none"),
+            None if remote_attempts else last_local_model,
+            False, attempts_used, round((time.monotonic()-started)*1000, 2),
             {"before": before, "after": self.resource_reader()}, reason,
-            error="Eligible execution failed within bounded retry budget")
+            error=("Eligible execution failed within bounded retry budget" if remote_attempts
+                   else "Attempt budget or deadline exhausted before remote execution"),
+        )
 
     def snapshot(self) -> dict[str, Any]:
         return {"local_discovery": self.discovery.discover(),
