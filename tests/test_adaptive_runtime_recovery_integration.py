@@ -65,6 +65,37 @@ class AdaptiveRuntimeRecoveryIntegrationTests(unittest.TestCase):
         self.assertEqual([item.hypothesis for item in resumed_attempts], [item.hypothesis for item in attempts])
         self.assertEqual(resumed.recovery_ledger.get_checkpoint(work_id, "execution").payload["recovery_mode"], "alternate-plan")
 
+    def test_real_adaptive_graph_uses_supervisor_owned_guard(self):
+        seen = []
+        graph = Graph([
+            Node(
+                "work",
+                NodeKind.DETERMINISTIC,
+                lambda state: seen.append(state["_auren_runtime_execution_guard"]) or "ok",
+            )
+        ])
+        runtime = AdaptiveRuntime(graph, state_root=self.root / "real-shared-guard-state")
+        result = runtime.run(
+            session_id="real-shared-guard-session",
+            task_id="real-shared-guard-task",
+            project_root=self.root,
+            intent="verify real graph shares supervisor budget",
+            enrich_context=False,
+            enrich_cognition=False,
+        )
+        self.assertEqual("accepted", result.status.value)
+        self.assertEqual(1, len(seen))
+        self.assertEqual(2, seen[0].attempts_used)  # supervisor iteration plus graph node
+
+        with sqlite3.connect(runtime.execution_controller.db_path) as db:
+            work_id = db.execute(
+                "SELECT work_unit_id FROM sessions WHERE session_id=?",
+                ("real-shared-guard-session:real-shared-guard-task",),
+            ).fetchone()[0]
+        checkpoint = runtime.recovery_ledger.get_checkpoint(work_id, "execution")
+        self.assertIsNotNone(checkpoint)
+        self.assertEqual(2, checkpoint.payload["runtime_guard"]["attempts_used"])
+
     def test_supervisor_shares_and_checkpoints_one_runtime_guard_across_retries(self):
         graph = Graph([Node("work", NodeKind.DETERMINISTIC, lambda state: "ok")])
         runtime = AdaptiveRuntime(graph, state_root=self.root / "shared-guard-state")
