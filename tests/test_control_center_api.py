@@ -52,6 +52,17 @@ class ControlCenterApiTests(unittest.TestCase):
             urlopen(request, timeout=2)
         self.assertEqual(400, caught.exception.code)
 
+    def test_route_api_rejects_untrusted_browser_origin(self):
+        base = "http://127.0.0.1:%d" % self.server.server_port
+        request = Request(
+            base + "/api/route", data=b'{"task":"private task"}',
+            headers={"Content-Type": "application/json", "Origin": "http://attacker.example"},
+            method="POST",
+        )
+        with self.assertRaises(Exception) as caught:
+            urlopen(request, timeout=2)
+        self.assertEqual(403, caught.exception.code)
+
     def test_ui_contains_live_endpoint_and_no_fabricated_success_in_live_mapping(self):
         html = (Path(__file__).resolve().parents[1] / "site" / "control-center.html").read_text(encoding="utf-8")
         self.assertIn("/api/control-center", html)
