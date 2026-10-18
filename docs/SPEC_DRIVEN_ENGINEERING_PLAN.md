@@ -35,3 +35,12 @@ GSD Core's own guidance describes fresh-context specialist agents, thin orchestr
 ## Durable storage contract
 
 `EngineeringPlanStore` stores canonical plan and run JSON, a schema version, the plan digest, run-state digest, and update timestamp in SQLite. Writes use `BEGIN IMMEDIATE`; `save_run` uses an expected current revision and requires the replacement to advance exactly one revision. A stale concurrent writer receives `PlanRevisionConflict`. On load, schema, plan digest, run-state digest, task set, plan identity, and source revision are checked before resume; tampered run progress fails closed. The store is intentionally separate from runtime execution budget checkpoints: the orchestration layer must persist both records consistently when it integrates the plan with a live execution.
+
+
+## Recovery-ledger integration
+
+`EngineeringPlanRecoveryBridge` binds the full plan/run record in `EngineeringPlanStore` to a digest-and-revision pointer in the canonical `EngineeringRecoveryLedger`. The store uses compare-and-swap revisions; the recovery ledger remains the canonical runtime recovery/checkpoint channel. The bridge verifies both records before a run can resume.
+
+The plan store and recovery ledger use separate SQLite transactions, so a process crash can occur between their writes. The bridge deliberately fails closed if their digests or revisions disagree. It does not silently select a winner or recreate a missing checkpoint. An operator can reconcile only by supplying the expected plan digest and a non-empty reason; reconciliation republishes the current stored digest and does not alter task progress. This is an explicit recovery action, not proof that the underlying task was executed.
+
+When every task reaches `passed` with evidence references, the bridge writes a verified checkpoint bound to the plan's source revision and the union of task evidence references. This verifies the plan lifecycle state only; it does not substitute for exact-head repository CI, independent evaluation, or production deployment evidence.
