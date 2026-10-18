@@ -52,22 +52,19 @@ class MuxinSessionAdapter:
 
     def _canonical_learnings(self) -> list[dict[str, Any]]:
         """Read learnings through the existing canonical memory/provenance graph."""
-        try:
-            memory = MemoryOrchestrator(self.project_root, self.project_root.name)
-            recall = memory.recall(
-                "learning lesson verified improvement failure test evidence",
-                kinds=("procedural", "semantic", "reflective", "episodic", "hierarchical"),
-                budget_chars=6000,
-            )
-            return [{
-                "id": item.memory_id, "title": item.text[:160], "detail": item.text,
-                "source": item.source, "confidence": item.confidence,
-                "status": "verified" if item.verified else "recorded",
-                "evidence": list(item.evidence_ids), "created_at": item.created_at,
-                "kind": item.kind,
-            } for item in recall.memories]
-        except Exception:
-            raise
+        memory = MemoryOrchestrator(self.project_root, self.project_root.name)
+        recall = memory.recall(
+            "learning lesson verified improvement failure test evidence",
+            kinds=("procedural", "semantic", "reflective", "episodic", "hierarchical"),
+            budget_chars=6000,
+        )
+        return [{
+            "id": item.memory_id, "title": item.text[:160], "detail": item.text,
+            "source": item.source, "confidence": item.confidence,
+            "status": "verified" if item.verified else "recorded",
+            "evidence": list(item.evidence_ids), "created_at": item.created_at,
+            "kind": item.kind,
+        } for item in recall.memories]
 
     def sessions(self) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
