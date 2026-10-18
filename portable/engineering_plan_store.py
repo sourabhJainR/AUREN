@@ -19,7 +19,7 @@ class PlanRevisionConflict(RuntimeError):
 
 
 class EngineeringPlanStore:
-    SCHEMA_VERSION = 1
+    SCHEMA_VERSION = 2
 
     def __init__(self, database_path: str | Path, *, timeout_seconds: float = 5.0) -> None:
         if timeout_seconds <= 0:
@@ -37,6 +37,7 @@ class EngineeringPlanStore:
                     plan_digest TEXT NOT NULL,
                     plan_json TEXT NOT NULL,
                     run_json TEXT NOT NULL,
+                    run_digest TEXT NOT NULL,
                     updated_at REAL NOT NULL
                 )
             """)
@@ -67,9 +68,9 @@ class EngineeringPlanStore:
             db.execute("BEGIN IMMEDIATE")
             db.execute(
                 "INSERT INTO engineering_plan_runs "
-                "(run_id, schema_version, plan_digest, plan_json, run_json, updated_at) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
-                (plan.run_id, self.SCHEMA_VERSION, plan.digest, plan_json, run_json, time.time()),
+                "(run_id, schema_version, plan_digest, plan_json, run_json, run_digest, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (plan.run_id, self.SCHEMA_VERSION, plan.digest, plan_json, run_json, run.digest, time.time()),
             )
             db.commit()
         except sqlite3.IntegrityError as exc:
@@ -86,7 +87,7 @@ class EngineeringPlanStore:
         db = self._connect()
         try:
             row = db.execute(
-                "SELECT schema_version, plan_digest, plan_json, run_json "
+                "SELECT schema_version, plan_digest, plan_json, run_json, run_digest "
                 "FROM engineering_plan_runs WHERE run_id = ?", (run_id,),
             ).fetchone()
         finally:
@@ -102,6 +103,8 @@ class EngineeringPlanStore:
             raise ValueError("corrupt engineering plan JSON") from exc
         plan = EngineeringPlan.from_dict(plan_payload)
         run = EngineeringPlanRun.from_dict(run_payload)
+        if run.digest != row["run_digest"]:
+            raise ValueError("stored run digest mismatch")
         if plan.run_id != run_id or plan.digest != row["plan_digest"]:
             raise ValueError("stored plan identity or digest mismatch")
         run.verify_against(plan)
@@ -116,7 +119,7 @@ class EngineeringPlanStore:
         try:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute(
-                "SELECT schema_version, plan_digest, plan_json, run_json "
+                "SELECT schema_version, plan_digest, plan_json, run_json, run_digest "
                 "FROM engineering_plan_runs WHERE run_id = ?", (run_id,),
             ).fetchone()
             if row is None:
@@ -125,6 +128,8 @@ class EngineeringPlanStore:
                 raise ValueError("unsupported engineering plan store schema")
             plan = EngineeringPlan.from_dict(json.loads(row["plan_json"]))
             current = EngineeringPlanRun.from_dict(json.loads(row["run_json"]))
+            if current.digest != row["run_digest"]:
+                raise ValueError("stored run digest mismatch")
             if plan.digest != row["plan_digest"]:
                 raise ValueError("stored plan digest mismatch")
             current.verify_against(plan)
@@ -136,9 +141,9 @@ class EngineeringPlanStore:
             if run.revision != expected_revision + 1:
                 raise ValueError("saved run must advance exactly one revision")
             db.execute(
-                "UPDATE engineering_plan_runs SET run_json = ?, updated_at = ? "
+                "UPDATE engineering_plan_runs SET run_json = ?, run_digest = ?, updated_at = ? "
                 "WHERE run_id = ? AND plan_digest = ?",
-                (self._json(run.to_dict()), time.time(), run_id, plan.digest),
+                (self._json(run.to_dict()), run.digest, time.time(), run_id, plan.digest),
             )
             db.commit()
         except Exception:
