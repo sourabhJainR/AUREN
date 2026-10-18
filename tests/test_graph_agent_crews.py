@@ -115,6 +115,26 @@ class GraphAgentCrewTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "only available during graph execution"):
             observed["auren_crew_dispatch"]("frontend_ui", "late call")
 
+    def test_guard_aware_specialist_receives_same_live_guard(self):
+        class GuardAwareAgent(ProposalAgent):
+            def propose_with_execution_guard(self, request, *, execution_guard):
+                self.execution_guard = execution_guard
+                return self.propose(request)
+
+        frontend = GuardAwareAgent("frontend_ui")
+        observed = {}
+
+        def run_node(state):
+            observed["guard"] = state["_auren_runtime_execution_guard"]
+            state["auren_crew_dispatch"]("frontend_ui", "Design the login screen")
+            return "completed"
+
+        team, _graph = self.make_team(run_node, agents={"frontend_ui": frontend})
+        result = team.run("guard-aware-proposal", "frontend UI")
+        self.assertEqual(RunStatus.ACCEPTED, result.status)
+        self.assertIs(frontend.execution_guard, observed["guard"])
+        self.assertEqual(2, observed["guard"].attempts_used)
+
     def test_duplicate_specialist_proposal_is_not_reexecuted(self):
         frontend = ProposalAgent("frontend_ui")
         observed = {}
