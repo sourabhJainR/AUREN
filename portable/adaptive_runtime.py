@@ -374,6 +374,7 @@ class AdaptiveRuntime:
         last: dict[str, Any] = {
             "result": None, "failure": "execution callback was not invoked",
         }
+        latest_harness_experiment: dict[str, Any] | None = None
 
         def execute(iteration: int):
             if datetime.now(timezone.utc) >= deadline_at:
@@ -477,16 +478,19 @@ class AdaptiveRuntime:
                         "recovery_mode": context_mode,
                         "last_failure": str(last.get("failure", "")),
                         "runtime_guard": dict(saved),
+                        **({"harness_experiment": latest_harness_experiment} if latest_harness_experiment is not None else {}),
                     },
                 )
 
             context["auren_runtime_guard_persist"] = persist_runtime_guard
 
             def persist_harness_experiment(snapshot):
+                nonlocal latest_harness_experiment
                 if not isinstance(snapshot, Mapping):
                     raise TypeError("harness experiment persistence requires a checkpoint mapping")
                 # Keep experiment lineage separate from the trusted guard snapshot;
                 # never reinterpret an experiment checkpoint as an execution guard.
+                latest_harness_experiment = dict(snapshot)
                 self.recovery_ledger.checkpoint(
                     work_id, "execution", status="in_progress", head_sha="",
                     payload={
@@ -496,7 +500,7 @@ class AdaptiveRuntime:
                         "recovery_mode": context_mode,
                         "last_failure": str(last.get("failure", "")),
                         "runtime_guard": runtime_guard.snapshot(),
-                        "harness_experiment": dict(snapshot),
+                        "harness_experiment": latest_harness_experiment,
                     },
                 )
 
@@ -514,6 +518,7 @@ class AdaptiveRuntime:
                         "deadline_at": deadline_value,
                         "recovery_mode": context_mode,
                         "runtime_guard": runtime_guard.snapshot(),
+                        **({"harness_experiment": latest_harness_experiment} if latest_harness_experiment is not None else {}),
                     },
                 )
                 deadline_exceeded = datetime.now(timezone.utc) >= deadline_at
@@ -545,6 +550,7 @@ class AdaptiveRuntime:
                         "recovery_mode": context_mode,
                         "last_failure": last["failure"],
                         "runtime_guard": runtime_guard.snapshot(),
+                        **({"harness_experiment": latest_harness_experiment} if latest_harness_experiment is not None else {}),
                     },
                 )
                 self.recovery_ledger.finish_attempt(
