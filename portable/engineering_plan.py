@@ -8,6 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import hashlib
 import json
+from types import MappingProxyType
 from typing import Any, Mapping
 
 
@@ -94,6 +95,7 @@ class EngineeringPlan:
         _nonempty(self.goal, "goal")
         if self.schema_version != PLAN_SCHEMA_VERSION:
             raise ValueError(f"unsupported plan schema: {self.schema_version}")
+        _nonempty(self.source_revision, "source_revision")
         if not self.requirements or any(not isinstance(item, str) or not item.strip() for item in self.requirements):
             raise ValueError("plan requires explicit non-empty requirements")
         if not self.tasks:
@@ -128,6 +130,7 @@ class EngineeringPlan:
             for name, amount in self.budget.items():
                 if not isinstance(name, str) or not name.strip() or type(amount) is not int or amount < 1:
                     raise ValueError("budget entries require named positive integer limits")
+        object.__setattr__(self, "budget", MappingProxyType(dict(sorted(self.budget.items()))))
 
     def to_dict(self) -> dict[str, Any]:
         return {
