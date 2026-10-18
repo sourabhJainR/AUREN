@@ -228,14 +228,14 @@ class HarnessExperimentController:
             baseline = self._copy_json(base)
             baseline_probe = self._receipt(probe(baseline, task, manifest_payload, "baseline"), kind="probe")
             evidence.append({"kind": "baseline_probe", "receipt": baseline_probe})
-            if not self._isolation_receipt(baseline_probe, manifest):
+            if not self._isolation_receipt(baseline_probe, manifest, base_digest):
                 checkpoint("blocked", status="blocked", details={"reason": "baseline isolation evidence missing"})
                 return result("blocked", "baseline isolation evidence missing")
             self.guard.check()
             self.guard.charge_attempt(f"harness:{manifest.run_id}:baseline:judge")
             baseline_judge = self._receipt(judge(baseline, baseline_probe, manifest_payload), kind="judge")
             evidence.append({"kind": "baseline_judge", "receipt": baseline_judge})
-            if not self._judge_receipt(baseline_judge, manifest):
+            if not self._judge_receipt(baseline_judge, manifest, base_digest):
                 checkpoint("blocked", status="blocked", details={"reason": "baseline evaluator evidence missing"})
                 return result("blocked", "baseline evaluator evidence missing")
 
@@ -256,7 +256,7 @@ class HarnessExperimentController:
                 self.guard.charge_attempt(f"harness:{manifest.run_id}:candidate:{digest}:probe")
                 probe_receipt = self._receipt(probe(self._copy_json(candidate), task, manifest_payload, "candidate"), kind="probe")
                 evidence.append({"kind": "candidate_probe", "digest": digest, "receipt": probe_receipt})
-                if not self._isolation_receipt(probe_receipt, manifest):
+                if not self._isolation_receipt(probe_receipt, manifest, digest):
                     evidence.append({"kind": "candidate_rejected", "digest": digest, "reason": "isolation receipt invalid"})
                     checkpoint("candidate_rejected", status="rejected", details={"candidate_digest": digest, "reason": "isolation receipt invalid"})
                     continue
@@ -264,10 +264,10 @@ class HarnessExperimentController:
                 self.guard.charge_attempt(f"harness:{manifest.run_id}:candidate:{digest}:judge")
                 judge_receipt = self._receipt(judge(self._copy_json(candidate), probe_receipt, manifest_payload), kind="judge")
                 evidence.append({"kind": "candidate_judge", "digest": digest, "receipt": judge_receipt})
-                if not self._judge_receipt(judge_receipt, manifest):
+                if not self._judge_receipt(judge_receipt, manifest, digest):
                     evidence.append({"kind": "candidate_rejected", "digest": digest, "reason": "evaluator receipt invalid"})
                     continue
-                if not self._improves(baseline_judge, judge_receipt, manifest):
+                if not self._improves(baseline_judge, judge_receipt, manifest, digest):
                     evidence.append({"kind": "candidate_rejected", "digest": digest, "reason": "no safe net improvement"})
                     continue
                 score = float(judge_receipt["quality_score"])
@@ -311,7 +311,7 @@ class HarnessExperimentController:
             return result("failed", f"{type(exc).__name__}: {exc}")
 
     @staticmethod
-    def _isolation_receipt(receipt: Mapping[str, Any], manifest: HarnessExperimentManifest) -> bool:
+    def _isolation_receipt(\n        receipt: Mapping[str, Any], manifest: HarnessExperimentManifest, harness_digest: str\n    ) -> bool:
         return (
             receipt.get("schema_version") == "auren-isolation-receipt-v1"
             and receipt.get("manifest_digest") == manifest.digest
@@ -324,7 +324,7 @@ class HarnessExperimentController:
         )
 
     @staticmethod
-    def _judge_receipt(receipt: Mapping[str, Any], manifest: HarnessExperimentManifest) -> bool:
+    def _judge_receipt(\n        receipt: Mapping[str, Any], manifest: HarnessExperimentManifest, harness_digest: str\n    ) -> bool:
         if (
             receipt.get("schema_version") != "auren-evaluation-receipt-v1"
             or receipt.get("manifest_digest") != manifest.digest
@@ -352,7 +352,7 @@ class HarnessExperimentController:
         candidate: Mapping[str, Any],
         manifest: HarnessExperimentManifest,
     ) -> bool:
-        if not self._judge_receipt(baseline, manifest) or not self._judge_receipt(candidate, manifest):
+        if not self._judge_receipt(baseline, manifest, manifest.base_harness_digest) or not self._judge_receipt(candidate, manifest, str(candidate.get("harness_digest", ""))):
             # Missing or incompatible evidence is never a positive promotion signal.
             return False
         return (
