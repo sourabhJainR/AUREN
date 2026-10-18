@@ -35,3 +35,8 @@ GSD Core's own guidance describes fresh-context specialist agents, thin orchestr
 ## Durable storage contract
 
 `EngineeringPlanStore` stores canonical plan and run JSON, a schema version, the plan digest, run-state digest, and update timestamp in SQLite. Writes use `BEGIN IMMEDIATE`; `save_run` uses an expected current revision and requires the replacement to advance exactly one revision. A stale concurrent writer receives `PlanRevisionConflict`. On load, schema, plan digest, run-state digest, task set, plan identity, and source revision are checked before resume; tampered run progress fails closed. The store is intentionally separate from runtime execution budget checkpoints: the orchestration layer must persist both records consistently when it integrates the plan with a live execution.
+
+
+## Fresh-context specialist packets
+
+`portable.engineering_context_packet` builds deterministic, digest-verified packets for one task and a compatible plan/run revision. Packets include the source and plan identity, dependency states, acceptance criteria, verified evidence references, policy constraints, approvals, rollback instructions, unresolved questions, failure summaries, codebase-map references, remaining budget and next safe action. Optional background is pruned first when a byte budget is reached. Mandatory policy, approvals, acceptance criteria, evidence gaps and rollback information are never silently truncated; if they do not fit, the builder fails closed and requires task scope reduction. Credential-like keys are rejected from budget/context maps. A packet is a handoff artifact, not an authorization grant or proof that the worker completed its task.
