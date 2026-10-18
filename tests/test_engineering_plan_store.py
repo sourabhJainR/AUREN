@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 import tempfile
 import unittest
@@ -95,6 +96,30 @@ class EngineeringPlanStoreTests(unittest.TestCase):
             finally:
                 db.close()
             with self.assertRaisesRegex(ValueError, "unsupported plan schema"):
+                store.load(plan.run_id)
+
+    def test_load_fails_closed_on_tampered_run_progress_digest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "plans.db"
+            store = EngineeringPlanStore(db_path)
+            plan = make_plan()
+            store.create(plan)
+            db = sqlite3.connect(db_path)
+            try:
+                with db:
+                    raw = db.execute(
+                        "SELECT run_json FROM engineering_plan_runs WHERE run_id = ?",
+                        (plan.run_id,),
+                    ).fetchone()[0]
+                    payload = json.loads(raw)
+                    payload["tasks"][0]["transition_reason"] = "tampered after save"
+                    db.execute(
+                        "UPDATE engineering_plan_runs SET run_json = ? WHERE run_id = ?",
+                        (json.dumps(payload), plan.run_id),
+                    )
+            finally:
+                db.close()
+            with self.assertRaisesRegex(ValueError, "stored run digest mismatch"):
                 store.load(plan.run_id)
 
     def test_unknown_run_is_not_treated_as_empty_success(self):
