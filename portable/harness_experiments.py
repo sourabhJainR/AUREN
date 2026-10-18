@@ -53,6 +53,8 @@ class HarnessExperimentManifest:
                 raise ValueError(f"{name} must be non-empty")
         if self.schema_version != "auren-harness-experiment-v1":
             raise ValueError("unsupported experiment manifest schema")
+        if self.executor_id == self.evaluator_id:
+            raise ValueError("executor and evaluator must be distinct identities")
         if type(self.seed) is not int:
             raise ValueError("seed must be an integer")
         if type(self.max_candidates) is not int or not 1 <= self.max_candidates <= 16:
@@ -355,6 +357,7 @@ class HarnessExperimentController:
             and receipt.get("secrets_absent") is True
             and isinstance(receipt.get("workspace_digest"), str)
             and len(receipt["workspace_digest"]) == 64
+            and all(character in "0123456789abcdef" for character in receipt["workspace_digest"].lower())
         )
 
     @staticmethod
@@ -374,6 +377,7 @@ class HarnessExperimentController:
             or receipt.get("reliability_passed") is not True
             or not isinstance(receipt.get("evidence_refs"), list)
             or not receipt["evidence_refs"]
+            or any(not isinstance(ref, str) or not ref.strip() for ref in receipt["evidence_refs"])
         ):
             return False
         try:
