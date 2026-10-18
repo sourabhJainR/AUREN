@@ -189,7 +189,7 @@ class GraphAgentCrewTests(unittest.TestCase):
             return "completed"
         team, _graph = self.make_team(run_node, agents={"frontend_ui": object()})
         result = team.run("task-1", "frontend UI")
-        self.assertEqual(result.status, RunStatus.ACCEPTED)
+        self.assertEqual(result.status, RunStatus.ACCEPTED, f"stop_reason={result.stop_reason}; trajectory={result.trajectory}")
         with self.assertRaisesRegex(RuntimeError, "only available during graph execution"):
             observed["dispatch"]("frontend_ui", "outside graph")
 
