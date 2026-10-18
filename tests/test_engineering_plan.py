@@ -116,13 +116,28 @@ class EngineeringPlanTests(unittest.TestCase):
     def test_transition_is_immutable_and_advances_run_revision(self):
         plan = sample_plan()
         run = new_plan_run(plan)
-        advanced = run.transition_task("design", "ready", reason="no dependencies")
+        advanced = run.transition_task("design", "ready", plan=plan, reason="no dependencies")
         self.assertEqual(0, run.revision)
         self.assertEqual(1, advanced.revision)
         self.assertEqual("pending", run.tasks[0].status)
         self.assertEqual("ready", advanced.tasks[0].status)
         with self.assertRaisesRegex(KeyError, "not present"):
-            run.transition_task("unknown", "ready", reason="invalid")
+            run.transition_task("unknown", "ready", plan=plan, reason="invalid")
+
+    def test_run_transition_enforces_task_dependencies(self):
+        plan = sample_plan()
+        run = new_plan_run(plan)
+        with self.assertRaisesRegex(ValueError, "incomplete dependencies"):
+            run.transition_task("implement", "ready", plan=plan, reason="premature")
+        run = run.transition_task("design", "ready", plan=plan, reason="ready")
+        run = run.transition_task("design", "running", plan=plan, reason="started")
+        run = run.transition_task("design", "verifying", plan=plan, reason="done")
+        run = run.transition_task(
+            "design", "passed", plan=plan, reason="evidence verified",
+            evidence_refs=("test://design",),
+        )
+        run = run.transition_task("implement", "ready", plan=plan, reason="dependency passed")
+        self.assertEqual("ready", next(x.status for x in run.tasks if x.task_id == "implement"))
 
     def test_run_rejects_duplicate_task_ids_and_invalid_digest(self):
         with self.assertRaisesRegex(ValueError, "unique"):
