@@ -87,6 +87,9 @@ class ControlCenterApiTests(unittest.TestCase):
         self.assertIn("applySnapshot", html)
         self.assertIn("no values are inferred as proof", html)
         self.assertIn("No learning attached", html)
+        self.assertIn('"unverified"].includes(r.status)', html)
+        self.assertIn("Canonical memory unavailable", html)
+        self.assertIn('value="unverified"', html)
 
 if __name__ == "__main__":
     unittest.main()
