@@ -124,6 +124,9 @@ class HybridModelRouter:
         before = self.resource_reader()
         try:
             guard.check()
+            budget = guard.snapshot()
+            if budget["attempts_used"] >= budget["max_attempts"]:
+                raise ExecutionBudgetExceeded("task attempt budget exhausted before model discovery")
         except ExecutionBudgetExceeded as exc:
             return RouteResult("none", None, False, 0,
                 round((time.monotonic()-started)*1000, 2),
