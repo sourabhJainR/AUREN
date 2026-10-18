@@ -139,6 +139,31 @@ class EngineeringPlanTests(unittest.TestCase):
         run = run.transition_task("implement", "ready", plan=plan, reason="dependency passed")
         self.assertEqual("ready", next(x.status for x in run.tasks if x.task_id == "implement"))
 
+    def test_plan_and_handoff_inputs_are_defensively_frozen(self):
+        criteria = ["unit tests pass"]
+        budget = {"attempts": 4}
+        task = PlanTask("task", "Task", criteria, "revert")
+        plan = EngineeringPlan(
+            run_id="immutable", goal="test immutability", requirements=["req"],
+            source_revision="rev", tasks=[task], budget=budget,
+        )
+        criteria.append("mutated")
+        budget["attempts"] = 99
+        self.assertEqual(("unit tests pass",), task.acceptance_criteria)
+        self.assertEqual(4, plan.budget["attempts"])
+        with self.assertRaises(TypeError):
+            plan.budget["attempts"] = 10
+
+        handoff = {"context": {"decisions": ["keep safety gate"]}}
+        run = EngineeringPlanRun(
+            plan_digest=plan.digest, source_revision="rev",
+            tasks=(TaskProgress("task"),), handoff=handoff,
+        )
+        original_digest = run.digest
+        handoff["context"]["decisions"].append("mutated")
+        self.assertEqual(original_digest, run.digest)
+        self.assertEqual(["keep safety gate"], run.to_dict()["handoff"]["context"]["decisions"])
+
     def test_run_rejects_duplicate_task_ids_and_invalid_digest(self):
         with self.assertRaisesRegex(ValueError, "unique"):
             EngineeringPlanRun(
