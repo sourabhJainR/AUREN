@@ -1,4 +1,5 @@
 """Regression tests for local endpoint trust boundaries and routing metrics."""
+import time
 import unittest
 from urllib.request import Request
 
@@ -103,6 +104,24 @@ class LocalEndpointSecurityTests(unittest.TestCase):
         self.assertEqual(2, result.attempts)
         self.assertEqual(1, len(local_calls))
         self.assertEqual(1, len(remote_calls))
+
+    def test_late_local_result_is_not_reported_as_success(self):
+        def slow_local(request, model):
+            time.sleep(0.12)
+            return "late answer"
+
+        router = HybridModelRouter(
+            discovery=_Discovery(["general-model"]),
+            local_executor=slow_local,
+            resource_reader=lambda: {},
+        )
+        result = router.route(TaskRouteRequest(
+            "private source", "general", privacy="private", timeout_seconds=0.1
+        ))
+        self.assertFalse(result.success)
+        self.assertEqual(1, result.attempts)
+        self.assertIn("privacy policy", result.error)
+        self.assertEqual("overall timeout budget exhausted", result.fallback_reason)
 
     def test_local_failure_reports_only_attempts_that_ran(self):
         attempted = []
