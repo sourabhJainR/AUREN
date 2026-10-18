@@ -36,6 +36,7 @@ from .world_mega_model import WorldMegaModel
 from .engineering_recovery import EngineeringRecoveryLedger, RecoveryAction, RecoveryLimitReached
 from .state_paths import AurenStatePaths
 from .identity_compat import canonical_auren_home, legacy_state_home
+from .runtime_recovery import ExecutionBudgetExceeded, RuntimeExecutionGuard
 
 
 class AdaptiveRuntime:
@@ -323,6 +324,35 @@ class AdaptiveRuntime:
         deadline_at = deadline_at.astimezone(timezone.utc)
         deadline_value = deadline_at.isoformat()
         context["auren_deadline_at"] = deadline_value
+
+        # One canonical guard spans every supervisor retry and the graph/provider
+        # calls within it. Only the recovery ledger may restore this capability;
+        # caller-supplied live objects or snapshots are not trusted.
+        saved_guard = saved_payload.get("runtime_guard") if isinstance(saved_payload, Mapping) else None
+        if isinstance(saved_guard, Mapping):
+            runtime_guard = RuntimeExecutionGuard.resume(saved_guard)
+        else:
+            raw_steps = context.get("auren_runtime_max_steps")
+            raw_attempts = context.get("auren_runtime_max_attempts", 32)
+            if raw_steps is not None and (type(raw_steps) is not int or not 1 <= raw_steps <= 10000):
+                raise ValueError("auren_runtime_max_steps must be an integer between 1 and 10000")
+            if type(raw_attempts) is not int or not 1 <= raw_attempts <= 128:
+                raise ValueError("auren_runtime_max_attempts must be an integer between 1 and 128")
+            graph_steps = max(1, len(self.orchestrator.graph.order()) * requested_iterations)
+            remaining_seconds = (deadline_at - datetime.now(timezone.utc)).total_seconds()
+            runtime_guard = RuntimeExecutionGuard(
+                max_steps=raw_steps if raw_steps is not None else min(10000, graph_steps),
+                max_attempts=raw_attempts,
+                deadline_seconds=max(0.001, remaining_seconds),
+            )
+            if remaining_seconds <= 0:
+                runtime_guard.cancel("task deadline exceeded before execution")
+        # Do not let an external context inject an execution capability or replace
+        # the supervisor-owned recovery snapshot.
+        runtime_context = dict(context)
+        runtime_context.pop("_auren_runtime_execution_guard", None)
+        runtime_context.pop("auren_runtime_guard", None)
+        runtime_context["_auren_runtime_execution_guard"] = runtime_guard
         self.recovery_ledger.start_run(work_id, f"{task_id}: {intent}")
         attempts: dict[str, Any] = {
             "count": 0, "hypothesis": "default-plan", "alternate_count": 0,
@@ -344,10 +374,29 @@ class AdaptiveRuntime:
                         "deadline_at": deadline_value,
                         "recovery_mode": "blocked",
                         "last_failure": last["failure"],
+                        "runtime_guard": runtime_guard.snapshot(),
                     },
                 )
                 return "failed", last["failure"], ("task-deadline-exceeded",)
             attempts["count"] = iteration
+            try:
+                runtime_guard.check()
+                runtime_guard.charge_attempt(f"supervisor:{work_id}:iteration:{iteration}")
+            except ExecutionBudgetExceeded as exc:
+                attempts["blocked"] = str(exc)
+                last["failure"] = attempts["blocked"]
+                self.recovery_ledger.checkpoint(
+                    work_id, "execution", status="blocked", head_sha="",
+                    payload={
+                        "iteration": iteration,
+                        "hypothesis": str(attempts.get("hypothesis", "default-plan")),
+                        "deadline_at": deadline_value,
+                        "recovery_mode": "blocked",
+                        "last_failure": last["failure"],
+                        "runtime_guard": runtime_guard.snapshot(),
+                    },
+                )
+                return "failed", last["failure"], ("runtime-budget-exhausted",)
             if iteration > 1:
                 previous_hypothesis = str(attempts["hypothesis"])
                 decision = self.recovery_ledger.decision(
@@ -390,9 +439,10 @@ class AdaptiveRuntime:
                     "deadline_at": deadline_value,
                     "recovery_mode": context_mode,
                     "previous_failure": last.get("failure", ""),
+                    "runtime_guard": runtime_guard.snapshot(),
                 },
             )
-            context = dict(kwargs.get("context") or {})
+            context = dict(runtime_context)
             context["auren_deadline_at"] = deadline_value
             context["auren_remaining_seconds"] = max(
                 0.0, (deadline_at - datetime.now(timezone.utc)).total_seconds()
@@ -405,6 +455,16 @@ class AdaptiveRuntime:
             try:
                 result = self._run_once(**call)
                 last["result"] = result
+                self.recovery_ledger.checkpoint(
+                    work_id, "execution", status="in_progress", head_sha="",
+                    payload={
+                        "iteration": iteration,
+                        "hypothesis": hypothesis,
+                        "deadline_at": deadline_value,
+                        "recovery_mode": context_mode,
+                        "runtime_guard": runtime_guard.snapshot(),
+                    },
+                )
                 deadline_exceeded = datetime.now(timezone.utc) >= deadline_at
                 accepted = result.status.value == "accepted" and not deadline_exceeded
                 detail = (
@@ -425,6 +485,17 @@ class AdaptiveRuntime:
             except Exception as exc:
                 last["result"] = None
                 last["failure"] = f"{type(exc).__name__}: {exc}"
+                self.recovery_ledger.checkpoint(
+                    work_id, "execution", status="in_progress", head_sha="",
+                    payload={
+                        "iteration": iteration,
+                        "hypothesis": hypothesis,
+                        "deadline_at": deadline_value,
+                        "recovery_mode": context_mode,
+                        "last_failure": last["failure"],
+                        "runtime_guard": runtime_guard.snapshot(),
+                    },
+                )
                 self.recovery_ledger.finish_attempt(
                     attempt_id, outcome="failed",
                     evidence=(last["failure"], f"hypothesis:{hypothesis}"),
@@ -473,6 +544,7 @@ class AdaptiveRuntime:
                     else "fresh-retry" if attempts.get("count", 0) > 1 else "initial"
                 ),
                 "last_failure": "" if terminal_accepted else str(final_failure),
+                "runtime_guard": runtime_guard.snapshot(),
                 "verification_note": (
                     "graph execution accepted; independent verification and exact-head CI evidence were not asserted by this runtime"
                     if terminal_accepted else "execution did not reach an accepted terminal state before the deadline"
