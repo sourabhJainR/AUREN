@@ -102,6 +102,31 @@ class EngineeringPlanRecoveryBridgeTests(unittest.TestCase):
             with self.assertRaisesRegex(EngineeringPlanCheckpointMismatch, "explicit reconciliation"):
                 bridge.start(plan)
 
+    def test_blocked_or_rolled_back_checkpoint_cannot_be_reopened_by_start(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            bridge = self.make_bridge(Path(tmp))
+            plan = sample_plan()
+            bridge.start(plan)
+            bridge.ledger.checkpoint(
+                plan.run_id, bridge.PHASE, status="blocked",
+                head_sha=plan.source_revision,
+                payload={
+                    "contract": "auren-engineering-plan-checkpoint-v1",
+                    "plan_digest": plan.digest,
+                    "run_digest": bridge.store.load(plan.run_id)[1].digest,
+                    "run_revision": 0,
+                    "source_revision": plan.source_revision,
+                    "store_path": str(bridge.store.database_path.resolve()),
+                    "next_safe_action": "operator review",
+                },
+            )
+            with self.assertRaisesRegex(EngineeringPlanCheckpointMismatch, "blocked"):
+                bridge.start(plan)
+            with self.assertRaisesRegex(EngineeringPlanCheckpointMismatch, "blocked"):
+                bridge.reconcile_checkpoint(
+                    plan.run_id, reason="do not bypass blocked gate", expected_plan_digest=plan.digest,
+                )
+
     def test_checkpoint_cannot_be_replayed_against_a_different_plan(self):
         with tempfile.TemporaryDirectory() as tmp:
             bridge = self.make_bridge(Path(tmp))
