@@ -1,6 +1,7 @@
 """Regression tests for local endpoint trust boundaries and routing metrics."""
 import time
 import unittest
+from unittest.mock import patch
 from urllib.request import Request
 
 from portable.local_endpoint import (
@@ -59,6 +60,20 @@ class LocalEndpointSecurityTests(unittest.TestCase):
         record = MuxinSessionAdapter._session_record(checkpoint)
         self.assertEqual("unverified", record["status"])
         self.assertEqual(0, record["progress"])
+
+    def test_local_http_timeout_preserves_subsecond_shared_deadline(self):
+        router = HybridModelRouter(
+            discovery=_Discovery(["general-model"]),
+            resource_reader=lambda: {},
+        )
+        with patch("portable.hybrid_model_router.open_loopback_request") as open_request:
+            open_request.return_value.__enter__.return_value.read.return_value = b'{"response":"ok"}'
+            result = router._execute_local(
+                TaskRouteRequest("private source", "general", timeout_seconds=0.025),
+                "general-model",
+            )
+        self.assertEqual("ok", result)
+        self.assertEqual(0.025, open_request.call_args.kwargs["timeout"])
 
     def test_local_attempt_count_reports_actual_attempts(self):
         attempted = []
