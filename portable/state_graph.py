@@ -817,9 +817,20 @@ class GraphAgentTeam:
         state["auren_crew_handoff_checkpoint_data"] = handoffs.snapshot()
         state["auren_retry_budget"] = retry_budget.snapshot()
         state["auren_provider_resume_persist"] = persist_provider_resume
-        state["auren_runtime_guard_persist"] = lambda _snapshot=None: persist_handoff_checkpoint(handoffs.snapshot())
+        supervisor_guard_persist = state.get("auren_runtime_guard_persist")
         state["auren_crew_handoff_checkpoint"] = handoffs.snapshot
         state["auren_crew_rollback_readiness"] = rollback_readiness
+
+        def persist_runtime_guard(snapshot=None) -> None:
+            guard_snapshot = runtime_guard.snapshot() if snapshot is None else snapshot
+            if not isinstance(guard_snapshot, Mapping):
+                raise TypeError("runtime guard persistence requires a snapshot mapping")
+            state["auren_runtime_guard"] = dict(guard_snapshot)
+            persist_handoff_checkpoint(handoffs.snapshot())
+            if callable(supervisor_guard_persist):
+                supervisor_guard_persist(guard_snapshot)
+
+        state["auren_runtime_guard_persist"] = persist_runtime_guard
         try:
             return self.graph.run(task_id, intent, state)
         finally:
