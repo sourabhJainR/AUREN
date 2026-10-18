@@ -162,6 +162,9 @@ class AdaptiveRuntimeRecoveryIntegrationTests(unittest.TestCase):
         work_id = runtime.execution_controller.work_unit_for_session(
             f"{session_id}:{task_id}", f"{task_id}: {intent}"
         )
+        # Checkpoints are attached to an existing durable run, not allowed to
+        # manufacture one implicitly. Model a process interruption after run start.
+        runtime.recovery_ledger.start_run(work_id, f"{task_id}: {intent}")
         runtime.recovery_ledger.checkpoint(
             work_id, "execution", status="in_progress", head_sha="",
             payload={"iteration": 1, "deadline_at": "2026-10-18T12:00:00+00:00"},
