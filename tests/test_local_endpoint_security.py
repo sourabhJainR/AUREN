@@ -81,6 +81,29 @@ class LocalEndpointSecurityTests(unittest.TestCase):
         self.assertEqual("deepseek-r1:8b", result.model)
         self.assertEqual(2, len(attempted))
 
+    def test_local_and_remote_fallback_share_one_attempt_budget(self):
+        local_calls = []
+        remote_calls = []
+
+        def fail_local(request, model):
+            local_calls.append(model)
+            raise RuntimeError("local model unavailable")
+
+        router = HybridModelRouter(
+            discovery=_Discovery(["general-model"]),
+            local_executor=fail_local,
+            remote_executor=lambda request: remote_calls.append(request) or "remote answer",
+            resource_reader=lambda: {},
+        )
+        result = router.route(TaskRouteRequest(
+            "public summary", "general", privacy="public", max_attempts=2
+        ))
+        self.assertTrue(result.success)
+        self.assertEqual("remote", result.provider)
+        self.assertEqual(2, result.attempts)
+        self.assertEqual(1, len(local_calls))
+        self.assertEqual(1, len(remote_calls))
+
     def test_local_failure_reports_only_attempts_that_ran(self):
         attempted = []
 
