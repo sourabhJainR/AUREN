@@ -24,3 +24,10 @@ The isolation and evaluator receipt fields are **host attestations**, not proof 
 ## Rollback
 
 Disable the experiment controller at the caller and revert the introducing PR if shared-budget accounting, checkpoint lineage, adoption atomicity or rollback behavior regresses. The active harness is not modified by the controller itself; the host's adoption adapter is the only component allowed to change it.
+
+
+## Isolation trust boundary
+
+A probe receipt's `isolation_enforced`, `egress_restricted`, and `secrets_absent` fields are claims, not proof. The controller now requires an injected `verify_isolation_receipt` callback and fails closed if no verifier is configured, the verifier returns anything other than literal `True`, or verification raises. The callback must validate the receipt against an out-of-band trusted operator and key allowlist, bind it to the exact experiment manifest/task/harness digest, check freshness and required isolation controls, and cryptographically verify the attestation. A verifier based only on fields returned by the candidate executor is not acceptable.
+
+AUREN already provides `portable.arena_isolation_attestation.verify_arena_isolation_attestation` for signed Arena attestations. A production adapter should bind its verified result to the harness probe receipt and the exact immutable image/run digests; test fixtures use a clearly test-only verifier and do not constitute isolation evidence. Without a configured trusted verifier, the experiment remains blocked/unscored and cannot adopt a candidate.
