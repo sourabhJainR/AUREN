@@ -191,6 +191,12 @@ class HarnessExperimentController:
         rollback_succeeded: bool | None = None
         adoption_attempted = False
 
+        def charge_once(operation_key: str) -> None:
+            if not self.guard.charge_attempt(operation_key):
+                raise ExecutionBudgetExceeded(
+                    "experiment operation was already charged; replay is refused until its durable receipt is restored"
+                )
+
         def checkpoint(stage: str, *, status: str, details: Mapping[str, Any] | None = None) -> None:
             snapshot = {
                 "schema_version": "auren-harness-experiment-checkpoint-v1",
@@ -230,7 +236,7 @@ class HarnessExperimentController:
 
             # Probe and judge the baseline in the same configured environment first.
             self.guard.check()
-            self.guard.charge_attempt(f"harness:{manifest.run_id}:baseline:probe")
+            charge_once(f"harness:{manifest.run_id}:baseline:probe")
             checkpoint("baseline_probe", status="in_progress")
             baseline = self._copy_json(base)
             baseline_probe = self._receipt(probe(baseline, task, manifest_payload, "baseline"), kind="probe")
@@ -239,7 +245,7 @@ class HarnessExperimentController:
                 checkpoint("blocked", status="blocked", details={"reason": "baseline isolation evidence missing"})
                 return result("blocked", "baseline isolation evidence missing")
             self.guard.check()
-            self.guard.charge_attempt(f"harness:{manifest.run_id}:baseline:judge")
+            charge_once(f"harness:{manifest.run_id}:baseline:judge")
             baseline_judge = self._receipt(judge(baseline, baseline_probe, manifest_payload), kind="judge")
             evidence.append({"kind": "baseline_judge", "receipt": baseline_judge})
             if not self._judge_receipt(baseline_judge, manifest, base_digest):
@@ -275,7 +281,7 @@ class HarnessExperimentController:
                     checkpoint("candidate_probe", status="in_progress", details={
                         "depth": depth, "parent_digest": parent_digest, "candidate_index": index, "candidate_digest": digest
                     })
-                    self.guard.charge_attempt(f"harness:{manifest.run_id}:candidate:{digest}:probe")
+                    charge_once(f"harness:{manifest.run_id}:candidate:{digest}:probe")
                     probe_receipt = self._receipt(
                         probe(self._copy_json(candidate), task, manifest_payload, "candidate"), kind="probe"
                     )
@@ -287,7 +293,7 @@ class HarnessExperimentController:
                         })
                         continue
                     self.guard.check()
-                    self.guard.charge_attempt(f"harness:{manifest.run_id}:candidate:{digest}:judge")
+                    charge_once(f"harness:{manifest.run_id}:candidate:{digest}:judge")
                     judge_receipt = self._receipt(
                         judge(self._copy_json(candidate), probe_receipt, manifest_payload), kind="judge"
                     )
