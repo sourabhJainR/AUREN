@@ -296,6 +296,8 @@ def _dispatch_crew_proposal(
         raise TypeError("crew agents must expose a side-effect-free propose(request) interface")
     if not isinstance(task, str) or not task.strip():
         raise ValueError("crew task must be non-empty text")
+    if evidence is not None and not isinstance(evidence, Mapping):
+        raise ValueError("crew evidence must be a mapping")
     if execution_guard is not None:
         task_digest = hashlib.sha256(task.strip().encode("utf-8")).hexdigest()
         operation_key = f"specialist-proposal:{plan.digest}:{operation_scope}:{crew_id}:{task_digest}"
@@ -303,8 +305,6 @@ def _dispatch_crew_proposal(
             raise ExecutionBudgetExceeded(
                 "duplicate specialist proposal refused because its attempt was already charged"
             )
-    if evidence is not None and not isinstance(evidence, Mapping):
-        raise ValueError("crew evidence must be a mapping")
     definition = crews[crew_id]
     request = {
         "crew_id": crew_id,
