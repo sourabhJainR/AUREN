@@ -189,6 +189,7 @@ class HarnessExperimentController:
         adopted_digest: str | None = None
         rollback_attempted = False
         rollback_succeeded: bool | None = None
+        adoption_attempted = False
 
         def checkpoint(stage: str, *, status: str, details: Mapping[str, Any] | None = None) -> None:
             snapshot = {
@@ -266,7 +267,7 @@ class HarnessExperimentController:
                 if not self._judge_receipt(judge_receipt, manifest):
                     evidence.append({"kind": "candidate_rejected", "digest": digest, "reason": "evaluator receipt invalid"})
                     continue
-                if not self._improves(baseline_judge, judge_receipt):
+                if not self._improves(baseline_judge, judge_receipt, manifest):
                     evidence.append({"kind": "candidate_rejected", "digest": digest, "reason": "no safe net improvement"})
                     continue
                 score = float(judge_receipt["quality_score"])
@@ -279,6 +280,7 @@ class HarnessExperimentController:
 
             self.guard.check()
             checkpoint("compose", status="ready_to_adopt", details={"candidate_digest": best[2]})
+            adoption_attempted = True
             adoption = self._receipt(adopt(self._copy_json(best[1]), base_digest), kind="adopt")
             if adoption.get("atomic") is not True or adoption.get("active_digest") != best[2]:
                 raise RuntimeError("adoption receipt did not confirm atomic activation of the selected candidate")
@@ -292,7 +294,7 @@ class HarnessExperimentController:
         except Exception as exc:
             # If the adoption adapter may have changed active state before failing,
             # always attempt to restore the exact pre-experiment digest.
-            if adopted_digest is not None:
+            if adoption_attempted:
                 rollback_attempted = True
                 try:
                     receipt = self._receipt(rollback(base_digest), kind="rollback")
@@ -344,14 +346,14 @@ class HarnessExperimentController:
             return False
         return True
 
-    def _improves(self, baseline: Mapping[str, Any], candidate: Mapping[str, Any]) -> bool:
-        if not self._judge_receipt(baseline, HarnessExperimentManifest(
-            schema_version="auren-harness-experiment-v1", run_id="validation",
-            task_digest="x", base_harness_digest="x", executor_id="x", evaluator_id=str(baseline.get("evaluator_id", "")),
-            seed=0, max_candidates=1, max_depth=0, isolation_profile="x", policy_digest="x", environment_digest="x",
-        )):
-            # Caller already validates receipts; this defensive check keeps malformed
-            # baseline data from ever becoming a positive promotion signal.
+    def _improves(
+        self,
+        baseline: Mapping[str, Any],
+        candidate: Mapping[str, Any],
+        manifest: HarnessExperimentManifest,
+    ) -> bool:
+        if not self._judge_receipt(baseline, manifest) or not self._judge_receipt(candidate, manifest):
+            # Missing or incompatible evidence is never a positive promotion signal.
             return False
         return (
             float(candidate["quality_score"]) >= float(baseline["quality_score"]) + self.minimum_quality_delta
@@ -360,9 +362,3 @@ class HarnessExperimentController:
             and float(candidate["cost"]) <= max(0.001, float(baseline["cost"])) * self.maximum_cost_ratio
             and float(candidate["latency_ms"]) <= max(1.0, float(baseline["latency_ms"])) * self.maximum_latency_ratio
         )
-
-
-__all__ = [
-    "HarnessExperimentController", "HarnessExperimentManifest",
-    "HarnessExperimentResult", "canonical_digest",
-]
