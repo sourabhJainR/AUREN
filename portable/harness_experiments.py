@@ -248,6 +248,7 @@ class HarnessExperimentController:
                 return result("blocked", "baseline isolation evidence missing")
             self.guard.check()
             charge_once(f"harness:{manifest.run_id}:baseline:judge")
+            checkpoint("baseline_judge", status="in_progress")
             baseline_judge = self._receipt(judge(baseline, baseline_probe, manifest_payload), kind="judge")
             evidence.append({"kind": "baseline_judge", "receipt": baseline_judge})
             if not self._judge_receipt(baseline_judge, manifest, base_digest):
@@ -280,10 +281,11 @@ class HarnessExperimentController:
                                          "reason": "unchanged or duplicate candidate"})
                         continue
                     candidate_digests.append(digest)
+                    charge_once(f"harness:{manifest.run_id}:candidate:{digest}:probe")
+                    # Persist the shared guard charge before the executor is allowed to run.
                     checkpoint("candidate_probe", status="in_progress", details={
                         "depth": depth, "parent_digest": parent_digest, "candidate_index": index, "candidate_digest": digest
                     })
-                    charge_once(f"harness:{manifest.run_id}:candidate:{digest}:probe")
                     probe_receipt = self._receipt(
                         probe(self._copy_json(candidate), task, manifest_payload, "candidate"), kind="probe"
                     )
@@ -296,6 +298,10 @@ class HarnessExperimentController:
                         continue
                     self.guard.check()
                     charge_once(f"harness:{manifest.run_id}:candidate:{digest}:judge")
+                    # The durable checkpoint must include this charge before judging.
+                    checkpoint("candidate_judge", status="in_progress", details={
+                        "depth": depth, "parent_digest": parent_digest, "candidate_digest": digest
+                    })
                     judge_receipt = self._receipt(
                         judge(self._copy_json(candidate), probe_receipt, manifest_payload), kind="judge"
                     )
