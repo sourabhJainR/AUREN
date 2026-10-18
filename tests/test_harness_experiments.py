@@ -45,6 +45,8 @@ class HarnessExperimentControllerTests(unittest.TestCase):
         return {
             "schema_version": "auren-isolation-receipt-v1",
             "manifest_digest": manifest["manifest_digest"],
+            "task_digest": manifest["task_digest"],
+            "harness_digest": canonical_digest(candidate),
             "isolation_profile": manifest["isolation_profile"],
             "isolation_enforced": True,
             "egress_restricted": True,
@@ -58,6 +60,8 @@ class HarnessExperimentControllerTests(unittest.TestCase):
         return {
             "schema_version": "auren-evaluation-receipt-v1",
             "manifest_digest": manifest["manifest_digest"],
+            "task_digest": manifest["task_digest"],
+            "harness_digest": canonical_digest(candidate),
             "evaluator_id": manifest["evaluator_id"],
             "independent_of_executor": True,
             "scored": True,
