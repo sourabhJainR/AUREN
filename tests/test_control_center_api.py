@@ -63,6 +63,20 @@ class ControlCenterApiTests(unittest.TestCase):
             urlopen(request, timeout=2)
         self.assertEqual(403, caught.exception.code)
 
+    def test_learning_retrieval_failure_is_not_reported_as_empty(self):
+        def unavailable():
+            raise OSError("memory store unavailable")
+        root = Path(self.temp.name)
+        self.server.RequestHandlerClass.control_center = MuxinSessionAdapter(
+            root, dashboard=EngineeringDashboard(root), learning_reader=unavailable
+        )
+        base = "http://127.0.0.1:%d" % self.server.server_port
+        with urlopen(base + "/api/control-center", timeout=5) as response:
+            payload = json.load(response)
+        self.assertEqual("unavailable", payload["learning_status"])
+        self.assertEqual("OSError", payload["learning_error"])
+        self.assertEqual([], payload["learnings"])
+
     def test_server_refuses_non_loopback_bind(self):
         with self.assertRaises(ValueError):
             serve(project_root=self.temp.name, host="0.0.0.0", port=8765)
