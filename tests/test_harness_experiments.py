@@ -77,7 +77,7 @@ class HarnessExperimentControllerTests(unittest.TestCase):
             "evidence_refs": [canonical_digest({"candidate": candidate, "probe": probe_receipt})],
         }
 
-    def run(self, **overrides):
+    def run_experiment(self, **overrides):
         args = {
             "manifest": self.manifest,
             "active_harness": self.base,
@@ -142,7 +142,7 @@ class HarnessExperimentControllerTests(unittest.TestCase):
                 return [{"system_prompt": "stable", "tool_guidance": {"mode": "concise"}}]
             return [{"system_prompt": "stable", "tool_guidance": {"mode": "ultra-concise"}}]
 
-        result = self.run(propose=propose)
+        result = self.run_experiment(propose=propose)
         self.assertEqual("adopted", result.status)
         self.assertEqual([(0, "safe"), (1, "concise")], seen)
         self.assertEqual(2, len(result.candidate_digests))
@@ -152,14 +152,14 @@ class HarnessExperimentControllerTests(unittest.TestCase):
 
     def test_missing_isolation_evidence_blocks_before_candidate_probe(self):
         calls = []
-        result = self.run(probe=lambda *args: calls.append(args[3]) or {})
+        result = self.run_experiment(probe=lambda *args: calls.append(args[3]) or {})
         self.assertEqual("blocked", result.status)
         self.assertFalse(result.success)
         self.assertEqual(["baseline"], calls)
 
     def test_missing_evaluator_evidence_never_adopts(self):
         adopted = []
-        result = self.run(judge=lambda *args: {})
+        result = self.run_experiment(judge=lambda *args: {})
         self.assertEqual("blocked", result.status)
         self.assertFalse(result.success)
         self.assertEqual([], adopted)
@@ -171,7 +171,7 @@ class HarnessExperimentControllerTests(unittest.TestCase):
             if stage == "candidate":
                 receipt["harness_digest"] = "f" * 64
             return receipt
-        result = self.run(
+        result = self.run_experiment(
             probe=mismatched_probe,
             adopt=lambda candidate, expected: adopted.append(candidate) or {
                 "atomic": True, "active_digest": canonical_digest(candidate)
@@ -182,7 +182,7 @@ class HarnessExperimentControllerTests(unittest.TestCase):
         self.assertEqual([], adopted)
 
     def test_no_improvement_is_rejected(self):
-        result = self.run(
+        result = self.run_experiment(
             propose=lambda base, task, depth, seed: [
                 {"system_prompt": "stable", "tool_guidance": {"mode": "safe-but-different"}}
             ]
@@ -191,7 +191,7 @@ class HarnessExperimentControllerTests(unittest.TestCase):
         self.assertFalse(result.success)
 
     def test_candidate_cap_cannot_be_bypassed(self):
-        result = self.run(propose=lambda base, task, depth, seed: [
+        result = self.run_experiment(propose=lambda base, task, depth, seed: [
             {"a": 1}, {"a": 2}, {"a": 3}, {"a": 4}
         ])
         self.assertEqual("failed", result.status)
@@ -200,7 +200,7 @@ class HarnessExperimentControllerTests(unittest.TestCase):
     def test_already_charged_operation_is_not_replayed(self):
         self.guard.charge_attempt("harness:test-run-1:baseline:probe")
         calls = []
-        result = self.run(probe=lambda *args: calls.append(args) or self.probe(*args))
+        result = self.run_experiment(probe=lambda *args: calls.append(args) or self.probe(*args))
         self.assertEqual("unscored", result.status)
         self.assertEqual([], calls)
         self.assertFalse(result.success)
@@ -223,7 +223,7 @@ class HarnessExperimentControllerTests(unittest.TestCase):
 
     def test_bad_adoption_receipt_triggers_exact_base_rollback(self):
         rollback_calls = []
-        result = self.run(
+        result = self.run_experiment(
             adopt=lambda candidate, expected: {"atomic": False, "active_digest": "wrong"},
             rollback=lambda expected: rollback_calls.append(expected) or {
                 "restored": True, "active_digest": expected
@@ -239,7 +239,7 @@ class HarnessExperimentControllerTests(unittest.TestCase):
         rollback_calls = []
         def timed_out_adoption(candidate, expected):
             raise TimeoutError("adoption response lost after possible activation")
-        result = self.run(
+        result = self.run_experiment(
             adopt=timed_out_adoption,
             rollback=lambda expected: rollback_calls.append(expected) or {
                 "restored": True, "active_digest": expected
