@@ -39,7 +39,7 @@ jobs:
                   required, changed = True, []
               else:
                   changed = subprocess.check_output(['git', 'diff', '--name-only', base, head], text=True).splitlines()
-                  patterns = [".github/workflows/runtime-resilience.yml","portable/state_graph.py","portable/crew_adapters.py","portable/orchestration.py","portable/auren_runtime.py","portable/supervisor.py","portable/agency_state_graph.py","portable/hybrid_model_router.py","portable/runtime_recovery.py","portable/adaptive_runtime.py","portable/harness_experiments.py","portable/engineering_plan.py","portable/engineering_plan_store.py","portable/local_endpoint.py","portable/muxin_session_adapter.py","state/**","tests/test_state_paths.py","tests/test_state_graph_hardening.py","tests/test_promotion_evidence_chain.py","tests/test_external_decision_evidence_ingestion.py","tests/test_evidence_freshness.py","tests/test_crew_adapters.py","tests/test_graph_agent_team.py","tests/test_execution_controller_promotion_gate.py","tests/test_hybrid_model_router.py","tests/test_runtime_recovery.py","tests/test_adaptive_runtime_recovery_integration.py","tests/test_harness_experiments.py","tests/test_engineering_plan.py","tests/test_engineering_plan_store.py","tests/test_local_endpoint_security.py","tests/test_control_center_api.py","site/control-center.html"]
+                  patterns = [".github/workflows/runtime-resilience.yml","portable/state_graph.py","portable/crew_adapters.py","portable/orchestration.py","portable/auren_runtime.py","portable/supervisor.py","portable/agency_state_graph.py","portable/hybrid_model_router.py","portable/runtime_recovery.py","portable/adaptive_runtime.py","portable/harness_experiments.py","portable/engineering_plan.py","portable/engineering_plan_store.py","portable/engineering_plan_recovery.py","portable/local_endpoint.py","portable/muxin_session_adapter.py","state/**","tests/test_state_paths.py","tests/test_state_graph_hardening.py","tests/test_promotion_evidence_chain.py","tests/test_external_decision_evidence_ingestion.py","tests/test_evidence_freshness.py","tests/test_crew_adapters.py","tests/test_graph_agent_team.py","tests/test_execution_controller_promotion_gate.py","tests/test_hybrid_model_router.py","tests/test_runtime_recovery.py","tests/test_adaptive_runtime_recovery_integration.py","tests/test_harness_experiments.py","tests/test_engineering_plan.py","tests/test_engineering_plan_store.py","tests/test_engineering_plan_recovery.py","tests/test_local_endpoint_security.py","tests/test_control_center_api.py","site/control-center.html"]
                   required = any(fnmatch.fnmatchcase(path, pattern) for path in changed for pattern in patterns)
           print('Changed files:')
           print('\n'.join(changed) if changed else '(none or full validation requested)')
@@ -67,7 +67,7 @@ jobs:
       - name: Compile portable runtime and state paths
         run: python -m compileall -q portable state
       - name: Verify spec-driven plan schema, dependency graph and lifecycle gates
-        run: python -m unittest tests.test_engineering_plan tests.test_engineering_plan_store -v
+        run: python -m unittest tests.test_engineering_plan tests.test_engineering_plan_store tests.test_engineering_plan_recovery -v
       - name: Verify checkpoint durability, migration idempotency, and rollback-safe legacy preservation
         run: python -m unittest tests.test_state_paths -v
       - name: Verify receipt uniqueness and verified learning-input boundary

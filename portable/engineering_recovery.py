@@ -10,6 +10,7 @@ import hashlib
 import json
 import sqlite3
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -169,10 +170,24 @@ class EngineeringRecoveryLedger:
             if "failure_class" not in columns:
                 db.execute("ALTER TABLE recovery_attempts ADD COLUMN failure_class TEXT NOT NULL DEFAULT 'unknown'")
 
-    def _db(self) -> sqlite3.Connection:
+    @contextmanager
+    def _db(self):
+        """Yield a short-lived connection and always close it after the transaction.
+
+        sqlite3.Connection's context manager commits/rolls back but does not close
+        the connection. Explicit closure is important for WAL cleanup and Windows
+        file replacement/removal during recovery and tests.
+        """
         db = sqlite3.connect(self.path, timeout=10)
         db.row_factory = sqlite3.Row
-        return db
+        try:
+            yield db
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise
+        finally:
+            db.close()
 
     @staticmethod
     def _required(value: str, field: str) -> str:

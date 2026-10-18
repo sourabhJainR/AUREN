@@ -249,3 +249,7 @@ __all__ += ["EngineeringPlan", "EngineeringPlanRun", "PlanTask", "TaskProgress",
 
 from .engineering_plan_store import EngineeringPlanStore, PlanRevisionConflict
 __all__ += ["EngineeringPlanStore", "PlanRevisionConflict"]
+
+
+from .engineering_plan_recovery import EngineeringPlanCheckpointMismatch, EngineeringPlanRecoveryBridge
+__all__ += ["EngineeringPlanCheckpointMismatch", "EngineeringPlanRecoveryBridge"]
