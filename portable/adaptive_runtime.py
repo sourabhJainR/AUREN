@@ -333,7 +333,7 @@ class AdaptiveRuntime:
             runtime_guard = RuntimeExecutionGuard.resume(saved_guard)
         else:
             raw_steps = context.get("auren_runtime_max_steps")
-            raw_attempts = context.get("auren_runtime_max_attempts", 32)
+            raw_attempts = context.get("auren_runtime_max_attempts", min(128, max(32, len(self.orchestrator.graph.order()) + requested_iterations)))
             if raw_steps is not None and (type(raw_steps) is not int or not 1 <= raw_steps <= 10000):
                 raise ValueError("auren_runtime_max_steps must be an integer between 1 and 10000")
             if type(raw_attempts) is not int or not 1 <= raw_attempts <= 128:
@@ -381,7 +381,7 @@ class AdaptiveRuntime:
             attempts["count"] = iteration
             try:
                 runtime_guard.check()
-                runtime_guard.charge_attempt(f"supervisor:{work_id}:iteration:{iteration}")
+                runtime_guard.charge_attempt(f"supervisor:{work_id}:attempt:{runtime_guard.attempts_used + 1}")
             except ExecutionBudgetExceeded as exc:
                 attempts["blocked"] = str(exc)
                 last["failure"] = attempts["blocked"]
