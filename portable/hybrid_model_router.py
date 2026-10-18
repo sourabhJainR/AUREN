@@ -55,7 +55,9 @@ class HybridModelRouter:
         base_url = validate_loopback_base_url(
             getattr(self.discovery, "base_url", "http://127.0.0.1:11434")
         )
-        timeout = max(0.1, min(float(request.timeout_seconds), 120.0))
+        timeout = min(float(request.timeout_seconds), 120.0)
+        if timeout <= 0:
+            raise TimeoutError("local execution timeout budget exhausted")
         payload = json.dumps({"model": model, "prompt": request.task, "stream": False,
                               "options": {"num_predict": 1024}}).encode("utf-8")
         req = urllib.request.Request(base_url + "/api/generate", data=payload,
