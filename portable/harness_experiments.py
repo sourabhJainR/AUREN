@@ -113,6 +113,7 @@ class HarnessExperimentController:
         *,
         guard: RuntimeExecutionGuard,
         persist: Callable[[Mapping[str, Any]], None],
+        verify_isolation_receipt: Callable[[Mapping[str, Any], HarnessExperimentManifest, str], bool] | None = None,
         max_candidates: int = 4,
         max_depth: int = 1,
         minimum_quality_delta: float = 0.01,
@@ -125,6 +126,8 @@ class HarnessExperimentController:
             raise ValueError("max_depth must be between 0 and 4")
         self.guard = guard
         self.persist = persist
+        # No verifier means no trusted isolation boundary; fail closed at baseline.
+        self.verify_isolation_receipt = verify_isolation_receipt
         self.max_candidates = max_candidates
         self.max_depth = max_depth
         self.minimum_quality_delta = _finite_score(minimum_quality_delta, "minimum_quality_delta")
@@ -243,7 +246,7 @@ class HarnessExperimentController:
             baseline = self._copy_json(base)
             baseline_probe = self._receipt(probe(baseline, task, manifest_payload, "baseline"), kind="probe")
             evidence.append({"kind": "baseline_probe", "receipt": baseline_probe})
-            if not self._isolation_receipt(baseline_probe, manifest, base_digest):
+            if not self._verified_isolation_receipt(baseline_probe, manifest, base_digest):
                 checkpoint("blocked", status="blocked", details={"reason": "baseline isolation evidence missing"})
                 return result("blocked", "baseline isolation evidence missing")
             self.guard.check()
@@ -290,7 +293,7 @@ class HarnessExperimentController:
                         probe(self._copy_json(candidate), task, manifest_payload, "candidate"), kind="probe"
                     )
                     evidence.append({"kind": "candidate_probe", "depth": depth, "parent_digest": parent_digest, "digest": digest, "receipt": probe_receipt})
-                    if not self._isolation_receipt(probe_receipt, manifest, digest):
+                    if not self._verified_isolation_receipt(probe_receipt, manifest, digest):
                         evidence.append({"kind": "candidate_rejected", "digest": digest, "reason": "isolation receipt invalid"})
                         checkpoint("candidate_rejected", status="rejected", details={
                             "candidate_digest": digest, "reason": "isolation receipt invalid"
@@ -365,6 +368,22 @@ class HarnessExperimentController:
             and len(receipt["workspace_digest"]) == 64
             and all(character in "0123456789abcdef" for character in receipt["workspace_digest"].lower())
         )
+
+    def _verified_isolation_receipt(
+        self, receipt: Mapping[str, Any], manifest: HarnessExperimentManifest, harness_digest: str
+    ) -> bool:
+        # Boolean fields in a probe receipt are claims, not proof. Require an injected
+        # verifier configured with an out-of-band signer/key trust root. Never infer
+        # independent isolation from the executor's own JSON.
+        if not self._isolation_receipt(receipt, manifest, harness_digest):
+            return False
+        verifier = self.verify_isolation_receipt
+        if not callable(verifier):
+            return False
+        try:
+            return verifier(receipt, manifest, harness_digest) is True
+        except Exception:
+            return False
 
     @staticmethod
     def _judge_receipt(
