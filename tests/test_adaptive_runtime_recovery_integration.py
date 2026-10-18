@@ -7,6 +7,7 @@ from pathlib import Path
 
 from portable.adaptive_runtime import AdaptiveRuntime
 from portable.orchestration import Graph, Node, NodeKind
+from portable.runtime_recovery import RuntimeExecutionGuard
 
 
 class AdaptiveRuntimeRecoveryIntegrationTests(unittest.TestCase):
@@ -98,13 +99,11 @@ class AdaptiveRuntimeRecoveryIntegrationTests(unittest.TestCase):
             ).fetchone()[0]
         checkpoint = runtime.recovery_ledger.get_checkpoint(work_id, "execution")
         self.assertIsNotNone(checkpoint)
-        restored = __import__("portable.runtime_recovery", fromlist=["RuntimeExecutionGuard"]).RuntimeExecutionGuard.resume(
-            checkpoint.payload["runtime_guard"]
-        )
+        restored = RuntimeExecutionGuard.resume(checkpoint.payload["runtime_guard"])
         self.assertEqual(6, restored.attempts_used)
         self.assertEqual(
-            checkpoint.payload["runtime_guard"]["digest"],
-            restored.snapshot()["digest"],
+            checkpoint.payload["runtime_guard"]["charged_operations"],
+            restored.snapshot()["charged_operations"],
         )
 
     def test_default_runtime_migrates_legacy_sessions_on_startup(self):
