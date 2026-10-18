@@ -128,14 +128,14 @@ class HybridModelRouter:
                     attempt_request = TaskRouteRequest(bounded.task, bounded.capability, bounded.privacy,
                                                        bounded.max_attempts, remaining)
                     value = self.local_executor(attempt_request, model)
-                    return RouteResult("local", model, local_attempts,
+                    return RouteResult("local", model, True, local_attempts,
                         round((time.monotonic()-started)*1000, 2),
                         {"before": before, "after": self.resource_reader()},
                         reason, value)
                 except Exception as exc:
                     reason = type(exc).__name__
             if private:
-                return RouteResult("local", last_local_model, local_attempts,
+                return RouteResult("local", last_local_model, False, local_attempts,
                     round((time.monotonic()-started)*1000, 2),
                     {"before": before, "after": self.resource_reader()}, reason,
                     error="Local execution failed; privacy policy forbids remote fallback")
@@ -157,11 +157,12 @@ class HybridModelRouter:
                 reason = "overall timeout budget exhausted"
                 break
             try:
+                remote_attempts += 1
                 remaining = max(0.1, timeout - (time.monotonic() - started))
                 attempt_request = TaskRouteRequest(bounded.task, bounded.capability, bounded.privacy,
                                                    bounded.max_attempts, remaining)
                 value = self.remote_executor(attempt_request)
-                return RouteResult("remote", None, True, attempt+1,
+                return RouteResult("remote", None, True, remote_attempts,
                     round((time.monotonic()-started)*1000, 2),
                     {"before": before, "after": self.resource_reader()}, reason, value)
             except Exception as exc:
