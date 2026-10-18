@@ -37,6 +37,7 @@ class HarnessExperimentControllerTests(unittest.TestCase):
         return HarnessExperimentController(
             guard=guard or self.guard,
             persist=persist or self.checkpoints.append,
+            verify_isolation_receipt=self.verify_isolation_receipt,
             max_candidates=3,
             max_depth=1,
         )
@@ -53,7 +54,22 @@ class HarnessExperimentControllerTests(unittest.TestCase):
             "secrets_absent": True,
             "workspace_digest": canonical_digest({"candidate": candidate, "stage": stage}),
             "stage": stage,
+            "signer_id": "test-isolation-operator",
+            "signer_key_id": "test-key-v1",
+            "test_signature_valid": True,
         }
+
+    @staticmethod
+    def verify_isolation_receipt(receipt, manifest, harness_digest):
+        # Test-only verifier stand-in. Production must use verify_arena_isolation_attestation
+        # with cryptographic signature verification and out-of-band signer/key allowlists.
+        return (
+            receipt.get("signer_id") == "test-isolation-operator"
+            and receipt.get("signer_key_id") == "test-key-v1"
+            and receipt.get("test_signature_valid") is True
+            and receipt.get("harness_digest") == harness_digest
+            and receipt.get("manifest_digest") == manifest.digest
+        )
 
     def judge(self, candidate, probe_receipt, manifest):
         mode = candidate.get("tool_guidance", {}).get("mode")
@@ -149,6 +165,48 @@ class HarnessExperimentControllerTests(unittest.TestCase):
         self.assertEqual(canonical_digest({
             "system_prompt": "stable", "tool_guidance": {"mode": "ultra-concise"}
         }), result.adopted_digest)
+
+    def test_missing_trust_verifier_blocks_even_when_receipt_claims_isolation(self):
+        calls = []
+        controller = HarnessExperimentController(
+            guard=RuntimeExecutionGuard(max_steps=20, max_attempts=20),
+            persist=self.checkpoints.append,
+            max_candidates=3,
+            max_depth=1,
+        )
+        args = {
+            "manifest": self.manifest,
+            "active_harness": self.base,
+            "task": self.task,
+            "propose": lambda *args: [{"tool_guidance": {"mode": "concise"}}],
+            "probe": lambda *args: calls.append(args[3]) or self.probe(*args),
+            "judge": self.judge,
+            "adopt": lambda candidate, expected: self.fail("must not adopt without trusted isolation verifier"),
+            "rollback": lambda expected: {"restored": True, "active_digest": expected},
+        }
+        result = controller.run(**args)
+        self.assertEqual("blocked", result.status)
+        self.assertEqual(["baseline"], calls)
+        self.assertFalse(result.success)
+
+    def test_untrusted_or_throwing_verifier_fails_closed(self):
+        for verifier in (lambda *args: False, lambda *args: (_ for _ in ()).throw(RuntimeError("trust root unavailable"))):
+            controller = HarnessExperimentController(
+                guard=RuntimeExecutionGuard(max_steps=20, max_attempts=20),
+                persist=self.checkpoints.append,
+                verify_isolation_receipt=verifier,
+                max_candidates=3,
+                max_depth=1,
+            )
+            result = controller.run(
+                manifest=self.manifest, active_harness=self.base, task=self.task,
+                propose=lambda *args: [{"tool_guidance": {"mode": "concise"}}],
+                probe=self.probe, judge=self.judge,
+                adopt=lambda candidate, expected: self.fail("untrusted receipt must not adopt"),
+                rollback=lambda expected: {"restored": True, "active_digest": expected},
+            )
+            self.assertEqual("blocked", result.status)
+            self.assertFalse(result.success)
 
     def test_missing_isolation_evidence_blocks_before_candidate_probe(self):
         calls = []
