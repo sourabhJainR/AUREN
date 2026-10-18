@@ -164,6 +164,32 @@ class HarnessExperimentControllerTests(unittest.TestCase):
         self.assertFalse(result.success)
         self.assertEqual([], adopted)
 
+    def test_every_probe_and_judge_charge_is_checkpointed_before_dispatch(self):
+        guard = RuntimeExecutionGuard(max_steps=20, max_attempts=20)
+        observed = []
+        controller = self.controller(
+            guard=guard,
+            persist=lambda snapshot: observed.append((snapshot["stage"], guard.attempts_used)),
+        )
+        result = controller.run(
+            manifest=self.manifest,
+            active_harness=self.base,
+            task=self.task,
+            propose=lambda base, task, depth, seed: [
+                {"system_prompt": "stable", "tool_guidance": {"mode": "concise"}}
+            ],
+            probe=self.probe,
+            judge=self.judge,
+            adopt=lambda candidate, expected: {
+                "atomic": True, "active_digest": canonical_digest(candidate)
+            },
+            rollback=lambda expected: {"restored": True, "active_digest": expected},
+        )
+        self.assertEqual("adopted", result.status)
+        for stage, attempts in (("baseline_probe", 1), ("baseline_judge", 2),
+                                ("candidate_probe", 3), ("candidate_judge", 4)):
+            self.assertIn((stage, attempts), observed)
+
     def test_candidate_receipt_for_another_harness_is_rejected(self):
         adopted = []
         def mismatched_probe(candidate, task, manifest, stage):
