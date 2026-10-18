@@ -295,7 +295,7 @@ def _dispatch_crew_proposal(
     proposer = getattr(agent, "propose", None)
     guarded_proposer = getattr(agent, "propose_with_execution_guard", None)
     if not callable(proposer) and not callable(guarded_proposer):
-        raise TypeError("crew agents must expose a side-effect-free proposal interface")
+        raise TypeError("crew agents must expose a side-effect-free propose(...) or propose_with_execution_guard(...) interface")
     if not isinstance(task, str) or not task.strip():
         raise ValueError("crew task must be non-empty text")
     if evidence is not None and not isinstance(evidence, Mapping):
