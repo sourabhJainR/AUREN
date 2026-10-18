@@ -9,7 +9,7 @@ from typing import Any, Callable, Mapping
 
 from .orchestration import Graph, Node, NodeKind, NodeStatus, OrchestrationRun, Orchestrator
 from .crew_adapters import CrewHandoff, GraphHandoffController, TaskRetryBudget, rollback_readiness
-from .runtime_recovery import RuntimeExecutionGuard
+from .runtime_recovery import ExecutionBudgetExceeded, RuntimeExecutionGuard
 
 _FORBIDDEN_CREW_AUTHORITIES = frozenset({
     "merge", "promote", "self_approve", "approve_own_work", "bypass_review",
@@ -275,6 +275,8 @@ def _dispatch_crew_proposal(
     graph_digest: str,
     agents: Mapping[str, Any],
     crews: Mapping[str, CrewDefinition],
+    execution_guard: RuntimeExecutionGuard | None = None,
+    operation_scope: str = "direct",
 ) -> dict[str, Any]:
     """Validate and invoke one selected proposal adapter without granting execution authority."""
     if type(active) is not bool:
@@ -294,6 +296,13 @@ def _dispatch_crew_proposal(
         raise TypeError("crew agents must expose a side-effect-free propose(request) interface")
     if not isinstance(task, str) or not task.strip():
         raise ValueError("crew task must be non-empty text")
+    if execution_guard is not None:
+        task_digest = hashlib.sha256(task.strip().encode("utf-8")).hexdigest()
+        operation_key = f"specialist-proposal:{plan.digest}:{operation_scope}:{crew_id}:{task_digest}"
+        if not execution_guard.charge_attempt(operation_key):
+            raise ExecutionBudgetExceeded(
+                "duplicate specialist proposal refused because its attempt was already charged"
+            )
     if evidence is not None and not isinstance(evidence, Mapping):
         raise ValueError("crew evidence must be a mapping")
     definition = crews[crew_id]
@@ -313,7 +322,11 @@ def _dispatch_crew_proposal(
         json.dumps(request, sort_keys=True, separators=(",", ":"))
     except (TypeError, ValueError) as exc:
         raise ValueError("crew proposal request must be JSON-serializable") from exc
-    proposal = proposer(request)
+    guarded_proposer = getattr(agent, "propose_with_execution_guard", None)
+    if execution_guard is not None and callable(guarded_proposer):
+        proposal = guarded_proposer(request, execution_guard=execution_guard)
+    else:
+        proposal = proposer(request)
     if not isinstance(proposal, Mapping):
         raise ValueError("crew proposal must be a structured mapping")
     required_fields = {
@@ -579,6 +592,11 @@ class GraphAgentTeam:
                 graph_digest=self.graph.digest(),
                 agents=self.agents,
                 crews=self.crews,
+                execution_guard=runtime_guard,
+                operation_scope=(
+                    str(state.get("auren_supervisor_iteration", "direct"))
+                    + ":" + str(state.get("auren_recovery_hypothesis", "default-plan"))
+                ),
             )
 
         # Handoffs and retry charges live in the supervisor-owned checkpoint,
