@@ -225,6 +225,8 @@ class TaskProgress:
             raise ValueError("replan_generation must be a non-negative integer")
         if any(not isinstance(ref, str) or not ref.strip() for ref in self.evidence_refs):
             raise ValueError("evidence references must be non-empty strings")
+        if self.status == "passed" and not self.evidence_refs:
+            raise ValueError("a passed task requires evidence references")
         _nonempty(self.transition_reason, "transition_reason")
 
     def transition(
