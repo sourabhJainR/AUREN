@@ -253,3 +253,7 @@ __all__ += ["EngineeringPlanStore", "PlanRevisionConflict"]
 
 from .engineering_plan_recovery import EngineeringPlanCheckpointMismatch, EngineeringPlanRecoveryBridge
 __all__ += ["EngineeringPlanCheckpointMismatch", "EngineeringPlanRecoveryBridge"]
+
+
+from .engineering_context_packet import EngineeringContextPacket, build_context_packet
+__all__ += ["EngineeringContextPacket", "build_context_packet"]
