@@ -134,10 +134,11 @@ def build_context_packet(
     if task_progress.status in {"passed", "cancelled"}:
         raise ValueError(f"cannot dispatch terminal task {task_id!r}")
     dependency_status = {dep: progress[dep].status for dep in task.depends_on}
-    if task_progress.status in {"ready", "running", "verifying"}:
-        incomplete = [dep for dep, status in dependency_status.items() if status != "passed"]
-        if incomplete:
-            raise ValueError(f"task {task_id} has incomplete dependencies: {incomplete}")
+    incomplete = [dep for dep, status in dependency_status.items() if status != "passed"]
+    if incomplete:
+        raise ValueError(f"task {task_id} has incomplete dependencies: {incomplete}")
+    if task_progress.status not in {"ready", "running", "verifying"}:
+        raise ValueError(f"task {task_id} is not dispatchable from status {task_progress.status!r}")
     constraints = _text_tuple(policy_constraints, "policy_constraints")
     if not constraints:
         raise ValueError("policy_constraints must not be empty")
