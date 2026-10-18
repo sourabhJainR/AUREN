@@ -165,6 +165,34 @@ class EngineeringPlan:
             "budget": dict(sorted(self.budget.items())),
         }
 
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> "EngineeringPlan":
+        if not isinstance(payload, Mapping):
+            raise ValueError("plan payload must be a mapping")
+        if payload.get("schema_version") != PLAN_SCHEMA_VERSION:
+            raise ValueError("unsupported plan schema in serialized payload")
+        try:
+            tasks = tuple(
+                PlanTask(
+                    task_id=item["task_id"], title=item["title"],
+                    acceptance_criteria=tuple(item["acceptance_criteria"]),
+                    rollback_plan=item["rollback_plan"],
+                    depends_on=tuple(item.get("depends_on", ())),
+                    risk=item.get("risk", "medium"),
+                )
+                for item in payload["tasks"]
+            )
+            return cls(
+                run_id=payload["run_id"], goal=payload["goal"],
+                requirements=tuple(payload["requirements"]), tasks=tasks,
+                schema_version=payload["schema_version"],
+                source_revision=payload["source_revision"],
+                policy_digest=payload.get("policy_digest", ""),
+                budget=payload.get("budget", {}),
+            )
+        except (KeyError, TypeError) as exc:
+            raise ValueError("invalid serialized engineering plan") from exc
+
     @property
     def digest(self) -> str:
         return _digest(self.to_dict())
@@ -262,6 +290,30 @@ class EngineeringPlanRun:
             "tasks": [task.to_dict() for task in self.tasks],
             "handoff": _thaw_json(self.handoff),
         }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> "EngineeringPlanRun":
+        if not isinstance(payload, Mapping):
+            raise ValueError("run payload must be a mapping")
+        if payload.get("schema_version") != RUN_SCHEMA_VERSION:
+            raise ValueError("unsupported run schema in serialized payload")
+        try:
+            tasks = tuple(
+                TaskProgress(
+                    task_id=item["task_id"], status=item["status"],
+                    evidence_refs=tuple(item.get("evidence_refs", ())),
+                    replan_generation=item.get("replan_generation", 0),
+                    transition_reason=item.get("transition_reason", "restored"),
+                )
+                for item in payload["tasks"]
+            )
+            return cls(
+                plan_digest=payload["plan_digest"], source_revision=payload["source_revision"],
+                tasks=tasks, schema_version=payload["schema_version"],
+                revision=payload.get("revision", 0), handoff=payload.get("handoff", {}),
+            )
+        except (KeyError, TypeError) as exc:
+            raise ValueError("invalid serialized engineering plan run") from exc
 
     @property
     def digest(self) -> str:
