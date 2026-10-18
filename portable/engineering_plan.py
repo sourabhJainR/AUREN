@@ -218,6 +218,9 @@ class EngineeringPlanRun:
             raise ValueError(f"unsupported run schema: {self.schema_version}")
         if len(self.plan_digest) != 64 or any(ch not in "0123456789abcdef" for ch in self.plan_digest.lower()):
             raise ValueError("plan_digest must be a SHA-256 hex digest")
+        _nonempty(self.source_revision, "source_revision")
+        if not isinstance(self.handoff, Mapping):
+            raise ValueError("handoff must be a JSON-compatible mapping")
         if type(self.revision) is not int or self.revision < 0:
             raise ValueError("revision must be a non-negative integer")
         ids = [task.task_id for task in self.tasks]
@@ -238,9 +241,19 @@ class EngineeringPlanRun:
         return _digest(self.to_dict())
 
     def transition_task(
-        self, task_id: str, target: str, *, reason: str,
+        self, task_id: str, target: str, *, plan: EngineeringPlan, reason: str,
         evidence_refs: tuple[str, ...] = (), replan_generation: int | None = None,
     ) -> "EngineeringPlanRun":
+        self.verify_against(plan)
+        progress_by_id = {item.task_id: item for item in self.tasks}
+        task_definition = next((item for item in plan.tasks if item.task_id == task_id), None)
+        if task_definition is None:
+            raise KeyError(f"task {task_id!r} is not present in this plan")
+        if target in {"ready", "running"}:
+            incomplete = [dependency for dependency in task_definition.depends_on
+                          if progress_by_id[dependency].status != "passed"]
+            if incomplete:
+                raise ValueError(f"task {task_id} has incomplete dependencies: {incomplete}")
         found = False
         updated: list[TaskProgress] = []
         for progress in self.tasks:
