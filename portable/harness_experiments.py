@@ -211,15 +211,7 @@ class HarnessExperimentController:
         try:
             self.guard.check()
             self.guard.charge_step()
-            checkpoint("propose", status="in_progress")
-            proposed = propose(self._copy_json(base), task, 0, manifest.seed)
-            if not isinstance(proposed, Sequence) or isinstance(proposed, (str, bytes)):
-                raise ValueError("propose must return a sequence of declarative candidates")
-            if len(proposed) > manifest.max_candidates:
-                raise ValueError("proposer exceeded the candidate cap")
-            if not proposed:
-                checkpoint("complete", status="rejected", details={"reason": "no candidates"})
-                return result("rejected", "no candidates proposed")
+            checkpoint("prepare", status="in_progress")
 
             # Probe and judge the baseline in the same configured environment first.
             self.guard.check()
@@ -240,39 +232,59 @@ class HarnessExperimentController:
                 return result("blocked", "baseline evaluator evidence missing")
 
             best: tuple[float, dict[str, Any], str, Mapping[str, Any], Mapping[str, Any]] | None = None
-            for index, candidate_value in enumerate(proposed):
+            proposal_count = 0
+            for depth in range(manifest.max_depth + 1):
                 self.guard.check()
-                self.guard.charge_step()
-                if index >= manifest.max_candidates:
-                    raise ValueError("candidate cap exceeded")
-                candidate = self._copy_json(candidate_value)
-                digest = canonical_digest(candidate)
-                if digest == base_digest or digest in candidate_digests:
-                    evidence.append({"kind": "candidate_rejected", "index": index, "digest": digest,
-                                     "reason": "unchanged or duplicate candidate"})
+                checkpoint("propose", status="in_progress", details={"depth": depth})
+                proposal_base = best[1] if best is not None else base
+                proposed = propose(self._copy_json(proposal_base), task, depth, manifest.seed + depth)
+                if not isinstance(proposed, Sequence) or isinstance(proposed, (str, bytes)):
+                    raise ValueError("propose must return a sequence of declarative candidates")
+                proposal_count += len(proposed)
+                if proposal_count > manifest.max_candidates:
+                    raise ValueError("recursive proposer exceeded the total candidate cap")
+                if not proposed:
+                    evidence.append({"kind": "proposal_round", "depth": depth, "status": "no_candidates"})
                     continue
-                candidate_digests.append(digest)
-                checkpoint("candidate_probe", status="in_progress", details={"candidate_index": index, "candidate_digest": digest})
-                self.guard.charge_attempt(f"harness:{manifest.run_id}:candidate:{digest}:probe")
-                probe_receipt = self._receipt(probe(self._copy_json(candidate), task, manifest_payload, "candidate"), kind="probe")
-                evidence.append({"kind": "candidate_probe", "digest": digest, "receipt": probe_receipt})
-                if not self._isolation_receipt(probe_receipt, manifest, digest):
-                    evidence.append({"kind": "candidate_rejected", "digest": digest, "reason": "isolation receipt invalid"})
-                    checkpoint("candidate_rejected", status="rejected", details={"candidate_digest": digest, "reason": "isolation receipt invalid"})
-                    continue
-                self.guard.check()
-                self.guard.charge_attempt(f"harness:{manifest.run_id}:candidate:{digest}:judge")
-                judge_receipt = self._receipt(judge(self._copy_json(candidate), probe_receipt, manifest_payload), kind="judge")
-                evidence.append({"kind": "candidate_judge", "digest": digest, "receipt": judge_receipt})
-                if not self._judge_receipt(judge_receipt, manifest, digest):
-                    evidence.append({"kind": "candidate_rejected", "digest": digest, "reason": "evaluator receipt invalid"})
-                    continue
-                if not self._improves(baseline_judge, judge_receipt, manifest, digest):
-                    evidence.append({"kind": "candidate_rejected", "digest": digest, "reason": "no safe net improvement"})
-                    continue
-                score = float(judge_receipt["quality_score"])
-                if best is None or score > best[0]:
-                    best = (score, candidate, digest, probe_receipt, judge_receipt)
+                for index, candidate_value in enumerate(proposed):
+                    self.guard.check()
+                    self.guard.charge_step()
+                    candidate = self._copy_json(candidate_value)
+                    digest = canonical_digest(candidate)
+                    if digest == base_digest or digest in candidate_digests:
+                        evidence.append({"kind": "candidate_rejected", "depth": depth, "index": index, "digest": digest,
+                                         "reason": "unchanged or duplicate candidate"})
+                        continue
+                    candidate_digests.append(digest)
+                    checkpoint("candidate_probe", status="in_progress", details={
+                        "depth": depth, "candidate_index": index, "candidate_digest": digest
+                    })
+                    self.guard.charge_attempt(f"harness:{manifest.run_id}:candidate:{digest}:probe")
+                    probe_receipt = self._receipt(
+                        probe(self._copy_json(candidate), task, manifest_payload, "candidate"), kind="probe"
+                    )
+                    evidence.append({"kind": "candidate_probe", "depth": depth, "digest": digest, "receipt": probe_receipt})
+                    if not self._isolation_receipt(probe_receipt, manifest, digest):
+                        evidence.append({"kind": "candidate_rejected", "digest": digest, "reason": "isolation receipt invalid"})
+                        checkpoint("candidate_rejected", status="rejected", details={
+                            "candidate_digest": digest, "reason": "isolation receipt invalid"
+                        })
+                        continue
+                    self.guard.check()
+                    self.guard.charge_attempt(f"harness:{manifest.run_id}:candidate:{digest}:judge")
+                    judge_receipt = self._receipt(
+                        judge(self._copy_json(candidate), probe_receipt, manifest_payload), kind="judge"
+                    )
+                    evidence.append({"kind": "candidate_judge", "depth": depth, "digest": digest, "receipt": judge_receipt})
+                    if not self._judge_receipt(judge_receipt, manifest, digest):
+                        evidence.append({"kind": "candidate_rejected", "digest": digest, "reason": "evaluator receipt invalid"})
+                        continue
+                    if not self._improves(baseline_judge, judge_receipt, manifest, digest):
+                        evidence.append({"kind": "candidate_rejected", "digest": digest, "reason": "no safe net improvement"})
+                        continue
+                    score = float(judge_receipt["quality_score"])
+                    if best is None or score > best[0]:
+                        best = (score, candidate, digest, probe_receipt, judge_receipt)
 
             if best is None:
                 checkpoint("complete", status="rejected", details={"reason": "no candidate passed evidence and improvement gates"})
