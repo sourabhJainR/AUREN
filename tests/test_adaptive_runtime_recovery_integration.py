@@ -96,6 +96,45 @@ class AdaptiveRuntimeRecoveryIntegrationTests(unittest.TestCase):
         self.assertIsNotNone(checkpoint)
         self.assertEqual(2, checkpoint.payload["runtime_guard"]["attempts_used"])
 
+    def test_harness_experiment_checkpoint_preserves_runtime_guard(self):
+        observed = []
+        def run_node(state):
+            state["auren_harness_experiment_persist"]({
+                "schema_version": "auren-harness-experiment-checkpoint-v1",
+                "run_id": "integration-run",
+                "stage": "candidate_probe",
+                "status": "in_progress",
+                "manifest_digest": "a" * 64,
+            })
+            observed.append(state["_auren_runtime_execution_guard"])
+            return "ok"
+
+        runtime = AdaptiveRuntime(
+            Graph([Node("work", NodeKind.DETERMINISTIC, run_node)]),
+            state_root=self.root / "harness-experiment-checkpoint-state",
+        )
+        result = runtime.run(
+            session_id="harness-experiment-session",
+            task_id="harness-experiment-task",
+            project_root=self.root,
+            intent="preserve experiment checkpoint with canonical guard",
+            enrich_context=False,
+            enrich_cognition=False,
+        )
+        self.assertEqual("accepted", result.status.value)
+        self.assertEqual(1, len(observed))
+        with sqlite3.connect(runtime.execution_controller.db_path) as db:
+            work_id = db.execute(
+                "SELECT work_unit_id FROM sessions WHERE session_id=?",
+                ("harness-experiment-session:harness-experiment-task",),
+            ).fetchone()[0]
+        checkpoint = runtime.recovery_ledger.get_checkpoint(work_id, "execution")
+        self.assertIsNotNone(checkpoint)
+        self.assertIn("runtime_guard", checkpoint.payload)
+        self.assertEqual("integration-run", checkpoint.payload["harness_experiment"]["run_id"])
+        restored = RuntimeExecutionGuard.resume(checkpoint.payload["runtime_guard"])
+        self.assertEqual(observed[0].attempts_used, restored.attempts_used)
+
     def test_supervisor_shares_and_checkpoints_one_runtime_guard_across_retries(self):
         graph = Graph([Node("work", NodeKind.DETERMINISTIC, lambda state: "ok")])
         runtime = AdaptiveRuntime(graph, state_root=self.root / "shared-guard-state")
