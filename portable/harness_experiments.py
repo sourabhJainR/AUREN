@@ -311,11 +311,15 @@ class HarnessExperimentController:
             return result("failed", f"{type(exc).__name__}: {exc}")
 
     @staticmethod
-    def _isolation_receipt(\n        receipt: Mapping[str, Any], manifest: HarnessExperimentManifest, harness_digest: str\n    ) -> bool:
+    def _isolation_receipt(
+        receipt: Mapping[str, Any], manifest: HarnessExperimentManifest, harness_digest: str
+    ) -> bool:
         return (
             receipt.get("schema_version") == "auren-isolation-receipt-v1"
             and receipt.get("manifest_digest") == manifest.digest
             and receipt.get("isolation_profile") == manifest.isolation_profile
+            and receipt.get("task_digest") == manifest.task_digest
+            and receipt.get("harness_digest") == harness_digest
             and receipt.get("isolation_enforced") is True
             and receipt.get("egress_restricted") is True
             and receipt.get("secrets_absent") is True
@@ -324,11 +328,15 @@ class HarnessExperimentController:
         )
 
     @staticmethod
-    def _judge_receipt(\n        receipt: Mapping[str, Any], manifest: HarnessExperimentManifest, harness_digest: str\n    ) -> bool:
+    def _judge_receipt(
+        receipt: Mapping[str, Any], manifest: HarnessExperimentManifest, harness_digest: str
+    ) -> bool:
         if (
             receipt.get("schema_version") != "auren-evaluation-receipt-v1"
             or receipt.get("manifest_digest") != manifest.digest
             or receipt.get("evaluator_id") != manifest.evaluator_id
+            or receipt.get("task_digest") != manifest.task_digest
+            or receipt.get("harness_digest") != harness_digest
             or receipt.get("independent_of_executor") is not True
             or receipt.get("scored") is not True
             or receipt.get("tests_passed") is not True
@@ -351,8 +359,9 @@ class HarnessExperimentController:
         baseline: Mapping[str, Any],
         candidate: Mapping[str, Any],
         manifest: HarnessExperimentManifest,
+        candidate_digest: str,
     ) -> bool:
-        if not self._judge_receipt(baseline, manifest, manifest.base_harness_digest) or not self._judge_receipt(candidate, manifest, str(candidate.get("harness_digest", ""))):
+        if not self._judge_receipt(baseline, manifest, manifest.base_harness_digest) or not self._judge_receipt(candidate, manifest, candidate_digest):
             # Missing or incompatible evidence is never a positive promotion signal.
             return False
         return (
