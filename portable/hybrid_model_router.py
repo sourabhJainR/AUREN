@@ -10,7 +10,9 @@ import time
 import urllib.request
 from dataclasses import dataclass
 from typing import Any, Callable
+from uuid import uuid4
 
+from .runtime_recovery import ExecutionBudgetExceeded, RuntimeExecutionGuard
 from .local_endpoint import open_loopback_request, validate_loopback_base_url
 
 
@@ -53,7 +55,9 @@ class HybridModelRouter:
         base_url = validate_loopback_base_url(
             getattr(self.discovery, "base_url", "http://127.0.0.1:11434")
         )
-        timeout = max(0.1, min(float(request.timeout_seconds), 120.0))
+        timeout = min(float(request.timeout_seconds), 120.0)
+        if timeout <= 0:
+            raise TimeoutError("local execution timeout budget exhausted")
         payload = json.dumps({"model": model, "prompt": request.task, "stream": False,
                               "options": {"num_predict": 1024}}).encode("utf-8")
         req = urllib.request.Request(base_url + "/api/generate", data=payload,
@@ -101,13 +105,30 @@ class HybridModelRouter:
             return True
         return capability in model
 
-    def route(self, request: TaskRouteRequest) -> RouteResult:
+    def route(
+        self,
+        request: TaskRouteRequest,
+        *,
+        execution_guard: RuntimeExecutionGuard | None = None,
+    ) -> RouteResult:
         attempts_limit = max(1, min(int(request.max_attempts), 3))
         timeout = max(0.1, min(float(request.timeout_seconds), 120.0))
         bounded = TaskRouteRequest(request.task, request.capability, request.privacy,
                                    attempts_limit, timeout)
         started = time.monotonic()
+        route_deadline = started + timeout
+        guard = execution_guard or RuntimeExecutionGuard(
+            max_steps=attempts_limit, max_attempts=attempts_limit, deadline_seconds=timeout
+        )
+        route_id = uuid4().hex
         before = self.resource_reader()
+        try:
+            guard.check()
+        except ExecutionBudgetExceeded as exc:
+            return RouteResult("none", None, False, 0,
+                round((time.monotonic()-started)*1000, 2),
+                {"before": before, "after": self.resource_reader()}, str(exc),
+                error="Execution budget is exhausted or cancelled before model discovery")
         local = self.discovery.discover()
         candidates = [m["name"] for m in local.get("models", [])
                       if m.get("name") and self._capable(m["name"], bounded.capability)]
@@ -118,23 +139,31 @@ class HybridModelRouter:
         last_local_model = None
         if candidates and self.local_executor:
             for model in candidates[:attempts_limit]:
-                if time.monotonic() - started >= timeout:
-                    reason = "overall timeout budget exhausted"
-                    break
                 try:
+                    guard.check()
+                    remaining = min(timeout - (time.monotonic() - started), route_deadline - time.monotonic())
+                    shared_remaining = guard.snapshot().get("remaining_seconds")
+                    if shared_remaining is not None:
+                        remaining = min(remaining, float(shared_remaining))
+                    if remaining <= 0:
+                        raise ExecutionBudgetExceeded("overall timeout budget exhausted")
+                    guard.charge_attempt(f"model-route:{route_id}:local:{attempts_used + 1}")
                     attempts_used += 1
                     last_local_model = model
-                    remaining = max(0.1, timeout - (time.monotonic() - started))
                     attempt_request = TaskRouteRequest(bounded.task, bounded.capability, bounded.privacy,
-                                                       bounded.max_attempts, remaining)
+                                                       max(1, attempts_limit - attempts_used + 1), remaining)
                     value = self.local_executor(attempt_request, model)
-                    if time.monotonic() - started >= timeout:
+                    if time.monotonic() >= route_deadline:
                         reason = "overall timeout budget exhausted"
                         break
+                    guard.check()
                     return RouteResult("local", model, True, attempts_used,
                         round((time.monotonic()-started)*1000, 2),
                         {"before": before, "after": self.resource_reader()},
                         reason, value)
+                except ExecutionBudgetExceeded as exc:
+                    reason = str(exc)
+                    break
                 except Exception as exc:
                     reason = type(exc).__name__
             if private:
@@ -156,22 +185,30 @@ class HybridModelRouter:
                 error="No eligible executor configured")
         remote_attempts = 0
         for _ in range(max(0, attempts_limit - attempts_used)):
-            if time.monotonic() - started >= timeout:
-                reason = "overall timeout budget exhausted"
-                break
             try:
+                guard.check()
+                remaining = min(timeout - (time.monotonic() - started), route_deadline - time.monotonic())
+                shared_remaining = guard.snapshot().get("remaining_seconds")
+                if shared_remaining is not None:
+                    remaining = min(remaining, float(shared_remaining))
+                if remaining <= 0:
+                    raise ExecutionBudgetExceeded("overall timeout budget exhausted")
+                guard.charge_attempt(f"model-route:{route_id}:remote:{remote_attempts + 1}")
                 attempts_used += 1
                 remote_attempts += 1
-                remaining = max(0.1, timeout - (time.monotonic() - started))
                 attempt_request = TaskRouteRequest(bounded.task, bounded.capability, bounded.privacy,
-                                                   bounded.max_attempts, remaining)
+                                                   max(1, attempts_limit - attempts_used + 1), remaining)
                 value = self.remote_executor(attempt_request)
-                if time.monotonic() - started >= timeout:
+                if time.monotonic() >= route_deadline:
                     reason = "overall timeout budget exhausted"
                     break
+                guard.check()
                 return RouteResult("remote", None, True, attempts_used,
                     round((time.monotonic()-started)*1000, 2),
                     {"before": before, "after": self.resource_reader()}, reason, value)
+            except ExecutionBudgetExceeded as exc:
+                reason = str(exc)
+                break
             except Exception as exc:
                 reason = type(exc).__name__
         return RouteResult(

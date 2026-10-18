@@ -47,7 +47,7 @@ These tests do not need external providers or independent evaluators:
 ## Rollout order
 
 1. Harden local endpoints and dashboard boundaries; test privacy policy and accurate status/attempt metrics.
-2. Add a shared budget/deadline/cancellation object to existing execution owners; do not claim hard cancellation for callbacks that cannot be interrupted.
+2. Reuse `portable.runtime_recovery.RuntimeExecutionGuard` for model routing as well as graph/supervisor work, charging local and remote calls to the same attempt ledger; do not claim hard cancellation for callbacks that cannot be interrupted.
 3. Define and enforce the durable work-item/event contract through existing checkpoint and evidence stores.
 4. Wire specialist crews to explicit capabilities, isolated workspaces, and shared task budgets.
 5. Connect memory retrieval health and evidence lineage to the control center.

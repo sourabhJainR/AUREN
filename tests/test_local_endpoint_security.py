@@ -1,6 +1,7 @@
 """Regression tests for local endpoint trust boundaries and routing metrics."""
 import time
 import unittest
+from unittest.mock import patch
 from urllib.request import Request
 
 from portable.local_endpoint import (
@@ -10,6 +11,7 @@ from portable.local_endpoint import (
 from portable.hybrid_model_router import HybridModelRouter, TaskRouteRequest
 from portable.muxin_session_adapter import MuxinSessionAdapter
 from portable.session_state import SessionCheckpoint
+from portable.runtime_recovery import RuntimeExecutionGuard
 
 
 class _Discovery:
@@ -58,6 +60,20 @@ class LocalEndpointSecurityTests(unittest.TestCase):
         record = MuxinSessionAdapter._session_record(checkpoint)
         self.assertEqual("unverified", record["status"])
         self.assertEqual(0, record["progress"])
+
+    def test_local_http_timeout_preserves_subsecond_shared_deadline(self):
+        router = HybridModelRouter(
+            discovery=_Discovery(["general-model"]),
+            resource_reader=lambda: {},
+        )
+        with patch("portable.hybrid_model_router.open_loopback_request") as open_request:
+            open_request.return_value.__enter__.return_value.read.return_value = b'{"response":"ok"}'
+            result = router._execute_local(
+                TaskRouteRequest("private source", "general", timeout_seconds=0.025),
+                "general-model",
+            )
+        self.assertEqual("ok", result)
+        self.assertEqual(0.025, open_request.call_args.kwargs["timeout"])
 
     def test_local_attempt_count_reports_actual_attempts(self):
         attempted = []
@@ -122,6 +138,54 @@ class LocalEndpointSecurityTests(unittest.TestCase):
         self.assertEqual(1, result.attempts)
         self.assertIn("privacy policy", result.error)
         self.assertEqual("overall timeout budget exhausted", result.fallback_reason)
+
+    def test_shared_runtime_budget_stops_remote_retry_after_local_attempt(self):
+        local_calls = []
+        remote_calls = []
+
+        def fail_local(request, model):
+            local_calls.append(model)
+            raise RuntimeError("local backend unavailable")
+
+        guard = RuntimeExecutionGuard(max_attempts=1, deadline_seconds=5)
+        router = HybridModelRouter(
+            discovery=_Discovery(["general-model"]),
+            local_executor=fail_local,
+            remote_executor=lambda request: remote_calls.append(request) or "must not run",
+            resource_reader=lambda: {},
+        )
+        result = router.route(
+            TaskRouteRequest("public summary", "general", privacy="public", max_attempts=3),
+            execution_guard=guard,
+        )
+        self.assertFalse(result.success)
+        self.assertEqual(1, result.attempts)
+        self.assertEqual(1, guard.attempts_used)
+        self.assertEqual(1, len(local_calls))
+        self.assertEqual([], remote_calls)
+        self.assertIn("attempt budget exhausted", result.fallback_reason)
+
+    def test_cancelled_shared_guard_blocks_discovery_and_execution(self):
+        discovery = _Discovery(["general-model"])
+        discovery_calls = []
+        original_discover = discovery.discover
+        discovery.discover = lambda: (discovery_calls.append(True), original_discover())[1]
+        local_calls = []
+        guard = RuntimeExecutionGuard(max_attempts=2, deadline_seconds=5)
+        guard.cancel("operator stop")
+        router = HybridModelRouter(
+            discovery=discovery,
+            local_executor=lambda request, model: local_calls.append(model) or "should not run",
+            resource_reader=lambda: {},
+        )
+        result = router.route(
+            TaskRouteRequest("private task", "general", privacy="private"),
+            execution_guard=guard,
+        )
+        self.assertFalse(result.success)
+        self.assertIn("operator stop", result.fallback_reason)
+        self.assertEqual([], discovery_calls)
+        self.assertEqual([], local_calls)
 
     def test_local_failure_reports_only_attempts_that_ran(self):
         attempted = []
