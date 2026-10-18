@@ -122,6 +122,22 @@ class EngineeringPlanStoreTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "stored run digest mismatch"):
                 store.load(plan.run_id)
 
+    def test_store_rejects_future_and_unversioned_existing_schemas(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            future_path = Path(tmp) / "future.db"
+            db = sqlite3.connect(future_path)
+            db.execute("PRAGMA user_version = 99")
+            db.close()
+            with self.assertRaisesRegex(ValueError, "unsupported engineering plan store schema version"):
+                EngineeringPlanStore(future_path)
+
+            unversioned_path = Path(tmp) / "unversioned.db"
+            db = sqlite3.connect(unversioned_path)
+            db.execute("CREATE TABLE engineering_plan_runs (run_id TEXT PRIMARY KEY)")
+            db.close()
+            with self.assertRaisesRegex(ValueError, "explicit migration is required"):
+                EngineeringPlanStore(unversioned_path)
+
     def test_unknown_run_is_not_treated_as_empty_success(self):
         with tempfile.TemporaryDirectory() as tmp:
             store = EngineeringPlanStore(Path(tmp) / "plans.db")
