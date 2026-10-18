@@ -117,8 +117,9 @@ class GraphAgentCrewTests(unittest.TestCase):
 
     def test_guard_aware_specialist_receives_same_live_guard(self):
         class GuardAwareAgent(ProposalAgent):
-            def propose_with_execution_guard(self, request, *, execution_guard):
+            def propose_with_execution_guard(self, request, *, execution_guard, execution_guard_persist):
                 self.execution_guard = execution_guard
+                self.guard_persist = execution_guard_persist
                 return self.propose(request)
 
         frontend = GuardAwareAgent("frontend_ui")
@@ -133,6 +134,7 @@ class GraphAgentCrewTests(unittest.TestCase):
         result = team.run("guard-aware-proposal", "frontend UI")
         self.assertEqual(RunStatus.ACCEPTED, result.status)
         self.assertIs(frontend.execution_guard, observed["guard"])
+        self.assertTrue(callable(frontend.guard_persist))
         self.assertEqual(2, observed["guard"].attempts_used)
 
     def test_duplicate_specialist_proposal_is_not_reexecuted(self):
