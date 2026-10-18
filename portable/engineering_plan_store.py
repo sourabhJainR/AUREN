@@ -41,7 +41,7 @@ class EngineeringPlanStore:
                     updated_at REAL NOT NULL
                 )
             """)
-            db.execute("PRAGMA user_version = 1")
+            db.execute(f"PRAGMA user_version = {self.SCHEMA_VERSION}")
         finally:
             db.close()
 
