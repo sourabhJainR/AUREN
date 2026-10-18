@@ -9,7 +9,7 @@ import json
 import time
 import urllib.request
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 from uuid import uuid4
 
 from .runtime_recovery import ExecutionBudgetExceeded, RuntimeExecutionGuard
@@ -219,6 +219,24 @@ class HybridModelRouter:
             error=("Eligible execution failed within bounded retry budget" if remote_attempts
                    else "Attempt budget or deadline exhausted before remote execution"),
         )
+
+    def route_with_context(
+        self,
+        request: TaskRouteRequest,
+        context: Mapping[str, Any],
+    ) -> RouteResult:
+        """Route from a graph/specialist context using its canonical live guard.
+
+        Graph nodes should pass their state mapping here rather than constructing
+        a new router budget. A malformed injected capability fails closed before
+        any model discovery or provider call.
+        """
+        if not isinstance(context, Mapping):
+            raise TypeError("routing context must be a mapping")
+        guard = context.get("_auren_runtime_execution_guard")
+        if guard is not None and not isinstance(guard, RuntimeExecutionGuard):
+            raise TypeError("routing context contains an invalid execution guard")
+        return self.route(request, execution_guard=guard)
 
     def snapshot(self) -> dict[str, Any]:
         return {"local_discovery": self.discovery.discover(),
