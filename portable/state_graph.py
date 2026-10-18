@@ -594,9 +594,18 @@ class GraphAgentTeam:
         else:
             retry_budget = TaskRetryBudget(max_retries=state.get("auren_retry_budget_limit", 3))
 
+        # Preserve the supervisor-owned live guard when this graph is nested
+        # inside AdaptiveRuntime/Orchestrator. Rehydrating a second guard here
+        # would split attempt charges and allow specialist/provider work to reset
+        # its task-wide budget at the graph boundary.
+        supplied_guard = state.get("_auren_runtime_execution_guard")
         runtime_snapshot = state.get("auren_runtime_guard")
+        if supplied_guard is not None and not isinstance(supplied_guard, RuntimeExecutionGuard):
+            raise TypeError("supervisor runtime execution guard has an invalid type")
         runtime_guard = (
-            RuntimeExecutionGuard.resume(runtime_snapshot)
+            supplied_guard
+            if isinstance(supplied_guard, RuntimeExecutionGuard)
+            else RuntimeExecutionGuard.resume(runtime_snapshot)
             if isinstance(runtime_snapshot, Mapping)
             else RuntimeExecutionGuard(max_steps=max(1, len(self.graph.states)), max_attempts=32)
         )
