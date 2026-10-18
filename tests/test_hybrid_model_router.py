@@ -4,8 +4,12 @@ from portable.hybrid_model_router import HybridModelRouter, TaskRouteRequest
 from portable.runtime_recovery import RuntimeExecutionGuard
 
 class Discovery:
-    def __init__(self, names): self.names = names
+    def __init__(self, names):
+        self.names = names
+        self.calls = 0
+
     def discover(self):
+        self.calls += 1
         return {"available": bool(self.names), "models": [{"name": n} for n in self.names]}
 
 class HybridRouterTests(unittest.TestCase):
@@ -46,8 +50,9 @@ class HybridRouterTests(unittest.TestCase):
         calls = []
         guard = RuntimeExecutionGuard(max_steps=4, max_attempts=1)
         context = {"_auren_runtime_execution_guard": guard}
+        discovery = Discovery([])
         router = HybridModelRouter(
-            discovery=Discovery([]),
+            discovery=discovery,
             remote_executor=lambda request: calls.append(request) or "ok",
             resource_reader=lambda: {},
         )
@@ -65,6 +70,7 @@ class HybridRouterTests(unittest.TestCase):
         self.assertFalse(second.success)
         self.assertEqual(1, len(calls))
         self.assertEqual(1, guard.attempts_used)
+        self.assertEqual(1, discovery.calls, "exhausted shared budget must block before discovery")
 
     def test_route_with_context_rejects_forged_guard_before_discovery(self):
         discovery = Discovery([])
