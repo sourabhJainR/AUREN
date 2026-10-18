@@ -153,6 +153,30 @@ class AdaptiveRuntimeRecoveryIntegrationTests(unittest.TestCase):
         self.assertEqual(runtime.session_store.root, (canonical / "sessions").resolve())
         self.assertEqual(migrated.read_text(encoding="utf-8"), old_session.read_text(encoding="utf-8"))
 
+    def test_runtime_requires_explicit_recovery_for_in_progress_checkpoint_without_graph_state(self):
+        graph = Graph([Node("work", NodeKind.DETERMINISTIC, lambda state: "ok")])
+        runtime = AdaptiveRuntime(graph, state_root=self.root / "incomplete-checkpoint-state")
+        session_id = "incomplete-checkpoint-session"
+        task_id = "incomplete-checkpoint-task"
+        intent = "do not restart an incomplete graph without a state envelope"
+        work_id = runtime.execution_controller.work_unit_for_session(
+            f"{session_id}:{task_id}", f"{task_id}: {intent}"
+        )
+        runtime.recovery_ledger.checkpoint(
+            work_id, "execution", status="in_progress", head_sha="",
+            payload={"iteration": 1, "deadline_at": "2026-10-18T12:00:00+00:00"},
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "explicit recovery is required"):
+            runtime.run(
+                session_id=session_id,
+                task_id=task_id,
+                project_root=self.root,
+                intent=intent,
+                enrich_context=False,
+                enrich_cognition=False,
+            )
+
     def test_default_runtime_rejects_unbounded_iteration_requests(self):
         graph = Graph([Node("work", NodeKind.DETERMINISTIC, lambda state: "ok")])
         runtime = AdaptiveRuntime(graph, state_root=self.root / "state")
