@@ -84,7 +84,7 @@ class HybridRouterTests(unittest.TestCase):
         result = router.route(
             TaskRouteRequest("public summary", "general", privacy="public", max_attempts=1),
             execution_guard=guard,
-            execution_guard_persist=lambda snapshot: events.append(("checkpoint", snapshot["attempts_used"]),
+            execution_guard_persist=lambda snapshot: events.append(("checkpoint", snapshot["attempts_used"])),
         )
 
         self.assertTrue(result.success)
