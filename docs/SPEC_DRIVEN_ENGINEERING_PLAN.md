@@ -27,6 +27,11 @@ Keep worker context compact and task-scoped: goal/requirements, task and depende
 
 ## Current boundary
 
-This first slice supplies typed plan/run data and lifecycle transitions. Durable storage, crash-safe state persistence, generated context packets, parallel workstream isolation, and dashboard projections remain follow-on work. Do not treat an in-memory `EngineeringPlanRun` as a durable checkpoint. Persist it through AUREN's canonical execution ledger in a subsequent integration step, preserving its digest and revision checks.
+The current slice supplies typed plan/run data, strict schema-versioned serialization, and transactional SQLite persistence with compare-and-swap revisions. The store rejects incompatible schema/digests and stale writers; tests cover restart/resume, corruption, duplicate runs, and skipped revisions. This store persists planning state only: it does not replace the canonical runtime execution ledger or `RuntimeExecutionGuard` checkpoints, and it does not claim that a persisted plan has actually executed.
 
 GSD Core's own guidance describes fresh-context specialist agents, thin orchestrators, human-readable project state and a Discuss → Plan → Execute → Verify → Ship loop. AUREN adapts those concepts while retaining its shared-budget, evidence, authority and rollback controls.
+
+
+## Durable storage contract
+
+`EngineeringPlanStore` stores canonical plan and run JSON, a schema version, the plan digest, and update timestamp in SQLite. Writes use `BEGIN IMMEDIATE`; `save_run` uses an expected current revision and requires the replacement to advance exactly one revision. A stale concurrent writer receives `PlanRevisionConflict`. On load, schema, digest, task set, plan identity, and source revision are checked before resume. The store is intentionally separate from runtime execution budget checkpoints: the orchestration layer must persist both records consistently when it integrates the plan with a live execution.
