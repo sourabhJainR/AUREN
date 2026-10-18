@@ -30,6 +30,19 @@ class EngineeringPlanStore:
         db = self._connect()
         try:
             db.execute("PRAGMA journal_mode=WAL")
+            current_schema = int(db.execute("PRAGMA user_version").fetchone()[0])
+            table_exists = db.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'engineering_plan_runs'"
+            ).fetchone() is not None
+            if current_schema not in (0, self.SCHEMA_VERSION):
+                raise ValueError(
+                    f"unsupported engineering plan store schema version {current_schema}; "
+                    f"expected {self.SCHEMA_VERSION}"
+                )
+            if current_schema == 0 and table_exists:
+                raise ValueError(
+                    "unversioned engineering plan store found; explicit migration is required"
+                )
             db.execute("""
                 CREATE TABLE IF NOT EXISTS engineering_plan_runs (
                     run_id TEXT PRIMARY KEY,
@@ -41,7 +54,8 @@ class EngineeringPlanStore:
                     updated_at REAL NOT NULL
                 )
             """)
-            db.execute(f"PRAGMA user_version = {self.SCHEMA_VERSION}")
+            if current_schema == 0:
+                db.execute(f"PRAGMA user_version = {self.SCHEMA_VERSION}")
         finally:
             db.close()
 
