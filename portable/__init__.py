@@ -240,3 +240,9 @@ __all__ += ["ExternalTransferEvidence", "ExternalTransferEvidenceCoordinator"]
 
 from .arena_promotion_gate import ArenaPromotionDecision, ArenaPromotionGate
 __all__ += ["ArenaPromotionDecision", "ArenaPromotionGate"]
+
+
+from .engineering_plan import (
+    EngineeringPlan, EngineeringPlanRun, PlanTask, TaskProgress, new_plan_run,
+)
+__all__ += ["EngineeringPlan", "EngineeringPlanRun", "PlanTask", "TaskProgress", "new_plan_run"]
