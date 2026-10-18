@@ -7,7 +7,6 @@ attempt/time budget. Resource metrics are best-effort and labelled when absent.
 from __future__ import annotations
 import json
 import time
-import urllib.error
 import urllib.request
 from .local_endpoint import open_loopback_request, validate_loopback_base_url
 from dataclasses import dataclass
@@ -151,13 +150,11 @@ class HybridModelRouter:
                 round((time.monotonic()-started)*1000, 2),
                 {"before": before, "after": self.resource_reader()}, reason,
                 error="No eligible executor configured")
-        remote_attempts = 0
-        for attempt in range(max(0, attempts_limit - attempts_used)):
+        for _ in range(max(0, attempts_limit - attempts_used)):
             if time.monotonic() - started >= timeout:
                 reason = "overall timeout budget exhausted"
                 break
             try:
-                remote_attempts += 1
                 attempts_used += 1
                 remaining = max(0.1, timeout - (time.monotonic() - started))
                 attempt_request = TaskRouteRequest(bounded.task, bounded.capability, bounded.privacy,
