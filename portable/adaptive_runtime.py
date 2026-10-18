@@ -602,6 +602,7 @@ class AdaptiveRuntime:
                 ),
                 "last_failure": "" if terminal_accepted else str(final_failure),
                 "runtime_guard": runtime_guard.snapshot(),
+                **({"harness_experiment": latest_harness_experiment} if latest_harness_experiment is not None else {}),
                 "verification_note": (
                     "graph execution accepted; independent verification and exact-head CI evidence were not asserted by this runtime"
                     if terminal_accepted else "execution did not reach an accepted terminal state before the deadline"
