@@ -107,6 +107,8 @@ class GraphAgentCrewTests(unittest.TestCase):
         self.assertEqual(observed["frontend_result"]["review_status"], "pending")
         self.assertTrue(observed["frontend_result"]["review_required"])
         self.assertEqual(frontend.requests[0]["task"], "Design the login screen")
+        shared_guard = observed["_auren_runtime_execution_guard"]
+        self.assertEqual(3, shared_guard.attempts_used)  # graph node plus two specialist proposals
         self.assertNotIn("secret", frontend.requests[0])
         self.assertEqual(set(frontend.requests[0]["allowed_authorities"]) & {"merge", "promote"}, set())
         with self.assertRaisesRegex(RuntimeError, "only available during graph execution"):
