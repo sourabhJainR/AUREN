@@ -180,6 +180,14 @@ class HarnessExperimentControllerTests(unittest.TestCase):
         self.assertEqual("failed", result.status)
         self.assertFalse(result.success)
 
+    def test_already_charged_operation_is_not_replayed(self):
+        self.guard.charge_attempt("harness:test-run-1:baseline:probe")
+        calls = []
+        result = self.run(probe=lambda *args: calls.append(args) or self.probe(*args))
+        self.assertEqual("unscored", result.status)
+        self.assertEqual([], calls)
+        self.assertFalse(result.success)
+
     def test_exhausted_shared_budget_returns_unscored_not_success(self):
         guard = RuntimeExecutionGuard(max_steps=5, max_attempts=1)
         controller = self.controller(guard=guard)
