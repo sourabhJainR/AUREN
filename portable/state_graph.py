@@ -276,6 +276,7 @@ def _dispatch_crew_proposal(
     agents: Mapping[str, Any],
     crews: Mapping[str, CrewDefinition],
     execution_guard: RuntimeExecutionGuard | None = None,
+    execution_guard_persist: Callable[[Mapping[str, Any]], None] | None = None,
     operation_scope: str = "direct",
 ) -> dict[str, Any]:
     """Validate and invoke one selected proposal adapter without granting execution authority."""
@@ -305,6 +306,8 @@ def _dispatch_crew_proposal(
             raise ExecutionBudgetExceeded(
                 "duplicate specialist proposal refused because its attempt was already charged"
             )
+        if execution_guard_persist is not None:
+            execution_guard_persist(execution_guard.snapshot())
     definition = crews[crew_id]
     request = {
         "crew_id": crew_id,
@@ -324,7 +327,11 @@ def _dispatch_crew_proposal(
         raise ValueError("crew proposal request must be JSON-serializable") from exc
     guarded_proposer = getattr(agent, "propose_with_execution_guard", None)
     if execution_guard is not None and callable(guarded_proposer):
-        proposal = guarded_proposer(request, execution_guard=execution_guard)
+        proposal = guarded_proposer(
+            request,
+            execution_guard=execution_guard,
+            execution_guard_persist=execution_guard_persist,
+        )
     else:
         proposal = proposer(request)
     if not isinstance(proposal, Mapping):
@@ -593,6 +600,7 @@ class GraphAgentTeam:
                 agents=self.agents,
                 crews=self.crews,
                 execution_guard=runtime_guard,
+                execution_guard_persist=state.get("auren_runtime_guard_persist"),
                 operation_scope=(
                     str(state.get("auren_supervisor_iteration", "direct"))
                     + ":" + str(state.get("auren_recovery_hypothesis", "default-plan"))
