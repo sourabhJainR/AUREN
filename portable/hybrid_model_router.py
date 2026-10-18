@@ -147,7 +147,7 @@ class HybridModelRouter:
                 error="No capable local route; privacy policy forbids remote fallback")
         # Remote execution is opt-in and only for explicitly non-sensitive tasks.
         if self.remote_executor is None:
-            return RouteResult("none", None, False, 0,
+            return RouteResult("none", None, False, attempts_used,
                 round((time.monotonic()-started)*1000, 2),
                 {"before": before, "after": self.resource_reader()}, reason,
                 error="No eligible executor configured")
