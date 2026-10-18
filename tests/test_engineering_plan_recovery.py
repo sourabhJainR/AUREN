@@ -94,6 +94,14 @@ class EngineeringPlanRecoveryBridgeTests(unittest.TestCase):
             with self.assertRaisesRegex(EngineeringPlanCheckpointMismatch, "checkpoint is missing"):
                 bridge.load_verified(plan.run_id)
 
+    def test_start_does_not_silently_recreate_missing_checkpoint_for_existing_plan(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            bridge = self.make_bridge(Path(tmp))
+            plan = sample_plan()
+            bridge.store.create(plan)
+            with self.assertRaisesRegex(EngineeringPlanCheckpointMismatch, "explicit reconciliation"):
+                bridge.start(plan)
+
     def test_checkpoint_cannot_be_replayed_against_a_different_plan(self):
         with tempfile.TemporaryDirectory() as tmp:
             bridge = self.make_bridge(Path(tmp))
