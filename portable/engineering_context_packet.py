@@ -36,10 +36,10 @@ def _safe_map(values: Mapping[str, Any], field_name: str) -> dict[str, Any]:
     if not isinstance(values, Mapping):
         raise ValueError(f"{field_name} must be a mapping")
     result = dict(values)
-    forbidden = {"secret", "password", "token", "api_key", "credential", "private_key"}
+    forbidden = ("secret", "password", "api_key", "credential", "private_key")
     for key in result:
         normalized = str(key).lower().replace("-", "_")
-        if any(part in normalized for part in forbidden):
+        if normalized == "token" or normalized.endswith("_token") or any(part in normalized for part in forbidden):
             raise ValueError(f"{field_name} must not contain credential-like keys")
     _canonical(result)
     return result
@@ -152,7 +152,7 @@ def build_context_packet(
             raise ValueError(f"budget {name} cannot be negative")
 
     fixed = dict(
-        packet_schema=CONTEXT_PACKET_SCHEMA, packet_digest="",
+        packet_schema=CONTEXT_PACKET_SCHEMA, packet_digest=("0" * 64),
         run_id=plan.run_id, plan_digest=plan.digest, run_revision=run.revision,
         source_revision=plan.source_revision, task=task.to_dict(),
         task_status=task_progress.status, dependency_status=dependency_status,
