@@ -1,6 +1,8 @@
 from __future__ import annotations
 import unittest
 
+from portable.orchestration import Graph, Node, NodeKind, RunStatus
+from portable.state_graph import GraphAgentTeam, StateGraph
 from portable.runtime_recovery import (
     ExecutionBudgetExceeded, NoProgressDetected, RuntimeExecutionGuard,
 )
@@ -14,6 +16,29 @@ class RuntimeExecutionGuardTests(unittest.TestCase):
         self.assertTrue(guard.charge_attempt("handoff:b:1"))
         with self.assertRaises(ExecutionBudgetExceeded):
             guard.charge_attempt("supervisor:retry:1")
+
+    def test_specialist_state_graph_reuses_supervisor_guard_instance(self):
+        guard = RuntimeExecutionGuard(max_steps=4, max_attempts=4)
+        seen = []
+        graph = StateGraph(Graph([
+            Node(
+                "work",
+                NodeKind.DETERMINISTIC,
+                lambda state: seen.append(state["_auren_runtime_execution_guard"]) or "ok",
+            )
+        ]))
+        team = GraphAgentTeam(graph)
+
+        result = team.run(
+            "shared-guard-task",
+            "execute specialist graph",
+            {"_auren_runtime_execution_guard": guard},
+        )
+
+        self.assertEqual(RunStatus.ACCEPTED, result.status)
+        self.assertEqual(1, len(seen))
+        self.assertIs(guard, seen[0])
+        self.assertEqual(1, guard.attempts_used)
 
     def test_step_budget_is_bounded(self):
         guard = RuntimeExecutionGuard(max_steps=1)

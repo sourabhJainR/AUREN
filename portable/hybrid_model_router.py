@@ -9,7 +9,7 @@ import json
 import time
 import urllib.request
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 from uuid import uuid4
 
 from .runtime_recovery import ExecutionBudgetExceeded, RuntimeExecutionGuard
@@ -35,6 +35,10 @@ class RouteResult:
     fallback_reason: str | None
     result: Any = None
     error: str | None = None
+
+class _GuardPersistenceError(RuntimeError):
+    """A shared-budget checkpoint could not be persisted; further dispatch is unsafe."""
+
 
 class HybridModelRouter:
     """Route by capability/privacy; fallback is bounded and policy-preserving."""
@@ -110,6 +114,7 @@ class HybridModelRouter:
         request: TaskRouteRequest,
         *,
         execution_guard: RuntimeExecutionGuard | None = None,
+        execution_guard_persist: Callable[[Mapping[str, Any]], None] | None = None,
     ) -> RouteResult:
         attempts_limit = max(1, min(int(request.max_attempts), 3))
         timeout = max(0.1, min(float(request.timeout_seconds), 120.0))
@@ -120,10 +125,22 @@ class HybridModelRouter:
         guard = execution_guard or RuntimeExecutionGuard(
             max_steps=attempts_limit, max_attempts=attempts_limit, deadline_seconds=timeout
         )
+        if execution_guard_persist is not None and not callable(execution_guard_persist):
+            raise TypeError("execution_guard_persist must be callable")
+        def persist_guard() -> None:
+            if execution_guard_persist is None:
+                return
+            try:
+                execution_guard_persist(guard.snapshot())
+            except Exception as exc:
+                raise _GuardPersistenceError("shared execution budget checkpoint failed; refusing further dispatch") from exc
         route_id = uuid4().hex
         before = self.resource_reader()
         try:
             guard.check()
+            budget = guard.snapshot()
+            if budget["attempts_used"] >= budget["max_attempts"]:
+                raise ExecutionBudgetExceeded("task attempt budget exhausted before model discovery")
         except ExecutionBudgetExceeded as exc:
             return RouteResult("none", None, False, 0,
                 round((time.monotonic()-started)*1000, 2),
@@ -149,6 +166,7 @@ class HybridModelRouter:
                         raise ExecutionBudgetExceeded("overall timeout budget exhausted")
                     guard.charge_attempt(f"model-route:{route_id}:local:{attempts_used + 1}")
                     attempts_used += 1
+                    persist_guard()
                     last_local_model = model
                     attempt_request = TaskRouteRequest(bounded.task, bounded.capability, bounded.privacy,
                                                        max(1, attempts_limit - attempts_used + 1), remaining)
@@ -161,6 +179,11 @@ class HybridModelRouter:
                         round((time.monotonic()-started)*1000, 2),
                         {"before": before, "after": self.resource_reader()},
                         reason, value)
+                except _GuardPersistenceError as exc:
+                    return RouteResult("local", last_local_model, False, attempts_used,
+                        round((time.monotonic()-started)*1000, 2),
+                        {"before": before, "after": self.resource_reader()}, str(exc),
+                        error="Shared execution budget checkpoint failed; further dispatch is blocked")
                 except ExecutionBudgetExceeded as exc:
                     reason = str(exc)
                     break
@@ -196,6 +219,7 @@ class HybridModelRouter:
                 guard.charge_attempt(f"model-route:{route_id}:remote:{remote_attempts + 1}")
                 attempts_used += 1
                 remote_attempts += 1
+                persist_guard()
                 attempt_request = TaskRouteRequest(bounded.task, bounded.capability, bounded.privacy,
                                                    max(1, attempts_limit - attempts_used + 1), remaining)
                 value = self.remote_executor(attempt_request)
@@ -206,6 +230,14 @@ class HybridModelRouter:
                 return RouteResult("remote", None, True, attempts_used,
                     round((time.monotonic()-started)*1000, 2),
                     {"before": before, "after": self.resource_reader()}, reason, value)
+            except _GuardPersistenceError as exc:
+                return RouteResult(
+                    "remote" if remote_attempts else ("local" if last_local_model else "none"),
+                    None if remote_attempts else last_local_model,
+                    False, attempts_used, round((time.monotonic()-started)*1000, 2),
+                    {"before": before, "after": self.resource_reader()}, str(exc),
+                    error="Shared execution budget checkpoint failed; further dispatch is blocked",
+                )
             except ExecutionBudgetExceeded as exc:
                 reason = str(exc)
                 break
@@ -218,6 +250,30 @@ class HybridModelRouter:
             {"before": before, "after": self.resource_reader()}, reason,
             error=("Eligible execution failed within bounded retry budget" if remote_attempts
                    else "Attempt budget or deadline exhausted before remote execution"),
+        )
+
+    def route_with_context(
+        self,
+        request: TaskRouteRequest,
+        context: Mapping[str, Any],
+    ) -> RouteResult:
+        """Route from a graph/specialist context using its canonical live guard.
+
+        Graph nodes should pass their state mapping here rather than constructing
+        a new router budget. A malformed injected capability fails closed before
+        any model discovery or provider call.
+        """
+        if not isinstance(context, Mapping):
+            raise TypeError("routing context must be a mapping")
+        guard = context.get("_auren_runtime_execution_guard")
+        if guard is not None and not isinstance(guard, RuntimeExecutionGuard):
+            raise TypeError("routing context contains an invalid execution guard")
+        guard_persist = context.get("auren_runtime_guard_persist")
+        if guard_persist is not None and not callable(guard_persist):
+            raise TypeError("routing context contains an invalid guard persistence callback")
+        return self.route(
+            request, execution_guard=guard,
+            execution_guard_persist=guard_persist,
         )
 
     def snapshot(self) -> dict[str, Any]:
