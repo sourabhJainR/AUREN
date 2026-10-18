@@ -208,6 +208,21 @@ class HarnessExperimentController:
                 tuple(evidence), tuple(reasons), rollback_attempted, rollback_succeeded,
             )
 
+        def rollback_after_failed_adoption() -> None:
+            nonlocal rollback_attempted, rollback_succeeded, adopted_digest
+            if not adoption_attempted:
+                return
+            rollback_attempted = True
+            try:
+                receipt = self._receipt(rollback(base_digest), kind="rollback")
+                rollback_succeeded = receipt.get("restored") is True and receipt.get("active_digest") == base_digest
+                evidence.append({"kind": "rollback", "receipt": receipt})
+                if rollback_succeeded:
+                    adopted_digest = None
+            except Exception as rollback_exc:
+                rollback_succeeded = False
+                evidence.append({"kind": "rollback_error", "error": f"{type(rollback_exc).__name__}: {rollback_exc}"})
+
         try:
             self.guard.check()
             self.guard.charge_step()
@@ -301,20 +316,16 @@ class HarnessExperimentController:
             checkpoint("complete", status="adopted", details={"adopted_digest": adopted_digest})
             return result("adopted")
         except (ExecutionBudgetExceeded, TimeoutError) as exc:
-            checkpoint("stopped", status="unscored", details={"reason": f"{type(exc).__name__}: {exc}"})
+            rollback_after_failed_adoption()
+            try:
+                checkpoint("stopped", status="unscored", details={"reason": f"{type(exc).__name__}: {exc}"})
+            except Exception:
+                pass
             return result("unscored", f"{type(exc).__name__}: {exc}")
         except Exception as exc:
             # If the adoption adapter may have changed active state before failing,
-            # always attempt to restore the exact pre-experiment digest.
-            if adoption_attempted:
-                rollback_attempted = True
-                try:
-                    receipt = self._receipt(rollback(base_digest), kind="rollback")
-                    rollback_succeeded = receipt.get("restored") is True and receipt.get("active_digest") == base_digest
-                    evidence.append({"kind": "rollback", "receipt": receipt})
-                except Exception as rollback_exc:
-                    rollback_succeeded = False
-                    evidence.append({"kind": "rollback_error", "error": f"{type(rollback_exc).__name__}: {rollback_exc}"})
+            # restore the exact pre-experiment digest or report rollback failure.
+            rollback_after_failed_adoption()
             try:
                 checkpoint("failed", status="failed", details={"reason": f"{type(exc).__name__}: {exc}"})
             except Exception:
