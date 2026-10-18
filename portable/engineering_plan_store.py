@@ -27,7 +27,8 @@ class EngineeringPlanStore:
         self.database_path = Path(database_path)
         self.database_path.parent.mkdir(parents=True, exist_ok=True)
         self.timeout_seconds = timeout_seconds
-        with self._connect() as db:
+        db = self._connect()
+        try:
             db.execute("PRAGMA journal_mode=WAL")
             db.execute("""
                 CREATE TABLE IF NOT EXISTS engineering_plan_runs (
@@ -40,6 +41,8 @@ class EngineeringPlanStore:
                 )
             """)
             db.execute("PRAGMA user_version = 1")
+        finally:
+            db.close()
 
     def _connect(self) -> sqlite3.Connection:
         db = sqlite3.connect(self.database_path, timeout=self.timeout_seconds, isolation_level=None)
