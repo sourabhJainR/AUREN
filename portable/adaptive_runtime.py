@@ -341,7 +341,7 @@ class AdaptiveRuntime:
             graph_steps = max(1, len(self.orchestrator.graph.order()) * requested_iterations)
             remaining_seconds = (deadline_at - datetime.now(timezone.utc)).total_seconds()
             runtime_guard = RuntimeExecutionGuard(
-                max_steps=raw_steps if raw_steps is not None else min(10000, graph_steps),
+                max_steps=raw_steps if raw_steps is not None else min(10000, max(200, graph_steps)),
                 max_attempts=raw_attempts,
                 deadline_seconds=max(0.001, remaining_seconds),
             )
