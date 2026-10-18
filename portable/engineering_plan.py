@@ -42,6 +42,24 @@ def _digest(value: Any) -> str:
     return hashlib.sha256(_canonical(value)).hexdigest()
 
 
+def _freeze_json(value: Any) -> Any:
+    """Copy JSON-compatible data into recursively immutable containers."""
+    _canonical(value)
+    if isinstance(value, Mapping):
+        return MappingProxyType({key: _freeze_json(item) for key, item in value.items()})
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze_json(item) for item in value)
+    return value
+
+
+def _thaw_json(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return {key: _thaw_json(item) for key, item in value.items()}
+    if isinstance(value, tuple):
+        return [_thaw_json(item) for item in value]
+    return value
+
+
 def _nonempty(value: Any, field_name: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{field_name} must be a non-empty string")
@@ -61,6 +79,8 @@ class PlanTask:
         _nonempty(self.task_id, "task_id")
         _nonempty(self.title, "title")
         _nonempty(self.rollback_plan, "rollback_plan")
+        object.__setattr__(self, "acceptance_criteria", tuple(self.acceptance_criteria))
+        object.__setattr__(self, "depends_on", tuple(self.depends_on))
         if self.risk not in RISK_LEVELS:
             raise ValueError(f"risk must be one of {sorted(RISK_LEVELS)}")
         if not self.acceptance_criteria or any(not isinstance(item, str) or not item.strip() for item in self.acceptance_criteria):
@@ -96,6 +116,10 @@ class EngineeringPlan:
         if self.schema_version != PLAN_SCHEMA_VERSION:
             raise ValueError(f"unsupported plan schema: {self.schema_version}")
         _nonempty(self.source_revision, "source_revision")
+        object.__setattr__(self, "requirements", tuple(self.requirements))
+        object.__setattr__(self, "tasks", tuple(self.tasks))
+        if not isinstance(self.budget, Mapping):
+            raise ValueError("budget must be a mapping of named positive integer limits")
         if not self.requirements or any(not isinstance(item, str) or not item.strip() for item in self.requirements):
             raise ValueError("plan requires explicit non-empty requirements")
         if not self.tasks:
@@ -168,6 +192,7 @@ class TaskProgress:
         _nonempty(self.task_id, "task_id")
         if self.status not in TASK_STATUSES:
             raise ValueError(f"unknown task status: {self.status}")
+        object.__setattr__(self, "evidence_refs", tuple(self.evidence_refs))
         if type(self.replan_generation) is not int or self.replan_generation < 0:
             raise ValueError("replan_generation must be a non-negative integer")
         if any(not isinstance(ref, str) or not ref.strip() for ref in self.evidence_refs):
@@ -221,6 +246,8 @@ class EngineeringPlanRun:
         _nonempty(self.source_revision, "source_revision")
         if not isinstance(self.handoff, Mapping):
             raise ValueError("handoff must be a JSON-compatible mapping")
+        object.__setattr__(self, "tasks", tuple(self.tasks))
+        object.__setattr__(self, "handoff", _freeze_json(dict(self.handoff)))
         if type(self.revision) is not int or self.revision < 0:
             raise ValueError("revision must be a non-negative integer")
         ids = [task.task_id for task in self.tasks]
@@ -233,7 +260,7 @@ class EngineeringPlanRun:
             "schema_version": self.schema_version, "plan_digest": self.plan_digest,
             "source_revision": self.source_revision, "revision": self.revision,
             "tasks": [task.to_dict() for task in self.tasks],
-            "handoff": dict(self.handoff),
+            "handoff": _thaw_json(self.handoff),
         }
 
     @property
