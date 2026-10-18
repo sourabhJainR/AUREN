@@ -43,16 +43,22 @@ class EngineeringPlanRecoveryBridge:
 
     def start(self, plan: EngineeringPlan) -> EngineeringPlanRun:
         """Create or validate a plan, then bind it to the canonical recovery ledger."""
+        created = False
         try:
             stored_plan, run = self.store.load(plan.run_id)
         except KeyError:
             run = self.store.create(plan, new_plan_run(plan))
             stored_plan = plan
+            created = True
         if stored_plan.digest != plan.digest:
             raise ValueError("run_id already belongs to a different immutable engineering plan")
         self.ledger.start_run(plan.run_id, self._intent(plan))
         existing = self.ledger.get_checkpoint(plan.run_id, self.PHASE)
         payload = self._checkpoint_payload(stored_plan, run, next_safe_action="schedule_dependency_ready_task")
+        if existing is None and not created:
+            raise EngineeringPlanCheckpointMismatch(
+                "stored plan exists but its canonical recovery checkpoint is missing; explicit reconciliation is required"
+            )
         if existing is None:
             self.ledger.checkpoint(
                 plan.run_id, self.PHASE, status="in_progress",
