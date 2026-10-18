@@ -54,12 +54,12 @@ class EngineeringPlanTests(unittest.TestCase):
     def test_rejects_missing_dependencies_and_cycles(self):
         with self.assertRaisesRegex(ValueError, "unknown dependencies"):
             EngineeringPlan(
-                run_id="run", goal="goal", requirements=("req",),
+                run_id="run", goal="goal", requirements=("req",), source_revision="rev",
                 tasks=(PlanTask("a", "A", ("done",), "undo", depends_on=("missing",)),),
             )
         with self.assertRaisesRegex(ValueError, "dependency cycle"):
             EngineeringPlan(
-                run_id="run", goal="goal", requirements=("req",),
+                run_id="run", goal="goal", requirements=("req",), source_revision="rev",
                 tasks=(
                     PlanTask("a", "A", ("done",), "undo", depends_on=("b",)),
                     PlanTask("b", "B", ("done",), "undo", depends_on=("a",)),
