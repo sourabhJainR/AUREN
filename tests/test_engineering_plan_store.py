@@ -85,11 +85,15 @@ class EngineeringPlanStoreTests(unittest.TestCase):
             store = EngineeringPlanStore(db_path)
             plan = make_plan()
             store.create(plan)
-            with sqlite3.connect(db_path) as db:
-                db.execute(
-                    "UPDATE engineering_plan_runs SET plan_json = ? WHERE run_id = ?",
-                    ('{"schema_version":"unknown"}', plan.run_id),
-                )
+            db = sqlite3.connect(db_path)
+            try:
+                with db:
+                    db.execute(
+                        "UPDATE engineering_plan_runs SET plan_json = ? WHERE run_id = ?",
+                        ('{"schema_version":"unknown"}', plan.run_id),
+                    )
+            finally:
+                db.close()
             with self.assertRaisesRegex(ValueError, "unsupported plan schema"):
                 store.load(plan.run_id)
 
