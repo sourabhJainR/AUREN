@@ -56,7 +56,8 @@ class HarnessExperimentControllerTests(unittest.TestCase):
         }
 
     def judge(self, candidate, probe_receipt, manifest):
-        improved = candidate.get("tool_guidance", {}).get("mode") == "concise"
+        mode = candidate.get("tool_guidance", {}).get("mode")
+        quality = 0.95 if mode == "ultra-concise" else 0.9 if mode == "concise" else 0.8
         return {
             "schema_version": "auren-evaluation-receipt-v1",
             "manifest_digest": manifest["manifest_digest"],
@@ -68,7 +69,7 @@ class HarnessExperimentControllerTests(unittest.TestCase):
             "tests_passed": True,
             "security_passed": True,
             "reliability_passed": True,
-            "quality_score": 0.9 if improved else 0.8,
+            "quality_score": quality,
             "safety_score": 1.0,
             "reliability_score": 1.0,
             "cost": 1.0,
@@ -115,6 +116,22 @@ class HarnessExperimentControllerTests(unittest.TestCase):
         self.assertEqual(self.base_digest, result.base_harness_digest)
         self.assertEqual({"system_prompt": "stable", "tool_guidance": {"mode": "safe"}}, self.base)
         self.assertTrue(any(item["stage"] == "complete" and item["status"] == "adopted" for item in self.checkpoints))
+
+    def test_sequential_refinement_uses_best_candidate_and_is_bounded(self):
+        seen = []
+        def propose(base, task, depth, seed):
+            seen.append((depth, base["tool_guidance"]["mode"]))
+            if depth == 0:
+                return [{"system_prompt": "stable", "tool_guidance": {"mode": "concise"}}]
+            return [{"system_prompt": "stable", "tool_guidance": {"mode": "ultra-concise"}}]
+
+        result = self.run(propose=propose)
+        self.assertEqual("adopted", result.status)
+        self.assertEqual([(0, "safe"), (1, "concise")], seen)
+        self.assertEqual(2, len(result.candidate_digests))
+        self.assertEqual(canonical_digest({
+            "system_prompt": "stable", "tool_guidance": {"mode": "ultra-concise"}
+        }), result.adopted_digest)
 
     def test_missing_isolation_evidence_blocks_before_candidate_probe(self):
         calls = []
