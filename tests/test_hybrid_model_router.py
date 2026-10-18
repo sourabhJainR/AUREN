@@ -72,6 +72,47 @@ class HybridRouterTests(unittest.TestCase):
         self.assertEqual(1, guard.attempts_used)
         self.assertEqual(1, discovery.calls, "exhausted shared budget must block before discovery")
 
+    def test_provider_dispatch_waits_for_guard_checkpoint(self):
+        events = []
+        guard = RuntimeExecutionGuard(max_steps=4, max_attempts=2)
+        router = HybridModelRouter(
+            discovery=Discovery([]),
+            remote_executor=lambda request: events.append("provider") or "ok",
+            resource_reader=lambda: {},
+        )
+
+        result = router.route(
+            TaskRouteRequest("public summary", "general", privacy="public", max_attempts=1),
+            execution_guard=guard,
+            execution_guard_persist=lambda snapshot: events.append(("checkpoint", snapshot["attempts_used"]),
+        )
+
+        self.assertTrue(result.success)
+        self.assertEqual(("checkpoint", 1), events[0])
+        self.assertEqual("provider", events[1])
+
+    def test_failed_guard_checkpoint_prevents_provider_dispatch(self):
+        calls = []
+        guard = RuntimeExecutionGuard(max_steps=4, max_attempts=2)
+        router = HybridModelRouter(
+            discovery=Discovery([]),
+            remote_executor=lambda request: calls.append(request) or "should not run",
+            resource_reader=lambda: {},
+        )
+
+        def fail_checkpoint(_snapshot):
+            raise OSError("checkpoint store unavailable")
+
+        result = router.route(
+            TaskRouteRequest("public summary", "general", privacy="public", max_attempts=1),
+            execution_guard=guard,
+            execution_guard_persist=fail_checkpoint,
+        )
+
+        self.assertFalse(result.success)
+        self.assertEqual([], calls)
+        self.assertEqual(1, guard.attempts_used)
+
     def test_route_with_context_rejects_forged_guard_before_discovery(self):
         discovery = Discovery([])
         router = HybridModelRouter(discovery=discovery, resource_reader=lambda: {})
