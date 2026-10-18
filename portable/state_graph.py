@@ -830,11 +830,13 @@ class GraphAgentTeam:
         state["auren_crew_rollback_readiness"] = rollback_readiness
 
         def persist_runtime_guard(snapshot=None) -> None:
-            guard_snapshot = runtime_guard.snapshot() if snapshot is None else snapshot
-            if not isinstance(guard_snapshot, Mapping):
+            if snapshot is not None and not isinstance(snapshot, Mapping):
                 raise TypeError("runtime guard persistence requires a snapshot mapping")
-            state["auren_runtime_guard"] = dict(guard_snapshot)
+            # Retry-budget reconciliation can itself charge the canonical guard;
+            # persist the post-reconciliation snapshot, not the stale argument.
             persist_handoff_checkpoint(handoffs.snapshot())
+            guard_snapshot = runtime_guard.snapshot()
+            state["auren_runtime_guard"] = dict(guard_snapshot)
             if callable(supervisor_guard_persist):
                 supervisor_guard_persist(guard_snapshot)
 
