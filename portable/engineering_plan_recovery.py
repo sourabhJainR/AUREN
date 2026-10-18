@@ -66,6 +66,10 @@ class EngineeringPlanRecoveryBridge:
             )
         else:
             self._verify_checkpoint(stored_plan, run, existing.payload)
+            if existing.status in {"blocked", "rolled_back"}:
+                raise EngineeringPlanCheckpointMismatch(
+                    f"plan checkpoint is {existing.status}; explicit recovery decision is required"
+                )
         return run
 
     def load_verified(self, run_id: str) -> tuple[EngineeringPlan, EngineeringPlanRun]:
@@ -149,8 +153,10 @@ class EngineeringPlanRecoveryBridge:
             status = "verified"
         else:
             status = "in_progress"
-        if existing is not None and existing.status == "rolled_back":
-            raise EngineeringPlanCheckpointMismatch("rolled-back plan cannot be reconciled into an active run")
+        if existing is not None and existing.status in {"blocked", "rolled_back"}:
+            raise EngineeringPlanCheckpointMismatch(
+                f"{existing.status} plan cannot be reconciled into an active run"
+            )
         self.ledger.checkpoint(
             run_id, self.PHASE, status=status, head_sha=plan.source_revision, payload=payload,
         )
