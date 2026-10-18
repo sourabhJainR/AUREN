@@ -352,6 +352,7 @@ class AdaptiveRuntime:
         runtime_context = dict(context)
         runtime_context.pop("_auren_runtime_execution_guard", None)
         runtime_context.pop("auren_runtime_guard", None)
+        runtime_context.pop("auren_runtime_guard_persist", None)
         runtime_context["_auren_runtime_execution_guard"] = runtime_guard
         self.recovery_ledger.start_run(work_id, f"{task_id}: {intent}")
         attempts: dict[str, Any] = {
@@ -450,6 +451,24 @@ class AdaptiveRuntime:
             context["auren_supervisor_iteration"] = iteration
             context["auren_recovery_mode"] = context_mode
             context["auren_recovery_hypothesis"] = hypothesis
+
+            def persist_runtime_guard(snapshot=None):
+                saved = runtime_guard.snapshot() if snapshot is None else snapshot
+                if not isinstance(saved, Mapping):
+                    raise TypeError("runtime guard persistence requires a snapshot mapping")
+                self.recovery_ledger.checkpoint(
+                    work_id, "execution", status="in_progress", head_sha="",
+                    payload={
+                        "iteration": iteration,
+                        "hypothesis": hypothesis,
+                        "deadline_at": deadline_value,
+                        "recovery_mode": context_mode,
+                        "last_failure": str(last.get("failure", "")),
+                        "runtime_guard": dict(saved),
+                    },
+                )
+
+            context["auren_runtime_guard_persist"] = persist_runtime_guard
             call = dict(kwargs)
             call["context"] = context
             try:
