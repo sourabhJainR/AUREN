@@ -95,6 +95,23 @@ class HarnessExperimentControllerTests(unittest.TestCase):
         args.update(overrides)
         return self.controller().run(**args)
 
+    def test_manifest_rejects_shared_executor_and_evaluator_identity(self):
+        with self.assertRaisesRegex(ValueError, "must be distinct"):
+            HarnessExperimentManifest(
+                schema_version="auren-harness-experiment-v1",
+                run_id="invalid-run",
+                task_digest=canonical_digest({"task": self.task}),
+                base_harness_digest=self.base_digest,
+                executor_id="same-identity",
+                evaluator_id="same-identity",
+                seed=1,
+                max_candidates=1,
+                max_depth=0,
+                isolation_profile="restricted-test-profile-v1",
+                policy_digest="a" * 64,
+                environment_digest="b" * 64,
+            )
+
     def test_safe_improvement_is_adopted_without_mutating_caller_harness(self):
         original = self.controller()
         result = original.run(
