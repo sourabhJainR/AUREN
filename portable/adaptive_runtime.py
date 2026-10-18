@@ -481,6 +481,26 @@ class AdaptiveRuntime:
                 )
 
             context["auren_runtime_guard_persist"] = persist_runtime_guard
+
+            def persist_harness_experiment(snapshot):
+                if not isinstance(snapshot, Mapping):
+                    raise TypeError("harness experiment persistence requires a checkpoint mapping")
+                # Keep experiment lineage separate from the trusted guard snapshot;
+                # never reinterpret an experiment checkpoint as an execution guard.
+                self.recovery_ledger.checkpoint(
+                    work_id, "execution", status="in_progress", head_sha="",
+                    payload={
+                        "iteration": iteration,
+                        "hypothesis": hypothesis,
+                        "deadline_at": deadline_value,
+                        "recovery_mode": context_mode,
+                        "last_failure": str(last.get("failure", "")),
+                        "runtime_guard": runtime_guard.snapshot(),
+                        "harness_experiment": dict(snapshot),
+                    },
+                )
+
+            context["auren_harness_experiment_persist"] = persist_harness_experiment
             call = dict(kwargs)
             call["context"] = context
             try:
