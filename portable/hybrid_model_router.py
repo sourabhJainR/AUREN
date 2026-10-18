@@ -113,29 +113,29 @@ class HybridModelRouter:
                       if m.get("name") and self._capable(m["name"], bounded.capability)]
         private = bounded.privacy.casefold() not in {"public", "non_sensitive"}
         reason = None
+        attempts_used = 0
         # Private/restricted data must remain local. No remote fallback is allowed.
         if candidates and self.local_executor:
-            local_attempts = 0
             last_local_model = candidates[0]
             for model in candidates[:attempts_limit]:
                 if time.monotonic() - started >= timeout:
                     reason = "overall timeout budget exhausted"
                     break
                 try:
-                    local_attempts += 1
+                    attempts_used += 1
                     last_local_model = model
                     remaining = max(0.1, timeout - (time.monotonic() - started))
                     attempt_request = TaskRouteRequest(bounded.task, bounded.capability, bounded.privacy,
                                                        bounded.max_attempts, remaining)
                     value = self.local_executor(attempt_request, model)
-                    return RouteResult("local", model, True, local_attempts,
+                    return RouteResult("local", model, True, attempts_used,
                         round((time.monotonic()-started)*1000, 2),
                         {"before": before, "after": self.resource_reader()},
                         reason, value)
                 except Exception as exc:
                     reason = type(exc).__name__
             if private:
-                return RouteResult("local", last_local_model, False, local_attempts,
+                return RouteResult("local", last_local_model, False, attempts_used,
                     round((time.monotonic()-started)*1000, 2),
                     {"before": before, "after": self.resource_reader()}, reason,
                     error="Local execution failed; privacy policy forbids remote fallback")
@@ -152,22 +152,23 @@ class HybridModelRouter:
                 {"before": before, "after": self.resource_reader()}, reason,
                 error="No eligible executor configured")
         remote_attempts = 0
-        for attempt in range(attempts_limit):
+        for attempt in range(max(0, attempts_limit - attempts_used)):
             if time.monotonic() - started >= timeout:
                 reason = "overall timeout budget exhausted"
                 break
             try:
                 remote_attempts += 1
+                attempts_used += 1
                 remaining = max(0.1, timeout - (time.monotonic() - started))
                 attempt_request = TaskRouteRequest(bounded.task, bounded.capability, bounded.privacy,
                                                    bounded.max_attempts, remaining)
                 value = self.remote_executor(attempt_request)
-                return RouteResult("remote", None, True, remote_attempts,
+                return RouteResult("remote", None, True, attempts_used,
                     round((time.monotonic()-started)*1000, 2),
                     {"before": before, "after": self.resource_reader()}, reason, value)
             except Exception as exc:
                 reason = type(exc).__name__
-        return RouteResult("remote", None, False, remote_attempts,
+        return RouteResult("remote", None, False, attempts_used,
             round((time.monotonic()-started)*1000, 2),
             {"before": before, "after": self.resource_reader()}, reason,
             error="Eligible execution failed within bounded retry budget")
