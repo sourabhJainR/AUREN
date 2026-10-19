@@ -258,6 +258,22 @@ class ActionGovernanceGateway:
         if not verdict.allowed:
             return GovernedResult(executed=False, verdict=verdict)
 
+        identity = (request.run_id, request.action_id)
+        with self._lock:
+            if identity in self._attempted_actions:
+                blocked = PolicyVerdict(
+                    "deny", "duplicate_action_identity", verdict.request_fingerprint,
+                    verdict.approval_required,
+                )
+                self._append_event({
+                    "event": "duplicate_action_blocked", "run_id": request.run_id,
+                    "action_id": request.action_id, "request_fingerprint": verdict.request_fingerprint,
+                })
+                return GovernedResult(executed=False, verdict=blocked)
+            # Reserve the identity before touching durable state so concurrent callers
+            # cannot strand a second ledger key for an action that will never run.
+            self._attempted_actions.add(identity)
+
         external_effect = (
             request.risk == "external_effect"
             or request.action in self._policy.external_effect_actions
@@ -267,6 +283,8 @@ class ActionGovernanceGateway:
                 "deny", "durable_idempotency_ledger_required", verdict.request_fingerprint,
                 verdict.approval_required,
             )
+            with self._lock:
+                self._attempted_actions.discard(identity)
             self._append_event({
                 "event": "durable_side_effect_blocked", "run_id": request.run_id,
                 "action_id": request.action_id, "reason": blocked.reason,
@@ -294,6 +312,8 @@ class ActionGovernanceGateway:
                     },
                 )
             except Exception as exc:
+                with self._lock:
+                    self._attempted_actions.discard(identity)
                 blocked = PolicyVerdict(
                     "deny", "durable_idempotency_rejected", verdict.request_fingerprint,
                     verdict.approval_required,
@@ -306,6 +326,8 @@ class ActionGovernanceGateway:
                 })
                 return GovernedResult(executed=False, verdict=blocked)
             if decision.action == "replay":
+                with self._lock:
+                    self._attempted_actions.discard(identity)
                 receipt = decision.receipt or {}
                 digest = str(receipt.get("result_digest", ""))
                 self._append_event({
@@ -315,6 +337,8 @@ class ActionGovernanceGateway:
                 })
                 return GovernedResult(executed=False, verdict=verdict, result_digest=digest, replayed=True)
             if decision.action != "execute":
+                with self._lock:
+                    self._attempted_actions.discard(identity)
                 blocked = PolicyVerdict(
                     "deny", "side_effect_reconciliation_required", verdict.request_fingerprint,
                     verdict.approval_required,
@@ -327,28 +351,12 @@ class ActionGovernanceGateway:
                 })
                 return GovernedResult(executed=False, verdict=blocked)
 
-        identity = (request.run_id, request.action_id)
-        with self._lock:
-            if identity in self._attempted_actions:
-                blocked = PolicyVerdict(
-                    "deny", "duplicate_action_identity", verdict.request_fingerprint,
-                    verdict.approval_required,
-                )
-                self._append_event({
-                    "event": "duplicate_action_blocked",
-                    "run_id": request.run_id,
-                    "action_id": request.action_id,
-                    "request_fingerprint": verdict.request_fingerprint,
-                })
-                return GovernedResult(executed=False, verdict=blocked)
-            self._attempted_actions.add(identity)
-            self._append_event({
-                "event": "action_started",
-                "run_id": request.run_id,
-                "action_id": request.action_id,
-                "request_fingerprint": verdict.request_fingerprint,
-            })
-
+        self._append_event({
+            "event": "action_started",
+            "run_id": request.run_id,
+            "action_id": request.action_id,
+            "request_fingerprint": verdict.request_fingerprint,
+        })
         try:
             result = handler()
         except Exception as exc:
