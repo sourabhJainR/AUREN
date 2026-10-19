@@ -197,7 +197,6 @@ class EngineeringPlanDispatch:
                 if count >= dispatch_limit:
                     raise DispatchConflict("shared plan dispatch budget is exhausted")
 
-        work = self.controller.company.start(goal or f"engineering plan {run_id}: {task_id}")
         now = time.time()
         task_identifier = uuid4().hex
         task_payload = {
@@ -236,6 +235,10 @@ class EngineeringPlanDispatch:
                     self._discard_unqueued_work_unit(work.id)
                     raise DispatchConflict("shared plan dispatch budget is exhausted")
             try:
+                # Hold the controller DB's write reservation while checking uniqueness
+                # and creating the work unit. A concurrent loser blocks here and sees
+                # the committed intent before it can create an orphan work unit.
+                work = self.controller.company.start(goal or f"engineering plan {run_id}: {task_id}")
                 db.execute(
                     "INSERT INTO tasks(id,handler,payload,state,attempts,work_unit_id,created_at,updated_at,heartbeat_at,lease_until) "
                     "VALUES(?,?,?,?,?,?,?,?,?,?)",
