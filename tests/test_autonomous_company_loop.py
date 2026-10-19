@@ -156,3 +156,40 @@ def _events(company, work_unit_id):
         {"kind": row[0], "status": row[1], "detail": row[2], "evidence": tuple(json.loads(row[3]))}
         for row in rows
     ]
+
+
+def test_start_with_work_key_is_idempotent_across_company_restarts():
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        first_process = AutonomousCompany(root)
+        first = first_process.start(
+            "finish the same engineering gate", scope="repository:AUREN",
+            max_iterations=10, work_key="AUREN:issue-696:continuous-engineering",
+        )
+        first_process.iterate(
+            first.id,
+            execute=lambda iteration: ("passed", "prepared", ()),
+            review=lambda iteration: (False, "needs a bounded follow-up", ()),
+            recover=lambda problem: (True, "continue next slice", ()),
+            max_steps=1,
+        )
+
+        restarted_process = AutonomousCompany(root)
+        resumed = restarted_process.start(
+            "finish the same engineering gate", scope="repository:AUREN",
+            max_iterations=10, work_key="AUREN:issue-696:continuous-engineering",
+        )
+        assert resumed.id == first.id
+        assert restarted_process._state(resumed.id) == ("running", 1)
+
+
+def test_work_key_cannot_be_reused_for_a_different_goal_or_budget():
+    with tempfile.TemporaryDirectory() as tmp:
+        company = AutonomousCompany(Path(tmp))
+        company.start("first goal", work_key="stable-key", max_iterations=5)
+        try:
+            company.start("different goal", work_key="stable-key", max_iterations=5)
+        except ValueError as exc:
+            assert "different goal" in str(exc)
+        else:
+            raise AssertionError("a stable work key must not silently change its goal")
