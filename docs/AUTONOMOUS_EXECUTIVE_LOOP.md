@@ -66,8 +66,11 @@ python -m portable.auren_runtime worker --project-root . --batch-size 20 --max-c
 
 The worker reconstructs registered importable handlers from the durable controller
 database, resumes eligible tasks, and exits on cancellation, its cycle cap, or the
-idle cap. Use a service manager or scheduler to invoke another slice against the same
-project root. Keep handler registration and provider credentials in the trusted host
+idle cap. JSON reports distinguish newly completed and failed tasks from remaining
+nonterminal work. Exit code 1 means a task failed in this slice, 2 means work remains
+after the slice budget, and 130 means cancellation; a zero exit means this slice ended
+without new task failures or remaining nonterminal tasks. Use a service manager or
+scheduler to invoke another slice against the same project root. Keep handler registration and provider credentials in the trusted host
 environment; task payloads cannot register or replace handlers.
 
 ## Continuous execution controller
