@@ -11,6 +11,8 @@ from portable.engineering_context_packet import build_context_packet
 from portable.engineering_plan import EngineeringPlan, PlanTask, new_plan_run
 from portable.engineering_plan_dispatch import DispatchCancelled, DispatchConflict, EngineeringPlanDispatch
 from portable.engineering_plan_store import EngineeringPlanStore
+from portable.engineering_plan_recovery import EngineeringPlanRecoveryBridge, EngineeringPlanCheckpointMismatch
+from portable.engineering_recovery import EngineeringRecoveryLedger
 from portable.execution_controller import ExecutionController
 
 
@@ -71,6 +73,61 @@ class EngineeringPlanDispatchTests(unittest.TestCase):
             self.assertEqual(plan.digest, first.payload["auren_dispatch"]["plan_digest"])
             self.assertEqual(run.revision, first.payload["auren_dispatch"]["run_revision"])
             self.assertEqual(packet.packet_digest, first.payload["auren_dispatch"]["packet_digest"])
+
+    def test_controller_dispatch_fails_closed_when_canonical_checkpoint_is_missing(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            plan, run, packet, _, store, controller, _ = prepared(tmp)
+            recovery_bridge = EngineeringPlanRecoveryBridge(
+                store=store,
+                ledger=EngineeringRecoveryLedger(Path(tmp) / "runtime" / ".auren" / "recovery.sqlite3"),
+            )
+            with self.assertRaisesRegex(EngineeringPlanCheckpointMismatch, "checkpoint is missing"):
+                controller.dispatch_engineering_plan_task(
+                    store=store, run_id=plan.run_id, task_id="implement",
+                    dispatch_key="dispatch-missing-checkpoint", handler="dispatch-test",
+                    packet=packet, recovery_bridge=recovery_bridge,
+                )
+            with sqlite3.connect(controller.db_path) as db:
+                count = db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0]
+            self.assertEqual(0, count, "a missing canonical checkpoint must block queue insertion")
+
+    def test_controller_dispatch_rejects_bridge_for_another_plan_store(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            plan, run, packet, _, store, controller, _ = prepared(tmp)
+            other_store = EngineeringPlanStore(Path(tmp) / "other-plans.sqlite3")
+            recovery_bridge = EngineeringPlanRecoveryBridge(
+                store=other_store,
+                ledger=EngineeringRecoveryLedger(Path(tmp) / "runtime" / ".auren" / "recovery.sqlite3"),
+            )
+            with self.assertRaisesRegex(ValueError, "same plan store"):
+                controller.dispatch_engineering_plan_task(
+                    store=store, run_id=plan.run_id, task_id="implement",
+                    dispatch_key="dispatch-wrong-store", handler="dispatch-test",
+                    packet=packet, recovery_bridge=recovery_bridge,
+                )
+
+    def test_controller_dispatch_accepts_matching_canonical_checkpoint(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            plan, run, packet, _, store, controller, _ = prepared(tmp)
+            recovery_bridge = EngineeringPlanRecoveryBridge(
+                store=store,
+                ledger=EngineeringRecoveryLedger(Path(tmp) / "runtime" / ".auren" / "recovery.sqlite3"),
+            )
+            recovery_bridge.ledger.start_run(plan.run_id, recovery_bridge._intent(plan))
+            recovery_bridge.ledger.checkpoint(
+                plan.run_id, recovery_bridge.PHASE, status="in_progress",
+                head_sha=plan.source_revision,
+                payload=recovery_bridge._checkpoint_payload(
+                    plan, run, next_safe_action="schedule_dependency_ready_task",
+                ),
+            )
+            task = controller.dispatch_engineering_plan_task(
+                store=store, run_id=plan.run_id, task_id="implement",
+                dispatch_key="dispatch-verified-checkpoint", handler="dispatch-test",
+                packet=packet, recovery_bridge=recovery_bridge,
+            )
+            self.assertEqual("pending", task.state)
+            self.assertEqual(plan.digest, task.payload["auren_dispatch"]["plan_digest"])
 
     def test_dispatch_replay_survives_plan_revision_advancing_after_enqueue(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
