@@ -20,8 +20,9 @@ with a stable key derived from the canonical run/task/action identity.
 4. After the provider confirms the operation, persist a stable provider operation ID,
    result status, and relevant digest using `complete(key, receipt)`.
 5. If the call outcome is ambiguous (timeout, connection reset, worker death), require
-   reconciliation. Authorize retry only after an operator or trusted provider lookup
-   confirms that no side effect occurred, and record the reason.
+   reconciliation. A retry requires a host-injected trusted authorizer to validate the
+   operator identity and provider/evidence reference, plus explicit no-effect confirmation.
+   The caller-supplied boolean alone is never treated as authorization.
 
 ## Guarantees and limits
 
@@ -29,7 +30,8 @@ with a stable key derived from the canonical run/task/action identity.
 - Completed receipts are immutable and replayable after process restart.
 - An interrupted in-flight record cannot be automatically executed a second time.
 - Concurrent callers serialize the state transition in SQLite.
-- A retry requires explicit no-effect confirmation and an auditable reason.
+- A retry requires explicit no-effect confirmation, operator identity, evidence reference,
+  and a trusted host-injected authorization callback; the default without a verifier is deny.
 - This is not distributed exactly-once execution. The strongest design combines this
   ledger with provider-native idempotency keys, a transactional outbox/inbox, and
   provider-side operation lookup. Without provider cooperation, an ambiguous outcome
