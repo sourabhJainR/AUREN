@@ -1302,3 +1302,39 @@ def test_consequential_dispatch_key_replays_across_new_task_ids(tmp_path: Path, 
 
     assert first == replay
     assert calls == ["abc123"]
+
+
+def test_consequential_unknown_provider_outcome_blocks_new_task_redispatch(tmp_path: Path, monkeypatch):
+    from types import SimpleNamespace
+    import pytest
+
+    controller = ExecutionController(tmp_path)
+    calls = []
+
+    def provider(payload):
+        calls.append(payload["revision"])
+        # Simulate a remote effect followed by a lost response.
+        raise TimeoutError("provider response timed out after request acceptance")
+
+    monkeypatch.setattr(
+        controller, "_invoke_with_lease_heartbeat",
+        lambda _task, handler: handler(_task.payload),
+    )
+
+    def task(task_id):
+        return SimpleNamespace(
+            id=task_id,
+            handler="tests.deploy",
+            payload={
+                "target": "production",
+                "revision": "def456",
+                "auren_dispatch": {"dispatch_key": "run-88:deploy:production"},
+            },
+        )
+
+    with pytest.raises(TimeoutError):
+        controller._invoke_consequential_with_ledger(task("task-timeout"), provider)
+    with pytest.raises(RuntimeError, match="requires reconciliation"):
+        controller._invoke_consequential_with_ledger(task("task-resume"), provider)
+
+    assert calls == ["def456"]
