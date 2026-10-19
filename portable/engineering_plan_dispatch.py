@@ -56,6 +56,31 @@ class EngineeringPlanDispatch:
                 "CREATE INDEX IF NOT EXISTS idx_dispatch_run ON engineering_dispatch_intents(run_id, created_at)"
             )
 
+    def _discard_unqueued_work_unit(self, work_unit_id: str) -> None:
+        """Remove a newly-created work unit when its dispatch loses a race.
+
+        The unit is created before the task transaction because work units live in
+        the company's separate SQLite database. Only untouched, still-running
+        units with no durable task reference are eligible for cleanup.
+        """
+        with sqlite3.connect(self.database_path, timeout=10) as db:
+            referenced = db.execute(
+                "SELECT 1 FROM tasks WHERE work_unit_id=? LIMIT 1", (work_unit_id,)
+            ).fetchone()
+        if referenced is not None:
+            return
+        company_db_path = self.controller.company.db_path
+        with sqlite3.connect(company_db_path, timeout=10) as db:
+            db.execute("PRAGMA busy_timeout=10000")
+            db.execute("BEGIN IMMEDIATE")
+            state = db.execute(
+                "SELECT state,iteration FROM work_units WHERE id=?", (work_unit_id,)
+            ).fetchone()
+            if state == ("running", 0):
+                db.execute("DELETE FROM events WHERE work_unit_id=?", (work_unit_id,))
+                db.execute("DELETE FROM work_units WHERE id=? AND state='running' AND iteration=0", (work_unit_id,))
+            db.commit()
+
     @staticmethod
     def _nonempty(value: Any, field: str) -> str:
         if not isinstance(value, str) or not value.strip():
@@ -191,6 +216,7 @@ class EngineeringPlanDispatch:
             ).fetchone()
             if existing is not None:
                 db.rollback()
+                self._discard_unqueued_work_unit(work.id)
                 return self._replay_or_conflict(existing, binding, handler_name, encoded_payload)
             collision = db.execute(
                 "SELECT * FROM engineering_dispatch_intents WHERE run_id=? AND plan_task_id=? AND run_revision=?",
@@ -198,6 +224,7 @@ class EngineeringPlanDispatch:
             ).fetchone()
             if collision is not None:
                 db.rollback()
+                self._discard_unqueued_work_unit(work.id)
                 raise DispatchConflict("this plan task revision already has a different dispatch intent")
             dispatch_limit = plan.budget.get("dispatches")
             if dispatch_limit is not None:
@@ -206,6 +233,7 @@ class EngineeringPlanDispatch:
                 ).fetchone()[0]
                 if count >= dispatch_limit:
                     db.rollback()
+                    self._discard_unqueued_work_unit(work.id)
                     raise DispatchConflict("shared plan dispatch budget is exhausted")
             try:
                 db.execute(
@@ -224,6 +252,7 @@ class EngineeringPlanDispatch:
                 db.commit()
             except sqlite3.IntegrityError as exc:
                 db.rollback()
+                self._discard_unqueued_work_unit(work.id)
                 raise DispatchConflict("dispatch intent collided with a concurrent or prior dispatch") from exc
 
         task = self.controller.task(task_identifier)
