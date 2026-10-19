@@ -256,6 +256,7 @@ class BranchAwareWorkspace:
             conflicts = _paths_from_nul(
                 _run_git(self.root, "diff", "--name-only", "--diff-filter=U", "-z").stdout
             )
+            self.read_cache.invalidate()
             raise MergeConflictError(
                 f"Merge from {fetched.remote_ref} needs explicit conflict resolution: "
                 + ", ".join(conflicts or ("unknown conflict",))
