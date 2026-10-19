@@ -29,7 +29,8 @@ _EVENT_TYPES = frozenset({
     "regression_failed", "recovery_selected", "task_completed", "task_failed",
     "external_evidence_observed", "rollback_started", "rollback_completed",
     "rollback_failed", "crew_handoff_checkpoint_persisted",
-    "task_quota_wait", "task_quota_blocked", "engineering_plan_task_dispatched",\n    "engineering_plan_dispatch_cancelled",
+    "task_quota_wait", "task_quota_blocked", "engineering_plan_task_dispatched",
+    "engineering_plan_dispatch_cancelled",
 })
 _SOURCE_TYPES = frozenset({
     "auren_runtime", "ci", "external_evaluator", "oracle_custody",
@@ -166,7 +167,8 @@ class EvidenceCapture:
             "signature_key_id", "rollback_plan_digest",
             "previous_head_sha", "result_category", "receipt_digest", "operator_id",
             "target_id", "last_known_good_commit", "recovered_head_sha",
-            "checkpoint_digest", "crew_plan_digest", "retry_budget_digest",\n            "plan_digest", "packet_digest", "dispatch_key_digest", "binding_digest",
+            "checkpoint_digest", "crew_plan_digest", "retry_budget_digest",
+            "plan_digest", "packet_digest", "dispatch_key_digest", "binding_digest",
             "provider_resume_digest",
         }
         if "signature_verified" in metadata:
