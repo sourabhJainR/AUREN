@@ -29,9 +29,13 @@ class DispatchCancelled(RuntimeError):
 class EngineeringPlanDispatch:
     """Bind a verified plan revision and context packet to ExecutionController tasks."""
 
-    def __init__(self, *, store: EngineeringPlanStore, controller: Any) -> None:
+    def __init__(
+        self, *, store: EngineeringPlanStore, controller: Any,
+        recovery_bridge: Any | None = None,
+    ) -> None:
         self.store = store
         self.controller = controller
+        self.recovery_bridge = recovery_bridge
         self.database_path = controller.db_path
         with sqlite3.connect(self.database_path, timeout=10) as db:
             db.execute("PRAGMA busy_timeout=10000")
@@ -101,13 +105,19 @@ class EngineeringPlanDispatch:
             for index, item in enumerate(value):
                 cls._validate_payload_keys(item, f"{path}[{index}]")
 
+    def _load_plan_state(self, run_id: str) -> tuple[EngineeringPlan, EngineeringPlanRun]:
+        """Use the canonical recovery checkpoint whenever a bridge is configured."""
+        if self.recovery_bridge is not None:
+            return self.recovery_bridge.load_verified(run_id)
+        return self.store.load(run_id)
+
     def _verified_state(
         self, run_id: str, task_id: str, packet: EngineeringContextPacket
     ) -> tuple[EngineeringPlan, EngineeringPlanRun]:
         if not isinstance(packet, EngineeringContextPacket):
             raise TypeError("an EngineeringContextPacket is required")
         packet.verify()
-        plan, run = self.store.load(run_id)
+        plan, run = self._load_plan_state(run_id)
         run.verify_against(plan)
         if packet.run_id != run_id or packet.plan_digest != plan.digest:
             raise DispatchConflict("context packet is bound to a different plan")
@@ -170,7 +180,7 @@ class EngineeringPlanDispatch:
                 "SELECT * FROM engineering_dispatch_intents WHERE dispatch_key=?", (key,)
             ).fetchone()
         if existing is not None:
-            plan, _current_run = self.store.load(run_id)
+            plan, _current_run = self._load_plan_state(run_id)
             if (
                 existing["run_id"] != run_id
                 or existing["plan_task_id"] != task_id
