@@ -1037,7 +1037,7 @@ def test_session_work_unit_creation_is_idempotent_if_mapping_write_is_lost(tmp_p
     restarted = ExecutionController(tmp_path)
     second = restarted.work_unit_for_session("session-retry", "long task")
     assert second == first
-    with sqlite3.connect(restarted.company._db().execute("PRAGMA database_list").fetchone()[2]) as db:
+    with sqlite3.connect(restarted.company.db_path) as db:
         rows = db.execute(
             "SELECT id FROM work_units WHERE work_key LIKE ?",
             ("execution-session:session-retry:%:initial",),
