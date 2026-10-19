@@ -324,7 +324,8 @@ class AutonomousCompany:
                 ci: Callable[[int], tuple[str,str,Sequence[str]]] | None = None,
                 recover: Callable[[str], tuple[bool,str,Sequence[str]]] | None = None,
                 poll_seconds: float = 30.0, max_steps: int = 10,
-                max_consecutive_failures: int = 3) -> TrustScore:
+                max_consecutive_failures: int = 3, ci_timeout_seconds: float = 300.0,
+                max_ci_polls: int = 10) -> TrustScore:
         """Run a bounded slice of a durable work unit and yield safely for resume.
 
         One invocation executes at most max_steps iterations. The durable work unit
@@ -336,9 +337,41 @@ class AutonomousCompany:
             raise ValueError("max_steps must be a positive integer")
         if isinstance(max_consecutive_failures, bool) or not isinstance(max_consecutive_failures, int) or max_consecutive_failures < 1:
             raise ValueError("max_consecutive_failures must be a positive integer")
-        if poll_seconds <= 0:
-            raise ValueError("poll_seconds must be positive")
+        if poll_seconds <= 0 or ci_timeout_seconds <= 0:
+            raise ValueError("poll_seconds and ci_timeout_seconds must be positive")
+        if isinstance(max_ci_polls, bool) or not isinstance(max_ci_polls, int) or max_ci_polls < 1:
+            raise ValueError("max_ci_polls must be a positive integer")
         unit = self.resume(wid)
+        initial_state, initial_iteration = self._state(wid)
+        if initial_state == "waiting_external":
+            return self.trust(wid)
+        if initial_state == "waiting_ci":
+            if ci is None:
+                return self.trust(wid)
+            ci_status = self.wait_for_ci(
+                wid, lambda: ci(initial_iteration), poll_seconds=poll_seconds,
+                timeout_seconds=ci_timeout_seconds, max_polls=max_ci_polls,
+            )
+            if ci_status == "passed":
+                with self._db() as db:
+                    row = db.execute(
+                        "SELECT evidence FROM events WHERE work_unit_id=? AND kind='verification' AND status='passed' ORDER BY rowid DESC LIMIT 1",
+                        (wid,),
+                    ).fetchone()
+                evidence = tuple(json.loads(row[0])) if row else ()
+                return self.finish(wid, success=True, reason="resumed CI passed after durable wait", evidence=evidence)
+            if ci_status in {"failed", "timeout"}:
+                if recover:
+                    ok, why, refs = recover("CI " + ci_status)
+                    self.record(wid, "recovery", "accepted" if ok else "rejected", why, refs)
+                    if ok:
+                        self._transition(wid, "running")
+                    else:
+                        return self.finish(wid, success=False, reason="CI did not pass after resume")
+                else:
+                    return self.finish(wid, success=False, reason="CI did not pass after resume")
+            else:
+                return self.trust(wid)
         steps = 0
         while steps < max_steps:
             state, iteration = self._state(wid)
@@ -388,7 +421,10 @@ class AutonomousCompany:
 
             self.record(wid, "verification", "passed", review_detail, refs)
             if ci:
-                ci_status = self.wait_for_ci(wid, lambda: ci(iteration), poll_seconds=poll_seconds)
+                ci_status = self.wait_for_ci(
+                    wid, lambda: ci(iteration), poll_seconds=poll_seconds,
+                    timeout_seconds=ci_timeout_seconds, max_polls=max_ci_polls,
+                )
                 if ci_status == "passed":
                     return self.finish(wid, success=True, reason="execution, review and CI passed", evidence=refs)
                 if ci_status in {"failed", "timeout"}:
@@ -398,7 +434,7 @@ class AutonomousCompany:
                         if ok:
                             continue
                     return self.finish(wid, success=False, reason="CI did not pass", evidence=refs)
-                # wait_for_ci persists waiting_ci; never spin through the same CI wait.
+                # Cancellation/poll exhaustion is a resumable wait, never success.
                 return self.trust(wid)
             return self.finish(wid, success=True, reason="execution and review passed", evidence=refs)
 
