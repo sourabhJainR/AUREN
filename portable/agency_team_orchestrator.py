@@ -11,6 +11,8 @@ from hashlib import sha256
 from typing import Callable, Protocol, Sequence
 from .agency_execution_plan import SpecialistWork, build_plan, ExecutionPlan
 from .action_governance import ActionGovernanceGateway, ActionRequest, ApprovalReceipt
+from .execution_boundary import ExecutionAuthorityBinding, execute_bound_action
+from .runtime_recovery import RuntimeExecutionGuard
 
 @dataclass(frozen=True)
 class WorkUnit:
@@ -50,13 +52,41 @@ class AgentTeamOrchestrator:
         by_id = {u.unit_id: u for u in units}
         if len(by_id) != len(units): raise ValueError("unit IDs must be unique")
         return build_plan(tuple(SpecialistWork(u.specialist, u.role, u.mutation_mode, u.read_paths, u.write_paths, tuple(by_id[d].specialist for d in u.depends_on if d in by_id), u.priority) for u in units))
-    def run(self, units: Sequence[WorkUnit], *, evidence_digest: str, spawn: AgentSpawner, verify: Verifier, review: Reviewer, governance_gateway: ActionGovernanceGateway | None = None, approval_provider: ApprovalProvider | None = None, run_id: str = "") -> TeamRun:
+    def run(self, units: Sequence[WorkUnit], *, evidence_digest: str, spawn: AgentSpawner, verify: Verifier, review: Reviewer, governance_gateway: ActionGovernanceGateway | None = None, approval_provider: ApprovalProvider | None = None, run_id: str = "", execution_authorities: dict[str, ExecutionAuthorityBinding] | None = None, execution_guards: dict[str, RuntimeExecutionGuard] | None = None, repository_revision: str | None = None, repository_digest: str | None = None) -> TeamRun:
         if not evidence_digest.strip(): raise ValueError("evidence_digest is required")
         normalized = tuple(units); by_id = {u.unit_id: u for u in normalized}
         if len(by_id) != len(normalized): raise ValueError("unit IDs must be unique")
         if any(d not in by_id for u in normalized for d in u.depends_on): raise ValueError("unknown unit dependency")
         if governance_gateway is not None and not run_id.strip():
             raise ValueError("run_id is required when governance gateway is enabled")
+        if execution_authorities is None and execution_guards is not None:
+            raise ValueError("execution_authorities are required when execution_guards are supplied")
+        if execution_authorities is not None:
+            if governance_gateway is None:
+                raise ValueError("governance_gateway is required when execution authorities are supplied")
+            if not isinstance(run_id, str) or not run_id.strip():
+                raise ValueError("run_id is required for authority-bound team execution")
+            if not isinstance(repository_revision, str) or not repository_revision.strip():
+                raise ValueError("repository_revision is required for authority-bound team execution")
+            if not isinstance(repository_digest, str) or not repository_digest.strip():
+                raise ValueError("repository_digest is required for authority-bound team execution")
+            if execution_guards is None:
+                raise ValueError("task-owned execution_guards are required for authority-bound team execution")
+            if set(execution_authorities) != set(by_id):
+                missing = sorted(set(by_id) - set(execution_authorities))
+                extra = sorted(set(execution_authorities) - set(by_id))
+                raise ValueError(f"one execution authority per team unit is required; missing={missing}, extra={extra}")
+            if set(execution_guards or {}) != set(by_id):
+                missing = sorted(set(by_id) - set(execution_guards or {}))
+                extra = sorted(set(execution_guards or {}) - set(by_id))
+                raise ValueError(f"one task-owned execution guard per team unit is required; missing={missing}, extra={extra}")
+            for unit_id, authority in execution_authorities.items():
+                if unit_id not in by_id:
+                    raise ValueError(f"execution authority references unknown unit: {unit_id}")
+                if authority.task_id != unit_id or authority.run_id != run_id:
+                    raise ValueError(f"execution authority identity mismatch for unit: {unit_id}")
+                if unit_id not in execution_guards or not isinstance(execution_guards[unit_id], RuntimeExecutionGuard):
+                    raise ValueError(f"task-owned execution guard is required for unit: {unit_id}")
         plan = self.plan(normalized)
 
         effective_spawn = spawn
@@ -66,6 +96,13 @@ class AgentTeamOrchestrator:
                 capability = "repository.write" if mutating else "repository.read"
                 risk = "write" if mutating else "read"
                 targets = unit.write_paths if mutating else unit.read_paths
+                authority = execution_authorities.get(unit.unit_id) if execution_authorities is not None else None
+                if authority is not None and not targets:
+                    return AgentOutput(
+                        unit.unit_id, "blocked",
+                        findings=(("explicit_write_scope_missing",) if mutating else ("explicit_read_scope_missing",)),
+                        detail="Authority-bound specialist execution requires explicit repository paths.",
+                    )
                 if not targets:
                     targets = (unit.unit_id,)
                 checked: list[tuple[ActionRequest, ApprovalReceipt | None]] = []
@@ -78,7 +115,20 @@ class AgentTeamOrchestrator:
                         action="specialist.execute",
                         target=target,
                         risk=risk,
+                        task_id=unit.unit_id if authority is not None else "",
                     )
+                    if authority is not None:
+                        allowed, reason = authority.authorize(
+                            request,
+                            repository_revision=repository_revision,
+                            repository_digest=repository_digest,
+                            attempts_used=execution_guards[unit.unit_id].attempts_used,
+                        )
+                        if not allowed:
+                            return AgentOutput(
+                                unit.unit_id, "blocked", findings=(reason,),
+                                detail=f"AUREN execution authority blocked specialist execution: {reason}",
+                            )
                     approval = approval_provider(unit, request) if approval_provider else None
                     verdict = governance_gateway.evaluate(request, approval=approval)
                     if not verdict.allowed:
@@ -91,11 +141,28 @@ class AgentTeamOrchestrator:
 
                 request, approval = checked[0]
                 captured: list[AgentOutput] = []
-                result = governance_gateway.execute(
-                    request,
-                    lambda: captured.append(spawn(unit, digest)) or captured[-1],
-                    approval=approval,
-                )
+                handler = lambda: captured.append(spawn(unit, digest)) or captured[-1]
+                if authority is not None:
+                    result = execute_bound_action(
+                        governance_gateway,
+                        authority,
+                        request,
+                        handler,
+                        repository_revision=repository_revision,
+                        repository_digest=repository_digest,
+                        budget_id=authority.budget_id,
+                        execution_guard=execution_guards[unit.unit_id],
+                        approval=approval,
+                    )
+                else:
+                    durable_verdict = governance_gateway.durable_side_effect_preflight(request)
+                    if durable_verdict is not None:
+                        return AgentOutput(
+                            unit.unit_id, "blocked",
+                            findings=(durable_verdict.reason,),
+                            detail=f"AUREN durable side-effect gate blocked specialist execution: {durable_verdict.reason}",
+                        )
+                    result = governance_gateway.execute(request, handler, approval=approval)
                 if not result.executed or not captured:
                     return AgentOutput(
                         unit.unit_id, "blocked",

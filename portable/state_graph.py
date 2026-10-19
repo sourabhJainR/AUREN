@@ -9,7 +9,7 @@ from typing import Any, Callable, Mapping
 
 from .orchestration import Graph, Node, NodeKind, NodeStatus, OrchestrationRun, Orchestrator
 from .crew_adapters import CrewHandoff, GraphHandoffController, TaskRetryBudget, rollback_readiness
-from .runtime_recovery import RuntimeExecutionGuard
+from .runtime_recovery import ExecutionBudgetExceeded, RuntimeExecutionGuard
 
 _FORBIDDEN_CREW_AUTHORITIES = frozenset({
     "merge", "promote", "self_approve", "approve_own_work", "bypass_review",
@@ -275,6 +275,9 @@ def _dispatch_crew_proposal(
     graph_digest: str,
     agents: Mapping[str, Any],
     crews: Mapping[str, CrewDefinition],
+    execution_guard: RuntimeExecutionGuard | None = None,
+    execution_guard_persist: Callable[[Mapping[str, Any]], None] | None = None,
+    operation_scope: str = "direct",
 ) -> dict[str, Any]:
     """Validate and invoke one selected proposal adapter without granting execution authority."""
     if type(active) is not bool:
@@ -290,12 +293,22 @@ def _dispatch_crew_proposal(
     if agent is None:
         raise ValueError(f"no registered proposal agent for crew {crew_id}")
     proposer = getattr(agent, "propose", None)
-    if not callable(proposer):
-        raise TypeError("crew agents must expose a side-effect-free propose(request) interface")
+    guarded_proposer = getattr(agent, "propose_with_execution_guard", None)
+    if not callable(proposer) and not callable(guarded_proposer):
+        raise TypeError("crew agents must expose a side-effect-free propose(...) or propose_with_execution_guard(...) interface")
     if not isinstance(task, str) or not task.strip():
         raise ValueError("crew task must be non-empty text")
     if evidence is not None and not isinstance(evidence, Mapping):
         raise ValueError("crew evidence must be a mapping")
+    if execution_guard is not None:
+        task_digest = hashlib.sha256(task.strip().encode("utf-8")).hexdigest()
+        operation_key = f"specialist-proposal:{plan.digest}:{operation_scope}:{crew_id}:{task_digest}"
+        if not execution_guard.charge_attempt(operation_key):
+            raise ExecutionBudgetExceeded(
+                "duplicate specialist proposal refused because its attempt was already charged"
+            )
+        if execution_guard_persist is not None:
+            execution_guard_persist(execution_guard.snapshot())
     definition = crews[crew_id]
     request = {
         "crew_id": crew_id,
@@ -313,7 +326,16 @@ def _dispatch_crew_proposal(
         json.dumps(request, sort_keys=True, separators=(",", ":"))
     except (TypeError, ValueError) as exc:
         raise ValueError("crew proposal request must be JSON-serializable") from exc
-    proposal = proposer(request)
+    if execution_guard is not None and callable(guarded_proposer):
+        proposal = guarded_proposer(
+            request,
+            execution_guard=execution_guard,
+            execution_guard_persist=execution_guard_persist,
+        )
+    elif callable(proposer):
+        proposal = proposer(request)
+    else:
+        raise TypeError("guard-aware proposal adapter requires the shared execution guard")
     if not isinstance(proposal, Mapping):
         raise ValueError("crew proposal must be a structured mapping")
     required_fields = {
@@ -579,6 +601,12 @@ class GraphAgentTeam:
                 graph_digest=self.graph.digest(),
                 agents=self.agents,
                 crews=self.crews,
+                execution_guard=runtime_guard,
+                execution_guard_persist=state.get("auren_runtime_guard_persist"),
+                operation_scope=(
+                    str(state.get("auren_supervisor_iteration", "direct"))
+                    + ":" + str(state.get("auren_recovery_hypothesis", "default-plan"))
+                ),
             )
 
         # Handoffs and retry charges live in the supervisor-owned checkpoint,
@@ -594,9 +622,18 @@ class GraphAgentTeam:
         else:
             retry_budget = TaskRetryBudget(max_retries=state.get("auren_retry_budget_limit", 3))
 
+        # Preserve the supervisor-owned live guard when this graph is nested
+        # inside AdaptiveRuntime/Orchestrator. Rehydrating a second guard here
+        # would split attempt charges and allow specialist/provider work to reset
+        # its task-wide budget at the graph boundary.
+        supplied_guard = state.get("_auren_runtime_execution_guard")
         runtime_snapshot = state.get("auren_runtime_guard")
+        if supplied_guard is not None and not isinstance(supplied_guard, RuntimeExecutionGuard):
+            raise TypeError("supervisor runtime execution guard has an invalid type")
         runtime_guard = (
-            RuntimeExecutionGuard.resume(runtime_snapshot)
+            supplied_guard
+            if isinstance(supplied_guard, RuntimeExecutionGuard)
+            else RuntimeExecutionGuard.resume(runtime_snapshot)
             if isinstance(runtime_snapshot, Mapping)
             else RuntimeExecutionGuard(max_steps=max(1, len(self.graph.states)), max_attempts=32)
         )
@@ -790,9 +827,25 @@ class GraphAgentTeam:
         state["auren_crew_handoff_checkpoint_data"] = handoffs.snapshot()
         state["auren_retry_budget"] = retry_budget.snapshot()
         state["auren_provider_resume_persist"] = persist_provider_resume
-        state["auren_runtime_guard_persist"] = lambda _snapshot=None: persist_handoff_checkpoint(handoffs.snapshot())
+        supervisor_guard_persist = state.get("auren_runtime_guard_persist")
         state["auren_crew_handoff_checkpoint"] = handoffs.snapshot
         state["auren_crew_rollback_readiness"] = rollback_readiness
+
+        def persist_runtime_guard(snapshot=None) -> None:
+            if snapshot is not None and not isinstance(snapshot, Mapping):
+                raise TypeError("runtime guard persistence requires a snapshot mapping")
+            # Retry-budget reconciliation can itself charge the canonical guard.
+            # Persist the latest guard even when reconciliation blocks, then
+            # propagate the original failure so execution remains fail-closed.
+            try:
+                persist_handoff_checkpoint(handoffs.snapshot())
+            finally:
+                guard_snapshot = runtime_guard.snapshot()
+                state["auren_runtime_guard"] = dict(guard_snapshot)
+                if callable(supervisor_guard_persist):
+                    supervisor_guard_persist(guard_snapshot)
+
+        state["auren_runtime_guard_persist"] = persist_runtime_guard
         try:
             return self.graph.run(task_id, intent, state)
         finally:

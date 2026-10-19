@@ -13,6 +13,7 @@ from .session_state import SessionCheckpoint, SessionStore
 from .task_planner import PRIORITIES, STATUSES, Task, TaskPlan
 from .capability_fabric import CAPABILITIES, Capability, CapabilityFabric, ProviderAdapter, ProviderAdapterRegistry
 from .persistent_memory import MemoryRecord, PersistentMemory
+from .memory_orchestrator import MemoryEnvelope, MemoryOrchestrator, MemoryRecall, MemoryWriteResult, MemoryBudgetError
 from .agent_memory import AgentMemory
 from .context_engine import ContextEngine, ContextItem, ContextPolicy, Handoff, handoff_from_output
 from .dream_memory import DreamMemory
@@ -239,3 +240,42 @@ __all__ += ["ExternalTransferEvidence", "ExternalTransferEvidenceCoordinator"]
 
 from .arena_promotion_gate import ArenaPromotionDecision, ArenaPromotionGate
 __all__ += ["ArenaPromotionDecision", "ArenaPromotionGate"]
+
+
+from .engineering_plan import (
+    EngineeringPlan, EngineeringPlanRun, PlanTask, TaskProgress, new_plan_run,
+)
+__all__ += ["EngineeringPlan", "EngineeringPlanRun", "PlanTask", "TaskProgress", "new_plan_run"]
+
+from .engineering_plan_store import EngineeringPlanStore, PlanRevisionConflict
+__all__ += ["EngineeringPlanStore", "PlanRevisionConflict"]
+
+
+from .engineering_plan_recovery import EngineeringPlanCheckpointMismatch, EngineeringPlanRecoveryBridge
+__all__ += ["EngineeringPlanCheckpointMismatch", "EngineeringPlanRecoveryBridge"]
+
+
+from .engineering_context_packet import EngineeringContextPacket, build_context_packet
+__all__ += ["EngineeringContextPacket", "build_context_packet"]
+
+
+from .harness_isolation_verifier import ArenaHarnessIsolationReceiptVerifier, TrustedHarnessRunContext
+__all__ += ["ArenaHarnessIsolationReceiptVerifier", "TrustedHarnessRunContext"]
+
+
+from .engineering_plan_dispatch import DispatchCancelled, DispatchConflict, EngineeringPlanDispatch
+__all__ += ["DispatchCancelled", "DispatchConflict", "EngineeringPlanDispatch"]
+
+
+from .persistent_experiment_learning import (
+    ExperimentManifest, PersistentLearningReceipt, PersistentExperimentLearningStore,
+    LearningStoreConflict, LearningEvidenceError,
+)
+__all__ += [
+    "ExperimentManifest", "PersistentLearningReceipt", "PersistentExperimentLearningStore",
+    "LearningStoreConflict", "LearningEvidenceError",
+]
+
+
+from .experiment_learning_cycle import ExperimentLearningCycle, ExperimentLearningCycleResult
+__all__ += ["ExperimentLearningCycle", "ExperimentLearningCycleResult"]

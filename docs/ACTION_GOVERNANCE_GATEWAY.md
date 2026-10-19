@@ -10,7 +10,7 @@ The action gateway brings a deterministic policy decision point to consequential
 2. Capabilities and action verbs are allowlisted. Unknown capabilities and verbs fail closed.
 3. Protected targets, release actions, and configured high-impact actions require an approval receipt bound to the exact request fingerprint.
 4. Approval is valid only when a host-supplied `approval_verifier` accepts it. If no verifier is configured, approval-required actions remain blocked.
-5. Release/merge/deploy actions require evidence references. External effects require idempotency keys when the policy says so.
+5. Release/merge/deploy actions require evidence references. External effects require idempotency keys when the policy says so. Set `require_durable_ledger_for_external_effects=True` and inject `DurableSideEffectLedger` to fail closed if durable intent recording is unavailable.
 6. `execute` calls its handler only after an allow verdict. Failures are recorded by exception type only; prompts, source text, raw tool output, secrets, and exception messages are not copied into the trace.
 7. A hash-chained trace detects modifications to the in-memory event sequence. It is not a digital signature, durable storage guarantee, identity provider, or proof of independent custody.
 
@@ -34,6 +34,21 @@ result = gateway.execute(request, lambda: apply_bounded_patch())
 if not result.executed:
     raise PermissionError(result.verdict.reason)
 ```
+
+### Durable external-effect mode
+
+For consequential external actions, inject the SQLite-backed ledger introduced in
+`portable.side_effect_ledger` and enable
+`require_durable_ledger_for_external_effects=True`. The gateway persists intent
+before invoking the handler, replays a completed receipt without invoking the handler
+again, and blocks ambiguous prior attempts for reconciliation.
+
+The authority-bound `execute_bound_action` path and the legacy branches of the
+OpenShell sandbox, coding-agency bridge, and specialist-team orchestrator now all
+run a durable-side-effect preflight. Those adapter paths fail closed before invoking
+the worker/backend if the request is consequential and no ledger is attached. Legacy
+non-consequential actions remain compatible. Provider-native idempotency and
+provider-side operation lookup remain necessary for the strongest recovery semantics.
 
 ## Important boundary
 

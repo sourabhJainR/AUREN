@@ -2,6 +2,18 @@
 
 This policy distills the engineering intent of the 14 rule sets in `mattpocock/agent-rules-books` into one repository-native operating model. It is guidance for the AUREN system, not copied book text and not a substitute for the books.
 
+## Pre-implementation blind-spot and assumption review
+
+Before implementation begins, AUREN must constructively challenge the request rather than merely restate it. The canonical `EngineeringDesignGuard.review_request(...)` records requirements, assumptions, observable acceptance criteria, constraints, non-goals, reviewer-supplied concerns, and authorized resolutions. It checks common explicit conflict pairs, flags vague or unverified assumptions, and offers a focused question plus flexible paths forward.
+
+- Unresolved explicit contradictions stop graph execution before side effects. Do not silently decide a user-owned product or compatibility trade-off.
+- A documented resolution is retained with the review receipt; resolving a finding does not prove the resulting design is correct.
+- Missing acceptance criteria and vague terms such as “fast”, “secure”, “robust”, or “scalable” generate constructive questions/options, not automatic blockers by themselves.
+- Semantic review remains required: planners/reviewers should add candidate contradictions and blind spots that simple deterministic patterns cannot recognize. No findings is not proof that a request is consistent.
+- Recommend an option with trade-offs, offer a narrower/reversible alternative, and continue independent discovery that does not depend on the open decision. Never turn a recommendation into consent.
+
+The review is stored in the existing run evidence and trajectory; it does not create a parallel memory or policy engine. See `portable/engineering_design_guard.py`, `portable/orchestration.py`, and `tests/test_preimplementation_review.py`.
+
 ## Source coverage
 
 | Source | Constructive contribution to AUREN |
@@ -65,6 +77,10 @@ For every non-trivial design or refactor, prefer lower cognitive load over lower
 Before creating a new class, function, adapter, client, query path, repository method, helper, utility, workflow step, configuration mechanism, or abstraction, inspect the repository for maintained implementations serving the same responsibility. Prefer direct reuse, narrow extension, composition, or adaptation over duplication. Record the relevant candidate(s) inspected and why a new implementation was necessary when reuse was rejected.
 
 Reuse must not change externally observable usage without an explicit requirement. Preserve public API shape, caller contracts, configuration behavior, lifecycle ordering, persisted data contracts, command flows, and user-facing workflow. A smaller diff is not a valid reason to bypass required functionality or safety behavior.
+
+## Proactive repository-native approach recommendations
+
+For every non-trivial task, call `EngineeringDesignGuard.recommend_approaches(root, intent, changed_paths)` before committing to a design. The deterministic advisor scans bounded repository manifests, CI and canonical-owner paths; it reports only evidenced languages/frameworks/versions, candidate algorithms or patterns, trade-offs, alternatives and source paths. It must prefer existing owners and repository test conventions, avoid dependencies/framework assumptions without manifest evidence, and set `needs_stack_confirmation` when the stack cannot be established. Recommendations are advisory: acceptance, user authority, tests, security gates and promotion remain separate. Add rules only when tied to a real repository pattern and regression tests; do not build a generic pattern catalogue disconnected from the working stack.
 
 ### 3. Architecture and dependency direction
 
@@ -177,3 +193,8 @@ Use the 12-family taxonomy in [ENGINEERING_PRINCIPLES.md](../ENGINEERING_PRINCIP
 For distributed work, require explicit consistency and CAP/PACELC choices only where replicas, partitions, remote dependencies, or multiple writers make them meaningful. Record a single-writer/local-state boundary when that is the real model. Do not claim consensus, quorum, ACID, exactly-once effects, SLOs, or recovery guarantees unless the runtime/store and evidence support them.
 
 For every applicable task, the lifecycle is: classify task/risk; select principle families; record risks, authority, invariants, ownership, side effects and recovery; implement proportionately; verify with suitable tests or evidence; bind evidence to the exact final revision; and preserve rollback/forward recovery for risky changes. A declared principle or design receipt is a contract to verify, not proof that the implementation satisfies it.
+
+
+## Repository-native approach recommendation
+
+Before a non-trivial implementation, call `EngineeringDesignGuard.recommend_approaches(repository_root, intent, changed_paths, risk=...)` (or `AdaptiveRuntime.recommend_design(...)`). Review its repository-manifest/CI evidence, existing-owner candidates, suggested algorithm and workflow, alternatives, complexity/resource trade-offs, required verification, and rollback gates. Use recommendations to choose among approaches that fit the current language, framework, versions, and conventions; do not add a new stack, dependency, store, scheduler, or abstraction merely because a pattern is available. Unknown or conflicting stack evidence must remain unresolved and be verified before version-specific APIs are selected. The advisor is deterministic and advisory: it never substitutes for tests, review, authorization, or promotion gates.

@@ -12,6 +12,8 @@ from .agency_release import ReleaseDecision, decide_release
 from .agency_runtime import Assignment, ExecutionResult, TaskProfile, execute
 from .agency_quality import ReviewFinding
 from .action_governance import ActionGovernanceGateway, ActionRequest, ApprovalReceipt
+from .execution_boundary import ExecutionAuthorityBinding, execute_bound_action
+from .runtime_recovery import RuntimeExecutionGuard
 
 @dataclass(frozen=True)
 class CodingTask:
@@ -29,6 +31,7 @@ class CodingTask:
     context_token_budget: int=4000
     context_max_files: int=12
     context_graph_hops: int=2
+    allowed_read_paths: tuple[str,...]=()
 
 @dataclass
 class OrchestratorRun:
@@ -77,7 +80,7 @@ def _build_codebase_context(task:CodingTask)->CodebaseContext|None:
     if not task.workspace_root: return None
     return retrieve_from_path(task.workspace_root,task.context_query or task.goal,token_budget=task.context_token_budget,max_files=task.context_max_files,graph_hops=task.context_graph_hops)
 
-def run_coding_task(task:CodingTask,worker:Callable[[TaskProfile,list[Assignment]],Mapping[str,object]],*,baseline_artifacts:Iterable[ArtifactSnapshot]=(),current_artifacts:Iterable[ArtifactSnapshot]=(),resource_profiles:Mapping[str,SpecialistResourceProfile]|None=None,benchmark_history:BenchmarkHistory|Iterable=(),registry:Mapping[str,object]|None=None,rubric:Mapping[str,object]|None=None,governance_gateway:ActionGovernanceGateway|None=None,approval_provider:Callable[[ActionRequest],ApprovalReceipt|None]|None=None,run_id:str|None=None)->OrchestratorRun:
+def run_coding_task(task:CodingTask,worker:Callable[[TaskProfile,list[Assignment]],Mapping[str,object]],*,baseline_artifacts:Iterable[ArtifactSnapshot]=(),current_artifacts:Iterable[ArtifactSnapshot]=(),resource_profiles:Mapping[str,SpecialistResourceProfile]|None=None,benchmark_history:BenchmarkHistory|Iterable=(),registry:Mapping[str,object]|None=None,rubric:Mapping[str,object]|None=None,governance_gateway:ActionGovernanceGateway|None=None,approval_provider:Callable[[ActionRequest],ApprovalReceipt|None]|None=None,run_id:str|None=None,execution_authority:ExecutionAuthorityBinding|None=None,repository_revision:str|None=None,repository_digest:str|None=None,budget_id:str|None=None,execution_guard:RuntimeExecutionGuard|None=None)->OrchestratorRun:
     """Run profile -> adaptive plan -> graph context -> specialists -> verify -> regression -> release -> benchmark."""
     history=benchmark_history if isinstance(benchmark_history,BenchmarkHistory) else BenchmarkHistory(list(benchmark_history))
     recommendation=recommend_plan(history,requested_mutation_mode=task.mutation_mode,requested_support_limit=task.support_limit)
@@ -86,6 +89,23 @@ def run_coding_task(task:CodingTask,worker:Callable[[TaskProfile,list[Assignment
     codebase_context=_build_codebase_context(effective_task)
     profile=TaskProfile(task_id=effective_task.task_id,request=effective_task.goal,artifact_type="code",risk=effective_task.risk,mutation_mode=effective_task.mutation_mode,acceptance=effective_task.acceptance,technologies=effective_task.technologies,context=codebase_context)
     effective_worker = worker
+    if execution_authority is not None:
+        if governance_gateway is None:
+            raise ValueError("governance_gateway is required when execution_authority is supplied")
+        if (
+            not isinstance(run_id, str) or not run_id.strip()
+            or not isinstance(repository_revision, str) or not repository_revision.strip()
+            or not isinstance(repository_digest, str) or not repository_digest.strip()
+            or not isinstance(budget_id, str) or not budget_id.strip()
+            or not isinstance(execution_guard, RuntimeExecutionGuard)
+        ):
+            raise ValueError(
+                "authority-bound coding execution requires run_id, repository_revision, "
+                "repository_digest, budget_id, and the task-owned execution_guard"
+            )
+        if execution_authority.task_id != effective_task.task_id or execution_authority.run_id != run_id:
+            raise ValueError("execution_authority run/task identity must match the coding task")
+
     if governance_gateway is not None:
         if not isinstance(run_id, str) or not run_id.strip():
             raise ValueError("run_id is required when governance gateway is enabled")
@@ -99,12 +119,25 @@ def run_coding_task(task:CodingTask,worker:Callable[[TaskProfile,list[Assignment
                 else "release" if task_risk in {"high", "critical"}
                 else "write"
             )
-            targets = tuple(effective_task.allowed_artifact_changes) if mutating else (effective_task.task_id,)
+            targets = (
+                tuple(effective_task.allowed_artifact_changes)
+                if mutating
+                else tuple(effective_task.allowed_read_paths) if execution_authority is not None
+                else (effective_task.task_id,)
+            )
             if mutating and not targets:
                 return {
                     "deliverables": [], "verification": [],
                     "dimensions": {}, "hard_gates": {"action_governance": False},
                     "findings": [ReviewFinding("blocker", "action_governance:explicit_write_scope_missing")],
+                    "evidence": [],
+                }
+
+            if execution_authority is not None and not mutating and not targets:
+                return {
+                    "deliverables": [], "verification": [],
+                    "dimensions": {}, "hard_gates": {"action_governance": False},
+                    "findings": [ReviewFinding("blocker", "action_governance:explicit_read_scope_missing")],
                     "evidence": [],
                 }
 
@@ -140,7 +173,22 @@ def run_coding_task(task:CodingTask,worker:Callable[[TaskProfile,list[Assignment
                     action="specialist.execute",
                     target=target,
                     risk=risk_class,
+                    task_id=effective_task.task_id if execution_authority is not None else "",
                 )
+                if execution_authority is not None:
+                    allowed, reason = execution_authority.authorize(
+                        request,
+                        repository_revision=repository_revision,
+                        repository_digest=repository_digest,
+                        attempts_used=execution_guard.attempts_used,
+                    )
+                    if not allowed:
+                        return {
+                            "deliverables": [], "verification": [],
+                            "dimensions": {}, "hard_gates": {"action_governance": False},
+                            "findings": [ReviewFinding("blocker", f"action_governance:authority_binding:{reason}")],
+                            "evidence": [],
+                        }
                 approval = approval_provider(request) if approval_provider else None
                 verdict = governance_gateway.evaluate(request, approval=approval)
                 if not verdict.allowed:
@@ -160,9 +208,10 @@ def run_coding_task(task:CodingTask,worker:Callable[[TaskProfile,list[Assignment
                 actor="auren-host",
                 capability=capability,
                 action="specialist.execute",
-                target=f"task-scope/{effective_task.task_id}",
+                target=normalized_targets[0] if execution_authority is not None else f"task-scope/{effective_task.task_id}",
                 risk=risk_class,
                 evidence_refs=tuple(f"scope:{path}" for path in normalized_targets),
+                task_id=effective_task.task_id if execution_authority is not None else "",
             )
             scope_approval = approval_provider(scope_request) if approval_provider else None
             scope_verdict = governance_gateway.evaluate(scope_request, approval=scope_approval)
@@ -175,11 +224,33 @@ def run_coding_task(task:CodingTask,worker:Callable[[TaskProfile,list[Assignment
                 }
 
             captured: list[Mapping[str, object]] = []
-            result = governance_gateway.execute(
-                scope_request,
-                lambda: captured.append(worker(task_profile, assignments)) or captured[-1],
-                approval=scope_approval,
-            )
+            handler = lambda: captured.append(worker(task_profile, assignments)) or captured[-1]
+            if execution_authority is not None:
+                result = execute_bound_action(
+                    governance_gateway,
+                    execution_authority,
+                    scope_request,
+                    handler,
+                    repository_revision=repository_revision,
+                    repository_digest=repository_digest,
+                    budget_id=budget_id,
+                    execution_guard=execution_guard,
+                    approval=scope_approval,
+                )
+            else:
+                durable_verdict = governance_gateway.durable_side_effect_preflight(scope_request)
+                if durable_verdict is not None:
+                    return {
+                        "deliverables": [], "verification": [],
+                        "dimensions": {}, "hard_gates": {"action_governance": False},
+                        "findings": [ReviewFinding("blocker", f"action_governance:{durable_verdict.reason}")],
+                        "evidence": [],
+                    }
+                result = governance_gateway.execute(
+                    scope_request,
+                    handler,
+                    approval=scope_approval,
+                )
             if not result.executed or not captured:
                 return {
                     "deliverables": [], "verification": [],

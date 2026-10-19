@@ -6,9 +6,11 @@ Make shared understanding and evidence-backed rework part of AUREN's default eng
 
 ## The grilling contract
 
-Before a consequential change, build a decision tree for the task: goals, non-goals, observable acceptance criteria, constraints, interfaces, failure modes, rollout/rollback, and the definition of done. Ask the user only for decisions that belong to them; resolve factual questions through repository inspection, tests, documentation, or bounded research.
+Before a consequential change, build a decision tree for the task: goals, non-goals, observable acceptance criteria, constraints, interfaces, failure modes, rollout/rollback, and the definition of done. Explicitly challenge assumptions and search for contradictions between requested outcomes, constraints, compatibility promises, and acceptance criteria. Present the conflict, why it matters, the smallest clarifying question, and flexible options with trade-offs; do not impose a preferred option as a rigid rule. Ask the user only for decisions that belong to them; resolve factual questions through repository inspection, tests, documentation, or bounded research.
 
 - Ask questions in **dependency-aware rounds**: surface every currently answerable decision together, but do not ask downstream questions whose prerequisites remain undecided.
+- Distinguish verified facts, assumptions, hypotheses, and user-owned decisions. Challenge weak assumptions with evidence or a falsifiable check; investigate factual questions before asking the user.
+- If requirements conflict, do not pick one silently. Offer viable choices, trade-offs, and a narrow/reversible alternative. Pause only dependent implementation; continue independent safe investigation.
 - Keep facts and decisions separate. Agents gather facts and present evidence; the user retains authority over product intent, material trade-offs, and consequential choices. An agent must not silently answer a user-owned decision.
 - Give each question a clear identifier, context, viable options, trade-offs, and a recommended answer with rationale. The recommendation is advice, not consent.
 - Record resolved decisions, their rationale, source/evidence, and affected contracts in the existing task context/decision records. Do not create a parallel memory store.

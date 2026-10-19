@@ -165,3 +165,20 @@ The current-main search also found active AUREN-era naming and paths in console,
 - [ ] Verify memory/evidence ownership: task-scoped memory remains a projection, not a second durable source of truth.
 - [ ] Run identity/path consistency tests, architecture validation, full test suite, exact-head CI, and post-merge main re-evaluation.
 - [ ] Continue the separate independent Arena, external attestation, and operator migration/rollback gates; repository CI cannot substitute for them.
+
+
+## Current status refresh — 2026-10-16
+
+This section supersedes older open/closed issue statements in the historical review sections above. Those sections remain as dated evidence of what was known at their review baselines; do not use their former issue states as the live status.
+
+| Area | Current repository status | Remaining acceptance |
+|---|---|---|
+| Canonical runtime state and migration code | Implementation issue [#379](https://github.com/sourabhJainR/AUREN/issues/379) closed on 2026-10-15 after code and regression coverage were merged. The canonical default state root is `~/.auren`; legacy data is preserved and conflicting roots fail closed. | Operator-controlled staging migration, restart/resume, reconciliation, and rollback evidence remains open in [#534](https://github.com/sourabhJainR/AUREN/issues/534). Do not delete either state root before operator acceptance. |
+| Bounded recovery | Issue [#377](https://github.com/sourabhJainR/AUREN/issues/377) closed on 2026-10-15 after runtime integration and recovery regression work. | Continue validating the current default path and exact-revision CI gates; do not equate historical helper tests with live production evidence. |
+| Specialist handoffs | Issue [#438](https://github.com/sourabhJainR/AUREN/issues/438) closed on 2026-10-15 after PRs [#658](https://github.com/sourabhJainR/AUREN/pull/658) and [#661](https://github.com/sourabhJainR/AUREN/pull/661). Repository tests exercise supervisor-owned persistence, restart/resume, idempotency, independent review, and aligned retry-budget digests. | Provider-specific live adapters remain host-registered and are not configured by default. The portable and harness graph kernels remain distinct; do not claim full graph-kernel unification. |
+| Sandbox-isolation attestation | Issue [#471](https://github.com/sourabhJainR/AUREN/issues/471) closed on 2026-10-15 after the signed-attestation evidence gate and regression tests were implemented. | A valid signature authenticates a report; it does not independently prove the external operator's isolation claims. Independent external audit evidence remains a separate requirement. |
+| Identity cleanup | Issue [#530](https://github.com/sourabhJainR/AUREN/issues/530) closed on 2026-10-15 after the AUREN-era naming/path audit and documentation reconciliation. | Preserve explicit legacy migration aliases and historical fixtures; do not perform blind global renames. |
+| GitHub Pages | Issue [#380](https://github.com/sourabhJainR/AUREN/issues/380) closed on 2026-10-13 after Pages publication restoration. The deployment workflow publishes `site/`. | Verify the exact merged commit's deployment run and public content after each material site change; repository CI alone is not proof that the public page has refreshed. |
+| Independent generalization | Issue [#368](https://github.com/sourabhJainR/AUREN/issues/368) closed after the executable Arena contract/hardening work. | The first independently operated external campaign remains open in [#404](https://github.com/sourabhJainR/AUREN/issues/404), including independent evaluator/oracle, unseen corpus, sealed holdout, repeat run, adversarial cases, and retained attestation. |
+
+The 20 AI-era foundation principles are registered in `portable/ai_era_principles.py`, documented in `docs/AI_ERA_FOUNDATION_PRINCIPLES.md`, and referenced from `AGENTS.md` and `ENGINEERING_PRINCIPLES.md`. The orchestrator records a digest-bound receipt before graph execution. The receipt is traceability evidence, not proof of universal enforcement; each control's owning module, regression coverage, and external acceptance boundary remain authoritative.

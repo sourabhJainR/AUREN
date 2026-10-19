@@ -2,6 +2,8 @@ import unittest
 from types import SimpleNamespace
 
 from portable.action_governance import ActionGovernanceGateway, ActionPolicy, ActionRequest
+from portable.execution_boundary import ExecutionAuthorityBinding
+from portable.runtime_recovery import RuntimeExecutionGuard
 from portable.governed_sandbox_execution import execute_governed_sandbox
 from portable.openshell_sandbox import OpenShellExecutionRequest
 
@@ -95,6 +97,64 @@ class GovernedSandboxExecutionTests(unittest.TestCase):
         ])
         self.assertTrue(gateway.verify_trace()["passed"])
 
+    def make_authority(self, **overrides):
+        values = dict(
+            execution_id="exec-1",
+            run_id="run-1",
+            task_id="task-1",
+            repository_digest="repo-digest",
+            repository_revision="abc123",
+            principal="auren-host",
+            allowed_capabilities=("repository.write",),
+            allowed_actions=("specialist.execute",),
+            allowed_targets=("src",),
+            budget_id="budget-1",
+            max_attempts=3,
+        )
+        values.update(overrides)
+        return ExecutionAuthorityBinding(**values)
+
+    def test_authority_bound_sandbox_rejects_mismatched_scope_before_backend(self):
+        gateway = self.make_gateway()
+        backend = FakeBackend()
+        guard = RuntimeExecutionGuard(max_steps=10, max_attempts=3)
+        receipt = execute_governed_sandbox(
+            gateway, backend, make_action(task_id="task-1", target="secrets/credentials.json"), make_request(),
+            authority=self.make_authority(),
+            repository_revision="abc123",
+            repository_digest="repo-digest",
+            budget_id="budget-1",
+            execution_guard=guard,
+        )
+        self.assertFalse(receipt.action_executed)
+        self.assertEqual(receipt.policy_verdict.reason, "target_out_of_scope")
+        self.assertEqual(backend.calls, [])
+        self.assertEqual(guard.attempts_used, 0)
+
+    def test_authority_bound_sandbox_charges_budget_before_gateway_execution(self):
+        gateway = self.make_gateway()
+        backend = FakeBackend()
+        guard = RuntimeExecutionGuard(max_steps=10, max_attempts=3)
+        receipt = execute_governed_sandbox(
+            gateway, backend, make_action(task_id="task-1"), make_request(),
+            authority=self.make_authority(),
+            repository_revision="abc123",
+            repository_digest="repo-digest",
+            budget_id="budget-1",
+            execution_guard=guard,
+        )
+        self.assertTrue(receipt.action_executed)
+        self.assertTrue(receipt.passed)
+        self.assertEqual(len(backend.calls), 1)
+        self.assertEqual(guard.attempts_used, 1)
+
+    def test_authority_binding_arguments_cannot_be_supplied_partially(self):
+        with self.assertRaisesRegex(ValueError, "authority is required"):
+            execute_governed_sandbox(
+                self.make_gateway(), FakeBackend(), make_action(), make_request(),
+                repository_revision="abc123",
+            )
+
     def test_nonzero_sandbox_result_is_not_reported_as_passed(self):
         gateway = self.make_gateway()
         failed = SimpleNamespace(
@@ -120,6 +180,23 @@ class GovernedSandboxExecutionTests(unittest.TestCase):
         self.assertEqual(gateway.events[-1]["event"], "action_failed")
         self.assertNotIn("OpenShell unavailable", repr(gateway.events))
         self.assertTrue(gateway.verify_trace()["passed"])
+
+
+
+    def test_legacy_sandbox_path_blocks_external_effect_without_durable_ledger(self):
+        gateway = ActionGovernanceGateway(ActionPolicy(
+            allowed_capabilities=frozenset({"repository.read", "repository.write"}),
+            external_effect_actions=frozenset({"specialist.execute"}),
+            require_idempotency_for_external_effects=False,
+        ))
+        backend = FakeBackend()
+        receipt = execute_governed_sandbox(
+            gateway, backend, make_action(), make_request()
+        )
+        self.assertFalse(receipt.action_executed)
+        self.assertEqual(receipt.policy_verdict.reason, "durable_idempotency_ledger_required")
+        self.assertEqual(backend.calls, [])
+        self.assertIn("durable_side_effect_blocked", [event["event"] for event in gateway.events])
 
 
 if __name__ == "__main__":

@@ -74,7 +74,8 @@ class AutonomousCompany:
             CREATE TABLE IF NOT EXISTS work_units(
               id TEXT PRIMARY KEY, goal TEXT NOT NULL, scope TEXT NOT NULL,
               max_iterations INTEGER NOT NULL, state TEXT NOT NULL,
-              iteration INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+              iteration INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+              work_key TEXT);
             CREATE TABLE IF NOT EXISTS decisions(
               id TEXT PRIMARY KEY, work_unit_id TEXT NOT NULL, iteration INTEGER NOT NULL,
               action TEXT NOT NULL, reason TEXT NOT NULL, confidence REAL NOT NULL,
@@ -90,21 +91,55 @@ class AutonomousCompany:
               id TEXT PRIMARY KEY, work_unit_id TEXT NOT NULL, question TEXT NOT NULL,
               dependency TEXT NOT NULL, state TEXT NOT NULL, evidence TEXT NOT NULL, created_at TEXT NOT NULL);
             """)
+        # Upgrade older executive ledgers in place under one SQLite write lock so
+        # concurrent process starts cannot race the same ALTER TABLE migration.
+        with self._db() as db:
+            db.execute("BEGIN IMMEDIATE")
+            columns = {row[1] for row in db.execute("PRAGMA table_info(work_units)").fetchall()}
+            if "work_key" not in columns:
+                db.execute("ALTER TABLE work_units ADD COLUMN work_key TEXT")
+            db.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_work_units_work_key "
+                "ON work_units(work_key) WHERE work_key IS NOT NULL AND work_key <> ''"
+            )
+            db.commit()
 
     def _db(self):
         db = sqlite3.connect(self.db_path, timeout=30)
         db.execute("PRAGMA journal_mode=WAL")
         return db
 
-    def start(self, goal: str, *, scope: str = "single-company-unit", max_iterations: int = 1000000) -> WorkUnit:
-        if not goal.strip(): raise ValueError("goal is required")
-        wid = uuid4().hex
+    def start(
+        self, goal: str, *, scope: str = "single-company-unit",
+        max_iterations: int = 100000, work_key: str | None = None,
+    ) -> WorkUnit:
+        if not isinstance(goal, str) or not goal.strip(): raise ValueError("goal is required")
+        if not isinstance(scope, str) or not scope.strip(): raise ValueError("scope is required")
+        if isinstance(max_iterations, bool) or not isinstance(max_iterations, int) or not 1 <= max_iterations <= 100000:
+            raise ValueError("max_iterations must be an integer between 1 and 100000")
+        if work_key is not None and (not isinstance(work_key, str) or not work_key.strip()):
+            raise ValueError("work_key must be a non-empty string when supplied")
         now = _utc()
         with self._db() as db:
-            db.execute("INSERT INTO work_units VALUES(?,?,?,?,?,?,?,?)",
-                       (wid, goal.strip(), scope.strip(), max_iterations, "running", 0, now, now))
+            db.execute("BEGIN IMMEDIATE")
+            if work_key is not None:
+                existing = db.execute(
+                    "SELECT id,goal,scope,max_iterations FROM work_units WHERE work_key=?",
+                    (work_key.strip(),),
+                ).fetchone()
+                if existing:
+                    db.commit()
+                    if existing[1] != goal.strip() or existing[2] != scope.strip() or int(existing[3]) != max_iterations:
+                        raise ValueError("work_key already belongs to a different goal, scope, or iteration budget")
+                    return WorkUnit(existing[0], existing[1], existing[2], int(existing[3]))
+            wid = uuid4().hex
+            db.execute(
+                "INSERT INTO work_units (id,goal,scope,max_iterations,state,iteration,created_at,updated_at,work_key) "
+                "VALUES(?,?,?,?,?,?,?,?,?)",
+                (wid, goal.strip(), scope.strip(), max_iterations, "running", 0, now, now, work_key.strip() if work_key else None),
+            )
+            db.commit()
         return WorkUnit(wid, goal.strip(), scope.strip(), max_iterations)
-
     def resume(self, work_unit_id: str) -> WorkUnit:
         with self._db() as db:
             row = db.execute("SELECT id,goal,scope,max_iterations FROM work_units WHERE id=?", (work_unit_id,)).fetchone()
@@ -141,12 +176,31 @@ class AutonomousCompany:
         return tuple({"id":r[0],"question":r[1],"dependency":r[2],"state":r[3],"evidence":tuple(json.loads(r[4])),"created_at":r[5]} for r in rows)
 
     def resolve_clarification(self, clarification_id: str, resolution: str) -> None:
+        if not isinstance(resolution, str) or not resolution.strip():
+            raise ValueError("resolution is required")
         with self._db() as db:
-            row=db.execute("SELECT work_unit_id FROM clarifications WHERE id=? AND state='open'", (clarification_id,)).fetchone()
+            row = db.execute(
+                "SELECT c.work_unit_id,w.state FROM clarifications c "
+                "JOIN work_units w ON w.id=c.work_unit_id "
+                "WHERE c.id=? AND c.state='open'",
+                (clarification_id,),
+            ).fetchone()
             if not row:
                 raise KeyError(clarification_id)
+            work_unit_id, work_state = row
             db.execute("UPDATE clarifications SET state='resolved' WHERE id=?", (clarification_id,))
-        self.record(row[0], "clarification", "resolved", resolution, (f"clarification:{clarification_id}",))
+            remaining = db.execute(
+                "SELECT COUNT(*) FROM clarifications WHERE work_unit_id=? AND state='open'",
+                (work_unit_id,),
+            ).fetchone()[0]
+            # Only unblock a waiting work unit. Never reopen a terminal unit just
+            # because an old clarification was resolved later.
+            if remaining == 0 and work_state == "waiting_external":
+                db.execute(
+                    "UPDATE work_units SET state='running',updated_at=? WHERE id=? AND state='waiting_external'",
+                    (_utc(), work_unit_id),
+                )
+        self.record(work_unit_id, "clarification", "resolved", resolution, (f"clarification:{clarification_id}",))
 
     def record(self, wid: str, kind: str, status: str, detail: str, evidence: Iterable[str] = ()) -> str:
         state, iteration = self._state(wid)
@@ -302,56 +356,147 @@ class AutonomousCompany:
         self._transition(wid,"completed" if success else "failed")
         return self.trust(wid)
 
+    def _consecutive_failures(self, wid: str, kind: str, successful_statuses: set[str]) -> int:
+        """Count consecutive non-success events for one gate from durable history."""
+        with self._db() as db:
+            rows = db.execute(
+                "SELECT status FROM events WHERE work_unit_id=? AND kind=? ORDER BY rowid DESC LIMIT 100",
+                (wid, kind),
+            ).fetchall()
+        count = 0
+        for (status,) in rows:
+            if status in successful_statuses:
+                break
+            count += 1
+        return count
+
     def iterate(self, wid: str, *, execute: Callable[[int], tuple[str,str,Sequence[str]]],
                 review: Callable[[int], tuple[bool,str,Sequence[str]]],
                 ci: Callable[[int], tuple[str,str,Sequence[str]]] | None = None,
                 recover: Callable[[str], tuple[bool,str,Sequence[str]]] | None = None,
-                poll_seconds: float = 30.0) -> TrustScore:
-        """Run until terminal state; restart-safe because every boundary is persisted."""
-        unit=self.resume(wid)
-        while True:
-            state, iteration=self._state(wid)
-            if state in TERMINAL: return self.trust(wid)
-            if iteration >= unit.max_iterations:
-                return self.finish(wid,success=False,reason="iteration limit reached")
-            iteration += 1
-            self._transition(wid,"running",iteration)
-            status,detail,evidence=execute(iteration)
-            self.record(wid,"execution",status,detail,evidence)
-            if status == "blocked":
-                self.record(wid, "clarification", "held", detail, evidence)
+                poll_seconds: float = 30.0, max_steps: int = 10,
+                max_consecutive_failures: int = 3, ci_timeout_seconds: float = 300.0,
+                max_ci_polls: int = 10) -> TrustScore:
+        """Run a bounded slice of a durable work unit and yield safely for resume.
+
+        One invocation executes at most max_steps iterations. The durable work unit
+        remains resumable after a slice ends. Repeated gate failures stop the loop
+        even if recovery keeps accepting an unproductive alternative; an unhandled
+        review failure is terminal rather than an unbounded retry.
+        """
+        if isinstance(max_steps, bool) or not isinstance(max_steps, int) or max_steps < 1:
+            raise ValueError("max_steps must be a positive integer")
+        if isinstance(max_consecutive_failures, bool) or not isinstance(max_consecutive_failures, int) or max_consecutive_failures < 1:
+            raise ValueError("max_consecutive_failures must be a positive integer")
+        if poll_seconds <= 0 or ci_timeout_seconds <= 0:
+            raise ValueError("poll_seconds and ci_timeout_seconds must be positive")
+        if isinstance(max_ci_polls, bool) or not isinstance(max_ci_polls, int) or max_ci_polls < 1:
+            raise ValueError("max_ci_polls must be a positive integer")
+        unit = self.resume(wid)
+        initial_state, initial_iteration = self._state(wid)
+        if initial_state == "waiting_external":
+            return self.trust(wid)
+        if initial_state == "waiting_ci":
+            if ci is None:
+                return self.trust(wid)
+            ci_status = self.wait_for_ci(
+                wid, lambda: ci(initial_iteration), poll_seconds=poll_seconds,
+                timeout_seconds=ci_timeout_seconds, max_polls=max_ci_polls,
+            )
+            if ci_status == "passed":
+                with self._db() as db:
+                    row = db.execute(
+                        "SELECT status,evidence FROM events WHERE work_unit_id=? AND kind='verification' ORDER BY rowid DESC LIMIT 1",
+                        (wid,),
+                    ).fetchone()
+                if row is None or row[0] != "passed":
+                    return self.finish(
+                        wid, success=False,
+                        reason="resumed CI cannot promote without the latest passing verification evidence",
+                    )
+                evidence = tuple(json.loads(row[1]))
+                return self.finish(wid, success=True, reason="resumed CI passed after durable wait", evidence=evidence)
+            if ci_status == "failed":
                 if recover:
-                    ok,why,refs=recover(detail)
+                    ok, why, refs = recover("CI " + ci_status)
+                    self.record(wid, "recovery", "accepted" if ok else "rejected", why, refs)
+                    if ok:
+                        self._transition(wid, "running")
+                    else:
+                        return self.finish(wid, success=False, reason="CI did not pass after resume")
+                else:
+                    return self.finish(wid, success=False, reason="CI did not pass after resume")
+            else:
+                return self.trust(wid)
+        steps = 0
+        while steps < max_steps:
+            state, iteration = self._state(wid)
+            if state in TERMINAL:
+                return self.trust(wid)
+            if state in WAITING:
+                return self.trust(wid)
+            if iteration >= unit.max_iterations:
+                return self.finish(wid, success=False, reason="iteration limit reached")
+            iteration += 1
+            steps += 1
+            self._transition(wid, "running", iteration)
+            status, detail, evidence = execute(iteration)
+            self.record(wid, "execution", status, detail, evidence)
+            if status == "blocked":
+                self.hold_clarification(wid, detail, dependency="execution blocked", evidence=evidence)
+                if recover:
+                    ok, why, refs = recover(detail)
                     self.record(wid, "recovery", "accepted" if ok else "held", why, refs)
                     if ok:
                         continue
                 self._transition(wid, "waiting_external", iteration)
                 return self.trust(wid)
-            if status not in {"passed","completed"}:
+            if status not in {"passed", "completed"}:
+                failures = self._consecutive_failures(wid, "execution", {"passed", "completed", "blocked"})
+                if failures >= max_consecutive_failures:
+                    return self.finish(wid, success=False, reason="repeated execution failure without progress", evidence=evidence)
                 if recover:
-                    ok,why,refs=recover(detail)
-                    self.record(wid,"recovery","accepted" if ok else "rejected",why,refs)
-                    if ok: continue
-                return self.finish(wid,success=False,reason=detail,evidence=evidence)
-            ok,detail,refs=review(iteration)
-            if not ok:
-                self.record(wid,"verification","failed",detail,refs)
+                    ok, why, refs = recover(detail)
+                    self.record(wid, "recovery", "accepted" if ok else "rejected", why, refs)
+                    if ok:
+                        continue
+                return self.finish(wid, success=False, reason=detail, evidence=evidence)
+
+            reviewed, review_detail, refs = review(iteration)
+            if not reviewed:
+                self.record(wid, "verification", "failed", review_detail, refs)
+                failures = self._consecutive_failures(wid, "verification", {"passed"})
+                if failures >= max_consecutive_failures:
+                    return self.finish(wid, success=False, reason="repeated review failure without progress", evidence=refs)
                 if recover:
-                    ok2,why,refs2=recover(detail)
-                    self.record(wid,"alternate","accepted" if ok2 else "rejected",why,refs2)
-                    if ok2: continue
-                continue
-            self.record(wid,"verification","passed",detail,refs)
+                    ok, why, recovery_refs = recover(review_detail)
+                    self.record(wid, "alternate", "accepted" if ok else "rejected", why, recovery_refs)
+                    if ok:
+                        continue
+                return self.finish(wid, success=False, reason="review failed without a verified recovery path", evidence=refs)
+
+            self.record(wid, "verification", "passed", review_detail, refs)
             if ci:
-                ci_status=self.wait_for_ci(wid,lambda:ci(iteration),poll_seconds=poll_seconds)
-                if ci_status=="passed":
-                    return self.finish(wid,success=True,reason="execution, review and CI passed",evidence=refs)
-                if ci_status in {"failed","timeout"}:
+                ci_status = self.wait_for_ci(
+                    wid, lambda: ci(iteration), poll_seconds=poll_seconds,
+                    timeout_seconds=ci_timeout_seconds, max_polls=max_ci_polls,
+                )
+                if ci_status == "passed":
+                    return self.finish(wid, success=True, reason="execution, review and CI passed", evidence=refs)
+                if ci_status in {"failed", "timeout"}:
                     if recover:
-                        ok2,why,refs2=recover("CI "+ci_status)
-                        self.record(wid,"recovery","accepted" if ok2 else "rejected",why,refs2)
-                        if ok2: continue
-                    return self.finish(wid,success=False,reason="CI did not pass",evidence=refs)
-            return self.finish(wid,success=True,reason="execution and review passed",evidence=refs)
+                        ok, why, recovery_refs = recover("CI " + ci_status)
+                        self.record(wid, "recovery", "accepted" if ok else "rejected", why, recovery_refs)
+                        if ok:
+                            continue
+                    return self.finish(wid, success=False, reason="CI did not pass", evidence=refs)
+                # Cancellation/poll exhaustion is a resumable wait, never success.
+                return self.trust(wid)
+            return self.finish(wid, success=True, reason="execution and review passed", evidence=refs)
+
+        state, iteration = self._state(wid)
+        if state not in TERMINAL and state not in WAITING:
+            self.record(wid, "supervisor", "yielded", "bounded iteration slice exhausted; work unit remains resumable", (f"next_iteration:{iteration + 1}",))
+        return self.trust(wid)
 
 __all__=["AutonomousCompany","Decision","TrustScore","WorkUnit"]

@@ -4,17 +4,58 @@
 **Canonical repository:** `sourabhJainR/AUREN`  
 **Runtime state:** `~/.auren`
 
-A provider-neutral AI engineering system that turns software work into a measurable, evidence-backed learning loop. AUREN combines repository intelligence, task decomposition, capability routing, graph-based agent execution, bounded local/cloud resources, verification and review, durable evidence, regression replay, and continuous strategy learning. Its improvement loop is empirical rather than self-asserted: generate independent benchmarks, execute them through sealed boundaries, measure transfer on new domains, estimate causal effects, re-test on fresh holdouts, and promote or roll back learned capabilities only when the evidence gates pass.
+A provider-neutral AI engineering system that turns software work into a measurable, evidence-backed learning loop. Read [About AUREN](ABOUT.md) for the product overview and the [current architecture](docs/ARCHITECTURE_CURRENT.md) for canonical domain ownership and evidence boundaries. AUREN combines repository intelligence, task decomposition, capability routing, graph-based agent execution, bounded local/cloud resources, verification and review, durable evidence, regression replay, and continuous strategy learning. Its improvement loop is empirical rather than self-asserted: generate independent benchmarks, execute them through sealed boundaries, measure transfer on new domains, estimate causal effects, re-test on fresh holdouts, and promote or roll back learned capabilities only when the evidence gates pass.
 
 AUREN separates **execution authority from learning**. Active runs operate under bounded, policy-gated execution; learning is recorded as evidence and can influence future runs only after independent evaluation, regression checks, and promotion/rollback decisions. The result is an engineering system designed to improve from observed outcomes while remaining auditable, reproducible, and fail-closed when evidence is insufficient.
 
-## Project status (updated 2026-10-13)
+## Project status (reviewed 2026-10-16)
 
 AUREN's current repository includes graph-based specialist proposal adapters, durable execution and recovery paths, cross-platform runtime resilience tests, and guarded evidence/promotion workflows. The public Pages site is published at [AUREN Pages](https://sourabhjainr.github.io/AUREN/).
 
 **Evidence boundaries:** repository CI and deployment checks demonstrate repository-level behavior only. Independent external evaluation and corpus provenance, a separately operated isolation audit, and an operator-run live migration/rollback rehearsal remain separate gates and must not be described as completed until their evidence is recorded. Checked-in transfer fixtures are not independent benchmark results. Specialist adapters propose work; graph policy, verification, and promotion gates retain authority.
 
-The repository currently reports no open pull requests. Closed pull requests must still be checked individually for merge status before being counted as merged. See [all pull requests](https://github.com/sourabhJainR/AUREN/pulls) and [recent changes](https://github.com/sourabhJainR/AUREN/commits/main).
+Pull-request and merge status changes continuously; use the [live pull-request list](https://github.com/sourabhJainR/AUREN/pulls) and [recent main-branch commits](https://github.com/sourabhJainR/AUREN/commits/main) rather than relying on a copied status count.
+
+## Pre-implementation blind-spot review
+
+Before graph execution, AUREN records a structured review of requirements, assumptions, acceptance criteria, constraints, non-goals, likely blind spots, and contradictory requirements. Common explicit conflicts can block implementation before side effects; a documented resolution stays in the receipt. Vague terms such as “fast”, “secure”, or “scalable” prompt measurable questions and flexible options rather than arbitrary hard stops. Semantic planner/reviewer findings supplement deterministic checks, which cannot guarantee complete contradiction detection.
+
+The review should be constructive: explain why a concern matters, ask the smallest useful question, recommend an option with trade-offs, and offer narrower/reversible alternatives. User-owned decisions are not silently inferred; independent safe discovery may continue while dependent implementation waits. See [Engineering Design Policy](.ai-harness/ENGINEERING_DESIGN_POLICY.md) and [grilling and rework](skills/engineering/grilling-and-rework.md).
+
+## AI-era foundation principles
+
+AUREN now maintains a canonical, machine-readable catalogue of 20 AI-era engineering principles in [`portable/ai_era_principles.py`](portable/ai_era_principles.py), documented in [AI-era Foundation Principles](docs/AI_ERA_FOUNDATION_PRINCIPLES.md). They extend established practices such as SOLID, DRY, YAGNI, and KISS with controls for autonomous agents, tool authority, context integrity, independent evaluation, recovery, learning, and evidence-based promotion.
+
+| Principle | Required behavior |
+|---|---|
+| IPACT — Intent Before Action | Set intent, constraints, acceptance criteria, and stopping conditions before work. |
+| VERA — Verification Before Acceptance | Accept outcomes only with relevant verification evidence. |
+| PACT — Permission And Control of Tools | Keep actions within granted authority and scope. |
+| INVAR — Invariant Preservation | Preserve correctness, security, compatibility, and resource invariants. |
+| TRACE — Traceable Results And Claims Engineering | Link important claims to sources, revisions, and evidence. |
+| R3 — Recover, Resume, Roll Back | Make interruption and recovery safe and testable. |
+| RAIL — Resource-bounded Autonomous Iteration Limits | Bound retries, time, cost, and resources; stop stalled loops. |
+| CIG — Context Integrity Guard | Use relevant, current context and surface conflicts. |
+| BLAST — Bounded Limits And Scoped Trust | Contain failures and limit blast radius. |
+| INDEP — Independent Evaluation Protocol | Challenge results beyond the producer's own claims. |
+| OWN — Ownership With Named Accountability | Assign clear ownership to tasks, transitions, and handoffs. |
+| LEARN — Learning Evaluated Against Regression and Novelty | Learn from validated outcomes without weakening safeguards. |
+| DELTA — Defensible Engineering with Limited, Targeted Alterations | Make the smallest justified change that meets the requirement. |
+| HANDOFF — Handoff And Negotiated Definition Of Function | Specify delegation scope, inputs, outputs, acceptance, and failure behavior. |
+| DEGRADE — Designed, Efficient, Adaptive Graceful Recovery Under Degraded Environments | Preserve safe core behavior or pause safely when dependencies fail. |
+| TRUST — Treat Retrieved Untrusted Sources Thoughtfully | Separate untrusted content from instructions, permissions, and verified facts. |
+| PROMOTE — Proof-Required Operational Maturation Of Tested Enhancements | Promote capabilities only after required evaluation and rollback checks. |
+| ECONOMY — Engineering Cost Optimization Measured Over the Full Lifecycle, Not Yield Alone | Optimize full lifecycle cost and risk, not output speed alone. |
+| MEASURE — Metrics, Evidence, And Results Evaluated | Measure outcomes, quality, recovery, and cost, not activity alone. |
+| CONTEXT — Context Is an Engineering Dependency | Retrieve relevant, current, authoritative context before acting. |
+
+### How this is integrated
+
+- The existing `EngineeringDesignGuard` remains the canonical design-review gate; no parallel policy engine is introduced.
+- The existing orchestrator records a deterministic receipt before graph execution, binding the principle registry to the task intent, changed paths, risk, and supplied code revision.
+- Existing authority, verification, memory/context, recovery, independent-evaluation, and promotion/rollback gates remain responsible for enforcement.
+- Focused regression tests cover registry completeness, owner/test traceability, receipt integrity, and recording before graph-node side effects.
+- A receipt is traceability evidence, not proof that every control is fully enforced. External evaluator independence and operator-run production rollback still need their own evidence.
 
 ## Engineering-team pilot
 
@@ -96,13 +137,17 @@ The important architectural boundary is that **execution remains bounded and pol
 | OS service lifecycle | `portable.maintenance_service` |
 | Local bounded execution | `portable.local_offload.LocalOffloadBroker` |
 
-Compatibility surfaces should adapt to these owners instead of maintaining independent state. The supervisor-facing `portable.state_graph` API wraps the existing `Graph`/`Orchestrator` path; `portable.agency_state_graph` is a distinct lower-level graph runtime. Keep their contracts explicit and add integration tests before assuming the two graph APIs are interchangeable. The harness graph now uses the shared crew-plan and proposal-validation helpers and dispatches host-registered adapters from a graph-owned node. No provider-specific live adapters are configured by default; consequential phases fail closed when required selected adapters are missing. Durable cross-crew handoffs and one shared retry budget remain tracked in [issue #438](https://github.com/sourabhJainR/AUREN). See [`docs/UNIFIED_GRAPH_CREW_RUNTIME.md`](docs/UNIFIED_GRAPH_CREW_RUNTIME.md) for the owner map and end-to-end invariants.
+Compatibility surfaces should adapt to these owners instead of maintaining independent state. The supervisor-facing `portable.state_graph` API wraps the existing `Graph`/`Orchestrator` path; `portable.agency_state_graph` is a distinct lower-level graph runtime. Keep their contracts explicit and add integration tests before assuming the two graph APIs are interchangeable. The harness graph now uses the shared crew-plan and proposal-validation helpers and dispatches host-registered adapters from a graph-owned node. No provider-specific live adapters are configured by default; consequential phases fail closed when required selected adapters are missing. The repository-level work tracked by issue #438 is now closed after durable supervisor-owned handoff recovery was implemented in [PR #658](https://github.com/sourabhJainR/AUREN/pull/658) and [PR #661](https://github.com/sourabhJainR/AUREN/pull/661), including restart/resume, idempotent replay, independent review, and aligned retry-budget digests. Provider-specific live adapters remain host-registered and are not configured by default. See [`docs/UNIFIED_GRAPH_CREW_RUNTIME.md`](docs/UNIFIED_GRAPH_CREW_RUNTIME.md) for the owner map and end-to-end invariants.
 
 See [`docs/ACTION_GOVERNANCE_GATEWAY.md`](docs/ACTION_GOVERNANCE_GATEWAY.md) for the optional, fail-closed action-policy adapter and its security boundaries. It is not yet enabled by default across every production adapter. See [`docs/ORCHESTRATION_COMPARISON_PROTOCOL.md`](docs/ORCHESTRATION_COMPARISON_PROTOCOL.md) for the provider-neutral workflow contract and fair adapter benchmark metrics. See [`docs/OPENSHELL_SANDBOX_ADAPTER.md`](docs/OPENSHELL_SANDBOX_ADAPTER.md) for the optional OpenShell execution backend and its isolation limits. See [`docs/GOVERNED_OPENSHELL_EXECUTION.md`](docs/GOVERNED_OPENSHELL_EXECUTION.md) for the composed authorization-to-sandbox execution path and evidence receipt. See [`docs/CAPABILITY_MEMORY_OWNERSHIP.md`](docs/CAPABILITY_MEMORY_OWNERSHIP.md) for the capability/memory contract and [`docs/RIPWIRE_INTEGRATION.md`](docs/RIPWIRE_INTEGRATION.md) for repository-intelligence design lineage.
 
 See [`docs/CAPABILITY_AWARE_EXECUTION.md`](docs/CAPABILITY_AWARE_EXECUTION.md) for capability-aware execution, optional installed-skill/MCP/plugin discovery, bounded selection, and graceful degradation.
 
-## Durable autonomous execution\n\nAUREN now supports company-level long-running work units through `portable.autonomous_company.AutonomousCompany`. The supervisor persists iterations, blocker decisions, alternate-path confirmation, CI waits, self-reviews, evidence, recipes, and a shareable trust score so work can resume after process restarts. `portable.executive_team.ExecutiveTeam` provides skill-specific agents under one durable task owner, while `RecipeMiner` extracts reusable patterns from the repository. See [`docs/AUTONOMOUS_EXECUTIVE_LOOP.md`](docs/AUTONOMOUS_EXECUTIVE_LOOP.md).\n\n## Deterministic repository intelligence
+## Durable autonomous execution
+
+AUREN now supports company-level long-running work units through `portable.autonomous_company.AutonomousCompany`. The supervisor persists iterations, blocker decisions, alternate-path confirmation, CI waits, self-reviews, evidence, recipes, and a shareable trust score so work can resume after process restarts. `portable.executive_team.ExecutiveTeam` provides skill-specific agents under one durable task owner, while `RecipeMiner` extracts reusable patterns from the repository. See [`docs/AUTONOMOUS_EXECUTIVE_LOOP.md`](docs/AUTONOMOUS_EXECUTIVE_LOOP.md).
+
+## Deterministic repository intelligence
 
 AUREN builds one deterministic repository snapshot and reuses it for multiple structural questions.
 

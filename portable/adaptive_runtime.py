@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
@@ -12,6 +13,9 @@ from .adaptive_tuning import AdaptiveTuner, MaintenanceReceipt
 from .automation_scheduler import AutomationScheduler
 from .capability_fabric import Capability, CapabilityFabric, ProviderAdapter, ProviderAdapterRegistry
 from .context_graph import ContextGraph
+from .context_engine import ContextEngine
+from .memory_orchestrator import MemoryOrchestrator
+from .engineering_design_guard import EngineeringDesignGuard
 from .context_resolver import ContextResolution, ContextResolver
 from .cognitive_controller import CognitiveController
 from .cognitive_learning import BeliefContext, LearningSignal
@@ -32,6 +36,7 @@ from .world_mega_model import WorldMegaModel
 from .engineering_recovery import EngineeringRecoveryLedger, RecoveryAction, RecoveryLimitReached
 from .state_paths import AurenStatePaths
 from .identity_compat import canonical_auren_home, legacy_state_home
+from .runtime_recovery import ExecutionBudgetExceeded, RuntimeExecutionGuard
 
 
 class AdaptiveRuntime:
@@ -76,6 +81,8 @@ class AdaptiveRuntime:
         self.hooks = hooks or HookBus()
         self.capability_fabric = capability_fabric or CapabilityFabric()
         self.persistent_memory = persistent_memory or PersistentMemory(state / "memory" / "memory.db")
+        self._memory_orchestrators: dict[str, MemoryOrchestrator] = {}
+        self._memory_orchestrators_lock = threading.RLock()
         self.automation_scheduler = automation_scheduler or AutomationScheduler(state / "automation" / "automation.db")
         self.output_quality = output_quality or OutputQualityGate()
         self.provider_adapters = provider_adapters or ProviderAdapterRegistry()
@@ -116,6 +123,57 @@ class AdaptiveRuntime:
         return self.output_quality.evaluate(acceptance_met=acceptance_met, verification_passed=verification_passed,
                                             evidence_count=evidence_count, diff_clean=diff_clean,
                                             scope_clean=scope_clean, unresolved=unresolved)
+
+    def recommend_design(
+        self,
+        project_root: Path | str,
+        intent: str,
+        *,
+        changed_paths: Iterable[str] = (),
+        risk: str = "medium",
+    ) -> dict[str, object]:
+        """Expose the canonical evidence-backed repository design advisor."""
+        return EngineeringDesignGuard.recommend_approaches(
+            project_root, intent, changed_paths, risk=risk,
+        )
+
+    def memory_orchestrator(self, project_root: Path | str) -> MemoryOrchestrator:
+        """Return the project-scoped memory facade over AUREN's canonical memory database."""
+        root = Path(project_root).expanduser().resolve()
+        project_key = self.session_store.project_key(root)
+        with self._memory_orchestrators_lock:
+            if project_key not in self._memory_orchestrators:
+                self._memory_orchestrators[project_key] = MemoryOrchestrator(
+                    root, project_key, memory=self.persistent_memory,
+                )
+            return self._memory_orchestrators[project_key]
+
+    def pack_memory_context(
+        self,
+        project_root: Path | str,
+        task: str,
+        *,
+        task_id: str | None = None,
+        required_memory_ids: Sequence[str] = (),
+        budget_chars: int = 4_200,
+    ) -> str:
+        """Pack project/task memory with the canonical ContextEngine, fail-closed on required state."""
+        engine = ContextEngine()
+        # Keep the orchestrator's retrieval budget no larger than the packer's
+        # item budget; the engine separately enforces item-count and output caps.
+        recall = self.memory_orchestrator(project_root).recall(
+            task, task_id=task_id, budget_chars=min(budget_chars, engine.policy.max_chars),
+            required_memory_ids=required_memory_ids,
+        )
+        items = self.memory_orchestrator(project_root).context_items(recall)
+        required = [item.text for item in recall.memories if item.memory_id in set(required_memory_ids)]
+        selected = engine.select(items, required=required)
+        if any(text not in {item.text for item in selected} for text in required):
+            raise ValueError("required memory cannot fit ContextEngine item/count budget")
+        packed = engine.pack(selected, required=required)
+        if any(text not in packed for text in required):
+            raise ValueError("required memory would be lost during ContextEngine packing")
+        return packed
 
     def resolve_context(self, project_root: Path | str, task: str, *, node_id: str | None = None,
                         workspace_id: str | None = None, required: Sequence[str] = (),
@@ -247,6 +305,18 @@ class AdaptiveRuntime:
         work_id = self.execution_controller.work_unit_for_session(f"{session_id}:{task_id}", f"{task_id}: {intent}")
         saved_checkpoint = self.recovery_ledger.get_checkpoint(work_id, "execution")
         saved_payload = saved_checkpoint.payload if saved_checkpoint is not None else {}
+        if saved_checkpoint is not None and saved_checkpoint.status == "in_progress":
+            raise RuntimeError(
+                "in-progress execution checkpoint lacks a resumable graph-state envelope; explicit recovery is required"
+            )
+        if (
+            saved_checkpoint is not None
+            and saved_checkpoint.status == "blocked"
+            and not isinstance(saved_payload.get("runtime_guard"), Mapping)
+        ):
+            raise RuntimeError(
+                "legacy blocked checkpoint lacks the shared runtime guard; explicit recovery is required"
+            )
         supplied_deadline = context.get("auren_deadline_at")
         persisted_deadline = saved_payload.get("deadline_at") if isinstance(saved_payload, Mapping) else None
         deadline_value = supplied_deadline or persisted_deadline
@@ -266,6 +336,36 @@ class AdaptiveRuntime:
         deadline_at = deadline_at.astimezone(timezone.utc)
         deadline_value = deadline_at.isoformat()
         context["auren_deadline_at"] = deadline_value
+
+        # One canonical guard spans every supervisor retry and the graph/provider
+        # calls within it. Only the recovery ledger may restore this capability;
+        # caller-supplied live objects or snapshots are not trusted.
+        saved_guard = saved_payload.get("runtime_guard") if isinstance(saved_payload, Mapping) else None
+        if isinstance(saved_guard, Mapping):
+            runtime_guard = RuntimeExecutionGuard.resume(saved_guard)
+        else:
+            raw_steps = context.get("auren_runtime_max_steps")
+            raw_attempts = context.get("auren_runtime_max_attempts", min(128, max(32, len(self.orchestrator.graph.order()) + requested_iterations)))
+            if raw_steps is not None and (type(raw_steps) is not int or not 1 <= raw_steps <= 10000):
+                raise ValueError("auren_runtime_max_steps must be an integer between 1 and 10000")
+            if type(raw_attempts) is not int or not 1 <= raw_attempts <= 128:
+                raise ValueError("auren_runtime_max_attempts must be an integer between 1 and 128")
+            graph_steps = max(1, len(self.orchestrator.graph.order()) * requested_iterations)
+            remaining_seconds = (deadline_at - datetime.now(timezone.utc)).total_seconds()
+            runtime_guard = RuntimeExecutionGuard(
+                max_steps=raw_steps if raw_steps is not None else min(10000, max(200, graph_steps)),
+                max_attempts=raw_attempts,
+                deadline_seconds=max(0.001, remaining_seconds),
+            )
+            if remaining_seconds <= 0:
+                runtime_guard.cancel("task deadline exceeded before execution")
+        # Do not let an external context inject an execution capability or replace
+        # the supervisor-owned recovery snapshot.
+        runtime_context = dict(context)
+        runtime_context.pop("_auren_runtime_execution_guard", None)
+        runtime_context.pop("auren_runtime_guard", None)
+        runtime_context.pop("auren_runtime_guard_persist", None)
+        runtime_context["_auren_runtime_execution_guard"] = runtime_guard
         self.recovery_ledger.start_run(work_id, f"{task_id}: {intent}")
         attempts: dict[str, Any] = {
             "count": 0, "hypothesis": "default-plan", "alternate_count": 0,
@@ -274,6 +374,7 @@ class AdaptiveRuntime:
         last: dict[str, Any] = {
             "result": None, "failure": "execution callback was not invoked",
         }
+        latest_harness_experiment: dict[str, Any] | None = None
 
         def execute(iteration: int):
             if datetime.now(timezone.utc) >= deadline_at:
@@ -287,10 +388,29 @@ class AdaptiveRuntime:
                         "deadline_at": deadline_value,
                         "recovery_mode": "blocked",
                         "last_failure": last["failure"],
+                        "runtime_guard": runtime_guard.snapshot(),
                     },
                 )
                 return "failed", last["failure"], ("task-deadline-exceeded",)
             attempts["count"] = iteration
+            try:
+                runtime_guard.check()
+                runtime_guard.charge_attempt(f"supervisor:{work_id}:attempt:{runtime_guard.attempts_used + 1}")
+            except ExecutionBudgetExceeded as exc:
+                attempts["blocked"] = str(exc)
+                last["failure"] = attempts["blocked"]
+                self.recovery_ledger.checkpoint(
+                    work_id, "execution", status="blocked", head_sha="",
+                    payload={
+                        "iteration": iteration,
+                        "hypothesis": str(attempts.get("hypothesis", "default-plan")),
+                        "deadline_at": deadline_value,
+                        "recovery_mode": "blocked",
+                        "last_failure": last["failure"],
+                        "runtime_guard": runtime_guard.snapshot(),
+                    },
+                )
+                return "failed", last["failure"], ("runtime-budget-exhausted",)
             if iteration > 1:
                 previous_hypothesis = str(attempts["hypothesis"])
                 decision = self.recovery_ledger.decision(
@@ -333,9 +453,10 @@ class AdaptiveRuntime:
                     "deadline_at": deadline_value,
                     "recovery_mode": context_mode,
                     "previous_failure": last.get("failure", ""),
+                    "runtime_guard": runtime_guard.snapshot(),
                 },
             )
-            context = dict(kwargs.get("context") or {})
+            context = dict(runtime_context)
             context["auren_deadline_at"] = deadline_value
             context["auren_remaining_seconds"] = max(
                 0.0, (deadline_at - datetime.now(timezone.utc)).total_seconds()
@@ -343,11 +464,63 @@ class AdaptiveRuntime:
             context["auren_supervisor_iteration"] = iteration
             context["auren_recovery_mode"] = context_mode
             context["auren_recovery_hypothesis"] = hypothesis
+
+            def persist_runtime_guard(snapshot=None):
+                saved = runtime_guard.snapshot() if snapshot is None else snapshot
+                if not isinstance(saved, Mapping):
+                    raise TypeError("runtime guard persistence requires a snapshot mapping")
+                self.recovery_ledger.checkpoint(
+                    work_id, "execution", status="in_progress", head_sha="",
+                    payload={
+                        "iteration": iteration,
+                        "hypothesis": hypothesis,
+                        "deadline_at": deadline_value,
+                        "recovery_mode": context_mode,
+                        "last_failure": str(last.get("failure", "")),
+                        "runtime_guard": dict(saved),
+                        **({"harness_experiment": latest_harness_experiment} if latest_harness_experiment is not None else {}),
+                    },
+                )
+
+            context["auren_runtime_guard_persist"] = persist_runtime_guard
+
+            def persist_harness_experiment(snapshot):
+                nonlocal latest_harness_experiment
+                if not isinstance(snapshot, Mapping):
+                    raise TypeError("harness experiment persistence requires a checkpoint mapping")
+                # Keep experiment lineage separate from the trusted guard snapshot;
+                # never reinterpret an experiment checkpoint as an execution guard.
+                latest_harness_experiment = dict(snapshot)
+                self.recovery_ledger.checkpoint(
+                    work_id, "execution", status="in_progress", head_sha="",
+                    payload={
+                        "iteration": iteration,
+                        "hypothesis": hypothesis,
+                        "deadline_at": deadline_value,
+                        "recovery_mode": context_mode,
+                        "last_failure": str(last.get("failure", "")),
+                        "runtime_guard": runtime_guard.snapshot(),
+                        "harness_experiment": latest_harness_experiment,
+                    },
+                )
+
+            context["auren_harness_experiment_persist"] = persist_harness_experiment
             call = dict(kwargs)
             call["context"] = context
             try:
                 result = self._run_once(**call)
                 last["result"] = result
+                self.recovery_ledger.checkpoint(
+                    work_id, "execution", status="in_progress", head_sha="",
+                    payload={
+                        "iteration": iteration,
+                        "hypothesis": hypothesis,
+                        "deadline_at": deadline_value,
+                        "recovery_mode": context_mode,
+                        "runtime_guard": runtime_guard.snapshot(),
+                        **({"harness_experiment": latest_harness_experiment} if latest_harness_experiment is not None else {}),
+                    },
+                )
                 deadline_exceeded = datetime.now(timezone.utc) >= deadline_at
                 accepted = result.status.value == "accepted" and not deadline_exceeded
                 detail = (
@@ -368,6 +541,18 @@ class AdaptiveRuntime:
             except Exception as exc:
                 last["result"] = None
                 last["failure"] = f"{type(exc).__name__}: {exc}"
+                self.recovery_ledger.checkpoint(
+                    work_id, "execution", status="in_progress", head_sha="",
+                    payload={
+                        "iteration": iteration,
+                        "hypothesis": hypothesis,
+                        "deadline_at": deadline_value,
+                        "recovery_mode": context_mode,
+                        "last_failure": last["failure"],
+                        "runtime_guard": runtime_guard.snapshot(),
+                        **({"harness_experiment": latest_harness_experiment} if latest_harness_experiment is not None else {}),
+                    },
+                )
                 self.recovery_ledger.finish_attempt(
                     attempt_id, outcome="failed",
                     evidence=(last["failure"], f"hypothesis:{hypothesis}"),
@@ -416,6 +601,8 @@ class AdaptiveRuntime:
                     else "fresh-retry" if attempts.get("count", 0) > 1 else "initial"
                 ),
                 "last_failure": "" if terminal_accepted else str(final_failure),
+                "runtime_guard": runtime_guard.snapshot(),
+                **({"harness_experiment": latest_harness_experiment} if latest_harness_experiment is not None else {}),
                 "verification_note": (
                     "graph execution accepted; independent verification and exact-head CI evidence were not asserted by this runtime"
                     if terminal_accepted else "execution did not reach an accepted terminal state before the deadline"

@@ -1,14 +1,23 @@
 import unittest
 
-from portable.arena_campaign_packet import CampaignPacketError, validate_campaign_packet
+from portable.arena_campaign_packet import (
+    CampaignPacketError,
+    campaign_content_digest,
+    validate_campaign_packet,
+)
 
 
 def digest(char):
     return char * 64
 
 
+def refresh_campaign_digest(data):
+    data["attestation"]["campaign_digest"] = campaign_content_digest(data)
+    return data
+
+
 def packet():
-    return {
+    data = {
         "schema_version": "auren-external-campaign-packet-v1",
         "campaign_id": "campaign-2026-01",
         "candidate": {"repository": "sourabhJainR/AUREN", "commit_sha": "a" * 40, "runtime_digest": digest("b")},
@@ -39,6 +48,7 @@ def packet():
         "resource_cost": {"wall_seconds": 25.0, "cpu_seconds": 19.0, "peak_memory_bytes": 1048576},
         "limitations": ["One target environment; conclusions do not generalize beyond the sampled cases."],
     }
+    return refresh_campaign_digest(data)
 
 
 class ArenaCampaignPacketTests(unittest.TestCase):
@@ -47,6 +57,26 @@ class ArenaCampaignPacketTests(unittest.TestCase):
         self.assertTrue(result["accepted"])
         self.assertTrue(result["repeatability_verified"])
         self.assertEqual(len(result["negative_controls_rejected"]), 7)
+
+    def test_attestation_digest_binds_every_campaign_field_before_trust_verification(self):
+        data = packet()
+        calls = []
+        data["resource_cost"]["wall_seconds"] += 1
+        with self.assertRaisesRegex(CampaignPacketError, "does not match canonical campaign content"):
+            validate_campaign_packet(
+                data,
+                verify_external_attestation=lambda value: calls.append(value) or True,
+            )
+        self.assertEqual(calls, [])
+
+    def test_campaign_content_digest_excludes_attestation_envelope_only(self):
+        data = packet()
+        original = campaign_content_digest(data)
+        data["attestation"]["signature"] = "rotated-signature"
+        data["attestation"]["signer_id"] = "different-signer"
+        self.assertEqual(campaign_content_digest(data), original)
+        data["corpus"]["holdout_digest"] = digest("e")
+        self.assertNotEqual(campaign_content_digest(data), original)
 
     def test_missing_or_failed_verifier_fails_closed(self):
         with self.assertRaisesRegex(CampaignPacketError, "verifier is required"):
@@ -57,22 +87,33 @@ class ArenaCampaignPacketTests(unittest.TestCase):
     def test_role_overlap_is_rejected_before_trust_claim(self):
         data = packet()
         data["operators"]["sandbox_auditor"] = data["operators"]["candidate_owner"]
+        refresh_campaign_digest(data)
         with self.assertRaisesRegex(CampaignPacketError, "distinct operators"):
             validate_campaign_packet(data, verify_external_attestation=lambda _: True)
 
     def test_repeat_run_nonce_and_result_consistency_are_required(self):
         data = packet()
         data["runs"][1]["run_nonce"] = data["runs"][0]["run_nonce"]
+        refresh_campaign_digest(data)
         with self.assertRaisesRegex(CampaignPacketError, "distinct nonces"):
             validate_campaign_packet(data, verify_external_attestation=lambda _: True)
         data = packet()
         data["runs"][1]["result_digest"] = digest("9")
+        refresh_campaign_digest(data)
         with self.assertRaisesRegex(CampaignPacketError, "result digests differ"):
+            validate_campaign_packet(data, verify_external_attestation=lambda _: True)
+
+    def test_repeat_run_identity_must_be_unique_even_when_nonces_differ(self):
+        data = packet()
+        data["runs"][1]["run_id"] = data["runs"][0]["run_id"]
+        refresh_campaign_digest(data)
+        with self.assertRaisesRegex(CampaignPacketError, "distinct run identities"):
             validate_campaign_packet(data, verify_external_attestation=lambda _: True)
 
     def test_all_negative_controls_must_reject(self):
         data = packet()
         data["negative_controls"]["role_overlap"]["outcome"] = "accepted"
+        refresh_campaign_digest(data)
         with self.assertRaisesRegex(CampaignPacketError, "was not rejected"):
             validate_campaign_packet(data, verify_external_attestation=lambda _: True)
 
@@ -85,10 +126,12 @@ class ArenaCampaignPacketTests(unittest.TestCase):
     def test_malformed_digest_and_empty_limitations_fail_closed(self):
         data = packet()
         data["corpus"]["digest"] = "not-a-digest"
+        refresh_campaign_digest(data)
         with self.assertRaisesRegex(CampaignPacketError, "SHA-256"):
             validate_campaign_packet(data, verify_external_attestation=lambda _: True)
         data = packet()
         data["limitations"] = []
+        refresh_campaign_digest(data)
         with self.assertRaisesRegex(CampaignPacketError, "limitations"):
             validate_campaign_packet(data, verify_external_attestation=lambda _: True)
 

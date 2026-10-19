@@ -2,6 +2,7 @@ from pathlib import Path
 import os
 import sqlite3
 import subprocess
+from threading import Event
 import sys
 
 from portable.execution_controller import ExecutionController
@@ -1026,3 +1027,314 @@ def test_supervised_cross_crew_handoff_is_revision_indexed_and_not_replayed(tmp_
     resumed = second_controller.load_graph_checkpoint("cross-crew-task")
     assert resumed is not None
     assert resumed["handoff_checkpoint"]["completed_ids"] == first_envelope["handoff_checkpoint"]["completed_ids"]
+
+
+def test_session_work_unit_creation_is_idempotent_if_mapping_write_is_lost(tmp_path: Path):
+    controller = ExecutionController(tmp_path)
+    first = controller.work_unit_for_session("session-retry", "long task")
+    with sqlite3.connect(controller.db_path) as db:
+        db.execute("DELETE FROM sessions WHERE session_id=?", ("session-retry",))
+
+    restarted = ExecutionController(tmp_path)
+    second = restarted.work_unit_for_session("session-retry", "long task")
+    assert second == first
+    with sqlite3.connect(restarted.company.db_path) as db:
+        rows = db.execute(
+            "SELECT id FROM work_units WHERE work_key LIKE ?",
+            ("execution-session:session-retry:%:initial",),
+        ).fetchall()
+    assert [row[0] for row in rows] == [first]
+
+
+def test_terminal_session_does_not_implicitly_retry_and_new_goal_gets_one_generation(tmp_path: Path):
+    controller = ExecutionController(tmp_path)
+    first = controller.work_unit_for_session("session-generation", "long task")
+    controller.company.finish(first, success=False, reason="no-progress gate stopped", evidence=("test:failure",))
+
+    restarted = ExecutionController(tmp_path)
+    same_goal = restarted.work_unit_for_session("session-generation", "long task")
+    assert same_goal == first
+    assert restarted.company._state(first)[0] == "failed"
+
+    second = restarted.work_unit_for_session("session-generation", "different explicit goal")
+    again = restarted.work_unit_for_session("session-generation", "different explicit goal")
+    assert second != first
+    assert again == second
+    assert restarted.company._state(second)[0] == "running"
+
+
+
+def test_run_continuously_drains_work_and_stops_after_bounded_idle_cycles(tmp_path: Path):
+    controller = ExecutionController(tmp_path)
+    controller.register_handler("tests.continuous_handler", durable_handler, execution_class="read_only")
+    first = controller.submit("tests.continuous_handler", {"id": "continuous-1"})
+    second = controller.submit("tests.continuous_handler", {"id": "continuous-2"})
+
+    report = controller.run_continuously(
+        batch_size=1, idle_sleep_seconds=0.001, max_cycles=10, max_idle_cycles=2,
+    )
+
+    assert report.stop_reason == "idle_budget_exhausted"
+    assert report.processed_work_units == 2
+    assert report.completed_tasks == 2
+    assert report.failed_tasks == 0
+    assert len(report.trust_scores) == 2
+    assert report.cycles == 4
+    assert report.idle_cycles == 2
+    assert controller.task(first.id).state == "completed"
+    assert controller.task(second.id).state == "completed"
+
+
+def test_run_continuously_observes_preexisting_cancellation(tmp_path: Path):
+    controller = ExecutionController(tmp_path)
+    stop = Event()
+    stop.set()
+    report = controller.run_continuously(stop_event=stop, max_cycles=5)
+    assert report.stop_reason == "cancelled"
+    assert report.cycles == 0
+    assert report.processed_work_units == 0
+
+
+def test_run_continuously_never_calls_idle_as_success(tmp_path: Path):
+    controller = ExecutionController(tmp_path)
+    report = controller.run_continuously(
+        idle_sleep_seconds=0, max_cycles=20, max_idle_cycles=2,
+    )
+    assert report.stop_reason == "idle_budget_exhausted"
+    assert report.processed_work_units == 0
+    assert report.remaining_nonterminal_tasks == 0
+    assert report.trust_scores == ()
+
+
+def test_run_continuously_rejects_unbounded_budget_overrides(tmp_path: Path):
+    controller = ExecutionController(tmp_path)
+    try:
+        controller.run_continuously(max_cycles=1001)
+    except ValueError as error:
+        assert "hard limits" in str(error)
+    else:
+        raise AssertionError("continuous loop must enforce a hard cycle budget")
+
+
+def test_cycle_budget_report_does_not_hide_remaining_work(tmp_path: Path):
+    controller = ExecutionController(tmp_path)
+    controller.register_handler("tests.continuous_pending", durable_handler, execution_class="read_only")
+    first = controller.submit("tests.continuous_pending", {"id": "remaining-1"})
+    second = controller.submit("tests.continuous_pending", {"id": "remaining-2"})
+    report = controller.run_continuously(
+        batch_size=1, max_cycles=1, max_idle_cycles=1, idle_sleep_seconds=0,
+    )
+    assert report.stop_reason == "cycle_budget_exhausted"
+    assert report.processed_work_units == 1
+    assert report.completed_tasks == 1
+    assert report.failed_tasks == 0
+    assert report.remaining_nonterminal_tasks == 1
+    remaining = controller.task(second.id)
+    assert remaining is not None and remaining.state == "pending"
+
+
+def test_run_continuously_reports_failed_tasks_without_success_claim(tmp_path: Path):
+    controller = ExecutionController(tmp_path)
+
+    def fail_handler(payload):
+        return {"success": False, "detail": "explicit handler failure"}
+
+    controller.register_handler("tests.continuous_failure", fail_handler, execution_class="read_only")
+    controller.submit("tests.continuous_failure", {"id": "failure"})
+    report = controller.run_continuously(
+        batch_size=1, max_cycles=2, max_idle_cycles=1, idle_sleep_seconds=0,
+    )
+    assert report.failed_tasks == 1
+    assert report.completed_tasks == 0
+    assert report.remaining_nonterminal_tasks == 0
+    assert report.stop_reason == "idle_budget_exhausted"
+
+
+def failing_durable_handler(payload):
+    raise RuntimeError(f"controlled handler failure: {payload['id']}")
+
+
+def test_run_continuously_reports_durable_handler_exceptions_and_keeps_draining(tmp_path: Path):
+    controller = ExecutionController(tmp_path)
+    controller.register_handler(
+        "tests.failing_durable_handler", failing_durable_handler, execution_class="read_only"
+    )
+    controller.register_handler("tests.durable_handler", durable_handler, execution_class="read_only")
+    failed = controller.submit("tests.failing_durable_handler", {"id": "durable-failure"})
+    completed = controller.submit("tests.durable_handler", {"id": "after-failure"})
+
+    report = controller.run_continuously(
+        batch_size=2, idle_sleep_seconds=0, max_cycles=3, max_idle_cycles=1,
+    )
+
+    assert report.stop_reason == "idle_budget_exhausted"
+    assert report.processed_work_units == 2
+    assert report.completed_tasks == 1
+    assert report.failed_tasks == 1
+    assert report.remaining_nonterminal_tasks == 0
+    assert controller.task(failed.id).state == "failed"
+    assert controller.task(completed.id).state == "completed"
+
+
+def test_resume_pending_keeps_fail_fast_default_for_direct_callers(tmp_path: Path):
+    controller = ExecutionController(tmp_path)
+    controller.register_handler(
+        "tests.failing_durable_handler", failing_durable_handler, execution_class="read_only"
+    )
+    task = controller.submit("tests.failing_durable_handler", {"id": "direct-failure"})
+
+    try:
+        controller.resume_pending(limit=1)
+    except RuntimeError as error:
+        assert "controlled handler failure" in str(error)
+    else:
+        raise AssertionError("direct resume_pending must retain fail-fast behavior")
+    assert controller.task(task.id).state == "failed"
+
+
+
+def test_consequential_handler_uses_durable_receipt_without_reexecution(tmp_path: Path, monkeypatch):
+    from types import SimpleNamespace
+    from portable.side_effect_ledger import DurableSideEffectLedger
+
+    controller = ExecutionController(tmp_path)
+    calls = []
+    task = SimpleNamespace(
+        id="consequential-task-1",
+        handler="tests.deploy",
+        payload={"target": "staging", "revision": "abc"},
+    )
+    monkeypatch.setattr(
+        controller, "_invoke_with_lease_heartbeat",
+        lambda _task, handler: handler(task.payload),
+    )
+
+    def provider(payload):
+        calls.append(payload["revision"])
+        return {"success": True, "detail": "deployed", "provider_operation_id": "op-1"}
+
+    first = controller._invoke_consequential_with_ledger(task, provider)
+    replay = controller._invoke_consequential_with_ledger(task, provider)
+
+    assert first == replay
+    assert calls == ["abc"]
+    row = DurableSideEffectLedger(controller.db_path).get("execution-task:consequential-task-1")
+    assert row["state"] == "completed"
+    assert row["receipt"]["result"]["provider_operation_id"] == "op-1"
+
+
+def test_consequential_receipt_write_failure_blocks_redispatch(tmp_path: Path, monkeypatch):
+    from types import SimpleNamespace
+    from portable.side_effect_ledger import DurableSideEffectLedger
+
+    controller = ExecutionController(tmp_path)
+    calls = []
+    task = SimpleNamespace(
+        id="consequential-task-receipt-failure",
+        handler="tests.deploy",
+        payload={"target": "production", "revision": "def"},
+    )
+    monkeypatch.setattr(
+        controller, "_invoke_with_lease_heartbeat",
+        lambda _task, handler: handler(task.payload),
+    )
+
+    def provider(payload):
+        calls.append(payload["revision"])
+        return {"success": True, "detail": "accepted", "provider_operation_id": "op-2"}
+
+    original_complete = DurableSideEffectLedger.complete
+
+    def fail_once(self, key, receipt):
+        if key == "execution-task:consequential-task-receipt-failure":
+            raise OSError("simulated receipt persistence failure")
+        return original_complete(self, key, receipt)
+
+    monkeypatch.setattr(DurableSideEffectLedger, "complete", fail_once)
+    import pytest
+    with pytest.raises(OSError, match="receipt persistence failure"):
+        controller._invoke_consequential_with_ledger(task, provider)
+
+    monkeypatch.setattr(DurableSideEffectLedger, "complete", original_complete)
+    with pytest.raises(RuntimeError, match="requires reconciliation"):
+        controller._invoke_consequential_with_ledger(task, provider)
+
+    assert calls == ["def"]
+    row = DurableSideEffectLedger(controller.db_path).get("execution-task:consequential-task-receipt-failure")
+    assert row["state"] == "reconcile_required"
+
+
+def test_consequential_dispatch_key_replays_across_new_task_ids(tmp_path: Path, monkeypatch):
+    from types import SimpleNamespace
+
+    controller = ExecutionController(tmp_path)
+    calls = []
+
+    def provider(payload):
+        calls.append(payload["revision"])
+        return {"success": True, "detail": "accepted", "provider_operation_id": "op-stable"}
+
+    monkeypatch.setattr(
+        controller, "_invoke_with_lease_heartbeat",
+        lambda _task, handler: handler(_task.payload),
+    )
+    first_task = SimpleNamespace(
+        id="task-before-restart",
+        handler="tests.deploy",
+        payload={
+            "target": "staging",
+            "revision": "abc123",
+            "auren_dispatch": {"dispatch_key": "run-77:deploy:staging"},
+        },
+    )
+    resumed_task = SimpleNamespace(
+        id="task-after-restart",
+        handler="tests.deploy",
+        payload={
+            "target": "staging",
+            "revision": "abc123",
+            "auren_dispatch": {"dispatch_key": "run-77:deploy:staging"},
+        },
+    )
+
+    first = controller._invoke_consequential_with_ledger(first_task, provider)
+    replay = controller._invoke_consequential_with_ledger(resumed_task, provider)
+
+    assert first == replay
+    assert calls == ["abc123"]
+
+
+def test_consequential_unknown_provider_outcome_blocks_new_task_redispatch(tmp_path: Path, monkeypatch):
+    from types import SimpleNamespace
+    import pytest
+
+    controller = ExecutionController(tmp_path)
+    calls = []
+
+    def provider(payload):
+        calls.append(payload["revision"])
+        # Simulate a remote effect followed by a lost response.
+        raise TimeoutError("provider response timed out after request acceptance")
+
+    monkeypatch.setattr(
+        controller, "_invoke_with_lease_heartbeat",
+        lambda _task, handler: handler(_task.payload),
+    )
+
+    def task(task_id):
+        return SimpleNamespace(
+            id=task_id,
+            handler="tests.deploy",
+            payload={
+                "target": "production",
+                "revision": "def456",
+                "auren_dispatch": {"dispatch_key": "run-88:deploy:production"},
+            },
+        )
+
+    with pytest.raises(TimeoutError):
+        controller._invoke_consequential_with_ledger(task("task-timeout"), provider)
+    with pytest.raises(RuntimeError, match="requires reconciliation"):
+        controller._invoke_consequential_with_ledger(task("task-resume"), provider)
+
+    assert calls == ["def456"]

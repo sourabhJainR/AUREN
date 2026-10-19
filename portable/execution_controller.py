@@ -10,8 +10,10 @@ import hashlib
 import importlib
 import inspect
 import json
+import math
 import re
 import sqlite3
+import time
 from threading import Event, Thread
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -24,6 +26,7 @@ from .canonical_evidence_ledger import CanonicalEvidenceLedger
 from .decision_gate import require_valid_decision_record
 from .engineering_recovery import verify_ci_gate
 from .engineering_evidence_capture import EvidenceCapture
+from .side_effect_ledger import DurableSideEffectLedger
 
 Handler = Callable[[Mapping[str, Any]], Any]
 
@@ -95,6 +98,20 @@ class DurableTask:
     work_unit_id: str
     lease_generation: int = 0
     lease_token: str | None = None
+
+
+@dataclass(frozen=True)
+class ContinuousRunReport:
+    """Bounded continuous-service slice; scores are evidence summaries, not success claims."""
+
+    cycles: int
+    processed_work_units: int
+    completed_tasks: int
+    failed_tasks: int
+    remaining_nonterminal_tasks: int
+    idle_cycles: int
+    stop_reason: str
+    trust_scores: tuple[TrustScore, ...]
 
 
 class LeaseLostError(RuntimeError):
@@ -171,6 +188,9 @@ class ExecutionController:
             evidence_ledger=self.evidence_ledger,
             signer=evidence_signer,
         )
+        # Registered by EngineeringPlanDispatch; keyed by the durable plan-store path.
+        # A restarted worker must explicitly restore this trusted bridge before execution.
+        self._engineering_plan_recovery_bridges: dict[str, Any] = {}
 
     def register_handler(
         self,
@@ -538,29 +558,82 @@ class ExecutionController:
         )
 
     def work_unit_for_session(self, session_id: str, goal: str) -> str:
-        """Return a stable work unit for a session, creating it once if needed."""
+        """Return a stable work unit for a session, creating it once if needed.
+
+        Stable work keys make a retry safe if process failure occurs between
+        creating the unit and committing the session-to-unit mapping. A terminal
+        unit starts a new generation keyed by the previous unit ID.
+        """
         if not isinstance(session_id, str) or not session_id.strip():
             raise ValueError("session_id is required")
+        if not isinstance(goal, str) or not goal.strip():
+            raise ValueError("goal is required")
+        session_id = session_id.strip()
+        goal = goal.strip()
+        goal_digest = hashlib.sha256(goal.encode("utf-8")).hexdigest()[:16]
         with sqlite3.connect(self.db_path) as db:
             row = db.execute(
                 "SELECT work_unit_id, goal FROM sessions WHERE session_id=?", (session_id,)
             ).fetchone()
             if row:
-                prior_state, _ = self.company._state(str(row[0]))
+                prior_work_unit_id = str(row[0])
+                prior_state, _ = self.company._state(prior_work_unit_id)
                 if prior_state in {"running", "waiting_ci", "waiting_external"}:
                     if row[1] != goal:
                         raise ValueError("session_id is already bound to a different active goal")
-                    return str(row[0])
-                work = self.company.start(goal)
-                db.execute("UPDATE sessions SET work_unit_id=?,goal=?,updated_at=? WHERE session_id=?",
-                           (work.id, goal, _now(), session_id))
+                    return prior_work_unit_id
+                # A terminal unit for the same goal stays terminal. Starting it
+                # again implicitly would turn repeated failure into an unbounded
+                # retry loop; callers must provide a new session or a new goal.
+                if row[1] == goal:
+                    return prior_work_unit_id
+                work_key = f"execution-session:{session_id}:{goal_digest}:after:{prior_work_unit_id}"
+                work = self.company.start(goal, work_key=work_key)
+                db.execute(
+                    "UPDATE sessions SET work_unit_id=?,goal=?,updated_at=? WHERE session_id=?",
+                    (work.id, goal, _now(), session_id),
+                )
                 return work.id
-            work = self.company.start(goal)
+            work_key = f"execution-session:{session_id}:{goal_digest}:initial"
+            work = self.company.start(goal, work_key=work_key)
             db.execute(
                 "INSERT INTO sessions(session_id,work_unit_id,goal,updated_at) VALUES(?,?,?,?)",
                 (session_id, work.id, goal, _now()),
             )
         return work.id
+    def dispatch_engineering_plan_task(
+        self,
+        *,
+        store: Any,
+        run_id: str,
+        task_id: str,
+        dispatch_key: str,
+        handler: str,
+        packet: Any,
+        payload: Mapping[str, Any] | None = None,
+        goal: str | None = None,
+        recovery_bridge: Any | None = None,
+    ) -> DurableTask:
+        """Dispatch one plan task through the same durable queue this controller owns.
+
+        The adapter binds the persisted plan/run revision and fresh-context packet
+        digest before queue insertion. It does not create a second execution queue.
+        """
+        from .engineering_plan_dispatch import EngineeringPlanDispatch
+
+        if recovery_bridge is None:
+            raise ValueError("canonical recovery bridge is required for engineering-plan dispatch")
+        return EngineeringPlanDispatch(
+            store=store, controller=self, recovery_bridge=recovery_bridge,
+        ).dispatch(
+            run_id=run_id,
+            task_id=task_id,
+            dispatch_key=dispatch_key,
+            handler=handler,
+            packet=packet,
+            payload=payload,
+            goal=goal,
+        )
 
     def submit(self, handler: str, payload: Mapping[str, Any], *, goal: str | None = None) -> DurableTask:
         execution_class = self._handler_execution_class(handler)
@@ -889,6 +962,168 @@ class ExecutionController:
         self.company._transition(str(row[0]), "running")
         return True
 
+    def _verify_engineering_plan_dispatch_checkpoint(self, task: DurableTask) -> None:
+        """Revalidate trusted plan state immediately before a queued handler can run.
+
+        Ordinary controller tasks are unaffected. Engineering-plan dispatch tasks
+        require a registered recovery bridge, matching durable intent, intact
+        binding digest, and the exact plan/run revision captured at enqueue.
+        """
+        metadata = task.payload.get("auren_dispatch")
+        if metadata is None:
+            return
+        from .engineering_plan_recovery import EngineeringPlanCheckpointMismatch
+
+        if not isinstance(metadata, Mapping):
+            raise EngineeringPlanCheckpointMismatch("dispatch metadata is malformed")
+        required = {
+            "run_id", "task_id", "plan_digest", "run_revision", "source_revision",
+            "packet_digest", "handler", "payload_digest", "dispatch_key",
+            "binding_digest", "plan_store_path",
+        }
+        if not required.issubset(metadata):
+            raise EngineeringPlanCheckpointMismatch("dispatch metadata is incomplete")
+        store_path = metadata.get("plan_store_path")
+        bridge = self._engineering_plan_recovery_bridges.get(store_path)
+        if bridge is None:
+            raise EngineeringPlanCheckpointMismatch(
+                "canonical recovery bridge is not registered in this worker; refusing task execution"
+            )
+        run_id = metadata.get("run_id")
+        plan, run = bridge.load_verified(run_id)
+        if (
+            plan.digest != metadata.get("plan_digest")
+            or plan.source_revision != metadata.get("source_revision")
+            or type(metadata.get("run_revision")) is not int
+            or run.revision != metadata.get("run_revision")
+        ):
+            raise EngineeringPlanCheckpointMismatch(
+                "queued dispatch no longer matches the canonical plan/run revision"
+            )
+        plan_task_id = metadata.get("task_id")
+        progress = next((item for item in run.tasks if item.task_id == plan_task_id), None)
+        if progress is None or progress.status not in {"ready", "running", "verifying"}:
+            raise EngineeringPlanCheckpointMismatch(
+                "queued dispatch plan task is no longer in a dispatchable state"
+            )
+        dispatch_key = metadata.get("dispatch_key")
+        with sqlite3.connect(self.db_path, timeout=10) as db:
+            db.row_factory = sqlite3.Row
+            intent = db.execute(
+                "SELECT * FROM engineering_dispatch_intents WHERE dispatch_key=?",
+                (dispatch_key,),
+            ).fetchone()
+        if intent is None or (
+            intent["task_id"] != task.id
+            or intent["run_id"] != run_id
+            or intent["plan_task_id"] != plan_task_id
+            or intent["plan_digest"] != plan.digest
+            or int(intent["run_revision"]) != run.revision
+            or intent["source_revision"] != plan.source_revision
+            or intent["packet_digest"] != metadata.get("packet_digest")
+            or task.handler != metadata.get("handler")
+        ):
+            raise EngineeringPlanCheckpointMismatch(
+                "durable dispatch intent does not match the queued task binding"
+            )
+        safe_payload = dict(task.payload)
+        safe_payload.pop("auren_dispatch", None)
+        payload_digest = hashlib.sha256(
+            json.dumps(safe_payload, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
+        ).hexdigest()
+        binding = {
+            "run_id": run_id,
+            "task_id": plan_task_id,
+            "plan_digest": plan.digest,
+            "run_revision": run.revision,
+            "source_revision": plan.source_revision,
+            "packet_digest": metadata.get("packet_digest"),
+            "handler": task.handler,
+            "payload_digest": payload_digest,
+        }
+        binding_digest = hashlib.sha256(
+            json.dumps(binding, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
+        ).hexdigest()
+        if (
+            payload_digest != metadata.get("payload_digest")
+            or binding_digest != metadata.get("binding_digest")
+        ):
+            raise EngineeringPlanCheckpointMismatch(
+                "queued dispatch payload or binding digest is invalid"
+            )
+
+    def _invoke_consequential_with_ledger(self, task: DurableTask, handler: Handler) -> Any:
+        """Run consequential handlers behind the durable idempotency/reconciliation ledger.
+
+        The ledger intent is committed before handler invocation. A completed receipt
+        is replayed without calling the handler; an interrupted/ambiguous execution
+        returns a reconciliation decision and fails closed. This is not a claim of
+        distributed exactly-once execution: provider-side lookup/idempotency remains
+        necessary for resolving uncertain outcomes.
+        """
+        dispatch = task.payload.get("auren_dispatch")
+        idempotency = task.payload.get("auren_idempotency")
+        engineering_key = (
+            dispatch.get("dispatch_key")
+            if isinstance(dispatch, Mapping)
+            else None
+        )
+        provider_neutral_key = (
+            idempotency.get("key")
+            if isinstance(idempotency, Mapping)
+            else None
+        )
+        if isinstance(engineering_key, str) and engineering_key.strip():
+            stable_key = engineering_key.strip()
+            key = "engineering-plan:" + stable_key
+            identity_kind = "engineering_dispatch"
+        elif isinstance(provider_neutral_key, str) and provider_neutral_key.strip():
+            stable_key = provider_neutral_key.strip()
+            key = "consequential-idempotency:" + stable_key
+            identity_kind = "consequential_idempotency"
+        else:
+            stable_key = None
+            key = "execution-task:" + task.id
+            identity_kind = "execution_task"
+        safe_payload = dict(task.payload)
+        safe_payload.pop("auren_dispatch", None)
+        safe_payload.pop("auren_idempotency", None)
+        payload_digest = hashlib.sha256(
+            json.dumps(safe_payload, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
+        ).hexdigest()
+        # Stable keys permit safe receipt replay/reconciliation across recreated task
+        # IDs. The caller must supply a stable key only for the same logical operation;
+        # provider-native idempotency and history lookup are still adapter-specific.
+        binding = {
+            "identity": (
+                {"kind": identity_kind, "key": stable_key}
+                if stable_key is not None
+                else {"kind": "execution_task", "task_id": task.id}
+            ),
+            "handler": task.handler,
+            "payload_digest": payload_digest,
+        }
+        decision = DurableSideEffectLedger(self.db_path).begin(key, binding)
+        if decision.action == "replay":
+            receipt = decision.receipt
+            if not isinstance(receipt, Mapping) or not isinstance(receipt.get("result"), Mapping):
+                raise RuntimeError("consequential side-effect receipt is malformed; refusing handler replay")
+            return dict(receipt["result"])
+        if decision.action != "execute":
+            raise RuntimeError(
+                "consequential side effect requires reconciliation; provider dispatch is blocked "
+                f"(ledger_state={decision.state or 'unknown'})"
+            )
+        result = self._invoke_with_lease_heartbeat(task, handler)
+        if not isinstance(result, Mapping):
+            # A non-serializable/ambiguous result must not permit implicit replay.
+            raise RuntimeError("consequential handlers must return a mapping receipt/result")
+        receipt = {"result": dict(result)}
+        # If durable receipt persistence fails, the ledger remains executing. The
+        # next attempt will require reconciliation and will not invoke the provider.
+        DurableSideEffectLedger(self.db_path).complete(key, receipt)
+        return result
+
     def run_once(self, task_id: str) -> TrustScore | None:
         task = self._claim(task_id)
         if task is None:
@@ -898,6 +1133,7 @@ class ExecutionController:
         })
         try:
             self.heartbeat(task)
+            self._verify_engineering_plan_dispatch_checkpoint(task)
             gates_passed, gate_detail, gate_evidence = self._preflight_gates(task)
             if not gates_passed:
                 if not self._finalize_claim(task, "failed"):
@@ -910,7 +1146,10 @@ class ExecutionController:
                 return self.company.finish(task.work_unit_id, success=False, reason=gate_detail, evidence=evidence)
 
             handler = self._load_handler(task.handler)
-            result = self._invoke_with_lease_heartbeat(task, handler)
+            if self._handler_execution_class(task.handler) == "consequential":
+                result = self._invoke_consequential_with_ledger(task, handler)
+            else:
+                result = self._invoke_with_lease_heartbeat(task, handler)
         except LeaseLostError:
             raise
         except Exception as exc:
@@ -957,10 +1196,21 @@ class ExecutionController:
         self.company.record(task.work_unit_id, "execution", state, detail, evidence)
         return self.company.finish(task.work_unit_id, success=success, reason=detail, evidence=evidence)
 
-    def resume_pending(self, *, limit: int = 20) -> list[TrustScore]:
-        """Resume eligible work without letting a live lease consume the scan budget."""
+    def resume_pending(
+        self, *, limit: int = 20, continue_after_durable_failure: bool = False
+    ) -> list[TrustScore]:
+        """Resume eligible work without letting a live lease consume the scan budget.
+
+        The default preserves fail-fast behavior for direct callers. A bounded
+        service loop may continue after a handler exception only when both the task
+        row and executive event ledger prove that the task reached terminal failure.
+        Lease loss and partial persistence still propagate instead of being reported
+        as ordinary task failures.
+        """
         if type(limit) is not int or limit < 1:
             raise ValueError("resume limit must be a positive integer")
+        if type(continue_after_durable_failure) is not bool:
+            raise ValueError("continue_after_durable_failure must be a boolean")
         self.wake_due_quota_tasks(limit=limit)
         now = datetime.now(timezone.utc)
         with sqlite3.connect(self.db_path) as db:
@@ -990,10 +1240,120 @@ class ExecutionController:
 
         scores = []
         for task_id in task_ids:
-            score = self.run_once(task_id)
+            try:
+                score = self.run_once(task_id)
+            except LeaseLostError:
+                raise
+            except Exception:
+                if not continue_after_durable_failure:
+                    raise
+                task = self.task(task_id)
+                if task is None or task.state != "failed":
+                    raise
+                work_state, _ = self.company._state(task.work_unit_id)
+                if work_state != "failed":
+                    raise
+                with sqlite3.connect(self.company.db_path) as db:
+                    failure_event = db.execute(
+                        "SELECT 1 FROM events WHERE work_unit_id=? "
+                        "AND kind='execution' AND status='failed' LIMIT 1",
+                        (task.work_unit_id,),
+                    ).fetchone()
+                if failure_event is None:
+                    raise
+                # The handler exception is reportable only after both durable
+                # ledgers confirm failure. Do not retry or replay the failed task.
+                score = self.company.trust(task.work_unit_id)
             if score is not None:
                 scores.append(score)
         return scores
+
+    def run_continuously(
+        self,
+        *,
+        stop_event: Event | None = None,
+        batch_size: int = 20,
+        idle_sleep_seconds: float = 1.0,
+        max_cycles: int = 100,
+        max_idle_cycles: int = 5,
+    ) -> ContinuousRunReport:
+        """Run bounded resume batches until cancellation, cycle budget, or idle stop.
+
+        State remains in the durable task/work-unit ledgers between calls. This
+        service loop never interprets an empty batch as success and exits after a
+        configurable no-progress budget so a scheduler can safely resume it later.
+        Cancellation is observed between batches; handlers must use the existing
+        lease heartbeat/cancellation contracts for work already in progress.
+        """
+        for value, name in ((batch_size, "batch_size"), (max_cycles, "max_cycles"), (max_idle_cycles, "max_idle_cycles")):
+            if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+                raise ValueError(f"{name} must be a positive integer")
+        if batch_size > 100 or max_cycles > 1000 or max_idle_cycles > 100:
+            raise ValueError("continuous loop budgets exceed hard limits (batch_size<=100, max_cycles<=1000, max_idle_cycles<=100)")
+        if max_idle_cycles > max_cycles:
+            raise ValueError("max_idle_cycles cannot exceed max_cycles")
+        if (
+            isinstance(idle_sleep_seconds, bool)
+            or not isinstance(idle_sleep_seconds, (int, float))
+            or not math.isfinite(idle_sleep_seconds)
+            or not 0 <= idle_sleep_seconds <= 300
+        ):
+            raise ValueError("idle_sleep_seconds must be finite and between 0 and 300 seconds")
+        event = stop_event if stop_event is not None else Event()
+        with sqlite3.connect(self.db_path) as db:
+            before_states = {
+                str(task_id): str(state)
+                for task_id, state in db.execute("SELECT id,state FROM tasks").fetchall()
+            }
+        scores: list[TrustScore] = []
+        cycles = 0
+        idle_cycles = 0
+        stop_reason = "cycle_budget_exhausted"
+        while cycles < max_cycles:
+            if event.is_set():
+                stop_reason = "cancelled"
+                break
+            cycles += 1
+            batch = self.resume_pending(
+                limit=batch_size, continue_after_durable_failure=True,
+            )
+            if batch:
+                scores.extend(batch)
+                idle_cycles = 0
+                continue
+            idle_cycles += 1
+            if idle_cycles >= max_idle_cycles:
+                stop_reason = "idle_budget_exhausted"
+                break
+            if event.wait(idle_sleep_seconds):
+                stop_reason = "cancelled"
+                break
+        else:
+            stop_reason = "cycle_budget_exhausted"
+        if event.is_set() and stop_reason != "idle_budget_exhausted":
+            stop_reason = "cancelled"
+        with sqlite3.connect(self.db_path) as db:
+            after_states = {
+                str(task_id): str(state)
+                for task_id, state in db.execute("SELECT id,state FROM tasks").fetchall()
+            }
+            remaining_nonterminal = int(db.execute(
+                "SELECT COUNT(*) FROM tasks WHERE state NOT IN ('completed','failed','cancelled')"
+            ).fetchone()[0])
+        completed = sum(
+            state == "completed" and before_states.get(task_id) != "completed"
+            for task_id, state in after_states.items()
+        )
+        failed = sum(
+            state == "failed" and before_states.get(task_id) != "failed"
+            for task_id, state in after_states.items()
+        )
+        return ContinuousRunReport(
+            cycles=cycles, processed_work_units=len(scores),
+            completed_tasks=completed, failed_tasks=failed,
+            remaining_nonterminal_tasks=remaining_nonterminal,
+            idle_cycles=idle_cycles, stop_reason=stop_reason, trust_scores=tuple(scores),
+        )
 
     def heartbeat(self, task: DurableTask, *, lease_seconds: int = 300) -> None:
         if not isinstance(task, DurableTask) or not task.lease_token or task.lease_generation < 1:
@@ -1355,4 +1715,4 @@ class ExecutionController:
         return Orchestrator(graph).run(task_id, intent, context)
 
 
-__all__ = ["ExecutionController", "DurableTask", "Handler", "ProviderQuotaError", "LeaseLostError"]
+__all__ = ["ExecutionController", "DurableTask", "ContinuousRunReport", "Handler", "ProviderQuotaError", "LeaseLostError"]

@@ -47,6 +47,12 @@ persist_to_auren_evidence_graph(receipt.as_evidence())
 
 The evidence persistence call above is illustrative: callers must connect it to AUREN's canonical durable evidence owner. The adapter returns a receipt but does not persist it automatically.
 
+## Authority-bound mode
+
+For higher-assurance callers, pass an `ExecutionAuthorityBinding`, the host-observed repository revision and digest, the matching budget identifier, and the task-owned `RuntimeExecutionGuard` to `execute_governed_sandbox()`. The adapter then uses `execute_bound_action()` before invoking the existing action gateway. A binding mismatch, scope violation, expiry, budget mismatch, or exhausted budget prevents the sandbox backend from being called.
+
+This mode remains opt-in for compatibility with existing callers. Do not treat a legacy call without `authority` as identity-bound. The host must obtain repository identity from a trusted checkout, keep the execution guard scoped to the task, and persist checkpoint sequence state in trusted storage. Authority binding is not an OS sandbox and does not replace OpenShell isolation.
+
 ## Safety contract
 
 - Denied actions never invoke the sandbox backend.

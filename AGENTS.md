@@ -7,8 +7,10 @@ Generic runtime skill: `.agents/skills/ai-coding-orchestrator/SKILL.md`.
 Claude plugin manifest: `.claude-plugin/plugin.json`.
 Core orchestration contract: `.ai-harness/ORCHESTRATION_SPEC.md`.
 Knowledge fabric: `.ai-harness/KNOWLEDGE_FABRIC_POLICY.md`.
+Canonical memory routing: `portable/memory_orchestrator.py`; ownership rules: `docs/CAPABILITY_MEMORY_OWNERSHIP.md`.
 Engineering design policy: `.ai-harness/ENGINEERING_DESIGN_POLICY.md`.
 Root engineering principles contract: `ENGINEERING_PRINCIPLES.md` (mandatory task-time applicability and evidence rules).
+AI-era principle registry: `portable/ai_era_principles.py`; canonical catalogue: `docs/AI_ERA_FOUNDATION_PRINCIPLES.md`.
 Deterministic design gate: `portable/engineering_design_guard.py`.
 Optional extension registry: `.ai-harness/extension_registry.toml`.
 Deployment guide: `docs/DEPLOYMENT.md`.
@@ -17,7 +19,7 @@ Deployment guide: `docs/DEPLOYMENT.md`.
 
 For every non-trivial software-engineering task:
 
-1. Understand the request, source, Jira or issue context, constraints, acceptance criteria, non-goals, and stopping condition.
+1. Understand the request, source, Jira or issue context, constraints, acceptance criteria, non-goals, and stopping condition. Before implementation, challenge the brief for blind spots, weak assumptions, missing success measures, and contradictory requirements. Offer a constructive question and options with trade-offs; do not silently resolve user-owned decisions.
 2. Inspect repository structure, instructions, dependencies, tests, nearby implementations, and current git state before changing code.
 3. Before creating new code, search for reuse candidates: existing implementations, extension points, interfaces, helpers, clients, repositories, query paths, configuration, tests, logging, and exception types serving the same responsibility.
 4. Run the repository convention profiler when introducing or changing infrastructure or when the repository pattern is unclear.
@@ -25,7 +27,7 @@ For every non-trivial software-engineering task:
 6. Detect relevant optional process/context skills such as Superpowers, Ponytail, Caveman, and other Agent Skills when available. Use their best applicable capability without making them mandatory or duplicating their full workflow.
 7. Infer the minimum safe capabilities needed. Research, POC, Debug, Grill, Review, Validation, and Learning are selected automatically when useful.
 8. Select the smallest safe model, tool, context, and reasoning budget and escalate only when risk, uncertainty, scope, or failed verification warrants it.
-9. Select the relevant engineering-design dimensions before implementation. Use `.ai-harness/ENGINEERING_DESIGN_POLICY.md` and `portable.engineering_design_guard.EngineeringDesignGuard` to capture only the contracts that matter: complexity, architecture, domain, data, resilience, security/privacy, performance/resources, concurrency, distributed consistency (CAP/PACELC), correctness, operations/recovery, AI-agent authority/evaluation, refactoring, legacy, construction, and compatibility, including reuse, data-access, logging, exception, regression, and exact-final-revision evidence when relevant.
+9. Before non-trivial implementation, call `AdaptiveRuntime.recommend_design(...)` / `EngineeringDesignGuard.recommend_approaches(..., risk=...)` using the actual repository root, task intent, changed paths and risk. Inspect manifest/version evidence, reuse candidates, alternatives, trade-offs, verification and rollback suggestions. Then select relevant design dimensions using `.ai-harness/ENGINEERING_DESIGN_POLICY.md` and `EngineeringDesignGuard` to capture the contracts that matter: complexity, architecture, domain, data, resilience, security/privacy, performance/resources, concurrency, distributed consistency (CAP/PACELC), correctness, operations/recovery, AI-agent authority/evaluation, refactoring, legacy, construction and compatibility, including reuse, data-access, logging, exception, regression and exact-final-revision evidence when relevant. Recommendations are advisory: do not invent an unobserved framework/version or bypass tests, authorization, review or promotion gates. Record semantic contradictions/blind spots that deterministic checks cannot see; unresolved explicit conflicts stop implementation while independent, safe discovery may continue.
 10. Implement using the repository's established architecture, naming, coding style, segregation, exception handling, logging, telemetry, dependency, and testing patterns. Prefer reuse or narrow adaptation over duplicate implementations.
 11. Preserve existing usage pattern unless the request explicitly requires a behavior or contract change. This includes public APIs, callers, command flows, configuration semantics, persisted contracts, lifecycle ordering, and user-visible workflows.
 12. Verify using repository-native evidence, inspect the final diff, and use independent review for meaningful or high-risk changes. Confirm DB/query calls are not unnecessarily multiplied, performance-sensitive paths remain within expected behavior, exceptions are not swallowed, logging follows repository convention, and regression coverage protects affected existing behavior.
@@ -234,3 +236,10 @@ The collaboration model is a chain for execution and a graph for knowledge. Comp
 ## Completion report
 
 Report outcome, files changed, validation evidence, independent review evidence when used, knowledge sources and extensions actually used, repository conventions reused, reuse candidates inspected and why they were selected/rejected, placement decisions, dependency decisions, principles materially applied, assumptions, remaining risks, and checkpoint or next action when intentionally incomplete.
+
+
+## Memory orchestration
+
+For memory-aware tasks, reuse `portable.memory_orchestrator.MemoryOrchestrator`. Route durable episodes/semantics through canonical PersistentMemory and ContextGraph provenance; keep working/sensory state bounded and task-scoped; use the existing context cache; connect procedural, reflective and prospective operations to their canonical owners through explicit callbacks. Never create a parallel memory database, background poller, or duplicate task scheduler. Required context that cannot fit must fail closed rather than be truncated. Keep idle metrics local and model-free.
+
+For Python unit tests, follow the repository's standard `unittest` style. Use the existing `# pragma: no cover` class-level exclusion for passive DTO/POCO-style dataclasses only; do not exclude behavior-bearing logic to inflate coverage.

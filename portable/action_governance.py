@@ -71,6 +71,7 @@ class ActionRequest:
     risk: str = "write"
     idempotency_key: str = ""
     evidence_refs: tuple[str, ...] = ()
+    task_id: str = ""
 
     def validate(self) -> None:
         for name in ("run_id", "action_id", "actor", "capability", "action", "target"):
@@ -83,7 +84,11 @@ class ActionRequest:
             raise ValueError("evidence_refs must contain non-empty strings")
 
     def fingerprint(self) -> str:
-        return _digest(asdict(self))
+        payload = asdict(self)
+        # Preserve fingerprints for legacy requests that do not opt into task binding.
+        if not payload.get("task_id"):
+            payload.pop("task_id", None)
+        return _digest(payload)
 
 
 @dataclass(frozen=True)
@@ -110,6 +115,7 @@ class ActionPolicy:
     external_effect_actions: frozenset[str] = frozenset({"publish", "send", "charge", "delete_remote"})
     evidence_required_actions: frozenset[str] = frozenset({"merge", "release", "deploy"})
     require_idempotency_for_external_effects: bool = True
+    require_durable_ledger_for_external_effects: bool = False
 
     def validate(self) -> None:
         if not self.allowed_capabilities:
@@ -137,6 +143,7 @@ class GovernedResult:
     executed: bool
     verdict: PolicyVerdict
     result_digest: str = ""
+    replayed: bool = False
 
 
 class ActionGovernanceGateway:
@@ -152,14 +159,48 @@ class ActionGovernanceGateway:
         *,
         approval_verifier: Callable[[ApprovalReceipt, ActionRequest], bool] | None = None,
         clock: Callable[[], float] = time.time,
+        side_effect_ledger: Any | None = None,
     ) -> None:
         policy.validate()
         self._policy = policy
         self._approval_verifier = approval_verifier
         self._clock = clock
+        self._side_effect_ledger = side_effect_ledger
         self._events: list[dict[str, Any]] = []
         self._lock = threading.RLock()
         self._attempted_actions: set[tuple[str, str]] = set()
+
+    @property
+    def has_durable_side_effect_ledger(self) -> bool:
+        """Whether this gateway can durably fence consequential external actions."""
+        return self._side_effect_ledger is not None
+
+    def is_external_effect(self, request: Any) -> bool:
+        """Classify a request using the gateway policy, not caller-supplied claims."""
+        return (
+            getattr(request, "risk", "") == "external_effect"
+            or getattr(request, "action", "") in self._policy.external_effect_actions
+        )
+
+    def durable_side_effect_preflight(self, request: Any) -> PolicyVerdict | None:
+        """Deny a consequential request when no durable intent ledger is attached.
+
+        Adapters call this before any legacy/unbound gateway path. Authority-bound
+        callers use the same check before charging their attempt budget.
+        """
+        if not self.is_external_effect(request) or self.has_durable_side_effect_ledger:
+            return None
+        fingerprint_fn = getattr(request, "fingerprint", None)
+        fingerprint = fingerprint_fn() if callable(fingerprint_fn) else ""
+        verdict = PolicyVerdict("deny", "durable_idempotency_ledger_required", fingerprint)
+        self._append_event({
+            "event": "durable_side_effect_blocked",
+            "run_id": str(getattr(request, "run_id", "")),
+            "action_id": str(getattr(request, "action_id", "")),
+            "reason": verdict.reason,
+            "request_fingerprint": fingerprint,
+        })
+        return verdict
 
     @property
     def events(self) -> tuple[dict[str, Any], ...]:
@@ -257,23 +298,109 @@ class ActionGovernanceGateway:
                     verdict.approval_required,
                 )
                 self._append_event({
-                    "event": "duplicate_action_blocked",
-                    "run_id": request.run_id,
-                    "action_id": request.action_id,
+                    "event": "duplicate_action_blocked", "run_id": request.run_id,
+                    "action_id": request.action_id, "request_fingerprint": verdict.request_fingerprint,
+                })
+                return GovernedResult(executed=False, verdict=blocked)
+            # Reserve the identity before touching durable state so concurrent callers
+            # cannot strand a second ledger key for an action that will never run.
+            self._attempted_actions.add(identity)
+
+        external_effect = (
+            request.risk == "external_effect"
+            or request.action in self._policy.external_effect_actions
+        )
+        if external_effect and self._policy.require_durable_ledger_for_external_effects and self._side_effect_ledger is None:
+            blocked = PolicyVerdict(
+                "deny", "durable_idempotency_ledger_required", verdict.request_fingerprint,
+                verdict.approval_required,
+            )
+            with self._lock:
+                self._attempted_actions.discard(identity)
+            self._append_event({
+                "event": "durable_side_effect_blocked", "run_id": request.run_id,
+                "action_id": request.action_id, "reason": blocked.reason,
+                "request_fingerprint": verdict.request_fingerprint,
+            })
+            return GovernedResult(executed=False, verdict=blocked)
+
+        # Persist the intent before a consequential handler can run. A replay returns
+        # the immutable receipt; an ambiguous prior execution is blocked for operator
+        # reconciliation rather than being invoked a second time.
+        if external_effect and self._side_effect_ledger is not None:
+            try:
+                decision = self._side_effect_ledger.begin(
+                    request.idempotency_key,
+                    {
+                        "request_fingerprint": verdict.request_fingerprint,
+                        "run_id": request.run_id,
+                        "task_id": request.task_id,
+                        "action_id": request.action_id,
+                        "actor": request.actor,
+                        "capability": request.capability,
+                        "action": request.action,
+                        "target": request.target,
+                        "evidence_refs": list(request.evidence_refs),
+                    },
+                )
+            except Exception as exc:
+                with self._lock:
+                    self._attempted_actions.discard(identity)
+                blocked = PolicyVerdict(
+                    "deny", "durable_idempotency_rejected", verdict.request_fingerprint,
+                    verdict.approval_required,
+                )
+                self._append_event({
+                    "event": "durable_side_effect_blocked", "run_id": request.run_id,
+                    "action_id": request.action_id, "reason": blocked.reason,
+                    "error_type": type(exc).__name__,
                     "request_fingerprint": verdict.request_fingerprint,
                 })
                 return GovernedResult(executed=False, verdict=blocked)
-            self._attempted_actions.add(identity)
-            self._append_event({
-                "event": "action_started",
-                "run_id": request.run_id,
-                "action_id": request.action_id,
-                "request_fingerprint": verdict.request_fingerprint,
-            })
+            if decision.action == "replay":
+                with self._lock:
+                    self._attempted_actions.discard(identity)
+                receipt = decision.receipt or {}
+                digest = str(receipt.get("result_digest", ""))
+                self._append_event({
+                    "event": "durable_side_effect_replayed", "run_id": request.run_id,
+                    "action_id": request.action_id, "request_fingerprint": verdict.request_fingerprint,
+                    "result_digest": digest,
+                })
+                return GovernedResult(executed=False, verdict=verdict, result_digest=digest, replayed=True)
+            if decision.action != "execute":
+                with self._lock:
+                    self._attempted_actions.discard(identity)
+                blocked = PolicyVerdict(
+                    "deny", "side_effect_reconciliation_required", verdict.request_fingerprint,
+                    verdict.approval_required,
+                )
+                self._append_event({
+                    "event": "durable_side_effect_blocked", "run_id": request.run_id,
+                    "action_id": request.action_id, "reason": blocked.reason,
+                    "side_effect_state": str(getattr(decision, "state", "")),
+                    "request_fingerprint": verdict.request_fingerprint,
+                })
+                return GovernedResult(executed=False, verdict=blocked)
 
+        self._append_event({
+            "event": "action_started",
+            "run_id": request.run_id,
+            "action_id": request.action_id,
+            "request_fingerprint": verdict.request_fingerprint,
+        })
         try:
             result = handler()
         except Exception as exc:
+            if external_effect and self._side_effect_ledger is not None:
+                try:
+                    self._side_effect_ledger.require_reconciliation(
+                        request.idempotency_key,
+                        f"handler raised {type(exc).__name__}; external outcome may be ambiguous",
+                    )
+                except Exception:
+                    # Preserve the original handler exception; the ledger remains fail-closed.
+                    pass
             self._append_event({
                 "event": "action_failed",
                 "run_id": request.run_id,
@@ -283,6 +410,13 @@ class ActionGovernanceGateway:
             })
             raise
         result_digest = _result_digest(result)
+        if external_effect and self._side_effect_ledger is not None:
+            # If receipt persistence fails after the remote effect, leave the intent
+            # unresolved. The next attempt will require reconciliation, never replay.
+            self._side_effect_ledger.complete(
+                request.idempotency_key,
+                {"result_digest": result_digest, "request_fingerprint": verdict.request_fingerprint},
+            )
         self._append_event({
             "event": "action_completed",
             "run_id": request.run_id,

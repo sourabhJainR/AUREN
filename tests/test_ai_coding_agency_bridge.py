@@ -7,6 +7,8 @@ from portable.agency_artifact_regression import snapshot_artifact
 from portable.agency_multi_specialist import SpecialistResourceProfile
 from portable.ai_coding_agency_bridge import CodingTask, run_coding_task, verify_provenance
 from portable.action_governance import ActionGovernanceGateway, ActionPolicy
+from portable.execution_boundary import ExecutionAuthorityBinding
+from portable.runtime_recovery import RuntimeExecutionGuard
 
 
 class AICodingAgencyBridgeTests(unittest.TestCase):
@@ -136,6 +138,102 @@ class AICodingAgencyBridgeTests(unittest.TestCase):
         self.assertTrue(gateway.verify_trace()["passed"])
         self.assertIn("action_completed", [event["event"] for event in gateway.events])
 
+    def _authority(self, task_id, run_id, **overrides):
+        values = dict(
+            execution_id="exec-" + task_id,
+            run_id=run_id,
+            task_id=task_id,
+            repository_digest="repo-digest",
+            repository_revision="abc123",
+            principal="auren-host",
+            allowed_capabilities=("repository.write",),
+            allowed_actions=("specialist.execute",),
+            allowed_targets=("src",),
+            budget_id="budget-1",
+            max_attempts=3,
+        )
+        values.update(overrides)
+        return ExecutionAuthorityBinding(**values)
+
+    def test_authority_binding_gates_real_coding_worker_and_charges_task_budget(self):
+        gateway = ActionGovernanceGateway(ActionPolicy(
+            allowed_capabilities=frozenset({"repository.read", "repository.write"}),
+        ))
+        task = CodingTask(
+            "run-bound-1", "implement API validation",
+            mutation_mode="bounded", allowed_artifact_changes=("src/api.py",),
+        )
+        guard = RuntimeExecutionGuard(max_steps=10, max_attempts=3)
+        calls = []
+        result = run_coding_task(
+            task, lambda profile, assignments: calls.append("worker") or self._worker(profile, assignments),
+            governance_gateway=gateway, run_id="governed-bound-1",
+            execution_authority=self._authority(task.task_id, "governed-bound-1"),
+            repository_revision="abc123", repository_digest="repo-digest",
+            budget_id="budget-1", execution_guard=guard,
+        )
+        self.assertTrue(result.ready)
+        self.assertEqual(calls, ["worker"])
+        self.assertEqual(guard.attempts_used, 1)
+        self.assertTrue(gateway.verify_trace()["passed"])
+
+    def test_authority_binding_blocks_coding_worker_outside_allowed_targets(self):
+        gateway = ActionGovernanceGateway(ActionPolicy(
+            allowed_capabilities=frozenset({"repository.read", "repository.write"}),
+        ))
+        task = CodingTask(
+            "run-bound-2", "implement API validation",
+            mutation_mode="bounded", allowed_artifact_changes=("src/api.py",),
+        )
+        guard = RuntimeExecutionGuard(max_steps=10, max_attempts=3)
+        calls = []
+        result = run_coding_task(
+            task, lambda profile, assignments: calls.append("worker") or self._worker(profile, assignments),
+            governance_gateway=gateway, run_id="governed-bound-2",
+            execution_authority=self._authority(task.task_id, "governed-bound-2", allowed_targets=("docs",)),
+            repository_revision="abc123", repository_digest="repo-digest",
+            budget_id="budget-1", execution_guard=guard,
+        )
+        self.assertFalse(result.ready)
+        self.assertEqual(calls, [])
+        self.assertEqual(guard.attempts_used, 0)
+        self.assertTrue(any("authority_binding:target_out_of_scope" in f.message for f in result.execution.findings))
+
+    def test_authority_bound_read_only_task_requires_explicit_read_paths(self):
+        gateway = ActionGovernanceGateway(ActionPolicy(
+            allowed_capabilities=frozenset({"repository.read", "repository.write"}),
+        ))
+        task = CodingTask("run-bound-read-1", "inspect API", mutation_mode="read-only")
+        guard = RuntimeExecutionGuard(max_steps=10, max_attempts=3)
+        calls = []
+        result = run_coding_task(
+            task, lambda profile, assignments: calls.append("worker") or self._worker(profile, assignments),
+            governance_gateway=gateway, run_id="governed-bound-read-1",
+            execution_authority=self._authority(
+                task.task_id, "governed-bound-read-1",
+                allowed_capabilities=("repository.read",),
+            ),
+            repository_revision="abc123", repository_digest="repo-digest",
+            budget_id="budget-1", execution_guard=guard,
+        )
+        self.assertFalse(result.ready)
+        self.assertEqual(calls, [])
+        self.assertTrue(any("explicit_read_scope_missing" in f.message for f in result.execution.findings))
+
+    def test_authority_binding_requires_host_revision_digest_and_task_guard(self):
+        gateway = ActionGovernanceGateway(ActionPolicy(
+            allowed_capabilities=frozenset({"repository.read", "repository.write"}),
+        ))
+        task = CodingTask(
+            "run-bound-3", "implement API validation",
+            mutation_mode="bounded", allowed_artifact_changes=("src/api.py",),
+        )
+        with self.assertRaisesRegex(ValueError, "authority-bound coding execution requires"):
+            run_coding_task(
+                task, self._worker, governance_gateway=gateway, run_id="governed-bound-3",
+                execution_authority=self._authority(task.task_id, "governed-bound-3"),
+            )
+
     def test_governance_gateway_blocks_task_protected_path(self):
         gateway = ActionGovernanceGateway(ActionPolicy(
             allowed_capabilities=frozenset({"repository.read", "repository.write"}),
@@ -244,6 +342,31 @@ class AICodingAgencyBridgeTests(unittest.TestCase):
         )
         self.assertEqual(captured_requests[0].action_id, "run-governed-multi-scope:coding-worker")
         self.assertTrue(gateway.verify_trace()["passed"])
+
+
+    def test_legacy_coding_worker_path_blocks_external_effect_without_durable_ledger(self):
+        gateway = ActionGovernanceGateway(ActionPolicy(
+            allowed_capabilities=frozenset({"repository.read", "repository.write"}),
+            external_effect_actions=frozenset({"specialist.execute"}),
+            require_idempotency_for_external_effects=False,
+        ))
+        task = CodingTask(
+            "run-legacy-external", "publish a consequential change",
+            mutation_mode="bounded", allowed_artifact_changes=("src/api.py",),
+        )
+        calls = []
+        result = run_coding_task(
+            task, lambda profile, assignments: calls.append("worker") or self._worker(profile, assignments),
+            governance_gateway=gateway, run_id="legacy-external-run",
+        )
+        self.assertFalse(result.ready)
+        self.assertEqual(calls, [])
+        self.assertFalse(result.execution.hard_gates["action_governance"])
+        self.assertTrue(any(
+            "durable_idempotency_ledger_required" in finding.message
+            for finding in result.execution.findings
+        ))
+
 
 if __name__ == "__main__":
     unittest.main()

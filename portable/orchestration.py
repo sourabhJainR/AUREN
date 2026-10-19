@@ -26,6 +26,7 @@ from portable.identity_compat import canonical_runtime_home, canonicalize_auren_
 from typing import Any, Callable, Mapping
 from .execution_strategy import ExecutionStrategy, execution_strategy
 from .engineering_design_guard import EngineeringDesignGuard
+from .ai_era_principles import build_contract_receipt as build_ai_era_principle_receipt
 from .runtime_recovery import ExecutionBudgetExceeded, NoProgressDetected, RuntimeExecutionGuard
 
 
@@ -389,6 +390,42 @@ class Orchestrator:
         if not isinstance(changed_paths, (list, tuple)):
             changed_paths = ()
 
+        # Review assumptions and requirement conflicts before graph side effects.
+        def review_items(value):
+            if isinstance(value, str):
+                return [value]
+            return value if isinstance(value, (list, tuple)) else ()
+        preflight = EngineeringDesignGuard.review_request(
+            intent=intent,
+            requirements=review_items(state.get("requirements", state.get("acceptance_requirements", ()))),
+            assumptions=review_items(state.get("assumptions", ())),
+            acceptance_criteria=review_items(state.get("acceptance_criteria", ())),
+            constraints=review_items(state.get("constraints", ())),
+            non_goals=review_items(state.get("non_goals", ())),
+            candidate_contradictions=review_items(state.get("candidate_contradictions", ())),
+            candidate_blind_spots=review_items(state.get("candidate_blind_spots", ())),
+            resolutions=state.get("preimplementation_resolutions", {}),
+        )
+        state["preimplementation_review"] = preflight
+        run.record(Evidence(
+            "preimplementation-review",
+            json.dumps(preflight, sort_keys=True, separators=(",", ":"), ensure_ascii=False),
+            "portable.engineering_design_guard",
+        ))
+        run.trajectory.append({
+            "event": "preimplementation_review",
+            "status": "blocked" if preflight["unresolved_contradictions"] else "passed_with_findings" if preflight["blind_spots"] else "clear",
+            "contradiction_count": len(preflight["contradictions"]),
+            "unresolved_contradiction_count": len(preflight["unresolved_contradictions"]),
+            "blind_spot_count": len(preflight["blind_spots"]),
+            "receipt_digest": preflight["digest"],
+            "intent_digest": preflight["intent_digest"],
+        })
+        if preflight["unresolved_contradictions"]:
+            run.status = RunStatus.BLOCKED
+            run.stop_reason = "pre-implementation review found contradictory requirements requiring a decision"
+            return run
+
         # Engineering principles are checked before any graph node can perform
         # side effects. This reuses the canonical guard and records its receipt
         # in the existing run evidence/trajectory rather than creating a second
@@ -402,6 +439,29 @@ class Orchestrator:
             default="medium",
         ))
         code_revision = str(state.get("code_revision", ""))
+        # Record the canonical AI-era principle catalogue against this exact run
+        # before any graph node can perform side effects. Existing design,
+        # authority, verification, recovery, and promotion gates remain decisive.
+        principle_receipt = build_ai_era_principle_receipt(
+            intent=intent,
+            changed_paths=changed_paths,
+            risk=risk,
+            code_revision=code_revision,
+        )
+        state["ai_era_principles_contract"] = principle_receipt
+        run.record(Evidence(
+            "ai-era-principles-contract",
+            json.dumps(principle_receipt, sort_keys=True, separators=(",", ":")),
+            "portable.ai_era_principles",
+        ))
+        run.trajectory.append({
+            "event": "ai_era_principles_contract",
+            "principle_count": len(principle_receipt["principles"]),
+            "registry_digest": principle_receipt["registry_digest"],
+            "receipt_digest": principle_receipt["digest"],
+            "intent_digest": principle_receipt["intent_digest"],
+            "code_revision": principle_receipt["code_revision"],
+        })
         receipt = EngineeringDesignGuard.review(
             intent=intent,
             changed_paths=changed_paths,

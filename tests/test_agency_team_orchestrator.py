@@ -2,6 +2,8 @@ from __future__ import annotations
 import unittest
 from portable.agency_team_orchestrator import AgentOutput, AgentTeamOrchestrator, WorkUnit
 from portable.action_governance import ActionGovernanceGateway, ActionPolicy
+from portable.execution_boundary import ExecutionAuthorityBinding
+from portable.runtime_recovery import RuntimeExecutionGuard
 
 class AgentTeamOrchestratorTests(unittest.TestCase):
     def test_team_spawns_parallel_research_and_gates_before_dependents(self):
@@ -93,6 +95,88 @@ class AgentTeamOrchestratorTests(unittest.TestCase):
         self.assertIn("action_completed", [event["event"] for event in gateway.events])
 
 
+    def _authority(self, unit_id, run_id, **overrides):
+        values = dict(
+            execution_id="exec-" + unit_id,
+            run_id=run_id,
+            task_id=unit_id,
+            repository_digest="repo-digest",
+            repository_revision="abc123",
+            principal="explorer",
+            allowed_capabilities=("repository.read",),
+            allowed_actions=("specialist.execute",),
+            allowed_targets=("src",),
+            budget_id="budget-" + unit_id,
+            max_attempts=3,
+        )
+        values.update(overrides)
+        return ExecutionAuthorityBinding(**values)
+
+    def test_authority_bound_team_execution_charges_unit_budget_before_spawn(self):
+        gateway = ActionGovernanceGateway(ActionPolicy(
+            allowed_capabilities=frozenset({"repository.read", "repository.write"}),
+        ))
+        units = (WorkUnit("inspect", "inspect", specialist="explorer", read_paths=("src",)),)
+        guards = {"inspect": RuntimeExecutionGuard(max_steps=10, max_attempts=3)}
+        spawned = []
+        run = AgentTeamOrchestrator().run(
+            units, evidence_digest="E8",
+            spawn=lambda unit, evidence: spawned.append(unit.unit_id) or AgentOutput(unit.unit_id, "done"),
+            verify=lambda unit, output, evidence: (True, "v"),
+            review=lambda unit, output, evidence, verification: (True, "r"),
+            governance_gateway=gateway, run_id="bound-run",
+            execution_authorities={"inspect": self._authority("inspect", "bound-run")},
+            execution_guards=guards, repository_revision="abc123", repository_digest="repo-digest",
+        )
+        self.assertTrue(run.passed)
+        self.assertEqual(spawned, ["inspect"])
+        self.assertEqual(guards["inspect"].attempts_used, 1)
+        self.assertTrue(gateway.verify_trace()["passed"])
+
+    def test_authority_bound_team_denies_out_of_scope_before_spawn(self):
+        gateway = ActionGovernanceGateway(ActionPolicy(
+            allowed_capabilities=frozenset({"repository.read", "repository.write"}),
+        ))
+        units = (WorkUnit("inspect", "inspect", specialist="explorer", read_paths=("src",)),)
+        guards = {"inspect": RuntimeExecutionGuard(max_steps=10, max_attempts=3)}
+        spawned = []
+        run = AgentTeamOrchestrator().run(
+            units, evidence_digest="E9",
+            spawn=lambda unit, evidence: spawned.append(unit.unit_id) or AgentOutput(unit.unit_id, "done"),
+            verify=lambda unit, output, evidence: (True, "v"),
+            review=lambda unit, output, evidence, verification: (True, "r"),
+            governance_gateway=gateway, run_id="bound-run-2",
+            execution_authorities={"inspect": self._authority("inspect", "bound-run-2", allowed_targets=("docs",))},
+            execution_guards=guards, repository_revision="abc123", repository_digest="repo-digest",
+        )
+        self.assertFalse(run.passed)
+        self.assertEqual(spawned, [])
+        self.assertEqual(guards["inspect"].attempts_used, 0)
+        self.assertIn("target_out_of_scope", run.outputs[0].findings)
+
+    def test_authority_bound_team_requires_complete_unit_bindings(self):
+        gateway = ActionGovernanceGateway(ActionPolicy(
+            allowed_capabilities=frozenset({"repository.read", "repository.write"}),
+        ))
+        units = (
+            WorkUnit("one", "inspect one", specialist="explorer", read_paths=("src",)),
+            WorkUnit("two", "inspect two", specialist="explorer", read_paths=("src",)),
+        )
+        with self.assertRaisesRegex(ValueError, "one execution authority per team unit"):
+            AgentTeamOrchestrator().run(
+                units, evidence_digest="E10",
+                spawn=lambda unit, evidence: AgentOutput(unit.unit_id, "done"),
+                verify=lambda unit, output, evidence: (True, "v"),
+                review=lambda unit, output, evidence, verification: (True, "r"),
+                governance_gateway=gateway, run_id="bound-run-3",
+                execution_authorities={"one": self._authority("one", "bound-run-3")},
+                execution_guards={
+                    "one": RuntimeExecutionGuard(max_steps=5, max_attempts=2),
+                    "two": RuntimeExecutionGuard(max_steps=5, max_attempts=2),
+                },
+                repository_revision="abc123", repository_digest="repo-digest",
+            )
+
     def test_governance_gateway_rejects_mutating_unit_without_write_scope(self):
         gateway = ActionGovernanceGateway(ActionPolicy(
             allowed_capabilities=frozenset({"repository.read", "repository.write"}),
@@ -123,5 +207,27 @@ class AgentTeamOrchestratorTests(unittest.TestCase):
                 review=lambda unit, output, evidence, verification: (True, "r"),
                 governance_gateway=gateway,
             )
+
+
+    def test_legacy_team_path_blocks_external_effect_without_durable_ledger(self):
+        gateway = ActionGovernanceGateway(ActionPolicy(
+            allowed_capabilities=frozenset({"repository.read", "repository.write"}),
+            external_effect_actions=frozenset({"specialist.execute"}),
+            require_idempotency_for_external_effects=False,
+        ))
+        units = (WorkUnit("publish", "publish a consequential change", specialist="builder", read_paths=("src",)),)
+        spawned = []
+        run = AgentTeamOrchestrator().run(
+            units, evidence_digest="E-external",
+            spawn=lambda unit, evidence: spawned.append(unit.unit_id) or AgentOutput(unit.unit_id, "done"),
+            verify=lambda unit, output, evidence: (True, "verified"),
+            review=lambda unit, output, evidence, verification: (True, "reviewed"),
+            governance_gateway=gateway, run_id="legacy-external-team",
+        )
+        self.assertFalse(run.passed)
+        self.assertEqual(spawned, [])
+        self.assertEqual(run.outputs[0].status, "blocked")
+        self.assertEqual(run.outputs[0].findings, ("durable_idempotency_ledger_required",))
+
 
 if __name__ == "__main__": unittest.main()

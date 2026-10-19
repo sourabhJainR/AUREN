@@ -4,6 +4,7 @@ import unittest
 
 from portable.orchestration import Node, NodeKind, RunStatus
 from portable.state_graph import CrewDefinition, GraphAgentTeam, StateGraph
+from portable.runtime_recovery import ExecutionBudgetExceeded
 
 
 class ProposalAgent:
@@ -107,10 +108,51 @@ class GraphAgentCrewTests(unittest.TestCase):
         self.assertEqual(observed["frontend_result"]["review_status"], "pending")
         self.assertTrue(observed["frontend_result"]["review_required"])
         self.assertEqual(frontend.requests[0]["task"], "Design the login screen")
+        shared_guard = observed["_auren_runtime_execution_guard"]
+        self.assertEqual(3, shared_guard.attempts_used)  # graph node plus two specialist proposals
         self.assertNotIn("secret", frontend.requests[0])
         self.assertEqual(set(frontend.requests[0]["allowed_authorities"]) & {"merge", "promote"}, set())
         with self.assertRaisesRegex(RuntimeError, "only available during graph execution"):
             observed["auren_crew_dispatch"]("frontend_ui", "late call")
+
+    def test_guard_aware_specialist_receives_same_live_guard(self):
+        class GuardAwareAgent(ProposalAgent):
+            def propose_with_execution_guard(self, request, *, execution_guard, execution_guard_persist):
+                self.execution_guard = execution_guard
+                self.guard_persist = execution_guard_persist
+                return self.propose(request)
+
+        frontend = GuardAwareAgent("frontend_ui")
+        observed = {}
+
+        def run_node(state):
+            observed["guard"] = state["_auren_runtime_execution_guard"]
+            state["auren_crew_dispatch"]("frontend_ui", "Design the login screen")
+            return "completed"
+
+        team, _graph = self.make_team(run_node, agents={"frontend_ui": frontend})
+        result = team.run("guard-aware-proposal", "frontend UI")
+        self.assertEqual(RunStatus.ACCEPTED, result.status)
+        self.assertIs(frontend.execution_guard, observed["guard"])
+        self.assertTrue(callable(frontend.guard_persist))
+        self.assertEqual(2, observed["guard"].attempts_used)
+
+    def test_duplicate_specialist_proposal_is_not_reexecuted(self):
+        frontend = ProposalAgent("frontend_ui")
+        observed = {}
+
+        def run_node(state):
+            observed["state"] = state
+            state["auren_crew_dispatch"]("frontend_ui", "Design the login screen")
+            with self.assertRaisesRegex(ExecutionBudgetExceeded, "already charged"):
+                state["auren_crew_dispatch"]("frontend_ui", "Design the login screen")
+            return "completed"
+
+        team, _graph = self.make_team(run_node, agents={"frontend_ui": frontend})
+        result = team.run("duplicate-proposal", "frontend UI")
+        self.assertEqual(RunStatus.ACCEPTED, result.status)
+        self.assertEqual(1, len(frontend.requests))
+        self.assertEqual(2, observed["state"]["_auren_runtime_execution_guard"].attempts_used)
 
     def test_dispatch_rejects_unstructured_or_unsupported_proposals(self):
         observed = {}
@@ -147,7 +189,7 @@ class GraphAgentCrewTests(unittest.TestCase):
             return "completed"
         team, _graph = self.make_team(run_node, agents={"frontend_ui": object()})
         result = team.run("task-1", "frontend UI")
-        self.assertEqual(result.status, RunStatus.ACCEPTED)
+        self.assertEqual(result.status, RunStatus.ACCEPTED, f"stop_reason={result.stop_reason}; trajectory={result.trajectory}")
         with self.assertRaisesRegex(RuntimeError, "only available during graph execution"):
             observed["dispatch"]("frontend_ui", "outside graph")
 
