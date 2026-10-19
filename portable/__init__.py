@@ -261,3 +261,7 @@ __all__ += ["EngineeringContextPacket", "build_context_packet"]
 
 from .harness_isolation_verifier import ArenaHarnessIsolationReceiptVerifier, TrustedHarnessRunContext
 __all__ += ["ArenaHarnessIsolationReceiptVerifier", "TrustedHarnessRunContext"]
+
+
+from .engineering_plan_dispatch import DispatchCancelled, DispatchConflict, EngineeringPlanDispatch
+__all__ += ["DispatchCancelled", "DispatchConflict", "EngineeringPlanDispatch"]
