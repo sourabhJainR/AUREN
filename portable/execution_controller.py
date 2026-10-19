@@ -582,6 +582,8 @@ class ExecutionController:
         """
         from .engineering_plan_dispatch import EngineeringPlanDispatch
 
+        if recovery_bridge is None:
+            raise ValueError("canonical recovery bridge is required for engineering-plan dispatch")
         return EngineeringPlanDispatch(
             store=store, controller=self, recovery_bridge=recovery_bridge,
         ).dispatch(
