@@ -72,6 +72,25 @@ class EngineeringPlanDispatchTests(unittest.TestCase):
             self.assertEqual(run.revision, first.payload["auren_dispatch"]["run_revision"])
             self.assertEqual(packet.packet_digest, first.payload["auren_dispatch"]["packet_digest"])
 
+    def test_dispatch_replay_survives_plan_revision_advancing_after_enqueue(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            plan, run, packet, _, store, controller, bridge = prepared(tmp)
+            first = bridge.dispatch(
+                run_id=plan.run_id, task_id="implement", dispatch_key="dispatch-1",
+                handler="dispatch-test", packet=packet, payload={"change": "small"},
+            )
+            advanced = run.transition_task(
+                "implement", "running", plan=plan, reason="worker claimed task",
+            )
+            store.save_run(plan.run_id, advanced, expected_revision=run.revision)
+
+            replayed = bridge.dispatch(
+                run_id=plan.run_id, task_id="implement", dispatch_key="dispatch-1",
+                handler="dispatch-test", packet=packet, payload={"change": "small"},
+            )
+            self.assertEqual(first.id, replayed.id)
+            self.assertEqual("pending", controller.task(first.id).state)
+
     def test_replay_with_changed_packet_or_payload_fails_closed(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             plan, run, packet, _, store, controller, bridge = prepared(tmp)
