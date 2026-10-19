@@ -155,6 +155,23 @@ class EngineeringPlanDispatch:
             if existing is not None:
                 return self._replay_or_conflict(existing, binding, handler_name, encoded_payload)
 
+        # Reject known duplicate/budget failures before creating even a bookkeeping work unit.
+        with sqlite3.connect(self.database_path, timeout=10) as db:
+            db.execute("PRAGMA busy_timeout=10000")
+            collision = db.execute(
+                "SELECT 1 FROM engineering_dispatch_intents WHERE run_id=? AND plan_task_id=? AND run_revision=?",
+                (run_id, task_id, run.revision),
+            ).fetchone()
+            if collision is not None:
+                raise DispatchConflict("this plan task revision already has a different dispatch intent")
+            dispatch_limit = plan.budget.get("dispatches")
+            if dispatch_limit is not None:
+                count = db.execute(
+                    "SELECT COUNT(*) FROM engineering_dispatch_intents WHERE run_id=?", (run_id,)
+                ).fetchone()[0]
+                if count >= dispatch_limit:
+                    raise DispatchConflict("shared plan dispatch budget is exhausted")
+
         work = self.controller.company.start(goal or f"engineering plan {run_id}: {task_id}")
         now = time.time()
         task_identifier = uuid4().hex
