@@ -38,15 +38,17 @@ if not result.executed:
 ### Durable external-effect mode
 
 For consequential external actions, inject the SQLite-backed ledger introduced in
-`portable.side_effect_ledger` and enable `require_durable_ledger_for_external_effects=True`.
-The gateway persists the request binding before invoking the handler, replays a
-completed receipt without invoking the handler again, and blocks ambiguous prior
-attempts for reconciliation. If the handler raises or receipt persistence fails
-after a possible external effect, the operation is left in a reconciliation state.
-The ledger does not guarantee exactly-once effects by itself: prefer provider-native
-idempotency keys and provider-side operation lookup. Legacy callers remain compatible
-unless they explicitly enable the required-ledger policy; rollout should migrate and
-test consequential adapters before enabling it globally.
+`portable.side_effect_ledger` and enable
+`require_durable_ledger_for_external_effects=True`. The gateway persists intent
+before invoking the handler, replays a completed receipt without invoking the handler
+again, and blocks ambiguous prior attempts for reconciliation.
+
+The authority-bound `execute_bound_action` path and the legacy branches of the
+OpenShell sandbox, coding-agency bridge, and specialist-team orchestrator now all
+run a durable-side-effect preflight. Those adapter paths fail closed before invoking
+the worker/backend if the request is consequential and no ledger is attached. Legacy
+non-consequential actions remain compatible. Provider-native idempotency and
+provider-side operation lookup remain necessary for the strongest recovery semantics.
 
 ## Important boundary
 

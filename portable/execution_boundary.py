@@ -73,7 +73,7 @@ EXECUTION_SURFACE_INVENTORY: tuple[ExecutionSurface, ...] = (
         "action-authorization", "Capability/action allowlists and approval checks",
         "portable/action_governance.py:ActionGovernanceGateway",
         "Policy verdicts, approval binding, external-effect idempotency, tamper-evident event chain, and opt-in authority-bound OpenShell, coding-agency, and specialist-team adapters",
-        "Binding is not yet mandatory across every consequential caller; trace is not trusted storage",
+        "Authority binding is not yet mandatory across every consequential caller; trace is not trusted storage",
     ),
     ExecutionSurface(
         "runtime-budget-and-cancellation", "Bounded steps, attempts, deadlines and repeated-failure stop",
@@ -109,17 +109,17 @@ DIRECT_GATEWAY_CALLSITE_POLICY: tuple[dict[str, str], ...] = (
     {
         "path": "portable/governed_sandbox_execution.py",
         "scope": "execute_governed_sandbox",
-        "disposition": "legacy-compatibility-branch; bound mode uses execute_bound_action",
+        "disposition": "legacy branch requires durable ledger for external effects; bound mode uses execute_bound_action",
     },
     {
         "path": "portable/ai_coding_agency_bridge.py",
         "scope": "run_coding_task.effective_worker",
-        "disposition": "legacy-compatibility-branch; bound mode uses execute_bound_action",
+        "disposition": "legacy branch requires durable ledger for external effects; bound mode uses execute_bound_action",
     },
     {
         "path": "portable/agency_team_orchestrator.py",
         "scope": "run.effective_spawn",
-        "disposition": "legacy-compatibility-branch; bound mode uses execute_bound_action",
+        "disposition": "legacy branch requires durable ledger for external effects; bound mode uses execute_bound_action",
     },
 )
 
@@ -314,12 +314,9 @@ def execute_bound_action(
         return GovernedResult(executed=False, verdict=PolicyVerdict(
             decision="deny", reason=reason, request_fingerprint=fingerprint_fn(),
         ))
-    # The authority-bound path requires durable idempotency for external effects.
-    # Direct legacy gateway callers remain compatible during staged adapter migration.
-    if gateway.is_external_effect(request) and not gateway.has_durable_side_effect_ledger:
-        return GovernedResult(False, PolicyVerdict(
-            "deny", "durable_idempotency_ledger_required", fingerprint_fn(),
-        ))
+    durable_verdict = gateway.durable_side_effect_preflight(request)
+    if durable_verdict is not None:
+        return GovernedResult(False, durable_verdict)
     try:
         charged = execution_guard.charge_attempt(f"{authority.budget_id}:{request.action_id}")
     except ExecutionBudgetExceeded:

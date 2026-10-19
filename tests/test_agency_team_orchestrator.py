@@ -208,4 +208,26 @@ class AgentTeamOrchestratorTests(unittest.TestCase):
                 governance_gateway=gateway,
             )
 
+
+    def test_legacy_team_path_blocks_external_effect_without_durable_ledger(self):
+        gateway = ActionGovernanceGateway(ActionPolicy(
+            allowed_capabilities=frozenset({"repository.read", "repository.write"}),
+            external_effect_actions=frozenset({"specialist.execute"}),
+            require_idempotency_for_external_effects=False,
+        ))
+        units = (WorkUnit("publish", "publish a consequential change", specialist="builder", read_paths=("src",)),)
+        spawned = []
+        run = AgentTeamOrchestrator().run(
+            units, evidence_digest="E-external",
+            spawn=lambda unit, evidence: spawned.append(unit.unit_id) or AgentOutput(unit.unit_id, "done"),
+            verify=lambda unit, output, evidence: (True, "verified"),
+            review=lambda unit, output, evidence, verification: (True, "reviewed"),
+            governance_gateway=gateway, run_id="legacy-external-team",
+        )
+        self.assertFalse(run.passed)
+        self.assertEqual(spawned, [])
+        self.assertEqual(run.outputs[0].status, "blocked")
+        self.assertEqual(run.outputs[0].findings, ("durable_idempotency_ledger_required",))
+
+
 if __name__ == "__main__": unittest.main()

@@ -155,6 +155,13 @@ class AgentTeamOrchestrator:
                         approval=approval,
                     )
                 else:
+                    durable_verdict = governance_gateway.durable_side_effect_preflight(request)
+                    if durable_verdict is not None:
+                        return AgentOutput(
+                            unit.unit_id, "blocked",
+                            findings=(durable_verdict.reason,),
+                            detail=f"AUREN durable side-effect gate blocked specialist execution: {durable_verdict.reason}",
+                        )
                     result = governance_gateway.execute(request, handler, approval=approval)
                 if not result.executed or not captured:
                     return AgentOutput(
