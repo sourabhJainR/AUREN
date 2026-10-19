@@ -39,7 +39,7 @@ class EngineeringPlanDispatch:
                 CREATE TABLE IF NOT EXISTS engineering_dispatch_intents (
                     dispatch_key TEXT PRIMARY KEY,
                     run_id TEXT NOT NULL,
-                    task_id TEXT NOT NULL,
+                    task_id TEXT NOT NULL,\n                    plan_task_id TEXT NOT NULL,
                     plan_digest TEXT NOT NULL,
                     run_revision INTEGER NOT NULL,
                     source_revision TEXT NOT NULL,
@@ -160,7 +160,7 @@ class EngineeringPlanDispatch:
                 db.rollback()
                 return self._replay_or_conflict(existing, binding, handler_name, encoded_payload)
             collision = db.execute(
-                "SELECT * FROM engineering_dispatch_intents WHERE run_id=? AND task_id=? AND run_revision=?",
+                "SELECT * FROM engineering_dispatch_intents WHERE run_id=? AND plan_task_id=? AND run_revision=?",
                 (run_id, task_id, run.revision),
             ).fetchone()
             if collision is not None:
@@ -183,7 +183,7 @@ class EngineeringPlanDispatch:
                 )
                 db.execute(
                     "INSERT INTO engineering_dispatch_intents "
-                    "(dispatch_key,run_id,task_id,plan_digest,run_revision,source_revision,packet_digest,status,created_at,updated_at) "
+                    "(dispatch_key,run_id,task_id,plan_task_id,plan_digest,run_revision,source_revision,packet_digest,status,created_at,updated_at) "
                     "VALUES(?,?,?,?,?,?,?,?,?,?)",
                     (key, run_id, task_identifier, plan.digest, run.revision,
                      plan.source_revision, packet.packet_digest, "queued", now, now),
@@ -225,7 +225,7 @@ class EngineeringPlanDispatch:
             actual = {name: recorded.get(name) for name in expected}
             if actual != dict(expected):
                 raise DispatchConflict("idempotency key replay changed immutable dispatch inputs")
-            if (existing["run_id"] != binding["run_id"] or existing["task_id"] != binding["task_id"]
+            if (existing["run_id"] != binding["run_id"] or existing["plan_task_id"] != binding["task_id"]
                     or existing["plan_digest"] != binding["plan_digest"]
                     or existing["run_revision"] != binding["run_revision"]
                     or existing["source_revision"] != binding["source_revision"]
