@@ -10,8 +10,10 @@ import hashlib
 import importlib
 import inspect
 import json
+import math
 import re
 import sqlite3
+import time
 from threading import Event, Thread
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -95,6 +97,20 @@ class DurableTask:
     work_unit_id: str
     lease_generation: int = 0
     lease_token: str | None = None
+
+
+@dataclass(frozen=True)
+class ContinuousRunReport:
+    """Bounded continuous-service slice; scores are evidence summaries, not success claims."""
+
+    cycles: int
+    processed_work_units: int
+    completed_tasks: int
+    failed_tasks: int
+    remaining_nonterminal_tasks: int
+    idle_cycles: int
+    stop_reason: str
+    trust_scores: tuple[TrustScore, ...]
 
 
 class LeaseLostError(RuntimeError):
@@ -541,30 +557,49 @@ class ExecutionController:
         )
 
     def work_unit_for_session(self, session_id: str, goal: str) -> str:
-        """Return a stable work unit for a session, creating it once if needed."""
+        """Return a stable work unit for a session, creating it once if needed.
+
+        Stable work keys make a retry safe if process failure occurs between
+        creating the unit and committing the session-to-unit mapping. A terminal
+        unit starts a new generation keyed by the previous unit ID.
+        """
         if not isinstance(session_id, str) or not session_id.strip():
             raise ValueError("session_id is required")
+        if not isinstance(goal, str) or not goal.strip():
+            raise ValueError("goal is required")
+        session_id = session_id.strip()
+        goal = goal.strip()
+        goal_digest = hashlib.sha256(goal.encode("utf-8")).hexdigest()[:16]
         with sqlite3.connect(self.db_path) as db:
             row = db.execute(
                 "SELECT work_unit_id, goal FROM sessions WHERE session_id=?", (session_id,)
             ).fetchone()
             if row:
-                prior_state, _ = self.company._state(str(row[0]))
+                prior_work_unit_id = str(row[0])
+                prior_state, _ = self.company._state(prior_work_unit_id)
                 if prior_state in {"running", "waiting_ci", "waiting_external"}:
                     if row[1] != goal:
                         raise ValueError("session_id is already bound to a different active goal")
-                    return str(row[0])
-                work = self.company.start(goal)
-                db.execute("UPDATE sessions SET work_unit_id=?,goal=?,updated_at=? WHERE session_id=?",
-                           (work.id, goal, _now(), session_id))
+                    return prior_work_unit_id
+                # A terminal unit for the same goal stays terminal. Starting it
+                # again implicitly would turn repeated failure into an unbounded
+                # retry loop; callers must provide a new session or a new goal.
+                if row[1] == goal:
+                    return prior_work_unit_id
+                work_key = f"execution-session:{session_id}:{goal_digest}:after:{prior_work_unit_id}"
+                work = self.company.start(goal, work_key=work_key)
+                db.execute(
+                    "UPDATE sessions SET work_unit_id=?,goal=?,updated_at=? WHERE session_id=?",
+                    (work.id, goal, _now(), session_id),
+                )
                 return work.id
-            work = self.company.start(goal)
+            work_key = f"execution-session:{session_id}:{goal_digest}:initial"
+            work = self.company.start(goal, work_key=work_key)
             db.execute(
                 "INSERT INTO sessions(session_id,work_unit_id,goal,updated_at) VALUES(?,?,?,?)",
                 (session_id, work.id, goal, _now()),
             )
         return work.id
-
     def dispatch_engineering_plan_task(
         self,
         *,
@@ -1085,10 +1120,21 @@ class ExecutionController:
         self.company.record(task.work_unit_id, "execution", state, detail, evidence)
         return self.company.finish(task.work_unit_id, success=success, reason=detail, evidence=evidence)
 
-    def resume_pending(self, *, limit: int = 20) -> list[TrustScore]:
-        """Resume eligible work without letting a live lease consume the scan budget."""
+    def resume_pending(
+        self, *, limit: int = 20, continue_after_durable_failure: bool = False
+    ) -> list[TrustScore]:
+        """Resume eligible work without letting a live lease consume the scan budget.
+
+        The default preserves fail-fast behavior for direct callers. A bounded
+        service loop may continue after a handler exception only when both the task
+        row and executive event ledger prove that the task reached terminal failure.
+        Lease loss and partial persistence still propagate instead of being reported
+        as ordinary task failures.
+        """
         if type(limit) is not int or limit < 1:
             raise ValueError("resume limit must be a positive integer")
+        if type(continue_after_durable_failure) is not bool:
+            raise ValueError("continue_after_durable_failure must be a boolean")
         self.wake_due_quota_tasks(limit=limit)
         now = datetime.now(timezone.utc)
         with sqlite3.connect(self.db_path) as db:
@@ -1118,10 +1164,120 @@ class ExecutionController:
 
         scores = []
         for task_id in task_ids:
-            score = self.run_once(task_id)
+            try:
+                score = self.run_once(task_id)
+            except LeaseLostError:
+                raise
+            except Exception:
+                if not continue_after_durable_failure:
+                    raise
+                task = self.task(task_id)
+                if task is None or task.state != "failed":
+                    raise
+                work_state, _ = self.company._state(task.work_unit_id)
+                if work_state != "failed":
+                    raise
+                with sqlite3.connect(self.company.db_path) as db:
+                    failure_event = db.execute(
+                        "SELECT 1 FROM events WHERE work_unit_id=? "
+                        "AND kind='execution' AND status='failed' LIMIT 1",
+                        (task.work_unit_id,),
+                    ).fetchone()
+                if failure_event is None:
+                    raise
+                # The handler exception is reportable only after both durable
+                # ledgers confirm failure. Do not retry or replay the failed task.
+                score = self.company.trust(task.work_unit_id)
             if score is not None:
                 scores.append(score)
         return scores
+
+    def run_continuously(
+        self,
+        *,
+        stop_event: Event | None = None,
+        batch_size: int = 20,
+        idle_sleep_seconds: float = 1.0,
+        max_cycles: int = 100,
+        max_idle_cycles: int = 5,
+    ) -> ContinuousRunReport:
+        """Run bounded resume batches until cancellation, cycle budget, or idle stop.
+
+        State remains in the durable task/work-unit ledgers between calls. This
+        service loop never interprets an empty batch as success and exits after a
+        configurable no-progress budget so a scheduler can safely resume it later.
+        Cancellation is observed between batches; handlers must use the existing
+        lease heartbeat/cancellation contracts for work already in progress.
+        """
+        for value, name in ((batch_size, "batch_size"), (max_cycles, "max_cycles"), (max_idle_cycles, "max_idle_cycles")):
+            if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+                raise ValueError(f"{name} must be a positive integer")
+        if batch_size > 100 or max_cycles > 1000 or max_idle_cycles > 100:
+            raise ValueError("continuous loop budgets exceed hard limits (batch_size<=100, max_cycles<=1000, max_idle_cycles<=100)")
+        if max_idle_cycles > max_cycles:
+            raise ValueError("max_idle_cycles cannot exceed max_cycles")
+        if (
+            isinstance(idle_sleep_seconds, bool)
+            or not isinstance(idle_sleep_seconds, (int, float))
+            or not math.isfinite(idle_sleep_seconds)
+            or not 0 <= idle_sleep_seconds <= 300
+        ):
+            raise ValueError("idle_sleep_seconds must be finite and between 0 and 300 seconds")
+        event = stop_event if stop_event is not None else Event()
+        with sqlite3.connect(self.db_path) as db:
+            before_states = {
+                str(task_id): str(state)
+                for task_id, state in db.execute("SELECT id,state FROM tasks").fetchall()
+            }
+        scores: list[TrustScore] = []
+        cycles = 0
+        idle_cycles = 0
+        stop_reason = "cycle_budget_exhausted"
+        while cycles < max_cycles:
+            if event.is_set():
+                stop_reason = "cancelled"
+                break
+            cycles += 1
+            batch = self.resume_pending(
+                limit=batch_size, continue_after_durable_failure=True,
+            )
+            if batch:
+                scores.extend(batch)
+                idle_cycles = 0
+                continue
+            idle_cycles += 1
+            if idle_cycles >= max_idle_cycles:
+                stop_reason = "idle_budget_exhausted"
+                break
+            if event.wait(idle_sleep_seconds):
+                stop_reason = "cancelled"
+                break
+        else:
+            stop_reason = "cycle_budget_exhausted"
+        if event.is_set() and stop_reason != "idle_budget_exhausted":
+            stop_reason = "cancelled"
+        with sqlite3.connect(self.db_path) as db:
+            after_states = {
+                str(task_id): str(state)
+                for task_id, state in db.execute("SELECT id,state FROM tasks").fetchall()
+            }
+            remaining_nonterminal = int(db.execute(
+                "SELECT COUNT(*) FROM tasks WHERE state NOT IN ('completed','failed','cancelled')"
+            ).fetchone()[0])
+        completed = sum(
+            state == "completed" and before_states.get(task_id) != "completed"
+            for task_id, state in after_states.items()
+        )
+        failed = sum(
+            state == "failed" and before_states.get(task_id) != "failed"
+            for task_id, state in after_states.items()
+        )
+        return ContinuousRunReport(
+            cycles=cycles, processed_work_units=len(scores),
+            completed_tasks=completed, failed_tasks=failed,
+            remaining_nonterminal_tasks=remaining_nonterminal,
+            idle_cycles=idle_cycles, stop_reason=stop_reason, trust_scores=tuple(scores),
+        )
 
     def heartbeat(self, task: DurableTask, *, lease_seconds: int = 300) -> None:
         if not isinstance(task, DurableTask) or not task.lease_token or task.lease_generation < 1:
@@ -1483,4 +1639,4 @@ class ExecutionController:
         return Orchestrator(graph).run(task_id, intent, context)
 
 
-__all__ = ["ExecutionController", "DurableTask", "Handler", "ProviderQuotaError", "LeaseLostError"]
+__all__ = ["ExecutionController", "DurableTask", "ContinuousRunReport", "Handler", "ProviderQuotaError", "LeaseLostError"]
