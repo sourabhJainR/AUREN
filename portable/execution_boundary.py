@@ -109,7 +109,7 @@ DIRECT_GATEWAY_CALLSITE_POLICY: tuple[dict[str, str], ...] = (
     {
         "path": "portable/governed_sandbox_execution.py",
         "scope": "execute_governed_sandbox",
-        "disposition": "legacy-compatibility-branch; bound mode uses execute_bound_action",
+        "disposition": "legacy branch requires durable ledger for external effects; bound mode uses execute_bound_action",
     },
     {
         "path": "portable/ai_coding_agency_bridge.py",
