@@ -608,6 +608,8 @@ def main(argv: list[str] | None = None) -> int:
         payload = {
             "cycles": report.cycles,
             "processed_work_units": report.processed_work_units,
+            "completed_tasks": report.completed_tasks,
+            "failed_tasks": report.failed_tasks,
             "remaining_nonterminal_tasks": report.remaining_nonterminal_tasks,
             "idle_cycles": report.idle_cycles,
             "stop_reason": report.stop_reason,
@@ -620,9 +622,16 @@ def main(argv: list[str] | None = None) -> int:
                 "AUREN worker stopped: "
                 f"{report.stop_reason}; cycles={report.cycles}; "
                 f"processed_work_units={report.processed_work_units}; "
+                f"completed_tasks={report.completed_tasks}; failed_tasks={report.failed_tasks}; "
                 f"remaining_nonterminal_tasks={report.remaining_nonterminal_tasks}; "
                 f"idle_cycles={report.idle_cycles}"
             )
+        if report.stop_reason == "cancelled":
+            return 130
+        if report.failed_tasks:
+            return 1
+        if report.remaining_nonterminal_tasks:
+            return 2
         return 0
     elif args.command == "workbench":
         from .local_workbench import LocalWorkbench, packet
