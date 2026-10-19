@@ -182,13 +182,14 @@ class EngineeringPlanDispatchTests(unittest.TestCase):
             with sqlite3.connect(controller.company.db_path) as db:
                 baseline_units = db.execute("SELECT COUNT(*) FROM work_units").fetchone()[0]
             barrier = threading.Barrier(2)
-            original_start = controller.company.start
+            original_verify = bridge._verified_state
 
-            def synchronized_start(goal, **kwargs):
+            def synchronized_verify(*args, **kwargs):
+                verified = original_verify(*args, **kwargs)
                 barrier.wait(timeout=5)
-                return original_start(goal, **kwargs)
+                return verified
 
-            controller.company.start = synchronized_start
+            bridge._verified_state = synchronized_verify
 
             def submit(key):
                 return bridge.dispatch(
