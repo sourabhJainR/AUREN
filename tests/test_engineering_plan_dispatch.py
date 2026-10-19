@@ -94,7 +94,7 @@ class EngineeringPlanDispatchTests(unittest.TestCase):
             plan, run, packet, _, store, controller, _ = prepared(tmp)
             recovery_bridge = EngineeringPlanRecoveryBridge(
                 store=store,
-                ledger=EngineeringRecoveryLedger(Path(tmp) / "runtime" / ".auren" / "recovery.sqlite3"),
+                ledger=EngineeringRecoveryLedger(Path(tmp) / "runtime" / ".auren" / "missing-recovery.sqlite3"),
             )
             with self.assertRaisesRegex(EngineeringPlanCheckpointMismatch, "checkpoint is missing"):
                 controller.dispatch_engineering_plan_task(
