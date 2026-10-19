@@ -79,10 +79,6 @@ class ExperimentLearningCycle:
             raise TypeError("an ExperimentManifest is required")
         if not isinstance(intervention, LearningIntervention):
             raise TypeError("a LearningIntervention is required")
-        if manifest.experiment_id.strip() == "":
-            raise ValueError("experiment manifest identity is required")
-        if manifest.experiment_id != intervention.intervention_id and not manifest.experiment_id.strip():
-            raise LearningStoreConflict("manifest experiment identity mismatch")
         if manifest.intervention_digest != intervention.intervention_digest:
             raise LearningStoreConflict("manifest intervention digest does not match intervention")
         if manifest.capability != intervention.target_capability:
