@@ -26,6 +26,12 @@
 
 Skills are orchestration surfaces that reuse canonical repository, context, evidence, and provenance stores.
 
-## Output discipline
+## Multi-Jira branch sequence
+
+`intake Jira -> snapshot branch/HEAD/status -> recall verified project lessons -> repository map and targeted reads -> create task branch from feature branch -> conditionally fetch latest target -> smart merge -> implement/test -> inspect staged paths -> exact-head CI/review -> merge/verify -> publish evidence-backed learning`.
+
+Use `portable.multi_jira_workflow.BranchAwareWorkspace`. Fetch only when the remote SHA differs from the cached remote-tracking SHA. Never switch branches or sync with dirty work. Merge target updates without rewriting shared history; unresolved conflicts stop for explicit resolution. Stage explicit paths only; do not use blanket `git add .` or `git add -A`. Refuse to stage developer-local secrets, IDE state, virtual environments, and local overrides. Keep one branch/intent digest/acceptance checklist per Jira, parallelize independent work, and invalidate affected context when another ticket changes a dependency. Reusable lessons must carry test/commit/source evidence and be written through canonical memory ownership with explicit approval.
+
+
 
 Report what changed, why, what was verified/reviewed, evidence/receipts, remaining uncertainty, reusable implementations inspected and reuse decisions, placement/dependency decisions, and relevant risks. Prefer concrete paths, symbols, tests, graph edges, snapshot digests, and lifecycle state over broad claims.
