@@ -271,6 +271,7 @@ class PersistentExperimentLearningStore:
         signal: CurriculumLearningSignal,
         evidence_refs: Sequence[str],
         episode: EngineeringEpisode | None = None,
+        domain_lifts: tuple[tuple[str, float], ...] = (),
     ) -> PersistentLearningReceipt:
         if not isinstance(manifest, ExperimentManifest) or not isinstance(result, AdaptiveExperimentResult):
             raise TypeError("manifest and AdaptiveExperimentResult are required")
@@ -282,9 +283,11 @@ class PersistentExperimentLearningStore:
             raise LearningStoreConflict("experiment manifest intervention digest mismatch")
         if manifest.capability != signal.capability or signal.evidence_digest != result.result_digest:
             raise LearningStoreConflict("learning signal is not bound to the supplied result/capability")
-        expected_signal = ExperimentLearningBridge().derive(capability=manifest.capability, result=result)
-        if signal.action != expected_signal.action or signal.next_conditions != expected_signal.next_conditions:
-            raise LearningStoreConflict("curriculum signal action/conditions do not match the verified experiment result")
+        expected_signal = ExperimentLearningBridge().derive(
+            capability=manifest.capability, result=result, domain_lifts=domain_lifts,
+        )
+        if signal.signal_digest != expected_signal.signal_digest:
+            raise LearningStoreConflict("curriculum signal does not match the verified experiment result and domain lifts")
         refs = tuple(dict.fromkeys(str(ref).strip() for ref in evidence_refs))
         if not refs or any(not ref for ref in refs):
             raise LearningEvidenceError("at least one non-empty evidence reference is required")
@@ -365,7 +368,7 @@ class PersistentExperimentLearningStore:
             self._insert_edge(db, signal_node, "persisted_as", receipt_node)
             for ref in refs:
                 ref_digest = _canonical_digest({"external_evidence_ref": ref})
-                ref_node = self._insert_node(db, "external_evidence_ref", ref_digest, {"verified": str(evidence_verified).lower()})
+                ref_node = self._insert_node(db, "external_evidence_ref", ref_digest, {"ref_kind": "opaque"})
                 self._insert_edge(db, result_node, "supported_by", ref_node)
             if episode is not None:
                 episode_node = self._insert_node(db, "engineering_episode", episode.digest, {
@@ -374,11 +377,11 @@ class PersistentExperimentLearningStore:
                 self._insert_edge(db, receipt_node, "associated_episode", episode_node)
 
             if disposition in {"candidate", "negative"}:
-                opposites = ("negative",) if disposition == "candidate" else ("candidate",)
+                opposite = "negative" if disposition == "candidate" else "candidate"
                 rows = db.execute(
                     "SELECT receipt_id,disposition FROM experiment_learning_receipts "
-                    "WHERE project=? AND lesson_key=? AND receipt_id<>? AND disposition IN (?,?)",
-                    (self.project, manifest.lesson_key, receipt_id, *opposites, disposition),
+                    "WHERE project=? AND lesson_key=? AND receipt_id<>? AND disposition=?",
+                    (self.project, manifest.lesson_key, receipt_id, opposite),
                 ).fetchall()
                 for other_id, other_disposition in rows:
                     candidate_id = receipt_id if disposition == "candidate" else other_id
@@ -460,7 +463,7 @@ class PersistentExperimentLearningStore:
         retraction_digest = _canonical_digest({"receipt_id": receipt_id, "reason": why, "evidence_ref": ref})
         with self.memory._lock, self.memory._connection() as db:
             row = db.execute(
-                "SELECT capability FROM experiment_learning_receipts WHERE project=? AND receipt_id=?",
+                "SELECT capability,disposition FROM experiment_learning_receipts WHERE project=? AND receipt_id=?",
                 (self.project, receipt_id),
             ).fetchone()
             if row is None:
@@ -470,7 +473,7 @@ class PersistentExperimentLearningStore:
                 (self.project, receipt_id),
             ).fetchone()
             if existing:
-                if existing == (why, ref, retraction_digest):
+                if tuple(existing) == (why, ref, retraction_digest):
                     return retraction_digest
                 raise LearningStoreConflict("learning receipt already has a different retraction")
             db.execute(
@@ -478,7 +481,7 @@ class PersistentExperimentLearningStore:
                 (self.project, receipt_id, why, ref, retraction_digest, now),
             )
             receipt_node = self._insert_node(db, "learning_receipt", receipt_id, {
-                "disposition": "candidate", "capability": row[0],
+                "disposition": row[1], "capability": row[0],
             })
             retraction_node = self._insert_node(db, "learning_retraction", retraction_digest, {
                 "reason_digest": _canonical_digest({"reason": why}),
