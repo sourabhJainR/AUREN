@@ -406,10 +406,15 @@ class AutonomousCompany:
             if ci_status == "passed":
                 with self._db() as db:
                     row = db.execute(
-                        "SELECT evidence FROM events WHERE work_unit_id=? AND kind='verification' AND status='passed' ORDER BY rowid DESC LIMIT 1",
+                        "SELECT status,evidence FROM events WHERE work_unit_id=? AND kind='verification' ORDER BY rowid DESC LIMIT 1",
                         (wid,),
                     ).fetchone()
-                evidence = tuple(json.loads(row[0])) if row else ()
+                if row is None or row[0] != "passed":
+                    return self.finish(
+                        wid, success=False,
+                        reason="resumed CI cannot promote without the latest passing verification evidence",
+                    )
+                evidence = tuple(json.loads(row[1]))
                 return self.finish(wid, success=True, reason="resumed CI passed after durable wait", evidence=evidence)
             if ci_status == "failed":
                 if recover:
