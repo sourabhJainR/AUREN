@@ -91,17 +91,18 @@ class AutonomousCompany:
               id TEXT PRIMARY KEY, work_unit_id TEXT NOT NULL, question TEXT NOT NULL,
               dependency TEXT NOT NULL, state TEXT NOT NULL, evidence TEXT NOT NULL, created_at TEXT NOT NULL);
             """)
-        # Upgrade older executive ledgers in place. The key is optional for legacy
-        # work units and unique for new idempotent start-or-resume requests.
-        columns = {row[1] for row in self._db().execute("PRAGMA table_info(work_units)").fetchall()}
-        if "work_key" not in columns:
-            with self._db() as db:
-                db.execute("ALTER TABLE work_units ADD COLUMN work_key TEXT")
+        # Upgrade older executive ledgers in place under one SQLite write lock so
+        # concurrent process starts cannot race the same ALTER TABLE migration.
         with self._db() as db:
+            db.execute("BEGIN IMMEDIATE")
+            columns = {row[1] for row in db.execute("PRAGMA table_info(work_units)").fetchall()}
+            if "work_key" not in columns:
+                db.execute("ALTER TABLE work_units ADD COLUMN work_key TEXT")
             db.execute(
                 "CREATE UNIQUE INDEX IF NOT EXISTS idx_work_units_work_key "
                 "ON work_units(work_key) WHERE work_key IS NOT NULL AND work_key <> ''"
             )
+            db.commit()
 
     def _db(self):
         db = sqlite3.connect(self.db_path, timeout=30)
