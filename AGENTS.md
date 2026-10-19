@@ -35,6 +35,14 @@ For every non-trivial software-engineering task:
 
 The normal runtime is a single adaptive run. Recursive or repeated execution is never automatic; it requires an explicit user request.
 
+## Multi-Jira and Git branch safety
+
+For multiple Jira work items in one repository, use `portable.multi_jira_workflow.BranchAwareWorkspace` and `ReadOnceFileCache`. Keep a distinct intent digest, acceptance criteria, task branch, test evidence, and PR per Jira. Snapshot branch/HEAD/upstream/status once; use the repository map and targeted symbol/test reads before full files; reuse unchanged file contents and invalidate after checkout/merge or edits. Reuse prior verified engineering lessons through `portable.memory_orchestrator.MemoryOrchestrator`, the canonical memory/provenance owner.
+
+Create each task branch from the chosen feature branch, then compare remote SHAs and fetch the target only when it has changed. Merge latest target without rewriting shared history. Require a clean worktree before branch switching/syncing. On conflicts, preserve the conflict state and paths and stop for explicit resolution—never reset, clean, or silently choose a side. Stage explicit paths only; never use `git add .` or `git add -A`. Developer-local secrets, IDE state, virtual environments, local overrides, and machine-specific setup must not be staged. Shared templates such as `.env.example` may be tracked. Promote lessons only after verification with evidence IDs, the immutable intent digest, and explicit approval through canonical memory; never create a parallel Jira knowledge store. Exact-head checks, review, post-merge SHA verification, and rollback evidence remain mandatory.
+
+
+
 ## Core foundation: grilling, evidence, and rework
 
 Apply `skills/engineering/grilling-and-rework.md` as a core engineering policy, not an optional external skill. Before consequential or ambiguous changes, map the decision dependencies and acceptance criteria. Ask dependency-aware rounds: all currently answerable decisions together, never downstream questions whose prerequisites are open. Agents investigate facts and cite evidence; the user owns material product and trade-off decisions. Recommendations are not consent. Persist decisions and provenance in canonical task context; do not create parallel memory. Reopen only branches affected by changed answers. Unresolved decisions block only dependent tasks; continue independent safe work.

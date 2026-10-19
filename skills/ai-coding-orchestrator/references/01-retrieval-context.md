@@ -32,6 +32,10 @@ Preserve:
 
 Use canonical `RepositoryIntelligence`, `CodebaseIndex`, `SymbolLocator`, context planning, graph expansion, and immutable `ContextEvidence`. Do not create parallel repository indexes, memory stores, capability catalogs, evidence stores, or workflow engines.
 
-## Retrieval and feedback
+## Multi-ticket reuse and file reads
+
+For a multi-Jira session, capture one branch/HEAD/worktree snapshot and use `portable.multi_jira_workflow.ReadOnceFileCache` to reuse unchanged file contents. Cache only reduces duplicate I/O; it never makes stale content authoritative. Re-stat before reuse, invalidate changed paths after checkout/merge/generation, and refresh RepositoryIntelligence/CodebaseIndex when their snapshot SHA does not match HEAD. Retrieve previous verified project lessons through `portable.memory_orchestrator.MemoryOrchestrator`; do not create a second repository index or Jira learning store.
+
+
 
 Prefer symbol-aware and semantic retrieval over whole-repository prompts. Use bounded deterministic packing, ignore files, secret filtering, deterministic ordering, file-size limits, and token budgets. Use `.ai-harness/runtime/feedback_loop.py` only when fresh evidence can change the next bounded action.

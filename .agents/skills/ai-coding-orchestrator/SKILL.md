@@ -42,6 +42,10 @@ For high-risk changes, ensure the deterministic guard covers the relevant expand
 
 At completion, verify each selected principle through observable evidence: tests/checks, source references, diff/review, security and compatibility checks, or a reasoned documented decision where automated verification is not meaningful. Re-evaluate after fixes and against the exact final head. If evidence is missing, report it as missing; do not mark the task verified. Learning may improve future selection but cannot silently weaken permanent policy.
 
+## Multi-Jira, branch-aware execution
+
+Use `portable.multi_jira_workflow.BranchAwareWorkspace` and `ReadOnceFileCache`. Keep a separate intent digest, acceptance criteria, branch, evidence, and PR per Jira. Reuse unchanged file contents; invalidate cache after HEAD changes or edits, and prefer repository maps/targeted reads before full files. Start from a feature branch, fetch only changed remote refs, merge the latest target without rewriting shared history, require a clean worktree, and stop on conflicts. Stage explicit paths only—never blanket-add; exclude local secrets, IDE state, virtual environments, and local overrides. Route evidence-backed lessons through canonical `MemoryOrchestrator` with approval; no sidecar store. Require exact-head CI/review and post-merge verification. See `docs/MULTI_JIRA_ENGINEERING_WORKFLOW.md`.
+
 ## Required workflow
 
 `intent -> context -> plan -> evidence -> change -> verification -> review -> artifact -> rollout -> observation`
