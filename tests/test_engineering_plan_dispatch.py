@@ -54,7 +54,14 @@ def prepared(tmp: str, *, budget=None):
         store=store,
         ledger=EngineeringRecoveryLedger(Path(tmp) / "runtime" / ".auren" / "recovery.sqlite3"),
     )
-    recovery_bridge.start(plan)
+    recovery_bridge.ledger.start_run(plan.run_id, recovery_bridge._intent(plan))
+    recovery_bridge.ledger.checkpoint(
+        plan.run_id, recovery_bridge.PHASE, status="in_progress",
+        head_sha=plan.source_revision,
+        payload=recovery_bridge._checkpoint_payload(
+            plan, run, next_safe_action="schedule_dependency_ready_task",
+        ),
+    )
     bridge = EngineeringPlanDispatch(
         store=store, controller=controller, recovery_bridge=recovery_bridge,
     )
