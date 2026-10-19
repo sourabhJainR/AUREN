@@ -238,6 +238,14 @@ def run_coding_task(task:CodingTask,worker:Callable[[TaskProfile,list[Assignment
                     approval=scope_approval,
                 )
             else:
+                durable_verdict = governance_gateway.durable_side_effect_preflight(scope_request)
+                if durable_verdict is not None:
+                    return {
+                        "deliverables": [], "verification": [],
+                        "dimensions": {}, "hard_gates": {"action_governance": False},
+                        "findings": [ReviewFinding("blocker", f"action_governance:{durable_verdict.reason}")],
+                        "evidence": [],
+                    }
                 result = governance_gateway.execute(
                     scope_request,
                     handler,
