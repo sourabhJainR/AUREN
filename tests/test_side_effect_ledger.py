@@ -113,10 +113,6 @@ class DurableSideEffectLedgerTests(unittest.TestCase):
                 ledger.complete("effect-1", {"ok": True})
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
     def test_retry_authorization_audit_detects_tampering(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "effects.sqlite3"
@@ -137,3 +133,7 @@ if __name__ == "__main__":
                 )
             with self.assertRaises(IdempotencyConflict):
                 ledger.retry_authorizations("effect-1")
+
+
+if __name__ == "__main__":
+    unittest.main()
