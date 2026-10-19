@@ -247,3 +247,26 @@ def test_ambiguous_external_handler_failure_requires_reconciliation():
         assert not result.executed
         assert result.verdict.reason == "side_effect_reconciliation_required"
         assert called == []
+
+
+def test_duplicate_action_identity_does_not_create_stranded_ledger_intent():
+    with tempfile.TemporaryDirectory() as tmp:
+        ledger_path = Path(tmp) / "effects.sqlite3"
+        ledger = DurableSideEffectLedger(ledger_path)
+        policy = ActionPolicy(
+            allowed_capabilities=frozenset({"repository.write", "release.publish"}),
+            require_durable_ledger_for_external_effects=True,
+        )
+        gateway = ActionGovernanceGateway(policy, side_effect_ledger=ledger)
+        first_request = make_request(
+            action="publish", risk="external_effect", idempotency_key="publish:key-1"
+        )
+        first = gateway.execute(first_request, lambda: {"provider_id": "op-1"})
+        second_request = make_request(
+            action="publish", risk="external_effect", idempotency_key="publish:key-2"
+        )
+        second = gateway.execute(second_request, lambda: {"provider_id": "must-not-run"})
+        assert first.executed
+        assert not second.executed
+        assert second.verdict.reason == "duplicate_action_identity"
+        assert ledger.get("publish:key-2") is None
