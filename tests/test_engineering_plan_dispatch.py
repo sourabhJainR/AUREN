@@ -107,6 +107,19 @@ class EngineeringPlanDispatchTests(unittest.TestCase):
                     handler="dispatch-test", packet=packet,
                 )
 
+    def test_nested_credential_like_payload_keys_are_rejected_before_enqueue(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            plan, run, packet, _, store, controller, bridge = prepared(tmp)
+            with self.assertRaisesRegex(ValueError, "credential-like"):
+                bridge.dispatch(
+                    run_id=plan.run_id, task_id="implement", dispatch_key="dispatch-secret-check",
+                    handler="dispatch-test", packet=packet,
+                    payload={"metadata": {"service": {"api_key": "not-to-be-persisted"}}},
+                )
+            with sqlite3.connect(controller.db_path) as db:
+                count = db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0]
+            self.assertEqual(0, count)
+
     def test_stale_packet_revision_is_rejected(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             plan, run, packet, _, store, controller, bridge = prepared(tmp)
