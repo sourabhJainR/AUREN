@@ -573,6 +573,7 @@ class ExecutionController:
         packet: Any,
         payload: Mapping[str, Any] | None = None,
         goal: str | None = None,
+        recovery_bridge: Any | None = None,
     ) -> DurableTask:
         """Dispatch one plan task through the same durable queue this controller owns.
 
@@ -581,7 +582,9 @@ class ExecutionController:
         """
         from .engineering_plan_dispatch import EngineeringPlanDispatch
 
-        return EngineeringPlanDispatch(store=store, controller=self).dispatch(
+        return EngineeringPlanDispatch(
+            store=store, controller=self, recovery_bridge=recovery_bridge,
+        ).dispatch(
             run_id=run_id,
             task_id=task_id,
             dispatch_key=dispatch_key,
