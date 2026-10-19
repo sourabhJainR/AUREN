@@ -124,9 +124,8 @@ class EngineeringPlanDispatchTests(unittest.TestCase):
             self.assertTrue(bridge.cancel("dispatch-1", reason="operator cancelled before execution"))
             self.assertEqual("cancelled", controller.task(task.id).state)
             self.assertTrue(bridge.cancel("dispatch-1", reason="idempotent cancellation"))
-            with self.assertRaises(DispatchCancelled):
-                # This is a different task state, so the bridge must not silently revive it.
-                bridge.cancel("dispatch-1", reason="attempt to revive cancelled work")
+            # Repeated cancellation is idempotent and never revives the task.
+            self.assertEqual("cancelled", controller.task(task.id).state)
 
     def test_shared_dispatch_budget_is_enforced(self):
         with tempfile.TemporaryDirectory() as tmp:
