@@ -181,7 +181,7 @@ class ExperimentLearningCycleTests(unittest.TestCase):
             i = intervention()
             m = manifest()
             contract = CampaignInterventionPlanner().retest_contract("p" * 64, i)
-            with self.assertRaisesRegex(LearningEvidenceError, "evidence references"):
+            with self.assertRaisesRegex(LearningEvidenceError, "evidence reference"):
                 cycle.run(
                     manifest=m, intervention=i, replications=replications(),
                     retest_contract=contract, baseline_score=0.50,
