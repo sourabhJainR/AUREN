@@ -223,3 +223,27 @@ def test_legacy_executive_database_migrates_in_place_for_work_keys():
         with sqlite3.connect(db_path) as db:
             columns = {row[1] for row in db.execute("PRAGMA table_info(work_units)")}
             assert "work_key" in columns
+
+
+def test_resumed_ci_cannot_override_a_later_failed_verification(tmp_path: Path):
+    company = AutonomousCompany(tmp_path)
+    unit = company.start("do not let CI override failed review", max_iterations=10)
+    company.record(unit.id, "verification", "passed", "older review passed", ("review:old",))
+    company.record(unit.id, "verification", "failed", "latest review failed", ("review:latest-failed",))
+    company.wait_for_ci(
+        unit.id, lambda: ("pending", "CI still running", ()),
+        poll_seconds=0.001, timeout_seconds=1, max_polls=1,
+    )
+
+    result = company.iterate(
+        unit.id,
+        execute=lambda iteration: (_ for _ in ()).throw(AssertionError("resumed CI must not rerun execution")),
+        review=lambda iteration: (True, "unexpected", ()),
+        ci=lambda iteration: ("passed", "checks passed", ("ci:passed",)),
+        poll_seconds=0.001, ci_timeout_seconds=1, max_ci_polls=1,
+    )
+    assert company._state(unit.id)[0] == "failed"
+    assert any(
+        event["kind"] == "execution" and "latest passing verification evidence" in event["detail"]
+        for event in _events(company, unit.id)
+    )
