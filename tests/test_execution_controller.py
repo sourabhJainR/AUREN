@@ -1026,3 +1026,33 @@ def test_supervised_cross_crew_handoff_is_revision_indexed_and_not_replayed(tmp_
     resumed = second_controller.load_graph_checkpoint("cross-crew-task")
     assert resumed is not None
     assert resumed["handoff_checkpoint"]["completed_ids"] == first_envelope["handoff_checkpoint"]["completed_ids"]
+
+
+def test_session_work_unit_creation_is_idempotent_if_mapping_write_is_lost(tmp_path: Path):
+    controller = ExecutionController(tmp_path)
+    first = controller.work_unit_for_session("session-retry", "long task")
+    with sqlite3.connect(controller.db_path) as db:
+        db.execute("DELETE FROM sessions WHERE session_id=?", ("session-retry",))
+
+    restarted = ExecutionController(tmp_path)
+    second = restarted.work_unit_for_session("session-retry", "long task")
+    assert second == first
+    with sqlite3.connect(restarted.company._db().execute("PRAGMA database_list").fetchone()[2]) as db:
+        rows = db.execute(
+            "SELECT id FROM work_units WHERE work_key LIKE ?",
+            ("execution-session:session-retry:%:initial",),
+        ).fetchall()
+    assert [row[0] for row in rows] == [first]
+
+
+def test_terminal_session_starts_one_new_resumable_generation(tmp_path: Path):
+    controller = ExecutionController(tmp_path)
+    first = controller.work_unit_for_session("session-generation", "long task")
+    controller.company.finish(first, success=True, reason="first generation complete", evidence=("test:first",))
+
+    restarted = ExecutionController(tmp_path)
+    second = restarted.work_unit_for_session("session-generation", "long task")
+    again = restarted.work_unit_for_session("session-generation", "long task")
+    assert second != first
+    assert again == second
+    assert restarted.company._state(second)[0] == "running"
