@@ -270,3 +270,79 @@ def test_duplicate_action_identity_does_not_create_stranded_ledger_intent():
         assert not second.executed
         assert second.verdict.reason == "duplicate_action_identity"
         assert ledger.get("publish:key-2") is None
+
+def test_external_effect_is_not_called_when_intent_persistence_fails():
+    policy = ActionPolicy(
+        allowed_capabilities=frozenset({"repository.write", "release.publish"}),
+        require_durable_ledger_for_external_effects=True,
+    )
+    request = make_request(
+        action="publish", risk="external_effect", idempotency_key="publish:intent-fault"
+    )
+
+    class FailingBeginLedger:
+        def begin(self, *_args, **_kwargs):
+            raise OSError("simulated intent persistence failure")
+
+    called = []
+    gateway = ActionGovernanceGateway(policy, side_effect_ledger=FailingBeginLedger())
+    result = gateway.execute(request, lambda: called.append("provider"))
+
+    assert not result.executed
+    assert result.verdict.reason == "durable_idempotency_rejected"
+    assert called == []
+
+
+def test_receipt_persistence_failure_requires_reconciliation_without_replay():
+    with tempfile.TemporaryDirectory() as tmp:
+        ledger_path = Path(tmp) / "effects.sqlite3"
+        durable_ledger = DurableSideEffectLedger(ledger_path)
+        policy = ActionPolicy(
+            allowed_capabilities=frozenset({"repository.write", "release.publish"}),
+            require_durable_ledger_for_external_effects=True,
+        )
+        request = make_request(
+            action="publish", risk="external_effect", idempotency_key="publish:receipt-fault"
+        )
+
+        class FailingCompleteLedger:
+            def __init__(self, delegate):
+                self.delegate = delegate
+
+            def begin(self, *args, **kwargs):
+                return self.delegate.begin(*args, **kwargs)
+
+            def complete(self, *_args, **_kwargs):
+                raise OSError("simulated receipt persistence failure")
+
+            def require_reconciliation(self, *args, **kwargs):
+                return self.delegate.require_reconciliation(*args, **kwargs)
+
+        called = []
+        faulted_gateway = ActionGovernanceGateway(
+            policy, side_effect_ledger=FailingCompleteLedger(durable_ledger)
+        )
+        try:
+            faulted_gateway.execute(
+                request, lambda: called.append("provider") or {"provider_id": "op-1"}
+            )
+        except OSError as error:
+            assert "receipt persistence failure" in str(error)
+        else:
+            raise AssertionError("receipt persistence fault must be visible to the caller")
+
+        assert called == ["provider"]
+        assert durable_ledger.get("publish:receipt-fault")["state"] == "executing"
+
+        restarted_gateway = ActionGovernanceGateway(
+            policy, side_effect_ledger=DurableSideEffectLedger(ledger_path)
+        )
+        retry = restarted_gateway.execute(
+            request, lambda: called.append("duplicate-provider") or {"provider_id": "op-2"}
+        )
+
+        assert not retry.executed
+        assert retry.verdict.reason == "side_effect_reconciliation_required"
+        assert called == ["provider"]
+        assert durable_ledger.get("publish:receipt-fault")["state"] == "reconcile_required"
+

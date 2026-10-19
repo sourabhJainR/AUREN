@@ -46,5 +46,10 @@ with a stable key derived from the canonical run/task/action identity.
 
 `tests/test_side_effect_ledger.py` covers replay after restart, payload-binding
 conflicts, interrupted execution, operator-gated retry, immutable receipts, and
-invalid state transitions. Repository CI is implementation evidence only; it is not
+invalid state transitions. Fault-injection tests also cover intent persistence failure (the provider handler must not run)
+and receipt persistence failure after a successful handler (the next attempt must require
+reconciliation and must not replay the provider call). These are local recovery tests, not
+proof of third-party provider idempotency.
+
+Repository CI is implementation evidence only; it is not
 proof of a third-party provider's idempotency or production isolation.
