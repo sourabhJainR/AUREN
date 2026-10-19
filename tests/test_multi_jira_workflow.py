@@ -95,14 +95,14 @@ class BranchAwareWorkspaceTests(unittest.TestCase):
             git(seed, "push", "-u", "origin", "main")
             git(seed, "push", "origin", "feature/example")
 
-            # Main advances after the feature branch was created.
-            (seed / "main-only.txt").write_text("latest main\n", encoding="utf-8")
-            git(seed, "add", "main-only.txt")
-            git(seed, "commit", "-m", "advance main")
-            git(seed, "push", "origin", "main")
+            # Clone while the feature branch is behind, then advance remote main.
             git(seed, "clone", str(remote), str(clone))
             git(clone, "config", "user.email", "test@example.com")
             git(clone, "config", "user.name", "AUREN tests")
+            (seed / "main-only.txt").write_text("latest main\\n", encoding="utf-8")
+            git(seed, "add", "main-only.txt")
+            git(seed, "commit", "-m", "advance main")
+            git(seed, "push", "origin", "main")
             workspace = BranchAwareWorkspace(clone, remote="origin")
 
             result = workspace.start_task_branch(
