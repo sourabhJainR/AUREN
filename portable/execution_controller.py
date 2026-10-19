@@ -1238,7 +1238,9 @@ class ExecutionController:
                 stop_reason = "cancelled"
                 break
             cycles += 1
-            batch = self.resume_pending(limit=batch_size)
+            batch = self.resume_pending(
+                limit=batch_size, continue_after_durable_failure=True,
+            )
             if batch:
                 scores.extend(batch)
                 idle_cycles = 0

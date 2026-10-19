@@ -1148,3 +1148,46 @@ def test_run_continuously_reports_failed_tasks_without_success_claim(tmp_path: P
     assert report.completed_tasks == 0
     assert report.remaining_nonterminal_tasks == 0
     assert report.stop_reason == "idle_budget_exhausted"
+
+
+def failing_durable_handler(payload):
+    raise RuntimeError(f"controlled handler failure: {payload['id']}")
+
+
+def test_run_continuously_reports_durable_handler_exceptions_and_keeps_draining(tmp_path: Path):
+    controller = ExecutionController(tmp_path)
+    controller.register_handler(
+        "tests.failing_durable_handler", failing_durable_handler, execution_class="read_only"
+    )
+    controller.register_handler("tests.durable_handler", durable_handler, execution_class="read_only")
+    failed = controller.submit("tests.failing_durable_handler", {"id": "durable-failure"})
+    completed = controller.submit("tests.durable_handler", {"id": "after-failure"})
+
+    report = controller.run_continuously(
+        batch_size=2, idle_sleep_seconds=0, max_cycles=3, max_idle_cycles=1,
+    )
+
+    assert report.stop_reason == "idle_budget_exhausted"
+    assert report.processed_work_units == 2
+    assert report.completed_tasks == 1
+    assert report.failed_tasks == 1
+    assert report.remaining_nonterminal_tasks == 0
+    assert controller.task(failed.id).state == "failed"
+    assert controller.task(completed.id).state == "completed"
+
+
+def test_resume_pending_keeps_fail_fast_default_for_direct_callers(tmp_path: Path):
+    controller = ExecutionController(tmp_path)
+    controller.register_handler(
+        "tests.failing_durable_handler", failing_durable_handler, execution_class="read_only"
+    )
+    task = controller.submit("tests.failing_durable_handler", {"id": "direct-failure"})
+
+    try:
+        controller.resume_pending(limit=1)
+    except RuntimeError as error:
+        assert "controlled handler failure" in str(error)
+    else:
+        raise AssertionError("direct resume_pending must retain fail-fast behavior")
+    assert controller.task(task.id).state == "failed"
+
