@@ -1,3 +1,7 @@
+import tempfile
+from pathlib import Path
+
+from portable.side_effect_ledger import DurableSideEffectLedger
 from portable.action_governance import (
     ActionGovernanceGateway,
     ActionPolicy,
@@ -177,3 +181,69 @@ def test_absolute_workspace_target_cannot_bypass_protected_path():
     gateway = make_gateway()
     request = make_request(target="/workspace/repository/.github/workflows/build.yml")
     assert gateway.evaluate(request).decision == "approval_required"
+
+
+def test_durable_side_effect_receipt_replays_after_gateway_restart():
+    with tempfile.TemporaryDirectory() as tmp:
+        ledger_path = Path(tmp) / "effects.sqlite3"
+        ledger = DurableSideEffectLedger(ledger_path)
+        policy = ActionPolicy(
+            allowed_capabilities=frozenset({"repository.write", "release.publish"}),
+            require_durable_ledger_for_external_effects=True,
+        )
+        request = make_request(
+            action="publish", risk="external_effect", idempotency_key="publish:run-1"
+        )
+        called = []
+        first = ActionGovernanceGateway(policy, side_effect_ledger=ledger).execute(
+            request, lambda: called.append("publish") or {"provider_id": "op-1"}
+        )
+        restarted = ActionGovernanceGateway(
+            policy, side_effect_ledger=DurableSideEffectLedger(ledger_path)
+        )
+        replay = restarted.execute(request, lambda: called.append("duplicate") or {"provider_id": "op-2"})
+        assert first.executed
+        assert replay.replayed and not replay.executed
+        assert replay.result_digest == first.result_digest
+        assert called == ["publish"]
+
+
+def test_durable_external_effect_fails_closed_without_ledger_when_required():
+    policy = ActionPolicy(
+        allowed_capabilities=frozenset({"repository.write", "release.publish"}),
+        require_durable_ledger_for_external_effects=True,
+    )
+    gateway = ActionGovernanceGateway(policy)
+    called = []
+    request = make_request(action="publish", risk="external_effect", idempotency_key="publish:run-1")
+    result = gateway.execute(request, lambda: called.append(True))
+    assert not result.executed
+    assert result.verdict.reason == "durable_idempotency_ledger_required"
+    assert called == []
+
+
+def test_ambiguous_external_handler_failure_requires_reconciliation():
+    with tempfile.TemporaryDirectory() as tmp:
+        ledger_path = Path(tmp) / "effects.sqlite3"
+        policy = ActionPolicy(
+            allowed_capabilities=frozenset({"repository.write", "release.publish"}),
+            require_durable_ledger_for_external_effects=True,
+        )
+        request = make_request(
+            action="publish", risk="external_effect", idempotency_key="publish:run-1"
+        )
+        gateway = ActionGovernanceGateway(policy, side_effect_ledger=DurableSideEffectLedger(ledger_path))
+        try:
+            gateway.execute(request, lambda: (_ for _ in ()).throw(TimeoutError("provider outcome unknown")))
+        except TimeoutError:
+            pass
+        else:
+            raise AssertionError("expected provider timeout")
+        called = []
+        restarted = ActionGovernanceGateway(
+            policy, side_effect_ledger=DurableSideEffectLedger(ledger_path)
+        )
+        result = restarted.execute(request, lambda: called.append(True))
+        assert not result.executed
+        assert result.verdict.reason == "side_effect_reconciliation_required"
+        assert called == []
