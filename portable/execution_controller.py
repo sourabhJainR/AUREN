@@ -562,6 +562,35 @@ class ExecutionController:
             )
         return work.id
 
+    def dispatch_engineering_plan_task(
+        self,
+        *,
+        store: Any,
+        run_id: str,
+        task_id: str,
+        dispatch_key: str,
+        handler: str,
+        packet: Any,
+        payload: Mapping[str, Any] | None = None,
+        goal: str | None = None,
+    ) -> DurableTask:
+        """Dispatch one plan task through the same durable queue this controller owns.
+
+        The adapter binds the persisted plan/run revision and fresh-context packet
+        digest before queue insertion. It does not create a second execution queue.
+        """
+        from .engineering_plan_dispatch import EngineeringPlanDispatch
+
+        return EngineeringPlanDispatch(store=store, controller=self).dispatch(
+            run_id=run_id,
+            task_id=task_id,
+            dispatch_key=dispatch_key,
+            handler=handler,
+            packet=packet,
+            payload=payload,
+            goal=goal,
+        )
+
     def submit(self, handler: str, payload: Mapping[str, Any], *, goal: str | None = None) -> DurableTask:
         execution_class = self._handler_execution_class(handler)
         if execution_class == "context_provider":
