@@ -13,6 +13,7 @@ import hashlib
 import io
 import json
 import shutil
+import signal
 import subprocess
 import tempfile
 import urllib.error
@@ -21,6 +22,7 @@ import zipfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
+from threading import Event
 
 BUNDLE_FORMAT_VERSION = 2
 BUNDLE_NAME = "auren-portable"
@@ -542,6 +544,13 @@ def parser() -> argparse.ArgumentParser:
     console_parser.add_argument("--port", type=int, default=0)
     console_parser.add_argument("--open", dest="open_browser", action="store_true")
     console_parser.add_argument("--auren-home", type=Path, default=None)
+    worker_parser = sub.add_parser("worker")
+    worker_parser.add_argument("--project-root", type=Path, default=Path("."))
+    worker_parser.add_argument("--batch-size", type=int, default=20)
+    worker_parser.add_argument("--idle-sleep-seconds", type=float, default=1.0)
+    worker_parser.add_argument("--max-cycles", type=int, default=100)
+    worker_parser.add_argument("--max-idle-cycles", type=int, default=5)
+    worker_parser.add_argument("--json", action="store_true")
     workbench_parser = sub.add_parser("workbench")
     workbench_parser.add_argument("--project-root", type=Path, default=Path("."))
     workbench_parser.add_argument("--workers", type=int, default=None)
@@ -574,6 +583,37 @@ def main(argv: list[str] | None = None) -> int:
         if args.host not in {"127.0.0.1", "localhost", "::1"}:
             raise SystemExit("console host must be loopback")
         serve_console(args.auren_home, args.host, args.port, args.open_browser, True)
+    elif args.command == "worker":
+        from .execution_controller import ExecutionController
+
+        stop_event = Event()
+
+        def request_stop(_signum, _frame):
+            stop_event.set()
+
+        previous_handlers = {}
+        for signum in (signal.SIGINT, signal.SIGTERM):
+            previous_handlers[signum] = signal.signal(signum, request_stop)
+        try:
+            report = ExecutionController(args.project_root).run_continuously(
+                stop_event=stop_event,
+                batch_size=args.batch_size,
+                idle_sleep_seconds=args.idle_sleep_seconds,
+                max_cycles=args.max_cycles,
+                max_idle_cycles=args.max_idle_cycles,
+            )
+        finally:
+            for signum, previous in previous_handlers.items():
+                signal.signal(signum, previous)
+        payload = {
+            "cycles": report.cycles,
+            "processed_work_units": report.processed_work_units,
+            "idle_cycles": report.idle_cycles,
+            "stop_reason": report.stop_reason,
+            "trust_scores": [score.as_dict() for score in report.trust_scores],
+        }
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0
     elif args.command == "workbench":
         from .local_workbench import LocalWorkbench, packet
         argv = list(args.argv)
