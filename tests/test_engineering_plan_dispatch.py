@@ -102,11 +102,16 @@ class EngineeringPlanDispatchTests(unittest.TestCase):
                 run_id=plan.run_id, task_id="implement", dispatch_key="dispatch-1",
                 handler="dispatch-test", packet=packet,
             )
+            with sqlite3.connect(controller.company.db_path) as db:
+                before = db.execute("SELECT COUNT(*) FROM work_units").fetchone()[0]
             with self.assertRaises(DispatchConflict):
                 bridge.dispatch(
                     run_id=plan.run_id, task_id="implement", dispatch_key="dispatch-2",
                     handler="dispatch-test", packet=packet,
                 )
+            with sqlite3.connect(controller.company.db_path) as db:
+                after = db.execute("SELECT COUNT(*) FROM work_units").fetchone()[0]
+            self.assertEqual(before, after, "rejected duplicate must not create an orphan work unit")
 
     def test_nested_credential_like_payload_keys_are_rejected_before_enqueue(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
