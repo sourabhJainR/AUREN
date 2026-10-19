@@ -144,12 +144,31 @@ class AutonomousCompany:
         return tuple({"id":r[0],"question":r[1],"dependency":r[2],"state":r[3],"evidence":tuple(json.loads(r[4])),"created_at":r[5]} for r in rows)
 
     def resolve_clarification(self, clarification_id: str, resolution: str) -> None:
+        if not isinstance(resolution, str) or not resolution.strip():
+            raise ValueError("resolution is required")
         with self._db() as db:
-            row=db.execute("SELECT work_unit_id FROM clarifications WHERE id=? AND state='open'", (clarification_id,)).fetchone()
+            row = db.execute(
+                "SELECT c.work_unit_id,w.state FROM clarifications c "
+                "JOIN work_units w ON w.id=c.work_unit_id "
+                "WHERE c.id=? AND c.state='open'",
+                (clarification_id,),
+            ).fetchone()
             if not row:
                 raise KeyError(clarification_id)
+            work_unit_id, work_state = row
             db.execute("UPDATE clarifications SET state='resolved' WHERE id=?", (clarification_id,))
-        self.record(row[0], "clarification", "resolved", resolution, (f"clarification:{clarification_id}",))
+            remaining = db.execute(
+                "SELECT COUNT(*) FROM clarifications WHERE work_unit_id=? AND state='open'",
+                (work_unit_id,),
+            ).fetchone()[0]
+            # Only unblock a waiting work unit. Never reopen a terminal unit just
+            # because an old clarification was resolved later.
+            if remaining == 0 and work_state == "waiting_external":
+                db.execute(
+                    "UPDATE work_units SET state='running',updated_at=? WHERE id=? AND state='waiting_external'",
+                    (_utc(), work_unit_id),
+                )
+        self.record(work_unit_id, "clarification", "resolved", resolution, (f"clarification:{clarification_id}",))
 
     def record(self, wid: str, kind: str, status: str, detail: str, evidence: Iterable[str] = ()) -> str:
         state, iteration = self._state(wid)
