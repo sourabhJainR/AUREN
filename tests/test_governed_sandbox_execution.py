@@ -182,5 +182,22 @@ class GovernedSandboxExecutionTests(unittest.TestCase):
         self.assertTrue(gateway.verify_trace()["passed"])
 
 
+
+    def test_legacy_sandbox_path_blocks_external_effect_without_durable_ledger(self):
+        gateway = ActionGovernanceGateway(ActionPolicy(
+            allowed_capabilities=frozenset({"repository.read", "repository.write"}),
+            external_effect_actions=frozenset({"specialist.execute"}),
+            require_idempotency_for_external_effects=False,
+        ))
+        backend = FakeBackend()
+        receipt = execute_governed_sandbox(
+            gateway, backend, make_action(), make_request()
+        )
+        self.assertFalse(receipt.action_executed)
+        self.assertEqual(receipt.policy_verdict.reason, "durable_idempotency_ledger_required")
+        self.assertEqual(backend.calls, [])
+        self.assertIn("durable_side_effect_blocked", [event["event"] for event in gateway.events])
+
+
 if __name__ == "__main__":
     unittest.main()
