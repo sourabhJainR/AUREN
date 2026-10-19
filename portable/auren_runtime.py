@@ -608,6 +608,7 @@ def main(argv: list[str] | None = None) -> int:
         payload = {
             "cycles": report.cycles,
             "processed_work_units": report.processed_work_units,
+            "remaining_nonterminal_tasks": report.remaining_nonterminal_tasks,
             "idle_cycles": report.idle_cycles,
             "stop_reason": report.stop_reason,
             "trust_scores": [score.as_dict() for score in report.trust_scores],
@@ -618,7 +619,9 @@ def main(argv: list[str] | None = None) -> int:
             print(
                 "AUREN worker stopped: "
                 f"{report.stop_reason}; cycles={report.cycles}; "
-                f"processed_work_units={report.processed_work_units}; idle_cycles={report.idle_cycles}"
+                f"processed_work_units={report.processed_work_units}; "
+                f"remaining_nonterminal_tasks={report.remaining_nonterminal_tasks}; "
+                f"idle_cycles={report.idle_cycles}"
             )
         return 0
     elif args.command == "workbench":
