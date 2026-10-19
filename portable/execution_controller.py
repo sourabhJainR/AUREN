@@ -1062,8 +1062,12 @@ class ExecutionController:
         necessary for resolving uncertain outcomes.
         """
         dispatch = task.payload.get("auren_dispatch")
-        if isinstance(dispatch, Mapping) and isinstance(dispatch.get("dispatch_key"), str):
-            key = "engineering-plan:" + str(dispatch["dispatch_key"])
+        if (
+            isinstance(dispatch, Mapping)
+            and isinstance(dispatch.get("dispatch_key"), str)
+            and dispatch["dispatch_key"].strip()
+        ):
+            key = "engineering-plan:" + dispatch["dispatch_key"].strip()
         else:
             key = "execution-task:" + task.id
         safe_payload = dict(task.payload)
@@ -1071,11 +1075,19 @@ class ExecutionController:
         payload_digest = hashlib.sha256(
             json.dumps(safe_payload, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
         ).hexdigest()
+        dispatch_key = dispatch.get("dispatch_key") if isinstance(dispatch, Mapping) else None
+        # A canonical engineering dispatch may be retried through a newly-created
+        # durable task after restart. Bind that record to the stable dispatch identity,
+        # not the transient task ID, so retries replay the same receipt rather than
+        # conflicting or repeating the external effect.
         binding = {
-            "task_id": task.id,
+            "identity": (
+                {"kind": "engineering_dispatch", "dispatch_key": dispatch_key}
+                if isinstance(dispatch_key, str) and dispatch_key.strip()
+                else {"kind": "execution_task", "task_id": task.id}
+            ),
             "handler": task.handler,
             "payload_digest": payload_digest,
-            "dispatch_key": dispatch.get("dispatch_key") if isinstance(dispatch, Mapping) else None,
         }
         decision = DurableSideEffectLedger(self.db_path).begin(key, binding)
         if decision.action == "replay":

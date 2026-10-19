@@ -41,17 +41,17 @@ with a stable key derived from the canonical run/task/action identity.
 - `ExecutionController.run_once` now wraps every handler registered as `consequential`
   with this ledger before provider invocation. Completed mapping receipts are replayed
   without invoking the handler again; `reconcile` decisions fail closed before dispatch.
-  Engineering-plan dispatches use their durable dispatch key; ordinary tasks use their
-  durable task ID. This prevents automatic re-execution of the same durable task, but does
-  not deduplicate independently-created tasks unless the provider itself supports a stable
-  idempotency key.
+  Engineering-plan dispatches bind the ledger to the stable dispatch key rather than
+  a transient task ID, so recreating a task for the same canonical dispatch reuses its
+  receipt or blocks for reconciliation. Ordinary tasks use their durable task ID. Distinct
+  dispatches still require a stable provider idempotency key to deduplicate at the provider.
 - Production rollout still needs failure-injection evidence against each consequential adapter.
 
 ## Validation
 
 `tests/test_side_effect_ledger.py` covers replay after restart, payload-binding
 conflicts, interrupted execution, operator-gated retry, immutable receipts, and
-invalid state transitions. Repository CI is implementation evidence only; it is not
+invalid state transitions, stable dispatch replay across recreated task IDs, and unknown provider outcomes that must not redispatch. Repository CI is implementation evidence only; it is not
 proof of a third-party provider's idempotency or production isolation.
 
 ## Receipt-persistence fault injection
