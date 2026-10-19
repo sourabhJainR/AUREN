@@ -2,6 +2,7 @@ from pathlib import Path
 import os
 import sqlite3
 import subprocess
+from threading import Event
 import sys
 
 from portable.execution_controller import ExecutionController
@@ -1060,3 +1061,43 @@ def test_terminal_session_does_not_implicitly_retry_and_new_goal_gets_one_genera
     assert second != first
     assert again == second
     assert restarted.company._state(second)[0] == "running"
+
+
+
+def test_run_continuously_drains_work_and_stops_after_bounded_idle_cycles(tmp_path: Path):
+    controller = ExecutionController(tmp_path)
+    controller.register_handler("tests.continuous_handler", durable_handler, execution_class="read_only")
+    first = controller.submit("tests.continuous_handler", {"id": "continuous-1"})
+    second = controller.submit("tests.continuous_handler", {"id": "continuous-2"})
+
+    report = controller.run_continuously(
+        batch_size=1, idle_sleep_seconds=0.001, max_cycles=10, max_idle_cycles=2,
+    )
+
+    assert report.stop_reason == "idle_budget_exhausted"
+    assert report.processed_work_units == 2
+    assert len(report.trust_scores) == 2
+    assert report.cycles == 4
+    assert report.idle_cycles == 2
+    assert controller.task(first.id).state == "completed"
+    assert controller.task(second.id).state == "completed"
+
+
+def test_run_continuously_observes_preexisting_cancellation(tmp_path: Path):
+    controller = ExecutionController(tmp_path)
+    stop = Event()
+    stop.set()
+    report = controller.run_continuously(stop_event=stop, max_cycles=5)
+    assert report.stop_reason == "cancelled"
+    assert report.cycles == 0
+    assert report.processed_work_units == 0
+
+
+def test_run_continuously_never_calls_idle_as_success(tmp_path: Path):
+    controller = ExecutionController(tmp_path)
+    report = controller.run_continuously(
+        idle_sleep_seconds=0, max_cycles=20, max_idle_cycles=2,
+    )
+    assert report.stop_reason == "idle_budget_exhausted"
+    assert report.processed_work_units == 0
+    assert report.trust_scores == ()
