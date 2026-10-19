@@ -91,6 +91,21 @@ class EngineeringPlanDispatchTests(unittest.TestCase):
                 count = db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0]
             self.assertEqual(0, count, "a missing canonical checkpoint must block queue insertion")
 
+    def test_controller_dispatch_rejects_bridge_for_another_plan_store(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            plan, run, packet, _, store, controller, _ = prepared(tmp)
+            other_store = EngineeringPlanStore(Path(tmp) / "other-plans.sqlite3")
+            recovery_bridge = EngineeringPlanRecoveryBridge(
+                store=other_store,
+                ledger=EngineeringRecoveryLedger(Path(tmp) / "runtime" / ".auren" / "recovery.sqlite3"),
+            )
+            with self.assertRaisesRegex(ValueError, "same plan store"):
+                controller.dispatch_engineering_plan_task(
+                    store=store, run_id=plan.run_id, task_id="implement",
+                    dispatch_key="dispatch-wrong-store", handler="dispatch-test",
+                    packet=packet, recovery_bridge=recovery_bridge,
+                )
+
     def test_controller_dispatch_accepts_matching_canonical_checkpoint(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             plan, run, packet, _, store, controller, _ = prepared(tmp)
