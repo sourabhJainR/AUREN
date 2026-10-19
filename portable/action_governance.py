@@ -171,6 +171,18 @@ class ActionGovernanceGateway:
         self._attempted_actions: set[tuple[str, str]] = set()
 
     @property
+    def has_durable_side_effect_ledger(self) -> bool:
+        """Whether this gateway can durably fence consequential external actions."""
+        return self._side_effect_ledger is not None
+
+    def is_external_effect(self, request: Any) -> bool:
+        """Classify a request using the gateway policy, not caller-supplied claims."""
+        return (
+            getattr(request, "risk", "") == "external_effect"
+            or getattr(request, "action", "") in self._policy.external_effect_actions
+        )
+
+    @property
     def events(self) -> tuple[dict[str, Any], ...]:
         with self._lock:
             return tuple(dict(event) for event in self._events)
