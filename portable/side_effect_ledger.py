@@ -11,7 +11,7 @@ import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 
 class IdempotencyConflict(ValueError):
@@ -39,8 +39,14 @@ class DurableSideEffectLedger:
     reconcile_required and is never silently re-executed.
     """
 
-    def __init__(self, database_path: str | Path):
+    def __init__(
+        self,
+        database_path: str | Path,
+        *,
+        retry_authorizer: Callable[[str, str, str, str], bool] | None = None,
+    ):
         self.database_path = Path(database_path)
+        self._retry_authorizer = retry_authorizer
         self.database_path.parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as db:
             db.execute(
@@ -53,6 +59,17 @@ class DurableSideEffectLedger:
                     receipt_json TEXT,
                     reason TEXT,
                     updated_at TEXT NOT NULL
+                )"""
+            )
+            db.execute(
+                """CREATE TABLE IF NOT EXISTS durable_side_effect_retry_authorizations (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    idempotency_key TEXT NOT NULL,
+                    operator_id TEXT NOT NULL,
+                    evidence_ref TEXT NOT NULL,
+                    operator_reason TEXT NOT NULL,
+                    authorization_digest TEXT NOT NULL,
+                    created_at TEXT NOT NULL
                 )"""
             )
 
@@ -171,13 +188,45 @@ class DurableSideEffectLedger:
             db.commit()
 
     def authorize_retry(
-        self, idempotency_key: str, *, operator_reason: str, confirmed_no_effect: bool
+        self,
+        idempotency_key: str,
+        *,
+        operator_reason: str,
+        operator_id: str,
+        evidence_ref: str,
+        confirmed_no_effect: bool,
     ) -> None:
-        """Authorize a retry only after an operator confirms the effect did not occur."""
+        """Authorize one retry only through a trusted host-supplied verifier.
+
+        The boolean is an additional assertion, not an authority credential. The
+        injected verifier must validate operator authority and the referenced
+        provider/operator evidence; absent or failing verifiers deny the retry.
+        """
         if not confirmed_no_effect:
             raise ValueError("retry requires confirmation that no external effect occurred")
-        if not isinstance(operator_reason, str) or not operator_reason.strip():
-            raise ValueError("operator_reason is required")
+        for value, name in (
+            (operator_reason, "operator_reason"),
+            (operator_id, "operator_id"),
+            (evidence_ref, "evidence_ref"),
+            (idempotency_key, "idempotency_key"),
+        ):
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"{name} is required")
+        if self._retry_authorizer is None:
+            raise PermissionError("trusted retry authorizer is required")
+        try:
+            authorized = bool(self._retry_authorizer(
+                idempotency_key, operator_id.strip(), evidence_ref.strip(), operator_reason.strip()
+            ))
+        except Exception as exc:
+            raise PermissionError("trusted retry authorization failed closed") from exc
+        if not authorized:
+            raise PermissionError("trusted retry authorizer rejected the evidence")
+        audit_reason = json.dumps({
+            "operator_reason": operator_reason.strip(),
+            "operator_id": operator_id.strip(),
+            "evidence_ref": evidence_ref.strip(),
+        }, sort_keys=True, separators=(",", ":"))
         with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute(
@@ -186,11 +235,48 @@ class DurableSideEffectLedger:
             if row is None or row["state"] != "reconcile_required":
                 db.rollback()
                 raise InvalidSideEffectTransition("only reconciled side effects may be retried")
+            created_at = self._now()
+            authorization = {
+                "idempotency_key": idempotency_key,
+                "operator_id": operator_id.strip(),
+                "evidence_ref": evidence_ref.strip(),
+                "operator_reason": operator_reason.strip(),
+                "created_at": created_at,
+            }
+            db.execute(
+                "INSERT INTO durable_side_effect_retry_authorizations "
+                "(idempotency_key,operator_id,evidence_ref,operator_reason,authorization_digest,created_at) "
+                "VALUES(?,?,?,?,?,?)",
+                (
+                    idempotency_key, operator_id.strip(), evidence_ref.strip(),
+                    operator_reason.strip(), self._digest(authorization), created_at,
+                ),
+            )
             db.execute(
                 "UPDATE durable_side_effects SET state='retry_authorized', reason=?, updated_at=? "
-                "WHERE idempotency_key=?", (operator_reason.strip(), self._now(), idempotency_key)
+                "WHERE idempotency_key=?", (audit_reason, created_at, idempotency_key)
             )
             db.commit()
+    def retry_authorizations(self, idempotency_key: str) -> tuple[Mapping[str, Any], ...]:
+        """Return immutable operator/evidence audit records for a retry key."""
+        with self._connect() as db:
+            rows = db.execute(
+                "SELECT idempotency_key,operator_id,evidence_ref,operator_reason,authorization_digest,created_at "
+                "FROM durable_side_effect_retry_authorizations WHERE idempotency_key=? ORDER BY id",
+                (idempotency_key,),
+            ).fetchall()
+        results = tuple(dict(row) for row in rows)
+        for row in results:
+            payload = {
+                "idempotency_key": row["idempotency_key"],
+                "operator_id": row["operator_id"],
+                "evidence_ref": row["evidence_ref"],
+                "operator_reason": row["operator_reason"],
+                "created_at": row["created_at"],
+            }
+            if self._digest(payload) != row["authorization_digest"]:
+                raise IdempotencyConflict("retry authorization audit digest mismatch")
+        return results
 
     def get(self, idempotency_key: str) -> Mapping[str, Any] | None:
         with self._connect() as db:
