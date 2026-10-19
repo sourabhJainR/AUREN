@@ -13,6 +13,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from portable.action_governance import ActionGovernanceGateway, ActionPolicy, ActionRequest
+from portable.side_effect_ledger import DurableSideEffectLedger
 from portable.execution_boundary import (
     DIRECT_GATEWAY_CALLSITE_POLICY,
     ExecutionAuthorityBinding,
@@ -357,6 +358,45 @@ class ExecutionBoundaryTests(unittest.TestCase):
         restored = checkpoint.restore(binding, expected_repository_revision="abc123")
         with self.assertRaises(ExecutionBudgetExceeded):
             restored.charge_attempt("second-attempt")
+
+
+    def test_p2_bound_external_effect_requires_durable_ledger_before_charging_budget(self):
+        binding = self.binding(allowed_actions=("read", "edit", "test", "publish"))
+        gateway = ActionGovernanceGateway(ActionPolicy(
+            allowed_capabilities=frozenset({"source.write"}),
+            allowed_actions=frozenset({"edit", "publish"}),
+        ))
+        guard = RuntimeExecutionGuard(max_steps=10, max_attempts=3)
+        calls = []
+        request = self.request(action="publish", risk="external_effect", idempotency_key="publish:task-1")
+        result = execute_bound_action(
+            gateway, binding, request, lambda: calls.append(True),
+            repository_revision="abc123", repository_digest="repo-digest",
+            budget_id="budget-1", execution_guard=guard,
+        )
+        self.assertFalse(result.executed)
+        self.assertEqual(result.verdict.reason, "durable_idempotency_ledger_required")
+        self.assertEqual(guard.attempts_used, 0)
+        self.assertEqual(calls, [])
+
+    def test_p2_bound_external_effect_uses_durable_ledger(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            binding = self.binding(allowed_actions=("read", "edit", "test", "publish"))
+            gateway = ActionGovernanceGateway(
+                ActionPolicy(
+                    allowed_capabilities=frozenset({"source.write"}),
+                    allowed_actions=frozenset({"edit", "publish"}),
+                    require_durable_ledger_for_external_effects=True,
+                ),
+                side_effect_ledger=DurableSideEffectLedger(Path(tmp) / "effects.sqlite3"),
+            )
+            request = self.request(action="publish", risk="external_effect", idempotency_key="publish:task-1")
+            result = execute_bound_action(
+                gateway, binding, request, lambda: {"provider_id": "op-1"},
+                repository_revision="abc123", repository_digest="repo-digest",
+                budget_id="budget-1", execution_guard=RuntimeExecutionGuard(max_steps=10, max_attempts=3),
+            )
+            self.assertTrue(result.executed)
 
 
 if __name__ == "__main__":
