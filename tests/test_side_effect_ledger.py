@@ -73,6 +73,11 @@ class DurableSideEffectLedgerTests(unittest.TestCase):
                 confirmed_no_effect=True,
             )
             self.assertEqual("execute", authorized.begin("effect-1", {"resource": "staging"}).action)
+            audit = authorized.retry_authorizations("effect-1")
+            self.assertEqual(1, len(audit))
+            self.assertEqual("operator-1", audit[0]["operator_id"])
+            self.assertEqual("provider:lookup:123", audit[0]["evidence_ref"])
+            self.assertEqual(64, len(audit[0]["authorization_digest"]))
 
     def test_retry_authorizer_rejection_fails_closed(self):
         with tempfile.TemporaryDirectory() as tmp:
