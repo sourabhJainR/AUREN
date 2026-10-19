@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import sqlite3
+import threading
+from concurrent.futures import ThreadPoolExecutor
 import tempfile
 import unittest
 from pathlib import Path
@@ -173,6 +175,43 @@ class EngineeringPlanDispatchTests(unittest.TestCase):
                     run_id=plan.run_id, task_id="review", dispatch_key="dispatch-2",
                     handler="dispatch-test", packet=review_packet,
                 )
+
+    def test_concurrent_duplicate_dispatch_leaves_no_orphan_work_unit(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            plan, run, packet, _, store, controller, bridge = prepared(tmp)
+            with sqlite3.connect(controller.company.db_path) as db:
+                baseline_units = db.execute("SELECT COUNT(*) FROM work_units").fetchone()[0]
+            barrier = threading.Barrier(2)
+            original_start = controller.company.start
+
+            def synchronized_start(goal, **kwargs):
+                barrier.wait(timeout=5)
+                return original_start(goal, **kwargs)
+
+            controller.company.start = synchronized_start
+
+            def submit(key):
+                return bridge.dispatch(
+                    run_id=plan.run_id, task_id="implement", dispatch_key=key,
+                    handler="dispatch-test", packet=packet,
+                )
+
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                futures = [pool.submit(submit, key) for key in ("concurrent-1", "concurrent-2")]
+                outcomes = []
+                for future in futures:
+                    try:
+                        outcomes.append(("ok", future.result(timeout=15)))
+                    except DispatchConflict as exc:
+                        outcomes.append(("conflict", str(exc)))
+            self.assertEqual(1, sum(kind == "ok" for kind, _ in outcomes), outcomes)
+            self.assertEqual(1, sum(kind == "conflict" for kind, _ in outcomes), outcomes)
+            with sqlite3.connect(controller.db_path) as db:
+                self.assertEqual(1, db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0])
+                self.assertEqual(1, db.execute("SELECT COUNT(*) FROM engineering_dispatch_intents").fetchone()[0])
+            with sqlite3.connect(controller.company.db_path) as db:
+                final_units = db.execute("SELECT COUNT(*) FROM work_units").fetchone()[0]
+            self.assertEqual(baseline_units + 1, final_units, "losing concurrent dispatch must not leave an orphan work unit")
 
     def test_dispatch_intent_survives_controller_recreation(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
