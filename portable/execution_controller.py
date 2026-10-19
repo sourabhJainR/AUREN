@@ -105,6 +105,7 @@ class ContinuousRunReport:
 
     cycles: int
     processed_work_units: int
+    remaining_nonterminal_tasks: int
     idle_cycles: int
     stop_reason: str
     trust_scores: tuple[TrustScore, ...]
@@ -1212,9 +1213,14 @@ class ExecutionController:
             stop_reason = "cycle_budget_exhausted"
         if event.is_set() and stop_reason != "idle_budget_exhausted":
             stop_reason = "cancelled"
+        with sqlite3.connect(self.db_path) as db:
+            remaining_nonterminal = int(db.execute(
+                "SELECT COUNT(*) FROM tasks WHERE state NOT IN ('completed','failed','cancelled')"
+            ).fetchone()[0])
         return ContinuousRunReport(
-            cycles=cycles, processed_work_units=len(scores), idle_cycles=idle_cycles,
-            stop_reason=stop_reason, trust_scores=tuple(scores),
+            cycles=cycles, processed_work_units=len(scores),
+            remaining_nonterminal_tasks=remaining_nonterminal,
+            idle_cycles=idle_cycles, stop_reason=stop_reason, trust_scores=tuple(scores),
         )
 
     def heartbeat(self, task: DurableTask, *, lease_seconds: int = 300) -> None:
