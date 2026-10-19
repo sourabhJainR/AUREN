@@ -16,8 +16,11 @@ from portable.engineering_recovery import EngineeringRecoveryLedger
 from portable.execution_controller import ExecutionController
 
 
+DISPATCH_HANDLER_CALLS = []
+
 def dispatch_test_handler(payload):
     """Importable test handler used to exercise the durable registration contract."""
+    DISPATCH_HANDLER_CALLS.append(dict(payload))
     return {"accepted": True}
 
 
@@ -143,6 +146,41 @@ class EngineeringPlanDispatchTests(unittest.TestCase):
             )
             self.assertEqual("pending", task.state)
             self.assertEqual(plan.digest, task.payload["auren_dispatch"]["plan_digest"])
+
+    def test_worker_revalidates_checkpoint_before_running_queued_handler(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            plan, run, packet, _, store, controller, bridge = prepared(tmp)
+            DISPATCH_HANDLER_CALLS.clear()
+            task = bridge.dispatch(
+                run_id=plan.run_id, task_id="implement", dispatch_key="dispatch-worker-guard",
+                handler="dispatch-test", packet=packet, payload={"change": "small"},
+            )
+            with bridge.recovery_bridge.ledger._db() as db:
+                db.execute(
+                    "DELETE FROM recovery_checkpoints WHERE task_id=? AND phase=?",
+                    (plan.run_id, bridge.recovery_bridge.PHASE),
+                )
+            with self.assertRaisesRegex(EngineeringPlanCheckpointMismatch, "checkpoint is missing"):
+                controller.run_once(task.id)
+            self.assertEqual([], DISPATCH_HANDLER_CALLS, "handler must not run without a valid canonical checkpoint")
+            self.assertEqual("failed", controller.task(task.id).state)
+
+    def test_worker_fails_closed_after_restart_until_trusted_bridge_is_registered(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            plan, run, packet, _, store, controller, bridge = prepared(tmp)
+            task = bridge.dispatch(
+                run_id=plan.run_id, task_id="implement", dispatch_key="dispatch-worker-restart",
+                handler="dispatch-test", packet=packet, payload={"change": "small"},
+            )
+            restarted_controller = ExecutionController(Path(tmp) / "runtime")
+            restarted_controller.register_handler(
+                "dispatch-test", dispatch_test_handler, execution_class="read_only",
+            )
+            DISPATCH_HANDLER_CALLS.clear()
+            with self.assertRaisesRegex(EngineeringPlanCheckpointMismatch, "bridge is not registered"):
+                restarted_controller.run_once(task.id)
+            self.assertEqual([], DISPATCH_HANDLER_CALLS)
+            self.assertEqual("failed", restarted_controller.task(task.id).state)
 
     def test_dispatch_replay_survives_plan_revision_advancing_after_enqueue(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
