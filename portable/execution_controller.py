@@ -1175,8 +1175,17 @@ class ExecutionController:
         for value, name in ((batch_size, "batch_size"), (max_cycles, "max_cycles"), (max_idle_cycles, "max_idle_cycles")):
             if isinstance(value, bool) or not isinstance(value, int) or value < 1:
                 raise ValueError(f"{name} must be a positive integer")
-        if not isinstance(idle_sleep_seconds, (int, float)) or not math.isfinite(idle_sleep_seconds) or idle_sleep_seconds < 0:
-            raise ValueError("idle_sleep_seconds must be a finite non-negative number")
+        if batch_size > 100 or max_cycles > 1000 or max_idle_cycles > 100:
+            raise ValueError("continuous loop budgets exceed hard limits (batch_size<=100, max_cycles<=1000, max_idle_cycles<=100)")
+        if max_idle_cycles > max_cycles:
+            raise ValueError("max_idle_cycles cannot exceed max_cycles")
+        if (
+            isinstance(idle_sleep_seconds, bool)
+            or not isinstance(idle_sleep_seconds, (int, float))
+            or not math.isfinite(idle_sleep_seconds)
+            or not 0 <= idle_sleep_seconds <= 300
+        ):
+            raise ValueError("idle_sleep_seconds must be finite and between 0 and 300 seconds")
         event = stop_event if stop_event is not None else Event()
         scores: list[TrustScore] = []
         cycles = 0
