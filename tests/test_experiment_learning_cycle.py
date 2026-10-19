@@ -148,7 +148,7 @@ class ExperimentLearningCycleTests(unittest.TestCase):
             self.assertEqual("unscored", outcome.receipt.disposition)
             self.assertEqual((), store.retrieve_compatible(m))
 
-    def test_rejected_evidence_never_returns_a_cycle_result(self):
+    def test_rejected_evidence_never_creates_a_reusable_lesson(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             cycle, store = make_cycle(tmp, evidence=False)
             i = intervention()
