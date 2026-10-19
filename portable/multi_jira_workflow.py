@@ -161,14 +161,28 @@ class BranchAwareWorkspace:
     def __init__(self, root: str | os.PathLike[str], *, remote: str = "origin") -> None:
         self.root = Path(root).resolve()
         self.remote = remote
-        if not (self.root / ".git").exists() and not _run_git(
+        if not (self.root / ".git").exists() and _run_git(
             self.root, "rev-parse", "--git-dir", check=False
-        ).returncode == 0:
+        ).returncode != 0:
             raise GitWorkflowError(f"Not a Git repository: {self.root}")
+        self.read_cache = ReadOnceFileCache(self.root)
+        self._cache_head = _run_git(self.root, "rev-parse", "HEAD").stdout.strip()
+
+    def _refresh_cache_epoch(self) -> str:
+        head = _run_git(self.root, "rev-parse", "HEAD").stdout.strip()
+        if head != self._cache_head:
+            self.read_cache.invalidate()
+            self._cache_head = head
+        return head
+
+    def read_text(self, path: str | os.PathLike[str], *, encoding: str = "utf-8") -> str:
+        """Read a repository file once per unchanged worktree/revision epoch."""
+        self._refresh_cache_epoch()
+        return self.read_cache.read_text(path, encoding=encoding)
 
     def snapshot(self) -> GitSnapshot:
         branch = _run_git(self.root, "branch", "--show-current").stdout.strip()
-        head = _run_git(self.root, "rev-parse", "HEAD").stdout.strip()
+        head = self._refresh_cache_epoch()
         upstream_result = _run_git(
             self.root, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}", check=False
         )
@@ -246,6 +260,7 @@ class BranchAwareWorkspace:
                 f"Merge from {fetched.remote_ref} needs explicit conflict resolution: "
                 + ", ".join(conflicts or ("unknown conflict",))
             )
+        self._refresh_cache_epoch()
         return SyncResult(fetched.remote_ref, fetched.remote_sha, fetched.fetched, True)
 
     def start_task_branch(
@@ -266,6 +281,7 @@ class BranchAwareWorkspace:
         feature = self.fetch_if_needed(feature_branch)
         target = self.fetch_if_needed(target_branch)
         _run_git(self.root, "switch", "--create", branch_name, feature.remote_ref)
+        self._refresh_cache_epoch()
         # The target may be ahead of the feature branch. Merge it instead of rebasing
         # shared work or overwriting the feature branch's history.
         base = _run_git(
@@ -283,10 +299,12 @@ class BranchAwareWorkspace:
             conflicts = _paths_from_nul(
                 _run_git(self.root, "diff", "--name-only", "--diff-filter=U", "-z").stdout
             )
+            self.read_cache.invalidate()
             raise MergeConflictError(
                 f"Created {branch_name} from {feature.remote_ref}; latest {target.remote_ref} "
                 f"needs explicit conflict resolution: " + ", ".join(conflicts or ("unknown conflict",))
             )
+        self._refresh_cache_epoch()
         return SyncResult(target.remote_ref, target.remote_sha, feature.fetched or target.fetched, True)
 
     def stage_paths(self, paths: Sequence[str | os.PathLike[str]]) -> tuple[str, ...]:
@@ -303,7 +321,11 @@ class BranchAwareWorkspace:
         ).stdout)
         prohibited_staged = tuple(path for path in staged if is_local_developer_setup(path))
         if prohibited_staged:
-            _run_git(self.root, "reset", "-q", "HEAD", "--", *prohibited_staged, check=False)
+            head_exists = _run_git(self.root, "rev-parse", "--verify", "HEAD", check=False).returncode == 0
+            if head_exists:
+                _run_git(self.root, "reset", "-q", "HEAD", "--", *prohibited_staged, check=False)
+            else:
+                _run_git(self.root, "rm", "--cached", "-q", "--", *prohibited_staged, check=False)
             raise GitWorkflowError(
                 "Removed prohibited developer-local files from the index: "
                 + ", ".join(prohibited_staged)
