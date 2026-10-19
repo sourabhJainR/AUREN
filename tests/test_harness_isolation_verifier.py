@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import math
 import unittest
 
 from portable.arena_isolation_attestation import ArenaIsolationAttestation
@@ -106,12 +107,17 @@ class ArenaHarnessIsolationVerifierTests(unittest.TestCase):
                 campaign_ended_at_epoch=1800.0,
             )
 
-        self.verifier = ArenaHarnessIsolationReceiptVerifier(
-            verify_detached_signature=lambda signer, signature, message: (
-                signer == "isolation-operator-v1"
-                and signature == hashlib.sha256(message).hexdigest()
-            ),
-            resolve_trusted_context=resolve_context,
+        self.resolve_context = resolve_context
+        self.verify_signature = lambda signer, signature, message: (
+            signer == "isolation-operator-v1"
+            and signature == hashlib.sha256(message).hexdigest()
+        )
+        self.verifier = self.make_verifier()
+
+    def make_verifier(self, *, max_future_skew_seconds=30.0):
+        return ArenaHarnessIsolationReceiptVerifier(
+            verify_detached_signature=self.verify_signature,
+            resolve_trusted_context=self.resolve_context,
             trusted_signer_ids=frozenset({"isolation-operator-v1"}),
             revoked_signer_ids=frozenset(),
             trusted_signer_key_ids=frozenset({"isolation-key-v3"}),
@@ -120,6 +126,7 @@ class ArenaHarnessIsolationVerifierTests(unittest.TestCase):
             oracle_id="independent-oracle-v1",
             policy_runtime_id="policy-runtime-v1",
             clock=lambda: self.now,
+            max_future_skew_seconds=max_future_skew_seconds,
         )
 
     def test_valid_signed_receipt_is_bound_to_exact_manifest_task_and_harness(self):
@@ -166,6 +173,12 @@ class ArenaHarnessIsolationVerifierTests(unittest.TestCase):
     def test_expired_attestation_fails_closed(self):
         self.now = 2600.0
         self.assertFalse(self.verifier(self.receipt, self.manifest, self.harness_digest))
+
+    def test_non_finite_or_boolean_clock_skew_configuration_is_rejected(self):
+        for invalid in (float("nan"), float("inf"), float("-inf"), True):
+            with self.subTest(value=invalid):
+                with self.assertRaisesRegex(ValueError, "finite and non-negative"):
+                    self.make_verifier(max_future_skew_seconds=invalid)
 
 
 if __name__ == "__main__":
