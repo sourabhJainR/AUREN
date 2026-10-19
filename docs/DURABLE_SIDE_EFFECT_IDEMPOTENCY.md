@@ -5,6 +5,8 @@ engineering-plan handler runs. That prevents stale or forged work from crossing 
 dispatch boundary; it does not make an external API call atomic with AUREN's SQLite
 transaction.
 
+For generic consequential tasks that are not canonical engineering-plan dispatches, a caller may pass `auren_idempotency: {"key": "<stable-logical-operation-key>"}` in the task payload. This metadata is removed from the payload digest and binds ledger replay to the stable key rather than the transient task ID. Reuse the key only for the same logical operation and unchanged business payload; the ledger rejects changed payloads. This is an AUREN-side deduplication/reconciliation contract, not a replacement for provider-native idempotency or provider operation-history lookup.
+
 For consequential handlers (deployment, payment, publishing, destructive mutation,
 or any external write), use `portable.side_effect_ledger.DurableSideEffectLedger`
 with a stable key derived from the canonical run/task/action identity.
