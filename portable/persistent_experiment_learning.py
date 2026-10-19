@@ -288,9 +288,16 @@ class PersistentExperimentLearningStore:
         )
         if signal.signal_digest != expected_signal.signal_digest:
             raise LearningStoreConflict("curriculum signal does not match the verified experiment result and domain lifts")
-        refs = tuple(dict.fromkeys(str(ref).strip() for ref in evidence_refs))
-        if not refs or any(not ref for ref in refs):
-            raise LearningEvidenceError("at least one non-empty evidence reference is required")
+        if isinstance(evidence_refs, (str, bytes)) or not isinstance(evidence_refs, Sequence):
+            raise LearningEvidenceError("evidence_refs must be a sequence of opaque reference strings")
+        if any(not isinstance(ref, str) or not ref.strip() for ref in evidence_refs):
+            raise LearningEvidenceError("evidence references must be non-empty strings")
+        refs = tuple(dict.fromkeys(ref.strip() for ref in evidence_refs))
+        for domain, lift in domain_lifts:
+            if not isinstance(domain, str) or not domain.strip():
+                raise ValueError("domain lift names must be non-empty strings")
+            if isinstance(lift, bool) or not isinstance(lift, (int, float)) or not math.isfinite(lift):
+                raise ValueError("domain lifts must be finite numbers")
         episode_digest = ""
         if episode is not None:
             if not isinstance(episode, EngineeringEpisode):
@@ -303,10 +310,12 @@ class PersistentExperimentLearningStore:
             evidence_verified = self.verify_evidence(refs, manifest, result) is True
         except Exception:
             evidence_verified = False
-        if not evidence_verified or not result.evidence_sufficient or signal.action == "insufficient-evidence":
+        if not evidence_verified:
             disposition = "unscored"
         elif result.regression_detected or result.rollback_recommended or signal.action == "rollback":
             disposition = "negative"
+        elif not result.evidence_sufficient or signal.action == "insufficient-evidence":
+            disposition = "unscored"
         else:
             disposition = "candidate"
 
@@ -355,7 +364,7 @@ class PersistentExperimentLearningStore:
                 "capability": manifest.capability, "compatibility_digest": manifest.compatibility_digest,
             })
             result_node = self._insert_node(db, "experiment_result", result.result_digest, {
-                "disposition": disposition, "experiment_id": manifest.experiment_id,
+                "experiment_id": manifest.experiment_id,
             })
             signal_node = self._insert_node(db, "curriculum_signal", signal.signal_digest, {
                 "action": signal.action, "capability": signal.capability,
