@@ -565,6 +565,11 @@ class ExecutionController:
                     if row[1] != goal:
                         raise ValueError("session_id is already bound to a different active goal")
                     return prior_work_unit_id
+                # A terminal unit for the same goal stays terminal. Starting it
+                # again implicitly would turn repeated failure into an unbounded
+                # retry loop; callers must provide a new session or a new goal.
+                if row[1] == goal:
+                    return prior_work_unit_id
                 work_key = f"execution-session:{session_id}:{goal_digest}:after:{prior_work_unit_id}"
                 work = self.company.start(goal, work_key=work_key)
                 db.execute(
