@@ -314,12 +314,9 @@ def execute_bound_action(
         return GovernedResult(executed=False, verdict=PolicyVerdict(
             decision="deny", reason=reason, request_fingerprint=fingerprint_fn(),
         ))
-    # The authority-bound path requires durable idempotency for external effects.
-    # Direct legacy gateway callers remain compatible during staged adapter migration.
-    if gateway.is_external_effect(request) and not gateway.has_durable_side_effect_ledger:
-        return GovernedResult(False, PolicyVerdict(
-            "deny", "durable_idempotency_ledger_required", fingerprint_fn(),
-        ))
+    durable_verdict = gateway.durable_side_effect_preflight(request)
+    if durable_verdict is not None:
+        return GovernedResult(False, durable_verdict)
     try:
         charged = execution_guard.charge_attempt(f"{authority.budget_id}:{request.action_id}")
     except ExecutionBudgetExceeded:
