@@ -42,6 +42,22 @@ For high-risk changes, ensure the deterministic guard covers the relevant expand
 
 At completion, verify each selected principle through observable evidence: tests/checks, source references, diff/review, security and compatibility checks, or a reasoned documented decision where automated verification is not meaningful. Re-evaluate after fixes and against the exact final head. If evidence is missing, report it as missing; do not mark the task verified. Learning may improve future selection but cannot silently weaken permanent policy.
 
+## Multi-Jira, branch-aware execution
+
+For each Jira, create a distinct task context and branch, but reuse repository knowledge and verified engineering lessons. Use `portable.multi_jira_workflow.BranchAwareWorkspace` and `ReadOnceFileCache` rather than ad-hoc Git commands or repeated full-file reads.
+
+- Capture Jira key, acceptance criteria, dependencies, non-goals, immutable intent digest, and exit conditions before implementation.
+- Snapshot branch/HEAD/upstream/dirty and staged paths once; retrieve the repository map and targeted symbols/tests before opening full files. Reuse cached file contents while unchanged; invalidate affected paths after checkout, merge, generation, or detected edits.
+- Recall prior verified project lessons through `portable.memory_orchestrator.MemoryOrchestrator`; repository files and current tests remain authoritative.
+- Start each Jira branch from the selected feature branch, then conditionally fetch server refs and merge the latest target branch. Do not rewrite shared history. Stop on conflicts and preserve their paths for explicit resolution.
+- Require a clean worktree before branch switching or syncing. Never hide local changes with reset/clean.
+- Stage explicit source/test/doc paths only via `stage_paths([...])`; never use blanket `git add .` or `git add -A`. Developer-local secrets, IDE state, virtual environments and local overrides must never enter the index. Shared templates remain allowed.
+- Keep work items independent unless dependency/file ownership proves coordination is needed. After changes from another Jira affect a dependency, invalidate affected context and rerun impact analysis/tests.
+- Promote learning only after verification and with evidence IDs, intent digest, and explicit approval through the canonical memory owner. Do not create a Jira sidecar memory database or turn guesses into facts.
+- Require exact-head CI and review before merge; record the final SHA, checks, artifacts, rollback notes, and unresolved external gates in the Jira/PR record.
+
+See `docs/MULTI_JIRA_ENGINEERING_WORKFLOW.md` for lifecycle details and examples.
+
 ## Required workflow
 
 `intent -> context -> plan -> evidence -> change -> verification -> review -> artifact -> rollout -> observation`
