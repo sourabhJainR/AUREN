@@ -44,15 +44,7 @@ At completion, verify each selected principle through observable evidence: tests
 
 ## Multi-Jira, branch-aware execution
 
-Use `portable.multi_jira_workflow.BranchAwareWorkspace` and `ReadOnceFileCache` for multiple Jira tickets in one repository. Keep a distinct intent digest, acceptance criteria, task branch, evidence, and PR per Jira.
-
-- Snapshot branch/HEAD/upstream/status; use repository maps and targeted reads before full-file reads. Reuse unchanged contents and invalidate cache after branch/HEAD changes or edits.
-- Recall and publish verified lessons through `portable.memory_orchestrator.MemoryOrchestrator`; require evidence IDs, intent digest, and explicit approval. Never create a sidecar knowledge store.
-- Create each task branch from a feature branch, conditionally fetch changed remote refs, and merge the latest target without rewriting shared history. Dirty worktrees block switching/sync; conflicts stop for explicit resolution.
-- Stage explicit paths only; never use `git add .` or `git add -A`. Local secrets, IDE state, virtual environments, and machine-specific overrides must not be staged.
-- Require exact-head CI/review, post-merge SHA verification, and evidence-backed closeout.
-
-See `docs/MULTI_JIRA_ENGINEERING_WORKFLOW.md`.
+Use `portable.multi_jira_workflow.BranchAwareWorkspace` and `ReadOnceFileCache`. Keep a separate intent digest, acceptance criteria, branch, evidence, and PR per Jira. Reuse unchanged file contents; invalidate cache after HEAD changes or edits, and prefer repository maps/targeted reads before full files. Start from a feature branch, fetch only changed remote refs, merge the latest target without rewriting shared history, require a clean worktree, and stop on conflicts. Stage explicit paths only—never blanket-add; exclude local secrets, IDE state, virtual environments, and local overrides. Route evidence-backed lessons through canonical `MemoryOrchestrator` with approval; no sidecar store. Require exact-head CI/review and post-merge verification. See `docs/MULTI_JIRA_ENGINEERING_WORKFLOW.md`.
 
 ## Required workflow
 
