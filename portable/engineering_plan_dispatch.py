@@ -62,6 +62,20 @@ class EngineeringPlanDispatch:
             raise ValueError(f"{field} must be non-empty text")
         return value.strip()
 
+    @classmethod
+    def _validate_payload_keys(cls, value: Any, path: str = "payload") -> None:
+        """Reject credential-like keys recursively before durable queue serialization."""
+        if isinstance(value, Mapping):
+            forbidden = ("secret", "password", "api_key", "credential", "private_key")
+            for key, item in value.items():
+                normalized = str(key).lower().replace("-", "_").replace(" ", "_")
+                if normalized == "token" or normalized.endswith("_token") or any(part in normalized for part in forbidden):
+                    raise ValueError(f"{path} must not contain credential-like keys")
+                cls._validate_payload_keys(item, f"{path}.{key}")
+        elif isinstance(value, (list, tuple)):
+            for index, item in enumerate(value):
+                cls._validate_payload_keys(item, f"{path}[{index}]")
+
     def _verified_state(
         self, run_id: str, task_id: str, packet: EngineeringContextPacket
     ) -> tuple[EngineeringPlan, EngineeringPlanRun]:
@@ -117,9 +131,10 @@ class EngineeringPlanDispatch:
         if execution_class not in {"read_only", "ci_gated", "consequential"}:
             raise ValueError("dispatch handler must have an explicit executable class")
         self.controller._load_handler(handler_name)
+        if payload is not None and not isinstance(payload, Mapping):
+            raise ValueError("dispatch payload must be a mapping")
         safe_payload = dict(payload or {})
-        if any(str(name).lower() in {"token", "password", "api_key", "secret", "private_key"} for name in safe_payload):
-            raise ValueError("dispatch payload must not contain credential-like top-level keys")
+        self._validate_payload_keys(safe_payload)
         encoded_payload = json.dumps(safe_payload, sort_keys=True, separators=(",", ":"), allow_nan=False)
         binding = {
             "run_id": run_id, "task_id": task_id, "plan_digest": plan.digest,
