@@ -345,7 +345,12 @@ class PersistentExperimentLearningStore:
             ).fetchone()
             if existing is not None:
                 receipt = self._receipt_from_row(existing)
-                if receipt.record_digest != record_digest:
+                if (
+                    receipt.result_digest != result.result_digest
+                    or receipt.signal_digest != signal.signal_digest
+                    or receipt.evidence_refs != refs
+                    or receipt.episode_digest != episode_digest
+                ):
                     raise LearningStoreConflict("same experiment manifest was replayed with different outcome/evidence")
                 return receipt
 
