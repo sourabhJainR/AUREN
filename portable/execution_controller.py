@@ -105,6 +105,8 @@ class ContinuousRunReport:
 
     cycles: int
     processed_work_units: int
+    completed_tasks: int
+    failed_tasks: int
     remaining_nonterminal_tasks: int
     idle_cycles: int
     stop_reason: str
@@ -1188,6 +1190,11 @@ class ExecutionController:
         ):
             raise ValueError("idle_sleep_seconds must be finite and between 0 and 300 seconds")
         event = stop_event if stop_event is not None else Event()
+        with sqlite3.connect(self.db_path) as db:
+            before_states = {
+                str(task_id): str(state)
+                for task_id, state in db.execute("SELECT id,state FROM tasks").fetchall()
+            }
         scores: list[TrustScore] = []
         cycles = 0
         idle_cycles = 0
@@ -1214,11 +1221,24 @@ class ExecutionController:
         if event.is_set() and stop_reason != "idle_budget_exhausted":
             stop_reason = "cancelled"
         with sqlite3.connect(self.db_path) as db:
+            after_states = {
+                str(task_id): str(state)
+                for task_id, state in db.execute("SELECT id,state FROM tasks").fetchall()
+            }
             remaining_nonterminal = int(db.execute(
                 "SELECT COUNT(*) FROM tasks WHERE state NOT IN ('completed','failed','cancelled')"
             ).fetchone()[0])
+        completed = sum(
+            state == "completed" and before_states.get(task_id) != "completed"
+            for task_id, state in after_states.items()
+        )
+        failed = sum(
+            state == "failed" and before_states.get(task_id) != "failed"
+            for task_id, state in after_states.items()
+        )
         return ContinuousRunReport(
             cycles=cycles, processed_work_units=len(scores),
+            completed_tasks=completed, failed_tasks=failed,
             remaining_nonterminal_tasks=remaining_nonterminal,
             idle_cycles=idle_cycles, stop_reason=stop_reason, trust_scores=tuple(scores),
         )
