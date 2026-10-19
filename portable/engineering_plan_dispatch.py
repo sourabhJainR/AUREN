@@ -40,6 +40,11 @@ class EngineeringPlanDispatch:
         self.store = store
         self.controller = controller
         self.recovery_bridge = recovery_bridge
+        registry = getattr(controller, "_engineering_plan_recovery_bridges", None)
+        if registry is None:
+            registry = {}
+            controller._engineering_plan_recovery_bridges = registry
+        registry[str(store.database_path.resolve())] = recovery_bridge
         self.database_path = controller.db_path
         with sqlite3.connect(self.database_path, timeout=10) as db:
             db.execute("PRAGMA busy_timeout=10000")
@@ -174,6 +179,8 @@ class EngineeringPlanDispatch:
         if payload is not None and not isinstance(payload, Mapping):
             raise ValueError("dispatch payload must be a mapping")
         safe_payload = dict(payload or {})
+        if "auren_dispatch" in safe_payload:
+            raise ValueError("payload key 'auren_dispatch' is reserved for trusted dispatch metadata")
         self._validate_payload_keys(safe_payload)
         encoded_payload = json.dumps(safe_payload, sort_keys=True, separators=(",", ":"), allow_nan=False)
         with sqlite3.connect(self.database_path, timeout=10) as db:
@@ -254,7 +261,10 @@ class EngineeringPlanDispatch:
         task_identifier = uuid4().hex
         task_payload = {
             **safe_payload,
-            "auren_dispatch": {**binding, "dispatch_key": key, "binding_digest": binding_digest},
+            "auren_dispatch": {
+                **binding, "dispatch_key": key, "binding_digest": binding_digest,
+                "plan_store_path": str(self.store.database_path.resolve()),
+            },
         }
         task_json = json.dumps(task_payload, sort_keys=True, separators=(",", ":"), allow_nan=False)
         timestamp = self.controller._now() if hasattr(self.controller, "_now") else __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat()

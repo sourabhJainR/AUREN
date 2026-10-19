@@ -171,6 +171,9 @@ class ExecutionController:
             evidence_ledger=self.evidence_ledger,
             signer=evidence_signer,
         )
+        # Registered by EngineeringPlanDispatch; keyed by the durable plan-store path.
+        # A restarted worker must explicitly restore this trusted bridge before execution.
+        self._engineering_plan_recovery_bridges: dict[str, Any] = {}
 
     def register_handler(
         self,
@@ -923,6 +926,96 @@ class ExecutionController:
         self.company._transition(str(row[0]), "running")
         return True
 
+    def _verify_engineering_plan_dispatch_checkpoint(self, task: DurableTask) -> None:
+        """Revalidate trusted plan state immediately before a queued handler can run.
+
+        Ordinary controller tasks are unaffected. Engineering-plan dispatch tasks
+        require a registered recovery bridge, matching durable intent, intact
+        binding digest, and the exact plan/run revision captured at enqueue.
+        """
+        metadata = task.payload.get("auren_dispatch")
+        if metadata is None:
+            return
+        from .engineering_plan_recovery import EngineeringPlanCheckpointMismatch
+
+        if not isinstance(metadata, Mapping):
+            raise EngineeringPlanCheckpointMismatch("dispatch metadata is malformed")
+        required = {
+            "run_id", "task_id", "plan_digest", "run_revision", "source_revision",
+            "packet_digest", "handler", "payload_digest", "dispatch_key",
+            "binding_digest", "plan_store_path",
+        }
+        if not required.issubset(metadata):
+            raise EngineeringPlanCheckpointMismatch("dispatch metadata is incomplete")
+        store_path = metadata.get("plan_store_path")
+        bridge = self._engineering_plan_recovery_bridges.get(store_path)
+        if bridge is None:
+            raise EngineeringPlanCheckpointMismatch(
+                "canonical recovery bridge is not registered in this worker; refusing task execution"
+            )
+        run_id = metadata.get("run_id")
+        plan, run = bridge.load_verified(run_id)
+        if (
+            plan.digest != metadata.get("plan_digest")
+            or plan.source_revision != metadata.get("source_revision")
+            or type(metadata.get("run_revision")) is not int
+            or run.revision != metadata.get("run_revision")
+        ):
+            raise EngineeringPlanCheckpointMismatch(
+                "queued dispatch no longer matches the canonical plan/run revision"
+            )
+        plan_task_id = metadata.get("task_id")
+        progress = next((item for item in run.tasks if item.task_id == plan_task_id), None)
+        if progress is None or progress.status not in {"ready", "running", "verifying"}:
+            raise EngineeringPlanCheckpointMismatch(
+                "queued dispatch plan task is no longer in a dispatchable state"
+            )
+        dispatch_key = metadata.get("dispatch_key")
+        with sqlite3.connect(self.db_path, timeout=10) as db:
+            db.row_factory = sqlite3.Row
+            intent = db.execute(
+                "SELECT * FROM engineering_dispatch_intents WHERE dispatch_key=?",
+                (dispatch_key,),
+            ).fetchone()
+        if intent is None or (
+            intent["task_id"] != task.id
+            or intent["run_id"] != run_id
+            or intent["plan_task_id"] != plan_task_id
+            or intent["plan_digest"] != plan.digest
+            or int(intent["run_revision"]) != run.revision
+            or intent["source_revision"] != plan.source_revision
+            or intent["packet_digest"] != metadata.get("packet_digest")
+            or task.handler != metadata.get("handler")
+        ):
+            raise EngineeringPlanCheckpointMismatch(
+                "durable dispatch intent does not match the queued task binding"
+            )
+        safe_payload = dict(task.payload)
+        safe_payload.pop("auren_dispatch", None)
+        payload_digest = hashlib.sha256(
+            json.dumps(safe_payload, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
+        ).hexdigest()
+        binding = {
+            "run_id": run_id,
+            "task_id": plan_task_id,
+            "plan_digest": plan.digest,
+            "run_revision": run.revision,
+            "source_revision": plan.source_revision,
+            "packet_digest": metadata.get("packet_digest"),
+            "handler": task.handler,
+            "payload_digest": payload_digest,
+        }
+        binding_digest = hashlib.sha256(
+            json.dumps(binding, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
+        ).hexdigest()
+        if (
+            payload_digest != metadata.get("payload_digest")
+            or binding_digest != metadata.get("binding_digest")
+        ):
+            raise EngineeringPlanCheckpointMismatch(
+                "queued dispatch payload or binding digest is invalid"
+            )
+
     def run_once(self, task_id: str) -> TrustScore | None:
         task = self._claim(task_id)
         if task is None:
@@ -932,6 +1025,7 @@ class ExecutionController:
         })
         try:
             self.heartbeat(task)
+            self._verify_engineering_plan_dispatch_checkpoint(task)
             gates_passed, gate_detail, gate_evidence = self._preflight_gates(task)
             if not gates_passed:
                 if not self._finalize_claim(task, "failed"):
