@@ -387,7 +387,7 @@ class AutonomousCompany:
             status, detail, evidence = execute(iteration)
             self.record(wid, "execution", status, detail, evidence)
             if status == "blocked":
-                self.record(wid, "clarification", "held", detail, evidence)
+                self.hold_clarification(wid, detail, dependency="execution blocked", evidence=evidence)
                 if recover:
                     ok, why, refs = recover(detail)
                     self.record(wid, "recovery", "accepted" if ok else "held", why, refs)
