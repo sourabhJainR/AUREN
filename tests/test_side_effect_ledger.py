@@ -115,3 +115,25 @@ class DurableSideEffectLedgerTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+    def test_retry_authorization_audit_detects_tampering(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "effects.sqlite3"
+            ledger = DurableSideEffectLedger(
+                path, retry_authorizer=lambda key, operator, evidence, reason: True
+            )
+            ledger.begin("effect-1", {"resource": "staging"})
+            ledger.require_reconciliation("effect-1", "uncertain")
+            ledger.authorize_retry(
+                "effect-1", operator_reason="provider confirmed no effect",
+                operator_id="operator-1", evidence_ref="provider:lookup:123",
+                confirmed_no_effect=True,
+            )
+            with ledger._connect() as db:
+                db.execute(
+                    "UPDATE durable_side_effect_retry_authorizations SET operator_reason=? WHERE idempotency_key=?",
+                    ("tampered", "effect-1"),
+                )
+            with self.assertRaises(IdempotencyConflict):
+                ledger.retry_authorizations("effect-1")
