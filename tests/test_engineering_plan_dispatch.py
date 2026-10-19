@@ -50,7 +50,14 @@ def prepared(tmp: str, *, budget=None):
     )
     controller = ExecutionController(Path(tmp) / "runtime")
     controller.register_handler("dispatch-test", dispatch_test_handler, execution_class="read_only")
-    bridge = EngineeringPlanDispatch(store=store, controller=controller)
+    recovery_bridge = EngineeringPlanRecoveryBridge(
+        store=store,
+        ledger=EngineeringRecoveryLedger(Path(tmp) / "runtime" / ".auren" / "recovery.sqlite3"),
+    )
+    recovery_bridge.start(plan)
+    bridge = EngineeringPlanDispatch(
+        store=store, controller=controller, recovery_bridge=recovery_bridge,
+    )
     return plan, run, packet, review_packet, store, controller, bridge
 
 
@@ -63,6 +70,7 @@ class EngineeringPlanDispatchTests(unittest.TestCase):
             first = controller.dispatch_engineering_plan_task(
                 store=store, run_id=plan.run_id, task_id="implement", dispatch_key="dispatch-1",
                 handler="dispatch-test", packet=packet, payload={"change": "small"},
+                recovery_bridge=bridge.recovery_bridge,
             )
             second = bridge.dispatch(
                 run_id=plan.run_id, task_id="implement", dispatch_key="dispatch-1",
@@ -136,10 +144,9 @@ class EngineeringPlanDispatchTests(unittest.TestCase):
                 run_id=plan.run_id, task_id="implement", dispatch_key="dispatch-1",
                 handler="dispatch-test", packet=packet, payload={"change": "small"},
             )
-            advanced = run.transition_task(
-                "implement", "running", plan=plan, reason="worker claimed task",
+            advanced = bridge.recovery_bridge.transition_task(
+                plan.run_id, "implement", "running", reason="worker claimed task",
             )
-            store.save_run(plan.run_id, advanced, expected_revision=run.revision)
 
             replayed = bridge.dispatch(
                 run_id=plan.run_id, task_id="implement", dispatch_key="dispatch-1",
@@ -207,8 +214,9 @@ class EngineeringPlanDispatchTests(unittest.TestCase):
     def test_stale_packet_revision_is_rejected(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             plan, run, packet, _, store, controller, bridge = prepared(tmp)
-            updated = run.transition_task("implement", "running", plan=plan, reason="worker claimed task")
-            store.save_run(plan.run_id, updated, expected_revision=run.revision)
+            updated = bridge.recovery_bridge.transition_task(
+                plan.run_id, "implement", "running", reason="worker claimed task",
+            )
             with self.assertRaisesRegex(DispatchConflict, "revision is stale"):
                 bridge.dispatch(
                     run_id=plan.run_id, task_id="implement", dispatch_key="dispatch-1",
@@ -301,7 +309,10 @@ class EngineeringPlanDispatchTests(unittest.TestCase):
             restarted_controller.register_handler(
                 "dispatch-test", dispatch_test_handler, execution_class="read_only",
             )
-            restarted_bridge = EngineeringPlanDispatch(store=store, controller=restarted_controller)
+            restarted_bridge = EngineeringPlanDispatch(
+                store=store, controller=restarted_controller,
+                recovery_bridge=bridge.recovery_bridge,
+            )
             resumed = restarted_bridge.dispatch(
                 run_id=plan.run_id, task_id="implement", dispatch_key="dispatch-1",
                 handler="dispatch-test", packet=packet, payload={"change": "small"},
