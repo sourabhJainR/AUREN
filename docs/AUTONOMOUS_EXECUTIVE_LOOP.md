@@ -74,8 +74,8 @@ environment; task payloads cannot register or replace handlers.
 
 The durable worker service can use `ExecutionController.run_continuously()` to
 drain bounded batches from the same SQLite task queue. It returns a
-`ContinuousRunReport` with processed-work count, trust-score summaries, cycle/idle
-counts, and an explicit stop reason. It exits on cancellation, cycle budget, or the
+`ContinuousRunReport` with processed-work count, remaining nonterminal task count,
+trust-score summaries, cycle/idle counts, and an explicit stop reason. It exits on cancellation, cycle budget, or the
 idle budget; an empty batch is never interpreted as successful task completion.
 A host scheduler can invoke another bounded slice against the same durable database.
 Task handlers must still cooperate with the controller's existing lease heartbeat and
