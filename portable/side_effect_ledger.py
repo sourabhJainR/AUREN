@@ -241,6 +241,7 @@ class DurableSideEffectLedger:
                 "operator_id": operator_id.strip(),
                 "evidence_ref": evidence_ref.strip(),
                 "operator_reason": operator_reason.strip(),
+                "created_at": created_at,
             }
             db.execute(
                 "INSERT INTO durable_side_effect_retry_authorizations "
@@ -264,7 +265,18 @@ class DurableSideEffectLedger:
                 "FROM durable_side_effect_retry_authorizations WHERE idempotency_key=? ORDER BY id",
                 (idempotency_key,),
             ).fetchall()
-        return tuple(dict(row) for row in rows)
+        results = tuple(dict(row) for row in rows)
+        for row in results:
+            payload = {
+                "idempotency_key": row["idempotency_key"],
+                "operator_id": row["operator_id"],
+                "evidence_ref": row["evidence_ref"],
+                "operator_reason": row["operator_reason"],
+                "created_at": row["created_at"],
+            }
+            if self._digest(payload) != row["authorization_digest"]:
+                raise IdempotencyConflict("retry authorization audit digest mismatch")
+        return results
 
     def get(self, idempotency_key: str) -> Mapping[str, Any] | None:
         with self._connect() as db:
