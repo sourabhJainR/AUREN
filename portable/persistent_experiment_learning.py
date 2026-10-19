@@ -224,7 +224,7 @@ class PersistentExperimentLearningStore:
             "SELECT kind,digest,metadata_json FROM evidence_nodes WHERE project=? AND node_id=?",
             (self.project, node.node_id),
         ).fetchone()
-        if row is None or row[0] != node.kind or row[1] != node.digest or row[2] != metadata_json:
+        if row is None or row[0] != node.kind or row[1] != node.digest or json.loads(row[2]) != dict(node.metadata):
             raise LearningStoreConflict("content-addressed evidence node conflicts with existing lineage")
         return node
 
