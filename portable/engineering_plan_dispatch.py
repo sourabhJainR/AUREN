@@ -39,7 +39,8 @@ class EngineeringPlanDispatch:
                 CREATE TABLE IF NOT EXISTS engineering_dispatch_intents (
                     dispatch_key TEXT PRIMARY KEY,
                     run_id TEXT NOT NULL,
-                    task_id TEXT NOT NULL,\n                    plan_task_id TEXT NOT NULL,
+                    task_id TEXT NOT NULL,
+                    plan_task_id TEXT NOT NULL,
                     plan_digest TEXT NOT NULL,
                     run_revision INTEGER NOT NULL,
                     source_revision TEXT NOT NULL,
@@ -177,7 +178,7 @@ class EngineeringPlanDispatch:
             try:
                 db.execute(
                     "INSERT INTO tasks(id,handler,payload,state,attempts,work_unit_id,created_at,updated_at,heartbeat_at,lease_until) "
-                    "VALUES(?,?,?,?,?,?,?,?,?,?)",
+                    "VALUES(?,?,?,?,?,?,?,?,?,?,?)",
                     (task_identifier, handler_name, task_json, "pending", 0, work.id,
                      timestamp, timestamp, timestamp, timestamp),
                 )
@@ -185,7 +186,7 @@ class EngineeringPlanDispatch:
                     "INSERT INTO engineering_dispatch_intents "
                     "(dispatch_key,run_id,task_id,plan_task_id,plan_digest,run_revision,source_revision,packet_digest,status,created_at,updated_at) "
                     "VALUES(?,?,?,?,?,?,?,?,?,?)",
-                    (key, run_id, task_identifier, plan.digest, run.revision,
+                    (key, run_id, task_identifier, task_id, plan.digest, run.revision,
                      plan.source_revision, packet.packet_digest, "queued", now, now),
                 )
                 db.commit()
