@@ -18,4 +18,7 @@ def test_worker_cli_runs_a_bounded_resumable_slice(tmp_path: Path, capsys):
     assert output["stop_reason"] == "idle_budget_exhausted"
     assert output["cycles"] == 2
     assert output["processed_work_units"] == 0
+    assert output["completed_tasks"] == 0
+    assert output["failed_tasks"] == 0
+    assert output["remaining_nonterminal_tasks"] == 0
     assert output["idle_cycles"] == 2
