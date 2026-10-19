@@ -47,7 +47,7 @@ class EngineeringPlanDispatch:
                     status TEXT NOT NULL,
                     created_at REAL NOT NULL,
                     updated_at REAL NOT NULL,
-                    UNIQUE(run_id, task_id, run_revision),
+                    UNIQUE(run_id, plan_task_id, run_revision),
                     UNIQUE(task_id)
                 )
             """)
