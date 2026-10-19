@@ -265,3 +265,13 @@ __all__ += ["ArenaHarnessIsolationReceiptVerifier", "TrustedHarnessRunContext"]
 
 from .engineering_plan_dispatch import DispatchCancelled, DispatchConflict, EngineeringPlanDispatch
 __all__ += ["DispatchCancelled", "DispatchConflict", "EngineeringPlanDispatch"]
+
+
+from .persistent_experiment_learning import (
+    ExperimentManifest, PersistentLearningReceipt, PersistentExperimentLearningStore,
+    LearningStoreConflict, LearningEvidenceError,
+)
+__all__ += [
+    "ExperimentManifest", "PersistentLearningReceipt", "PersistentExperimentLearningStore",
+    "LearningStoreConflict", "LearningEvidenceError",
+]
