@@ -275,7 +275,7 @@ class EngineeringPlanDispatch:
         if durable_task is not None:
             self.controller._capture_event(
                 "engineering_plan_dispatch_cancelled", durable_task, status="cancelled",
-                metadata={"reason": why, "dispatch_key_digest": __import__("hashlib").sha256(key.encode("utf-8")).hexdigest()},
+                metadata={"phase": "engineering_plan_dispatch", "result_category": "operator_cancelled_queued_dispatch",\n                          "retry_action": "cancel_queued_dispatch",\n                          "dispatch_key_digest": __import__("hashlib").sha256(key.encode("utf-8")).hexdigest()},
             )
         return True
 
