@@ -1100,6 +1100,7 @@ def test_run_continuously_never_calls_idle_as_success(tmp_path: Path):
     )
     assert report.stop_reason == "idle_budget_exhausted"
     assert report.processed_work_units == 0
+    assert report.remaining_nonterminal_tasks == 0
     assert report.trust_scores == ()
 
 
@@ -1111,3 +1112,18 @@ def test_run_continuously_rejects_unbounded_budget_overrides(tmp_path: Path):
         assert "hard limits" in str(error)
     else:
         raise AssertionError("continuous loop must enforce a hard cycle budget")
+
+
+def test_cycle_budget_report_does_not_hide_remaining_work(tmp_path: Path):
+    controller = ExecutionController(tmp_path)
+    controller.register_handler("tests.continuous_pending", durable_handler, execution_class="read_only")
+    first = controller.submit("tests.continuous_pending", {"id": "remaining-1"})
+    second = controller.submit("tests.continuous_pending", {"id": "remaining-2"})
+    report = controller.run_continuously(
+        batch_size=1, max_cycles=1, max_idle_cycles=1, idle_sleep_seconds=0,
+    )
+    assert report.stop_reason == "cycle_budget_exhausted"
+    assert report.processed_work_units == 1
+    assert report.remaining_nonterminal_tasks == 1
+    remaining = controller.task(second.id)
+    assert remaining is not None and remaining.state == "pending"
