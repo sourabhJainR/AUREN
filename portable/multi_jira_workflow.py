@@ -166,10 +166,12 @@ class BranchAwareWorkspace:
         ).returncode != 0:
             raise GitWorkflowError(f"Not a Git repository: {self.root}")
         self.read_cache = ReadOnceFileCache(self.root)
-        self._cache_head = _run_git(self.root, "rev-parse", "HEAD").stdout.strip()
+        initial_head = _run_git(self.root, "rev-parse", "--verify", "HEAD", check=False)
+        self._cache_head = initial_head.stdout.strip() if initial_head.returncode == 0 else ""
 
     def _refresh_cache_epoch(self) -> str:
-        head = _run_git(self.root, "rev-parse", "HEAD").stdout.strip()
+        current = _run_git(self.root, "rev-parse", "--verify", "HEAD", check=False)
+        head = current.stdout.strip() if current.returncode == 0 else ""
         if head != self._cache_head:
             self.read_cache.invalidate()
             self._cache_head = head
