@@ -50,8 +50,10 @@ def prepared(tmp: str, *, budget=None):
 
 
 class EngineeringPlanDispatchTests(unittest.TestCase):
+    # SQLite may keep WAL/database handles alive until controller references are
+    # collected on Windows; test assertions are independent of temp-dir cleanup.
     def test_dispatch_persists_binding_and_replay_returns_same_task(self):
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             plan, run, packet, _, store, controller, bridge = prepared(tmp)
             first = controller.dispatch_engineering_plan_task(
                 store=store, run_id=plan.run_id, task_id="implement", dispatch_key="dispatch-1",
@@ -68,7 +70,7 @@ class EngineeringPlanDispatchTests(unittest.TestCase):
             self.assertEqual(packet.packet_digest, first.payload["auren_dispatch"]["packet_digest"])
 
     def test_replay_with_changed_packet_or_payload_fails_closed(self):
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             plan, run, packet, _, store, controller, bridge = prepared(tmp)
             bridge.dispatch(
                 run_id=plan.run_id, task_id="implement", dispatch_key="dispatch-1",
@@ -93,7 +95,7 @@ class EngineeringPlanDispatchTests(unittest.TestCase):
                 )
 
     def test_same_task_revision_cannot_get_a_second_dispatch_key(self):
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             plan, run, packet, _, store, controller, bridge = prepared(tmp)
             bridge.dispatch(
                 run_id=plan.run_id, task_id="implement", dispatch_key="dispatch-1",
@@ -106,7 +108,7 @@ class EngineeringPlanDispatchTests(unittest.TestCase):
                 )
 
     def test_stale_packet_revision_is_rejected(self):
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             plan, run, packet, _, store, controller, bridge = prepared(tmp)
             updated = run.transition_task("implement", "running", plan=plan, reason="worker claimed task")
             store.save_run(plan.run_id, updated, expected_revision=run.revision)
@@ -117,7 +119,7 @@ class EngineeringPlanDispatchTests(unittest.TestCase):
                 )
 
     def test_queued_dispatch_can_be_cancelled_idempotently(self):
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             plan, run, packet, _, store, controller, bridge = prepared(tmp)
             task = bridge.dispatch(
                 run_id=plan.run_id, task_id="implement", dispatch_key="dispatch-1",
@@ -128,7 +130,7 @@ class EngineeringPlanDispatchTests(unittest.TestCase):
             self.assertTrue(bridge.cancel("dispatch-1", reason="idempotent cancellation"))
 
     def test_running_dispatch_is_not_falsely_reported_cancelled(self):
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             plan, run, packet, _, store, controller, bridge = prepared(tmp)
             task = bridge.dispatch(
                 run_id=plan.run_id, task_id="implement", dispatch_key="dispatch-1",
@@ -141,7 +143,7 @@ class EngineeringPlanDispatchTests(unittest.TestCase):
             self.assertEqual("running", controller.task(task.id).state)
 
     def test_shared_dispatch_budget_is_enforced_across_tasks(self):
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             plan, run, packet, review_packet, store, controller, bridge = prepared(tmp, budget={"dispatches": 1})
             bridge.dispatch(
                 run_id=plan.run_id, task_id="implement", dispatch_key="dispatch-1",
@@ -154,7 +156,7 @@ class EngineeringPlanDispatchTests(unittest.TestCase):
                 )
 
     def test_dispatch_intent_survives_controller_recreation(self):
-        with tempfile.TemporaryDirectory() as tmp:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             plan, run, packet, _, store, controller, bridge = prepared(tmp)
             first = bridge.dispatch(
                 run_id=plan.run_id, task_id="implement", dispatch_key="dispatch-1",
