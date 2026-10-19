@@ -74,7 +74,8 @@ class AutonomousCompany:
             CREATE TABLE IF NOT EXISTS work_units(
               id TEXT PRIMARY KEY, goal TEXT NOT NULL, scope TEXT NOT NULL,
               max_iterations INTEGER NOT NULL, state TEXT NOT NULL,
-              iteration INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+              iteration INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+              work_key TEXT);
             CREATE TABLE IF NOT EXISTS decisions(
               id TEXT PRIMARY KEY, work_unit_id TEXT NOT NULL, iteration INTEGER NOT NULL,
               action TEXT NOT NULL, reason TEXT NOT NULL, confidence REAL NOT NULL,
@@ -90,24 +91,54 @@ class AutonomousCompany:
               id TEXT PRIMARY KEY, work_unit_id TEXT NOT NULL, question TEXT NOT NULL,
               dependency TEXT NOT NULL, state TEXT NOT NULL, evidence TEXT NOT NULL, created_at TEXT NOT NULL);
             """)
+        # Upgrade older executive ledgers in place. The key is optional for legacy
+        # work units and unique for new idempotent start-or-resume requests.
+        columns = {row[1] for row in self._db().execute("PRAGMA table_info(work_units)").fetchall()}
+        if "work_key" not in columns:
+            with self._db() as db:
+                db.execute("ALTER TABLE work_units ADD COLUMN work_key TEXT")
+        with self._db() as db:
+            db.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_work_units_work_key "
+                "ON work_units(work_key) WHERE work_key IS NOT NULL AND work_key <> ''"
+            )
 
     def _db(self):
         db = sqlite3.connect(self.db_path, timeout=30)
         db.execute("PRAGMA journal_mode=WAL")
         return db
 
-    def start(self, goal: str, *, scope: str = "single-company-unit", max_iterations: int = 100000) -> WorkUnit:
+    def start(
+        self, goal: str, *, scope: str = "single-company-unit",
+        max_iterations: int = 100000, work_key: str | None = None,
+    ) -> WorkUnit:
         if not isinstance(goal, str) or not goal.strip(): raise ValueError("goal is required")
         if not isinstance(scope, str) or not scope.strip(): raise ValueError("scope is required")
         if isinstance(max_iterations, bool) or not isinstance(max_iterations, int) or not 1 <= max_iterations <= 100000:
             raise ValueError("max_iterations must be an integer between 1 and 100000")
-        wid = uuid4().hex
+        if work_key is not None and (not isinstance(work_key, str) or not work_key.strip()):
+            raise ValueError("work_key must be a non-empty string when supplied")
         now = _utc()
         with self._db() as db:
-            db.execute("INSERT INTO work_units VALUES(?,?,?,?,?,?,?,?)",
-                       (wid, goal.strip(), scope.strip(), max_iterations, "running", 0, now, now))
+            db.execute("BEGIN IMMEDIATE")
+            if work_key is not None:
+                existing = db.execute(
+                    "SELECT id,goal,scope,max_iterations FROM work_units WHERE work_key=?",
+                    (work_key.strip(),),
+                ).fetchone()
+                if existing:
+                    db.commit()
+                    if existing[1] != goal.strip() or existing[2] != scope.strip() or int(existing[3]) != max_iterations:
+                        raise ValueError("work_key already belongs to a different goal, scope, or iteration budget")
+                    return WorkUnit(existing[0], existing[1], existing[2], int(existing[3]))
+            wid = uuid4().hex
+            db.execute(
+                "INSERT INTO work_units (id,goal,scope,max_iterations,state,iteration,created_at,updated_at,work_key) "
+                "VALUES(?,?,?,?,?,?,?,?,?)",
+                (wid, goal.strip(), scope.strip(), max_iterations, "running", 0, now, now, work_key.strip() if work_key else None),
+            )
+            db.commit()
         return WorkUnit(wid, goal.strip(), scope.strip(), max_iterations)
-
     def resume(self, work_unit_id: str) -> WorkUnit:
         with self._db() as db:
             row = db.execute("SELECT id,goal,scope,max_iterations FROM work_units WHERE id=?", (work_unit_id,)).fetchone()
