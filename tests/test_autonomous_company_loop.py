@@ -1,3 +1,4 @@
+import sqlite3
 import tempfile
 from pathlib import Path
 
@@ -193,3 +194,32 @@ def test_work_key_cannot_be_reused_for_a_different_goal_or_budget():
             assert "different goal" in str(exc)
         else:
             raise AssertionError("a stable work key must not silently change its goal")
+
+
+def test_legacy_executive_database_migrates_in_place_for_work_keys():
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        state_dir = root / ".auren"
+        state_dir.mkdir()
+        db_path = state_dir / "executive.sqlite3"
+        with sqlite3.connect(db_path) as db:
+            db.execute(
+                "CREATE TABLE work_units ("
+                "id TEXT PRIMARY KEY, goal TEXT NOT NULL, scope TEXT NOT NULL, "
+                "max_iterations INTEGER NOT NULL, state TEXT NOT NULL, "
+                "iteration INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)"
+            )
+            db.execute(
+                "INSERT INTO work_units VALUES(?,?,?,?,?,?,?,?)",
+                ("legacy-id", "legacy goal", "legacy scope", 12, "running", 4, "created", "updated"),
+            )
+
+        company = AutonomousCompany(root)
+        legacy = company.resume("legacy-id")
+        assert legacy.goal == "legacy goal"
+        assert company._state("legacy-id") == ("running", 4)
+        keyed = company.start("new goal", work_key="AUREN:new-work")
+        assert keyed.id
+        with sqlite3.connect(db_path) as db:
+            columns = {row[1] for row in db.execute("PRAGMA table_info(work_units)")}
+            assert "work_key" in columns
