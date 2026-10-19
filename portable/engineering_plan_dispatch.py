@@ -151,6 +151,47 @@ class EngineeringPlanDispatch:
         """
         key = self._nonempty(dispatch_key, "dispatch_key")
         handler_name = self._nonempty(handler, "handler")
+
+        # A retry must be able to retrieve its original task after the plan has
+        # advanced. Validate the immutable packet/plan binding first, but do not
+        # require the packet revision to equal the *current* run revision on replay.
+        # Otherwise a successful dispatch becomes unrecoverable after any transition.
+        if not isinstance(packet, EngineeringContextPacket):
+            raise TypeError("an EngineeringContextPacket is required")
+        packet.verify()
+        if payload is not None and not isinstance(payload, Mapping):
+            raise ValueError("dispatch payload must be a mapping")
+        safe_payload = dict(payload or {})
+        self._validate_payload_keys(safe_payload)
+        encoded_payload = json.dumps(safe_payload, sort_keys=True, separators=(",", ":"), allow_nan=False)
+        with sqlite3.connect(self.database_path, timeout=10) as db:
+            db.row_factory = sqlite3.Row
+            existing = db.execute(
+                "SELECT * FROM engineering_dispatch_intents WHERE dispatch_key=?", (key,)
+            ).fetchone()
+        if existing is not None:
+            plan, _current_run = self.store.load(run_id)
+            if (
+                existing["run_id"] != run_id
+                or existing["plan_task_id"] != task_id
+                or existing["plan_digest"] != plan.digest
+                or existing["source_revision"] != plan.source_revision
+                or packet.run_id != run_id
+                or packet.task.get("task_id") != task_id
+                or packet.plan_digest != plan.digest
+                or packet.source_revision != plan.source_revision
+                or packet.run_revision != existing["run_revision"]
+                or packet.packet_digest != existing["packet_digest"]
+            ):
+                raise DispatchConflict("idempotency key replay changed immutable plan or packet inputs")
+            binding = {
+                "run_id": run_id, "task_id": task_id, "plan_digest": plan.digest,
+                "run_revision": int(existing["run_revision"]), "source_revision": plan.source_revision,
+                "packet_digest": packet.packet_digest, "handler": handler_name,
+                "payload_digest": __import__("hashlib").sha256(encoded_payload.encode("utf-8")).hexdigest(),
+            }
+            return self._replay_or_conflict(existing, binding, handler_name, encoded_payload)
+
         plan, run = self._verified_state(run_id, task_id, packet)
         execution_class = self.controller._handler_execution_class(handler_name)
         if execution_class not in {"read_only", "ci_gated", "consequential"}:
