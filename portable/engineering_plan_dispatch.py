@@ -33,7 +33,9 @@ class EngineeringPlanDispatch:
         self, *, store: EngineeringPlanStore, controller: Any,
         recovery_bridge: Any | None = None,
     ) -> None:
-        if recovery_bridge is not None and getattr(recovery_bridge, "store", None) is not store:
+        if recovery_bridge is None:
+            raise ValueError("canonical recovery bridge is required for engineering-plan dispatch")
+        if getattr(recovery_bridge, "store", None) is not store:
             raise ValueError("recovery bridge must validate the same plan store used for dispatch")
         self.store = store
         self.controller = controller
@@ -108,10 +110,8 @@ class EngineeringPlanDispatch:
                 cls._validate_payload_keys(item, f"{path}[{index}]")
 
     def _load_plan_state(self, run_id: str) -> tuple[EngineeringPlan, EngineeringPlanRun]:
-        """Use the canonical recovery checkpoint whenever a bridge is configured."""
-        if self.recovery_bridge is not None:
-            return self.recovery_bridge.load_verified(run_id)
-        return self.store.load(run_id)
+        """Never load plan state for dispatch without its canonical checkpoint."""
+        return self.recovery_bridge.load_verified(run_id)
 
     def _verified_state(
         self, run_id: str, task_id: str, packet: EngineeringContextPacket
