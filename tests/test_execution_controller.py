@@ -1262,3 +1262,43 @@ def test_consequential_receipt_write_failure_blocks_redispatch(tmp_path: Path, m
     assert calls == ["def"]
     row = DurableSideEffectLedger(controller.db_path).get("execution-task:consequential-task-receipt-failure")
     assert row["state"] == "reconcile_required"
+
+
+def test_consequential_dispatch_key_replays_across_new_task_ids(tmp_path: Path, monkeypatch):
+    from types import SimpleNamespace
+
+    controller = ExecutionController(tmp_path)
+    calls = []
+
+    def provider(payload):
+        calls.append(payload["revision"])
+        return {"success": True, "detail": "accepted", "provider_operation_id": "op-stable"}
+
+    monkeypatch.setattr(
+        controller, "_invoke_with_lease_heartbeat",
+        lambda _task, handler: handler(_task.payload),
+    )
+    first_task = SimpleNamespace(
+        id="task-before-restart",
+        handler="tests.deploy",
+        payload={
+            "target": "staging",
+            "revision": "abc123",
+            "auren_dispatch": {"dispatch_key": "run-77:deploy:staging"},
+        },
+    )
+    resumed_task = SimpleNamespace(
+        id="task-after-restart",
+        handler="tests.deploy",
+        payload={
+            "target": "staging",
+            "revision": "abc123",
+            "auren_dispatch": {"dispatch_key": "run-77:deploy:staging"},
+        },
+    )
+
+    first = controller._invoke_consequential_with_ledger(first_task, provider)
+    replay = controller._invoke_consequential_with_ledger(resumed_task, provider)
+
+    assert first == replay
+    assert calls == ["abc123"]
