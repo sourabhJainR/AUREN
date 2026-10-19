@@ -33,6 +33,8 @@ class EngineeringPlanDispatch:
         self, *, store: EngineeringPlanStore, controller: Any,
         recovery_bridge: Any | None = None,
     ) -> None:
+        if recovery_bridge is not None and getattr(recovery_bridge, "store", None) is not store:
+            raise ValueError("recovery bridge must validate the same plan store used for dispatch")
         self.store = store
         self.controller = controller
         self.recovery_bridge = recovery_bridge
