@@ -32,6 +32,8 @@ with a stable key derived from the canonical run/task/action identity.
 - Concurrent callers serialize the state transition in SQLite.
 - A retry requires explicit no-effect confirmation, operator identity, evidence reference,
   and a trusted host-injected authorization callback; the default without a verifier is deny.
+- Every accepted retry authorization is retained in a separate append-only SQLite audit table
+  with an authorization digest, so later execution/completion cannot erase the approval trail.
 - This is not distributed exactly-once execution. The strongest design combines this
   ledger with provider-native idempotency keys, a transactional outbox/inbox, and
   provider-side operation lookup. Without provider cooperation, an ambiguous outcome
