@@ -38,9 +38,14 @@ with a stable key derived from the canonical run/task/action identity.
   ledger with provider-native idempotency keys, a transactional outbox/inbox, and
   provider-side operation lookup. Without provider cooperation, an ambiguous outcome
   must remain blocked for reconciliation.
-- The ledger is an explicit handler integration contract; ordinary handlers are not
-  silently assumed to be idempotent. Production rollout still needs failure-injection
-  evidence against each consequential adapter.
+- `ExecutionController.run_once` now wraps every handler registered as `consequential`
+  with this ledger before provider invocation. Completed mapping receipts are replayed
+  without invoking the handler again; `reconcile` decisions fail closed before dispatch.
+  Engineering-plan dispatches use their durable dispatch key; ordinary tasks use their
+  durable task ID. This prevents automatic re-execution of the same durable task, but does
+  not deduplicate independently-created tasks unless the provider itself supports a stable
+  idempotency key.
+- Production rollout still needs failure-injection evidence against each consequential adapter.
 
 ## Validation
 

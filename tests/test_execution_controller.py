@@ -1191,3 +1191,74 @@ def test_resume_pending_keeps_fail_fast_default_for_direct_callers(tmp_path: Pat
         raise AssertionError("direct resume_pending must retain fail-fast behavior")
     assert controller.task(task.id).state == "failed"
 
+
+
+def test_consequential_handler_uses_durable_receipt_without_reexecution(tmp_path: Path, monkeypatch):
+    from types import SimpleNamespace
+    from portable.side_effect_ledger import DurableSideEffectLedger
+
+    controller = ExecutionController(tmp_path)
+    calls = []
+    task = SimpleNamespace(
+        id="consequential-task-1",
+        handler="tests.deploy",
+        payload={"target": "staging", "revision": "abc"},
+    )
+    monkeypatch.setattr(
+        controller, "_invoke_with_lease_heartbeat",
+        lambda _task, handler: handler(task.payload),
+    )
+
+    def provider(payload):
+        calls.append(payload["revision"])
+        return {"success": True, "detail": "deployed", "provider_operation_id": "op-1"}
+
+    first = controller._invoke_consequential_with_ledger(task, provider)
+    replay = controller._invoke_consequential_with_ledger(task, provider)
+
+    assert first == replay
+    assert calls == ["abc"]
+    row = DurableSideEffectLedger(controller.db_path).get("execution-task:consequential-task-1")
+    assert row["state"] == "completed"
+    assert row["receipt"]["result"]["provider_operation_id"] == "op-1"
+
+
+def test_consequential_receipt_write_failure_blocks_redispatch(tmp_path: Path, monkeypatch):
+    from types import SimpleNamespace
+    from portable.side_effect_ledger import DurableSideEffectLedger
+
+    controller = ExecutionController(tmp_path)
+    calls = []
+    task = SimpleNamespace(
+        id="consequential-task-receipt-failure",
+        handler="tests.deploy",
+        payload={"target": "production", "revision": "def"},
+    )
+    monkeypatch.setattr(
+        controller, "_invoke_with_lease_heartbeat",
+        lambda _task, handler: handler(task.payload),
+    )
+
+    def provider(payload):
+        calls.append(payload["revision"])
+        return {"success": True, "detail": "accepted", "provider_operation_id": "op-2"}
+
+    original_complete = DurableSideEffectLedger.complete
+
+    def fail_once(self, key, receipt):
+        if key == "execution-task:consequential-task-receipt-failure":
+            raise OSError("simulated receipt persistence failure")
+        return original_complete(self, key, receipt)
+
+    monkeypatch.setattr(DurableSideEffectLedger, "complete", fail_once)
+    import pytest
+    with pytest.raises(OSError, match="receipt persistence failure"):
+        controller._invoke_consequential_with_ledger(task, provider)
+
+    monkeypatch.setattr(DurableSideEffectLedger, "complete", original_complete)
+    with pytest.raises(RuntimeError, match="requires reconciliation"):
+        controller._invoke_consequential_with_ledger(task, provider)
+
+    assert calls == ["def"]
+    row = DurableSideEffectLedger(controller.db_path).get("execution-task:consequential-task-receipt-failure")
+    assert row["state"] == "reconcile_required"

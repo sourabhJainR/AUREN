@@ -26,6 +26,7 @@ from .canonical_evidence_ledger import CanonicalEvidenceLedger
 from .decision_gate import require_valid_decision_record
 from .engineering_recovery import verify_ci_gate
 from .engineering_evidence_capture import EvidenceCapture
+from .side_effect_ledger import DurableSideEffectLedger
 
 Handler = Callable[[Mapping[str, Any]], Any]
 
@@ -1051,6 +1052,52 @@ class ExecutionController:
                 "queued dispatch payload or binding digest is invalid"
             )
 
+    def _invoke_consequential_with_ledger(self, task: DurableTask, handler: Handler) -> Any:
+        """Run consequential handlers behind the durable idempotency/reconciliation ledger.
+
+        The ledger intent is committed before handler invocation. A completed receipt
+        is replayed without calling the handler; an interrupted/ambiguous execution
+        returns a reconciliation decision and fails closed. This is not a claim of
+        distributed exactly-once execution: provider-side lookup/idempotency remains
+        necessary for resolving uncertain outcomes.
+        """
+        dispatch = task.payload.get("auren_dispatch")
+        if isinstance(dispatch, Mapping) and isinstance(dispatch.get("dispatch_key"), str):
+            key = "engineering-plan:" + str(dispatch["dispatch_key"])
+        else:
+            key = "execution-task:" + task.id
+        safe_payload = dict(task.payload)
+        safe_payload.pop("auren_dispatch", None)
+        payload_digest = hashlib.sha256(
+            json.dumps(safe_payload, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
+        ).hexdigest()
+        binding = {
+            "task_id": task.id,
+            "handler": task.handler,
+            "payload_digest": payload_digest,
+            "dispatch_key": dispatch.get("dispatch_key") if isinstance(dispatch, Mapping) else None,
+        }
+        decision = DurableSideEffectLedger(self.db_path).begin(key, binding)
+        if decision.action == "replay":
+            receipt = decision.receipt
+            if not isinstance(receipt, Mapping) or not isinstance(receipt.get("result"), Mapping):
+                raise RuntimeError("consequential side-effect receipt is malformed; refusing handler replay")
+            return dict(receipt["result"])
+        if decision.action != "execute":
+            raise RuntimeError(
+                "consequential side effect requires reconciliation; provider dispatch is blocked "
+                f"(ledger_state={decision.state or 'unknown'})"
+            )
+        result = self._invoke_with_lease_heartbeat(task, handler)
+        if not isinstance(result, Mapping):
+            # A non-serializable/ambiguous result must not permit implicit replay.
+            raise RuntimeError("consequential handlers must return a mapping receipt/result")
+        receipt = {"result": dict(result)}
+        # If durable receipt persistence fails, the ledger remains executing. The
+        # next attempt will require reconciliation and will not invoke the provider.
+        DurableSideEffectLedger(self.db_path).complete(key, receipt)
+        return result
+
     def run_once(self, task_id: str) -> TrustScore | None:
         task = self._claim(task_id)
         if task is None:
@@ -1073,7 +1120,10 @@ class ExecutionController:
                 return self.company.finish(task.work_unit_id, success=False, reason=gate_detail, evidence=evidence)
 
             handler = self._load_handler(task.handler)
-            result = self._invoke_with_lease_heartbeat(task, handler)
+            if self._handler_execution_class(task.handler) == "consequential":
+                result = self._invoke_consequential_with_ledger(task, handler)
+            else:
+                result = self._invoke_with_lease_heartbeat(task, handler)
         except LeaseLostError:
             raise
         except Exception as exc:
