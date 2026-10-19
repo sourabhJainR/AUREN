@@ -112,7 +112,7 @@ class EngineeringPlanDispatchTests(unittest.TestCase):
                 packet=packet, recovery_bridge=recovery_bridge,
             )
             self.assertEqual("pending", task.state)
-            self.assertEqual(1, controller.task(task.id).attempts)
+            self.assertEqual(plan.digest, task.payload["auren_dispatch"]["plan_digest"])
 
     def test_dispatch_replay_survives_plan_revision_advancing_after_enqueue(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
