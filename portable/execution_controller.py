@@ -1062,8 +1062,12 @@ class ExecutionController:
         necessary for resolving uncertain outcomes.
         """
         dispatch = task.payload.get("auren_dispatch")
-        if isinstance(dispatch, Mapping) and isinstance(dispatch.get("dispatch_key"), str):
-            key = "engineering-plan:" + str(dispatch["dispatch_key"])
+        if (
+            isinstance(dispatch, Mapping)
+            and isinstance(dispatch.get("dispatch_key"), str)
+            and dispatch["dispatch_key"].strip()
+        ):
+            key = "engineering-plan:" + dispatch["dispatch_key"].strip()
         else:
             key = "execution-task:" + task.id
         safe_payload = dict(task.payload)
