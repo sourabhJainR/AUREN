@@ -132,6 +132,18 @@ class PersistentExperimentLearningTests(unittest.TestCase):
             incompatible = manifest("exp-2", model_id="model-b")
             self.assertEqual((), s.retrieve_compatible(incompatible))
 
+    def test_multiple_candidate_runs_do_not_conflict_with_each_other(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            s = make_store(tmp)
+            first_manifest = manifest("candidate-1")
+            second_manifest = manifest("candidate-2")
+            first = recorded(s, first_manifest)
+            second = recorded(s, second_manifest)
+            s.promote_candidate(first.receipt_id, reviewer_id="reviewer", evidence_ref="review:1")
+            s.promote_candidate(second.receipt_id, reviewer_id="reviewer", evidence_ref="review:2")
+            found = s.retrieve_compatible(first_manifest)
+            self.assertEqual({first.receipt_id, second.receipt_id}, {item.receipt_id for item in found})
+
     def test_conflicting_verified_negative_result_quarantines_positive_candidate(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             s = make_store(tmp)
