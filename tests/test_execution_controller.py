@@ -1101,3 +1101,13 @@ def test_run_continuously_never_calls_idle_as_success(tmp_path: Path):
     assert report.stop_reason == "idle_budget_exhausted"
     assert report.processed_work_units == 0
     assert report.trust_scores == ()
+
+
+def test_run_continuously_rejects_unbounded_budget_overrides(tmp_path: Path):
+    controller = ExecutionController(tmp_path)
+    try:
+        controller.run_continuously(max_cycles=1001)
+    except ValueError as error:
+        assert "hard limits" in str(error)
+    else:
+        raise AssertionError("continuous loop must enforce a hard cycle budget")
