@@ -379,7 +379,7 @@ class AutonomousCompany:
                     ).fetchone()
                 evidence = tuple(json.loads(row[0])) if row else ()
                 return self.finish(wid, success=True, reason="resumed CI passed after durable wait", evidence=evidence)
-            if ci_status in {"failed", "timeout"}:
+            if ci_status == "failed":
                 if recover:
                     ok, why, refs = recover("CI " + ci_status)
                     self.record(wid, "recovery", "accepted" if ok else "rejected", why, refs)
