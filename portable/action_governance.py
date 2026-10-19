@@ -182,6 +182,26 @@ class ActionGovernanceGateway:
             or getattr(request, "action", "") in self._policy.external_effect_actions
         )
 
+    def durable_side_effect_preflight(self, request: Any) -> PolicyVerdict | None:
+        """Deny a consequential request when no durable intent ledger is attached.
+
+        Adapters call this before any legacy/unbound gateway path. Authority-bound
+        callers use the same check before charging their attempt budget.
+        """
+        if not self.is_external_effect(request) or self.has_durable_side_effect_ledger:
+            return None
+        fingerprint_fn = getattr(request, "fingerprint", None)
+        fingerprint = fingerprint_fn() if callable(fingerprint_fn) else ""
+        verdict = PolicyVerdict("deny", "durable_idempotency_ledger_required", fingerprint)
+        self._append_event({
+            "event": "durable_side_effect_blocked",
+            "run_id": str(getattr(request, "run_id", "")),
+            "action_id": str(getattr(request, "action_id", "")),
+            "reason": verdict.reason,
+            "request_fingerprint": fingerprint,
+        })
+        return verdict
+
     @property
     def events(self) -> tuple[dict[str, Any], ...]:
         with self._lock:
