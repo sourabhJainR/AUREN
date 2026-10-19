@@ -257,3 +257,7 @@ __all__ += ["EngineeringPlanCheckpointMismatch", "EngineeringPlanRecoveryBridge"
 
 from .engineering_context_packet import EngineeringContextPacket, build_context_packet
 __all__ += ["EngineeringContextPacket", "build_context_packet"]
+
+
+from .harness_isolation_verifier import ArenaHarnessIsolationReceiptVerifier, TrustedHarnessRunContext
+__all__ += ["ArenaHarnessIsolationReceiptVerifier", "TrustedHarnessRunContext"]
