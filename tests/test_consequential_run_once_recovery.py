@@ -64,7 +64,7 @@ class ConsequentialRunOnceRecoveryTests(unittest.TestCase):
         return {
             "target": "staging",
             "revision": "abc123",
-            "auren_dispatch": {"dispatch_key": "run-recovery-1:deploy:staging"},
+            "auren_idempotency": {"key": "run-recovery-1:deploy:staging"},
         }
 
     def test_unknown_provider_outcome_after_restart_never_redispatches(self):
@@ -89,7 +89,7 @@ class ConsequentialRunOnceRecoveryTests(unittest.TestCase):
         from portable.side_effect_ledger import DurableSideEffectLedger
 
         record = DurableSideEffectLedger(restarted.db_path).get(
-            "engineering-plan:run-recovery-1:deploy:staging"
+            "consequential-idempotency:run-recovery-1:deploy:staging"
         )
         self.assertEqual("reconcile_required", record["state"])
 
