@@ -1076,6 +1076,8 @@ def test_run_continuously_drains_work_and_stops_after_bounded_idle_cycles(tmp_pa
 
     assert report.stop_reason == "idle_budget_exhausted"
     assert report.processed_work_units == 2
+    assert report.completed_tasks == 2
+    assert report.failed_tasks == 0
     assert len(report.trust_scores) == 2
     assert report.cycles == 4
     assert report.idle_cycles == 2
@@ -1124,6 +1126,25 @@ def test_cycle_budget_report_does_not_hide_remaining_work(tmp_path: Path):
     )
     assert report.stop_reason == "cycle_budget_exhausted"
     assert report.processed_work_units == 1
+    assert report.completed_tasks == 1
+    assert report.failed_tasks == 0
     assert report.remaining_nonterminal_tasks == 1
     remaining = controller.task(second.id)
     assert remaining is not None and remaining.state == "pending"
+
+
+def test_run_continuously_reports_failed_tasks_without_success_claim(tmp_path: Path):
+    controller = ExecutionController(tmp_path)
+
+    def fail_handler(payload):
+        return {"success": False, "detail": "explicit handler failure"}
+
+    controller.register_handler("tests.continuous_failure", fail_handler, execution_class="read_only")
+    controller.submit("tests.continuous_failure", {"id": "failure"})
+    report = controller.run_continuously(
+        batch_size=1, max_cycles=2, max_idle_cycles=1, idle_sleep_seconds=0,
+    )
+    assert report.failed_tasks == 1
+    assert report.completed_tasks == 0
+    assert report.remaining_nonterminal_tasks == 0
+    assert report.stop_reason == "idle_budget_exhausted"
