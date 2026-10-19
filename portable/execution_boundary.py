@@ -114,12 +114,12 @@ DIRECT_GATEWAY_CALLSITE_POLICY: tuple[dict[str, str], ...] = (
     {
         "path": "portable/ai_coding_agency_bridge.py",
         "scope": "run_coding_task.effective_worker",
-        "disposition": "legacy-compatibility-branch; bound mode uses execute_bound_action",
+        "disposition": "legacy branch requires durable ledger for external effects; bound mode uses execute_bound_action",
     },
     {
         "path": "portable/agency_team_orchestrator.py",
         "scope": "run.effective_spawn",
-        "disposition": "legacy-compatibility-branch; bound mode uses execute_bound_action",
+        "disposition": "legacy branch requires durable ledger for external effects; bound mode uses execute_bound_action",
     },
 )
 
