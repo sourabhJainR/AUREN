@@ -275,3 +275,7 @@ __all__ += [
     "ExperimentManifest", "PersistentLearningReceipt", "PersistentExperimentLearningStore",
     "LearningStoreConflict", "LearningEvidenceError",
 ]
+
+
+from .experiment_learning_cycle import ExperimentLearningCycle, ExperimentLearningCycleResult
+__all__ += ["ExperimentLearningCycle", "ExperimentLearningCycleResult"]
