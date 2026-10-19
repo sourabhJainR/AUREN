@@ -153,7 +153,7 @@ class JiraLearningTests(unittest.TestCase):
             approved=True,
         )
         self.assertEqual("procedural", result["kind"])
-        self.assertEqual("JIRA:APP-123", result["task_id"])
+        self.assertEqual("APP-123", result["task_id"])
         self.assertTrue(result["verified"])
         self.assertEqual(("test:123", "commit:abc"), tuple(result["evidence_ids"]))
 
