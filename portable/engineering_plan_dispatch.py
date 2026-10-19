@@ -215,7 +215,6 @@ class EngineeringPlanDispatch:
             ).fetchone()
             if existing is not None:
                 db.rollback()
-                self._discard_unqueued_work_unit(work.id)
                 return self._replay_or_conflict(existing, binding, handler_name, encoded_payload)
             collision = db.execute(
                 "SELECT * FROM engineering_dispatch_intents WHERE run_id=? AND plan_task_id=? AND run_revision=?",
@@ -223,7 +222,6 @@ class EngineeringPlanDispatch:
             ).fetchone()
             if collision is not None:
                 db.rollback()
-                self._discard_unqueued_work_unit(work.id)
                 raise DispatchConflict("this plan task revision already has a different dispatch intent")
             dispatch_limit = plan.budget.get("dispatches")
             if dispatch_limit is not None:
@@ -232,7 +230,6 @@ class EngineeringPlanDispatch:
                 ).fetchone()[0]
                 if count >= dispatch_limit:
                     db.rollback()
-                    self._discard_unqueued_work_unit(work.id)
                     raise DispatchConflict("shared plan dispatch budget is exhausted")
             try:
                 # Hold the controller DB's write reservation while checking uniqueness
