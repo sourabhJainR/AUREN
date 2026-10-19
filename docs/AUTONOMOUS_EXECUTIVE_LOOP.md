@@ -56,6 +56,20 @@ The supervisor has an explicit `waiting_ci` state. CI is treated as an external 
 
 The intended pattern is to start one work unit and repeatedly invoke the supervisor until it reaches a terminal state. Supply a stable `work_key` (for example, a repository-and-issue key) when creating recurring engineering work: repeated starts return the same durable unit, and attempts to reuse that key with a different goal, scope, or iteration budget fail closed. Existing work units are migrated in place with an optional key. ExecutionController session mappings use deterministic keys to recover a unit if mapping persistence is interrupted; a terminal unit for the same goal remains terminal rather than silently creating another retry generation. A different explicit goal can start one new generation keyed to the previous unit. Each invocation is bounded by a finite iteration slice; when the slice is exhausted, the work unit remains resumable and the next invocation continues from the durable iteration. Repeated execution/review failures terminate after the configured consecutive-failure limit, and an unhandled review failure does not spin forever. The persistent ledger makes the boundary restart-safe; an OS scheduler/service can invoke the same work unit again after crashes, machine restarts, or planned maintenance windows.
 
+## Running the durable worker
+
+From the repository root, run a bounded worker slice with:
+
+```bash
+python -m portable.auren_runtime worker --project-root . --batch-size 20 --max-cycles 100 --max-idle-cycles 5 --json
+```
+
+The worker reconstructs registered importable handlers from the durable controller
+database, resumes eligible tasks, and exits on cancellation, its cycle cap, or the
+idle cap. Use a service manager or scheduler to invoke another slice against the same
+project root. Keep handler registration and provider credentials in the trusted host
+environment; task payloads cannot register or replace handlers.
+
 ## Continuous execution controller
 
 The durable worker service can use `ExecutionController.run_continuously()` to
