@@ -48,3 +48,19 @@ with a stable key derived from the canonical run/task/action identity.
 conflicts, interrupted execution, operator-gated retry, immutable receipts, and
 invalid state transitions. Repository CI is implementation evidence only; it is not
 proof of a third-party provider's idempotency or production isolation.
+
+## Receipt-persistence fault injection
+
+The regression suite injects a durable receipt-write failure after the provider returns
+success. The original ledger row remains `executing`; after process restart, a repeated
+`begin(key, same_payload)` must transition it to `reconcile_required` and return
+`reconcile`, never `execute`. The provider call count must remain one. The operator or
+trusted reconciler must inspect the provider's operation history before any retry; a
+retry is permitted only through the existing trusted authorization path with evidence
+that no effect occurred.
+
+## Rollback
+
+This change only adds regression coverage and does not change runtime behavior. If the
+test is invalid or unstable, revert the test-only commit/PR; do not disable the ledger
+or relax reconciliation behavior. Keep the existing fail-closed ledger tests enabled.
