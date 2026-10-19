@@ -372,8 +372,20 @@ def record_verified_jira_learning(
     )
 
 
+def plan_jira_batch(items: Iterable[Any], *, completed: Iterable[str] = ()) -> Any:
+    """Derive a disposable readiness/parallel plan using the canonical batch planner.
+
+    This is an integration seam only: it does not persist task state, dispatch work,
+    transition Jira issues, or approve high-risk changes. Callers must still enforce
+    branch isolation, authorization, evidence, exact-head CI, and rollout gates.
+    """
+    from portable.jira_batch_planner import JiraBatchPlanner
+
+    return JiraBatchPlanner(items).next_wave(completed=completed)
+
+
 __all__ = [
     "BranchAwareWorkspace", "GitSnapshot", "GitWorkflowError", "MergeConflictError",
     "ReadOnceFileCache", "SyncResult", "is_local_developer_setup",
-    "record_verified_jira_learning",
+    "record_verified_jira_learning", "plan_jira_batch",
 ]
