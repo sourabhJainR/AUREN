@@ -7,6 +7,7 @@ window. Values copied only from the probe's own receipt are not trusted context.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 from typing import Any, Callable, Mapping
 
 from .arena_isolation_attestation import ArenaIsolationAttestation, verify_arena_isolation_attestation
@@ -63,8 +64,13 @@ class ArenaHarnessIsolationReceiptVerifier:
                 raise ValueError(f"{name} must be non-empty")
         if not callable(clock):
             raise ValueError("clock must be callable")
-        if isinstance(max_future_skew_seconds, bool) or not isinstance(max_future_skew_seconds, (int, float)) or max_future_skew_seconds < 0:
-            raise ValueError("max_future_skew_seconds must be non-negative")
+        if (
+            isinstance(max_future_skew_seconds, bool)
+            or not isinstance(max_future_skew_seconds, (int, float))
+            or not math.isfinite(max_future_skew_seconds)
+            or max_future_skew_seconds < 0
+        ):
+            raise ValueError("max_future_skew_seconds must be finite and non-negative")
         self._verify_signature = verify_detached_signature
         self._resolve_context = resolve_trusted_context
         self._trusted_signers = trusted_signer_ids
