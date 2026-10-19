@@ -54,4 +54,4 @@ The supervisor has an explicit `waiting_ci` state. CI is treated as an external 
 
 ## Long-running operation
 
-The intended pattern is to start one work unit and repeatedly invoke the supervisor until it reaches a terminal state. The persistent ledger makes the boundary restart-safe; an OS scheduler/service can invoke the same work unit again after crashes, machine restarts, or planned maintenance windows.
+The intended pattern is to start one work unit and repeatedly invoke the supervisor until it reaches a terminal state. Each invocation is bounded by a finite iteration slice; when the slice is exhausted, the work unit remains resumable and the next invocation continues from the durable iteration. Repeated execution/review failures terminate after the configured consecutive-failure limit, and an unhandled review failure does not spin forever. The persistent ledger makes the boundary restart-safe; an OS scheduler/service can invoke the same work unit again after crashes, machine restarts, or planned maintenance windows.
