@@ -53,8 +53,8 @@ class EngineeringPlanDispatchTests(unittest.TestCase):
     def test_dispatch_persists_binding_and_replay_returns_same_task(self):
         with tempfile.TemporaryDirectory() as tmp:
             plan, run, packet, _, store, controller, bridge = prepared(tmp)
-            first = bridge.dispatch(
-                run_id=plan.run_id, task_id="implement", dispatch_key="dispatch-1",
+            first = controller.dispatch_engineering_plan_task(
+                store=store, run_id=plan.run_id, task_id="implement", dispatch_key="dispatch-1",
                 handler="dispatch-test", packet=packet, payload={"change": "small"},
             )
             second = bridge.dispatch(
