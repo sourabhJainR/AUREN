@@ -14,6 +14,7 @@ from .action_governance import (
     ActionGovernanceGateway,
     ActionRequest,
     ApprovalReceipt,
+    GovernedResult,
     PolicyVerdict,
 )
 from .execution_boundary import ExecutionAuthorityBinding, execute_bound_action
@@ -80,7 +81,12 @@ def execute_governed_sandbox(
     if authority is None:
         if any(value is not None for value in binding_args[1:]):
             raise ValueError("authority is required when execution-binding arguments are supplied")
-        result = gateway.execute(action, handler, approval=approval)
+        durable_verdict = gateway.durable_side_effect_preflight(action)
+        result = (
+            GovernedResult(False, durable_verdict)
+            if durable_verdict is not None
+            else gateway.execute(action, handler, approval=approval)
+        )
     else:
         if (
             not isinstance(repository_revision, str) or not repository_revision.strip()
