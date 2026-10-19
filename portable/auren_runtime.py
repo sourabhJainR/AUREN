@@ -612,7 +612,14 @@ def main(argv: list[str] | None = None) -> int:
             "stop_reason": report.stop_reason,
             "trust_scores": [score.as_dict() for score in report.trust_scores],
         }
-        print(json.dumps(payload, indent=2, sort_keys=True))
+        if args.json:
+            print(json.dumps(payload, indent=2, sort_keys=True))
+        else:
+            print(
+                "AUREN worker stopped: "
+                f"{report.stop_reason}; cycles={report.cycles}; "
+                f"processed_work_units={report.processed_work_units}; idle_cycles={report.idle_cycles}"
+            )
         return 0
     elif args.command == "workbench":
         from .local_workbench import LocalWorkbench, packet
