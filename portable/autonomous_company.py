@@ -446,7 +446,7 @@ class AutonomousCompany:
                 self._transition(wid, "waiting_external", iteration)
                 return self.trust(wid)
             if status not in {"passed", "completed"}:
-                failures = self._consecutive_failures(wid, "execution", {"passed", "completed"})
+                failures = self._consecutive_failures(wid, "execution", {"passed", "completed", "blocked"})
                 if failures >= max_consecutive_failures:
                     return self.finish(wid, success=False, reason="repeated execution failure without progress", evidence=evidence)
                 if recover:
