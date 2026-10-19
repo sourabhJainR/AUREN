@@ -541,30 +541,44 @@ class ExecutionController:
         )
 
     def work_unit_for_session(self, session_id: str, goal: str) -> str:
-        """Return a stable work unit for a session, creating it once if needed."""
+        """Return a stable work unit for a session, creating it once if needed.
+
+        Stable work keys make a retry safe if process failure occurs between
+        creating the unit and committing the session-to-unit mapping. A terminal
+        unit starts a new generation keyed by the previous unit ID.
+        """
         if not isinstance(session_id, str) or not session_id.strip():
             raise ValueError("session_id is required")
+        if not isinstance(goal, str) or not goal.strip():
+            raise ValueError("goal is required")
+        session_id = session_id.strip()
+        goal = goal.strip()
+        goal_digest = hashlib.sha256(goal.encode("utf-8")).hexdigest()[:16]
         with sqlite3.connect(self.db_path) as db:
             row = db.execute(
                 "SELECT work_unit_id, goal FROM sessions WHERE session_id=?", (session_id,)
             ).fetchone()
             if row:
-                prior_state, _ = self.company._state(str(row[0]))
+                prior_work_unit_id = str(row[0])
+                prior_state, _ = self.company._state(prior_work_unit_id)
                 if prior_state in {"running", "waiting_ci", "waiting_external"}:
                     if row[1] != goal:
                         raise ValueError("session_id is already bound to a different active goal")
-                    return str(row[0])
-                work = self.company.start(goal)
-                db.execute("UPDATE sessions SET work_unit_id=?,goal=?,updated_at=? WHERE session_id=?",
-                           (work.id, goal, _now(), session_id))
+                    return prior_work_unit_id
+                work_key = f"execution-session:{session_id}:{goal_digest}:after:{prior_work_unit_id}"
+                work = self.company.start(goal, work_key=work_key)
+                db.execute(
+                    "UPDATE sessions SET work_unit_id=?,goal=?,updated_at=? WHERE session_id=?",
+                    (work.id, goal, _now(), session_id),
+                )
                 return work.id
-            work = self.company.start(goal)
+            work_key = f"execution-session:{session_id}:{goal_digest}:initial"
+            work = self.company.start(goal, work_key=work_key)
             db.execute(
                 "INSERT INTO sessions(session_id,work_unit_id,goal,updated_at) VALUES(?,?,?,?)",
                 (session_id, work.id, goal, _now()),
             )
         return work.id
-
     def dispatch_engineering_plan_task(
         self,
         *,
