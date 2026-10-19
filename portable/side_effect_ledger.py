@@ -61,6 +61,17 @@ class DurableSideEffectLedger:
                     updated_at TEXT NOT NULL
                 )"""
             )
+            db.execute(
+                """CREATE TABLE IF NOT EXISTS durable_side_effect_retry_authorizations (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    idempotency_key TEXT NOT NULL,
+                    operator_id TEXT NOT NULL,
+                    evidence_ref TEXT NOT NULL,
+                    operator_reason TEXT NOT NULL,
+                    authorization_digest TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                )"""
+            )
 
     def _connect(self) -> sqlite3.Connection:
         db = sqlite3.connect(self.database_path, timeout=10, isolation_level=None)
@@ -224,11 +235,37 @@ class DurableSideEffectLedger:
             if row is None or row["state"] != "reconcile_required":
                 db.rollback()
                 raise InvalidSideEffectTransition("only reconciled side effects may be retried")
+            created_at = self._now()
+            authorization = {
+                "idempotency_key": idempotency_key,
+                "operator_id": operator_id.strip(),
+                "evidence_ref": evidence_ref.strip(),
+                "operator_reason": operator_reason.strip(),
+            }
+            db.execute(
+                "INSERT INTO durable_side_effect_retry_authorizations "
+                "(idempotency_key,operator_id,evidence_ref,operator_reason,authorization_digest,created_at) "
+                "VALUES(?,?,?,?,?,?)",
+                (
+                    idempotency_key, operator_id.strip(), evidence_ref.strip(),
+                    operator_reason.strip(), self._digest(authorization), created_at,
+                ),
+            )
             db.execute(
                 "UPDATE durable_side_effects SET state='retry_authorized', reason=?, updated_at=? "
-                "WHERE idempotency_key=?", (audit_reason, self._now(), idempotency_key)
+                "WHERE idempotency_key=?", (audit_reason, created_at, idempotency_key)
             )
             db.commit()
+    def retry_authorizations(self, idempotency_key: str) -> tuple[Mapping[str, Any], ...]:
+        """Return immutable operator/evidence audit records for a retry key."""
+        with self._connect() as db:
+            rows = db.execute(
+                "SELECT idempotency_key,operator_id,evidence_ref,operator_reason,authorization_digest,created_at "
+                "FROM durable_side_effect_retry_authorizations WHERE idempotency_key=? ORDER BY id",
+                (idempotency_key,),
+            ).fetchall()
+        return tuple(dict(row) for row in rows)
+
     def get(self, idempotency_key: str) -> Mapping[str, Any] | None:
         with self._connect() as db:
             row = db.execute(
