@@ -1045,14 +1045,18 @@ def test_session_work_unit_creation_is_idempotent_if_mapping_write_is_lost(tmp_p
     assert [row[0] for row in rows] == [first]
 
 
-def test_terminal_session_starts_one_new_resumable_generation(tmp_path: Path):
+def test_terminal_session_does_not_implicitly_retry_and_new_goal_gets_one_generation(tmp_path: Path):
     controller = ExecutionController(tmp_path)
     first = controller.work_unit_for_session("session-generation", "long task")
-    controller.company.finish(first, success=True, reason="first generation complete", evidence=("test:first",))
+    controller.company.finish(first, success=False, reason="no-progress gate stopped", evidence=("test:failure",))
 
     restarted = ExecutionController(tmp_path)
-    second = restarted.work_unit_for_session("session-generation", "long task")
-    again = restarted.work_unit_for_session("session-generation", "long task")
+    same_goal = restarted.work_unit_for_session("session-generation", "long task")
+    assert same_goal == first
+    assert restarted.company._state(first)[0] == "failed"
+
+    second = restarted.work_unit_for_session("session-generation", "different explicit goal")
+    again = restarted.work_unit_for_session("session-generation", "different explicit goal")
     assert second != first
     assert again == second
     assert restarted.company._state(second)[0] == "running"
