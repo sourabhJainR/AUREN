@@ -343,5 +343,30 @@ class AICodingAgencyBridgeTests(unittest.TestCase):
         self.assertEqual(captured_requests[0].action_id, "run-governed-multi-scope:coding-worker")
         self.assertTrue(gateway.verify_trace()["passed"])
 
+
+    def test_legacy_coding_worker_path_blocks_external_effect_without_durable_ledger(self):
+        gateway = ActionGovernanceGateway(ActionPolicy(
+            allowed_capabilities=frozenset({"repository.read", "repository.write"}),
+            external_effect_actions=frozenset({"specialist.execute"}),
+            require_idempotency_for_external_effects=False,
+        ))
+        task = CodingTask(
+            "run-legacy-external", "publish a consequential change",
+            mutation_mode="bounded", allowed_artifact_changes=("src/api.py",),
+        )
+        calls = []
+        result = run_coding_task(
+            task, lambda profile, assignments: calls.append("worker") or self._worker(profile, assignments),
+            governance_gateway=gateway, run_id="legacy-external-run",
+        )
+        self.assertFalse(result.ready)
+        self.assertEqual(calls, [])
+        self.assertFalse(result.execution.hard_gates["action_governance"])
+        self.assertTrue(any(
+            "durable_idempotency_ledger_required" in finding.message
+            for finding in result.execution.findings
+        ))
+
+
 if __name__ == "__main__":
     unittest.main()
