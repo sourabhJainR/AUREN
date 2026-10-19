@@ -231,7 +231,7 @@ class PersistentExperimentLearningTests(unittest.TestCase):
             m = manifest()
             receipt = recorded(s, m)
             s.promote_candidate(receipt.receipt_id, reviewer_id="reviewer", evidence_ref="review:1")
-            self.assertEqual((), s.retrieve_compatible(m, max_age_seconds=0.001))
+            self.assertEqual((), s.retrieve_compatible(m, max_age_seconds=1e-12))
             with self.assertRaisesRegex(ValueError, "limit"):
                 s.retrieve_compatible(m, limit=0)
 
