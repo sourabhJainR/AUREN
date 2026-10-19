@@ -135,5 +135,46 @@ class DurableSideEffectLedgerTests(unittest.TestCase):
                 ledger.retry_authorizations("effect-1")
 
 
+    def test_provider_success_then_receipt_persistence_failure_requires_reconciliation(self):
+        """A successful remote effect must not be repeated when receipt storage fails."""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "effects.sqlite3"
+            ledger = DurableSideEffectLedger(path)
+            provider_calls = []
+
+            first = ledger.begin("deploy:receipt-write-failure", {"revision": "abc", "target": "staging"})
+            self.assertEqual("execute", first.action)
+
+            def provider_deploy():
+                provider_calls.append("deploy")
+                return {"provider_operation_id": "op-456", "status": "accepted"}
+
+            receipt = provider_deploy()
+            self.assertEqual({"provider_operation_id": "op-456", "status": "accepted"}, receipt)
+
+            # Inject the failure at the durable receipt boundary after the provider
+            # has returned success. The executing record must survive process loss.
+            def fail_receipt_write(*args, **kwargs):
+                raise OSError("simulated durable receipt write failure")
+
+            ledger.complete = fail_receipt_write
+            with self.assertRaisesRegex(OSError, "receipt write failure"):
+                ledger.complete(first.idempotency_key, receipt)
+
+            restarted = DurableSideEffectLedger(path)
+            decision = restarted.begin(
+                "deploy:receipt-write-failure", {"target": "staging", "revision": "abc"}
+            )
+            self.assertEqual("reconcile", decision.action)
+            self.assertEqual("reconcile_required", decision.state)
+            self.assertEqual("reconcile_required", restarted.get("deploy:receipt-write-failure")["state"])
+
+            # Recovery must reconcile the remote operation; it must not dispatch
+            # the consequential provider operation again without trusted retry auth.
+            if decision.action == "execute":
+                provider_deploy()
+            self.assertEqual(["deploy"], provider_calls)
+
+
 if __name__ == "__main__":
     unittest.main()
