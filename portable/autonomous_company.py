@@ -96,8 +96,11 @@ class AutonomousCompany:
         db.execute("PRAGMA journal_mode=WAL")
         return db
 
-    def start(self, goal: str, *, scope: str = "single-company-unit", max_iterations: int = 1000000) -> WorkUnit:
-        if not goal.strip(): raise ValueError("goal is required")
+    def start(self, goal: str, *, scope: str = "single-company-unit", max_iterations: int = 100000) -> WorkUnit:
+        if not isinstance(goal, str) or not goal.strip(): raise ValueError("goal is required")
+        if not isinstance(scope, str) or not scope.strip(): raise ValueError("scope is required")
+        if isinstance(max_iterations, bool) or not isinstance(max_iterations, int) or not 1 <= max_iterations <= 100000:
+            raise ValueError("max_iterations must be an integer between 1 and 100000")
         wid = uuid4().hex
         now = _utc()
         with self._db() as db:
@@ -302,56 +305,106 @@ class AutonomousCompany:
         self._transition(wid,"completed" if success else "failed")
         return self.trust(wid)
 
+    def _consecutive_failures(self, wid: str, kind: str, successful_statuses: set[str]) -> int:
+        """Count consecutive non-success events for one gate from durable history."""
+        with self._db() as db:
+            rows = db.execute(
+                "SELECT status FROM events WHERE work_unit_id=? AND kind=? ORDER BY rowid DESC LIMIT 100",
+                (wid, kind),
+            ).fetchall()
+        count = 0
+        for (status,) in rows:
+            if status in successful_statuses:
+                break
+            count += 1
+        return count
+
     def iterate(self, wid: str, *, execute: Callable[[int], tuple[str,str,Sequence[str]]],
                 review: Callable[[int], tuple[bool,str,Sequence[str]]],
                 ci: Callable[[int], tuple[str,str,Sequence[str]]] | None = None,
                 recover: Callable[[str], tuple[bool,str,Sequence[str]]] | None = None,
-                poll_seconds: float = 30.0) -> TrustScore:
-        """Run until terminal state; restart-safe because every boundary is persisted."""
-        unit=self.resume(wid)
-        while True:
-            state, iteration=self._state(wid)
-            if state in TERMINAL: return self.trust(wid)
+                poll_seconds: float = 30.0, max_steps: int = 10,
+                max_consecutive_failures: int = 3) -> TrustScore:
+        """Run a bounded slice of a durable work unit and yield safely for resume.
+
+        One invocation executes at most max_steps iterations. The durable work unit
+        remains resumable after a slice ends. Repeated gate failures stop the loop
+        even if recovery keeps accepting an unproductive alternative; an unhandled
+        review failure is terminal rather than an unbounded retry.
+        """
+        if isinstance(max_steps, bool) or not isinstance(max_steps, int) or max_steps < 1:
+            raise ValueError("max_steps must be a positive integer")
+        if isinstance(max_consecutive_failures, bool) or not isinstance(max_consecutive_failures, int) or max_consecutive_failures < 1:
+            raise ValueError("max_consecutive_failures must be a positive integer")
+        if poll_seconds <= 0:
+            raise ValueError("poll_seconds must be positive")
+        unit = self.resume(wid)
+        steps = 0
+        while steps < max_steps:
+            state, iteration = self._state(wid)
+            if state in TERMINAL:
+                return self.trust(wid)
+            if state in WAITING:
+                return self.trust(wid)
             if iteration >= unit.max_iterations:
-                return self.finish(wid,success=False,reason="iteration limit reached")
+                return self.finish(wid, success=False, reason="iteration limit reached")
             iteration += 1
-            self._transition(wid,"running",iteration)
-            status,detail,evidence=execute(iteration)
-            self.record(wid,"execution",status,detail,evidence)
+            steps += 1
+            self._transition(wid, "running", iteration)
+            status, detail, evidence = execute(iteration)
+            self.record(wid, "execution", status, detail, evidence)
             if status == "blocked":
                 self.record(wid, "clarification", "held", detail, evidence)
                 if recover:
-                    ok,why,refs=recover(detail)
+                    ok, why, refs = recover(detail)
                     self.record(wid, "recovery", "accepted" if ok else "held", why, refs)
                     if ok:
                         continue
                 self._transition(wid, "waiting_external", iteration)
                 return self.trust(wid)
-            if status not in {"passed","completed"}:
+            if status not in {"passed", "completed"}:
+                failures = self._consecutive_failures(wid, "execution", {"passed", "completed"})
+                if failures >= max_consecutive_failures:
+                    return self.finish(wid, success=False, reason="repeated execution failure without progress", evidence=evidence)
                 if recover:
-                    ok,why,refs=recover(detail)
-                    self.record(wid,"recovery","accepted" if ok else "rejected",why,refs)
-                    if ok: continue
-                return self.finish(wid,success=False,reason=detail,evidence=evidence)
-            ok,detail,refs=review(iteration)
-            if not ok:
-                self.record(wid,"verification","failed",detail,refs)
+                    ok, why, refs = recover(detail)
+                    self.record(wid, "recovery", "accepted" if ok else "rejected", why, refs)
+                    if ok:
+                        continue
+                return self.finish(wid, success=False, reason=detail, evidence=evidence)
+
+            reviewed, review_detail, refs = review(iteration)
+            if not reviewed:
+                self.record(wid, "verification", "failed", review_detail, refs)
+                failures = self._consecutive_failures(wid, "verification", {"passed"})
+                if failures >= max_consecutive_failures:
+                    return self.finish(wid, success=False, reason="repeated review failure without progress", evidence=refs)
                 if recover:
-                    ok2,why,refs2=recover(detail)
-                    self.record(wid,"alternate","accepted" if ok2 else "rejected",why,refs2)
-                    if ok2: continue
-                continue
-            self.record(wid,"verification","passed",detail,refs)
+                    ok, why, recovery_refs = recover(review_detail)
+                    self.record(wid, "alternate", "accepted" if ok else "rejected", why, recovery_refs)
+                    if ok:
+                        continue
+                return self.finish(wid, success=False, reason="review failed without a verified recovery path", evidence=refs)
+
+            self.record(wid, "verification", "passed", review_detail, refs)
             if ci:
-                ci_status=self.wait_for_ci(wid,lambda:ci(iteration),poll_seconds=poll_seconds)
-                if ci_status=="passed":
-                    return self.finish(wid,success=True,reason="execution, review and CI passed",evidence=refs)
-                if ci_status in {"failed","timeout"}:
+                ci_status = self.wait_for_ci(wid, lambda: ci(iteration), poll_seconds=poll_seconds)
+                if ci_status == "passed":
+                    return self.finish(wid, success=True, reason="execution, review and CI passed", evidence=refs)
+                if ci_status in {"failed", "timeout"}:
                     if recover:
-                        ok2,why,refs2=recover("CI "+ci_status)
-                        self.record(wid,"recovery","accepted" if ok2 else "rejected",why,refs2)
-                        if ok2: continue
-                    return self.finish(wid,success=False,reason="CI did not pass",evidence=refs)
-            return self.finish(wid,success=True,reason="execution and review passed",evidence=refs)
+                        ok, why, recovery_refs = recover("CI " + ci_status)
+                        self.record(wid, "recovery", "accepted" if ok else "rejected", why, recovery_refs)
+                        if ok:
+                            continue
+                    return self.finish(wid, success=False, reason="CI did not pass", evidence=refs)
+                # wait_for_ci persists waiting_ci; never spin through the same CI wait.
+                return self.trust(wid)
+            return self.finish(wid, success=True, reason="execution and review passed", evidence=refs)
+
+        state, iteration = self._state(wid)
+        if state not in TERMINAL and state not in WAITING:
+            self.record(wid, "supervisor", "yielded", "bounded iteration slice exhausted; work unit remains resumable", (f"next_iteration:{iteration + 1}",))
+        return self.trust(wid)
 
 __all__=["AutonomousCompany","Decision","TrustScore","WorkUnit"]
