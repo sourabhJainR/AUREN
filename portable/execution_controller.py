@@ -1120,10 +1120,21 @@ class ExecutionController:
         self.company.record(task.work_unit_id, "execution", state, detail, evidence)
         return self.company.finish(task.work_unit_id, success=success, reason=detail, evidence=evidence)
 
-    def resume_pending(self, *, limit: int = 20) -> list[TrustScore]:
-        """Resume eligible work without letting a live lease consume the scan budget."""
+    def resume_pending(
+        self, *, limit: int = 20, continue_after_durable_failure: bool = False
+    ) -> list[TrustScore]:
+        """Resume eligible work without letting a live lease consume the scan budget.
+
+        The default preserves fail-fast behavior for direct callers. A bounded
+        service loop may continue after a handler exception only when both the task
+        row and executive event ledger prove that the task reached terminal failure.
+        Lease loss and partial persistence still propagate instead of being reported
+        as ordinary task failures.
+        """
         if type(limit) is not int or limit < 1:
             raise ValueError("resume limit must be a positive integer")
+        if type(continue_after_durable_failure) is not bool:
+            raise ValueError("continue_after_durable_failure must be a boolean")
         self.wake_due_quota_tasks(limit=limit)
         now = datetime.now(timezone.utc)
         with sqlite3.connect(self.db_path) as db:
@@ -1153,7 +1164,30 @@ class ExecutionController:
 
         scores = []
         for task_id in task_ids:
-            score = self.run_once(task_id)
+            try:
+                score = self.run_once(task_id)
+            except LeaseLostError:
+                raise
+            except Exception:
+                if not continue_after_durable_failure:
+                    raise
+                task = self.task(task_id)
+                if task is None or task.state != "failed":
+                    raise
+                work_state, _ = self.company._state(task.work_unit_id)
+                if work_state != "failed":
+                    raise
+                with sqlite3.connect(self.company.db_path) as db:
+                    failure_event = db.execute(
+                        "SELECT 1 FROM events WHERE work_unit_id=? "
+                        "AND kind='execution' AND status='failed' LIMIT 1",
+                        (task.work_unit_id,),
+                    ).fetchone()
+                if failure_event is None:
+                    raise
+                # The handler exception is reportable only after both durable
+                # ledgers confirm failure. Do not retry or replay the failed task.
+                score = self.company.trust(task.work_unit_id)
             if score is not None:
                 scores.append(score)
         return scores
