@@ -69,6 +69,20 @@ class CommitThenRaise:
         return self.ledger.require_reconciliation(key, reason)
 
 
+class FailReconciliation:
+    def __init__(self, ledger):
+        self.ledger = ledger
+
+    def begin(self, key, payload):
+        return self.ledger.begin(key, payload)
+
+    def complete(self, key, receipt):
+        return self.ledger.complete(key, receipt)
+
+    def require_reconciliation(self, key, reason):
+        raise OSError("injected reconciliation failure")
+
+
 def test_begin_failure_does_not_call_handler_and_retry_is_safe(tmp_path: Path):
     ledger = DurableSideEffectLedger(tmp_path / "effects.sqlite3")
     gate = gateway(FailBeginOnce(ledger))
@@ -113,3 +127,21 @@ def test_lost_commit_ack_replays_receipt_without_second_handler_call(tmp_path: P
     assert not replay.executed
     assert replay.result_digest
     assert calls == ["first"]
+
+
+def test_reconciliation_write_failure_still_blocks_restart_replay(tmp_path: Path):
+    ledger = DurableSideEffectLedger(tmp_path / "effects.sqlite3")
+
+    def uncertain():
+        raise TimeoutError("outcome unknown")
+
+    with pytest.raises(TimeoutError, match="outcome unknown"):
+        gateway(FailReconciliation(ledger)).execute(request(), uncertain)
+
+    assert ledger.get("r1:task1:publish")["state"] == "executing"
+    calls = []
+    blocked = gateway(ledger).execute(request(), lambda: calls.append("duplicate"))
+    assert not blocked.executed
+    assert blocked.verdict.reason == "side_effect_reconciliation_required"
+    assert calls == []
+    assert ledger.get("r1:task1:publish")["state"] == "reconcile_required"
