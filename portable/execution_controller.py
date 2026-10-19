@@ -1062,28 +1062,42 @@ class ExecutionController:
         necessary for resolving uncertain outcomes.
         """
         dispatch = task.payload.get("auren_dispatch")
-        if (
-            isinstance(dispatch, Mapping)
-            and isinstance(dispatch.get("dispatch_key"), str)
-            and dispatch["dispatch_key"].strip()
-        ):
-            key = "engineering-plan:" + dispatch["dispatch_key"].strip()
+        idempotency = task.payload.get("auren_idempotency")
+        engineering_key = (
+            dispatch.get("dispatch_key")
+            if isinstance(dispatch, Mapping)
+            else None
+        )
+        provider_neutral_key = (
+            idempotency.get("key")
+            if isinstance(idempotency, Mapping)
+            else None
+        )
+        if isinstance(engineering_key, str) and engineering_key.strip():
+            stable_key = engineering_key.strip()
+            key = "engineering-plan:" + stable_key
+            identity_kind = "engineering_dispatch"
+        elif isinstance(provider_neutral_key, str) and provider_neutral_key.strip():
+            stable_key = provider_neutral_key.strip()
+            key = "consequential-idempotency:" + stable_key
+            identity_kind = "consequential_idempotency"
         else:
+            stable_key = None
             key = "execution-task:" + task.id
+            identity_kind = "execution_task"
         safe_payload = dict(task.payload)
         safe_payload.pop("auren_dispatch", None)
+        safe_payload.pop("auren_idempotency", None)
         payload_digest = hashlib.sha256(
             json.dumps(safe_payload, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
         ).hexdigest()
-        dispatch_key = dispatch.get("dispatch_key") if isinstance(dispatch, Mapping) else None
-        # A canonical engineering dispatch may be retried through a newly-created
-        # durable task after restart. Bind that record to the stable dispatch identity,
-        # not the transient task ID, so retries replay the same receipt rather than
-        # conflicting or repeating the external effect.
+        # Stable keys permit safe receipt replay/reconciliation across recreated task
+        # IDs. The caller must supply a stable key only for the same logical operation;
+        # provider-native idempotency and history lookup are still adapter-specific.
         binding = {
             "identity": (
-                {"kind": "engineering_dispatch", "dispatch_key": dispatch_key}
-                if isinstance(dispatch_key, str) and dispatch_key.strip()
+                {"kind": identity_kind, "key": stable_key}
+                if stable_key is not None
                 else {"kind": "execution_task", "task_id": task.id}
             ),
             "handler": task.handler,
