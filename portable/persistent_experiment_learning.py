@@ -293,6 +293,8 @@ class PersistentExperimentLearningStore:
         if any(not isinstance(ref, str) or not ref.strip() for ref in evidence_refs):
             raise LearningEvidenceError("evidence references must be non-empty strings")
         refs = tuple(dict.fromkeys(ref.strip() for ref in evidence_refs))
+        if not refs:
+            raise LearningEvidenceError("at least one non-empty evidence reference is required")
         for domain, lift in domain_lifts:
             if not isinstance(domain, str) or not domain.strip():
                 raise ValueError("domain lift names must be non-empty strings")
