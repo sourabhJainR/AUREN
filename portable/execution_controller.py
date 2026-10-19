@@ -10,8 +10,10 @@ import hashlib
 import importlib
 import inspect
 import json
+import math
 import re
 import sqlite3
+import time
 from threading import Event, Thread
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -95,6 +97,17 @@ class DurableTask:
     work_unit_id: str
     lease_generation: int = 0
     lease_token: str | None = None
+
+
+@dataclass(frozen=True)
+class ContinuousRunReport:
+    """Bounded continuous-service slice; scores are evidence summaries, not success claims."""
+
+    cycles: int
+    processed_work_units: int
+    idle_cycles: int
+    stop_reason: str
+    trust_scores: tuple[TrustScore, ...]
 
 
 class LeaseLostError(RuntimeError):
@@ -1141,6 +1154,59 @@ class ExecutionController:
             if score is not None:
                 scores.append(score)
         return scores
+
+    def run_continuously(
+        self,
+        *,
+        stop_event: Event | None = None,
+        batch_size: int = 20,
+        idle_sleep_seconds: float = 1.0,
+        max_cycles: int = 100,
+        max_idle_cycles: int = 5,
+    ) -> ContinuousRunReport:
+        """Run bounded resume batches until cancellation, cycle budget, or idle stop.
+
+        State remains in the durable task/work-unit ledgers between calls. This
+        service loop never interprets an empty batch as success and exits after a
+        configurable no-progress budget so a scheduler can safely resume it later.
+        Cancellation is observed between batches; handlers must use the existing
+        lease heartbeat/cancellation contracts for work already in progress.
+        """
+        for value, name in ((batch_size, "batch_size"), (max_cycles, "max_cycles"), (max_idle_cycles, "max_idle_cycles")):
+            if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+                raise ValueError(f"{name} must be a positive integer")
+        if not isinstance(idle_sleep_seconds, (int, float)) or not math.isfinite(idle_sleep_seconds) or idle_sleep_seconds < 0:
+            raise ValueError("idle_sleep_seconds must be a finite non-negative number")
+        event = stop_event if stop_event is not None else Event()
+        scores: list[TrustScore] = []
+        cycles = 0
+        idle_cycles = 0
+        stop_reason = "cycle_budget_exhausted"
+        while cycles < max_cycles:
+            if event.is_set():
+                stop_reason = "cancelled"
+                break
+            cycles += 1
+            batch = self.resume_pending(limit=batch_size)
+            if batch:
+                scores.extend(batch)
+                idle_cycles = 0
+                continue
+            idle_cycles += 1
+            if idle_cycles >= max_idle_cycles:
+                stop_reason = "idle_budget_exhausted"
+                break
+            if event.wait(idle_sleep_seconds):
+                stop_reason = "cancelled"
+                break
+        else:
+            stop_reason = "cycle_budget_exhausted"
+        if event.is_set() and stop_reason != "idle_budget_exhausted":
+            stop_reason = "cancelled"
+        return ContinuousRunReport(
+            cycles=cycles, processed_work_units=len(scores), idle_cycles=idle_cycles,
+            stop_reason=stop_reason, trust_scores=tuple(scores),
+        )
 
     def heartbeat(self, task: DurableTask, *, lease_seconds: int = 300) -> None:
         if not isinstance(task, DurableTask) or not task.lease_token or task.lease_generation < 1:
