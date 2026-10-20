@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
@@ -106,6 +107,64 @@ class ProviderEffectReconciliationTests(unittest.TestCase):
             replay = ledger.begin("deploy:run-46", {"revision": "sha-abc"})
             self.assertEqual("replay", replay.action)
             self.assertEqual({"provider_operation_id": "op-46"}, replay.receipt)
+
+
+    def test_receipt_write_failure_rolls_back_and_reconciles_after_restart(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "effects.sqlite3"
+            ledger = DurableSideEffectLedger(
+                path, reconciliation_verifier=lambda key, ref, receipt: (
+                    key == "deploy:run-47"
+                    and ref == "provider://operations/op-47"
+                    and receipt.get("provider_operation_id") == "op-47"
+                ),
+            )
+            ledger.begin("deploy:run-47", {"revision": "sha-abc"})
+            ledger.require_reconciliation("deploy:run-47", "provider succeeded before receipt persistence")
+
+            # Inject a database-level persistence failure after provider evidence
+            # verifies but before the reconciliation transaction can commit.
+            with sqlite3.connect(path) as db:
+                db.execute(
+                    """
+                    CREATE TRIGGER fail_reconciled_receipt
+                    BEFORE UPDATE OF state ON durable_side_effects
+                    WHEN NEW.state = 'completed'
+                    BEGIN
+                        SELECT RAISE(ABORT, 'simulated receipt persistence outage');
+                    END
+                    """
+                )
+
+            restarted = DurableSideEffectLedger(
+                path,
+                reconciliation_verifier=lambda key, ref, receipt: (
+                    key == "deploy:run-47"
+                    and ref == "provider://operations/op-47"
+                    and receipt.get("provider_operation_id") == "op-47"
+                ),
+            )
+            with self.assertRaisesRegex(sqlite3.IntegrityError, "simulated receipt persistence outage"):
+                restarted.record_reconciled_effect(
+                    "deploy:run-47",
+                    evidence_ref="provider://operations/op-47",
+                    receipt={"provider_operation_id": "op-47"},
+                )
+            self.assertEqual("reconcile_required", restarted.get("deploy:run-47")["state"])
+
+            with sqlite3.connect(path) as db:
+                db.execute("DROP TRIGGER fail_reconciled_receipt")
+
+            recovered = restarted.record_reconciled_effect(
+                "deploy:run-47",
+                evidence_ref="provider://operations/op-47",
+                receipt={"provider_operation_id": "op-47"},
+            )
+            self.assertEqual("reconciled", recovered.action)
+            self.assertEqual("completed", restarted.get("deploy:run-47")["state"])
+            replay = restarted.begin("deploy:run-47", {"revision": "sha-abc"})
+            self.assertEqual("replay", replay.action)
+            self.assertEqual({"provider_operation_id": "op-47"}, replay.receipt)
 
 
 if __name__ == "__main__":
