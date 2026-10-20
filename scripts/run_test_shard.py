@@ -9,6 +9,13 @@ import argparse
 import sys
 import unittest
 from collections import defaultdict
+from pathlib import Path
+
+# Running a script places scripts/ at sys.path[0]; tests import portable from
+# the repository root, so make that root explicit just like `python -m unittest`.
+_REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+if str(_REPOSITORY_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPOSITORY_ROOT))
 
 
 def _flatten(suite: unittest.TestSuite):
