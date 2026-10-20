@@ -109,6 +109,37 @@ class HybridModelRouter:
             return True
         return capability in model
 
+    @classmethod
+    def _ranked_candidates(cls, models: Any, capability: str) -> list[str]:
+        """Prefer explicit provider capability metadata, then deterministic name heuristics."""
+        if not isinstance(models, list):
+            return []
+        ranked: list[tuple[int, str]] = []
+        wanted = capability.casefold().strip()
+        for item in models:
+            if not isinstance(item, Mapping):
+                continue
+            name = item.get("name")
+            if not isinstance(name, str) or not name.strip():
+                continue
+            declared = item.get("capabilities")
+            if declared is not None:
+                if not isinstance(declared, (list, tuple, set)) or not all(
+                    isinstance(value, str) for value in declared
+                ):
+                    continue
+                normalized = {value.casefold().strip() for value in declared}
+                if wanted not in normalized and "*" not in normalized:
+                    continue
+                score = 100 if wanted in normalized else 50
+            else:
+                if not cls._capable(name, capability):
+                    continue
+                score = 10
+            ranked.append((score, name.strip()))
+        ranked.sort(key=lambda candidate: (-candidate[0], candidate[1].casefold()))
+        return [name for _, name in ranked]
+
     def route(
         self,
         request: TaskRouteRequest,
@@ -146,9 +177,17 @@ class HybridModelRouter:
                 round((time.monotonic()-started)*1000, 2),
                 {"before": before, "after": self.resource_reader()}, str(exc),
                 error="Execution budget is exhausted or cancelled before model discovery")
-        local = self.discovery.discover()
-        candidates = [m["name"] for m in local.get("models", [])
-                      if m.get("name") and self._capable(m["name"], bounded.capability)]
+        try:
+            local = self.discovery.discover()
+            candidates = self._ranked_candidates(
+                local.get("models") if isinstance(local, Mapping) else None,
+                bounded.capability,
+            )
+            discovery_error = None
+        except Exception as exc:
+            local = {"available": False, "models": []}
+            candidates = []
+            discovery_error = type(exc).__name__
         private = bounded.privacy.casefold() not in {"public", "non_sensitive"}
         reason = None
         attempts_used = 0
@@ -195,7 +234,8 @@ class HybridModelRouter:
                     {"before": before, "after": self.resource_reader()}, reason,
                     error="Local execution failed; privacy policy forbids remote fallback")
         elif private:
-            reason = "no capable local model or local executor"
+            reason = (f"local model discovery failed: {discovery_error}" if discovery_error
+                      else "no capable local model or local executor")
             return RouteResult("local", None, False, 0,
                 round((time.monotonic()-started)*1000, 2),
                 {"before": before, "after": self.resource_reader()}, reason,
