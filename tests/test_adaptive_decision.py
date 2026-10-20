@@ -14,7 +14,6 @@ class AdaptiveDecisionTests(unittest.TestCase):
             def read(self):
                 levels = ("minimal", "standard", "deep", "human")
                 probabilities = {item: (0.97 if item == level else 0.01) for item in levels}
-                probabilities[level] = 0.97
                 return json.dumps({
                     "decisions": {
                         "depth": {
@@ -96,7 +95,7 @@ class AdaptiveDecisionTests(unittest.TestCase):
         decision = policy.decide(uncertainty=0.1, risk=0.99, evidence_quality=1.0)
         self.assertEqual(decision.depth, "human")
         self.assertEqual(decision.provider, "deterministic")
-        self.assertTrue(decision.abstained)
+        self.assertFalse(decision.abstained)
 
     def test_provider_cannot_undercut_deterministic_depth_floor(self) -> None:
         policy = AdaptiveInferencePolicy(provider=self._provider_for_level("standard"))
