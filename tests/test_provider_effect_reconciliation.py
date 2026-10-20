@@ -90,13 +90,18 @@ class ProviderEffectReconciliationTests(unittest.TestCase):
             ledger.begin("deploy:run-46", {"revision": "sha-abc"})
             ledger.require_reconciliation("deploy:run-46", "receipt persistence interrupted")
             def reconcile():
-                return ledger.record_reconciled_effect(
-                    "deploy:run-46", evidence_ref="provider://operations/op-46",
-                    receipt={"provider_operation_id": "op-46"},
-                )
+                try:
+                    return ledger.record_reconciled_effect(
+                        "deploy:run-46", evidence_ref="provider://operations/op-46",
+                        receipt={"provider_operation_id": "op-46"},
+                    )
+                except InvalidSideEffectTransition:
+                    # One writer wins; the loser must fail closed rather than overwrite.
+                    return "lost_race"
             with ThreadPoolExecutor(max_workers=2) as pool:
                 results = list(pool.map(lambda _n: reconcile(), range(2)))
-            self.assertEqual(1, sum(result.action == "reconciled" for result in results))
+            self.assertEqual(1, sum(getattr(result, "action", None) == "reconciled" for result in results))
+            self.assertEqual(1, sum(result == "lost_race" for result in results))
             self.assertEqual("completed", ledger.get("deploy:run-46")["state"])
             replay = ledger.begin("deploy:run-46", {"revision": "sha-abc"})
             self.assertEqual("replay", replay.action)
