@@ -122,12 +122,12 @@ class ProcessIsolatedCrewDispatcher:
             started = time.monotonic()
             if cancellation_event is not None and cancellation_event.is_set():
                 results.append(IsolatedCrewResult(crew_id, "cancelled", error="cancellation requested"))
-                results.extend(IsolatedCrewResult(item["crew_id"], "not_run", error="prior cancellation") for item in requests[len(results)+1:])
+                results.extend(IsolatedCrewResult(item["crew_id"], "not_run", error="prior cancellation") for item in requests[len(results):])
                 break
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 results.append(IsolatedCrewResult(crew_id, "timed_out", error="total batch deadline exceeded"))
-                results.extend(IsolatedCrewResult(item["crew_id"], "not_run", error="total batch deadline exceeded") for item in requests[len(results)+1:])
+                results.extend(IsolatedCrewResult(item["crew_id"], "not_run", error="total batch deadline exceeded") for item in requests[len(results):])
                 break
             receive_conn, send_conn = context.Pipe(duplex=False)
             process = context.Process(target=_worker, args=(self.handler_ref, request_json, send_conn, self.output_limit_bytes), daemon=True)
