@@ -572,7 +572,8 @@ def phases_for(route: dict[str, Any], workflow: str | None, config: dict[str, An
 
 def run_validation(config: dict[str, Any], run_dir: Path, *, deadline_at: str | None = None, cancellation_event: threading.Event | None = None):
     # Import lazily: runtime.__init__ installs compatibility bridges into engine during import.
-    from portable.bounded_subprocess import run_bounded_command\n    commands = []
+    from portable.bounded_subprocess import run_bounded_command
+    commands = []
     for item in config.get("validation", {}).get("commands", []):
         if isinstance(item, list) and all(isinstance(part, str) for part in item): commands.append(item)
         elif isinstance(item, str): commands.append(shlex.split(item, posix=os.name != "nt"))
