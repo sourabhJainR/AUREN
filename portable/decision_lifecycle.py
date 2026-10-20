@@ -85,7 +85,8 @@ class ConfidenceCalibrator:
     not a guarantee that future predictions are calibrated.
     """
 
-    def __init__(self, *, bins: int = 10, min_samples: int = 20, prior_weight: float = 10.0,\n                 evidence_sink: DecisionEvidenceSink | None = None, policy_version: str = "calibration-v1") -> None:
+    def __init__(self, *, bins: int = 10, min_samples: int = 20, prior_weight: float = 10.0,
+                 evidence_sink: DecisionEvidenceSink | None = None, policy_version: str = "calibration-v1") -> None:
         if bins < 2 or min_samples < 1 or prior_weight < 0:
             raise ValueError("invalid calibration configuration")
         self.bins = bins
@@ -295,7 +296,9 @@ class ShadowEvaluator:
         )
         self._records.append(record)
         if self.evidence_sink is not None:
-            payload = {"baseline": baseline, "candidate": candidate,\n                       "candidate_would_change": record.candidate_would_change,\n                       "outcome_correct": outcome_correct}
+            payload = {"baseline": baseline, "candidate": candidate,
+                       "candidate_would_change": record.candidate_would_change,
+                       "outcome_correct": outcome_correct}
             event = _evidence_event("shadow-comparison", self.policy_version, state, payload)
             self.evidence_sink.append(event)
         return record
