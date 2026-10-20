@@ -1,15 +1,15 @@
 # AUREN Repository and Website Alignment Review
 
 **Review date:** 2026-10-20  
-**Current review baseline:** `main` at `78a11172d429aef6168b66c749c06a2581e9c7d7`  
+**Current review baseline:** `main` at `071991f5941fe075203bd63cc266c9a6b44f71d2`  
 **Current product version:** `1.0.5` (merged)  
 **Scope:** repository-facing status, architecture claims, website/documentation consistency, workflow evidence, and implementation gaps.
 
 ## Executive summary
 
-The current main revision contains durable supervisor-owned execution, revision-bound evidence receipts, canonical evidence-graph integration, fail-closed promotion checks, post-check revision revalidation, and capability-aware local-model ranking. Revision-specific AI Harness, runtime resilience, architecture integrity, hardening, portable bundle, agent capability, and Pages workflows passed for the reviewed commit. The bundle workflow produced portable and checksum artifacts.
+The current main revision contains durable supervisor-owned execution, revision-bound evidence receipts, canonical evidence-graph integration, fail-closed promotion checks, post-check revision revalidation, capability-aware local-model ranking, hard-stop subprocess execution, deadline propagation into evidence checks, opt-in process-isolated crew dispatch, and Windows Job Object descendant containment. Revision-specific AI Harness, runtime resilience, architecture integrity, hardening, portable bundle, agent capability, and Pages workflows passed for the reviewed commit. The bundle workflow produced portable and checksum artifacts.
 
-Release 1.0.5 adds an explicit responsive-execution contract and a version-consistency regression test. PR #743 adds executable process-tree hard-stop tests; PR #747 integrates hard-stop execution and deadline propagation into the default revision-bound evidence gate; PR #749 adds opt-in process-isolated crew execution and fixes a concurrent dispatch replay row-mapping race. These results establish repository-level checks only. They do not establish independent external benchmark performance, OS-level sandbox isolation, production migration/rollback safety, or enforcement of GitHub required checks. The repository branch metadata returned `protected=true` but `protection.enabled=false`, enforcement off, and no required status checks. This is a high-priority governance gap.
+Release 1.0.5 adds an explicit responsive-execution contract and a version-consistency regression test. PR #743 adds executable process-tree hard-stop tests; PR #747 integrates hard-stop execution and deadline propagation into the default revision-bound evidence gate; PR #749 adds opt-in process-isolated crew execution and fixes a concurrent dispatch replay row-mapping race; PR #753 adds Windows Job Object containment and a delayed-descendant side-effect test. These results establish repository-level checks only. They do not establish independent external benchmark performance, OS-level sandbox isolation, production migration/rollback safety, or enforcement of GitHub required checks. The repository branch metadata returned `protected=true` but `protection.enabled=false`, enforcement off, and no required status checks. This is a high-priority governance gap.
 
 ## Canonical synchronization rules
 
@@ -29,18 +29,18 @@ The initial repository review found two competing publishers: the canonical `Dep
 
 | Area | Current-main evidence | Limit |
 |---|---|---|
-| Main revision | `538f33e8374e704e44eb8c221afac56a6db983b4` | Recheck after every merge |
-| AI Harness Check | [Run 39421877565](https://github.com/sourabhJainR/AUREN/actions/runs/39421877565) passed | Repository tests for this SHA |
-| Runtime Resilience Matrix | [Run 39421877428](https://github.com/sourabhJainR/AUREN/actions/runs/39421877428) passed on Linux/Windows, Python 3.11/3.12 | Does not cover every production host or external effect |
-| Architecture Integrity | [Run 39421877444](https://github.com/sourabhJainR/AUREN/actions/runs/39421877444) passed | Structural/repository contract only |
-| Production AI Harness Hardening | [Run 39421877522](https://github.com/sourabhJainR/AUREN/actions/runs/39421877522) passed | Does not replace independent host isolation audit |
-| Agent Capability Runtime | [Run 39421877426](https://github.com/sourabhJainR/AUREN/actions/runs/39421877426) passed | Revision-specific |
-| Portable bundle | [Run 39421877517](https://github.com/sourabhJainR/AUREN/actions/runs/39421877517) passed; ZIP artifact digest `sha256:9842d1d51fdf014696004c45f5b92b3f340c3af56f964ddfef3cb94dd61ff0ea`; checksum artifact digest `sha256:bd2395e2fd8c5556e49e89b2dd91fbd9a6070992562edfaa1046b5a5d3ef27d4` | These are GitHub artifact digests, not the ZIP's own SHA-256 |
-| Pages deployment | [Run 39421877636](https://github.com/sourabhJainR/AUREN/actions/runs/39421877636) passed | Reverify after website changes merge |
+| Main revision | `071991f5941fe075203bd63cc266c9a6b44f71d2` | Recheck after every merge |
+| AI Harness Check | [Run 39430002349](https://github.com/sourabhJainR/AUREN/actions/runs/39430002349) passed | Repository tests for this SHA |
+| Runtime Resilience Matrix | [Run 39430002092](https://github.com/sourabhJainR/AUREN/actions/runs/39430002092) passed on Linux/Windows, Python 3.11/3.12, including the Windows descendant test | Does not cover every production host or external effect |
+| Architecture Integrity | [Run 39430002129](https://github.com/sourabhJainR/AUREN/actions/runs/39430002129) passed | Structural/repository contract only |
+| Production AI Harness Hardening | [Run 39430002343](https://github.com/sourabhJainR/AUREN/actions/runs/39430002343) passed | Does not replace independent host isolation audit |
+| Agent Capability Runtime | [Run 39430002144](https://github.com/sourabhJainR/AUREN/actions/runs/39430002144) passed | Revision-specific |
+| Portable bundle | [Run 39430002486](https://github.com/sourabhJainR/AUREN/actions/runs/39430002486) passed; GitHub artifact digests `sha256:9c2a44d6c0fda9e092bc65499c6011e1d70883ecc33349701c495140ef75daa1` and `sha256:c4d9197cbe15b8691d5e58498d708675e711ab22412db4fd03be281b6c634322` | These are GitHub artifact digests, not the ZIP's own SHA-256 |
+| Pages deployment | [Run 39430002162](https://github.com/sourabhJainR/AUREN/actions/runs/39430002162) passed | Confirms deployment workflow for this SHA; public cache propagation is separate |
 
 ## Responsiveness and non-hanging execution
 
-See [Responsive Execution and Timeout Policy](RESPONSIVE_EXECUTION_AND_TIMEOUTS.md). `portable.bounded_subprocess.run_bounded_command` is exercised against hangs, inherited deadlines, cancellation, output floods, and process-tree termination. The default `portable.evidence_gate.run_evidence_gate` path uses it for revision-bound checks. `portable.process_isolated_crew_dispatch.ProcessIsolatedCrewDispatcher` provides a deadline-bound process-isolation option for trusted importable crew handlers, while the legacy thread dispatcher remains non-killable. Remaining risks include arbitrary provider/network calls and graph nodes not yet routed through hard-stop adapters, Windows descendant containment without Job Objects, queue/lock contention, and ambiguous external side effects. These features are liveness controls, not a sandbox or proof of production isolation.
+See [Responsive Execution and Timeout Policy](RESPONSIVE_EXECUTION_AND_TIMEOUTS.md). `portable.bounded_subprocess.run_bounded_command` is exercised against hangs, inherited deadlines, cancellation, output floods, and process-tree termination. The default `portable.evidence_gate.run_evidence_gate` path uses it for revision-bound checks. `portable.process_isolated_crew_dispatch.ProcessIsolatedCrewDispatcher` provides a deadline-bound process-isolation option for trusted importable crew handlers, while the legacy thread dispatcher remains non-killable. Remaining risks include arbitrary provider/network calls and graph nodes not yet routed through hard-stop adapters, Windows Job Object descendant containment is now covered by CI, queue/lock contention, and ambiguous external side effects. These features are liveness controls, not a sandbox or proof of production isolation.
 
 ## Prioritized implementation gaps and enhancements
 
