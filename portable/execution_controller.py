@@ -733,7 +733,9 @@ class ExecutionController:
             metadata=dict(metadata or {}),
         )
 
-    def work_unit_for_session(self, session_id: str, goal: str) -> str:
+    def work_unit_for_session(
+        self, session_id: str, goal: str, *, work_key: str | None = None
+    ) -> str:
         """Return a stable work unit for a session, creating it once if needed.
 
         Stable work keys make a retry safe if process failure occurs between
@@ -763,15 +765,15 @@ class ExecutionController:
                 # retry loop; callers must provide a new session or a new goal.
                 if row[1] == goal:
                     return prior_work_unit_id
-                work_key = f"execution-session:{session_id}:{goal_digest}:after:{prior_work_unit_id}"
-                work = self.company.start(goal, work_key=work_key)
+                generation_key = f"execution-session:{session_id}:{goal_digest}:after:{prior_work_unit_id}"
+                work = self.company.start(goal, work_key=generation_key)
                 db.execute(
                     "UPDATE sessions SET work_unit_id=?,goal=?,updated_at=? WHERE session_id=?",
                     (work.id, goal, _now(), session_id),
                 )
                 return work.id
-            work_key = f"execution-session:{session_id}:{goal_digest}:initial"
-            work = self.company.start(goal, work_key=work_key)
+            stable_key = work_key.strip() if isinstance(work_key, str) and work_key.strip() else f"execution-session:{session_id}:{goal_digest}:initial"
+            work = self.company.start(goal, work_key=stable_key)
             db.execute(
                 "INSERT INTO sessions(session_id,work_unit_id,goal,updated_at) VALUES(?,?,?,?)",
                 (session_id, work.id, goal, _now()),
