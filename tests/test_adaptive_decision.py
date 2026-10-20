@@ -5,6 +5,31 @@ from portable.adaptive_decision import AdaptiveInferencePolicy, HttpDecisionProv
 
 
 class AdaptiveDecisionTests(unittest.TestCase):
+    def _provider_for_level(self, level, confidence=0.99):
+        class Response:
+            def __enter__(self):
+                return self
+            def __exit__(self, *_):
+                return None
+            def read(self):
+                levels = ("minimal", "standard", "deep", "human")
+                probabilities = {item: (0.97 if item == level else 0.01) for item in levels}
+                probabilities[level] = 0.97
+                return json.dumps({
+                    "decisions": {
+                        "depth": {
+                            "level": level,
+                            "probabilities": probabilities,
+                            "confidence": confidence,
+                        }
+                    }
+                }).encode()
+
+        return HttpDecisionProvider(
+            "https://decision.example/v1",
+            opener=lambda *_args, **_kwargs: Response(),
+        )
+
     def test_policy_escalates_with_uncertainty_and_failure_history(self) -> None:
         policy = AdaptiveInferencePolicy()
         minimal = policy.decide(uncertainty=0.05, risk=0.1, evidence_quality=0.95)
@@ -65,6 +90,26 @@ class AdaptiveDecisionTests(unittest.TestCase):
         )
         self.assertEqual(decision.provider, "deterministic")
         self.assertEqual(decision.depth, "minimal")
+
+    def test_high_confidence_provider_cannot_override_hard_risk_gate(self) -> None:
+        policy = AdaptiveInferencePolicy(provider=self._provider_for_level("minimal"))
+        decision = policy.decide(uncertainty=0.1, risk=0.99, evidence_quality=1.0)
+        self.assertEqual(decision.depth, "human")
+        self.assertEqual(decision.provider, "deterministic")
+        self.assertTrue(decision.abstained)
+
+    def test_provider_cannot_undercut_deterministic_depth_floor(self) -> None:
+        policy = AdaptiveInferencePolicy(provider=self._provider_for_level("standard"))
+        decision = policy.decide(uncertainty=0.85, risk=0.4, evidence_quality=0.8)
+        self.assertEqual(decision.depth, "deep")
+        self.assertEqual(decision.provider, "external")
+        self.assertTrue(decision.abstained)
+
+    def test_provider_may_recommend_more_conservative_depth(self) -> None:
+        policy = AdaptiveInferencePolicy(provider=self._provider_for_level("human"))
+        decision = policy.decide(uncertainty=0.1, risk=0.1, evidence_quality=0.95)
+        self.assertEqual(decision.depth, "human")
+        self.assertEqual(decision.provider, "external")
 
 
 if __name__ == "__main__":
