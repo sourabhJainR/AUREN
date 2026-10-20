@@ -188,7 +188,7 @@ class AdaptiveInferencePolicy:
         if floor == "human":
             return InferenceDecision(
                 "human", 1.0, "deterministic high-risk or repeated-failure gate",
-                "deterministic", abstained=bool(self.provider and self.provider.configured),
+                "deterministic",
             )
 
         evaluator = self.provider
