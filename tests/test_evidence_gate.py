@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 import subprocess
+import sys
+import threading
+import time
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -86,6 +89,40 @@ class EvidenceGateTests(unittest.TestCase):
         self.assertEqual(receipt.status, "FAIL")
         self.assertEqual(receipt.checks[0].status, "TIMEOUT")
         self.assertEqual(receipt.checks[1].status, "NOT_RUN")
+
+    def test_default_runner_hard_stops_hung_command(self) -> None:
+        started = time.monotonic()
+        receipt = run_evidence_gate(
+            Path.cwd(), expected_revision="abc123",
+            checks=(EvidenceCheck("hang", (sys.executable, "-c", "import time; time.sleep(30)"), 10),),
+            total_timeout_seconds=0.25, revision_reader=lambda _: "abc123",
+        )
+        self.assertEqual("FAIL", receipt.status)
+        self.assertEqual("TIMEOUT", receipt.checks[0].status)
+        self.assertLess(time.monotonic() - started, 3.0)
+
+    def test_default_runner_inherits_total_deadline_between_checks(self) -> None:
+        checks = (
+            EvidenceCheck("hang", (sys.executable, "-c", "import time; time.sleep(30)"), 10),
+            EvidenceCheck("must-not-run", (sys.executable, "-c", "raise SystemExit(99)"), 10),
+        )
+        receipt = run_evidence_gate(
+            Path.cwd(), expected_revision="abc123", checks=checks,
+            total_timeout_seconds=0.25, revision_reader=lambda _: "abc123",
+        )
+        self.assertEqual("FAIL", receipt.status)
+        self.assertEqual(["TIMEOUT", "NOT_RUN"], [item.status for item in receipt.checks])
+
+    def test_pre_cancelled_evidence_gate_never_spawns_check(self) -> None:
+        cancel = threading.Event()
+        cancel.set()
+        receipt = run_evidence_gate(
+            Path.cwd(), expected_revision="abc123",
+            checks=(EvidenceCheck("never", (sys.executable, "-c", "raise SystemExit(99)"), 2),),
+            cancellation_event=cancel, revision_reader=lambda _: "abc123",
+        )
+        self.assertEqual("FAIL", receipt.status)
+        self.assertEqual("CANCELLED", receipt.checks[0].status)
 
     def test_duplicate_check_names_are_rejected(self) -> None:
         checks = (self.checks[0], EvidenceCheck("unit", ("python", "-V")))

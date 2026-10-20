@@ -46,7 +46,7 @@ The hard-stop primitive is portable.bounded_subprocess.run_bounded_command. It a
 | Cancellation | test_cancellation_terminates_command_and_is_explicit; test_pre_cancelled_validation_does_not_start_command | cancelled |
 | Output flood | test_output_capture_is_bounded_and_marks_truncation; test_validation_output_capture_is_bounded_and_reports_truncation | bounded retained output and log |
 | Descendant process | test_timeout_kills_descendant_process_group (POSIX) | no live descendant |
-| Invalid budget/shell string | test_shell_strings_and_invalid_budgets_are_rejected | reject before spawn |
+| Invalid budget/shell string | test_shell_strings_and_invalid_budgets_are_rejected | reject before spawn |\n| Evidence check hangs | test_default_runner_hard_stops_hung_command | TIMEOUT, no success |\n| Total deadline exhausted | test_default_runner_inherits_total_deadline_between_checks | later checks NOT_RUN |\n| Pre-cancelled evidence gate | test_pre_cancelled_evidence_gate_never_spawns_check | CANCELLED, no spawn |
 
 ## Acceptance tests
 

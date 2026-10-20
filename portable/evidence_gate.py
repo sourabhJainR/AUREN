@@ -10,10 +10,13 @@ from __future__ import annotations
 import hashlib
 import json
 import subprocess
+import threading
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Callable, Sequence
+
+from .bounded_subprocess import run_bounded_command
 
 
 @dataclass(frozen=True)
@@ -89,12 +92,15 @@ def run_evidence_gate(
     checks: Sequence[EvidenceCheck],
     total_timeout_seconds: float = 600.0,
     output_limit_chars: int = 4000,
-    command_runner: Callable[..., object] = subprocess.run,
+    command_runner: Callable[..., object] | None = None,
     revision_reader: Callable[[Path], str] = _git_head,
+    cancellation_event: threading.Event | None = None,
 ) -> EvidenceReceipt:
     """Run bounded argv checks and issue a digest-bound PASS/FAIL/STALE receipt.
 
-    Commands are never executed through a shell. The host remains responsible
+    By default, commands use the hard-stop process-tree runner and inherit the
+    total evidence deadline. Injected runners remain available for deterministic
+    tests/adapters. Commands are never executed through a shell. The host remains responsible
     for allow-listing commands, credentials, network access, and filesystem
     isolation. A changed HEAD, timeout, exception, or non-zero exit can never
     produce PASS. No automatic retry is performed here.
@@ -132,15 +138,42 @@ def run_evidence_gate(
             timeout = min(check.timeout_seconds, remaining)
             started = time.monotonic()
             try:
-                result = command_runner(
-                    list(check.argv),
-                    cwd=root,
-                    capture_output=True,
-                    text=True,
-                    timeout=timeout,
-                    check=False,
-                    shell=False,
-                )
+                if cancellation_event is not None and cancellation_event.is_set():
+                    accumulated.append(CheckResult(check.name, "CANCELLED", None, 0.0, "", "cancellation requested"))
+                    accumulated.extend(
+                        CheckResult(pending.name, "NOT_RUN", None, 0.0, "", "cancelled before dispatch")
+                        for pending in checks[len(accumulated):]
+                    )
+                    break
+                if command_runner is None:
+                    bounded = run_bounded_command(
+                        check.argv,
+                        cwd=root,
+                        timeout_seconds=timeout,
+                        deadline_monotonic=deadline,
+                        cancellation_event=cancellation_event,
+                        max_output_bytes=max(1, output_limit_chars * 4),
+                    )
+                    if bounded.status in {"timed_out", "cancelled"}:
+                        raise subprocess.TimeoutExpired(
+                            list(check.argv), timeout,
+                            output=bounded.stdout,
+                            stderr=bounded.reason or bounded.stderr or bounded.status,
+                        )
+                    result = subprocess.CompletedProcess(
+                        list(check.argv), bounded.returncode,
+                        bounded.stdout, bounded.stderr,
+                    )
+                else:
+                    result = command_runner(
+                        list(check.argv),
+                        cwd=root,
+                        capture_output=True,
+                        text=True,
+                        timeout=timeout,
+                        check=False,
+                        shell=False,
+                    )
                 returncode = int(getattr(result, "returncode"))
                 stdout = _bounded(str(getattr(result, "stdout", "") or ""), output_limit_chars)
                 stderr = _bounded(str(getattr(result, "stderr", "") or ""), output_limit_chars)
@@ -149,7 +182,7 @@ def run_evidence_gate(
                 returncode = None
                 stdout = _bounded(str(exc.stdout or ""), output_limit_chars)
                 stderr = _bounded(str(exc.stderr or "command timed out"), output_limit_chars)
-                check_status = "TIMEOUT"
+                check_status = "CANCELLED" if cancellation_event is not None and cancellation_event.is_set() else "TIMEOUT"
             except Exception as exc:
                 returncode = None
                 stdout = ""
