@@ -6,7 +6,10 @@ from dataclasses import asdict, dataclass
 import hashlib
 import json
 import re
+import threading
 from typing import Any, Callable, Mapping
+
+from .bounded_crew_dispatch import BoundedCrewDispatcher
 
 from .orchestration import Graph, Node, NodeKind, NodeStatus, OrchestrationRun, Orchestrator
 from .crew_adapters import CrewHandoff, GraphHandoffController, TaskRetryBudget, rollback_readiness
@@ -279,6 +282,7 @@ def _dispatch_crew_proposal(
     execution_guard: RuntimeExecutionGuard | None = None,
     execution_guard_persist: Callable[[Mapping[str, Any]], None] | None = None,
     operation_scope: str = "direct",
+    execution_guard_lock: Any = None,
 ) -> dict[str, Any]:
     """Validate and invoke one selected proposal adapter without granting execution authority."""
     if type(active) is not bool:
@@ -304,12 +308,22 @@ def _dispatch_crew_proposal(
     if execution_guard is not None:
         task_digest = hashlib.sha256(task.strip().encode("utf-8")).hexdigest()
         operation_key = f"specialist-proposal:{plan.digest}:{operation_scope}:{crew_id}:{task_digest}"
-        if not execution_guard.charge_attempt(operation_key):
-            raise ExecutionBudgetExceeded(
-                "duplicate specialist proposal refused because its attempt was already charged"
-            )
-        if execution_guard_persist is not None:
-            execution_guard_persist(execution_guard.snapshot())
+
+        def charge_and_persist() -> None:
+            if not execution_guard.charge_attempt(operation_key):
+                raise ExecutionBudgetExceeded(
+                    "duplicate specialist proposal refused because its attempt was already charged"
+                )
+            if execution_guard_persist is not None:
+                execution_guard_persist(execution_guard.snapshot())
+
+        # Shared supervisor guard/checkpoint writes are serialized; the provider
+        # proposal itself remains outside this critical section and can run in parallel.
+        if execution_guard_lock is None:
+            charge_and_persist()
+        else:
+            with execution_guard_lock:
+                charge_and_persist()
     definition = crews[crew_id]
     request = {
         "crew_id": crew_id,
@@ -593,6 +607,7 @@ class GraphAgentTeam:
             "forbidden_authorities": sorted(_FORBIDDEN_CREW_AUTHORITIES),
         }
         dispatch_active = {"value": True}
+        execution_guard_lock = threading.RLock()
 
         def dispatch_crew(crew_id: str, task: str, evidence: Mapping[str, Any] | None = None) -> dict[str, Any]:
             return _dispatch_crew_proposal(
@@ -604,6 +619,7 @@ class GraphAgentTeam:
                 crews=self.crews,
                 execution_guard=runtime_guard,
                 execution_guard_persist=state.get("auren_runtime_guard_persist"),
+                execution_guard_lock=execution_guard_lock,
                 operation_scope=(
                     str(state.get("auren_supervisor_iteration", "direct"))
                     + ":" + str(state.get("auren_recovery_hypothesis", "default-plan"))
@@ -900,9 +916,21 @@ class GraphAgentTeam:
             )
             refresh_checkpoint_state()
 
+        def dispatch_crew_batch(requests, max_workers=2):
+            """Dispatch independent proposals concurrently with bounded fan-out."""
+            if not dispatch_active["value"]:
+                raise RuntimeError("crew batch dispatch is only available during graph execution")
+            dispatcher = BoundedCrewDispatcher(
+                lambda request: dispatch_crew(
+                    request["crew_id"], request["task"], request.get("evidence")
+                )
+            )
+            return dispatcher.run(requests, max_workers=max_workers)
+
         # Only graph nodes receive scoped functions. Adapter/tool objects are never
         # placed into graph state; the graph node remains the sole execution authority.
         state["auren_crew_dispatch"] = dispatch_crew
+        state["auren_crew_dispatch_batch"] = dispatch_crew_batch
         state["auren_crew_dispatch_parallel"] = dispatch_crews_parallel
         state["auren_crew_handoff_enqueue"] = enqueue_handoff
         state["auren_crew_handoff_claim"] = claim_handoff
