@@ -176,5 +176,80 @@ class DurableSideEffectLedgerTests(unittest.TestCase):
             self.assertEqual(["deploy"], provider_calls)
 
 
+    def test_provider_confirmed_effect_closes_reconciliation_without_redispatch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "effects.sqlite3"
+            ledger = DurableSideEffectLedger(path)
+            first = ledger.begin("publish:ambiguous-1", {"revision": "abc"})
+            self.assertEqual("execute", first.action)
+            ledger.require_reconciliation(first.idempotency_key, "provider response was lost")
+
+            verified_refs = []
+            recovered = DurableSideEffectLedger(
+                path,
+                reconciliation_verifier=lambda key, ref, receipt: (
+                    key == "publish:ambiguous-1"
+                    and ref == "provider://operations/op-42"
+                    and receipt.get("provider_operation_id") == "op-42"
+                ),
+            )
+            receipt = {"provider_operation_id": "op-42", "status": "succeeded"}
+            decision = recovered.record_reconciled_effect(
+                first.idempotency_key,
+                evidence_ref="provider://operations/op-42",
+                receipt=receipt,
+            )
+            self.assertEqual("reconciled", decision.action)
+            self.assertEqual("completed", recovered.get(first.idempotency_key)["state"])
+            replay = recovered.begin(first.idempotency_key, {"revision": "abc"})
+            self.assertEqual("replay", replay.action)
+            self.assertEqual(receipt, replay.receipt)
+
+    def test_reconciliation_requires_trusted_verifier_and_rejects_bad_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "effects.sqlite3"
+            ledger = DurableSideEffectLedger(path)
+            ledger.begin("publish:ambiguous-2", {"revision": "abc"})
+            ledger.require_reconciliation("publish:ambiguous-2", "ambiguous provider result")
+            with self.assertRaisesRegex(PermissionError, "trusted reconciliation verifier"):
+                ledger.record_reconciled_effect(
+                    "publish:ambiguous-2",
+                    evidence_ref="provider://operations/op-43",
+                    receipt={"provider_operation_id": "op-43"},
+                )
+            rejected = DurableSideEffectLedger(
+                path, reconciliation_verifier=lambda key, ref, receipt: False,
+            )
+            with self.assertRaisesRegex(PermissionError, "evidence was rejected"):
+                rejected.record_reconciled_effect(
+                    "publish:ambiguous-2",
+                    evidence_ref="provider://operations/op-43",
+                    receipt={"provider_operation_id": "op-43"},
+                )
+            self.assertEqual("reconcile_required", rejected.get("publish:ambiguous-2")["state"])
+
+    def test_reconciled_receipt_is_immutable_and_requires_reconcile_state(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "effects.sqlite3"
+            ledger = DurableSideEffectLedger(
+                path, reconciliation_verifier=lambda key, ref, receipt: True,
+            )
+            ledger.begin("publish:ambiguous-3", {"revision": "abc"})
+            with self.assertRaises(InvalidSideEffectTransition):
+                ledger.record_reconciled_effect(
+                    "publish:ambiguous-3",
+                    evidence_ref="provider://operations/op-44",
+                    receipt={"provider_operation_id": "op-44"},
+                )
+            ledger.require_reconciliation("publish:ambiguous-3", "lost response")
+            ledger.record_reconciled_effect(
+                "publish:ambiguous-3",
+                evidence_ref="provider://operations/op-44",
+                receipt={"provider_operation_id": "op-44"},
+            )
+            with self.assertRaises(IdempotencyConflict):
+                ledger.complete("publish:ambiguous-3", {"provider_operation_id": "different"})
+
+
 if __name__ == "__main__":
     unittest.main()
