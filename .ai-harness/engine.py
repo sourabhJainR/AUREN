@@ -610,10 +610,10 @@ def run_validation(config: dict[str, Any], run_dir: Path, *, deadline_at: str | 
             if result.stdout:
                 stream.write(result.stdout)
             if result.stderr:
-                stream.write("\\n[stderr]\\n")
+                stream.write("\n[stderr]\n")
                 stream.write(result.stderr)
             if result.stdout_truncated or result.stderr_truncated:
-                stream.write("\\n[output truncated to configured per-stream limit]\\n")
+                stream.write("\n[output truncated to configured per-stream limit]\n")
             if result.status == "cancelled":
                 code, status = 130, "cancelled"
             elif result.status == "timed_out":
