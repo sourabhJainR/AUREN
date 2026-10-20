@@ -35,6 +35,8 @@ class EvidenceGateIntegrationTests(unittest.TestCase):
             receipt_metadata = dict(receipt_node.metadata)
             self.assertEqual(receipt_metadata["status"], "PASS")
             self.assertEqual(json.loads(receipt_metadata["receipt_json"])["digest"], result.receipt.digest)
+            run_node = graph.get_node(result.run_node_id)
+            self.assertEqual(dict(run_node.metadata)["run_id"], "run-1")
             self.assertEqual(len(result.check_node_ids), 1)
             check_node = graph.get_node(result.check_node_ids[0])
             check_metadata = dict(check_node.metadata)
@@ -45,6 +47,7 @@ class EvidenceGateIntegrationTests(unittest.TestCase):
 
             reopened = PersistentMemory(memory_path, require_approval=False)
             recovered = EvidenceGateIntegration(reopened, "integration-test")
+            self.assertIsNotNone(recovered.graph.get_node(result.run_node_id))
             self.assertIsNotNone(recovered.graph.get_node(result.receipt_node_id))
             self.assertIsNotNone(recovered.graph.get_node(result.check_node_ids[0]))
             reopened.close()
