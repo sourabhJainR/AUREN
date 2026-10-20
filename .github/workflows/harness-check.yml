@@ -94,7 +94,6 @@ jobs:
           [View auren_cli.py in this exact commit](https://github.com/${GITHUB_REPOSITORY}/blob/${GITHUB_SHA}/auren_cli.py)
           EOF
       - name: Capture adaptive learning verification evidence
-        if: matrix.python-version == '3.11'
         run: |
           set -o pipefail
           python -m unittest tests.test_skill_group_evidence tests.test_execution_strategy tests.test_execution_strategy_learning -v 2>&1 | tee ci-artifacts/targeted-learning-tests.txt
