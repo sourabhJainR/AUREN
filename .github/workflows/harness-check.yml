@@ -44,8 +44,26 @@ jobs:
               output.write(f'required={str(required).lower()}\n')
           PY
 
-  harness:
+  unit-tests:
     needs: impact
+    if: needs.impact.outputs.required == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.11', '3.12']
+        shard: [0, 1, 2, 3]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Run deterministic unittest shard
+        run: python scripts/run_test_shard.py --total 4 --index ${{ matrix.shard }}
+
+  harness:
+    needs: [impact, unit-tests]
     if: needs.impact.outputs.required == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 25
@@ -75,9 +93,8 @@ jobs:
 
           [View auren_cli.py in this exact commit](https://github.com/${GITHUB_REPOSITORY}/blob/${GITHUB_SHA}/auren_cli.py)
           EOF
-      - name: Validate Python harness
-        run: python -m unittest discover -s tests -v
       - name: Capture adaptive learning verification evidence
+        if: matrix.python-version == '3.11'
         run: |
           set -o pipefail
           python -m unittest tests.test_skill_group_evidence tests.test_execution_strategy tests.test_execution_strategy_learning -v 2>&1 | tee ci-artifacts/targeted-learning-tests.txt
