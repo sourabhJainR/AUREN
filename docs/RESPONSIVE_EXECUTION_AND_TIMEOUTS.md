@@ -45,7 +45,8 @@ The hard-stop primitive is portable.bounded_subprocess.run_bounded_command. It a
 | Parent deadline | test_parent_deadline_caps_child_timeout; test_parent_deadline_is_propagated_to_validation_subprocess | parent_deadline_exceeded |
 | Cancellation | test_cancellation_terminates_command_and_is_explicit; test_pre_cancelled_validation_does_not_start_command | cancelled |
 | Output flood | test_output_capture_is_bounded_and_marks_truncation; test_validation_output_capture_is_bounded_and_reports_truncation | bounded retained output and log |
-| POSIX descendant process | test_timeout_kills_descendant_process_group | no live descendant |\n| Windows descendant process | test_timeout_kills_windows_job_descendants | child cannot outlive timed-out parent |
+| POSIX descendant process | test_timeout_kills_descendant_process_group | no live descendant |
+| Windows descendant process | test_timeout_kills_windows_job_descendants | child cannot outlive timed-out parent |
 | Invalid budget/shell string | test_shell_strings_and_invalid_budgets_are_rejected | reject before spawn |
 
 ## Acceptance tests
