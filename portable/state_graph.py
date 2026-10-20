@@ -1,11 +1,15 @@
 """Explicit StateGraph execution and specialist-crew routing contracts for AUREN."""
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass
 import hashlib
 import json
 import re
+import threading
 from typing import Any, Callable, Mapping
+
+from .bounded_crew_dispatch import BoundedCrewDispatcher
 
 from .orchestration import Graph, Node, NodeKind, NodeStatus, OrchestrationRun, Orchestrator
 from .crew_adapters import CrewHandoff, GraphHandoffController, TaskRetryBudget, rollback_readiness
@@ -278,6 +282,7 @@ def _dispatch_crew_proposal(
     execution_guard: RuntimeExecutionGuard | None = None,
     execution_guard_persist: Callable[[Mapping[str, Any]], None] | None = None,
     operation_scope: str = "direct",
+    execution_guard_lock: Any = None,
 ) -> dict[str, Any]:
     """Validate and invoke one selected proposal adapter without granting execution authority."""
     if type(active) is not bool:
@@ -303,12 +308,22 @@ def _dispatch_crew_proposal(
     if execution_guard is not None:
         task_digest = hashlib.sha256(task.strip().encode("utf-8")).hexdigest()
         operation_key = f"specialist-proposal:{plan.digest}:{operation_scope}:{crew_id}:{task_digest}"
-        if not execution_guard.charge_attempt(operation_key):
-            raise ExecutionBudgetExceeded(
-                "duplicate specialist proposal refused because its attempt was already charged"
-            )
-        if execution_guard_persist is not None:
-            execution_guard_persist(execution_guard.snapshot())
+
+        def charge_and_persist() -> None:
+            if not execution_guard.charge_attempt(operation_key):
+                raise ExecutionBudgetExceeded(
+                    "duplicate specialist proposal refused because its attempt was already charged"
+                )
+            if execution_guard_persist is not None:
+                execution_guard_persist(execution_guard.snapshot())
+
+        # Shared supervisor guard/checkpoint writes are serialized; the provider
+        # proposal itself remains outside this critical section and can run in parallel.
+        if execution_guard_lock is None:
+            charge_and_persist()
+        else:
+            with execution_guard_lock:
+                charge_and_persist()
     definition = crews[crew_id]
     request = {
         "crew_id": crew_id,
@@ -592,6 +607,7 @@ class GraphAgentTeam:
             "forbidden_authorities": sorted(_FORBIDDEN_CREW_AUTHORITIES),
         }
         dispatch_active = {"value": True}
+        execution_guard_lock = threading.RLock()
 
         def dispatch_crew(crew_id: str, task: str, evidence: Mapping[str, Any] | None = None) -> dict[str, Any]:
             return _dispatch_crew_proposal(
@@ -603,11 +619,94 @@ class GraphAgentTeam:
                 crews=self.crews,
                 execution_guard=runtime_guard,
                 execution_guard_persist=state.get("auren_runtime_guard_persist"),
+                execution_guard_lock=execution_guard_lock,
                 operation_scope=(
                     str(state.get("auren_supervisor_iteration", "direct"))
                     + ":" + str(state.get("auren_recovery_hypothesis", "default-plan"))
                 ),
             )
+
+        def dispatch_crews_parallel(
+            tasks: Mapping[str, str],
+            evidence_by_crew: Mapping[str, Mapping[str, Any]] | None = None,
+            *,
+            max_workers: int = 4,
+        ) -> dict[str, dict[str, Any]]:
+            """Run bounded, independent proposal-only crew calls concurrently.
+
+            Budget reservations and their checkpoint are persisted before workers
+            start. Only side-effect-free proposal adapters are eligible; guarded
+            adapters stay on the serial dispatch path. Results are returned in
+            stable crew-id order, and proposals never grant execution/approval
+            authority or apply handoffs automatically.
+            """
+            if not dispatch_active["value"]:
+                raise RuntimeError("parallel crew proposals are only available during graph execution")
+            if not isinstance(tasks, Mapping) or not tasks:
+                raise ValueError("parallel crew tasks must be a non-empty mapping")
+            if len(tasks) > 8:
+                raise ValueError("parallel crew proposal batch exceeds the limit of 8")
+            if type(max_workers) is not int or not 1 <= max_workers <= 8:
+                raise ValueError("max_workers must be an integer from 1 through 8")
+            evidence_map = evidence_by_crew or {}
+            if not isinstance(evidence_map, Mapping) or set(evidence_map) - set(tasks):
+                raise ValueError("evidence_by_crew keys must be a subset of task crew ids")
+            selected_ids = {assignment.crew_id for assignment in plan.assignments}
+            normalized: dict[str, str] = {}
+            for crew_id, task in tasks.items():
+                if not isinstance(crew_id, str) or crew_id not in selected_ids:
+                    raise ValueError(f"crew {crew_id!r} is not assigned to this graph task")
+                if not isinstance(task, str) or not task.strip():
+                    raise ValueError("every parallel crew task must be non-empty text")
+                agent = self.agents.get(crew_id)
+                if agent is None or not callable(getattr(agent, "propose", None)):
+                    raise ValueError(
+                        f"crew {crew_id} lacks the side-effect-free propose interface required for parallel execution"
+                    )
+                evidence = evidence_map.get(crew_id, {})
+                if not isinstance(evidence, Mapping):
+                    raise ValueError(f"evidence for crew {crew_id} must be a mapping")
+                normalized[crew_id] = task.strip()
+
+            # Reserve all attempt charges before dispatch. A failed reservation or
+            # checkpoint write launches no worker; consumed reservations are never
+            # refunded because the durable guard is monotonic.
+            operation_scope = (
+                str(state.get("auren_supervisor_iteration", "direct"))
+                + ":" + str(state.get("auren_recovery_hypothesis", "default-plan"))
+            )
+            for crew_id in sorted(normalized):
+                task_digest = hashlib.sha256(normalized[crew_id].encode("utf-8")).hexdigest()
+                operation_key = f"specialist-proposal:{plan.digest}:{operation_scope}:{crew_id}:{task_digest}"
+                if not runtime_guard.charge_attempt(operation_key):
+                    raise ExecutionBudgetExceeded(
+                        "duplicate parallel specialist proposal refused because its attempt was already charged"
+                    )
+            state["auren_runtime_guard"] = runtime_guard.snapshot()
+            persist_guard = state.get("auren_runtime_guard_persist")
+            if callable(persist_guard):
+                persist_guard(state["auren_runtime_guard"])
+
+            def propose(crew_id: str) -> dict[str, Any]:
+                return _dispatch_crew_proposal(
+                    crew_id, normalized[crew_id], evidence_map.get(crew_id, {}),
+                    active=dispatch_active["value"], plan=plan,
+                    graph_digest=self.graph.digest(), agents=self.agents, crews=self.crews,
+                    execution_guard=None, operation_scope=operation_scope,
+                )
+
+            ordered_ids = sorted(normalized)
+            with ThreadPoolExecutor(max_workers=min(max_workers, len(ordered_ids))) as pool:
+                futures = {crew_id: pool.submit(propose, crew_id) for crew_id in ordered_ids}
+                results: dict[str, dict[str, Any]] = {}
+                try:
+                    for crew_id in ordered_ids:
+                        results[crew_id] = futures[crew_id].result()
+                except BaseException:
+                    for future in futures.values():
+                        future.cancel()
+                    raise
+            return results
 
         # Handoffs and retry charges live in the supervisor-owned checkpoint,
         # not in a separate queue database.
@@ -817,9 +916,22 @@ class GraphAgentTeam:
             )
             refresh_checkpoint_state()
 
+        def dispatch_crew_batch(requests, max_workers=2):
+            """Dispatch independent proposals concurrently with bounded fan-out."""
+            if not dispatch_active["value"]:
+                raise RuntimeError("crew batch dispatch is only available during graph execution")
+            dispatcher = BoundedCrewDispatcher(
+                lambda request: dispatch_crew(
+                    request["crew_id"], request["task"], request.get("evidence")
+                )
+            )
+            return dispatcher.run(requests, max_workers=max_workers)
+
         # Only graph nodes receive scoped functions. Adapter/tool objects are never
         # placed into graph state; the graph node remains the sole execution authority.
         state["auren_crew_dispatch"] = dispatch_crew
+        state["auren_crew_dispatch_batch"] = dispatch_crew_batch
+        state["auren_crew_dispatch_parallel"] = dispatch_crews_parallel
         state["auren_crew_handoff_enqueue"] = enqueue_handoff
         state["auren_crew_handoff_claim"] = claim_handoff
         state["auren_crew_handoff_retry"] = retry_handoff
