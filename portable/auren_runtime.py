@@ -546,6 +546,8 @@ def parser() -> argparse.ArgumentParser:
     console_parser.add_argument("--auren-home", type=Path, default=None)
     worker_parser = sub.add_parser("worker")
     worker_parser.add_argument("--project-root", type=Path, default=Path("."))
+    worker_parser.add_argument("--work-key", default=None, help="Stable durable work key; requires --goal")
+    worker_parser.add_argument("--goal", default=None, help="Goal to bind to --work-key before draining durable tasks")
     worker_parser.add_argument("--batch-size", type=int, default=20)
     worker_parser.add_argument("--idle-sleep-seconds", type=float, default=1.0)
     worker_parser.add_argument("--max-cycles", type=int, default=100)
@@ -587,6 +589,14 @@ def main(argv: list[str] | None = None) -> int:
         from .execution_controller import ExecutionController
 
         stop_event = Event()
+        controller = ExecutionController(args.project_root)
+        if bool(args.work_key) != bool(args.goal):
+            raise SystemExit("worker --work-key and --goal must be supplied together")
+        stable_work_unit_id = None
+        if args.work_key:
+            stable_work_unit_id = controller.work_unit_for_session(
+                args.work_key, args.goal, work_key=args.work_key
+            )
 
         def request_stop(_signum, _frame):
             stop_event.set()
@@ -595,7 +605,7 @@ def main(argv: list[str] | None = None) -> int:
         for signum in (signal.SIGINT, signal.SIGTERM):
             previous_handlers[signum] = signal.signal(signum, request_stop)
         try:
-            report = ExecutionController(args.project_root).run_continuously(
+            report = controller.run_continuously(
                 stop_event=stop_event,
                 batch_size=args.batch_size,
                 idle_sleep_seconds=args.idle_sleep_seconds,
@@ -606,6 +616,8 @@ def main(argv: list[str] | None = None) -> int:
             for signum, previous in previous_handlers.items():
                 signal.signal(signum, previous)
         payload = {
+            "stable_work_key": args.work_key,
+            "stable_work_unit_id": stable_work_unit_id,
             "cycles": report.cycles,
             "processed_work_units": report.processed_work_units,
             "completed_tasks": report.completed_tasks,
