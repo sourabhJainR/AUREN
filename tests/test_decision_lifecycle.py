@@ -17,7 +17,8 @@ from portable.decision_lifecycle import (
 class DecisionLifecycleTests(unittest.TestCase):
     def test_calibrator_is_conservative_before_minimum_samples(self):
         calibrator = ConfidenceCalibrator(min_samples=10)
-        self.assertLessEqual(calibrator.calibrate(0.9), 0.9)
+        self.assertLess(calibrator.calibrate(0.9), 0.9)
+        self.assertEqual(calibrator.calibrate(0.2), 0.2)
         calibrator.extend([CalibrationObservation(0.9, False) for _ in range(20)])
         self.assertLess(calibrator.calibrate(0.9), 0.9)
         self.assertEqual(calibrator.report().sample_count, 20)

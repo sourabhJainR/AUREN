@@ -115,12 +115,18 @@ class ConfidenceCalibrator:
     def calibrate(self, confidence: float) -> float:
         confidence = _probability(confidence, "confidence")
         if len(self._observations) < self.min_samples:
-            return min(confidence, 0.5 + 0.5 * confidence)
+            # Shrink toward an uninformative 0.5 prior until the minimum sample
+            # gate is met; the old expression accidentally returned confidence
+            # unchanged because its upper bound was always >= confidence.
+            sample_fraction = len(self._observations) / self.min_samples
+            return round(min(confidence, 0.5 + (confidence - 0.5) * sample_fraction), 4)
         index = min(self.bins - 1, int(confidence * self.bins))
         bucket = [item for item in self._observations
                   if min(self.bins - 1, int(item.confidence * self.bins)) == index]
-        if len(bucket) < max(3, self.min_samples // self.bins):
-            return min(confidence, 0.5 + 0.5 * confidence)
+        minimum_bucket = max(3, self.min_samples // self.bins)
+        if len(bucket) < minimum_bucket:
+            bucket_fraction = min(1.0, len(bucket) / minimum_bucket)
+            return round(min(confidence, 0.5 + (confidence - 0.5) * bucket_fraction), 4)
         accuracy = sum(item.correct for item in bucket) / len(bucket)
         blended = (accuracy * len(bucket) + 0.5 * self.prior_weight) / (len(bucket) + self.prior_weight)
         # Never use calibration to inflate the original confidence.
