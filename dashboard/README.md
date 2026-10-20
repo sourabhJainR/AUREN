@@ -288,3 +288,7 @@ Check that the project root contains the source repository and that the reposito
 The console is bundled with AUREN. After installing or updating AUREN to a build containing the Engineering Console, the active installation under ~/.auren/current (or the Windows equivalent) contains the matching UI, server and runtime.
 
 No separate UI package or Node.js installation is required.
+
+### Capability-aware local model selection
+
+The router prefers explicit capability metadata from the local model discovery response and falls back to deterministic model-name heuristics only when metadata is absent. Models with malformed capability declarations are excluded rather than assumed capable. Equal-scored candidates use stable name ordering so discovery response order does not change the route arbitrarily. Discovery failures are surfaced as route outcomes; private/restricted tasks never fall back to remote execution. These controls do not imply model quality: production routing should additionally record task-specific quality evaluations alongside latency and resource usage before treating a model as preferred.
