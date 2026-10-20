@@ -99,7 +99,8 @@ class ConfidenceCalibrator:
     def add(self, observation: CalibrationObservation) -> None:
         self._observations.append(observation)
         if self.evidence_sink is not None:
-            payload = {"confidence": observation.confidence, "correct": observation.correct,\n                       "sample_index": len(self._observations)}
+            payload = {"confidence": observation.confidence, "correct": observation.correct,
+                       "sample_index": len(self._observations)}
             event = _evidence_event("calibration-outcome", self.policy_version, payload, payload)
             self.evidence_sink.append(event)
 
