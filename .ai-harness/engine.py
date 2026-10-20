@@ -13,6 +13,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import threading
 import tomllib
 from pathlib import Path
 from typing import Any
@@ -25,6 +26,8 @@ from runtime.task_memory import guidance as task_memory_guidance
 from security_gate import safe_environment
 
 ROOT = Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 HARNESS = ROOT / ".ai-harness"
 CONFIG_PATH = HARNESS / "config.toml"
 RUNS = HARNESS / "runs"
@@ -567,7 +570,9 @@ def phases_for(route: dict[str, Any], workflow: str | None, config: dict[str, An
     return list(dict.fromkeys(phases))
 
 
-def run_validation(config: dict[str, Any], run_dir: Path, *, deadline_at: str | None = None):
+def run_validation(config: dict[str, Any], run_dir: Path, *, deadline_at: str | None = None, cancellation_event: threading.Event | None = None):
+    # Import lazily: runtime.__init__ installs compatibility bridges into engine during import.
+    from portable.bounded_subprocess import run_bounded_command
     commands = []
     for item in config.get("validation", {}).get("commands", []):
         if isinstance(item, list) and all(isinstance(part, str) for part in item): commands.append(item)
@@ -586,21 +591,46 @@ def run_validation(config: dict[str, Any], run_dir: Path, *, deadline_at: str | 
         for command in commands[:5]:
             stream.write(f"$ {shlex.join(command)}\n")
             start = time.monotonic()
-            timeout = int(config["execution"]["validation_timeout_seconds"])
+            timeout = float(config["execution"]["validation_timeout_seconds"])
             if deadline_at is not None:
                 remaining = deadline_remaining_seconds(deadline_at)
                 if remaining <= 0:
                     results.append({"command": command, "status": "deadline_exceeded", "exit_code": 124, "duration_seconds": 0.0})
                     return False, results
                 timeout = min(timeout, max(1, int(remaining)))
-            try:
-                result = subprocess.run(command, cwd=ROOT, stdout=stream, stderr=subprocess.STDOUT, text=True, check=False, timeout=timeout)
-                code = result.returncode; status = "passed" if code == 0 else "failed"
-            except subprocess.TimeoutExpired:
-                code = 124; status = "timeout"
+            parent_deadline = time.monotonic() + max(0.0, deadline_remaining_seconds(deadline_at)) if deadline_at is not None else None
+            result = run_bounded_command(
+                command,
+                cwd=ROOT,
+                timeout_seconds=timeout,
+                deadline_monotonic=parent_deadline,
+                cancellation_event=cancellation_event,
+                max_output_bytes=int(config.get("execution", {}).get("validation_max_output_bytes", 1048576)),
+            )
+            if result.stdout:
+                stream.write(result.stdout)
+            if result.stderr:
+                stream.write("\n[stderr]\n")
+                stream.write(result.stderr)
+            if result.stdout_truncated or result.stderr_truncated:
+                stream.write("\n[output truncated to configured per-stream limit]\n")
+            if result.status == "cancelled":
+                code, status = 130, "cancelled"
+            elif result.status == "timed_out":
+                code = 124
+                status = "deadline_exceeded" if result.reason == "parent_deadline_exceeded" else "timeout"
+            else:
+                code = result.returncode if result.returncode is not None else 1
+                status = "passed" if code == 0 else "failed"
             if deadline_at is not None and deadline_remaining_seconds(deadline_at) <= 0:
-                code = 124; status = "deadline_exceeded"
-            results.append({"command": command, "status": status, "exit_code": code, "duration_seconds": round(time.monotonic() - start, 3)})
+                code, status = 124, "deadline_exceeded"
+            results.append({
+                "command": command, "status": status, "exit_code": code,
+                "duration_seconds": round(time.monotonic() - start, 3),
+                "stdout_truncated": result.stdout_truncated,
+                "stderr_truncated": result.stderr_truncated,
+                "termination_reason": result.reason,
+            })
             if code != 0: return False, results
     return True, results
 
