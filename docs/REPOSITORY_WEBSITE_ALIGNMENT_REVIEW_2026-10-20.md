@@ -25,18 +25,18 @@ Release 1.0.5 adds an explicit responsive-execution contract and a version-consi
 
 The initial repository review found two competing publishers: the canonical `Deploy AUREN documentation` workflow deploys `site/`, while the sample Jekyll workflow built the repository root and used the same Pages concurrency group. Both could run on a push to `main`; the last deployment could therefore overwrite the intended site with a different build. The remediation in the follow-up Pages fix makes the legacy workflow manual-only and non-deploying, adds a regression contract, and ensures changes to the legacy workflow trigger the canonical publisher. After that fix merges, verify the canonical Pages workflow for the merge SHA and inspect the deployed content.
 
-## Confirmed baseline evidence
+## Confirmed current-main evidence
 
-| Area | Observed evidence | Limit |
+| Area | Current-main evidence | Limit |
 |---|---|---|
-| Main revision | `7e06b4c3abc7f1d5116eae22206ebec0ca11d4b3` | Recheck after every merge |
-| AI Harness Check | [Run 39415100754](https://github.com/sourabhJainR/AUREN/actions/runs/39415100754) passed | Repository tests for that SHA |
-| Runtime Resilience Matrix | [Run 39415100797](https://github.com/sourabhJainR/AUREN/actions/runs/39415100797) passed across Linux/Windows and Python 3.11/3.12 | Does not cover every production host or external effect |
-| Architecture Integrity | [Run 39415100737](https://github.com/sourabhJainR/AUREN/actions/runs/39415100737) passed | Structural/repository contract only |
-| Production AI Harness Hardening | [Run 39415100764](https://github.com/sourabhJainR/AUREN/actions/runs/39415100764) passed | Does not replace independent host isolation audit |
-| Agent Capability Runtime | [Run 39415100723](https://github.com/sourabhJainR/AUREN/actions/runs/39415100723) passed | Revision-specific |
-| Portable bundle | [Run 39415100744](https://github.com/sourabhJainR/AUREN/actions/runs/39415100744) passed and emitted `auren-portable` and `auren-portable-checksum` | GitHub artifact digests are distinct from the ZIP file's checksum |
-| Pages deployment | [Run 39415100782](https://github.com/sourabhJainR/AUREN/actions/runs/39415100782) passed | Must be rerun/verified for this website update |
+| Main revision | `538f33e8374e704e44eb8c221afac56a6db983b4` | Recheck after every merge |
+| AI Harness Check | [Run 39421877565](https://github.com/sourabhJainR/AUREN/actions/runs/39421877565) passed | Repository tests for this SHA |
+| Runtime Resilience Matrix | [Run 39421877428](https://github.com/sourabhJainR/AUREN/actions/runs/39421877428) passed on Linux/Windows, Python 3.11/3.12 | Does not cover every production host or external effect |
+| Architecture Integrity | [Run 39421877444](https://github.com/sourabhJainR/AUREN/actions/runs/39421877444) passed | Structural/repository contract only |
+| Production AI Harness Hardening | [Run 39421877522](https://github.com/sourabhJainR/AUREN/actions/runs/39421877522) passed | Does not replace independent host isolation audit |
+| Agent Capability Runtime | [Run 39421877426](https://github.com/sourabhJainR/AUREN/actions/runs/39421877426) passed | Revision-specific |
+| Portable bundle | [Run 39421877517](https://github.com/sourabhJainR/AUREN/actions/runs/39421877517) passed; ZIP artifact digest `sha256:9842d1d51fdf014696004c45f5b92b3f340c3af56f964ddfef3cb94dd61ff0ea`; checksum artifact digest `sha256:bd2395e2fd8c5556e49e89b2dd91fbd9a6070992562edfaa1046b5a5d3ef27d4` | These are GitHub artifact digests, not the ZIP's own SHA-256 |
+| Pages deployment | [Run 39421877636](https://github.com/sourabhJainR/AUREN/actions/runs/39421877636) passed | Reverify after website changes merge |
 
 ## Responsiveness and non-hanging execution
 
