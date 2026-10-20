@@ -167,6 +167,16 @@ def run_evidence_gate(
                 break
         results = tuple(accumulated)
         status = "PASS" if all(result.status == "PASS" for result in results) and len(results) == len(checks) else "FAIL"
+        # The checkout may move while checks run (e.g. another worker changes
+        # the worktree). Re-read after the final command so a PASS can never be
+        # issued for checks whose execution crossed a revision change.
+        try:
+            final_observed = revision_reader(root)
+        except Exception:
+            final_observed = None
+        if final_observed != expected_revision:
+            observed = final_observed
+            status = "STALE"
 
     payload = {
         "schema_version": "auren-evidence-receipt-v1",

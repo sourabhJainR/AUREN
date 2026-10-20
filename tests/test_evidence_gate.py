@@ -30,6 +30,33 @@ class EvidenceGateTests(unittest.TestCase):
         self.assertEqual(len(receipt.digest), 64)
         self.assertFalse(runner.call_args.kwargs["shell"])
 
+    def test_revision_change_during_checks_marks_receipt_stale(self) -> None:
+        runner = Mock(return_value=SimpleNamespace(returncode=0, stdout="ok", stderr=""))
+        revisions = iter(("abc123", "changed-during-checks"))
+        receipt = run_evidence_gate(
+            self.root, expected_revision="abc123", checks=(self.checks[0],),
+            command_runner=runner, revision_reader=lambda _: next(revisions),
+        )
+        self.assertEqual(receipt.status, "STALE")
+        self.assertEqual(receipt.observed_revision, "changed-during-checks")
+        self.assertEqual([item.status for item in receipt.checks], ["PASS"])
+        runner.assert_called_once()
+
+    def test_revision_read_failure_after_checks_cannot_pass(self) -> None:
+        runner = Mock(return_value=SimpleNamespace(returncode=0, stdout="ok", stderr=""))
+        revisions = iter(("abc123", RuntimeError("repository unavailable")))
+        def read_revision(_):
+            value = next(revisions)
+            if isinstance(value, Exception):
+                raise value
+            return value
+        receipt = run_evidence_gate(
+            self.root, expected_revision="abc123", checks=(self.checks[0],),
+            command_runner=runner, revision_reader=read_revision,
+        )
+        self.assertEqual(receipt.status, "STALE")
+        self.assertIsNone(receipt.observed_revision)
+
     def test_stale_revision_fails_closed_without_running_commands(self) -> None:
         runner = Mock()
         receipt = run_evidence_gate(
