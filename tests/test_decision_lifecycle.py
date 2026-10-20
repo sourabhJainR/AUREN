@@ -92,6 +92,23 @@ class DecisionLifecycleTests(unittest.TestCase):
         self.assertEqual(result.selected_model.lane, "human")
         self.assertTrue(result.requires_human_approval)
 
+    def test_calibration_and_shadow_emit_provenance_events_to_sink(self):
+        class Sink:
+            def __init__(self):
+                self.events = []
+            def append(self, event):
+                self.events.append(event)
+
+        sink = Sink()
+        calibrator = ConfidenceCalibrator(min_samples=3, evidence_sink=sink)
+        calibrator.add(CalibrationObservation(0.8, True))
+        shadow = ShadowEvaluator(policy_version="shadow-v2", evidence_sink=sink)
+        shadow.compare({"task": "unit"}, baseline="local", candidate="external")
+        self.assertEqual(len(sink.events), 2)
+        self.assertNotEqual(sink.events[0].event_id, sink.events[1].event_id)
+        self.assertTrue(all(event.state_digest for event in sink.events))
+        self.assertEqual(sink.events[1].policy_version, "shadow-v2")
+
     def test_shadow_does_not_promote_without_enough_evidence(self):
         shadow = ShadowEvaluator(policy_version="route-v1")
         shadow.compare({"id": 1}, baseline="local", candidate="cloud", outcome_correct=True)
