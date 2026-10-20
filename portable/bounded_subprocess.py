@@ -90,20 +90,35 @@ def run_bounded_command(
     reason_on_timeout = "parent_deadline_exceeded" if deadline_monotonic is not None and deadline_monotonic <= local_deadline else "command_timeout"
     options = dict(stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=str(cwd) if cwd is not None else None,
                    env=dict(env) if env is not None else None, shell=False, close_fds=True)
-    if os.name == "nt": options["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-    else: options["start_new_session"] = True
+    job = None
+    if os.name == "nt":
+        from .windows_kill_job import CREATE_SUSPENDED, WindowsKillJob
+        options["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | CREATE_SUSPENDED
+    else:
+        options["start_new_session"] = True
     process = subprocess.Popen(list(argv), **options)
+    if os.name == "nt":
+        try:
+            job = WindowsKillJob(process)
+        except BaseException:
+            _kill_tree(process, grace)
+            raise
     assert process.stdout is not None and process.stderr is not None
     out_capture = BoundedStreamCapture(process.stdout, max_output_bytes)
     err_capture = BoundedStreamCapture(process.stderr, max_output_bytes)
     out_capture.start(); err_capture.start()
     status, reason = "completed", None
+    def terminate():
+        if job is not None:
+            try: job.terminate()
+            except OSError: pass
+        _kill_tree(process, grace)
     while process.poll() is None:
         if cancellation_event is not None and cancellation_event.is_set():
-            status, reason = "cancelled", "cancellation_requested"; _kill_tree(process, grace); break
+            status, reason = "cancelled", "cancellation_requested"; terminate(); break
         remaining = end - time.monotonic()
         if remaining <= 0:
-            status, reason = "timed_out", reason_on_timeout; _kill_tree(process, grace); break
+            status, reason = "timed_out", reason_on_timeout; terminate(); break
         if cancellation_event is not None: cancellation_event.wait(min(poll, remaining))
         else: time.sleep(min(poll, remaining))
     if os.name != "nt" and status == "completed" and _group_exists(process.pid):
@@ -114,9 +129,25 @@ def run_bounded_command(
         if _group_exists(process.pid):
             status, reason = (("cancelled", "cancellation_requested") if cancellation_event and cancellation_event.is_set() else ("timed_out", reason_on_timeout))
             _kill_tree(process, grace)
+    if os.name == "nt" and job is not None and status == "completed":
+        try:
+            while job.active_processes() > 0 and time.monotonic() < end:
+                if cancellation_event is not None and cancellation_event.is_set():
+                    status, reason = "cancelled", "cancellation_requested"
+                    break
+                time.sleep(min(poll, max(0.0, end - time.monotonic())))
+            if job.active_processes() > 0:
+                status, reason = (("cancelled", "cancellation_requested") if cancellation_event and cancellation_event.is_set() else ("timed_out", reason_on_timeout))
+                job.terminate()
+        except OSError:
+            status, reason = "failed", "windows_job_accounting_unavailable"
+            job.terminate()
     out_closed = out_capture.join(0.5)
     err_closed = err_capture.join(0.5)
     if not out_closed or not err_closed:
+        if job is not None:
+            try: job.terminate()
+            except OSError: pass
         if os.name != "nt": _kill_tree(process, grace)
         out_closed = out_capture.join(0.5)
         err_closed = err_capture.join(0.5)
@@ -124,6 +155,8 @@ def run_bounded_command(
             status, reason = "timed_out", "output_pipe_did_not_close"
     stdout, out_cut = out_capture.result()
     stderr, err_cut = err_capture.result()
-    return BoundedCommandResult(status, process.poll(), stdout, stderr, out_cut, err_cut, max(0.0, time.monotonic()-started), reason)
+    result = BoundedCommandResult(status, process.poll(), stdout, stderr, out_cut, err_cut, max(0.0, time.monotonic()-started), reason)
+    if job is not None: job.close()
+    return result
 
 __all__ = ["BoundedCommandResult", "run_bounded_command"]
