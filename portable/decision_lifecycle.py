@@ -384,6 +384,8 @@ class DecisionRouter:
         self.calibrator = calibrator
         self.cascade = cascade
         self.shadow = shadow
+        if shadow_only and shadow is None:
+            raise ValueError("shadow-only mode requires a ShadowEvaluator")
         self.minimum_calibrated_confidence = _probability(
             minimum_calibrated_confidence, "minimum_calibrated_confidence"
         )
