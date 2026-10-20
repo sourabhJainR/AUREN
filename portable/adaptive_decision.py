@@ -1,8 +1,8 @@
 """Provider-neutral adaptive decision and inference-depth control.
 
 The module keeps exact rules in code, bounded judgments behind typed decisions,
-and external decision models optional. A fast decision provider can be plugged
-in later without changing the execution graph or permission boundaries.
+and external decision models optional. Provider recommendations can increase
+reasoning depth, but cannot lower deterministic risk and failure floors.
 """
 from __future__ import annotations
 
@@ -57,9 +57,8 @@ class InferenceDecision:
 class HttpDecisionProvider:
     """Optional typed-decision HTTP adapter.
 
-    The endpoint is deliberately generic so a Jev/System-One compatible
-    service can be supplied without making the runtime depend on that service.
-    The adapter is never called unless explicitly configured.
+    A host may connect a Jev/System-One-compatible service without making it
+    a core dependency. This adapter never receives authority to execute tools.
     """
 
     def __init__(
@@ -112,10 +111,12 @@ class HttpDecisionProvider:
         answers = data.get("decisions", data)
         if not isinstance(answers, Mapping):
             raise ValueError("typed decision provider returned invalid decisions")
-        return {
-            key: self._decode(question, answers[key])
-            for key, question in ((q.key, q) for q in questions)
-        }
+        decoded = {}
+        for question in questions:
+            if question.key not in answers:
+                raise ValueError(f"typed decision provider omitted {question.key}")
+            decoded[question.key] = self._decode(question, answers[question.key])
+        return decoded
 
     @staticmethod
     def _decode(question: DecisionQuestion, value: Any):
@@ -131,7 +132,9 @@ class HttpDecisionProvider:
 
 
 class AdaptiveInferencePolicy:
-    """Choose reasoning depth from uncertainty, risk and learned failure evidence."""
+    """Choose reasoning depth while enforcing deterministic safety floors."""
+
+    _DEPTH_RANK = {"minimal": 0, "standard": 1, "deep": 2, "human": 3}
 
     def __init__(
         self,
@@ -142,6 +145,27 @@ class AdaptiveInferencePolicy:
         self.provider = provider
         configured_confidence = INFERENCE_DEPTH_RECIPE.thresholds["provider_confidence"] if min_confidence is None else float(min_confidence)
         self.min_confidence = max(0.5, min(0.99, configured_confidence))
+
+    @classmethod
+    def _more_conservative(cls, proposed: str, floor: str) -> str:
+        """A provider may escalate, never undercut the deterministic floor."""
+        return proposed if cls._DEPTH_RANK[proposed] >= cls._DEPTH_RANK[floor] else floor
+
+    @staticmethod
+    def _deterministic_floor(values: Mapping[str, float]) -> str:
+        if values["risk"] >= 0.9 or values["failure_probability"] >= 0.75:
+            return "human"
+        pressure = max(
+            values["uncertainty"],
+            values["risk"],
+            values["failure_probability"],
+            1.0 - values["evidence_quality"],
+        )
+        if pressure >= 0.72:
+            return "deep"
+        if pressure >= 0.38:
+            return "standard"
+        return "minimal"
 
     def decide(
         self,
@@ -157,41 +181,42 @@ class AdaptiveInferencePolicy:
             "evidence_quality": max(0.0, min(1.0, float(evidence_quality))),
             "failure_probability": max(0.0, min(1.0, float(failure_probability))),
         }
-        state = dict(values)
-        question = INFERENCE_DEPTH_RECIPE.questions[0]
+        floor = self._deterministic_floor(values)
+
+        # Hard escalation gates are deterministic and cannot be overridden by
+        # a high-confidence provider response.
+        if floor == "human":
+            return InferenceDecision(
+                "human", 1.0, "deterministic high-risk or repeated-failure gate",
+                "deterministic",
+            )
+
         evaluator = self.provider
         if evaluator and evaluator.configured:
             try:
-                batch = DecisionFabric(lambda current, item: evaluator.evaluate(current, (item,))[item.key]).evaluate_recipe(state, INFERENCE_DEPTH_RECIPE)
+                batch = DecisionFabric(
+                    lambda current, item: evaluator.evaluate(current, (item,))[item.key]
+                ).evaluate_recipe(values, INFERENCE_DEPTH_RECIPE)
                 decision = batch.decisions["depth"]
                 if isinstance(decision, ScoreDecision) and decision.confidence >= self.min_confidence:
+                    safe_depth = self._more_conservative(decision.level, floor)
                     return InferenceDecision(
-                        decision.level,
+                        safe_depth,
                         decision.confidence,
-                        "typed provider decision passed confidence gate",
+                        "typed provider recommendation bounded by deterministic risk floor",
                         "external",
+                        abstained=safe_depth != decision.level,
                     )
             except (OSError, ValueError, RuntimeError, TypeError, KeyError, json.JSONDecodeError):
                 pass
 
         pressure = max(
-            values["uncertainty"],
-            values["risk"],
-            values["failure_probability"],
+            values["uncertainty"], values["risk"], values["failure_probability"],
             1.0 - values["evidence_quality"],
         )
-        if values["risk"] >= 0.9 or values["failure_probability"] >= 0.75:
-            depth = "human"
-        elif pressure >= 0.72:
-            depth = "deep"
-        elif pressure >= 0.38:
-            depth = "standard"
-        else:
-            depth = "minimal"
         confidence = max(0.0, min(1.0, 1.0 - pressure * 0.6))
         return InferenceDecision(
-            depth,
-            confidence,
+            floor, confidence,
             "deterministic safety policy selected the minimum sufficient depth",
         )
 
