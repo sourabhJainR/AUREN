@@ -37,6 +37,17 @@ class TestPublicDocumentationConsistency(unittest.TestCase):
         self.assertIn("issue [#438]", unified)
         self.assertIn("was closed", unified)
 
+    def test_release_version_is_synchronized(self):
+        version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
+        plugin = __import__("json").loads(
+            (ROOT / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8")
+        )
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        site = (ROOT / "site" / "index.html").read_text(encoding="utf-8")
+        self.assertEqual(version, plugin["version"])
+        self.assertIn(f"Current release:** `{version}`", readme)
+        self.assertIn(version, site)
+
     def test_readme_status_and_section_format_are_current(self):
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
         self.assertIn("## Project status (reviewed 2026-10-20)", readme)
