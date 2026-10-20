@@ -114,9 +114,9 @@ class HybridModelRouter:
         """Prefer explicit provider capability metadata, then deterministic name heuristics."""
         if not isinstance(models, list):
             return []
-        ranked: list[tuple[int, str]] = []
+        ranked: list[tuple[int, int, str]] = []
         wanted = capability.casefold().strip()
-        for item in models:
+        for index, item in enumerate(models):
             if not isinstance(item, Mapping):
                 continue
             name = item.get("name")
@@ -136,9 +136,11 @@ class HybridModelRouter:
                 if not cls._capable(name, capability):
                     continue
                 score = 10
-            ranked.append((score, name.strip()))
-        ranked.sort(key=lambda candidate: (-candidate[0], candidate[1].casefold()))
-        return [name for _, name in ranked]
+            ranked.append((score, index, name.strip()))
+        # Preserve the provider's configured priority within the same capability
+        # tier; only explicit capability metadata outranks name heuristics.
+        ranked.sort(key=lambda candidate: (-candidate[0], candidate[1]))
+        return [name for _, _, name in ranked]
 
     def route(
         self,
