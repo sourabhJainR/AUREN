@@ -46,6 +46,52 @@ class HybridRouterTests(unittest.TestCase):
         self.assertEqual("local", result.provider)
         self.assertIn("privacy policy", result.error)
 
+    def test_explicit_capability_metadata_outweighs_name_heuristics(self):
+        class MetadataDiscovery:
+            def discover(self):
+                return {"available": True, "models": [
+                    {"name": "z-coder-model"},
+                    {"name": "general-model", "capabilities": ["coding", "reasoning"]},
+                    {"name": "a-coder-model", "capabilities": ["general"]},
+                    {"name": "malformed", "capabilities": "coding"},
+                ]}
+        calls = []
+        router = HybridModelRouter(
+            discovery=MetadataDiscovery(),
+            local_executor=lambda request, model: calls.append(model) or "ok",
+            resource_reader=lambda: {},
+        )
+        result = router.route(TaskRouteRequest("private code", "coding", privacy="private", max_attempts=1))
+        self.assertTrue(result.success)
+        self.assertEqual("general-model", result.model)
+        self.assertEqual(["general-model"], calls)
+
+    def test_model_candidate_order_is_deterministic_not_discovery_order(self):
+        models = [
+            {"name": "z-coder"},
+            {"name": "a-coder"},
+            {"name": "general", "capabilities": ["coding"]},
+        ]
+        self.assertEqual(
+            ["general", "a-coder", "z-coder"],
+            HybridModelRouter._ranked_candidates(models, "coding"),
+        )
+
+    def test_discovery_exception_fails_closed_for_private_task(self):
+        class BrokenDiscovery:
+            def discover(self):
+                raise OSError("endpoint unavailable")
+        remote_calls = []
+        router = HybridModelRouter(
+            discovery=BrokenDiscovery(),
+            remote_executor=lambda request: remote_calls.append(request) or "unsafe",
+            resource_reader=lambda: {},
+        )
+        result = router.route(TaskRouteRequest("private code", "coding", privacy="restricted"))
+        self.assertFalse(result.success)
+        self.assertEqual([], remote_calls)
+        self.assertIn("discovery failed", result.fallback_reason)
+
     def test_route_with_context_reuses_graph_guard_across_provider_calls(self):
         calls = []
         guard = RuntimeExecutionGuard(max_steps=4, max_attempts=1)
