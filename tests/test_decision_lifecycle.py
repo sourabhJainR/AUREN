@@ -15,6 +15,12 @@ from portable.decision_lifecycle import (
 
 
 class DecisionLifecycleTests(unittest.TestCase):
+    @staticmethod
+    def _well_sampled_calibrator():
+        calibrator = ConfidenceCalibrator(min_samples=10)
+        calibrator.extend([CalibrationObservation(0.9, True) for _ in range(20)])
+        return calibrator
+
     def test_calibrator_is_conservative_before_minimum_samples(self):
         calibrator = ConfidenceCalibrator(min_samples=10)
         self.assertLess(calibrator.calibrate(0.9), 0.9)
@@ -59,7 +65,7 @@ class DecisionLifecycleTests(unittest.TestCase):
         shadow = ShadowEvaluator(policy_version="router-v1")
         router = DecisionRouter(
             inference_policy=AdaptiveInferencePolicy(),
-            calibrator=ConfidenceCalibrator(min_samples=10),
+            calibrator=self._well_sampled_calibrator(),
             cascade=CostAwareCascade(candidates),
             shadow=shadow,
         )
@@ -83,7 +89,7 @@ class DecisionLifecycleTests(unittest.TestCase):
         shadow = ShadowEvaluator(policy_version="shadow-only-v1")
         router = DecisionRouter(
             inference_policy=AdaptiveInferencePolicy(),
-            calibrator=ConfidenceCalibrator(min_samples=10),
+            calibrator=self._well_sampled_calibrator(),
             cascade=CostAwareCascade([
                 ModelCandidate("rules", "deterministic", 0, 5, 0.99),
                 ModelCandidate("local", "local", 0.02, 100, 0.92),

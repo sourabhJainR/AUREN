@@ -213,6 +213,7 @@ class CostAwareCascade:
             and c.estimated_cost <= request.cost_budget
             and c.estimated_latency_ms <= request.latency_budget_ms
             and c.historical_success >= request.minimum_success
+            and (c.lane != "deterministic" or request.complexity <= 0.25)
             and (not request.privacy_required or c.lane in {"deterministic", "local"} or c.supports_private_data)
         ]
         if not feasible:
