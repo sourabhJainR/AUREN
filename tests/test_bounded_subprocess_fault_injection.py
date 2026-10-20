@@ -43,6 +43,20 @@ class BoundedSubprocessFaultInjectionTests(unittest.TestCase):
     def test_nonzero_exit_is_never_reported_as_success(self):
         result=run_bounded_command([sys.executable,"-c","raise SystemExit(7)"],timeout_seconds=2)
         self.assertEqual("completed",result.status); self.assertEqual(7,result.returncode); self.assertFalse(result.succeeded)
+    @unittest.skipUnless(os.name == "nt", "Windows Job Object containment")
+    def test_timeout_kills_windows_job_descendants(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            marker = Path(tmp) / "child-survived"
+            child = "import pathlib,sys,time; time.sleep(1.0); pathlib.Path(sys.argv[1]).write_text('survived')"
+            parent = "import subprocess,sys; subprocess.Popen([sys.executable,'-c',sys.argv[2],sys.argv[1]])"
+            result = run_bounded_command(
+                [sys.executable, "-c", parent, str(marker), child],
+                timeout_seconds=0.25, terminate_grace_seconds=0.1,
+            )
+            self.assertEqual("timed_out", result.status)
+            time.sleep(1.2)
+            self.assertFalse(marker.exists(), "Windows child escaped its kill-on-close Job Object")
+
     def test_shell_strings_and_invalid_budgets_are_rejected(self):
         with self.assertRaisesRegex(ValueError,"argv"): run_bounded_command("sleep 10",timeout_seconds=1)
         for value in (0,-1,True,float("nan"),float("inf")):
