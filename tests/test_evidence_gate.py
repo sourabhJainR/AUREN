@@ -69,11 +69,11 @@ class EvidenceGateTests(unittest.TestCase):
             )
 
     def test_empty_check_set_cannot_claim_pass(self) -> None:
-        receipt = run_evidence_gate(
-            self.root, expected_revision="abc123", checks=(),
-            revision_reader=lambda _: "abc123",
-        )
-        self.assertEqual(receipt.status, "FAIL")
+        with self.assertRaises(ValueError):
+            run_evidence_gate(
+                self.root, expected_revision="abc123", checks=(),
+                revision_reader=lambda _: "abc123",
+            )
 
 
 if __name__ == "__main__":
