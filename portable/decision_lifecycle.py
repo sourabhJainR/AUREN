@@ -27,6 +27,36 @@ def _probability(value: float, name: str) -> float:
 
 
 @dataclass(frozen=True)
+class DecisionEvidenceEvent:
+    event_id: str
+    kind: str
+    policy_version: str
+    state_digest: str
+    payload: Mapping[str, Any]
+
+
+class DecisionEvidenceSink(Protocol):
+    """Adapter contract for AUREN's durable canonical evidence/memory store."""
+    def append(self, event: DecisionEvidenceEvent) -> None:
+        """Persist an immutable, provenance-bearing decision event."""
+        ...
+
+
+def _evidence_event(kind: str, policy_version: str, state: Mapping[str, Any],
+                    payload: Mapping[str, Any]) -> DecisionEvidenceEvent:
+    import hashlib
+    import json
+    digest = state_digest(state)
+    canonical = json.dumps(
+        {"kind": kind, "policy_version": policy_version, "state_digest": digest,
+         "payload": dict(payload)},
+        sort_keys=True, separators=(",", ":"), default=str,
+    )
+    event_id = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    return DecisionEvidenceEvent(event_id, kind, policy_version, digest, dict(payload))
+
+
+@dataclass(frozen=True)
 class CalibrationObservation:
     """A confidence and its binary correctness outcome from a completed task."""
     confidence: float
@@ -55,16 +85,22 @@ class ConfidenceCalibrator:
     not a guarantee that future predictions are calibrated.
     """
 
-    def __init__(self, *, bins: int = 10, min_samples: int = 20, prior_weight: float = 10.0) -> None:
+    def __init__(self, *, bins: int = 10, min_samples: int = 20, prior_weight: float = 10.0,\n                 evidence_sink: DecisionEvidenceSink | None = None, policy_version: str = "calibration-v1") -> None:
         if bins < 2 or min_samples < 1 or prior_weight < 0:
             raise ValueError("invalid calibration configuration")
         self.bins = bins
         self.min_samples = min_samples
         self.prior_weight = float(prior_weight)
+        self.evidence_sink = evidence_sink
+        self.policy_version = policy_version
         self._observations: list[CalibrationObservation] = []
 
     def add(self, observation: CalibrationObservation) -> None:
         self._observations.append(observation)
+        if self.evidence_sink is not None:
+            payload = {"confidence": observation.confidence, "correct": observation.correct}
+            event = _evidence_event("calibration-outcome", self.policy_version, payload, payload)
+            self.evidence_sink.append(event)
 
     def extend(self, observations: Sequence[CalibrationObservation]) -> None:
         for observation in observations:
@@ -236,10 +272,11 @@ class ShadowRecord:
 class ShadowEvaluator:
     """Record candidate policy results without altering baseline execution."""
 
-    def __init__(self, *, policy_version: str) -> None:
+    def __init__(self, *, policy_version: str, evidence_sink: DecisionEvidenceSink | None = None) -> None:
         if not policy_version.strip():
             raise ValueError("policy_version is required")
         self.policy_version = policy_version
+        self.evidence_sink = evidence_sink
         self._records: list[ShadowRecord] = []
 
     def compare(
@@ -257,6 +294,10 @@ class ShadowEvaluator:
             outcome_correct, self.policy_version,
         )
         self._records.append(record)
+        if self.evidence_sink is not None:
+            payload = {"baseline": baseline, "candidate": candidate,\n                       "candidate_would_change": record.candidate_would_change,\n                       "outcome_correct": outcome_correct}
+            event = _evidence_event("shadow-comparison", self.policy_version, state, payload)
+            self.evidence_sink.append(event)
         return record
 
     @property
@@ -381,7 +422,7 @@ class DecisionRouter:
 
 
 __all__ = [
-    "CalibrationObservation", "CalibrationReport", "ConfidenceCalibrator", "RoutingResult", "DecisionRouter",
+    "CalibrationObservation", "CalibrationReport", "ConfidenceCalibrator", "DecisionEvidenceEvent", "DecisionEvidenceSink", "RoutingResult", "DecisionRouter",
     "ModelCandidate", "CascadeRequest", "CascadeDecision", "CostAwareCascade",
     "BatchDecisionProvider", "evaluate_batch", "ShadowRecord", "ShadowEvaluator",
 ]
