@@ -64,6 +64,14 @@ class ProcessIsolatedCrewDispatcherTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             dispatcher.run([{"crew_id": "crew-a", "task": "bad", "not_json": object()}], timeout_seconds=1)
 
+    def test_request_size_is_bounded_before_worker_spawn(self):
+        dispatcher = ProcessIsolatedCrewDispatcher(
+            "tests.test_process_isolated_crew_dispatch:quick_handler",
+            max_request_bytes=256,
+        )
+        with self.assertRaisesRegex(ValueError, "request byte limit"):
+            dispatcher.run([{"crew_id": "crew-a", "task": "x" * 1024}], timeout_seconds=2)
+
     def test_batch_deadline_prevents_later_dispatch(self):
         dispatcher = ProcessIsolatedCrewDispatcher(
             "tests.test_process_isolated_crew_dispatch:hanging_handler",
