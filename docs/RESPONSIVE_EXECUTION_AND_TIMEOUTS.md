@@ -63,6 +63,21 @@ The hard-stop primitive is portable.bounded_subprocess.run_bounded_command. It a
 | Oversized crew result | test_result_size_is_bounded | failed, bounded error |
 | Batch deadline | test_batch_deadline_prevents_later_dispatch | remaining tasks not_run |
 
+## Crash-recovery acceptance matrix
+
+The checkpoint store rejects reuse of an existing `(episode_id, sequence)` identity with a different state or payload. The fault-injection suite uses spawned child processes that exit without cleanup to verify committed checkpoint survival and rollback of uncommitted writes after restart.
+
+Run: `python -m unittest tests.test_crash_recovery_fault_injection -v`.
+
+| Fault | Executable check | Required outcome |
+|---|---|---|
+| Process exits after checkpoint commit | `test_committed_checkpoint_survives_abrupt_process_exit_and_restart` | committed state and digest survive restart |
+| Process exits inside an uncommitted SQLite transaction | `test_uncommitted_checkpoint_is_not_visible_after_process_crash` | incomplete state is absent after restart |
+| Duplicate checkpoint with same content | `test_identical_checkpoint_retry_is_idempotent_across_payload_key_order` | same durable checkpoint returned |
+| Same sequence, different payload or state | `test_same_checkpoint_identity_with_different_payload_fails_closed`, `test_same_checkpoint_identity_with_different_state_fails_closed` | explicit conflict, original preserved |
+| Corrupt stored payload | `test_corrupt_stored_checkpoint_is_rejected` | integrity error, no resume |
+| Invalid sequence/non-finite payload | `test_invalid_sequences_and_non_finite_payloads_are_rejected` | reject before commit |
+
 ## Acceptance tests
 
 - [ ] A provider that never returns cannot block the supervisor beyond the configured deadline.

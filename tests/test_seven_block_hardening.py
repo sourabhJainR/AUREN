@@ -1,7 +1,7 @@
 import unittest
 from portable.secure_execution import *
 from portable.repository_index import RepositoryIndex
-from portable.crash_recovery import CheckpointStore
+from portable.crash_recovery import CheckpointConflict, CheckpointStore
 from portable.resource_calibration import *
 from portable.adversarial_benchmark import *
 from portable.production_readiness import ProductionReadiness
@@ -13,9 +13,12 @@ class SevenBlockTests(unittest.TestCase):
     def test_index_tracks_content_and_impact(self):
         i=RepositoryIndex(); sha=i.update("a.py",b"x",[("A","class")]); i.add_edge("a.py","b.py")
         self.assertEqual(len(i.symbols("a.py")),1); self.assertEqual(i.impacted("a.py"),("b.py",)); self.assertEqual(len(sha),64)
-    def test_checkpoint_is_idempotent_and_integrity_checked(self):
-        s=CheckpointStore(); a=s.save("e",1,"running",{"x":1}); b=s.save("e",1,"running",{"x":2})
-        self.assertEqual(s.latest("e"),a); self.assertEqual(a.digest,b.digest if a.digest==b.digest else a.digest)
+    def test_checkpoint_conflicts_fail_closed_and_integrity_checked(self):
+        with CheckpointStore() as store:
+            checkpoint = store.save("e", 1, "running", {"x": 1})
+            with self.assertRaises(CheckpointConflict):
+                store.save("e", 1, "running", {"x": 2})
+            self.assertEqual(store.latest("e"), checkpoint)
     def test_resource_calibration_routes_by_observed_success(self):
         c=ResourceCalibrator(); c.record(ResourceObservation("local","coding",1,100,True)); c.record(ResourceObservation("cloud","coding",1,100,False))
         self.assertEqual(c.route("coding"),"local")

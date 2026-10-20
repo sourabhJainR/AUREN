@@ -1,7 +1,7 @@
 # AUREN Repository and Website Alignment Review
 
 **Review date:** 2026-10-20  
-**Current review baseline:** `main` at `675a0fd90948bb796791ae6f480e5c79baf8696a`  
+**Review baseline before this PR:** `main` at `9ffa1f25ceee69e04253deb8ca28f002a7dd16fd`  
 **Current product version:** `1.0.5` (merged)  
 **Scope:** repository-facing status, architecture claims, website/documentation consistency, workflow evidence, and implementation gaps.
 
@@ -29,18 +29,18 @@ The initial repository review found two competing publishers: the canonical `Dep
 
 | Area | Current-main evidence | Limit |
 |---|---|---|
-| Main revision | `675a0fd90948bb796791ae6f480e5c79baf8696a` | Current repository head at this review |
-| AI Harness Check | [Run 39432462168](https://github.com/sourabhJainR/AUREN/actions/runs/39432462168) passed on `675a0fd90948` | Revision-specific repository checks only |
-| Runtime Resilience Matrix | [Run 39432462851](https://github.com/sourabhJainR/AUREN/actions/runs/39432462851) passed on `675a0fd90948` | Check its jobs for impact-based skips; previous full Linux/Windows and Python 3.11/3.12 runtime evidence is revision-specific |
-| Architecture Integrity | [Run 39432462207](https://github.com/sourabhJainR/AUREN/actions/runs/39432462207) passed on `675a0fd90948` | Structural/repository contract only |
-| Production AI Harness Hardening | [Run 39432462303](https://github.com/sourabhJainR/AUREN/actions/runs/39432462303) passed on `675a0fd90948` | Does not replace independent host isolation audit |
-| Agent Capability Runtime | [Run 39432462109](https://github.com/sourabhJainR/AUREN/actions/runs/39432462109) passed on `675a0fd90948` | Revision-specific |
-| Portable bundle | [Run 39432462071](https://github.com/sourabhJainR/AUREN/actions/runs/39432462071) succeeded on `675a0fd90948`, but returned **zero artifacts** | Release artifact publication remains open; do not infer bundle existence from a green workflow |
-| Pages deployment | [Run 39432462110](https://github.com/sourabhJainR/AUREN/actions/runs/39432462110) passed on `675a0fd90948`; emitted Pages and deployment-manifest artifacts | Confirms workflow success; public cache propagation is separate |
+| Main revision before this PR | `9ffa1f25ceee69e04253deb8ca28f002a7dd16fd` | Recheck after merge |
+| AI Harness Check | [Run 39434116268](https://github.com/sourabhJainR/AUREN/actions/runs/39434116268) passed on `9ffa1f25ceee` | Revision-specific repository checks only |
+| Runtime Resilience Matrix | [Run 39434116495](https://github.com/sourabhJainR/AUREN/actions/runs/39434116495) passed on `9ffa1f25ceee` | Check its jobs for impact-based skips; previous full Linux/Windows and Python 3.11/3.12 runtime evidence is revision-specific |
+| Architecture Integrity | [Run 39434116308](https://github.com/sourabhJainR/AUREN/actions/runs/39434116308) passed on `9ffa1f25ceee` | Structural/repository contract only |
+| Production AI Harness Hardening | [Run 39434116295](https://github.com/sourabhJainR/AUREN/actions/runs/39434116295) passed on `9ffa1f25ceee` | Does not replace independent host isolation audit |
+| Agent Capability Runtime | [Run 39434116422](https://github.com/sourabhJainR/AUREN/actions/runs/39434116422) passed on `9ffa1f25ceee` | Revision-specific |
+| Portable bundle | [Run 39434116383](https://github.com/sourabhJainR/AUREN/actions/runs/39434116383) succeeded on `9ffa1f25ceee` but impact selection skipped the build because only documentation changed. The last code-impact bundle run [39430002486](https://github.com/sourabhJainR/AUREN/actions/runs/39430002486) on `071991f5941f` produced `auren-portable` and `auren-portable-checksum` with artifact digests `sha256:9c2a44d6c0fda9e092bc65499c6011e1d70883ecc33349701c495140ef75daa1` and `sha256:c4d9197cbe15b8691d5e58498d708675e711ab22412db4fd03be281b6c634322` | Artifact content matches the last code-impact revision; no bundle was rebuilt for docs-only commits. Artifact digests are not the ZIP's internal SHA-256 |
+| Pages deployment | [Run 39434116523](https://github.com/sourabhJainR/AUREN/actions/runs/39434116523) passed on `9ffa1f25ceee`; emitted Pages and deployment-manifest artifacts | Confirms workflow success; public cache propagation is separate |
 
 ## Responsiveness and non-hanging execution
 
-See [Responsive Execution and Timeout Policy](RESPONSIVE_EXECUTION_AND_TIMEOUTS.md). `portable.bounded_subprocess.run_bounded_command` is exercised against hangs, inherited deadlines, cancellation, output floods, and process-tree termination. The default `portable.evidence_gate.run_evidence_gate` path uses it for revision-bound checks. `portable.process_isolated_crew_dispatch.ProcessIsolatedCrewDispatcher` provides a deadline-bound process-isolation option for trusted importable crew handlers, while the legacy thread dispatcher remains non-killable. Remaining risks include arbitrary provider/network calls and graph nodes not yet routed through hard-stop adapters, Windows Job Object descendant containment is now covered by CI, queue/lock contention, and ambiguous external side effects. These features are liveness controls, not a sandbox or proof of production isolation. The latest main bundle workflow succeeded but published no artifacts; release-bundle generation and internal ZIP checksum verification remain P1/P2 release gates.
+See [Responsive Execution and Timeout Policy](RESPONSIVE_EXECUTION_AND_TIMEOUTS.md). `portable.bounded_subprocess.run_bounded_command` is exercised against hangs, inherited deadlines, cancellation, output floods, and process-tree termination. The default `portable.evidence_gate.run_evidence_gate` path uses it for revision-bound checks. `portable.process_isolated_crew_dispatch.ProcessIsolatedCrewDispatcher` provides a deadline-bound process-isolation option for trusted importable crew handlers, while the legacy thread dispatcher remains non-killable. Remaining risks include arbitrary provider/network calls and graph nodes not yet routed through hard-stop adapters, Windows Job Object descendant containment is now covered by CI, queue/lock contention, and ambiguous external side effects. These features are liveness controls, not a sandbox or proof of production isolation. The latest main bundle workflow was impact-skipped for documentation-only changes; the latest code-impact bundle remains available from `071991f5941f`. Rebuild on code-impact or a controlled release dispatch when exact-SHA artifact provenance is required.
 
 ## Prioritized implementation gaps and enhancements
 
@@ -54,7 +54,7 @@ See [Responsive Execution and Timeout Policy](RESPONSIVE_EXECUTION_AND_TIMEOUTS.
 
 ### P1 — Recovery and durable execution
 
-- [ ] Add process-kill fault injection at each durable transition: task accepted, claim persisted, checkpoint written, external effect started, receipt committed, graph finalized, and evidence-graph edge persisted.
+- [ ] Add process-kill fault injection at each durable transition: task accepted, claim persisted, checkpoint written, external effect started, receipt committed, graph finalized, and evidence-graph edge persisted. This PR adds checkpoint-store crash and conflicting-identity cases; the full cross-store transition matrix remains open.
 - [ ] Verify restart/resume is deterministic when execution ledger, checkpoint, recovery ledger and evidence graph disagree; fail closed or reconcile explicitly, never fabricate success.
 - [ ] Test cancellation and lease expiry while a handler is still running; ensure stale workers cannot finalize and in-flight external effects are reconciled.
 - [ ] Assert retry budgets are monotonic across restart and hypothesis changes; no repeated attempts without measurable progress; bounded time/cost and explicit terminal failure.
