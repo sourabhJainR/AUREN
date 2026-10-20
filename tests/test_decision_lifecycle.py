@@ -72,6 +72,11 @@ class DecisionLifecycleTests(unittest.TestCase):
         self.assertIsNotNone(result.shadow_record)
         self.assertEqual(len(shadow.records), 1)
         self.assertIsNone(shadow.records[0].outcome_correct)
+        observed = shadow.observe_outcome(
+            state_digest_value=result.shadow_record.state_digest, outcome_correct=True
+        )
+        self.assertTrue(observed.outcome_correct)
+        self.assertTrue(shadow.promotion_eligible(minimum_samples=1, minimum_accuracy=1.0))
 
     def test_router_escalates_irreversible_action_to_human(self):
         router = DecisionRouter(
