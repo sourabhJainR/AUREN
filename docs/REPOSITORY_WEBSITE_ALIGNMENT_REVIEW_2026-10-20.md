@@ -40,7 +40,7 @@ The initial repository review found two competing publishers: the canonical `Dep
 
 ## Responsiveness and non-hanging execution
 
-See [Responsive Execution and Timeout Policy](RESPONSIVE_EXECUTION_AND_TIMEOUTS.md). This PR adds `portable.bounded_subprocess.run_bounded_command` plus fault-injection tests for hung commands, inherited parent deadlines, cancellation, bounded output, process-tree termination, pre-cancellation, and nonzero exits. The runner is used explicitly by callers; it does not yet automatically wrap every existing provider, graph node, GitHub adapter, or validation path. Remaining risks include non-cooperative Python threads, providers that ignore cancellation, queue/lock contention, and ambiguous external effects. Hard-stop guarantees remain pending until adapters adopt the primitive and end-to-end acceptance tests cover those boundaries.
+See [Responsive Execution and Timeout Policy](RESPONSIVE_EXECUTION_AND_TIMEOUTS.md). PR #743 added `portable.bounded_subprocess.run_bounded_command` plus fault-injection tests for hung commands, inherited parent deadlines, cancellation, bounded output, process-tree termination, pre-cancellation, and nonzero exits. This follow-up integrates it into the default revision-bound evidence gate and propagates the total deadline; it still does not wrap every provider, graph node, GitHub adapter, or validation path. Remaining risks include non-cooperative Python threads, providers that ignore cancellation, queue/lock contention, and ambiguous external effects. Hard-stop guarantees remain pending until adapters adopt the primitive and end-to-end acceptance tests cover those boundaries.
 
 ## Prioritized implementation gaps and enhancements
 
