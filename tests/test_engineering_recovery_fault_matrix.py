@@ -19,6 +19,19 @@ def recovery_matrix_handler(_payload):
     return {"accepted": True}
 
 
+_CANCEL_ENTERED = None
+_CANCEL_RELEASE = None
+
+
+def recovery_blocking_handler(_payload):
+    if _CANCEL_ENTERED is None or _CANCEL_RELEASE is None:
+        raise RuntimeError("cancellation test events were not initialized")
+    _CANCEL_ENTERED.set()
+    if not _CANCEL_RELEASE.wait(timeout=5):
+        raise TimeoutError("test coordinator did not release active handler")
+    return {"accepted": True}
+
+
 class EngineeringRecoveryFaultMatrixTests(unittest.TestCase):
     def _prepared_dispatch(self, root: Path):
         plan = EngineeringPlan(
@@ -64,7 +77,7 @@ class EngineeringRecoveryFaultMatrixTests(unittest.TestCase):
             plan, _run, store, bridge, _packet, _controller, _dispatcher = self._prepared_dispatch(root)
             stored_plan, current = store.load(plan.run_id)
             changed = current.transition_task(
-                "work", "ready", plan=stored_plan, reason="simulated write before checkpoint update",
+                "work", "running", plan=stored_plan, reason="simulated write before checkpoint update",
             )
             store.save_run(plan.run_id, changed, expected_revision=current.revision)
             restarted = EngineeringPlanRecoveryBridge(
@@ -80,12 +93,9 @@ class EngineeringRecoveryFaultMatrixTests(unittest.TestCase):
             entered = threading.Event()
             release = threading.Event()
             stop = threading.Event()
-            def blocking_handler(_payload):
-                entered.set()
-                if not release.wait(timeout=5):
-                    raise TimeoutError("test coordinator did not release active handler")
-                return {"accepted": True}
-            controller.register_handler("recovery-blocking-handler", blocking_handler, execution_class="read_only")
+            global _CANCEL_ENTERED, _CANCEL_RELEASE
+            _CANCEL_ENTERED, _CANCEL_RELEASE = entered, release
+            controller.register_handler("recovery-blocking-handler", recovery_blocking_handler, execution_class="read_only")
             controller.submit("recovery-blocking-handler", {"operation": "bounded-test"})
             def request_stop():
                 if entered.wait(timeout=5):
