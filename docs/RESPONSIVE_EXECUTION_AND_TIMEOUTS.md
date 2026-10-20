@@ -35,10 +35,10 @@ These are initial defaults to tune from measured workloads, not universal guaran
 
 A task may request a larger explicit budget, but must still expose progress and cancellation. These defaults never override stricter security policy or a user's deadline.
 
-## Acceptance tests
+## Executable acceptance matrix\n\nThe first hard-stop primitive is portable.bounded_subprocess.run_bounded_command. It accepts argv rather than shell strings, inherits the parent monotonic deadline, observes cancellation, stores output in temporary files, caps returned output, and terminates the process tree on timeout. Run: python -m unittest tests.test_bounded_subprocess_fault_injection -v.\n\n| Fault | Executable check | Required outcome |\n|---|---|---|\n| Hung subprocess | test_hung_command_is_terminated_within_budget_and_not_success | timed_out within bound |\n| Parent deadline | test_parent_deadline_caps_child_timeout | parent_deadline_exceeded |\n| Cancellation | test_cancellation_terminates_command_and_is_explicit | cancelled |\n| Output flood | test_output_capture_is_bounded_and_marks_truncation | bounded retained output |\n| Descendant process | test_timeout_kills_descendant_process_group (POSIX) | no live descendant |\n| Invalid budget/shell string | test_shell_strings_and_invalid_budgets_are_rejected | reject before spawn |\n\n## Acceptance tests
 
 - [ ] A provider that never returns cannot block the supervisor beyond the configured deadline.
-- [ ] A hung subprocess is terminated with its process group, and output capture remains bounded.
+- [x] A hung subprocess is terminated with its process group, and output capture remains bounded by the new fault-injection suite; cross-platform CI is still required.
 - [ ] Cancellation during idle, node execution, inference, validation, and recovery is prompt and persisted.
 - [ ] A timed-out worker cannot commit success after its lease/deadline expires.
 - [ ] Restart preserves deadline and retry budget; fresh context does not reset retries.
