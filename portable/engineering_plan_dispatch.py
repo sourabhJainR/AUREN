@@ -242,6 +242,7 @@ class EngineeringPlanDispatch:
 
         # Reject known duplicate/budget failures before creating even a bookkeeping work unit.
         with sqlite3.connect(self.database_path, timeout=10) as db:
+            db.row_factory = sqlite3.Row
             db.execute("PRAGMA busy_timeout=10000")
             collision = db.execute(
                 "SELECT 1 FROM engineering_dispatch_intents WHERE run_id=? AND plan_task_id=? AND run_revision=?",
