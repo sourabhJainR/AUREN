@@ -357,6 +357,7 @@ class RoutingResult:
     calibrated_confidence: float
     inference_provider: str
     selected_model: ModelCandidate
+    candidate_model: ModelCandidate
     reason: str
     requires_human_approval: bool
     shadow_record: ShadowRecord | None = None
@@ -377,6 +378,7 @@ class DecisionRouter:
         cascade: CostAwareCascade,
         shadow: ShadowEvaluator | None = None,
         minimum_calibrated_confidence: float = 0.75,
+        shadow_only: bool = False,
     ) -> None:
         self.inference_policy = inference_policy
         self.calibrator = calibrator
@@ -385,6 +387,7 @@ class DecisionRouter:
         self.minimum_calibrated_confidence = _probability(
             minimum_calibrated_confidence, "minimum_calibrated_confidence"
         )
+        self.shadow_only = bool(shadow_only)
 
     def route(
         self,
@@ -430,21 +433,34 @@ class DecisionRouter:
             cost_budget=cost_budget,
             irreversible_action=irreversible_action,
         ))
-        selected = cascade.candidate
-        if decision.depth == "human" and selected.lane != "human":
+        candidate = cascade.candidate
+        if decision.depth == "human" and candidate.lane != "human":
             human = next((item for item in self.cascade.candidates if item.lane == "human"), None)
             if human is None:
                 raise RuntimeError("human inference depth requires a configured human route")
-            selected = human
+            candidate = human
+
+        selected = candidate
+        if self.shadow_only and decision.depth != "human":
+            baseline = next(
+                (item for item in self.cascade.candidates if item.lane == baseline_lane), None
+            )
+            if baseline is None:
+                raise RuntimeError("shadow-only routing requires a configured baseline lane")
+            selected = baseline
 
         shadow_record = None
         if self.shadow is not None:
             shadow_record = self.shadow.compare(
-                state, baseline=baseline_lane, candidate=selected.lane, outcome_correct=None
+                state, baseline=baseline_lane, candidate=candidate.lane, outcome_correct=None
             )
+        reason = (
+            f"shadow-only: retained baseline lane '{baseline_lane}'; {cascade.reason}"
+            if self.shadow_only and decision.depth != "human" else cascade.reason
+        )
         return RoutingResult(
-            decision.depth, calibrated, decision.provider, selected,
-            cascade.reason, cascade.requires_human_approval or decision.depth == "human",
+            decision.depth, calibrated, decision.provider, selected, candidate,
+            reason, cascade.requires_human_approval or decision.depth == "human",
             shadow_record,
         )
 
