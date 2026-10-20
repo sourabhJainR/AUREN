@@ -21,6 +21,10 @@ Those results establish repository-level checks only. They do not establish inde
 6. Never convert CI status, checked-in fixtures, a registry entry, or receipt presence into claims of independent evaluation or production control.
 7. Keep the product version at `1.0.4` for this documentation-only update; do not imply a release version bump without release-policy review.
 
+## Post-review finding: single Pages deployment authority
+
+The initial repository review found two competing publishers: the canonical `Deploy AUREN documentation` workflow deploys `site/`, while the sample Jekyll workflow built the repository root and used the same Pages concurrency group. Both could run on a push to `main`; the last deployment could therefore overwrite the intended site with a different build. The remediation in the follow-up Pages fix makes the legacy workflow manual-only and non-deploying, adds a regression contract, and ensures changes to the legacy workflow trigger the canonical publisher. After that fix merges, verify the canonical Pages workflow for the merge SHA and inspect the deployed content.
+
 ## Confirmed baseline evidence
 
 | Area | Observed evidence | Limit |
