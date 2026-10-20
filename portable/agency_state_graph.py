@@ -11,6 +11,7 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from contextvars import ContextVar, Token
 from dataclasses import dataclass
 import json
+import time
 from hashlib import sha256
 from threading import Event
 from portable.runtime_recovery import ExecutionBudgetExceeded, NoProgressDetected, RuntimeExecutionGuard
@@ -355,6 +356,11 @@ class CompiledStateGraph:
             if parallel:
                 executor = ThreadPoolExecutor(max_workers=min(max_parallel_nodes, len(parallel)))
                 futures = {name: executor.submit(self._run_node, name, snapshot, cancellation_event, guard, f"{run_id}:{step}:{name}") for name in parallel}
+                superstep_deadline = (
+                    time.monotonic() + node_timeout_seconds
+                    if node_timeout_seconds is not None
+                    else None
+                )
                 try:
                     for name in parallel:
                         if cancellation and cancellation.is_set():
@@ -364,7 +370,12 @@ class CompiledStateGraph:
                             self._checkpoint(checkpoint, run_id, step - 1, current, next_nodes, trace, guard)
                             return GraphRun(run_id, dict(current), tuple(events), tuple(trace), step - 1, True)
                         try:
-                            results_by_name[name] = futures[name].result(timeout=node_timeout_seconds)
+                            remaining_timeout = (
+                                max(0.0, superstep_deadline - time.monotonic())
+                                if superstep_deadline is not None
+                                else None
+                            )
+                            results_by_name[name] = futures[name].result(timeout=remaining_timeout)
                         except Exception as exc:
                             if isinstance(exc, FutureTimeoutError):
                                 # A timed-out parallel node must be signalled and
