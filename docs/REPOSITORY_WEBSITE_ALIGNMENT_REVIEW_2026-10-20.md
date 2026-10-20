@@ -1,7 +1,7 @@
 # AUREN Repository and Website Alignment Review
 
 **Review date:** 2026-10-20  
-**Current review baseline:** `main` at `071991f5941fe075203bd63cc266c9a6b44f71d2`  
+**Current review baseline:** `main` at `1530e2b315a31bf226e1d13628f73fd256adb2da`  
 **Current product version:** `1.0.5` (merged)  
 **Scope:** repository-facing status, architecture claims, website/documentation consistency, workflow evidence, and implementation gaps.
 
@@ -29,14 +29,14 @@ The initial repository review found two competing publishers: the canonical `Dep
 
 | Area | Current-main evidence | Limit |
 |---|---|---|
-| Main revision | `071991f5941fe075203bd63cc266c9a6b44f71d2` | Recheck after every merge |
-| AI Harness Check | [Run 39430002349](https://github.com/sourabhJainR/AUREN/actions/runs/39430002349) passed | Repository tests for this SHA |
-| Runtime Resilience Matrix | [Run 39430002092](https://github.com/sourabhJainR/AUREN/actions/runs/39430002092) passed on Linux/Windows, Python 3.11/3.12, including the Windows descendant test | Does not cover every production host or external effect |
-| Architecture Integrity | [Run 39430002129](https://github.com/sourabhJainR/AUREN/actions/runs/39430002129) passed | Structural/repository contract only |
-| Production AI Harness Hardening | [Run 39430002343](https://github.com/sourabhJainR/AUREN/actions/runs/39430002343) passed | Does not replace independent host isolation audit |
-| Agent Capability Runtime | [Run 39430002144](https://github.com/sourabhJainR/AUREN/actions/runs/39430002144) passed | Revision-specific |
-| Portable bundle | [Run 39430002486](https://github.com/sourabhJainR/AUREN/actions/runs/39430002486) passed; GitHub artifact digests `sha256:9c2a44d6c0fda9e092bc65499c6011e1d70883ecc33349701c495140ef75daa1` and `sha256:c4d9197cbe15b8691d5e58498d708675e711ab22412db4fd03be281b6c634322` | These are GitHub artifact digests, not the ZIP's own SHA-256 |
-| Pages deployment | [Run 39430002162](https://github.com/sourabhJainR/AUREN/actions/runs/39430002162) passed | Confirms deployment workflow for this SHA; public cache propagation is separate |
+| Main revision | `1530e2b315a31bf226e1d13628f73fd256adb2da` | Current repository head at this review |
+| AI Harness Check | [Run 39431178227](https://github.com/sourabhJainR/AUREN/actions/runs/39431178227) passed on current main; [Run 39430002349](https://github.com/sourabhJainR/AUREN/actions/runs/39430002349) passed on the runtime implementation revision | Current-head checks plus full runtime-code revision evidence |
+| Runtime Resilience Matrix | [Run 39431178143](https://github.com/sourabhJainR/AUREN/actions/runs/39431178143) succeeded on current main; impact selection skipped its platform matrix on this revision. [Run 39430002092](https://github.com/sourabhJainR/AUREN/actions/runs/39430002092) passed Linux/Windows and Python 3.11/3.12, including Windows descendant termination, on the runtime implementation revision | Current-head run did not rerun the full matrix; older runtime evidence remains code-revision-specific |
+| Architecture Integrity | [Run 39431178326](https://github.com/sourabhJainR/AUREN/actions/runs/39431178326) passed on current main; [Run 39430002129](https://github.com/sourabhJainR/AUREN/actions/runs/39430002129) passed on runtime implementation revision | Structural/repository contract only |
+| Production AI Harness Hardening | [Run 39431178181](https://github.com/sourabhJainR/AUREN/actions/runs/39431178181) passed on current main; [Run 39430002343](https://github.com/sourabhJainR/AUREN/actions/runs/39430002343) passed on runtime implementation revision | Does not replace independent host isolation audit |
+| Agent Capability Runtime | [Run 39431179681](https://github.com/sourabhJainR/AUREN/actions/runs/39431179681) passed on current main; [Run 39430002144](https://github.com/sourabhJainR/AUREN/actions/runs/39430002144) passed on runtime implementation revision | Revision-specific |
+| Portable bundle | [Run 39431178321](https://github.com/sourabhJainR/AUREN/actions/runs/39431178321) succeeded on current main, but its artifact listing is empty. [Run 39430002486](https://github.com/sourabhJainR/AUREN/actions/runs/39430002486) produced the portable and checksum artifacts with GitHub artifact digests `sha256:9c2a44d6c0fda9e092bc65499c6011e1d70883ecc33349701c495140ef75daa1` and `sha256:c4d9197cbe15b8691d5e58498d708675e711ab22412db4fd03be281b6c634322` | Current-head artifact publication needs confirmation; GitHub artifact digests are not the ZIP's own SHA-256 |
+| Pages deployment | [Run 39431177996](https://github.com/sourabhJainR/AUREN/actions/runs/39431177996) passed on current main; [Run 39430002162](https://github.com/sourabhJainR/AUREN/actions/runs/39430002162) passed on runtime implementation revision | Confirms workflow success; public cache propagation is separate |
 
 ## Responsiveness and non-hanging execution
 
