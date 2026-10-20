@@ -103,7 +103,7 @@ class EngineeringRecoveryFaultMatrixTests(unittest.TestCase):
                     release.set()
             coordinator = threading.Thread(target=request_stop, daemon=True)
             coordinator.start()
-            report = controller.run_continuously(stop_event=stop, max_cycles=3, idle_sleep_seconds=0)
+            report = controller.run_continuously(stop_event=stop, max_cycles=3, max_idle_cycles=3, idle_sleep_seconds=0)
             coordinator.join(timeout=5)
             self.assertTrue(stop.is_set(), "stop request must arrive while the handler is active")
             self.assertEqual("cancelled", report.stop_reason)
