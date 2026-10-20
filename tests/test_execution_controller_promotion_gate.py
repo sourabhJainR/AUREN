@@ -247,6 +247,43 @@ class ExecutionControllerPromotionGateTests(unittest.TestCase):
                 self.assertEqual(self.controller.task(task.id).state, "failed")
                 self.assertEqual(_PROMOTION_SIDE_EFFECTS, [])
 
+    def test_supervisor_runs_operator_owned_evidence_checks_when_provider_has_no_receipt(self):
+        _PROMOTION_CONTEXT.pop("evidence_receipt_node_id", None)
+        self.controller.register_handler(
+            "promote-capability",
+            protected_promotion_handler,
+            promotion_gate_policy={
+                "context_handler": "trusted-context",
+                "evidence_checks": [{
+                    "name": "candidate-regression",
+                    "argv": ["python", "-c", "print('verified')"],
+                    "timeout_seconds": 10,
+                }],
+            },
+            execution_class="consequential",
+        )
+        with patch.object(self.controller, "run_evidence_gate", return_value=self.good_receipt) as run_gate:
+            task = self.submit()
+            self.controller.run_once(task.id)
+        self.assertEqual(self.controller.task(task.id).state, "completed")
+        run_gate.assert_called_once()
+        kwargs = run_gate.call_args.kwargs
+        self.assertEqual(kwargs["expected_revision"], HEAD_SHA)
+        self.assertEqual(kwargs["checks"][0].name, "candidate-regression")
+        self.assertEqual(_PROMOTION_SIDE_EFFECTS, ["merge"])
+
+    def test_promotion_evidence_policy_rejects_invalid_argv(self):
+        with self.assertRaisesRegex(ValueError, "argv must be a non-empty list"):
+            self.controller.register_handler(
+                "promote-capability",
+                protected_promotion_handler,
+                promotion_gate_policy={
+                    "context_handler": "trusted-context",
+                    "evidence_checks": [{"name": "empty-command", "argv": []}],
+                },
+                execution_class="consequential",
+            )
+
     def test_valid_decision_record_allows_handler(self):
         task = self.submit()
         self.controller.run_once(task.id)

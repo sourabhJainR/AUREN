@@ -345,7 +345,34 @@ class ExecutionController:
             if context_handler == name:
                 raise ValueError("promotion context provider cannot be the protected handler itself")
             self._load_handler(context_handler)
-            promotion_policy = {"context_handler": context_handler}
+            # Optional operator-owned argv checks let the supervisor create the
+            # durable receipt itself, instead of relying on every provider to
+            # implement receipt persistence correctly. These values are persisted
+            # with the handler registration and never read from task payload.
+            raw_evidence_checks = promotion_policy.get("evidence_checks", [])
+            if not isinstance(raw_evidence_checks, (list, tuple)):
+                raise ValueError("promotion evidence_checks must be a list of trusted check definitions")
+            normalized_checks = []
+            seen_check_names = set()
+            for item in raw_evidence_checks:
+                if not isinstance(item, Mapping):
+                    raise ValueError("each promotion evidence check must be a mapping")
+                check_name, argv = item.get("name"), item.get("argv")
+                timeout = item.get("timeout_seconds", 120.0)
+                if not isinstance(check_name, str) or not check_name.strip() or check_name in seen_check_names:
+                    raise ValueError("promotion evidence check names must be non-empty and unique")
+                if (not isinstance(argv, (list, tuple)) or not argv
+                        or not all(isinstance(arg, str) and arg for arg in argv)):
+                    raise ValueError("promotion evidence check argv must be a non-empty list of strings")
+                if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or timeout <= 0:
+                    raise ValueError("promotion evidence check timeout_seconds must be positive")
+                normalized_checks.append({
+                    "name": check_name,
+                    "argv": list(argv),
+                    "timeout_seconds": float(timeout),
+                })
+                seen_check_names.add(check_name)
+            promotion_policy = {"context_handler": context_handler, "evidence_checks": normalized_checks}
 
         with sqlite3.connect(self.db_path) as db:
             prior = db.execute(
@@ -596,8 +623,29 @@ class ExecutionController:
                 if not isinstance(expected_head, str) or not re.fullmatch(r"[0-9a-f]{40}", expected_head):
                     return False, "promotion gate rejected task: trusted candidate head is invalid", ("promotion-gate:rejected",)
                 if execution_class == "consequential":
+                    configured_checks = promotion_policy.get("evidence_checks", [])
+                    if configured_checks:
+                        # Execute the operator-owned checks on the live candidate
+                        # and persist the receipt in the supervisor's canonical
+                        # graph. A provider-supplied or task-payload receipt cannot
+                        # substitute for this fresh run.
+                        integrated = self.run_evidence_gate(
+                            run_id=f"promotion:{task.id}:{task.attempts}:{uuid4().hex}",
+                            expected_revision=expected_head,
+                            checks=tuple(
+                                EvidenceCheck(
+                                    item["name"], tuple(item["argv"]), item["timeout_seconds"]
+                                )
+                                for item in configured_checks
+                            ),
+                        )
+                        supplied_receipt_id = integrated.receipt_node_id
+                    else:
+                        # Backwards-compatible path for trusted providers that
+                        # already run and persist the complete evidence gate.
+                        supplied_receipt_id = context.get("evidence_receipt_node_id")
                     receipt_node_id = self._require_durable_evidence_receipt(
-                        context.get("evidence_receipt_node_id"), expected_head
+                        supplied_receipt_id, expected_head
                     )
                     evidence.extend((f"durable-evidence-receipt:{receipt_node_id}", "durable-evidence-receipt:passed"))
                 # Resolve evidence from the controller-owned canonical ledger. A provider

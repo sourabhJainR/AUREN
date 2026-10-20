@@ -93,3 +93,23 @@ Attach or link all of the following to [issue #411](https://github.com/sourabhJa
 - Confirmation that the negative bypass tests still pass after rollback.
 
 Until this bundle exists, keep #411 open and treat repository-level promotion as partially guarded. Do not proceed to claim external Arena acceptance on the strength of these local controls.
+
+
+## Supervisor-owned promotion evidence checks
+
+A consequential handler may declare an optional operator-owned `evidence_checks` array inside its `promotion_gate_policy`. Each entry contains a unique `name`, a non-empty `argv` array, and an optional positive `timeout_seconds` (default 120 seconds). For example:
+
+```python
+promotion_gate_policy={
+    "context_handler": "trusted-promotion-context",
+    "evidence_checks": [
+        {
+            "name": "candidate-regression",
+            "argv": ["python", "-m", "unittest", "tests.test_release_contract"],
+            "timeout_seconds": 180,
+        },
+    ],
+}
+```
+
+The supervisor persists this policy at trusted handler registration and executes these checks against the provider's live `expected_head` using the bounded evidence gate. It records the result and check lineage in the supervisor-owned evidence graph, then validates that persisted receipt before any consequential handler side effect. Commands use argv with `shell=False`; this is not a sandbox, so operators must still restrict commands and credentials through the host execution environment. A changed checkout, failed command, timeout, missing graph lineage, or invalid receipt blocks promotion. If `evidence_checks` is omitted, the backwards-compatible provider contract still requires the trusted context provider to return `evidence_receipt_node_id` for a complete receipt already persisted in that same supervisor-owned graph.
