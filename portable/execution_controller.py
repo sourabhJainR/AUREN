@@ -491,13 +491,52 @@ class ExecutionController:
         ):
             raise RuntimeError("durable evidence receipt has missing or failed check results")
         incoming = graph.lineage(receipt_node_id, direction="in")
-        if not any(
-            edge.relation == "records_receipt"
-            and (source := graph.get_node(edge.source_id)) is not None
-            and source.kind == "evidence_gate_run"
-            for edge in incoming
-        ):
-            raise RuntimeError("durable evidence receipt has no persisted run provenance")
+        run_provenance_ok = False
+        for edge in incoming:
+            if edge.relation != "records_receipt":
+                continue
+            source = graph.get_node(edge.source_id)
+            if source is None or source.kind != "evidence_gate_run":
+                continue
+            source_metadata = dict(source.metadata)
+            if (
+                source_metadata.get("project") == self.evidence_project
+                and source_metadata.get("receipt_digest") == node.digest
+                and source_metadata.get("status") == "PASS"
+                and isinstance(source_metadata.get("run_id"), str)
+                and source_metadata.get("run_id", "").strip()
+            ):
+                run_provenance_ok = True
+                break
+        if not run_provenance_ok:
+            raise RuntimeError("durable evidence receipt has no matching persisted run provenance")
+        outgoing = graph.lineage(receipt_node_id, direction="out")
+        persisted_checks = []
+        for edge in outgoing:
+            if edge.relation != "contains_check":
+                continue
+            check_node = graph.get_node(edge.target_id)
+            if check_node is not None and check_node.kind == "evidence_gate_check":
+                persisted_checks.append(dict(check_node.metadata))
+        expected_check_names = {str(check.get("name")) for check in checks if isinstance(check, Mapping)}
+        actual_check_names: set[str] = set()
+        for check_metadata in persisted_checks:
+            if (
+                check_metadata.get("project") != self.evidence_project
+                or check_metadata.get("receipt_digest") != node.digest
+                or check_metadata.get("status") != "PASS"
+            ):
+                raise RuntimeError("durable evidence graph contains a failed or mismatched check node")
+            result_json = check_metadata.get("result_json")
+            try:
+                check_result = json.loads(result_json) if isinstance(result_json, str) else None
+            except (TypeError, ValueError):
+                check_result = None
+            if not isinstance(check_result, Mapping) or check_result.get("status") != "PASS":
+                raise RuntimeError("durable evidence check details are missing or invalid")
+            actual_check_names.add(str(check_metadata.get("name", "")))
+        if len(persisted_checks) != len(checks) or actual_check_names != expected_check_names:
+            raise RuntimeError("durable evidence graph check lineage is incomplete")
         return receipt_node_id
 
     def _preflight_gates(self, task: DurableTask) -> tuple[bool, str, tuple[str, ...]]:
