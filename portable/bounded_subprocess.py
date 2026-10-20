@@ -90,40 +90,40 @@ def run_bounded_command(
     reason_on_timeout = "parent_deadline_exceeded" if deadline_monotonic is not None and deadline_monotonic <= local_deadline else "command_timeout"
     options = dict(stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=str(cwd) if cwd is not None else None,
                    env=dict(env) if env is not None else None, shell=False, close_fds=True)
-        if os.name == "nt": options["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-        else: options["start_new_session"] = True
-        process = subprocess.Popen(list(argv), **options)
-        assert process.stdout is not None and process.stderr is not None
-        out_capture = BoundedStreamCapture(process.stdout, max_output_bytes)
-        err_capture = BoundedStreamCapture(process.stderr, max_output_bytes)
-        out_capture.start(); err_capture.start()
-        status, reason = "completed", None
-        while process.poll() is None:
+    if os.name == "nt": options["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+    else: options["start_new_session"] = True
+    process = subprocess.Popen(list(argv), **options)
+    assert process.stdout is not None and process.stderr is not None
+    out_capture = BoundedStreamCapture(process.stdout, max_output_bytes)
+    err_capture = BoundedStreamCapture(process.stderr, max_output_bytes)
+    out_capture.start(); err_capture.start()
+    status, reason = "completed", None
+    while process.poll() is None:
+        if cancellation_event is not None and cancellation_event.is_set():
+            status, reason = "cancelled", "cancellation_requested"; _kill_tree(process, grace); break
+        remaining = end - time.monotonic()
+        if remaining <= 0:
+            status, reason = "timed_out", reason_on_timeout; _kill_tree(process, grace); break
+        if cancellation_event is not None: cancellation_event.wait(min(poll, remaining))
+        else: time.sleep(min(poll, remaining))
+    if os.name != "nt" and status == "completed" and _group_exists(process.pid):
+        while _group_exists(process.pid) and time.monotonic() < end:
             if cancellation_event is not None and cancellation_event.is_set():
-                status, reason = "cancelled", "cancellation_requested"; _kill_tree(process, grace); break
-            remaining = end - time.monotonic()
-            if remaining <= 0:
-                status, reason = "timed_out", reason_on_timeout; _kill_tree(process, grace); break
-            if cancellation_event is not None: cancellation_event.wait(min(poll, remaining))
-            else: time.sleep(min(poll, remaining))
-        if os.name != "nt" and status == "completed" and _group_exists(process.pid):
-            while _group_exists(process.pid) and time.monotonic() < end:
-                if cancellation_event is not None and cancellation_event.is_set():
-                    status, reason = "cancelled", "cancellation_requested"; break
-                time.sleep(min(poll, max(0.0, end - time.monotonic())))
-            if _group_exists(process.pid):
-                status, reason = (("cancelled", "cancellation_requested") if cancellation_event and cancellation_event.is_set() else ("timed_out", reason_on_timeout))
-                _kill_tree(process, grace)
+                status, reason = "cancelled", "cancellation_requested"; break
+            time.sleep(min(poll, max(0.0, end - time.monotonic())))
+        if _group_exists(process.pid):
+            status, reason = (("cancelled", "cancellation_requested") if cancellation_event and cancellation_event.is_set() else ("timed_out", reason_on_timeout))
+            _kill_tree(process, grace)
+    out_closed = out_capture.join(0.5)
+    err_closed = err_capture.join(0.5)
+    if not out_closed or not err_closed:
+        if os.name != "nt": _kill_tree(process, grace)
         out_closed = out_capture.join(0.5)
         err_closed = err_capture.join(0.5)
         if not out_closed or not err_closed:
-            if os.name != "nt": _kill_tree(process, grace)
-            out_closed = out_capture.join(0.5)
-            err_closed = err_capture.join(0.5)
-            if not out_closed or not err_closed:
-                status, reason = "timed_out", "output_pipe_did_not_close"
-        stdout, out_cut = out_capture.result()
-        stderr, err_cut = err_capture.result()
-        return BoundedCommandResult(status, process.poll(), stdout, stderr, out_cut, err_cut, max(0.0, time.monotonic()-started), reason)
+            status, reason = "timed_out", "output_pipe_did_not_close"
+    stdout, out_cut = out_capture.result()
+    stderr, err_cut = err_capture.result()
+    return BoundedCommandResult(status, process.poll(), stdout, stderr, out_cut, err_cut, max(0.0, time.monotonic()-started), reason)
 
 __all__ = ["BoundedCommandResult", "run_bounded_command"]
