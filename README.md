@@ -1,6 +1,6 @@
 # AUREN — Autonomous Unified Reasoning & Engineering Network
 
-**Current release:** `1.0.4`  
+**Current release:** `1.0.5`  
 **Canonical repository:** `sourabhJainR/AUREN`  
 **Runtime state:** `~/.auren`
 
@@ -10,13 +10,13 @@ AUREN separates **execution authority from learning**. Active runs operate under
 
 ## Project status (reviewed 2026-10-20)
 
-**Reviewed baseline:** `main` at [`7e06b4c3abc7`](https://github.com/sourabhJainR/AUREN/commit/7e06b4c3abc7f1d5116eae22206ebec0ca11d4b3), release version `1.0.4`. PR #737 adds capability-aware local-model ranking: explicit capability metadata takes priority, malformed declarations are rejected, configured provider order is retained within capability tiers, and discovery failures surface rather than silently enabling remote fallback for private/restricted work.
+**Reviewed baseline:** `main` at [`7e06b4c3abc7`](https://github.com/sourabhJainR/AUREN/commit/7e06b4c3abc7f1d5116eae22206ebec0ca11d4b3), release version `1.0.5`. PR #737 adds capability-aware local-model ranking: explicit capability metadata takes priority, malformed declarations are rejected, configured provider order is retained within capability tiers, and discovery failures surface rather than silently enabling remote fallback for private/restricted work.
 
 The revision-specific [AI Harness Check](https://github.com/sourabhJainR/AUREN/actions/runs/39415100754), [Runtime Resilience Matrix](https://github.com/sourabhJainR/AUREN/actions/runs/39415100797), [Architecture Integrity](https://github.com/sourabhJainR/AUREN/actions/runs/39415100737), [Production AI Harness Hardening](https://github.com/sourabhJainR/AUREN/actions/runs/39415100764), [Portable Bundle](https://github.com/sourabhJainR/AUREN/actions/runs/39415100744), [Agent Capability Runtime](https://github.com/sourabhJainR/AUREN/actions/runs/39415100723), and [Pages deployment](https://github.com/sourabhJainR/AUREN/actions/runs/39415100782) workflows passed for that main revision. Portable bundle and checksum artifacts were produced by the exact-revision bundle run; these CI results demonstrate repository-level behavior, not independent external evaluation or production-host isolation.
 
 **Still open:** the repository branch metadata reports protection as enabled but enforcement as off with no required status checks. Independent external evaluator/corpus provenance, a separately operated isolation audit, and an operator-run live migration/rollback rehearsal remain separate gates. Checked-in transfer fixtures are not independent benchmark results. Host integration for some authority bindings remains opt-in, and consequential external side effects still need downstream idempotency and ambiguity reconciliation.
 
-For the current prioritized gap register and documentation/site synchronization rules, see [Repository and Website Alignment Review](docs/REPOSITORY_WEBSITE_ALIGNMENT_REVIEW_2026-10-20.md). Pull-request and merge status changes continuously; use the [live pull-request list](https://github.com/sourabhJainR/AUREN/pulls) and [recent main-branch commits](https://github.com/sourabhJainR/AUREN/commits/main) rather than relying on copied status counts.
+For the responsive-execution contract, see [Responsive Execution and Timeout Policy](docs/RESPONSIVE_EXECUTION_AND_TIMEOUTS.md). For the current prioritized gap register and documentation/site synchronization rules, see [Repository and Website Alignment Review](docs/REPOSITORY_WEBSITE_ALIGNMENT_REVIEW_2026-10-20.md). Pull-request and merge status changes continuously; use the [live pull-request list](https://github.com/sourabhJainR/AUREN/pulls) and [recent main-branch commits](https://github.com/sourabhJainR/AUREN/commits/main) rather than relying on copied status counts.
 
 ## Pre-implementation blind-spot review
 
@@ -397,7 +397,7 @@ irm https://raw.githubusercontent.com/sourabhJainR/AUREN/main/install.ps1 | iex
 ### Install an exact release
 
 ~~~bash
-AUREN_VERSION=v1.0.4 curl -fsSL https://raw.githubusercontent.com/sourabhJainR/AUREN/main/install.sh | bash
+AUREN_VERSION=v1.0.5 curl -fsSL https://raw.githubusercontent.com/sourabhJainR/AUREN/main/install.sh | bash
 ~~~
 
 ### Check for updates
@@ -478,7 +478,7 @@ curl -fsSL https://raw.githubusercontent.com/sourabhJainR/AUREN/main/install.sh 
 Install a specific release:
 
 ```bash
-AUREN_VERSION=v1.0.4 curl -fsSL https://raw.githubusercontent.com/sourabhJainR/AUREN/main/install.sh | bash
+AUREN_VERSION=v1.0.5 curl -fsSL https://raw.githubusercontent.com/sourabhJainR/AUREN/main/install.sh | bash
 ```
 
 Windows PowerShell:
