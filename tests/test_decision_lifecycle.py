@@ -78,6 +78,31 @@ class DecisionLifecycleTests(unittest.TestCase):
         self.assertTrue(observed.outcome_correct)
         self.assertTrue(shadow.promotion_eligible(minimum_samples=1, minimum_accuracy=1.0))
 
+    def test_shadow_only_keeps_baseline_route_while_recording_candidate(self):
+        shadow = ShadowEvaluator(policy_version="shadow-only-v1")
+        router = DecisionRouter(
+            inference_policy=AdaptiveInferencePolicy(),
+            calibrator=ConfidenceCalibrator(min_samples=10),
+            cascade=CostAwareCascade([
+                ModelCandidate("rules", "deterministic", 0, 5, 0.99),
+                ModelCandidate("local", "local", 0.02, 100, 0.92),
+                ModelCandidate("human", "human", 0, 5000, 1.0),
+            ]),
+            shadow=shadow,
+            shadow_only=True,
+        )
+        result = router.route(
+            {"task_id": "shadow"},
+            uncertainty=0.2, risk=0.2, evidence_quality=0.9,
+            complexity=0.8, privacy_required=True,
+            latency_budget_ms=200, cost_budget=0.1,
+        )
+        self.assertEqual(result.selected_model.lane, "deterministic")
+        self.assertEqual(result.candidate_model.lane, "local")
+        self.assertIn("shadow-only", result.reason)
+        self.assertEqual(result.shadow_record.baseline, "deterministic")
+        self.assertEqual(result.shadow_record.candidate, "local")
+
     def test_router_escalates_irreversible_action_to_human(self):
         router = DecisionRouter(
             inference_policy=AdaptiveInferencePolicy(),
