@@ -20,7 +20,7 @@ class BoundedSubprocessFaultInjectionTests(unittest.TestCase):
         coordinator.join(timeout=1)
         self.assertEqual("cancelled",result.status); self.assertEqual("cancellation_requested",result.reason)
     def test_output_capture_is_bounded_and_marks_truncation(self):
-        result=run_bounded_command([sys.executable,"-c","print('x'*200000); print('e'*200000,file=__import__('sys').stderr"],timeout_seconds=3,max_output_bytes=1024)
+        result=run_bounded_command([sys.executable,"-c","print('x'*200000); print('e'*200000,file=__import__('sys').stderr)"],timeout_seconds=3,max_output_bytes=1024)
         self.assertEqual("completed",result.status); self.assertEqual(0,result.returncode)
         self.assertLessEqual(len(result.stdout.encode()),1024); self.assertLessEqual(len(result.stderr.encode()),1024)
         self.assertTrue(result.stdout_truncated); self.assertTrue(result.stderr_truncated)
