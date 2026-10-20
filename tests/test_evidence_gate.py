@@ -93,7 +93,7 @@ class EvidenceGateTests(unittest.TestCase):
     def test_default_runner_hard_stops_hung_command(self) -> None:
         started = time.monotonic()
         receipt = run_evidence_gate(
-            self.root, expected_revision="abc123",
+            Path.cwd(), expected_revision="abc123",
             checks=(EvidenceCheck("hang", (sys.executable, "-c", "import time; time.sleep(30)"), 10),),
             total_timeout_seconds=0.25, revision_reader=lambda _: "abc123",
         )
@@ -107,7 +107,7 @@ class EvidenceGateTests(unittest.TestCase):
             EvidenceCheck("must-not-run", (sys.executable, "-c", "raise SystemExit(99)"), 10),
         )
         receipt = run_evidence_gate(
-            self.root, expected_revision="abc123", checks=checks,
+            Path.cwd(), expected_revision="abc123", checks=checks,
             total_timeout_seconds=0.25, revision_reader=lambda _: "abc123",
         )
         self.assertEqual("FAIL", receipt.status)
@@ -117,7 +117,7 @@ class EvidenceGateTests(unittest.TestCase):
         cancel = threading.Event()
         cancel.set()
         receipt = run_evidence_gate(
-            self.root, expected_revision="abc123",
+            Path.cwd(), expected_revision="abc123",
             checks=(EvidenceCheck("never", (sys.executable, "-c", "raise SystemExit(99)"), 2),),
             cancellation_event=cancel, revision_reader=lambda _: "abc123",
         )
