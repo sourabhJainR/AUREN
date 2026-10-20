@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 import unittest
 from threading import Event
 
@@ -93,6 +94,36 @@ class StateGraphTests(unittest.TestCase):
         self.assertTrue(started.is_set())
         self.assertTrue(result.interrupted)
         self.assertTrue(observed_cancellation.wait(timeout=1))
+
+    def test_parallel_nodes_share_one_superstep_deadline(self):
+        graph = StateGraph()
+
+        def first_node(_state):
+            time.sleep(0.22)
+            return {"first": True}
+
+        def second_node(_state):
+            cancellation = current_cancellation_event()
+            assert cancellation is not None
+            cancellation.wait(timeout=1)
+            return {"second": True}
+
+        graph.add_node("first", first_node)
+        graph.add_node("second", second_node)
+        graph.add_edge(StateGraph.START, "first").add_edge(StateGraph.START, "second")
+        graph.add_edge("first", StateGraph.END).add_edge("second", StateGraph.END)
+
+        started = time.monotonic()
+        with self.assertRaisesRegex(TimeoutError, "parallel node exceeded timeout"):
+            graph.compile().invoke(
+                {}, parallel_nodes=lambda _name: True, max_parallel_nodes=2,
+                node_timeout_seconds=0.30, parallel_failure_mode="fail_fast",
+            )
+        elapsed = time.monotonic() - started
+        self.assertLess(
+            elapsed, 0.45,
+            "parallel nodes must share one deadline instead of each consuming a full timeout",
+        )
 
     def test_node_timeout_signals_cooperative_cancellation(self):
         started = Event()
