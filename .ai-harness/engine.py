@@ -591,7 +591,7 @@ def run_validation(config: dict[str, Any], run_dir: Path, *, deadline_at: str | 
         for command in commands[:5]:
             stream.write(f"$ {shlex.join(command)}\n")
             start = time.monotonic()
-            timeout = int(config["execution"]["validation_timeout_seconds"])
+            timeout = float(config["execution"]["validation_timeout_seconds"])
             if deadline_at is not None:
                 remaining = deadline_remaining_seconds(deadline_at)
                 if remaining <= 0:
