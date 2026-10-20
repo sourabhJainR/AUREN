@@ -1,7 +1,7 @@
 # AUREN Repository and Website Alignment Review
 
 **Review date:** 2026-10-20  
-**Review baseline before this PR:** `main` at `9ffa1f25ceee69e04253deb8ca28f002a7dd16fd`  
+**Review baseline before this PR:** `main` at `fe7452118b95d110c1be48f2b7a731a7843e5ddd`  
 **Current product version:** `1.0.5` (merged)  
 **Scope:** repository-facing status, architecture claims, website/documentation consistency, workflow evidence, and implementation gaps.
 
@@ -29,14 +29,14 @@ The initial repository review found two competing publishers: the canonical `Dep
 
 | Area | Current-main evidence | Limit |
 |---|---|---|
-| Main revision before this PR | `9ffa1f25ceee69e04253deb8ca28f002a7dd16fd` | Recheck after merge |
-| AI Harness Check | [Run 39434116268](https://github.com/sourabhJainR/AUREN/actions/runs/39434116268) passed on `9ffa1f25ceee` | Revision-specific repository checks only |
-| Runtime Resilience Matrix | [Run 39434116495](https://github.com/sourabhJainR/AUREN/actions/runs/39434116495) passed on `9ffa1f25ceee` | Check its jobs for impact-based skips; previous full Linux/Windows and Python 3.11/3.12 runtime evidence is revision-specific |
-| Architecture Integrity | [Run 39434116308](https://github.com/sourabhJainR/AUREN/actions/runs/39434116308) passed on `9ffa1f25ceee` | Structural/repository contract only |
-| Production AI Harness Hardening | [Run 39434116295](https://github.com/sourabhJainR/AUREN/actions/runs/39434116295) passed on `9ffa1f25ceee` | Does not replace independent host isolation audit |
-| Agent Capability Runtime | [Run 39434116422](https://github.com/sourabhJainR/AUREN/actions/runs/39434116422) passed on `9ffa1f25ceee` | Revision-specific |
-| Portable bundle | [Run 39434116383](https://github.com/sourabhJainR/AUREN/actions/runs/39434116383) succeeded on `9ffa1f25ceee` but impact selection skipped the build because only documentation changed. The last code-impact bundle run [39430002486](https://github.com/sourabhJainR/AUREN/actions/runs/39430002486) on `071991f5941f` produced `auren-portable` and `auren-portable-checksum` with artifact digests `sha256:9c2a44d6c0fda9e092bc65499c6011e1d70883ecc33349701c495140ef75daa1` and `sha256:c4d9197cbe15b8691d5e58498d708675e711ab22412db4fd03be281b6c634322` | Artifact content matches the last code-impact revision; no bundle was rebuilt for docs-only commits. Artifact digests are not the ZIP's internal SHA-256 |
-| Pages deployment | [Run 39434116523](https://github.com/sourabhJainR/AUREN/actions/runs/39434116523) passed on `9ffa1f25ceee`; emitted Pages and deployment-manifest artifacts | Confirms workflow success; public cache propagation is separate |
+| Main revision before this PR | `fe7452118b95d110c1be48f2b7a731a7843e5ddd` | Recheck after merge |
+| AI Harness Check | [Run 39435832928](https://github.com/sourabhJainR/AUREN/actions/runs/39435832928) passed on `fe7452118b95` | Revision-specific repository checks only |
+| Runtime Resilience Matrix | [Run 39435832872](https://github.com/sourabhJainR/AUREN/actions/runs/39435832872) passed on `fe7452118b95` across Linux/Windows and Python 3.11/3.12, including the checkpoint crash matrix | Check its jobs for impact-based skips; previous full Linux/Windows and Python 3.11/3.12 runtime evidence is revision-specific |
+| Architecture Integrity | [Run 39435832873](https://github.com/sourabhJainR/AUREN/actions/runs/39435832873) passed on `fe7452118b95` | Structural/repository contract only |
+| Production AI Harness Hardening | [Run 39435832845](https://github.com/sourabhJainR/AUREN/actions/runs/39435832845) passed on `fe7452118b95` | Does not replace independent host isolation audit |
+| Agent Capability Runtime | [Run 39435833143](https://github.com/sourabhJainR/AUREN/actions/runs/39435833143) passed on `fe7452118b95` | Revision-specific |
+| Portable bundle | [Run 39435832953](https://github.com/sourabhJainR/AUREN/actions/runs/39435832953) produced the portable bundle (1,169,853 bytes; artifact digest `sha256:aa0470d1ce397e1470f9d22196441d002f4bf33c09c9ad5e336b5c12a352af4b`) and checksum artifact (234 bytes; artifact digest `sha256:6be8a957c7660139ac16ec1e24b6dbd2a180657da592bc89de1313f268203923`) on `fe7452118b95` | Artifact content matches the last code-impact revision; no bundle was rebuilt for docs-only commits. Artifact digests are not the ZIP's internal SHA-256 |
+| Pages deployment | [Run 39435833065](https://github.com/sourabhJainR/AUREN/actions/runs/39435833065) passed on `fe7452118b95`; emitted Pages and deployment-manifest artifacts | Confirms workflow success; public cache propagation is separate |
 
 ## Responsiveness and non-hanging execution
 
@@ -54,7 +54,7 @@ See [Responsive Execution and Timeout Policy](RESPONSIVE_EXECUTION_AND_TIMEOUTS.
 
 ### P1 — Recovery and durable execution
 
-- [ ] Add process-kill fault injection at each durable transition: task accepted, claim persisted, checkpoint written, external effect started, receipt committed, graph finalized, and evidence-graph edge persisted. This PR adds checkpoint-store crash and conflicting-identity cases; the full cross-store transition matrix remains open.
+- [ ] Add process-kill fault injection at each durable transition: task accepted, claim persisted, checkpoint written, external effect started, receipt committed, graph finalized, and evidence-graph edge persisted. PR #759 adds checkpoint-store crash and conflicting-identity cases. This PR adds side-effect process-crash coverage before and after provider acceptance; the full cross-store transition matrix remains open.
 - [ ] Verify restart/resume is deterministic when execution ledger, checkpoint, recovery ledger and evidence graph disagree; fail closed or reconcile explicitly, never fabricate success.
 - [ ] Test cancellation and lease expiry while a handler is still running; ensure stale workers cannot finalize and in-flight external effects are reconciled.
 - [ ] Assert retry budgets are monotonic across restart and hypothesis changes; no repeated attempts without measurable progress; bounded time/cost and explicit terminal failure.
