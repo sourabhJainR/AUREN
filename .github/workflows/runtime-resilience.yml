@@ -84,3 +84,5 @@ jobs:
           done
       - name: Verify bounded StateGraph timeout and retry contracts
         run: python -m unittest tests.test_state_graph_hardening -v
+      - name: Fault-inject hard termination, inherited deadlines, cancellation, and output bounds
+        run: python -m unittest tests.test_bounded_subprocess_fault_injection -v
