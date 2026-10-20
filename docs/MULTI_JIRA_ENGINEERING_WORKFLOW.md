@@ -64,3 +64,8 @@ Examples include `.env` and local variants, `.envrc`, `.venv/`, `venv/`, `node_m
 ## Current limitations
 
 This helper operates on a local Git checkout with Git installed and an accessible remote. It does not itself call Jira APIs or merge a pull request. Jira transitions, pull-request merges, production rollout, and approvals remain with their authorized connectors and repository gates.
+
+
+## Dependency-aware batch planning integration
+
+Use `portable.jira_batch_planner.JiraBatchPlanner` for dependency validation, ready-item selection, shared-path conflict reporting, and conservative parallel groups. The convenience function `portable.multi_jira_workflow.plan_jira_batch(items, completed=...)` delegates to that planner so callers have one multi-Jira workflow entry point. The result is a disposable scheduling suggestion only: it does not create durable state, start agents, make Jira transitions, or authorize risky work. The Engineering State Ledger remains the source of execution progress; repository impact analysis must refine likely paths before parallel dispatch, and all existing approval, exact-head CI, evidence, and rollback gates remain mandatory.

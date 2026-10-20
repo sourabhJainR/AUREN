@@ -13,7 +13,9 @@ from portable.multi_jira_workflow import (
     ReadOnceFileCache,
     is_local_developer_setup,
     record_verified_jira_learning,
+    plan_jira_batch,
 )
+from portable.jira_batch_planner import JiraWorkItem
 
 
 def git(root: Path, *args: str) -> str:
@@ -167,6 +169,22 @@ class JiraLearningTests(unittest.TestCase):
                 intent_digest="digest",
                 approved=True,
             )
+
+
+class JiraBatchPlannerIntegrationTests(unittest.TestCase):
+    def test_multi_jira_workflow_delegates_readiness_without_persisting_state(self) -> None:
+        items = (
+            JiraWorkItem("APP-1", ("Recovery test passes",), likely_paths=("src/recovery.py",)),
+            JiraWorkItem("APP-2", ("Dashboard shows progress",), depends_on=("APP-1",), likely_paths=("src/dashboard.py",)),
+            JiraWorkItem("APP-3", ("Docs are updated",), likely_paths=("docs/ops.md",)),
+        )
+        wave = plan_jira_batch(items)
+        self.assertEqual((("APP-1", "APP-3"),), wave.parallel_groups)
+        self.assertEqual({"APP-2": ("APP-1",)}, dict(wave.blocked))
+
+        next_wave = plan_jira_batch(items, completed=("APP-1",))
+        self.assertEqual((("APP-2", "APP-3"),), next_wave.parallel_groups)
+        self.assertEqual({}, dict(next_wave.blocked))
 
 
 if __name__ == "__main__":
