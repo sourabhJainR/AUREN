@@ -27,6 +27,9 @@ from .decision_gate import require_valid_decision_record
 from .engineering_recovery import verify_ci_gate
 from .engineering_evidence_capture import EvidenceCapture
 from .side_effect_ledger import DurableSideEffectLedger
+from .evidence_gate import EvidenceCheck
+from .evidence_gate_integration import EvidenceGateIntegration, IntegratedEvidenceReceipt
+from .persistent_memory import PersistentMemory
 
 Handler = Callable[[Mapping[str, Any]], Any]
 
@@ -188,6 +191,13 @@ class ExecutionController:
             evidence_ledger=self.evidence_ledger,
             signer=evidence_signer,
         )
+        # One supervisor-owned graph is the canonical store for revision-bound
+        # execution evidence. Callers must not substitute task-payload receipts.
+        self.evidence_project = __import__("os").environ.get("AUREN_REPOSITORY_SLUG", "").strip() or self.root.name
+        self.evidence_memory = PersistentMemory(
+            self.root / ".auren" / "durable-evidence-graph.sqlite3", require_approval=False
+        )
+        self.evidence_gate_integration = EvidenceGateIntegration(self.evidence_memory, self.evidence_project)
         # Registered by EngineeringPlanDispatch; keyed by the durable plan-store path.
         # A restarted worker must explicitly restore this trusted bridge before execution.
         self._engineering_plan_recovery_bridges: dict[str, Any] = {}
@@ -426,6 +436,70 @@ class ExecutionController:
                 raise ValueError(f"durable handler implementation digest mismatch: {name}")
         return obj
 
+    def run_evidence_gate(
+        self,
+        *,
+        run_id: str,
+        expected_revision: str,
+        checks: tuple[EvidenceCheck, ...] | list[EvidenceCheck],
+        total_timeout_seconds: float = 600.0,
+        output_limit_chars: int = 4000,
+    ) -> IntegratedEvidenceReceipt:
+        """Run bounded checks and persist their receipt in the supervisor-owned graph."""
+        return self.evidence_gate_integration.run_and_record(
+            self.root,
+            run_id=run_id,
+            expected_revision=expected_revision,
+            checks=checks,
+            total_timeout_seconds=total_timeout_seconds,
+            output_limit_chars=output_limit_chars,
+        )
+
+    def _require_durable_evidence_receipt(self, receipt_node_id: Any, expected_head: str) -> str:
+        """Require a readable PASS receipt, bound to this exact candidate revision."""
+        if not isinstance(receipt_node_id, str) or not re.fullmatch(r"[0-9a-f]{64}", receipt_node_id):
+            raise RuntimeError("durable evidence receipt is missing or malformed")
+        graph = self.evidence_gate_integration.graph
+        node = graph.get_node(receipt_node_id)
+        if node is None or node.kind != "evidence_gate_receipt":
+            raise RuntimeError("durable evidence receipt is absent from the supervisor-owned graph")
+        metadata = dict(node.metadata)
+        if metadata.get("project") != self.evidence_project:
+            raise RuntimeError("durable evidence receipt belongs to a different project")
+        if metadata.get("status") != "PASS":
+            raise RuntimeError("durable evidence receipt did not PASS")
+        if metadata.get("expected_revision") != expected_head or metadata.get("observed_revision") != expected_head:
+            raise RuntimeError("durable evidence receipt is stale for the live promotion candidate")
+        raw = metadata.get("receipt_json")
+        if not isinstance(raw, str) or not raw:
+            raise RuntimeError("durable evidence receipt payload is missing")
+        try:
+            receipt = json.loads(raw)
+        except (TypeError, ValueError) as exc:
+            raise RuntimeError("durable evidence receipt payload is malformed") from exc
+        if (
+            not isinstance(receipt, Mapping)
+            or receipt.get("digest") != node.digest
+            or receipt.get("status") != "PASS"
+            or receipt.get("expected_revision") != expected_head
+            or receipt.get("observed_revision") != expected_head
+        ):
+            raise RuntimeError("durable evidence receipt integrity or revision binding failed")
+        checks = receipt.get("checks")
+        if not isinstance(checks, list) or not checks or any(
+            not isinstance(check, Mapping) or check.get("status") != "PASS" for check in checks
+        ):
+            raise RuntimeError("durable evidence receipt has missing or failed check results")
+        incoming = graph.lineage(receipt_node_id, direction="in")
+        if not any(
+            edge.relation == "records_receipt"
+            and (source := graph.get_node(edge.source_id)) is not None
+            and source.kind == "evidence_gate_run"
+            for edge in incoming
+        ):
+            raise RuntimeError("durable evidence receipt has no persisted run provenance")
+        return receipt_node_id
+
     def _preflight_gates(self, task: DurableTask) -> tuple[bool, str, tuple[str, ...]]:
         """Validate operator-owned handler class and required gates before side effects."""
         evidence: list[str] = []
@@ -482,6 +556,11 @@ class ExecutionController:
                     return False, "promotion gate rejected task: trusted repository context is missing", ("promotion-gate:rejected",)
                 if not isinstance(expected_head, str) or not re.fullmatch(r"[0-9a-f]{40}", expected_head):
                     return False, "promotion gate rejected task: trusted candidate head is invalid", ("promotion-gate:rejected",)
+                if execution_class == "consequential":
+                    receipt_node_id = self._require_durable_evidence_receipt(
+                        context.get("evidence_receipt_node_id"), expected_head
+                    )
+                    evidence.extend((f"durable-evidence-receipt:{receipt_node_id}", "durable-evidence-receipt:passed"))
                 # Resolve evidence from the controller-owned canonical ledger. A provider
                 # or record-supplied list must never self-authorize cited evidence IDs.
                 evidence_ids = self.evidence_ledger.known_evidence_ids(
