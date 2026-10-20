@@ -44,9 +44,11 @@ class DurableSideEffectLedger:
         database_path: str | Path,
         *,
         retry_authorizer: Callable[[str, str, str, str], bool] | None = None,
+        reconciliation_verifier: Callable[[str, str, Mapping[str, Any]], bool] | None = None,
     ):
         self.database_path = Path(database_path)
         self._retry_authorizer = retry_authorizer
+        self._reconciliation_verifier = reconciliation_verifier
         self.database_path.parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as db:
             db.execute(
@@ -186,6 +188,52 @@ class DurableSideEffectLedger:
                 "WHERE idempotency_key=?", (reason.strip(), self._now(), idempotency_key)
             )
             db.commit()
+
+    def record_reconciled_effect(
+        self,
+        idempotency_key: str,
+        *,
+        evidence_ref: str,
+        receipt: Mapping[str, Any],
+    ) -> SideEffectDecision:
+        """Record a provider-confirmed effect after an ambiguous interruption.
+
+        A trusted host verifier must validate provider evidence before the
+        immutable receipt can close reconciliation. This is not a redispatch.
+        """
+        if not isinstance(evidence_ref, str) or not evidence_ref.strip():
+            raise ValueError("evidence_ref is required")
+        if not isinstance(receipt, Mapping):
+            raise ValueError("receipt must be a mapping")
+        if self._reconciliation_verifier is None:
+            raise PermissionError("trusted reconciliation verifier is required")
+        try:
+            verified = bool(self._reconciliation_verifier(
+                idempotency_key, evidence_ref.strip(), dict(receipt)
+            ))
+        except Exception as exc:
+            raise PermissionError("trusted reconciliation verification failed closed") from exc
+        if not verified:
+            raise PermissionError("provider reconciliation evidence was rejected")
+        encoded = self._encode(receipt)
+        with self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute(
+                "SELECT * FROM durable_side_effects WHERE idempotency_key=?",
+                (idempotency_key,),
+            ).fetchone()
+            if row is None or row["state"] != "reconcile_required":
+                db.rollback()
+                raise InvalidSideEffectTransition("side effect is not awaiting reconciliation")
+            db.execute(
+                "UPDATE durable_side_effects SET state='completed', receipt_json=?, reason=?, updated_at=? "
+                "WHERE idempotency_key=? AND state='reconcile_required'",
+                (encoded, "reconciled from provider evidence: " + evidence_ref.strip(), self._now(), idempotency_key),
+            )
+            db.commit()
+            return SideEffectDecision(
+                "reconciled", idempotency_key, row["payload_digest"], dict(receipt), "completed"
+            )
 
     def authorize_retry(
         self,
