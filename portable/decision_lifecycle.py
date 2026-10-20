@@ -282,8 +282,106 @@ class ShadowEvaluator:
         return accuracy >= minimum_accuracy and regression_rate <= maximum_regression_rate
 
 
+@dataclass(frozen=True)
+class RoutingResult:
+    inference_depth: str
+    calibrated_confidence: float
+    inference_provider: str
+    selected_model: ModelCandidate
+    reason: str
+    requires_human_approval: bool
+    shadow_record: ShadowRecord | None = None
+
+
+class DecisionRouter:
+    """Compose calibration, inference-depth safety, model cascade and shadow logging.
+
+    The router selects a lane only. It does not execute tools, grant permissions,
+    approve irreversible actions, or change the baseline because of shadow data.
+    """
+
+    def __init__(
+        self,
+        *,
+        inference_policy: Any,
+        calibrator: ConfidenceCalibrator,
+        cascade: CostAwareCascade,
+        shadow: ShadowEvaluator | None = None,
+        minimum_calibrated_confidence: float = 0.75,
+    ) -> None:
+        self.inference_policy = inference_policy
+        self.calibrator = calibrator
+        self.cascade = cascade
+        self.shadow = shadow
+        self.minimum_calibrated_confidence = _probability(
+            minimum_calibrated_confidence, "minimum_calibrated_confidence"
+        )
+
+    def route(
+        self,
+        state: Mapping[str, Any],
+        *,
+        uncertainty: float,
+        risk: float,
+        evidence_quality: float,
+        failure_probability: float = 0.0,
+        complexity: float,
+        privacy_required: bool,
+        latency_budget_ms: int,
+        cost_budget: float,
+        irreversible_action: bool = False,
+    ) -> RoutingResult:
+        from .adaptive_decision import AdaptiveInferencePolicy
+
+        decision = self.inference_policy.decide(
+            uncertainty=uncertainty,
+            risk=risk,
+            evidence_quality=evidence_quality,
+            failure_probability=failure_probability,
+        )
+        calibrated = self.calibrator.calibrate(decision.confidence)
+        if decision.provider == "external" and calibrated < self.minimum_calibrated_confidence:
+            # Do not accept an external recommendation when its empirically
+            # corrected confidence is too low; recompute with rules only.
+            deterministic = AdaptiveInferencePolicy().decide(
+                uncertainty=uncertainty,
+                risk=risk,
+                evidence_quality=evidence_quality,
+                failure_probability=failure_probability,
+            )
+            decision = deterministic
+            calibrated = self.calibrator.calibrate(deterministic.confidence)
+
+        cascade = self.cascade.choose(CascadeRequest(
+            complexity=complexity,
+            risk=risk,
+            privacy_required=privacy_required,
+            latency_budget_ms=latency_budget_ms,
+            cost_budget=cost_budget,
+            irreversible_action=irreversible_action,
+        ))
+        selected = cascade.candidate
+        if decision.depth == "human" and selected.lane != "human":
+            human = next((item for item in self.cascade.candidates if item.lane == "human"), None)
+            if human is None:
+                raise RuntimeError("human inference depth requires a configured human route")
+            selected = human
+
+        shadow_record = None
+        if self.shadow is not None:
+            baseline = "deterministic" if decision.provider == "deterministic" else "external"
+            shadow_record = self.shadow.compare(
+                state, baseline=baseline, candidate=selected.lane, outcome_correct=None
+            )
+        return RoutingResult(
+            decision.depth, calibrated, decision.provider, selected,
+            cascade.reason, cascade.requires_human_approval or decision.depth == "human",
+            shadow_record,
+        )
+
+
 __all__ = [
-    "CalibrationObservation", "CalibrationReport", "ConfidenceCalibrator",
+    "CalibrationObservation", "CalibrationReport", "ConfidenceCalibrator", "RoutingResult", "DecisionRouter",
     "ModelCandidate", "CascadeRequest", "CascadeDecision", "CostAwareCascade",
     "BatchDecisionProvider", "evaluate_batch", "ShadowRecord", "ShadowEvaluator",
 ]
