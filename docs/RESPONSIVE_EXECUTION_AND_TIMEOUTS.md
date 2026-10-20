@@ -37,7 +37,7 @@ A task may request a larger explicit budget, but must still expose progress and 
 
 ## Executable acceptance matrix
 
-The hard-stop primitive is portable.bounded_subprocess.run_bounded_command. It accepts argv rather than shell strings, inherits the parent monotonic deadline, observes cancellation, and caps returned output. Harness validation now uses this runner rather than subprocess.run(timeout=...), so a timeout can terminate the command's process group instead of only returning from the caller. Run: python -m unittest tests.test_bounded_subprocess_fault_injection tests.test_harness_task_deadline -v.
+The hard-stop primitive is portable.bounded_subprocess.run_bounded_command. It accepts argv rather than shell strings, inherits the parent monotonic deadline, observes cancellation, and caps retained stdout/stderr in memory while continuously draining pipes. Harness validation now uses this runner rather than subprocess.run(timeout=...), so a timeout can terminate the command's process group instead of only returning from the caller. Run: python -m unittest tests.test_bounded_subprocess_fault_injection tests.test_harness_task_deadline -v.
 
 | Fault | Executable check | Required outcome |
 |---|---|---|
