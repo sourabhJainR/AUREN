@@ -36,6 +36,13 @@ class BoundedSubprocessFaultInjectionTests(unittest.TestCase):
             except ProcessLookupError: return
             stat=Path(f"/proc/{pid}/stat")
             if stat.exists(): self.assertEqual("Z",stat.read_text().split()[2],"descendant must not remain running")
+    def test_pre_cancelled_request_does_not_spawn_process(self):
+        cancel=threading.Event(); cancel.set()
+        result=run_bounded_command([sys.executable,"-c","raise SystemExit(99)"],timeout_seconds=1,cancellation_event=cancel)
+        self.assertEqual("cancelled",result.status); self.assertIsNone(result.returncode)
+    def test_nonzero_exit_is_never_reported_as_success(self):
+        result=run_bounded_command([sys.executable,"-c","raise SystemExit(7)"],timeout_seconds=2)
+        self.assertEqual("completed",result.status); self.assertEqual(7,result.returncode); self.assertFalse(result.succeeded)
     def test_shell_strings_and_invalid_budgets_are_rejected(self):
         with self.assertRaisesRegex(ValueError,"argv"): run_bounded_command("sleep 10",timeout_seconds=1)
         for value in (0,-1,True,float("nan"),float("inf")):
