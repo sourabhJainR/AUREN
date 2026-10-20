@@ -279,3 +279,8 @@ __all__ += [
 
 from .experiment_learning_cycle import ExperimentLearningCycle, ExperimentLearningCycleResult
 __all__ += ["ExperimentLearningCycle", "ExperimentLearningCycleResult"]
+
+
+from .evidence_gate import EvidenceCheck, CheckResult, EvidenceReceipt, run_evidence_gate
+from .evidence_gate_integration import IntegratedEvidenceReceipt, EvidenceGateIntegration
+__all__ += ["EvidenceCheck", "CheckResult", "EvidenceReceipt", "run_evidence_gate", "IntegratedEvidenceReceipt", "EvidenceGateIntegration"]
