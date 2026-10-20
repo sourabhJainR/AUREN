@@ -6,7 +6,7 @@ shadow evaluation never changes the selected production decision.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from math import isfinite
 from typing import Any, Callable, Mapping, Protocol, Sequence
 
@@ -99,7 +99,7 @@ class ConfidenceCalibrator:
     def add(self, observation: CalibrationObservation) -> None:
         self._observations.append(observation)
         if self.evidence_sink is not None:
-            payload = {"confidence": observation.confidence, "correct": observation.correct}
+            payload = {"confidence": observation.confidence, "correct": observation.correct,\n                       "sample_index": len(self._observations)}
             event = _evidence_event("calibration-outcome", self.policy_version, payload, payload)
             self.evidence_sink.append(event)
 
@@ -303,6 +303,30 @@ class ShadowEvaluator:
             self.evidence_sink.append(event)
         return record
 
+    def observe_outcome(self, *, state_digest_value: str, outcome_correct: bool) -> ShadowRecord:
+        """Attach an observed result to the matching shadow decision receipt."""
+        if not state_digest_value.strip() or not isinstance(outcome_correct, bool):
+            raise ValueError("state digest and boolean outcome are required")
+        for index in range(len(self._records) - 1, -1, -1):
+            record = self._records[index]
+            if record.state_digest == state_digest_value and record.outcome_correct is None:
+                updated = replace(record, outcome_correct=outcome_correct)
+                self._records[index] = updated
+                if self.evidence_sink is not None:
+                    payload = {
+                        "source_state_digest": state_digest_value,
+                        "baseline": record.baseline,
+                        "candidate": record.candidate,
+                        "outcome_correct": outcome_correct,
+                    }
+                    event = _evidence_event(
+                        "shadow-outcome", self.policy_version,
+                        {"source_state_digest": state_digest_value}, payload,
+                    )
+                    self.evidence_sink.append(event)
+                return updated
+        raise KeyError("no pending shadow record matches the supplied state digest")
+
     @property
     def records(self) -> tuple[ShadowRecord, ...]:
         return tuple(self._records)
@@ -374,6 +398,7 @@ class DecisionRouter:
         latency_budget_ms: int,
         cost_budget: float,
         irreversible_action: bool = False,
+        baseline_lane: str = "deterministic",
     ) -> RoutingResult:
         from .adaptive_decision import AdaptiveInferencePolicy
 
@@ -413,9 +438,8 @@ class DecisionRouter:
 
         shadow_record = None
         if self.shadow is not None:
-            baseline = "deterministic" if decision.provider == "deterministic" else "external"
             shadow_record = self.shadow.compare(
-                state, baseline=baseline, candidate=selected.lane, outcome_correct=None
+                state, baseline=baseline_lane, candidate=selected.lane, outcome_correct=None
             )
         return RoutingResult(
             decision.depth, calibrated, decision.provider, selected,
