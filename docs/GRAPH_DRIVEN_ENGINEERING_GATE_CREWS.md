@@ -26,6 +26,7 @@ The planner is intentionally conservative: a skipped check is not a pass; CI is 
 
 - `gate_definitions()` returns the validated immutable gate DAG.
 - `build_gate_crew_plan(graph_digest, intent_digest, agents)` creates per-gate crew plans and reports missing registered adapters.
+- `dispatch_gate_crew_proposals(..., active=True)` invokes required, registered specialist adapters through AUREN's scoped proposal dispatcher during active graph execution. It refuses inactive execution and missing adapters before any crew call; all proposals remain pending independent review.
 - `ready_gates(statuses)` returns only gates whose dependencies have passed.
 - `transition_gate(...)` validates a single transition and requires a trusted verifier for external-evidence gates.
 - `gate_plan_digest(work_items)` creates a stable content digest for the crew plan.
