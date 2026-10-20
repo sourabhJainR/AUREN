@@ -66,14 +66,14 @@ class HybridRouterTests(unittest.TestCase):
         self.assertEqual("general-model", result.model)
         self.assertEqual(["general-model"], calls)
 
-    def test_model_candidate_order_is_deterministic_not_discovery_order(self):
+    def test_explicit_capability_precedes_heuristics_and_preserves_provider_priority(self):
         models = [
             {"name": "z-coder"},
             {"name": "a-coder"},
             {"name": "general", "capabilities": ["coding"]},
         ]
         self.assertEqual(
-            ["general", "a-coder", "z-coder"],
+            ["general", "z-coder", "a-coder"],
             HybridModelRouter._ranked_candidates(models, "coding"),
         )
 
