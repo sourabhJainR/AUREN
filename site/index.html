@@ -19,7 +19,7 @@ pre{overflow:auto;background:#050b14;border:1px solid var(--line);border-radius:
 <body>
 <nav><div class="wrap inner"><strong>AUREN</strong><span><a href="#about">About</a><a href="#system">System</a><a href="#preflight">Preflight review</a><a href="#principles">Principles</a><a href="#demo">Demo</a><a href="#results">Results</a><a href="#latest">Latest</a><a href="#deploy">Deploy</a><a href="#support">Support</a><a href="https://github.com/sourabhJainR/AUREN">GitHub</a></span></div></nav>
 <header class="hero wrap">
-<div class="eyebrow">Autonomous Unified Reasoning &amp; Engineering Network · v1.0.4</div>
+<div class="eyebrow">Autonomous Unified Reasoning &amp; Engineering Network · v1.0.5</div>
 <h1>AI engineering that learns from evidence.</h1>
 <p>AUREN is a provider-neutral AI engineering system that turns software work into a bounded, auditable learning loop: understand the repository, plan, execute, verify, review, record evidence, evaluate what actually transfers, and promote or roll back learned strategies only when the gates pass.</p>
 <div class="buttons"><a class="btn primary" href="#demo">See the demo</a><a class="btn" href="https://github.com/sourabhJainR/AUREN">View source</a><a class="btn" href="#deploy">Deploy AUREN</a><a class="btn" href="#support">Support AUREN</a></div>
@@ -123,7 +123,8 @@ and report open risks.</code></pre>
 
 <section id="latest"><div class="wrap">
 <h2>Latest implementation and verification</h2>
-<p class="lead">Reviewed 20 October 2026 against main revision <a href="https://github.com/sourabhJainR/AUREN/commit/7e06b4c3abc7f1d5116eae22206ebec0ca11d4b3"><code>7e06b4c3abc7</code></a>, release version <code>1.0.4</code>. These are revision-specific repository checks, not a claim of independently verified general intelligence or production isolation.</p>
+<p class="lead">Release <code>1.0.5</code> also formalizes the responsive-execution contract: bounded waits, visible durable progress, cancellation, safe retries, and explicit timeout states. See <a href="https://github.com/sourabhJainR/AUREN/blob/main/docs/RESPONSIVE_EXECUTION_AND_TIMEOUTS.md">Responsive Execution and Timeout Policy</a>.</p>
+<p class="lead">Reviewed 20 October 2026 against main revision <a href="https://github.com/sourabhJainR/AUREN/commit/7e06b4c3abc7f1d5116eae22206ebec0ca11d4b3"><code>7e06b4c3abc7</code></a>, release version <code>1.0.5</code>. These are revision-specific repository checks, not a claim of independently verified general intelligence or production isolation.</p>
 <div class="grid">
 <div class="card"><h3>Revision-bound promotion evidence</h3><p>PRs <a href="https://github.com/sourabhJainR/AUREN/pull/731">#731</a>, <a href="https://github.com/sourabhJainR/AUREN/pull/732">#732</a>, <a href="https://github.com/sourabhJainR/AUREN/pull/733">#733</a>, <a href="https://github.com/sourabhJainR/AUREN/pull/734">#734</a>, <a href="https://github.com/sourabhJainR/AUREN/pull/735">#735</a> and <a href="https://github.com/sourabhJainR/AUREN/pull/738">#738</a> add bounded evidence checks, canonical evidence-graph lineage, fail-closed supervisor acceptance, supervisor-owned checks, task/attempt/payload binding, and post-check revision revalidation. Missing, failed, stale, mismatched, or unproven receipts must block promotion.</p></div>
 <div class="card"><h3>Capability-aware local model routing</h3><p><a href="https://github.com/sourabhJainR/AUREN/pull/737">PR #737</a> ranks routes using declared capabilities before name-based fallback, rejects malformed metadata, preserves configured provider priority within capability tiers, and surfaces local discovery failures. Private/restricted tasks do not silently fall back to remote models.</p></div>
