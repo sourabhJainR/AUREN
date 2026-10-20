@@ -248,6 +248,14 @@ class EngineeringPlanDispatch:
                 (run_id, task_id, run.revision),
             ).fetchone()
             if collision is not None:
+                # A concurrent identical dispatch may have committed after the
+                # fast replay check. Prefer replaying that exact idempotency key;
+                # only a different key for this run/task/revision is a conflict.
+                existing = db.execute(
+                    "SELECT * FROM engineering_dispatch_intents WHERE dispatch_key=?", (key,)
+                ).fetchone()
+                if existing is not None:
+                    return self._replay_or_conflict(existing, binding, handler_name, encoded_payload)
                 raise DispatchConflict("this plan task revision already has a different dispatch intent")
             dispatch_limit = plan.budget.get("dispatches")
             if dispatch_limit is not None:
