@@ -80,6 +80,8 @@ def run_bounded_command(
     if deadline_monotonic is not None and (isinstance(deadline_monotonic, bool) or not isinstance(deadline_monotonic, (int, float)) or not math.isfinite(deadline_monotonic)):
         raise ValueError("deadline_monotonic must be finite")
     started = time.monotonic()
+    if cancellation_event is not None and cancellation_event.is_set():
+        return BoundedCommandResult("cancelled", None, "", "", False, False, 0.0, "cancellation_requested")
     if deadline_monotonic is not None and deadline_monotonic <= started:
         return BoundedCommandResult("timed_out", None, "", "", False, False, 0.0, "parent_deadline_exceeded")
     local_deadline = started + timeout
