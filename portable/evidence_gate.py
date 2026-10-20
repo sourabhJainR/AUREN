@@ -103,6 +103,8 @@ def run_evidence_gate(
         raise ValueError("expected_revision is required")
     if total_timeout_seconds <= 0 or output_limit_chars < 1:
         raise ValueError("timeout and output limits must be positive")
+    if not checks:
+        raise ValueError("at least one evidence check is required")
     names = [check.name for check in checks]
     if len(names) != len(set(names)):
         raise ValueError("check names must be unique")
