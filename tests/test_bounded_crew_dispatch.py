@@ -5,6 +5,8 @@ import time
 import unittest
 
 from portable.bounded_crew_dispatch import BoundedCrewDispatcher
+from portable.orchestration import Node, NodeKind
+from portable.state_graph import CrewDefinition, GraphAgentTeam, StateGraph
 
 
 class BoundedCrewDispatcherTests(unittest.TestCase):
@@ -69,6 +71,73 @@ class BoundedCrewDispatcherTests(unittest.TestCase):
                 {"crew_id": "crew-a", "task": "good"},
                 {"crew_id": "crew-b", "task": "bad"},
             ], max_workers=2)
+
+
+    def test_graph_scoped_batch_dispatch_integrates_with_stategraph(self):
+        lock = threading.Lock()
+        active = 0
+        maximum_active = 0
+
+        class ProposalAgent:
+            configuration_digest = "test-config"
+            implementation_version = "test-v1"
+
+            def __init__(self, crew_id):
+                self.crew_id = crew_id
+
+            def propose(self, request):
+                nonlocal active, maximum_active
+                with lock:
+                    active += 1
+                    maximum_active = max(maximum_active, active)
+                try:
+                    time.sleep(0.03)
+                    definition = crews[self.crew_id]
+                    return {
+                        "schema_version": "auren-crew-proposal-v1",
+                        "recommendation": f"proposal from {self.crew_id}",
+                        "artifacts": list(definition.required_artifacts),
+                        "evidence_refs": ["test://proposal/evidence"],
+                        "uncertainty": ["Independent review remains required."],
+                        "blockers": [],
+                        "acceptance_check_results": {
+                            name: {"status": "not_run", "evidence_refs": []}
+                            for name in definition.acceptance_checks
+                        },
+                    }
+                finally:
+                    with lock:
+                        active -= 1
+
+        crews = {
+            crew_id: CrewDefinition(
+                crew_id, "test specialty", (), "propose only",
+                ("proposal",), ("propose",), ("proposal is structured",), (), True,
+            )
+            for crew_id in ("crew_a", "crew_b")
+        }
+        agents = {crew_id: ProposalAgent(crew_id) for crew_id in crews}
+
+        def graph_node(state):
+            results = state["auren_crew_dispatch_batch"](
+                [
+                    {"crew_id": "crew_a", "task": "first proposal", "evidence": {}},
+                    {"crew_id": "crew_b", "task": "second proposal", "evidence": {}},
+                ],
+                max_workers=2,
+            )
+            return {"batch_results": results}
+
+        graph = StateGraph.from_nodes([Node("dispatch", NodeKind.DETERMINISTIC, graph_node)])
+        team = GraphAgentTeam(graph, agents=agents, crews=crews)
+        result = team.run("bounded-batch-integration", "parallel crew proposal test")
+
+        self.assertEqual("accepted", result.status.value)
+        proposals = result.results["dispatch"].output["batch_results"]
+        self.assertEqual(["crew_a", "crew_b"], [item["crew_id"] for item in proposals])
+        self.assertTrue(all(item["review_required"] for item in proposals))
+        self.assertLessEqual(maximum_active, 2)
+        self.assertGreaterEqual(maximum_active, 2)
 
 
 if __name__ == "__main__":
