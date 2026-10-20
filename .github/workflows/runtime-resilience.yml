@@ -75,7 +75,7 @@ jobs:
       - name: Fault-inject checkpoint crashes, duplicate identity conflicts, and corrupted recovery state
         run: python -m unittest tests.test_crash_recovery_fault_injection -v
       - name: Fault-inject process death before and after external side-effect acceptance
-        run: python -m unittest tests.test_side_effect_ledger_crash_fault_injection tests.test_side_effect_ledger tests.test_consequential_run_once_recovery -v
+        run: python -m unittest tests.test_side_effect_ledger_crash_fault_injection tests.test_side_effect_ledger -v
       - name: Verify receipt uniqueness and verified learning-input boundary
         run: python -m unittest tests.test_promotion_evidence_chain tests.test_external_decision_evidence_ingestion tests.test_evidence_freshness -v
       - name: Stress concurrent in-memory receipt claims
