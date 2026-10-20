@@ -12,7 +12,7 @@ import hashlib
 import json
 from typing import Any, Callable, Mapping
 
-from .state_graph import CrewPlan, build_crew_plan, default_crew_definitions
+from .state_graph import CrewPlan, _dispatch_crew_proposal, build_crew_plan, default_crew_definitions
 
 
 _GATE_ROWS = (
@@ -272,6 +272,58 @@ def transition_gate(
     return current
 
 
+
+def dispatch_gate_crew_proposals(
+    *,
+    gate_id: str,
+    work_item: GateWorkItem,
+    agents: Mapping[str, Any],
+    active: bool,
+    evidence: Mapping[str, Any] | None = None,
+    execution_guard: Any | None = None,
+    execution_guard_persist: Callable[[Mapping[str, Any]], None] | None = None,
+) -> dict[str, dict[str, Any]]:
+    """Collect scoped proposals from the gate's assigned crews inside graph execution.
+
+    Every required adapter is checked before the first call to avoid partial
+    dispatch caused by a known missing crew. Proposals remain advisory and their
+    independent review status remains pending; this function never marks a gate
+    passed or performs repository mutations.
+    """
+    if type(active) is not bool:
+        raise ValueError("active must be a boolean")
+    if not active:
+        raise RuntimeError("gate crew proposals may only be dispatched from active graph execution")
+    gate = next((item for item in gate_definitions() if item.gate_id == gate_id), None)
+    if gate is None:
+        raise KeyError(gate_id)
+    if not isinstance(work_item, GateWorkItem) or work_item.gate_id != gate_id:
+        raise ValueError("gate work item does not match the requested gate")
+    missing = sorted(set(work_item.required_crews) - set(agents))
+    if missing:
+        raise PermissionError("required gate crew adapters are not registered: " + ", ".join(missing))
+    definitions = {crew.crew_id: crew for crew in default_crew_definitions()}
+    context = dict(evidence or {})
+    context.update({"gate_id": gate.gate_id, "exit_criteria": list(gate.exit_criteria)})
+    task = f"{gate.title}. Acceptance criteria: " + "; ".join(gate.exit_criteria)
+    proposals: dict[str, dict[str, Any]] = {}
+    for crew_id in work_item.required_crews:
+        proposals[crew_id] = _dispatch_crew_proposal(
+            crew_id,
+            task,
+            context,
+            active=active,
+            plan=work_item.crew_plan,
+            graph_digest=work_item.crew_plan.graph_digest,
+            agents=agents,
+            crews=definitions,
+            execution_guard=execution_guard,
+            execution_guard_persist=execution_guard_persist,
+            operation_scope=f"engineering-gate:{gate_id}",
+        )
+    return proposals
+
+
 def gate_plan_digest(work_items: tuple[GateWorkItem, ...]) -> str:
     payload = [item.to_payload() for item in work_items]
     return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
@@ -279,5 +331,5 @@ def gate_plan_digest(work_items: tuple[GateWorkItem, ...]) -> str:
 
 __all__ = [
     "GateDefinition", "GateWorkItem", "build_gate_crew_plan", "gate_definitions",
-    "gate_plan_digest", "ready_gates", "transition_gate",
+    "dispatch_gate_crew_proposals", "gate_plan_digest", "ready_gates", "transition_gate",
 ]
