@@ -262,7 +262,18 @@ class ExecutionControllerPromotionGateTests(unittest.TestCase):
             },
             execution_class="consequential",
         )
-        with patch.object(self.controller, "run_evidence_gate", return_value=self.good_receipt) as run_gate:
+        def persist_invocation_receipt(**kwargs):
+            return self.controller.evidence_gate_integration.run_and_record(
+                self.controller.root,
+                run_id=kwargs["run_id"],
+                expected_revision=kwargs["expected_revision"],
+                checks=kwargs["checks"],
+                command_runner=lambda *args, **inner: SimpleNamespace(
+                    returncode=0, stdout="verified", stderr=""
+                ),
+                revision_reader=lambda _: HEAD_SHA,
+            )
+        with patch.object(self.controller, "run_evidence_gate", side_effect=persist_invocation_receipt) as run_gate:
             task = self.submit()
             self.controller.run_once(task.id)
         self.assertEqual(self.controller.task(task.id).state, "completed")
@@ -270,7 +281,29 @@ class ExecutionControllerPromotionGateTests(unittest.TestCase):
         kwargs = run_gate.call_args.kwargs
         self.assertEqual(kwargs["expected_revision"], HEAD_SHA)
         self.assertEqual(kwargs["checks"][0].name, "candidate-regression")
+        self.assertIn(f"promotion:{task.id}:", kwargs["run_id"])
         self.assertEqual(_PROMOTION_SIDE_EFFECTS, ["merge"])
+
+    def test_configured_promotion_receipt_cannot_be_replayed_across_tasks(self):
+        self.controller.register_handler(
+            "promote-capability",
+            protected_promotion_handler,
+            promotion_gate_policy={
+                "context_handler": "trusted-context",
+                "evidence_checks": [{
+                    "name": "candidate-regression",
+                    "argv": ["python", "-c", "print('verified')"],
+                    "timeout_seconds": 10,
+                }],
+            },
+            execution_class="consequential",
+        )
+        expected_run_id = "promotion:other-task:1:" + ("c" * 64)
+        with self.assertRaisesRegex(RuntimeError, "no matching persisted run provenance"):
+            self.controller._require_durable_evidence_receipt(
+                self.good_receipt.receipt_node_id, HEAD_SHA, expected_run_id=expected_run_id
+            )
+
 
     def test_promotion_evidence_policy_rejects_invalid_argv(self):
         with self.assertRaisesRegex(ValueError, "argv must be a non-empty list"):

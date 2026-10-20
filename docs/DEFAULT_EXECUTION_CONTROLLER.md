@@ -113,3 +113,8 @@ promotion_gate_policy={
 ```
 
 The supervisor persists this policy at trusted handler registration and executes these checks against the provider's live `expected_head` using the bounded evidence gate. It records the result and check lineage in the supervisor-owned evidence graph, then validates that persisted receipt before any consequential handler side effect. Commands use argv with `shell=False`; this is not a sandbox, so operators must still restrict commands and credentials through the host execution environment. A changed checkout, failed command, timeout, missing graph lineage, or invalid receipt blocks promotion. If `evidence_checks` is omitted, the backwards-compatible provider contract still requires the trusted context provider to return `evidence_receipt_node_id` for a complete receipt already persisted in that same supervisor-owned graph.
+
+
+### Promotion receipt replay binding
+
+When the supervisor runs configured `evidence_checks`, the durable run identity is derived from the task ID, attempt number, and a SHA-256 digest of the canonicalized task payload. Receipt validation requires a matching persisted `evidence_gate_run` lineage node for that exact invocation as well as the live candidate revision. A receipt produced for a different task, attempt, or operation payload is rejected before handler execution. This is replay resistance within the supervisor's durable task boundary, not a substitute for downstream idempotency: consequential handlers must still pass task-scoped idempotency keys to external APIs and reconcile ambiguous outcomes rather than blindly retrying.

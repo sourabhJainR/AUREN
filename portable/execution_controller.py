@@ -482,8 +482,11 @@ class ExecutionController:
             output_limit_chars=output_limit_chars,
         )
 
-    def _require_durable_evidence_receipt(self, receipt_node_id: Any, expected_head: str) -> str:
-        """Require a readable PASS receipt, bound to this exact candidate revision."""
+    def _require_durable_evidence_receipt(
+        self, receipt_node_id: Any, expected_head: str, *, expected_run_id: str | None = None
+    ) -> str:
+        """Require a readable PASS receipt, bound to this exact candidate revision and optional invocation."""
+
         if not isinstance(receipt_node_id, str) or not re.fullmatch(r"[0-9a-f]{64}", receipt_node_id):
             raise RuntimeError("durable evidence receipt is missing or malformed")
         graph = self.evidence_gate_integration.graph
@@ -532,6 +535,7 @@ class ExecutionController:
                 and source_metadata.get("status") == "PASS"
                 and isinstance(source_metadata.get("run_id"), str)
                 and source_metadata.get("run_id", "").strip()
+                and (expected_run_id is None or source_metadata.get("run_id") == expected_run_id)
             ):
                 run_provenance_ok = True
                 break
@@ -624,13 +628,19 @@ class ExecutionController:
                     return False, "promotion gate rejected task: trusted candidate head is invalid", ("promotion-gate:rejected",)
                 if execution_class == "consequential":
                     configured_checks = promotion_policy.get("evidence_checks", [])
+                    expected_evidence_run_id = None
                     if configured_checks:
-                        # Execute the operator-owned checks on the live candidate
-                        # and persist the receipt in the supervisor's canonical
-                        # graph. A provider-supplied or task-payload receipt cannot
-                        # substitute for this fresh run.
+                        # Bind the receipt invocation to this durable task, attempt,
+                        # and operation payload. This prevents a PASS receipt from
+                        # one promotion request being replayed for a different task.
+                        operation_digest = hashlib.sha256(
+                            json.dumps(task.payload, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+                        ).hexdigest()
+                        expected_evidence_run_id = (
+                            f"promotion:{task.id}:{task.attempts}:{operation_digest}"
+                        )
                         integrated = self.run_evidence_gate(
-                            run_id=f"promotion:{task.id}:{task.attempts}:{uuid4().hex}",
+                            run_id=expected_evidence_run_id,
                             expected_revision=expected_head,
                             checks=tuple(
                                 EvidenceCheck(
@@ -645,7 +655,7 @@ class ExecutionController:
                         # already run and persist the complete evidence gate.
                         supplied_receipt_id = context.get("evidence_receipt_node_id")
                     receipt_node_id = self._require_durable_evidence_receipt(
-                        supplied_receipt_id, expected_head
+                        supplied_receipt_id, expected_head, expected_run_id=expected_evidence_run_id
                     )
                     evidence.extend((f"durable-evidence-receipt:{receipt_node_id}", "durable-evidence-receipt:passed"))
                 # Resolve evidence from the controller-owned canonical ledger. A provider
