@@ -114,11 +114,11 @@ class ProcessIsolatedCrewDispatcher:
                 raise ValueError(f"crew request at index {index} requires task")
             try:
                 encoded = json.dumps(dict(request), sort_keys=True, separators=(",", ":"), allow_nan=False)
-                if len(encoded.encode("utf-8")) > self.max_request_bytes:
-                    raise ValueError(f"crew request at index {index} exceeds the request byte limit")
-                encoded_requests.append(encoded)
             except (TypeError, ValueError) as exc:
                 raise ValueError(f"crew request at index {index} must be JSON serializable") from exc
+            if len(encoded.encode("utf-8")) > self.max_request_bytes:
+                raise ValueError(f"crew request at index {index} exceeds the request byte limit")
+            encoded_requests.append(encoded)
         if not requests:
             return []
         context = multiprocessing.get_context("spawn")
