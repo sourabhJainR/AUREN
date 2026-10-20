@@ -1,13 +1,13 @@
 # AUREN Repository and Website Alignment Review
 
 **Review date:** 2026-10-20  
-**Reviewed baseline before this release PR:** `main` at `5a975b36246bcca3b3d23b9532c0bb7e371518aa`  
-**Product version proposed by this PR:** `1.0.5` (patch release; release checks pending)  
+**Current review baseline:** `main` at `2bba54f677d7d5b9cf38ea8916f5b999e5805544`  
+**Current product version:** `1.0.5` (merged; current hard-stop fault-injection work is in a separate PR)  
 **Scope:** repository-facing status, architecture claims, website/documentation consistency, workflow evidence, and implementation gaps.
 
 ## Executive summary
 
-The pre-release main revision contains durable supervisor-owned execution, revision-bound evidence receipts, canonical evidence-graph integration, fail-closed promotion checks, post-check revision revalidation, and capability-aware local-model ranking. Revision-specific AI Harness, runtime resilience, architecture integrity, hardening, portable bundle, agent capability, and Pages workflows passed for the reviewed commit. The bundle workflow produced portable and checksum artifacts.
+The current main revision contains durable supervisor-owned execution, revision-bound evidence receipts, canonical evidence-graph integration, fail-closed promotion checks, post-check revision revalidation, and capability-aware local-model ranking. Revision-specific AI Harness, runtime resilience, architecture integrity, hardening, portable bundle, agent capability, and Pages workflows passed for the reviewed commit. The bundle workflow produced portable and checksum artifacts.
 
 Release 1.0.5 adds an explicit responsive-execution contract and a version-consistency regression test. Those results establish repository-level checks only. They do not establish independent external benchmark performance, OS-level sandbox isolation, production migration/rollback safety, or enforcement of GitHub required checks. The repository branch metadata returned `protected=true` but `protection.enabled=false`, enforcement off, and no required status checks. This is a high-priority governance gap.
 
@@ -19,7 +19,7 @@ Release 1.0.5 adds an explicit responsive-execution contract and a version-consi
 4. `docs/index.html` currently duplicates the website entrypoint and is also checked by the Pages workflow; keep it byte-for-byte synchronized until that legacy mirror is intentionally removed from the workflow.
 5. `.github/workflows/deploy-pages.yml` deploys `site/`, while validating both `site/` and `docs/` entrypoints. After a website PR merges, verify the Pages workflow for the merge commit and confirm the public page refreshes.
 6. Never convert CI status, checked-in fixtures, a registry entry, or receipt presence into claims of independent evaluation or production control.
-7. Keep the product version at `1.0.4` for this documentation-only update; do not imply a release version bump without release-policy review.
+7. Keep release version claims synchronized across README, site, VERSION, portable bundle manifest, plugin metadata, and release notes. Do not call a candidate released until exact-head checks and post-merge artifacts are verified.
 
 ## Post-review finding: single Pages deployment authority
 
@@ -40,7 +40,7 @@ The initial repository review found two competing publishers: the canonical `Dep
 
 ## Responsiveness and non-hanging execution
 
-See [Responsive Execution and Timeout Policy](RESPONSIVE_EXECUTION_AND_TIMEOUTS.md). The key remaining runtime risks are non-cooperative Python threads, providers that ignore cancellation, queue/lock contention, and external side effects whose outcome becomes ambiguous at timeout. Treat hard-stop guarantees as pending until process-isolated execution, deadline propagation, cancellation, and bounded-completion tests cover those boundaries.
+See [Responsive Execution and Timeout Policy](RESPONSIVE_EXECUTION_AND_TIMEOUTS.md). This PR adds `portable.bounded_subprocess.run_bounded_command` plus fault-injection tests for hung commands, inherited parent deadlines, cancellation, bounded output, process-tree termination, pre-cancellation, and nonzero exits. The runner is used explicitly by callers; it does not yet automatically wrap every existing provider, graph node, GitHub adapter, or validation path. Remaining risks include non-cooperative Python threads, providers that ignore cancellation, queue/lock contention, and ambiguous external effects. Hard-stop guarantees remain pending until adapters adopt the primitive and end-to-end acceptance tests cover those boundaries.
 
 ## Prioritized implementation gaps and enhancements
 
