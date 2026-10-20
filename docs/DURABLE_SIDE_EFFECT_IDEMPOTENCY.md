@@ -66,6 +66,17 @@ trusted reconciler must inspect the provider's operation history before any retr
 retry is permitted only through the existing trusted authorization path with evidence
 that no effect occurred.
 
+## Process-crash fault injection
+
+`tests/test_side_effect_ledger_crash_fault_injection.py` uses spawned child processes that terminate with `os._exit` at two boundaries:
+
+- **After durable claim, before external effect:** restart converts the lingering `executing` row to `reconcile_required`. A retry is blocked until a trusted authorizer validates operator identity, evidence reference, reason, and confirmation that no effect occurred.
+- **After provider acceptance, before receipt persistence:** restart returns `reconcile`, not `execute`. A trusted reconciliation verifier binds provider-operation evidence to the idempotency key and receipt; replay returns the immutable receipt without a second provider dispatch.
+
+Run: `python -m unittest tests.test_side_effect_ledger_crash_fault_injection -v`.
+
+These tests demonstrate the local ledger's restart behavior. They do not prove every external provider's idempotency, that remote effects are atomic with SQLite, or that production credentials/host access are isolated.
+
 ## Rollback
 
 This change only adds regression coverage and does not change runtime behavior. If the
