@@ -8,6 +8,7 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -75,12 +76,26 @@ class DurableSideEffectLedger:
                 )"""
             )
 
-    def _connect(self) -> sqlite3.Connection:
+    @contextmanager
+    def _connect(self):
+        """Open one connection per operation and always release its file handle.
+
+        sqlite3.Connection's context manager manages transactions but does not
+        close the connection. Explicitly close here so Windows can safely remove
+        temporary stores after failures and process-recovery tests.
+        """
         db = sqlite3.connect(self.database_path, timeout=10, isolation_level=None)
         db.row_factory = sqlite3.Row
-        db.execute("PRAGMA busy_timeout=10000")
-        db.execute("PRAGMA journal_mode=WAL")
-        return db
+        try:
+            db.execute("PRAGMA busy_timeout=10000")
+            db.execute("PRAGMA journal_mode=WAL")
+            yield db
+        except BaseException:
+            if db.in_transaction:
+                db.rollback()
+            raise
+        finally:
+            db.close()
 
     @staticmethod
     def _now() -> str:

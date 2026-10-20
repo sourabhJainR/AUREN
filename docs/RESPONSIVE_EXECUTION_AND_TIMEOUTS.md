@@ -54,6 +54,8 @@ The hard-stop primitive is portable.bounded_subprocess.run_bounded_command. It a
 | Descendant process (POSIX) | test_timeout_kills_descendant_process_group | no live descendant |
 | Descendant process (Windows) | test_timeout_kills_windows_job_descendants | delayed child side effect never occurs |
 | Invalid budget/shell string | test_shell_strings_and_invalid_budgets_are_rejected | reject before spawn |
+| Crash after side-effect claim | test_crash_after_claim_requires_explicit_no_effect_retry_authorization | reconciliation required; retry needs trusted no-effect evidence |
+| Crash after provider accepts effect | test_crash_after_provider_accept_reconciles_without_redispatch | reconcile provider receipt; never auto-redispatch |
 | Evidence check hangs | test_default_runner_hard_stops_hung_command | TIMEOUT, no success |
 | Total deadline exhausted | test_default_runner_inherits_total_deadline_between_checks | later checks NOT_RUN |
 | Pre-cancelled evidence gate | test_pre_cancelled_evidence_gate_never_spawns_check | CANCELLED, no spawn |
