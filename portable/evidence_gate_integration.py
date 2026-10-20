@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Callable, Sequence
 
 from .evidence_gate import EvidenceCheck, EvidenceReceipt, run_evidence_gate
-from .persistent_evidence_graph import EvidenceNode, PersistentEvidenceGraph
+from .persistent_evidence_graph import PersistentEvidenceGraph
 from .persistent_memory import PersistentMemory
 
 
@@ -82,6 +82,9 @@ class EvidenceGateIntegration:
                 "expected_revision": receipt.expected_revision,
                 "observed_revision": receipt.observed_revision or "",
                 "schema_version": receipt.schema_version,
+                "receipt_json": json.dumps(
+                    receipt.as_dict(), sort_keys=True, separators=(",", ":")
+                ),
             },
         )
         self.graph.add_edge(revision_node, "verified_by", receipt_node)
@@ -106,17 +109,29 @@ class EvidenceGateIntegration:
                     "receipt_digest": receipt.digest,
                     "name": check.name,
                     "status": check.status,
+                    "returncode": "" if check.returncode is None else str(check.returncode),
+                    "duration_seconds": str(check.duration_seconds),
+                    "result_json": json.dumps(payload, sort_keys=True, separators=(",", ":")),
                 },
             )
             self.graph.add_edge(receipt_node, "contains_check", node)
             check_node_ids.append(node.node_id)
 
         # Verify that persistence is readable before handing the receipt to a caller.
-        if self.graph.get_node(receipt_node.node_id) is None:
+        persisted_receipt = self.graph.get_node(receipt_node.node_id)
+        if persisted_receipt is None:
             raise RuntimeError("evidence receipt was not durably persisted")
+        receipt_metadata = dict(persisted_receipt.metadata)
+        if receipt_metadata.get("receipt_json") != json.dumps(
+            receipt.as_dict(), sort_keys=True, separators=(",", ":")
+        ):
+            raise RuntimeError("persisted evidence receipt failed read-back verification")
         for node_id in check_node_ids:
-            if self.graph.get_node(node_id) is None:
+            persisted_check = self.graph.get_node(node_id)
+            if persisted_check is None:
                 raise RuntimeError("evidence check was not durably persisted")
+            if "result_json" not in dict(persisted_check.metadata):
+                raise RuntimeError("persisted evidence check details are missing")
 
         return IntegratedEvidenceReceipt(
             receipt,
