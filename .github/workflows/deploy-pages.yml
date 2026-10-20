@@ -10,6 +10,7 @@ on:
       - 'docs/index.html'
       - 'docs/404.html'
       - '.github/workflows/deploy-pages.yml'
+      - '.github/workflows/jekyll-gh-pages.yml'
   workflow_dispatch:
 
 permissions:
