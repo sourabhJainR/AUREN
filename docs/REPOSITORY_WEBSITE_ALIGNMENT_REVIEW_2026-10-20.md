@@ -1,7 +1,7 @@
 # AUREN Repository and Website Alignment Review
 
 **Review date:** 2026-10-20  
-**Current review baseline:** `main` at `2bba54f677d7d5b9cf38ea8916f5b999e5805544`  
+**Current review baseline:** `main` at `d995fbb48a4c8ac7457d136995ee640f69d9dbc8`  
 **Current product version:** `1.0.5` (merged; current hard-stop fault-injection work is in a separate PR)  
 **Scope:** repository-facing status, architecture claims, website/documentation consistency, workflow evidence, and implementation gaps.
 
@@ -29,18 +29,18 @@ The initial repository review found two competing publishers: the canonical `Dep
 
 | Area | Current-main evidence | Limit |
 |---|---|---|
-| Main revision | `538f33e8374e704e44eb8c221afac56a6db983b4` | Recheck after every merge |
-| AI Harness Check | [Run 39421877565](https://github.com/sourabhJainR/AUREN/actions/runs/39421877565) passed | Repository tests for this SHA |
-| Runtime Resilience Matrix | [Run 39421877428](https://github.com/sourabhJainR/AUREN/actions/runs/39421877428) passed on Linux/Windows, Python 3.11/3.12 | Does not cover every production host or external effect |
-| Architecture Integrity | [Run 39421877444](https://github.com/sourabhJainR/AUREN/actions/runs/39421877444) passed | Structural/repository contract only |
-| Production AI Harness Hardening | [Run 39421877522](https://github.com/sourabhJainR/AUREN/actions/runs/39421877522) passed | Does not replace independent host isolation audit |
-| Agent Capability Runtime | [Run 39421877426](https://github.com/sourabhJainR/AUREN/actions/runs/39421877426) passed | Revision-specific |
-| Portable bundle | [Run 39421877517](https://github.com/sourabhJainR/AUREN/actions/runs/39421877517) passed; ZIP artifact digest `sha256:9842d1d51fdf014696004c45f5b92b3f340c3af56f964ddfef3cb94dd61ff0ea`; checksum artifact digest `sha256:bd2395e2fd8c5556e49e89b2dd91fbd9a6070992562edfaa1046b5a5d3ef27d4` | These are GitHub artifact digests, not the ZIP's own SHA-256 |
-| Pages deployment | [Run 39421877636](https://github.com/sourabhJainR/AUREN/actions/runs/39421877636) passed | Reverify after website changes merge |
+| Main revision | `d995fbb48a4c8ac7457d136995ee640f69d9dbc8` | Recheck after every merge |
+| AI Harness Check | [Run 39424242672](https://github.com/sourabhJainR/AUREN/actions/runs/39424242672) passed | Repository tests for this SHA |
+| Runtime Resilience Matrix | [Run 39424242744](https://github.com/sourabhJainR/AUREN/actions/runs/39424242744) passed on Linux/Windows, Python 3.11/3.12 | Does not cover every production host or external effect |
+| Architecture Integrity | [Run 39424242807](https://github.com/sourabhJainR/AUREN/actions/runs/39424242807) passed | Structural/repository contract only |
+| Production AI Harness Hardening | [Run 39424242923](https://github.com/sourabhJainR/AUREN/actions/runs/39424242923) passed | Does not replace independent host isolation audit |
+| Agent Capability Runtime | [Run 39424242738](https://github.com/sourabhJainR/AUREN/actions/runs/39424242738) passed | Revision-specific |
+| Portable bundle | [Run 39424242812](https://github.com/sourabhJainR/AUREN/actions/runs/39424242812) passed; ZIP artifact digest `sha256:4a7107ee375b6700bffc988c563c28a49a7ac2d56c95d784fd6c466e73bf688c`; checksum artifact digest `sha256:91ad71dadac633617f49516a53b8b2caf63498cc00dc6b40e880664266f78e52` | These are GitHub artifact digests, not the ZIP's own SHA-256 |
+| Pages deployment | [Run 39424242913](https://github.com/sourabhJainR/AUREN/actions/runs/39424242913) passed | Reverify after website changes merge |
 
 ## Responsiveness and non-hanging execution
 
-See [Responsive Execution and Timeout Policy](RESPONSIVE_EXECUTION_AND_TIMEOUTS.md). PR #743 added `portable.bounded_subprocess.run_bounded_command` and fault-injection tests for hung commands, inherited parent deadlines, cancellation, memory-bounded streaming output capture, process-tree termination, pre-cancellation, and nonzero exits. This follow-up also wires the runner into `.ai-harness/engine.py` validation so a timeout kills the subprocess group rather than only returning from `subprocess.run`. Remaining risks include uncooperative Python threads, providers that ignore cancellation, queue/lock contention, output capture now retains only bounded stdout/stderr tails in memory, and ambiguous external effects. Windows descendant cleanup now uses kill-on-close Job Object containment and has a dedicated fault-injection test. Hard-stop guarantees remain incomplete until provider/network adapters and graph execution boundaries are covered.
+See [Responsive Execution and Timeout Policy](RESPONSIVE_EXECUTION_AND_TIMEOUTS.md). PR #743 added `portable.bounded_subprocess.run_bounded_command` and fault-injection tests for hung commands, inherited parent deadlines, cancellation, memory-bounded streaming output capture, process-tree termination, pre-cancellation, and nonzero exits. PR #744 wires the runner into `.ai-harness/engine.py` validation so a timeout kills the subprocess group rather than only returning from `subprocess.run`. Remaining risks include uncooperative Python threads, providers that ignore cancellation, queue/lock contention, output capture now retains only bounded stdout/stderr tails in memory, and ambiguous external effects. Windows descendant cleanup now uses kill-on-close Job Object containment and has a dedicated fault-injection test. Hard-stop guarantees remain incomplete until provider/network adapters and graph execution boundaries are covered.
 
 ## Prioritized implementation gaps and enhancements
 
