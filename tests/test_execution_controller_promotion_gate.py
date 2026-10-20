@@ -6,6 +6,9 @@ import sqlite3
 from unittest.mock import patch
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+
+from portable.evidence_gate import EvidenceCheck
 
 from portable.execution_controller import ExecutionController
 
@@ -100,6 +103,15 @@ class ExecutionControllerPromotionGateTests(unittest.TestCase):
             "passed_checks": ["required-ci"], "skipped_checks": [],
         })
         self.controller = ExecutionController(Path(self.temp.name))
+        self.good_receipt = self.controller.evidence_gate_integration.run_and_record(
+            self.controller.root,
+            run_id="promotion-test-pass",
+            expected_revision=HEAD_SHA,
+            checks=(EvidenceCheck("required-evidence", ("python", "-c", "pass"), 5),),
+            command_runner=lambda *args, **kwargs: SimpleNamespace(returncode=0, stdout="ok", stderr=""),
+            revision_reader=lambda _: HEAD_SHA,
+        )
+        _PROMOTION_CONTEXT["evidence_receipt_node_id"] = self.good_receipt.receipt_node_id
         for evidence_id, evidence_type in (("run-1", "ci-run"), ("approval-1", "approval"), ("rollback-test-1", "rollback-rehearsal")):
             self.controller.evidence_ledger.record(
                 evidence_id=evidence_id, repository=REPOSITORY, head_sha=HEAD_SHA,
@@ -121,6 +133,43 @@ class ExecutionControllerPromotionGateTests(unittest.TestCase):
         return self.controller.submit(
             "promote-capability", payload or {"operation": "merge"}
         )
+
+    def _record_receipt(self, run_id, *, observed=HEAD_SHA, returncode=0):
+        return self.controller.evidence_gate_integration.run_and_record(
+            self.controller.root,
+            run_id=run_id,
+            expected_revision=HEAD_SHA,
+            checks=(EvidenceCheck("required-evidence", ("python", "-c", "pass"), 5),),
+            command_runner=lambda *args, **kwargs: SimpleNamespace(
+                returncode=returncode, stdout="ok" if returncode == 0 else "failed", stderr=""
+            ),
+            revision_reader=lambda _: observed,
+        )
+
+    def test_missing_durable_receipt_blocks_promotion_before_side_effects(self):
+        _PROMOTION_CONTEXT.pop("evidence_receipt_node_id", None)
+        task = self.submit()
+        self.controller.run_once(task.id)
+        self.assertEqual(self.controller.task(task.id).state, "failed")
+        self.assertEqual(_PROMOTION_SIDE_EFFECTS, [])
+
+    def test_stale_durable_receipt_blocks_promotion_before_side_effects(self):
+        stale = self._record_receipt("promotion-test-stale", observed=BASE_SHA)
+        self.assertEqual(stale.receipt.status, "STALE")
+        _PROMOTION_CONTEXT["evidence_receipt_node_id"] = stale.receipt_node_id
+        task = self.submit()
+        self.controller.run_once(task.id)
+        self.assertEqual(self.controller.task(task.id).state, "failed")
+        self.assertEqual(_PROMOTION_SIDE_EFFECTS, [])
+
+    def test_failed_durable_receipt_blocks_promotion_before_side_effects(self):
+        failed = self._record_receipt("promotion-test-fail", returncode=1)
+        self.assertEqual(failed.receipt.status, "FAIL")
+        _PROMOTION_CONTEXT["evidence_receipt_node_id"] = failed.receipt_node_id
+        task = self.submit()
+        self.controller.run_once(task.id)
+        self.assertEqual(self.controller.task(task.id).state, "failed")
+        self.assertEqual(_PROMOTION_SIDE_EFFECTS, [])
 
     def test_context_provider_cannot_be_submitted_as_a_task(self):
         with self.assertRaisesRegex(ValueError, "internal-only"):
