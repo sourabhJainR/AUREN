@@ -51,13 +51,23 @@ The hard-stop primitive is portable.bounded_subprocess.run_bounded_command. It a
 | Parent deadline | test_parent_deadline_caps_child_timeout; test_parent_deadline_is_propagated_to_validation_subprocess | parent_deadline_exceeded |
 | Cancellation | test_cancellation_terminates_command_and_is_explicit; test_pre_cancelled_validation_does_not_start_command | cancelled |
 | Output flood | test_output_capture_is_bounded_and_marks_truncation; test_validation_output_capture_is_bounded_and_reports_truncation | bounded retained output and log |
-| Descendant process (POSIX) | test_timeout_kills_descendant_process_group | no live descendant |\n| Descendant process (Windows) | test_timeout_kills_windows_job_descendants | delayed child side effect never occurs |
-| Invalid budget/shell string | test_shell_strings_and_invalid_budgets_are_rejected | reject before spawn |\n| Evidence check hangs | test_default_runner_hard_stops_hung_command | TIMEOUT, no success |\n| Total deadline exhausted | test_default_runner_inherits_total_deadline_between_checks | later checks NOT_RUN |\n| Pre-cancelled evidence gate | test_pre_cancelled_evidence_gate_never_spawns_check | CANCELLED, no spawn |\n| Non-cooperative crew handler | test_hung_handler_is_hard_stopped_within_deadline | timed_out within bound |\n| Crew cancellation | test_cancellation_stops_worker_and_does_not_claim_success | cancelled, no result |\n| Oversized crew request | test_request_size_is_bounded_before_worker_spawn | reject before spawn |\n| Oversized crew result | test_result_size_is_bounded | failed, bounded error |\n| Batch deadline | test_batch_deadline_prevents_later_dispatch | remaining tasks not_run |
+| Descendant process (POSIX) | test_timeout_kills_descendant_process_group | no live descendant |
+| Descendant process (Windows) | test_timeout_kills_windows_job_descendants | delayed child side effect never occurs |
+| Invalid budget/shell string | test_shell_strings_and_invalid_budgets_are_rejected | reject before spawn |
+| Evidence check hangs | test_default_runner_hard_stops_hung_command | TIMEOUT, no success |
+| Total deadline exhausted | test_default_runner_inherits_total_deadline_between_checks | later checks NOT_RUN |
+| Pre-cancelled evidence gate | test_pre_cancelled_evidence_gate_never_spawns_check | CANCELLED, no spawn |
+| Non-cooperative crew handler | test_hung_handler_is_hard_stopped_within_deadline | timed_out within bound |
+| Crew cancellation | test_cancellation_stops_worker_and_does_not_claim_success | cancelled, no result |
+| Oversized crew request | test_request_size_is_bounded_before_worker_spawn | reject before spawn |
+| Oversized crew result | test_result_size_is_bounded | failed, bounded error |
+| Batch deadline | test_batch_deadline_prevents_later_dispatch | remaining tasks not_run |
 
 ## Acceptance tests
 
 - [ ] A provider that never returns cannot block the supervisor beyond the configured deadline.
-- [x] A hung subprocess is terminated within budget, and output capture remains bounded by fault-injection tests on Linux/Windows and Python 3.11/3.12.\n- [x] Windows subprocess descendants are assigned to a kill-on-close Job Object; a delayed-side-effect fault test passes on Windows/Python 3.11 and 3.12.
+- [x] A hung subprocess is terminated within budget, and output capture remains bounded by fault-injection tests on Linux/Windows and Python 3.11/3.12.
+- [x] Windows subprocess descendants are assigned to a kill-on-close Job Object; a delayed-side-effect fault test passes on Windows/Python 3.11 and 3.12.
 - [ ] Cancellation during idle, node execution, inference, validation, and recovery is prompt and persisted.
 - [ ] A timed-out worker cannot commit success after its lease/deadline expires.
 - [ ] Restart preserves deadline and retry budget; fresh context does not reset retries.
