@@ -1,15 +1,15 @@
 # AUREN Repository and Website Alignment Review
 
 **Review date:** 2026-10-20  
-**Reviewed baseline:** `main` at `7e06b4c3abc7f1d5116eae22206ebec0ca11d4b3`  
-**Product version:** `1.0.4` (unchanged)  
+**Reviewed baseline before this release PR:** `main` at `5a975b36246bcca3b3d23b9532c0bb7e371518aa`  
+**Product version proposed by this PR:** `1.0.5` (patch release; release checks pending)  
 **Scope:** repository-facing status, architecture claims, website/documentation consistency, workflow evidence, and implementation gaps.
 
 ## Executive summary
 
-The current main revision contains durable supervisor-owned execution, revision-bound evidence receipts, canonical evidence-graph integration, fail-closed promotion checks, post-check revision revalidation, and capability-aware local-model ranking. Revision-specific AI Harness, runtime resilience, architecture integrity, hardening, portable bundle, agent capability, and Pages workflows passed for the reviewed commit. The bundle workflow produced portable and checksum artifacts.
+The pre-release main revision contains durable supervisor-owned execution, revision-bound evidence receipts, canonical evidence-graph integration, fail-closed promotion checks, post-check revision revalidation, and capability-aware local-model ranking. Revision-specific AI Harness, runtime resilience, architecture integrity, hardening, portable bundle, agent capability, and Pages workflows passed for the reviewed commit. The bundle workflow produced portable and checksum artifacts.
 
-Those results establish repository-level checks only. They do not establish independent external benchmark performance, OS-level sandbox isolation, production migration/rollback safety, or enforcement of GitHub required checks. The repository branch metadata returned `protected=true` but `protection.enabled=false`, enforcement off, and no required status checks. This is a high-priority governance gap.
+Release 1.0.5 adds an explicit responsive-execution contract and a version-consistency regression test. Those results establish repository-level checks only. They do not establish independent external benchmark performance, OS-level sandbox isolation, production migration/rollback safety, or enforcement of GitHub required checks. The repository branch metadata returned `protected=true` but `protection.enabled=false`, enforcement off, and no required status checks. This is a high-priority governance gap.
 
 ## Canonical synchronization rules
 
@@ -37,6 +37,10 @@ The initial repository review found two competing publishers: the canonical `Dep
 | Agent Capability Runtime | [Run 39415100723](https://github.com/sourabhJainR/AUREN/actions/runs/39415100723) passed | Revision-specific |
 | Portable bundle | [Run 39415100744](https://github.com/sourabhJainR/AUREN/actions/runs/39415100744) passed and emitted `auren-portable` and `auren-portable-checksum` | GitHub artifact digests are distinct from the ZIP file's checksum |
 | Pages deployment | [Run 39415100782](https://github.com/sourabhJainR/AUREN/actions/runs/39415100782) passed | Must be rerun/verified for this website update |
+
+## Responsiveness and non-hanging execution
+
+See [Responsive Execution and Timeout Policy](RESPONSIVE_EXECUTION_AND_TIMEOUTS.md). The key remaining runtime risks are non-cooperative Python threads, providers that ignore cancellation, queue/lock contention, and external side effects whose outcome becomes ambiguous at timeout. Treat hard-stop guarantees as pending until process-isolated execution, deadline propagation, cancellation, and bounded-completion tests cover those boundaries.
 
 ## Prioritized implementation gaps and enhancements
 
