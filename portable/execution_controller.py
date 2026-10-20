@@ -144,6 +144,11 @@ class ExecutionController:
               promotion_gate_policy_json TEXT NOT NULL DEFAULT '{}',
               execution_class TEXT NOT NULL DEFAULT 'unclassified',
               implementation_digest TEXT NOT NULL DEFAULT '');
+            CREATE TABLE IF NOT EXISTS provider_effect_adapters(
+              handler_name TEXT PRIMARY KEY,
+              reference TEXT NOT NULL,
+              implementation_digest TEXT NOT NULL,
+              updated_at TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS tasks(
               id TEXT PRIMARY KEY, handler TEXT NOT NULL, payload TEXT NOT NULL,
               state TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0,
@@ -397,6 +402,65 @@ class ExecutionController:
                  json.dumps(promotion_policy, sort_keys=True), execution_class, implementation_digest),
             )
         return reference
+
+    def register_provider_effect_adapter(self, handler_name: str, adapter_reference: str) -> str:
+        """Persist a trusted importable adapter for a consequential handler.
+
+        Adapter classes are instantiated without arguments so credentials and
+        provider configuration must come from trusted host configuration. The
+        reference and source digest are immutable for a handler identity.
+        """
+        if not isinstance(handler_name, str) or not handler_name.strip():
+            raise ValueError("handler_name is required")
+        if self._handler_execution_class(handler_name) != "consequential":
+            raise ValueError("provider effect adapters can only bind to consequential handlers")
+        if not isinstance(adapter_reference, str) or ":" not in adapter_reference:
+            raise ValueError("adapter_reference must be an importable module:Class reference")
+        factory = self._resolve_reference(adapter_reference)
+        if not inspect.isclass(factory) or "<locals>" in getattr(factory, "__qualname__", ""):
+            raise ValueError("provider effect adapter must be an importable class")
+        digest = self._implementation_digest(factory)
+        adapter = factory()
+        self._validate_provider_effect_adapter(adapter)
+        with sqlite3.connect(self.db_path) as db:
+            prior = db.execute(
+                "SELECT reference,implementation_digest FROM provider_effect_adapters WHERE handler_name=?",
+                (handler_name,),
+            ).fetchone()
+            if prior and (str(prior[0]) != adapter_reference or str(prior[1]) != digest):
+                raise ValueError("provider effect adapter registration is immutable; use a new handler identity")
+            db.execute(
+                "INSERT INTO provider_effect_adapters(handler_name,reference,implementation_digest,updated_at) "
+                "VALUES(?,?,?,?) ON CONFLICT(handler_name) DO UPDATE SET updated_at=excluded.updated_at",
+                (handler_name, adapter_reference, digest, _now()),
+            )
+        return adapter_reference
+
+    @staticmethod
+    def _validate_provider_effect_adapter(adapter: Any) -> None:
+        required = ("apply", "inspect", "verify_receipt")
+        missing = [name for name in required if not callable(getattr(adapter, name, None))]
+        if missing:
+            raise TypeError("provider effect adapter is missing callable methods: " + ", ".join(missing))
+
+    def _load_provider_effect_adapter(self, handler_name: str) -> Any | None:
+        with sqlite3.connect(self.db_path) as db:
+            row = db.execute(
+                "SELECT reference,implementation_digest FROM provider_effect_adapters WHERE handler_name=?",
+                (handler_name,),
+            ).fetchone()
+        if row is None:
+            return None
+        reference, expected_digest = str(row[0]), str(row[1])
+        factory = self._resolve_reference(reference)
+        if not inspect.isclass(factory):
+            raise TypeError(f"persisted provider effect adapter is not a class: {handler_name}")
+        actual_digest = self._implementation_digest(factory)
+        if not expected_digest or actual_digest != expected_digest:
+            raise ValueError(f"provider effect adapter implementation digest mismatch: {handler_name}")
+        adapter = factory()
+        self._validate_provider_effect_adapter(adapter)
+        return adapter
 
     def _handler_execution_class(self, name: str) -> str:
         with sqlite3.connect(self.db_path) as db:
@@ -1279,26 +1343,82 @@ class ExecutionController:
             "handler": task.handler,
             "payload_digest": payload_digest,
         }
-        decision = DurableSideEffectLedger(self.db_path).begin(key, binding)
+        adapter = self._load_provider_effect_adapter(task.handler)
+        ledger = DurableSideEffectLedger(
+            self.db_path,
+            reconciliation_verifier=adapter.verify_receipt if adapter is not None else None,
+        )
+        decision = ledger.begin(key, binding)
         if decision.action == "replay":
             receipt = decision.receipt
             if not isinstance(receipt, Mapping) or not isinstance(receipt.get("result"), Mapping):
                 raise RuntimeError("consequential side-effect receipt is malformed; refusing handler replay")
+            return dict(receipt["result"])
+        if decision.action == "reconcile":
+            if adapter is None:
+                raise RuntimeError(
+                    "consequential side effect requires reconciliation; provider dispatch is blocked "
+                    f"(ledger_state={decision.state or 'unknown'})"
+                )
+            report = adapter.inspect(
+                safe_payload, stable_key=key, payload_digest=payload_digest,
+            )
+            if not isinstance(report, Mapping):
+                raise RuntimeError("provider adapter returned no valid reconciliation report")
+            status = report.get("status")
+            if status == "confirmed_no_effect":
+                raise RuntimeError(
+                    "provider reports no effect, but an operator-authorized retry is still required; "
+                    "automatic redispatch is blocked"
+                )
+            if status != "confirmed_effect":
+                if status not in {"unknown", None}:
+                    raise RuntimeError("provider adapter returned an unsupported reconciliation status")
+                raise RuntimeError("provider outcome remains unknown; automatic redispatch is blocked")
+            evidence_ref = report.get("evidence_ref")
+            provider_receipt = report.get("provider_receipt")
+            reconciled_result = report.get("result")
+            if not isinstance(evidence_ref, str) or not evidence_ref.strip():
+                raise RuntimeError("confirmed provider effect requires an evidence reference")
+            if not isinstance(provider_receipt, Mapping) or not isinstance(reconciled_result, Mapping):
+                raise RuntimeError("confirmed provider effect requires provider_receipt and result mappings")
+            receipt = {
+                "result": dict(reconciled_result),
+                "provider_receipt": dict(provider_receipt),
+                "payload_digest": payload_digest,
+                "reconciliation_evidence_ref": evidence_ref.strip(),
+                "reconciled": True,
+            }
+            reconciled = ledger.record_reconciled_effect(
+                key, evidence_ref=evidence_ref, receipt=receipt,
+            )
+            if reconciled.action != "reconciled":
+                raise RuntimeError("provider reconciliation did not produce a terminal receipt")
             return dict(receipt["result"])
         if decision.action != "execute":
             raise RuntimeError(
                 "consequential side effect requires reconciliation; provider dispatch is blocked "
                 f"(ledger_state={decision.state or 'unknown'})"
             )
-        result = self._invoke_with_lease_heartbeat(task, handler)
+        if adapter is None:
+            result = self._invoke_with_lease_heartbeat(task, handler)
+        else:
+            result = self._invoke_with_lease_heartbeat(
+                task,
+                lambda _payload: adapter.apply(
+                    handler, safe_payload, stable_key=key, payload_digest=payload_digest,
+                ),
+            )
         if not isinstance(result, Mapping):
             # A non-serializable/ambiguous result must not permit implicit replay.
             raise RuntimeError("consequential handlers must return a mapping receipt/result")
         receipt = {"result": dict(result)}
+        if adapter is not None:
+            receipt.update({"stable_key": key, "payload_digest": payload_digest})
         # If durable receipt persistence fails, the ledger remains executing. The
         # next attempt will require reconciliation and will not invoke the provider.
-        DurableSideEffectLedger(self.db_path).complete(key, receipt)
-        return result
+        ledger.complete(key, receipt)
+        return dict(result)
 
     def run_once(self, task_id: str) -> TrustScore | None:
         task = self._claim(task_id)
