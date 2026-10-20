@@ -1,15 +1,15 @@
 # AUREN Repository and Website Alignment Review
 
 **Review date:** 2026-10-20  
-**Current review baseline:** `main` at `2bba54f677d7d5b9cf38ea8916f5b999e5805544`  
-**Current product version:** `1.0.5` (merged; current hard-stop fault-injection work is in a separate PR)  
+**Current review baseline:** `main` at `78a11172d429aef6168b66c749c06a2581e9c7d7`  
+**Current product version:** `1.0.5` (merged)  
 **Scope:** repository-facing status, architecture claims, website/documentation consistency, workflow evidence, and implementation gaps.
 
 ## Executive summary
 
 The current main revision contains durable supervisor-owned execution, revision-bound evidence receipts, canonical evidence-graph integration, fail-closed promotion checks, post-check revision revalidation, and capability-aware local-model ranking. Revision-specific AI Harness, runtime resilience, architecture integrity, hardening, portable bundle, agent capability, and Pages workflows passed for the reviewed commit. The bundle workflow produced portable and checksum artifacts.
 
-Release 1.0.5 adds an explicit responsive-execution contract and a version-consistency regression test. Those results establish repository-level checks only. They do not establish independent external benchmark performance, OS-level sandbox isolation, production migration/rollback safety, or enforcement of GitHub required checks. The repository branch metadata returned `protected=true` but `protection.enabled=false`, enforcement off, and no required status checks. This is a high-priority governance gap.
+Release 1.0.5 adds an explicit responsive-execution contract and a version-consistency regression test. PR #743 adds executable process-tree hard-stop tests; PR #747 integrates hard-stop execution and deadline propagation into the default revision-bound evidence gate; PR #749 adds opt-in process-isolated crew execution and fixes a concurrent dispatch replay row-mapping race. These results establish repository-level checks only. They do not establish independent external benchmark performance, OS-level sandbox isolation, production migration/rollback safety, or enforcement of GitHub required checks. The repository branch metadata returned `protected=true` but `protection.enabled=false`, enforcement off, and no required status checks. This is a high-priority governance gap.
 
 ## Canonical synchronization rules
 
@@ -40,7 +40,7 @@ The initial repository review found two competing publishers: the canonical `Dep
 
 ## Responsiveness and non-hanging execution
 
-See [Responsive Execution and Timeout Policy](RESPONSIVE_EXECUTION_AND_TIMEOUTS.md). PR #743 added `portable.bounded_subprocess.run_bounded_command` and fault-injection tests for hung commands, inherited parent deadlines, cancellation, memory-bounded streaming output capture, process-tree termination, pre-cancellation, and nonzero exits. This follow-up also wires the runner into `.ai-harness/engine.py` validation so a timeout kills the subprocess group rather than only returning from `subprocess.run`. Remaining risks include uncooperative Python threads, providers that ignore cancellation, queue/lock contention, output capture now retains only bounded stdout/stderr tails in memory, and ambiguous external effects. Windows descendant cleanup still needs Job Object containment; hard-stop guarantees remain incomplete until provider/network adapters and graph execution boundaries are covered.
+See [Responsive Execution and Timeout Policy](RESPONSIVE_EXECUTION_AND_TIMEOUTS.md). `portable.bounded_subprocess.run_bounded_command` is exercised against hangs, inherited deadlines, cancellation, output floods, and process-tree termination. The default `portable.evidence_gate.run_evidence_gate` path uses it for revision-bound checks. `portable.process_isolated_crew_dispatch.ProcessIsolatedCrewDispatcher` provides a deadline-bound process-isolation option for trusted importable crew handlers, while the legacy thread dispatcher remains non-killable. Remaining risks include arbitrary provider/network calls and graph nodes not yet routed through hard-stop adapters, Windows descendant containment without Job Objects, queue/lock contention, and ambiguous external side effects. These features are liveness controls, not a sandbox or proof of production isolation.
 
 ## Prioritized implementation gaps and enhancements
 
@@ -70,7 +70,7 @@ See [Responsive Execution and Timeout Policy](RESPONSIVE_EXECUTION_AND_TIMEOUTS.
 
 ### P1 — Website and documentation correctness
 
-- [ ] After merge, verify the deployed site serves the same latest content as `site/index.html`; record deployed commit and deployment manifest.
+- [ ] After this documentation refresh merges, verify the deployed site serves the same content as `site/index.html`; record the deployed commit and deployment manifest.
 - [ ] Add a CI check that `site/index.html` and `docs/index.html` are byte-identical while both remain required by the Pages workflow.
 - [ ] Add automated link/anchor checks for internal documentation links and validate that PR/issue status claims do not point to closed implementation issues as if they were open work.
 - [ ] Generate the website's "latest implementation" section from a canonical status/evidence manifest where practical, avoiding hand-maintained PR summaries drifting from README.
