@@ -14,6 +14,16 @@ class TestPublicDocumentationConsistency(unittest.TestCase):
             (ROOT / "docs" / "index.html").read_text(encoding="utf-8"),
         )
 
+    def test_only_canonical_pages_workflow_can_deploy(self):
+        canonical = (ROOT / ".github" / "workflows" / "deploy-pages.yml").read_text(encoding="utf-8")
+        legacy = (ROOT / ".github" / "workflows" / "jekyll-gh-pages.yml").read_text(encoding="utf-8")
+        self.assertIn("'.github/workflows/jekyll-gh-pages.yml'", canonical)
+        self.assertIn("site/", canonical)
+        self.assertIn("workflow_dispatch:", legacy)
+        self.assertNotIn("  push:", legacy)
+        self.assertNotIn("actions/deploy-pages@", legacy)
+        self.assertNotIn("actions/upload-pages-artifact@", legacy)
+
     def test_every_canonical_principle_is_in_public_docs(self):
         paths = [
             ROOT / "README.md",
