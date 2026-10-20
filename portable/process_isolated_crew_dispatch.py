@@ -72,15 +72,19 @@ class ProcessIsolatedCrewDispatcher:
     DEFAULT_OUTPUT_LIMIT_BYTES = 64 * 1024
 
     def __init__(self, handler_ref: str, *, output_limit_bytes: int = DEFAULT_OUTPUT_LIMIT_BYTES,
+                 max_request_bytes: int = 256 * 1024,
                  terminate_grace_seconds: float = 0.2, poll_interval_seconds: float = 0.02):
         _resolve_handler(handler_ref)
         if type(output_limit_bytes) is not int or output_limit_bytes < 128:
             raise ValueError("output_limit_bytes must be an integer >= 128")
+        if type(max_request_bytes) is not int or max_request_bytes < 128:
+            raise ValueError("max_request_bytes must be an integer >= 128")
         for name, value in (("terminate_grace_seconds", terminate_grace_seconds), ("poll_interval_seconds", poll_interval_seconds)):
             if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0:
                 raise ValueError(f"{name} must be finite and positive")
         self.handler_ref = handler_ref
         self.output_limit_bytes = output_limit_bytes
+        self.max_request_bytes = max_request_bytes
         self.terminate_grace_seconds = float(terminate_grace_seconds)
         self.poll_interval_seconds = float(poll_interval_seconds)
 
@@ -109,7 +113,10 @@ class ProcessIsolatedCrewDispatcher:
             if not isinstance(request.get("task"), str) or not request["task"].strip():
                 raise ValueError(f"crew request at index {index} requires task")
             try:
-                encoded_requests.append(json.dumps(dict(request), sort_keys=True, separators=(",", ":"), allow_nan=False))
+                encoded = json.dumps(dict(request), sort_keys=True, separators=(",", ":"), allow_nan=False)
+                if len(encoded.encode("utf-8")) > self.max_request_bytes:
+                    raise ValueError(f"crew request at index {index} exceeds the request byte limit")
+                encoded_requests.append(encoded)
             except (TypeError, ValueError) as exc:
                 raise ValueError(f"crew request at index {index} must be JSON serializable") from exc
         if not requests:
