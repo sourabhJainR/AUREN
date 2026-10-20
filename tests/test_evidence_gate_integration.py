@@ -1,6 +1,7 @@
 """Regression tests for durable evidence-gate integration."""
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -31,8 +32,14 @@ class EvidenceGateIntegrationTests(unittest.TestCase):
             graph = integration.graph
             receipt_node = graph.get_node(result.receipt_node_id)
             self.assertIsNotNone(receipt_node)
-            self.assertEqual(dict(receipt_node.metadata)["status"], "PASS")
+            receipt_metadata = dict(receipt_node.metadata)
+            self.assertEqual(receipt_metadata["status"], "PASS")
+            self.assertEqual(json.loads(receipt_metadata["receipt_json"])["digest"], result.receipt.digest)
             self.assertEqual(len(result.check_node_ids), 1)
+            check_node = graph.get_node(result.check_node_ids[0])
+            check_metadata = dict(check_node.metadata)
+            self.assertEqual(check_metadata["status"], "PASS")
+            self.assertEqual(json.loads(check_metadata["result_json"])["stdout"], "ok")
             self.assertEqual(len(graph.lineage(result.receipt_node_id, direction="both")), 2)
             memory.close()
 
