@@ -64,7 +64,7 @@ class EngineeringRecoveryFaultMatrixTests(unittest.TestCase):
             plan, _run, store, bridge, _packet, _controller, _dispatcher = self._prepared_dispatch(root)
             stored_plan, current = store.load(plan.run_id)
             changed = current.transition_task(
-                "work", "running", plan=stored_plan, reason="simulated write before checkpoint update",
+                "work", "ready", plan=stored_plan, reason="simulated write before checkpoint update",
             )
             store.save_run(plan.run_id, changed, expected_revision=current.revision)
             restarted = EngineeringPlanRecoveryBridge(
