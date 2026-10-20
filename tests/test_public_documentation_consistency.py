@@ -39,7 +39,7 @@ class TestPublicDocumentationConsistency(unittest.TestCase):
 
     def test_readme_status_and_section_format_are_current(self):
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
-        self.assertIn("## Project status (reviewed 2026-10-16)", readme)
+        self.assertIn("## Project status (reviewed 2026-10-20)", readme)
         self.assertNotIn(r"\n\n## Deterministic repository intelligence", readme)
 
 

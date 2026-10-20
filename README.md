@@ -8,13 +8,15 @@ A provider-neutral AI engineering system that turns software work into a measura
 
 AUREN separates **execution authority from learning**. Active runs operate under bounded, policy-gated execution; learning is recorded as evidence and can influence future runs only after independent evaluation, regression checks, and promotion/rollback decisions. The result is an engineering system designed to improve from observed outcomes while remaining auditable, reproducible, and fail-closed when evidence is insufficient.
 
-## Project status (reviewed 2026-10-16)
+## Project status (reviewed 2026-10-20)
 
-AUREN's current repository includes graph-based specialist proposal adapters, durable execution and recovery paths, cross-platform runtime resilience tests, and guarded evidence/promotion workflows. The public Pages site is published at [AUREN Pages](https://sourabhjainr.github.io/AUREN/).
+**Reviewed baseline:** `main` at [`7e06b4c3abc7`](https://github.com/sourabhJainR/AUREN/commit/7e06b4c3abc7f1d5116eae22206ebec0ca11d4b3), release version `1.0.4`. PR #737 adds capability-aware local-model ranking: explicit capability metadata takes priority, malformed declarations are rejected, configured provider order is retained within capability tiers, and discovery failures surface rather than silently enabling remote fallback for private/restricted work.
 
-**Evidence boundaries:** repository CI and deployment checks demonstrate repository-level behavior only. Independent external evaluation and corpus provenance, a separately operated isolation audit, and an operator-run live migration/rollback rehearsal remain separate gates and must not be described as completed until their evidence is recorded. Checked-in transfer fixtures are not independent benchmark results. Specialist adapters propose work; graph policy, verification, and promotion gates retain authority.
+The revision-specific [AI Harness Check](https://github.com/sourabhJainR/AUREN/actions/runs/39415100754), [Runtime Resilience Matrix](https://github.com/sourabhJainR/AUREN/actions/runs/39415100797), [Architecture Integrity](https://github.com/sourabhJainR/AUREN/actions/runs/39415100737), [Production AI Harness Hardening](https://github.com/sourabhJainR/AUREN/actions/runs/39415100764), [Portable Bundle](https://github.com/sourabhJainR/AUREN/actions/runs/39415100744), [Agent Capability Runtime](https://github.com/sourabhJainR/AUREN/actions/runs/39415100723), and [Pages deployment](https://github.com/sourabhJainR/AUREN/actions/runs/39415100782) workflows passed for that main revision. Portable bundle and checksum artifacts were produced by the exact-revision bundle run; these CI results demonstrate repository-level behavior, not independent external evaluation or production-host isolation.
 
-Pull-request and merge status changes continuously; use the [live pull-request list](https://github.com/sourabhJainR/AUREN/pulls) and [recent main-branch commits](https://github.com/sourabhJainR/AUREN/commits/main) rather than relying on a copied status count.
+**Still open:** the repository branch metadata reports protection as enabled but enforcement as off with no required status checks. Independent external evaluator/corpus provenance, a separately operated isolation audit, and an operator-run live migration/rollback rehearsal remain separate gates. Checked-in transfer fixtures are not independent benchmark results. Host integration for some authority bindings remains opt-in, and consequential external side effects still need downstream idempotency and ambiguity reconciliation.
+
+For the current prioritized gap register and documentation/site synchronization rules, see [Repository and Website Alignment Review](docs/REPOSITORY_WEBSITE_ALIGNMENT_REVIEW_2026-10-20.md). Pull-request and merge status changes continuously; use the [live pull-request list](https://github.com/sourabhJainR/AUREN/pulls) and [recent main-branch commits](https://github.com/sourabhJainR/AUREN/commits/main) rather than relying on copied status counts.
 
 ## Pre-implementation blind-spot review
 
@@ -569,6 +571,8 @@ AUREN/
 The repository keeps only active architecture, deployment, lifecycle, evaluation, and compatibility documentation. Historical implementation plans are not part of the product package.
 
 ## Reference documentation
+
+- [Repository and Website Alignment Review (2026-10-20)](docs/REPOSITORY_WEBSITE_ALIGNMENT_REVIEW_2026-10-20.md) — synchronized status, evidence boundaries, and prioritized remaining gaps.
 
 - [`docs/CAPABILITY_MEMORY_OWNERSHIP.md`](docs/CAPABILITY_MEMORY_OWNERSHIP.md) — capability, memory, and retrieval ownership.
 - [`docs/RIPWIRE_INTEGRATION.md`](docs/RIPWIRE_INTEGRATION.md) — deterministic repository-intelligence lineage and boundaries.
