@@ -57,7 +57,7 @@ class BoundedParallelCrewDispatchTests(unittest.TestCase):
                 max_workers=2,
             )
             state["parallel_proposal_results"] = result
-            return {"crew_ids": list(result)}
+            return result
 
         graph = StateGraph.from_nodes([Node("dispatch", NodeKind.AGENT, dispatch)])
         team = GraphAgentTeam(graph, agents=agents)
@@ -66,12 +66,12 @@ class BoundedParallelCrewDispatchTests(unittest.TestCase):
         self.assertEqual(counters["peak"], 2)
         self.assertEqual(run.results["dispatch"].status.value, "passed")
         result = run.results["dispatch"].output
-        self.assertEqual(result["crew_ids"], ["backend_api", "frontend_ui"])
+        self.assertEqual(list(result), ["backend_api", "frontend_ui"])
         # Proposal calls remain proposals: they cannot self-approve or authorize execution.
-        self.assertTrue(all(
-            receipt["review_required"] is True and receipt["review_status"] == "pending"
-            for receipt in result["proposals"].values()
-        ) if "proposals" in result else True)
+        for receipt in result.values():
+            self.assertTrue(receipt["review_required"])
+            self.assertEqual(receipt["review_status"], "pending")
+            self.assertTrue(receipt["self_attested_acceptance_is_not_authoritative"])
 
 
 if __name__ == "__main__":
