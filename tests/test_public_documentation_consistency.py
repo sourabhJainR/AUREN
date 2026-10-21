@@ -74,13 +74,14 @@ class TestPublicDocumentationConsistency(unittest.TestCase):
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
         site = (ROOT / "site" / "index.html").read_text(encoding="utf-8")
         self.assertIn("Verified implementation evidence snapshot", readme)
-        self.assertIn("99c8fdfc90fd86d4821e74b7ac2b04505477f566", readme)
-        self.assertIn("99c8fdfc90fd86d4821e74b7ac2b04505477f566", site)
+        self.assertIn("c072838aeb28656aedd7730cdae8941312c9065b", readme)
+        self.assertIn("c072838aeb28656aedd7730cdae8941312c9065b", site)
         self.assertNotIn("Verify after this documentation merge", site)
-        self.assertIn("39554077140", site)
-        self.assertIn("39554077048", site)
+        self.assertIn("39555404124", site)
+        self.assertIn("39555404146", site)
         self.assertIn("pull/770", site)
         self.assertIn("pull/771", site)
+        self.assertIn("pull/773", site)
 
     def test_readme_status_and_section_format_are_current(self):
         readme = (ROOT / "README.md").read_text(encoding="utf-8")

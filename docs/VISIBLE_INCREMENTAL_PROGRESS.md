@@ -38,6 +38,7 @@ Regression coverage: `test_file_lock_contention_fails_within_budget` and `test_i
 
 ## Latest liveness safeguards — 2026-10-21
 
-- [PR #770](https://github.com/sourabhJainR/AUREN/pull/770) bounds resumable provider-call waiting, emits provider lifecycle events through a host callback, caps the number of orphaned timed-out worker threads, and checkpoints timeout as a state that requires reconciliation before retry. This does not forcibly kill a Python thread and does not mean every provider adapter is wired to the component.
+- [PR #770](https://github.com/sourabhJainR/AUREN/pull/770) bounds resumable provider-call waiting, emits provider lifecycle events through a host callback, caps the number of orphaned timed-out worker threads, and checkpoints timeout as a state that requires reconciliation before retry. This does not forcibly kill a Python thread. PR [#773](https://github.com/sourabhJainR/AUREN/pull/773) now applies the same bounded-call helper to `ProviderBackedCrewAdapter` and the resumable executor, with a shared eight-worker cap.
 - [PR #771](https://github.com/sourabhJainR/AUREN/pull/771) bounds both in-process and cross-process journal lock acquisition to a finite budget (2 seconds by default). Lock contention fails visibly rather than blocking forever; the supervisor must not claim an event is durable if the append failed.
-- Remaining integration gates: wire provider timeouts/progress callbacks into production adapters, prove cancellation/deadline/hard-termination behavior at runtime boundaries, reconcile journal/SQLite/checkpoint state after crashes, and reconcile ambiguous external effects before retry.
+- Remaining integration gates: wire provider lifecycle callbacks into the canonical progress journal, prove cancellation/deadline/hard-termination behavior at runtime boundaries, reconcile journal/SQLite/checkpoint state after crashes, and reconcile ambiguous external effects before retry.
+
