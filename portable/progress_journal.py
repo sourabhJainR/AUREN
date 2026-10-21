@@ -120,10 +120,14 @@ class ProgressJournal:
             raise ValueError("completed_units cannot exceed total_units")
         if state == "completed" and completed_units is not None and total_units is not None and completed_units != total_units:
             raise ValueError("completed task must account for all declared units")
+        lock_deadline = time.monotonic() + self.lock_timeout_seconds
         if not self._lock.acquire(timeout=self.lock_timeout_seconds):
-            raise TimeoutError("progress journal thread lock acquisition timed out")
+            raise TimeoutError("progress journal lock acquisition timed out (in-process contention)")
         try:
-            with _journal_file_lock(self.path, timeout_seconds=self.lock_timeout_seconds):
+            remaining = lock_deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError("progress journal lock acquisition timed out")
+            with _journal_file_lock(self.path, timeout_seconds=remaining):
                 task_rows = [r for r in self._events() if r["task_id"] == task_id]
                 if task_rows and task_rows[-1]["state"] in TERMINAL:
                     raise ValueError("cannot append progress to a terminal task")
