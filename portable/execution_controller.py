@@ -204,6 +204,9 @@ class ExecutionController:
         # Registered by EngineeringPlanDispatch; keyed by the durable plan-store path.
         # A restarted worker must explicitly restore this trusted bridge before execution.
         self._engineering_plan_recovery_bridges: dict[str, Any] = {}
+        self._progress_reconciliation_findings: list[str] = []
+        self._progress_reconciliation_incomplete = False
+        self.reconcile_progress_journal()
 
     def register_handler(
         self,
@@ -709,6 +712,163 @@ class ExecutionController:
         except Exception as exc:
             # The gate fails closed before the task handler can cause side effects.
             return False, f"preflight gate rejected task: {type(exc).__name__}: {exc}", tuple((*evidence, "preflight-gate:rejected"))
+
+    def reconcile_progress_journal(
+        self, *, limit: int = 1000, time_budget_seconds: float = 2.0
+    ) -> dict[str, Any]:
+        """Rebuild the progress projection from authoritative task and receipt stores.
+
+        The SQLite task row alone cannot prove completion: the executive work-unit
+        receipt must agree. A mismatch is projected as blocked, never success. The
+        scan is bounded so a damaged or very large journal cannot hold startup open.
+        """
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 10000:
+            raise ValueError("reconciliation limit must be an integer from 1 to 10000")
+        if (isinstance(time_budget_seconds, bool)
+                or not isinstance(time_budget_seconds, (int, float))
+                or not math.isfinite(time_budget_seconds)
+                or not 0.05 <= time_budget_seconds <= 30.0):
+            raise ValueError("reconciliation time budget must be between 0.05 and 30 seconds")
+        started = time.monotonic()
+        deadline = started + float(time_budget_seconds)
+        findings: list[str] = []
+        reconciled = 0
+        scanned = 0
+        incomplete = False
+        try:
+            events = self.progress_journal._events()
+            latest_by_task: dict[str, dict[str, Any]] = {}
+            for event in events:
+                latest_by_task[str(event["task_id"])] = event
+        except Exception as exc:
+            self._progress_journal_error = type(exc).__name__
+            self._progress_reconciliation_findings = ["journal-unreadable"]
+            self._progress_reconciliation_incomplete = True
+            return {"scanned": 0, "reconciled": 0, "blocked": 1, "incomplete": True}
+
+        with sqlite3.connect(self.db_path, timeout=5) as db:
+            total = int(db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0])
+            rows = db.execute(
+                "SELECT id,state,work_unit_id,heartbeat_at,lease_until,updated_at "
+                "FROM tasks ORDER BY updated_at DESC,id LIMIT ?",
+                (limit,),
+            ).fetchall()
+
+        now = datetime.now(timezone.utc)
+        for task_id, task_state, work_unit_id, heartbeat_at, lease_until, updated_at in rows:
+            if time.monotonic() >= deadline:
+                incomplete = True
+                break
+            scanned += 1
+            reason = ""
+            try:
+                work_state, _iteration = self.company._state(str(work_unit_id))
+            except Exception:
+                work_state = "unknown"
+
+            if task_state in {"completed", "failed", "cancelled"}:
+                if work_state == task_state:
+                    target_state = str(task_state)
+                    reason = (
+                        f"SQLite task state and executive work-unit receipt agree on terminal state {task_state}."
+                    )
+                else:
+                    target_state = "blocked"
+                    reason = (
+                        "Task and executive receipt disagree at startup; terminal success is not trusted. "
+                        "Inspect the durable work-unit receipt and reconcile before retry."
+                    )
+                    findings.append(str(task_id))
+            elif work_state in {"completed", "failed", "cancelled"}:
+                target_state = "blocked"
+                reason = (
+                    "Executive work unit is terminal while the task row is non-terminal; "
+                    "reconcile the stores before retry or claiming completion."
+                )
+                findings.append(str(task_id))
+            elif task_state == "pending" and work_state == "running":
+                target_state = "queued"
+                reason = "Startup reconciliation restored queued status from the durable task row."
+            elif task_state == "blocked_quota" and work_state == "running":
+                target_state = "blocked"
+                reason = "Task remains blocked on provider quota; resume only after its durable retry time."
+            elif task_state == "running" and work_state == "running":
+                lease_live = False
+                try:
+                    lease_dt = datetime.fromisoformat(str(lease_until)) if lease_until else None
+                    heartbeat_dt = datetime.fromisoformat(str(heartbeat_at)) if heartbeat_at else None
+                    if lease_dt is not None and heartbeat_dt is not None:
+                        if lease_dt.tzinfo is not None and heartbeat_dt.tzinfo is not None:
+                            lease_live = (
+                                lease_dt > now
+                                and (now - heartbeat_dt).total_seconds() <= 90
+                            )
+                except (TypeError, ValueError):
+                    lease_live = False
+                if lease_live:
+                    target_state = "running"
+                    reason = "SQLite lease and heartbeat are fresh; task remains owned by its active worker."
+                else:
+                    target_state = "recovering"
+                    reason = (
+                        "SQLite reports a running task but its lease or heartbeat is stale or missing; "
+                        "worker liveness is unproven. Reconcile before retry."
+                    )
+                    findings.append(str(task_id))
+            else:
+                target_state = "blocked"
+                reason = (
+                    f"Unrecognized or inconsistent durable task state ({task_state}/{work_state}); "
+                    "inspect SQLite and the executive receipt before resuming."
+                )
+                findings.append(str(task_id))
+
+            previous = latest_by_task.get(str(task_id), {})
+            previous_state = previous.get("state")
+            previous_event = previous.get("event")
+            heartbeat_newer = False
+            if target_state == "running" and heartbeat_at and previous.get("timestamp"):
+                try:
+                    heartbeat_dt = datetime.fromisoformat(str(heartbeat_at))
+                    progress_dt = datetime.fromisoformat(str(previous["timestamp"]).replace("Z", "+00:00"))
+                    heartbeat_newer = (
+                        heartbeat_dt.tzinfo is not None and progress_dt.tzinfo is not None
+                        and (heartbeat_dt - progress_dt).total_seconds() > 30
+                    )
+                except (TypeError, ValueError):
+                    heartbeat_newer = False
+            needs_event = (
+                previous_state != target_state
+                or previous_event is None
+                or (target_state in {"blocked", "recovering"} and previous_event != "startup_reconciliation")
+                or heartbeat_newer
+            )
+            if not needs_event:
+                continue
+            try:
+                event = self.progress_journal.record_reconciliation(
+                    str(task_id), state=target_state, stage="startup-reconciliation",
+                    message=reason, evidence_ref=f"sqlite-task:{task_id};executive-work-unit:{work_unit_id}",
+                )
+                latest_by_task[str(task_id)] = {
+                    "task_id": event.task_id, "event": event.event, "state": event.state,
+                    "timestamp": event.timestamp, "sequence": event.sequence,
+                }
+                reconciled += 1
+            except Exception as exc:
+                self._progress_journal_error = type(exc).__name__
+                findings.append(str(task_id))
+
+        if total > len(rows) or scanned < len(rows):
+            incomplete = True
+        self._progress_reconciliation_findings = list(dict.fromkeys(findings))
+        self._progress_reconciliation_incomplete = incomplete
+        return {
+            "scanned": scanned,
+            "reconciled": reconciled,
+            "blocked": len(self._progress_reconciliation_findings),
+            "incomplete": incomplete,
+        }
 
     def _record_progress(
         self, task_id: str, event: str, *, state: str, stage: str, message: str,
@@ -1734,6 +1894,13 @@ class ExecutionController:
             findings.append(
                 "progress_journal_write_failed; task state remains in SQLite and progress visibility needs repair"
             )
+        if self._progress_reconciliation_findings:
+            findings.append(
+                f"progress_reconciliation_required={len(self._progress_reconciliation_findings)}; "
+                "task and executive receipt disagree or worker liveness is unproven; inspect before retry"
+            )
+        if self._progress_reconciliation_incomplete:
+            findings.append("progress_reconciliation_incomplete; bounded startup scan must be resumed")
         if self.evidence_capture.sink is not None:
             delivery = self.evidence_capture.flush_pending(limit=100)
             if delivery["pending"]:
