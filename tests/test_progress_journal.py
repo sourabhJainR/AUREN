@@ -2,6 +2,7 @@ import tempfile
 import unittest
 from datetime import datetime, timezone
 import time
+from threading import Event, Thread
 from pathlib import Path
 from portable.progress_journal import ProgressJournal, _journal_file_lock
 
@@ -68,6 +69,29 @@ class ProgressJournalTests(unittest.TestCase):
                 with self.assertRaisesRegex(TimeoutError, "lock acquisition timed out"):
                     journal.record("blocked", "must-not-hang")
                 self.assertLess(time.monotonic() - started, 0.5)
+
+    def test_same_instance_lock_contention_is_bounded(self):
+        with tempfile.TemporaryDirectory() as temp:
+            journal = ProgressJournal(Path(temp) / "progress.jsonl", lock_timeout_seconds=0.05)
+            acquired = Event()
+            release = Event()
+
+            def hold_instance_lock():
+                with journal._lock:
+                    acquired.set()
+                    release.wait(1)
+
+            worker = Thread(target=hold_instance_lock, daemon=True)
+            worker.start()
+            self.assertTrue(acquired.wait(0.5))
+            started = time.monotonic()
+            try:
+                with self.assertRaisesRegex(TimeoutError, "thread lock acquisition timed out"):
+                    journal.record("blocked-thread", "must-not-hang")
+                self.assertLess(time.monotonic() - started, 0.5)
+            finally:
+                release.set()
+                worker.join(timeout=0.5)
 
     def test_invalid_lock_timeout_rejected(self):
         with tempfile.TemporaryDirectory() as temp:
