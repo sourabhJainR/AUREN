@@ -70,6 +70,41 @@ class AdaptiveRuntimeRecoveryIntegrationTests(unittest.TestCase):
         self.assertEqual([item.hypothesis for item in resumed_attempts], [item.hypothesis for item in attempts])
         self.assertEqual(resumed.recovery_ledger.get_checkpoint(work_id, "execution").payload["recovery_mode"], "alternate-plan")
 
+    def test_pending_journal_decision_blocks_restart_before_replaying_work(self):
+        graph = Graph([Node("work", NodeKind.DETERMINISTIC, lambda state: "ok")])
+        state_root = self.root / "pending-decision-state"
+        runtime = AdaptiveRuntime(graph, state_root=state_root)
+        session_id = "pending-decision-session"
+        task_id = "pending-decision-task"
+        intent = "do not replay an interrupted recovery decision"
+        work_id = runtime.execution_controller.work_unit_for_session(
+            f"{session_id}:{task_id}", f"{task_id}: {intent}",
+        )
+        runtime.recovery_ledger.start_run(work_id, f"{task_id}: {intent}")
+        first = runtime.recovery_ledger.begin_attempt(
+            work_id, "execution", "execution-failure", "default-plan", action="reproduce",
+        )
+        runtime.recovery_ledger.finish_attempt(first, outcome="failed")
+        checkpoint = runtime.recovery_ledger.checkpoint(
+            work_id, "execution", status="failed", head_sha="",
+            payload={"iteration": 1, "hypothesis": "default-plan", "recovery_mode": "initial"},
+        )
+        runtime.recovery_decision_journal.record(
+            work_id=work_id, phase="execution", attempt_number=2, action="retry",
+            strategy_id=None, failure_class="execution_failure", attempts_remaining=1,
+            checkpoint_digest=runtime.recovery_decision_journal._checkpoint_digest(checkpoint),
+            side_effect_state="ambiguous", reason_code="bounded_retry",
+        )
+        calls = []
+        runtime._run_once = lambda **_kwargs: calls.append("replayed") or None
+
+        with self.assertRaisesRegex(RuntimeError, "pending_decision"):
+            runtime.run(
+                session_id=session_id, task_id=task_id, project_root=self.root,
+                intent=intent, context={"auren_max_iterations": 2},
+            )
+        self.assertEqual([], calls, "the interrupted decision must not dispatch another attempt")
+
     def test_journal_persistence_failure_stops_before_another_recovery_attempt(self):
         graph = Graph([Node("work", NodeKind.DETERMINISTIC, lambda state: "ok")])
         runtime = AdaptiveRuntime(graph, state_root=self.root / "journal-failure-state")
