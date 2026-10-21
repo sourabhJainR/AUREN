@@ -45,6 +45,19 @@ class ProgressJournalTests(unittest.TestCase):
             ProgressJournal(path).record("e", "failure", message="api_key=abc123")
             self.assertNotIn("abc123", path.read_text(encoding="utf-8"))
 
+    def test_multiple_journal_instances_keep_sequence_monotonic(self):
+        import concurrent.futures
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "progress.jsonl"
+            def write(index):
+                return ProgressJournal(path).record("shared", "unit", message=str(index)).sequence
+            with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+                sequences = list(pool.map(write, range(80)))
+            self.assertEqual(sorted(sequences), list(range(1, 81)))
+            snapshot = ProgressJournal(path).snapshot("shared")
+            self.assertEqual(snapshot["sequence"], 80)
+            self.assertEqual(snapshot["event_count"], 80)
+
     def test_invalid_progress_units_rejected(self):
         with tempfile.TemporaryDirectory() as temp:
             with self.assertRaises(ValueError):
