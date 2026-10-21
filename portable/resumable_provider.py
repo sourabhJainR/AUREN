@@ -11,8 +11,8 @@ from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import math
-from queue import Queue
-from threading import Event, Thread
+from queue import Empty, Queue
+from threading import Thread
 from time import monotonic
 from typing import Any, Callable, Mapping
 
@@ -130,7 +130,7 @@ class ResumableProviderExecutor:
             raise ValueError("provider resume checkpoint has invalid rate-limit state")
         for value in deferred.values():
             _parse_time(value)
-        if checkpoint.get("status") not in {"ready", "deferred", "completed", "failed"}:
+        if checkpoint.get("status") not in {"ready", "deferred", "completed", "failed", "timed_out"}:
             raise ValueError("provider resume checkpoint has invalid status")
         # Provider sets can change across restart. Keep only cooldowns/attempt
         # metadata for currently registered providers and use the new operator
@@ -186,11 +186,8 @@ class ResumableProviderExecutor:
                 return "timeout", None
             try:
                 kind, value = outcome.get(timeout=min(remaining, 0.05))
-            except Exception as exc:
-                from queue import Empty
-                if isinstance(exc, Empty):
-                    continue
-                raise
+            except Empty:
+                continue
             if kind == "error":
                 return "error", value
             return "result", value
@@ -215,6 +212,8 @@ class ResumableProviderExecutor:
             raise ValueError("provider request must be a mapping")
         if self._state["status"] == "completed":
             raise RuntimeError("completed provider stage must be resumed from its saved result, not re-executed")
+        if self._state["status"] == "timed_out":
+            raise RuntimeError("timed-out provider attempt requires reconciliation before retry")
         current = (now or _utcnow()).astimezone(timezone.utc)
         ordered = [self.preferred_provider] + [p for p in sorted(self.providers) if p != self.preferred_provider]
         available = []
@@ -249,7 +248,7 @@ class ResumableProviderExecutor:
                 if outcome == "timeout":
                     self._state["timed_out_provider"] = provider
                     self._state["retry_blocked_reason"] = "provider call timed out; late completion is possible"
-                    self._save(status="failed")
+                    self._save(status="timed_out")
                     return {"status": "timed_out", "provider": provider,
                             "reason": "provider call exceeded its bounded wait; reconcile before retrying",
                             "late_result_possible": True, "retryable": False,
