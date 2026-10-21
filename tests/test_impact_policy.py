@@ -50,7 +50,7 @@ class ImpactPolicyTests(unittest.TestCase):
 
     def test_final_status_distinguishes_all_four_outcomes(self):
         result = final_status(
-            required=["core", "hardening", "optional"],
+            required=["core", "hardening"],
             passed=["core"], failed=["hardening"], skipped=["optional", "extra"],
             not_required=["optional"],
         )
