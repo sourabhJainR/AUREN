@@ -34,6 +34,27 @@ def _canonical(value: Any) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
 
 
+def _safe_value(value: Any, *, key: str = "", depth: int = 0) -> Any:
+    """Bound and redact externally supplied audit data before it is persisted."""
+    lowered = key.lower()
+    if any(marker in lowered for marker in ("token", "secret", "password", "authorization", "credential", "cookie")):
+        return "[REDACTED]"
+    if depth >= 5:
+        return "[DEPTH_LIMIT]"
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    if isinstance(value, str):
+        return value[:1000]
+    if isinstance(value, Mapping):
+        return {
+            str(k)[:120]: _safe_value(v, key=str(k), depth=depth + 1)
+            for k, v in list(value.items())[:100]
+        }
+    if isinstance(value, (list, tuple)):
+        return [_safe_value(item, depth=depth + 1) for item in value[:100]]
+    return f"[UNSUPPORTED:{type(value).__name__}]"
+
+
 class GitHubActionsCheckPoller:
     """Poll commit-bound GitHub check-runs; never treats missing/skipped checks as passes."""
 
@@ -178,7 +199,7 @@ class ContinuousExecutionSupervisor:
             )
 
     def _event(self, run_id: str, event_type: str, payload: Mapping[str, Any]) -> None:
-        body = _canonical(dict(payload))
+        body = _canonical(_safe_value(dict(payload)))
         with sqlite3.connect(self.path, timeout=5) as db:
             db.execute("BEGIN IMMEDIATE")
             previous = db.execute("SELECT digest FROM events ORDER BY sequence DESC LIMIT 1").fetchone()
@@ -268,8 +289,13 @@ class ContinuousExecutionSupervisor:
             state, owner, lease = db.execute(
                 "SELECT state,owner_id,lease_until FROM control WHERE id=1"
             ).fetchone()
-            if state == "stop_requested":
-                raise RuntimeError("AUREN continuous execution is stopped; issue the explicit start command to restart")
+            if state == "stop_requested" and owner and lease:
+                try:
+                    lease_time = datetime.fromisoformat(lease)
+                except ValueError:
+                    lease_time = datetime.min.replace(tzinfo=timezone.utc)
+                if lease_time.tzinfo is not None and lease_time > now and owner != self.owner_id:
+                    raise RuntimeError("stop is being honored by the live AUREN supervisor")
             if state == "running" and owner and lease:
                 try:
                     lease_time = datetime.fromisoformat(lease)
