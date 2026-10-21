@@ -89,6 +89,10 @@ class TestPublicDocumentationConsistency(unittest.TestCase):
 
     def test_standalone_readiness_matrix_tracks_external_gates(self):
         matrix = (ROOT / "docs" / "STANDALONE_READINESS_AND_GAP_MATRIX.md").read_text(encoding="utf-8")
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        site = (ROOT / "site" / "index.html").read_text(encoding="utf-8")
+        self.assertIn("STANDALONE_READINESS_AND_GAP_MATRIX.md", readme)
+        self.assertIn("STANDALONE_READINESS_AND_GAP_MATRIX.md", site)
         self.assertIn("Verify hard termination", matrix)
         self.assertIn("Prove cancellation and absolute deadlines", matrix)
         self.assertIn("independent evaluator", matrix.lower())
