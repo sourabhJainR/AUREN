@@ -193,6 +193,64 @@ class ProgressJournalRuntimeIntegrationTests(unittest.TestCase):
             self.assertFalse(any("progress_reconciliation_incomplete" in finding
                                  for finding in controller.health_findings()))
 
+    def test_restart_blocks_when_execution_record_commit_fails_after_task_finalization(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            controller = ExecutionController(root)
+            controller.register_handler(
+                "tests.progress_success", progress_success_handler, execution_class="read_only"
+            )
+            task = controller.submit("tests.progress_success", {"request_id": "safe-fixture"})
+            original_record = controller.company.record
+
+            def fail_execution_record(*args, **kwargs):
+                kind = args[1] if len(args) > 1 else kwargs.get("kind")
+                if kind == "execution":
+                    raise OSError("controlled execution-record commit failure")
+                return original_record(*args, **kwargs)
+
+            controller.company.record = fail_execution_record
+            with self.assertRaisesRegex(OSError, "execution-record commit failure"):
+                controller.run_once(task.id)
+
+            self.assertEqual(controller.task(task.id).state, "completed")
+            self.assertEqual(controller.company._state(task.work_unit_id)[0], "running")
+            restarted = ExecutionController(root)
+            snapshot = restarted.progress_journal.snapshot(task.id, stale_after_seconds=3600)
+            self.assertEqual(snapshot["reported_state"], "blocked")
+            self.assertTrue(any("progress_reconciliation_required=1" in finding
+                                for finding in restarted.health_findings()))
+
+    def test_restart_repairs_terminal_journal_write_failure_after_receipt_commit(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            controller = ExecutionController(root)
+            controller.register_handler(
+                "tests.progress_success", progress_success_handler, execution_class="read_only"
+            )
+            task = controller.submit("tests.progress_success", {"request_id": "safe-fixture"})
+            original_record = controller.progress_journal.record
+
+            def fail_terminal_event(task_id, event, **kwargs):
+                if event == "task_terminal":
+                    raise OSError("controlled terminal journal write failure")
+                return original_record(task_id, event, **kwargs)
+
+            controller.progress_journal.record = fail_terminal_event
+            result = controller.run_once(task.id)
+            self.assertIsNotNone(result)
+            self.assertEqual(controller.task(task.id).state, "completed")
+            self.assertEqual(controller.company._state(task.work_unit_id)[0], "completed")
+            before_restart = controller.progress_journal.snapshot(task.id, stale_after_seconds=3600)
+            self.assertNotEqual(before_restart["reported_state"], "completed")
+
+            restarted = ExecutionController(root)
+            after_restart = restarted.progress_journal.snapshot(task.id, stale_after_seconds=3600)
+            self.assertEqual(after_restart["reported_state"], "completed")
+            self.assertEqual(after_restart["event"], "startup_reconciliation")
+            self.assertFalse(any("progress_reconciliation_required" in finding
+                                 for finding in restarted.health_findings()))
+
     def test_journal_failure_is_visible_without_falsifying_task_state(self):
         with tempfile.TemporaryDirectory() as temp:
             controller = ExecutionController(temp)
