@@ -10,12 +10,19 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
-from typing import Any, Callable, Mapping, Sequence
+import math
+from queue import Empty, Queue
+from threading import BoundedSemaphore, Thread
+from time import monotonic
+from typing import Any, Callable, Mapping
 
 from .crew_adapters import TaskRetryBudget
 
 
 SCHEMA_VERSION = "auren-provider-resume-v1"
+# Timed-out Python threads cannot be killed safely; cap orphaned provider workers.
+_MAX_PROVIDER_WORKERS = 8
+_PROVIDER_WORKER_SLOTS = BoundedSemaphore(_MAX_PROVIDER_WORKERS)
 
 
 def _canonical(value: Any) -> bytes:
@@ -45,6 +52,11 @@ def _parse_time(value: str | None) -> datetime | None:
     return parsed.astimezone(timezone.utc)
 
 
+class ProviderProgressError(RuntimeError):
+    """Progress callback failed; do not misclassify it as a provider failure."""
+    retryable = False
+
+
 class ProviderCallError(RuntimeError):
     """Typed provider failure used by hosts that can classify HTTP/network errors."""
 
@@ -70,6 +82,8 @@ class ResumableProviderExecutor:
         provider_versions: Mapping[str, str], preferred_provider: str, retry_budget: TaskRetryBudget,
         persist: Callable[[Mapping[str, Any]], None], record_evidence: Callable[[Mapping[str, Any]], None] | None = None,
         checkpoint: Mapping[str, Any] | None = None,
+        call_timeout_seconds: float = 120.0,
+        progress: Callable[[Mapping[str, Any]], None] | None = None,
     ) -> None:
         if not isinstance(task_id, str) or not task_id.strip() or not isinstance(stage_id, str) or not stage_id.strip():
             raise ValueError("task_id and stage_id are required")
@@ -86,10 +100,16 @@ class ResumableProviderExecutor:
             raise TypeError("retry_budget must be the canonical task retry budget")
         if not callable(persist) or (record_evidence is not None and not callable(record_evidence)):
             raise TypeError("persistence and evidence callbacks must be callable")
+        if isinstance(call_timeout_seconds, bool) or not isinstance(call_timeout_seconds, (int, float)) or not math.isfinite(call_timeout_seconds) or call_timeout_seconds <= 0:
+            raise ValueError("call_timeout_seconds must be finite and positive")
+        if progress is not None and not callable(progress):
+            raise TypeError("progress callback must be callable")
         self.task_id, self.stage_id = task_id, stage_id
         self.providers, self.provider_versions = dict(providers), dict(provider_versions)
         self.preferred_provider = preferred_provider
         self.retry_budget, self.persist, self.record_evidence = retry_budget, persist, record_evidence
+        self.call_timeout_seconds = float(call_timeout_seconds)
+        self.progress = progress
         self._state = {
             "schema_version": SCHEMA_VERSION, "task_id": task_id, "stage_id": stage_id,
             "preferred_provider": preferred_provider, "attempted_providers": [],
@@ -118,7 +138,7 @@ class ResumableProviderExecutor:
             raise ValueError("provider resume checkpoint has invalid rate-limit state")
         for value in deferred.values():
             _parse_time(value)
-        if checkpoint.get("status") not in {"ready", "deferred", "completed", "failed"}:
+        if checkpoint.get("status") not in {"ready", "deferred", "completed", "failed", "timed_out"}:
             raise ValueError("provider resume checkpoint has invalid status")
         # Provider sets can change across restart. Keep only cooldowns/attempt
         # metadata for currently registered providers and use the new operator
@@ -142,6 +162,62 @@ class ResumableProviderExecutor:
         payload["digest"] = _digest(payload)
         return payload
 
+    def _emit(self, event: str, **fields: Any) -> None:
+        if self.progress is not None:
+            # The host callback is expected to be a bounded local journal write.
+            # Callback failures fail closed rather than hiding a loss of progress evidence.
+            try:
+                self.progress({"event": event, "task_id": self.task_id, "stage_id": self.stage_id, **fields})
+            except Exception as exc:
+                raise ProviderProgressError(f"provider progress callback failed during {event}") from exc
+
+    def _call_bounded(self, provider: str, request: Mapping[str, Any], key: str) -> tuple[str, Any]:
+        """Bound caller wait without pretending Python can kill a running thread.
+
+        A timed-out call may finish later. It is therefore never automatically
+        retried or failed over; the returned state requires reconciliation first.
+        Providers must be proposal/read-only operations, and host adapters should
+        also configure their native transport timeout.
+        """
+        if not _PROVIDER_WORKER_SLOTS.acquire(blocking=False):
+            self._emit("provider_call_blocked", provider=provider, reason="bounded provider worker capacity exhausted",
+                       max_workers=_MAX_PROVIDER_WORKERS)
+            return "capacity", None
+        outcome: Queue[tuple[str, Any]] = Queue(maxsize=1)
+        def invoke() -> None:
+            try:
+                outcome.put(("result", self.providers[provider](dict(request), key)))
+            except Exception as exc:
+                outcome.put(("error", exc))
+            finally:
+                _PROVIDER_WORKER_SLOTS.release()
+        worker = Thread(target=invoke, name=f"auren-provider-{provider}", daemon=True)
+        try:
+            self._emit("provider_call_started", provider=provider, timeout_seconds=self.call_timeout_seconds)
+        except Exception:
+            _PROVIDER_WORKER_SLOTS.release()
+            raise
+        started = monotonic()
+        worker.start()
+        while True:
+            remaining = self.call_timeout_seconds - (monotonic() - started)
+            if remaining <= 0:
+                try:
+                    self._emit("provider_call_timed_out", provider=provider, timeout_seconds=self.call_timeout_seconds,
+                               late_result_possible=True, retry_blocked=True)
+                except ProviderProgressError:
+                    # The timeout result itself is the durable caller-visible signal;
+                    # do not let a failed observer callback trigger unsafe failover.
+                    pass
+                return "timeout", None
+            try:
+                kind, value = outcome.get(timeout=min(remaining, 0.05))
+            except Empty:
+                continue
+            if kind == "error":
+                return "error", value
+            return "result", value
+
     def _save(self, *, status: str | None = None) -> None:
         if status is not None:
             self._state["status"] = status
@@ -157,11 +233,32 @@ class ResumableProviderExecutor:
                 "status": snapshot["status"],
             })
 
+    def _handle_provider_error(self, provider: str, exc: Exception, current: datetime,
+                               errors: list[dict[str, str]]) -> None:
+        retryable = getattr(exc, "retryable", None)
+        status_code = getattr(exc, "status_code", None)
+        if retryable is False:
+            self._emit("provider_call_failed", provider=provider, error_type=type(exc).__name__, retryable=False)
+            self._save(status="failed")
+            raise exc
+        if status_code == 429:
+            reset_at = _parse_time(getattr(exc, "reset_at", None))
+            delay = getattr(exc, "retry_after_seconds", None)
+            if reset_at is None and isinstance(delay, (int, float)) and delay >= 0:
+                reset_at = current + timedelta(seconds=delay)
+            if reset_at is None:
+                reset_at = current + timedelta(minutes=1)
+            self._state["deferred_until"][provider] = _iso(reset_at)
+        errors.append({"provider": provider, "error_type": type(exc).__name__})
+        self._emit("provider_call_failed", provider=provider, error_type=type(exc).__name__, retryable=True)
+
     def run(self, request: Mapping[str, Any], *, now: datetime | None = None) -> Any:
         if not isinstance(request, Mapping):
             raise ValueError("provider request must be a mapping")
         if self._state["status"] == "completed":
             raise RuntimeError("completed provider stage must be resumed from its saved result, not re-executed")
+        if self._state["status"] == "timed_out":
+            raise RuntimeError("timed-out provider attempt requires reconciliation before retry")
         current = (now or _utcnow()).astimezone(timezone.utc)
         ordered = [self.preferred_provider] + [p for p in sorted(self.providers) if p != self.preferred_provider]
         available = []
@@ -190,35 +287,40 @@ class ResumableProviderExecutor:
             if provider not in self._state["attempted_providers"]:
                 self._state["attempted_providers"].append(provider)
             self._save(status="ready")
+            self._emit("provider_attempt_started", provider=provider, attempt=index + 1)
             try:
-                result = self.providers[provider](dict(request), idempotency_key)
-                encoded = _canonical(result)
-                self._state["result_digest"] = hashlib.sha256(encoded).hexdigest()
-                self._state["selected_provider"] = provider
-                self._state["selected_provider_version"] = self.provider_versions[provider]
-                self._state["deferred_until"].pop(provider, None)
-                self._save(status="completed")
-                return result
+                outcome, value = self._call_bounded(provider, request, idempotency_key)
             except Exception as exc:
-                retryable = getattr(exc, "retryable", None)
-                status_code = getattr(exc, "status_code", None)
-                if retryable is False:
-                    self._save(status="failed")
-                    raise
-                if status_code == 429 or isinstance(exc, ProviderCallError) and status_code == 429:
-                    reset_at = _parse_time(getattr(exc, "reset_at", None))
-                    delay = getattr(exc, "retry_after_seconds", None)
-                    if reset_at is None and isinstance(delay, (int, float)) and delay >= 0:
-                        reset_at = current + timedelta(seconds=delay)
-                    if reset_at is None:
-                        # Unknown reset: do not busy-loop or discard work. Caller
-                        # can schedule a conservative retry and inject fresh state.
-                        reset_at = current + timedelta(minutes=1)
-                    self._state["deferred_until"][provider] = _iso(reset_at)
-                errors.append({"provider": provider, "error_type": type(exc).__name__})
-                # Connection resets, timeouts, and transient server errors try the
-                # next pinned provider. No exception message/prompt is persisted.
+                self._handle_provider_error(provider, exc, current, errors)
                 continue
+            if outcome == "capacity":
+                self._save(status="deferred")
+                return {"status": "blocked", "reason": "bounded provider worker capacity exhausted",
+                        "retryable": True, "resume_after_seconds": 1,
+                        "checkpoint": self.snapshot()["digest"]}
+            if outcome == "timeout":
+                self._state["timed_out_provider"] = provider
+                self._state["retry_blocked_reason"] = "provider call timed out; late completion is possible"
+                self._save(status="timed_out")
+                return {"status": "timed_out", "provider": provider,
+                        "reason": "provider call exceeded its bounded wait; reconcile before retrying",
+                        "late_result_possible": True, "retryable": False,
+                        "checkpoint": self.snapshot()["digest"]}
+            if outcome == "error":
+                self._handle_provider_error(provider, value, current, errors)
+                continue
+
+            result = value
+            encoded = _canonical(result)
+            self._state["result_digest"] = hashlib.sha256(encoded).hexdigest()
+            self._state["selected_provider"] = provider
+            self._state["selected_provider_version"] = self.provider_versions[provider]
+            self._state["deferred_until"].pop(provider, None)
+            self._emit("provider_result_ready", provider=provider, result_digest=self._state["result_digest"])
+            # Persistence/evidence failures must propagate; they are not provider
+            # failures and must never trigger a second provider invocation.
+            self._save(status="completed")
+            return result
         future_resets = [_parse_time(v) for v in self._state["deferred_until"].values()]
         future_resets = [x for x in future_resets if x is not None and x > current]
         if future_resets:

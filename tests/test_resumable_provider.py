@@ -1,4 +1,6 @@
 from datetime import datetime, timezone
+from threading import Event
+import time
 import unittest
 
 from portable.crew_adapters import TaskRetryBudget
@@ -74,6 +76,87 @@ class ResumableProviderTests(unittest.TestCase):
         self.assertEqual(result, {"result": "b"})
         self.assertEqual(calls_after_reset, ["b"])
         self.assertEqual(resumed_budget.used, 1, "restart must restore spent retry charges")
+
+    def test_hung_provider_returns_bounded_unknown_and_never_fails_over(self):
+        started = Event()
+        release = Event()
+        calls = []
+        events = []
+        checkpoints = []
+
+        def hung(request, key):
+            calls.append("primary")
+            started.set()
+            release.wait(2)
+            return {"late": True}
+
+        def backup(request, key):
+            calls.append("backup")
+            return {"ok": True}
+
+        executor = ResumableProviderExecutor(
+            task_id="task-timeout", stage_id="provider-stage",
+            providers={"primary": hung, "backup": backup},
+            provider_versions={"primary": "1", "backup": "1"},
+            preferred_provider="primary", retry_budget=TaskRetryBudget(max_retries=3),
+            persist=checkpoints.append, progress=events.append, call_timeout_seconds=0.1,
+        )
+        before = time.monotonic()
+        result = executor.run({"prompt": "safe"})
+        elapsed = time.monotonic() - before
+        self.assertTrue(started.is_set())
+        self.assertLess(elapsed, 0.8)
+        self.assertEqual(result["status"], "timed_out")
+        self.assertFalse(result["retryable"])
+        self.assertTrue(result["late_result_possible"])
+        self.assertEqual(calls, ["primary"])
+        self.assertEqual(checkpoints[-1]["status"], "timed_out")
+        self.assertIn("provider_call_timed_out", [event["event"] for event in events])
+        with self.assertRaisesRegex(RuntimeError, "requires reconciliation"):
+            executor.run({"prompt": "safe"})
+        resumed = ResumableProviderExecutor(
+            task_id="task-timeout", stage_id="provider-stage",
+            providers={"primary": hung, "backup": backup},
+            provider_versions={"primary": "1", "backup": "1"},
+            preferred_provider="primary", retry_budget=TaskRetryBudget(max_retries=3),
+            persist=checkpoints.append, checkpoint=checkpoints[-1], call_timeout_seconds=0.1,
+        )
+        with self.assertRaisesRegex(RuntimeError, "requires reconciliation"):
+            resumed.run({"prompt": "safe"})
+        self.assertEqual(calls, ["primary"])
+        release.set()
+
+    def test_checkpoint_write_failure_after_provider_result_never_fails_over(self):
+        calls = []
+
+        def persist(snapshot):
+            if snapshot["status"] == "completed":
+                raise OSError("controlled checkpoint store outage")
+
+        executor = ResumableProviderExecutor(
+            task_id="task-persist-failure", stage_id="stage",
+            providers={
+                "primary": lambda request, key: calls.append("primary") or {"ok": True},
+                "backup": lambda request, key: calls.append("backup") or {"ok": True},
+            },
+            provider_versions={"primary": "1", "backup": "1"},
+            preferred_provider="primary", retry_budget=TaskRetryBudget(max_retries=2),
+            persist=persist, call_timeout_seconds=0.2,
+        )
+        with self.assertRaisesRegex(OSError, "checkpoint store outage"):
+            executor.run({"prompt": "safe"})
+        self.assertEqual(calls, ["primary"])
+
+    def test_invalid_provider_call_timeout_rejected(self):
+        for value in (0, -1, float("inf"), float("nan"), True):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                ResumableProviderExecutor(
+                    task_id="task-timeout-invalid", stage_id="stage",
+                    providers={"p": lambda request, key: {"ok": True}},
+                    provider_versions={"p": "1"}, preferred_provider="p",
+                    retry_budget=TaskRetryBudget(max_retries=1), persist=lambda _: None,
+                    call_timeout_seconds=value,
+                )
 
     def test_provider_checkpoint_tamper_and_wrong_task_fail_closed(self):
         executor = ResumableProviderExecutor(
