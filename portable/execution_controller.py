@@ -1384,14 +1384,15 @@ class ExecutionController:
             self._verify_engineering_plan_dispatch_checkpoint(task)
             gates_passed, gate_detail, gate_evidence = self._preflight_gates(task)
             if not gates_passed:
+                evidence = [f"handler:{task.handler}", *gate_evidence]
+                score = self._commit_work_unit_outcome(
+                    task.work_unit_id, success=False, reason=gate_detail, evidence=evidence,
+                )
                 if not self._finalize_claim(task, "failed"):
                     raise LeaseLostError("stale worker cannot finalize rejected task")
-                evidence = [f"handler:{task.handler}", *gate_evidence]
                 self._capture_event("task_failed", task, status="failed", metadata={
                     "handler": task.handler, "phase": "preflight", "failure_class": "gate_rejection",
                 })
-                self.company.record(task.work_unit_id, "execution", "failed", gate_detail, evidence)
-                score = self.company.finish(task.work_unit_id, success=False, reason=gate_detail, evidence=evidence)
                 self._record_progress(
                     task.id, "task_terminal", state="failed", stage="terminal",
                     message="Preflight gate rejected the task; failure receipt committed.",
@@ -1410,19 +1411,22 @@ class ExecutionController:
         except LeaseLostError:
             raise
         except Exception as exc:
+            if isinstance(exc, WorkUnitReceiptCommitError):
+                raise
             if self._pause_for_quota(task, exc):
                 return None
+            detail = f"{type(exc).__name__}: {exc}"
+            self._commit_work_unit_outcome(
+                task.work_unit_id, success=False, reason=detail, evidence=(f"handler:{task.handler}",),
+            )
             if not self._finalize_claim(task, "failed"):
                 raise LeaseLostError(
                     "task lease was lost; stale worker cannot overwrite the current task outcome"
                 ) from exc
-            detail = f"{type(exc).__name__}: {exc}"
             self._capture_event("task_failed", task, status="failed", metadata={
                 "handler": task.handler, "phase": "exception",
                 "failure_class": type(exc).__name__,
             })
-            self.company.record(task.work_unit_id, "execution", "failed", detail, (f"handler:{task.handler}",))
-            self.company.finish(task.work_unit_id, success=False, reason=detail)
             self._record_progress(
                 task.id, "task_terminal", state="failed", stage="terminal",
                 message="Handler failed; durable failure receipt committed.",
@@ -1443,6 +1447,9 @@ class ExecutionController:
             success, detail = True, "handler completed"
 
         state = "completed" if success else "failed"
+        score = self._commit_work_unit_outcome(
+            task.work_unit_id, success=success, reason=detail, evidence=evidence,
+        )
         if not self._finalize_claim(task, state):
             raise LeaseLostError("task lease was lost; stale worker cannot finalize task outcome")
         self._capture_event(
@@ -1454,8 +1461,6 @@ class ExecutionController:
                 "result_category": "success" if success else "failure",
             },
         )
-        self.company.record(task.work_unit_id, "execution", state, detail, evidence)
-        score = self.company.finish(task.work_unit_id, success=success, reason=detail, evidence=evidence)
         self._record_progress(
             task.id, "task_terminal", state=state, stage="terminal",
             message=f"Supervisor committed terminal state and work-unit receipt: {state}.",
