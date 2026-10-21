@@ -73,7 +73,7 @@ class TestPublicDocumentationConsistency(unittest.TestCase):
     def test_public_status_does_not_leave_completed_deployment_as_pending(self):
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
         site = (ROOT / "site" / "index.html").read_text(encoding="utf-8")
-        self.assertIn("Verified main snapshot", readme)
+        self.assertIn("Last verified merged baseline before PR #776", readme)
         self.assertIn("87831dc3e08029b82f51fc81bc8f79f569c9be6d", readme)
         self.assertIn("87831dc3e08029b82f51fc81bc8f79f569c9be6d", site)
         self.assertNotIn("Verify after this documentation merge", site)
