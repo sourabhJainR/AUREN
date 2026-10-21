@@ -849,6 +849,7 @@ class ExecutionController:
                 event = self.progress_journal.record_reconciliation(
                     str(task_id), state=target_state, stage="startup-reconciliation",
                     message=reason, evidence_ref=f"sqlite-task:{task_id};executive-work-unit:{work_unit_id}",
+                    expected_sequence=int(previous.get("sequence", 0)) if previous else 0,
                 )
                 latest_by_task[str(task_id)] = {
                     "task_id": event.task_id, "event": event.event, "state": event.state,
