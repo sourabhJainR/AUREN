@@ -106,39 +106,83 @@ class RecoveryDecisionJournal:
             "side_effect_state": side_effect_state, "reason_code": reason_code,
         }
 
+    @classmethod
+    def record_in_transaction(cls, db: sqlite3.Connection, **values: Any) -> RecoveryDecisionReceipt:
+        """Write a decision receipt inside a caller-owned transaction.
+
+        Used by EngineeringRecoveryLedger to atomically commit the decision and
+        attempt row in the same SQLite database. This method never commits.
+        """
+        payload = cls._payload(**values)
+        canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+        digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+        row = db.execute(
+            "SELECT decision_json, decision_digest, created_at FROM recovery_decisions "
+            "WHERE work_id=? AND phase=? AND attempt_number=?",
+            (payload["work_id"], payload["phase"], payload["attempt_number"]),
+        ).fetchone()
+        if row is not None:
+            if row["decision_digest"] != digest or row["decision_json"] != canonical:
+                raise ValueError("recovery decision key already contains a different receipt")
+            created_at = row["created_at"]
+        else:
+            created_at = datetime.now(timezone.utc).isoformat()
+            db.execute(
+                "INSERT INTO recovery_decisions "
+                "(work_id, phase, attempt_number, decision_json, decision_digest, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (payload["work_id"], payload["phase"], payload["attempt_number"], canonical, digest, created_at),
+            )
+        return RecoveryDecisionReceipt(**payload, created_at=created_at, decision_digest=digest)
+
     def record(
         self, *, work_id: str, phase: str, attempt_number: int, action: str,
         strategy_id: str | None, failure_class: str, attempts_remaining: int,
         checkpoint_digest: str, side_effect_state: str, reason_code: str,
     ) -> RecoveryDecisionReceipt:
-        payload = self._payload(
-            work_id=work_id, phase=phase, attempt_number=attempt_number, action=action,
-            strategy_id=strategy_id, failure_class=failure_class,
-            attempts_remaining=attempts_remaining, checkpoint_digest=checkpoint_digest,
-            side_effect_state=side_effect_state, reason_code=reason_code,
-        )
-        canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
-        digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
         with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
-            row = db.execute(
-                "SELECT decision_json, decision_digest, created_at FROM recovery_decisions "
-                "WHERE work_id=? AND phase=? AND attempt_number=?",
-                (work_id, phase, attempt_number),
-            ).fetchone()
-            if row is not None:
-                if row["decision_digest"] != digest or row["decision_json"] != canonical:
-                    raise ValueError("recovery decision key already contains a different receipt")
-                created_at = row["created_at"]
-            else:
-                created_at = datetime.now(timezone.utc).isoformat()
+            return self.record_in_transaction(
+                db, work_id=work_id, phase=phase, attempt_number=attempt_number, action=action,
+                strategy_id=strategy_id, failure_class=failure_class,
+                attempts_remaining=attempts_remaining, checkpoint_digest=checkpoint_digest,
+                side_effect_state=side_effect_state, reason_code=reason_code,
+            )
+
+    def import_from(self, source_path: str | Path) -> int:
+        """Idempotently copy legacy receipts into this journal without deleting the source."""
+        source = Path(source_path).expanduser().resolve()
+        if not source.is_file() or source == self.path:
+            return 0
+        with sqlite3.connect(source, timeout=10) as source_db:
+            source_db.row_factory = sqlite3.Row
+            rows = source_db.execute(
+                "SELECT decision_json,decision_digest,created_at FROM recovery_decisions ORDER BY work_id,phase,attempt_number"
+            ).fetchall()
+        imported = 0
+        for row in rows:
+            payload = json.loads(row["decision_json"])
+            validated = self._payload(**payload)
+            canonical = json.dumps(validated, sort_keys=True, separators=(",", ":"))
+            expected = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+            if canonical != row["decision_json"] or expected != row["decision_digest"]:
+                raise ValueError("legacy recovery receipt failed digest validation")
+            with self._connect() as db:
+                db.execute("BEGIN IMMEDIATE")
+                existing = db.execute(
+                    "SELECT decision_json,decision_digest FROM recovery_decisions WHERE work_id=? AND phase=? AND attempt_number=?",
+                    (validated["work_id"], validated["phase"], validated["attempt_number"]),
+                ).fetchone()
+                if existing is not None:
+                    if existing["decision_json"] != canonical or existing["decision_digest"] != expected:
+                        raise ValueError("legacy recovery receipt conflicts with canonical journal")
+                    continue
                 db.execute(
-                    "INSERT INTO recovery_decisions "
-                    "(work_id, phase, attempt_number, decision_json, decision_digest, created_at) "
-                    "VALUES (?, ?, ?, ?, ?, ?)",
-                    (work_id, phase, attempt_number, canonical, digest, created_at),
+                    "INSERT INTO recovery_decisions(work_id,phase,attempt_number,decision_json,decision_digest,created_at) VALUES(?,?,?,?,?,?)",
+                    (validated["work_id"], validated["phase"], validated["attempt_number"], canonical, expected, row["created_at"]),
                 )
-        return RecoveryDecisionReceipt(**payload, created_at=created_at, decision_digest=digest)
+                imported += 1
+        return imported
 
     def get(self, work_id: str, phase: str, attempt_number: int) -> RecoveryDecisionReceipt | None:
         _token(work_id, "work_id")
