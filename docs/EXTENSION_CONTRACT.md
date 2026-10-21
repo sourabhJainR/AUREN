@@ -67,3 +67,16 @@ Extensions must not receive credentials unless the user explicitly configured th
 ## Versioning
 
 The extension contract is versioned independently from individual providers. Breaking changes require a contract version bump and compatibility test.
+
+
+## Implemented data-only contract
+
+The public, versioned contract is implemented in `portable.extension_contract` as `ExtensionManifest` and `ExtensionRegistry`. The registry validates schema version, semantic version syntax, unique capabilities and permissions, bounded output and timeout values, and deterministic manifest digests. Registration is idempotent for the same digest and rejects conflicting reuse of a provider name.
+
+The registry is descriptive only. It does not import or invoke provider code, grant permissions, or treat the manifest's trust label as proof. Runtime adapters must still enforce permissions, cancellation, deadlines, output bounds, provenance, and policy. External trust and sandbox claims require independent evidence.
+
+Run the contract tests with:
+
+```bash
+python -m unittest tests.test_extension_contract -v
+```
