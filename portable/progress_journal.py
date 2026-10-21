@@ -9,17 +9,17 @@ from typing import Any
 TERMINAL = {"completed", "failed", "cancelled"}
 STATES = {"queued", "running", "blocked", "recovering", "completed", "failed", "cancelled"}
 REDACTORS = (
-    re.compile(r"(?i)(bearer\\s+)[A-Za-z0-9._~+/=-]+"),
-    re.compile(r"(?i)((?:api[_-]?key|access[_-]?token|password|secret)\\s*[:=]\\s*)[^\\s,;]+"),
+    re.compile(r"(?i)(bearer\s+)[A-Za-z0-9._~+/=-]+"),
+    re.compile(r"(?i)((?:api[_-]?key|access[_-]?token|password|secret)\s*[:=]\s*)[^\s,;]+"),
 )
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 def _safe(value: str, limit: int = 500) -> str:
-    value = str(value).replace("\\x00", "")[:limit]
+    value = str(value).replace("\x00", "")[:limit]
     for pattern in REDACTORS:
-        value = pattern.sub(r"\\1[REDACTED]", value)
+        value = pattern.sub(r"\1[REDACTED]", value)
     return value
 
 @dataclass(frozen=True)
@@ -84,7 +84,7 @@ class ProgressJournal:
             )
             self.path.parent.mkdir(parents=True, exist_ok=True)
             with self.path.open("a", encoding="utf-8") as stream:
-                stream.write(json.dumps(asdict(row), sort_keys=True, separators=(",", ":")) + "\\n")
+                stream.write(json.dumps(asdict(row), sort_keys=True, separators=(",", ":")) + "\n")
                 stream.flush()
                 os.fsync(stream.fileno())
             return row
