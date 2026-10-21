@@ -471,6 +471,7 @@ class ProviderBackedCrewAdapter(ApprovedToolCrewAdapter):
                     key: value for key, value in fields.items()
                     if key in {"provider", "timeout_seconds", "late_result_possible", "retry_blocked", "max_workers"}
                 }
+                safe_fields.setdefault("provider", self.provider_id)
                 self._progress_callback({"task_id": task_id, "event": event, **safe_fields})
 
             outcome, raw = invoke_provider_with_bounded_wait(
