@@ -61,6 +61,7 @@ class ProviderBackedCrewAdapterTests(unittest.TestCase):
             "task": "Review endpoint contract",
             "graph_digest": "graph-1",
             "crew_plan_digest": "plan-1",
+            "evidence": {"intent_digest": "intent-safe", "task_id": "internal-run-42"},
             "secret": "must-not-cross-provider-boundary",
         }
         proposal = adapter.propose(request)
@@ -71,6 +72,8 @@ class ProviderBackedCrewAdapterTests(unittest.TestCase):
         prompt_payload = json.loads(provider_calls[0][0].split("\n", 1)[1])
         self.assertEqual(prompt_payload["task_request"]["task"], "Review endpoint contract")
         self.assertEqual(prompt_payload["approved_tools"][0]["name"], "lookup_ticket")
+        self.assertEqual(prompt_payload["task_request"]["evidence"], {"intent_digest": "intent-safe"})
+        self.assertNotIn("internal-run-42", provider_calls[0][0])
         self.assertEqual(adapter.implementation_version, "host-provider@model-2026-10")
         self.assertEqual(len(adapter.configuration_digest), 64)
 
