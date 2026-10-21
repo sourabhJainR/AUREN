@@ -99,7 +99,7 @@ class TestPublicDocumentationConsistency(unittest.TestCase):
         self.assertIn("STANDALONE_READINESS_AND_GAP_MATRIX.md", site)
         self.assertIn("Prove hard termination", matrix)
         self.assertIn("independent evaluation", matrix)
-        self.assertIn("skipped checks are not passes", matrix.lower())
+        self.assertIn("skipped jobs are not passes", matrix.lower())
         self.assertIn("test_hung_provider_is_bounded_even_if_invoker_ignores_timeout", provider_tests)
         self.assertIn("test_provider_timeout_is_durable_blocked_progress", provider_tests)
         self.assertIn("test_provider_progress_uses_supervisor_identity_through_graph_dispatch", graph_tests)
