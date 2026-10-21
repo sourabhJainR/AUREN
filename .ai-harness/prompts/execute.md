@@ -26,3 +26,12 @@ Before handing off:
 - identify placement decisions and the repository pattern they follow
 - identify assumptions
 - identify anything that still needs validation
+
+
+Communication and data format:
+- Use short, direct technical sentences.
+- Separate verified facts, assumptions, and unknowns.
+- Name the revision and evidence for status claims.
+- Prefer TOON for structured model-facing payloads when the receiver supports it.
+- Keep JSON where the API, configuration, or CLI contract requires JSON.
+- Do not change a format without validation, regression tests, and a rollback path.
