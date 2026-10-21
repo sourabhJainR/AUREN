@@ -954,9 +954,8 @@ the learning system, not an instruction source. If a skill produced no distinct 
                         proposals[crew_id] = _dispatch_crew_proposal(
                             crew_id,
                             task,
-                            {"intent_digest": intent_digest, "task_id": run_nonce},
+                            {"intent_digest": intent_digest, **({"_auren_supervisor_task_id": supervisor_task_id} if supervisor_task_id is not None else {})},
                             active=True,
-                            task_id=supervisor_task_id,
                             plan=crew_plan,
                             graph_digest=crew_plan.graph_digest,
                             agents=self.crew_adapters,
@@ -1066,9 +1065,9 @@ the learning system, not an instruction source. If a skill produced no distinct 
                                 try:
                                     target_record = _dispatch_crew_proposal(
                                         item.target_crew, item.task,
-                                        {"intent_digest": intent_digest, "task_id": run_nonce,
-                                         "handoff_id": item.handoff_id, "source_crew": item.source_crew},
-                                        active=True, task_id=supervisor_task_id, plan=crew_plan, graph_digest=crew_plan.graph_digest,
+                                        {"intent_digest": intent_digest, "handoff_id": item.handoff_id, "source_crew": item.source_crew,
+                                         **({"_auren_supervisor_task_id": supervisor_task_id} if supervisor_task_id is not None else {})},
+                                        active=True, plan=crew_plan, graph_digest=crew_plan.graph_digest,
                                         agents=self.crew_adapters, crews=self.crew_definitions,
                                     )
                                 except Exception as exc:
