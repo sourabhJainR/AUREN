@@ -17,17 +17,17 @@ class SubprocessProviderInvokerTests(unittest.TestCase):
         return SubprocessProviderInvoker([sys.executable, "-c", code], cwd=ROOT, **kwargs)
 
     def test_round_trips_prompt_without_shell_or_inherited_environment(self):
-        secret_name = "AUREN_SUBPROCESS_PROVIDER_TEST_SECRET"
-        previous = os.environ.get(secret_name)
-        os.environ[secret_name] = "must-not-cross-boundary"
+        name = "AUREN_SUBPROCESS_PROVIDER_TEST_SECRET"
+        previous = os.environ.get(name)
+        os.environ[name] = "must-not-cross-boundary"
         try:
             provider = self.invoker("import os,sys; print(os.environ.get('AUREN_SUBPROCESS_PROVIDER_TEST_SECRET', 'absent')); print(sys.stdin.read())")
             result = provider('{"task":"safe"}', 3)
         finally:
             if previous is None:
-                os.environ.pop(secret_name, None)
+                os.environ.pop(name, None)
             else:
-                os.environ[secret_name] = previous
+                os.environ[name] = previous
         self.assertTrue(result.startswith("absent\n"))
         self.assertIn('{"task":"safe"}', result)
 
@@ -38,10 +38,15 @@ class SubprocessProviderInvokerTests(unittest.TestCase):
             provider("request", 0.3)
         self.assertLess(time.monotonic() - started, 2.0)
 
-    def test_output_is_capped(self):
-        provider = self.invoker("print('x' * 500)", max_response_bytes=100)
+    def test_output_limit_is_enforced_while_reading(self):
+        provider = self.invoker("import sys; sys.stdout.write('x' * 1000000); sys.stdout.flush()", max_response_bytes=100)
         with self.assertRaisesRegex(ValueError, "byte limit"):
             provider("request", 2)
+
+    def test_prompt_limit_is_enforced(self):
+        provider = self.invoker("import sys; print(sys.stdin.read())", max_prompt_bytes=10)
+        with self.assertRaisesRegex(ValueError, "prompt exceeds"):
+            provider("x" * 11, 2)
 
     def test_nonzero_exit_does_not_expose_stderr(self):
         provider = self.invoker("import sys; print('private diagnostic', file=sys.stderr); sys.exit(7)")
