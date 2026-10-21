@@ -247,7 +247,9 @@ class ProgressJournalRuntimeIntegrationTests(unittest.TestCase):
             restarted = ExecutionController(root)
             after_restart = restarted.progress_journal.snapshot(task.id, stale_after_seconds=3600)
             self.assertEqual(after_restart["reported_state"], "completed")
-            self.assertEqual(after_restart["event"], "startup_reconciliation")
+            last_events = [row for row in restarted.progress_journal._events()
+                           if row["task_id"] == task.id]
+            self.assertEqual(last_events[-1]["event"], "startup_reconciliation")
             self.assertFalse(any("progress_reconciliation_required" in finding
                                  for finding in restarted.health_findings()))
 
