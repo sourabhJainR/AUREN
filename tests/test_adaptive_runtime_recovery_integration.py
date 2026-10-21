@@ -116,10 +116,10 @@ class AdaptiveRuntimeRecoveryIntegrationTests(unittest.TestCase):
 
         runtime._run_once = failing_execution
 
-        def fail_receipt_write(**_kwargs):
+        def fail_receipt_write(*_args, **_kwargs):
             raise OSError("simulated journal storage outage")
 
-        runtime.recovery_decision_journal.record = fail_receipt_write
+        runtime.recovery_decision_journal.record_in_transaction = fail_receipt_write
         with self.assertRaisesRegex(RuntimeError, "stopped safely"):
             runtime.run(
                 session_id="journal-failure-session",
