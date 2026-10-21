@@ -943,7 +943,7 @@ class ExecutionController:
         if cursor.rowcount == 1:
             self._record_progress(
                 task.id, "outcome_commit_started", state="running", stage="finalization",
-                message="Task row updated; waiting for the executive work-unit receipt to commit.",
+                message="Executive work-unit receipt committed; terminal task state is being finalized.",
             )
             return True
         return False
