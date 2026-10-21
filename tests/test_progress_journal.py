@@ -52,7 +52,7 @@ class ProgressJournalTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "progress.jsonl"
             def write(index):
-                return ProgressJournal(path).record("shared", "unit", message=str(index)).sequence
+                return ProgressJournal(path, lock_timeout_seconds=10.0).record("shared", "unit", message=str(index)).sequence
             with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
                 sequences = list(pool.map(write, range(80)))
             self.assertEqual(sorted(sequences), list(range(1, 81)))
