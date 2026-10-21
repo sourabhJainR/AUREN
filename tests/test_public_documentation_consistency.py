@@ -75,7 +75,7 @@ class TestPublicDocumentationConsistency(unittest.TestCase):
         site = (ROOT / "site" / "index.html").read_text(encoding="utf-8")
         self.assertIn("Verified implementation evidence snapshot", readme)
         self.assertIn("c072838aeb28656aedd7730cdae8941312c9065b", readme)
-        self.assertIn("99c8fdfc90fd86d4821e74b7ac2b04505477f566", site)
+        self.assertIn("c072838aeb28656aedd7730cdae8941312c9065b", site)
         self.assertNotIn("Verify after this documentation merge", site)
         self.assertIn("39555404124", site)
         self.assertIn("39555404146", site)
