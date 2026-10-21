@@ -31,7 +31,7 @@ def _load_runtime_from(root: Path):
     package = sys.modules.get("portable")
     if package is None:
         package = types.ModuleType("portable")
-        package.__path__ = [runtime_root]
+        package.__path__ = [str(runtime.parent)]
         sys.modules["portable"] = package
     spec = importlib.util.spec_from_file_location("portable.auren_runtime", runtime)
     if spec is None or spec.loader is None:
