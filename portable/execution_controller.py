@@ -1073,6 +1073,13 @@ class ExecutionController:
                 "retry_action": "wait_until_reset" if not blocked else "operator_action_required",
             },
         )
+        self._record_progress(
+            task.id, "provider_quota_wait", state="blocked", stage="provider_quota",
+            message=(
+                "Provider quota/rate limit; bounded retry is pending."
+                if not blocked else "Provider quota/rate limit; operator action is required."
+            ),
+        )
         self.company.record(task.work_unit_id, "execution", state, detail,
                             (f"handler:{task.handler}", f"provider:{provider[:100]}"))
         self.company._transition(task.work_unit_id, "waiting_external")
@@ -1152,6 +1159,11 @@ class ExecutionController:
                     woken_ids.append(task_id)
         for work_unit_id in work_units:
             self.company._transition(work_unit_id, "running")
+        for task_id in woken_ids:
+            self._record_progress(
+                task_id, "quota_retry_queued", state="queued", stage="provider_quota",
+                message="Quota wait expired; task returned to the durable queue.",
+            )
         return woken_ids
 
     def unblock_quota_task(self, task_id: str, *, operator_reason: str) -> bool:
@@ -1643,6 +1655,14 @@ class ExecutionController:
             if cursor.rowcount == 1:
                 recovered = (task_id, str(row[3]))
         if recovered is not None:
+            self._record_progress(
+                recovered[0], "stale_task_recovering", state="recovering", stage="recovery",
+                message="Stale lease expired; supervisor is reconciling the task before retry.",
+            )
+            self._record_progress(
+                recovered[0], "stale_task_requeued", state="queued", stage="recovery",
+                message="Recovery returned the task to the durable queue; completion is not implied.",
+            )
             self.company.record(
                 recovered[1], "recovery", "detected", reason, (f"task:{recovered[0]}",)
             )
