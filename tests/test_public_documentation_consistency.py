@@ -80,7 +80,8 @@ class TestPublicDocumentationConsistency(unittest.TestCase):
         self.assertIn("39555404124", site)
         self.assertIn("39555404146", site)
         self.assertIn("pull/770", site)
-        self.assertIn("pull/771", site)\n        self.assertIn("pull/773", site)
+        self.assertIn("pull/771", site)
+        self.assertIn("pull/773", site)
 
     def test_readme_status_and_section_format_are_current(self):
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
