@@ -458,10 +458,19 @@ class ContinuousExecutionSupervisor:
                 })
                 if max_cycles is not None and cycles >= max_cycles:
                     break
-                if stop_event is not None:
-                    stop_event.wait(poll_seconds)
-                else:
-                    time.sleep(poll_seconds)
+                # The CI poll interval may be minutes, but a durable stop command
+                # must be noticed promptly rather than waiting for that full interval.
+                wait_deadline = time.monotonic() + poll_seconds
+                while True:
+                    remaining = wait_deadline - time.monotonic()
+                    if remaining <= 0 or self._should_stop()[0]:
+                        break
+                    wait_slice = min(0.5, remaining)
+                    if stop_event is not None:
+                        if stop_event.wait(wait_slice):
+                            break
+                    else:
+                        time.sleep(wait_slice)
             state, stop_reason = self._should_stop()
             if state:
                 with sqlite3.connect(self.path, timeout=5) as db:
