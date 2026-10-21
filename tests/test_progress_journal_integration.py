@@ -38,9 +38,31 @@ class ProgressJournalRuntimeIntegrationTests(unittest.TestCase):
 
             dashboard = EngineeringDashboard(root)
             rows = dashboard._progress_snapshots()
-            self.assertEqual(len(rows), 1)
-            self.assertEqual(rows[0]["task_id"], task.id)
-            self.assertEqual(rows[0]["state"], "completed")
+            matching = [row for row in rows if row["task_id"] == task.id]
+            self.assertEqual(len(matching), 1)
+            self.assertEqual(matching[0]["state"], "completed")
+
+    def test_progress_never_claims_completion_before_work_unit_receipt(self):
+        with tempfile.TemporaryDirectory() as temp:
+            controller = ExecutionController(temp)
+            controller.register_handler(
+                "tests.progress_success", progress_success_handler, execution_class="read_only"
+            )
+            task = controller.submit("tests.progress_success", {"request_id": "safe-fixture"})
+
+            def fail_finish(*args, **kwargs):
+                raise OSError("controlled receipt store failure")
+
+            controller.company.finish = fail_finish
+            with self.assertRaisesRegex(OSError, "controlled receipt store failure"):
+                controller.run_once(task.id)
+
+            snapshot = ProgressJournal(controller.db_path.parent / "progress.jsonl").snapshot(
+                task.id, stale_after_seconds=3600
+            )
+            self.assertEqual(snapshot["reported_state"], "running")
+            self.assertEqual(snapshot["stage"], "finalization")
+            self.assertNotEqual(snapshot["reported_state"], "completed")
 
     def test_journal_failure_is_visible_without_falsifying_task_state(self):
         with tempfile.TemporaryDirectory() as temp:
