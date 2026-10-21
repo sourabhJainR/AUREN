@@ -58,6 +58,11 @@ class AdaptiveRuntimeRecoveryIntegrationTests(unittest.TestCase):
         self.assertIsNotNone(checkpoint)
         self.assertEqual(checkpoint.status, "blocked")
         self.assertEqual(checkpoint.payload["hypothesis"], "alternate-plan-1")
+        receipts = runtime.recovery_decision_journal.list_for_work(work_id, "execution")
+        self.assertEqual([2, 3], [receipt.attempt_number for receipt in receipts])
+        self.assertEqual(["retry", "alternate"], [receipt.action for receipt in receipts])
+        self.assertEqual("ambiguous", receipts[0].side_effect_state)
+        self.assertTrue(all(len(receipt.checkpoint_digest) == 64 for receipt in receipts))
 
         # Recovery state is durable across a fresh default-runtime instance.
         resumed = AdaptiveRuntime(graph, state_root=self.root / "state")
