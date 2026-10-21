@@ -59,6 +59,36 @@ def _safe_value(value: Any, *, key: str = "", depth: int = 0) -> Any:
     return f"[UNSUPPORTED:{type(value).__name__}]"
 
 
+def discover_git_target(project_root: str | Path) -> tuple[str, str] | None:
+    """Discover the checkout's GitHub origin and immutable HEAD without a shell."""
+    root = Path(project_root).expanduser().resolve()
+    try:
+        remote = subprocess.run(
+            ["git", "-C", str(root), "config", "--get", "remote.origin.url"],
+            check=True, capture_output=True, text=True, timeout=3,
+        ).stdout.strip()
+        head = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "HEAD"],
+            check=True, capture_output=True, text=True, timeout=3,
+        ).stdout.strip().lower()
+    except (OSError, subprocess.SubprocessError):
+        return None
+    patterns = (
+        r"^https://github\.com/([^/]+)/([^/]+?)(?:\.git)?$",
+        r"^git@github\.com:([^/]+)/([^/]+?)(?:\.git)?$",
+        r"^ssh://git@github\.com/([^/]+)/([^/]+?)(?:\.git)?$",
+    )
+    repository = None
+    for pattern in patterns:
+        match = re.fullmatch(pattern, remote)
+        if match:
+            repository = f"{match.group(1)}/{match.group(2)}"
+            break
+    if repository is None or not _SHA.fullmatch(head):
+        return None
+    return repository, head
+
+
 class GitHubActionsCheckPoller:
     """Poll commit-bound GitHub check-runs; never treats missing/skipped checks as passes."""
 
