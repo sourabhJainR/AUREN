@@ -82,6 +82,7 @@ class ResumableProviderTests(unittest.TestCase):
         release = Event()
         calls = []
         events = []
+        checkpoints = []
 
         def hung(request, key):
             calls.append("primary")
@@ -98,7 +99,7 @@ class ResumableProviderTests(unittest.TestCase):
             providers={"primary": hung, "backup": backup},
             provider_versions={"primary": "1", "backup": "1"},
             preferred_provider="primary", retry_budget=TaskRetryBudget(max_retries=3),
-            persist=lambda _: None, progress=events.append, call_timeout_seconds=0.1,
+            persist=checkpoints.append, progress=events.append, call_timeout_seconds=0.1,
         )
         before = time.monotonic()
         result = executor.run({"prompt": "safe"})
@@ -109,7 +110,20 @@ class ResumableProviderTests(unittest.TestCase):
         self.assertFalse(result["retryable"])
         self.assertTrue(result["late_result_possible"])
         self.assertEqual(calls, ["primary"])
+        self.assertEqual(checkpoints[-1]["status"], "timed_out")
         self.assertIn("provider_call_timed_out", [event["event"] for event in events])
+        with self.assertRaisesRegex(RuntimeError, "requires reconciliation"):
+            executor.run({"prompt": "safe"})
+        resumed = ResumableProviderExecutor(
+            task_id="task-timeout", stage_id="provider-stage",
+            providers={"primary": hung, "backup": backup},
+            provider_versions={"primary": "1", "backup": "1"},
+            preferred_provider="primary", retry_budget=TaskRetryBudget(max_retries=3),
+            persist=checkpoints.append, checkpoint=checkpoints[-1], call_timeout_seconds=0.1,
+        )
+        with self.assertRaisesRegex(RuntimeError, "requires reconciliation"):
+            resumed.run({"prompt": "safe"})
+        self.assertEqual(calls, ["primary"])
         release.set()
 
     def test_invalid_provider_call_timeout_rejected(self):
