@@ -1535,12 +1535,12 @@ class ExecutionController:
             }
             if hasattr(task, "work_unit_id") and hasattr(task, "attempts"):
                 self._capture_event("provider_operation_" + operation_state, task,
-                                    status=operation_state, metadata=safe_metadata)
+                                    status="unknown", metadata=safe_metadata)
             self._record_progress(
                 task.id, "provider_operation_" + operation_state,
                 state="running", stage="provider_operation",
-                message="Provider operation state: " + operation_state,
-                evidence_ref=operation_id or None,
+                message="Provider operation state: " + operation_state + " (" + operation_id + ")",
+                evidence_ref=None,
             )
 
         lifecycle = ProviderOperationLifecycle(

@@ -171,7 +171,7 @@ class EvidenceCapture:
             "target_id", "last_known_good_commit", "recovered_head_sha",
             "checkpoint_digest", "crew_plan_digest", "retry_budget_digest",
             "plan_digest", "packet_digest", "dispatch_key_digest", "binding_digest", "run_revision",
-            "provider_resume_digest", "operation_id", "provider", "operation_state",
+            "provider_resume_digest", "intent_digest", "operation_id", "provider", "operation_state",
         }
         if "signature_verified" in metadata:
             raise ValueError("signature_verified is derived from the verified receipt store, not caller metadata")
