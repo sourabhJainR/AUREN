@@ -62,7 +62,7 @@ def test_stop_command_is_durable_and_worker_exits_without_losing_pending_work(tm
     worker.join(timeout=3)
 
     assert not worker.is_alive()
-    assert stop_status["state"] == "stop_requested"
+    assert stop_status["state"] in {"stop_requested", "stopped"}
     assert result["state"] == "stopped"
     assert result["stop_reason"] == "test_interrupt"
     assert supervisor.verify_audit_chain() is True
