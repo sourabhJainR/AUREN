@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import sys
 import time
+import threading
 import unittest
 from pathlib import Path
 
@@ -36,6 +37,23 @@ class SubprocessProviderInvokerTests(unittest.TestCase):
         started = time.monotonic()
         with self.assertRaisesRegex(TimeoutError, "was terminated"):
             provider("request", 0.3)
+        self.assertLess(time.monotonic() - started, 2.0)
+
+    def test_pre_cancelled_call_does_not_launch(self):
+        provider = self.invoker("raise SystemExit('must not launch')")
+        cancelled = threading.Event()
+        cancelled.set()
+        with self.assertRaisesRegex(InterruptedError, "before launch"):
+            provider("request", 2, cancel_event=cancelled)
+
+    def test_cancellation_kills_non_cooperative_child(self):
+        provider = self.invoker("import time; time.sleep(10)")
+        cancelled = threading.Event()
+        trigger = threading.Thread(target=lambda: (time.sleep(0.1), cancelled.set()), daemon=True)
+        trigger.start()
+        started = time.monotonic()
+        with self.assertRaisesRegex(InterruptedError, "cancelled and terminated"):
+            provider("request", 5, cancel_event=cancelled)
         self.assertLess(time.monotonic() - started, 2.0)
 
     def test_output_limit_is_enforced_while_reading(self):

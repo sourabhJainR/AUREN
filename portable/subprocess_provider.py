@@ -58,7 +58,9 @@ class SubprocessProviderInvoker:
 
     @staticmethod
     def _kill(process: subprocess.Popen[bytes]) -> None:
-        if process.poll() is not None:
+        # On POSIX, the group can outlive its leader while descendants keep
+        # stdout open. Kill the group even when the direct child has exited.
+        if os.name != "posix" and process.poll() is not None:
             return
         try:
             if os.name == "posix":
@@ -73,9 +75,13 @@ class SubprocessProviderInvoker:
             except OSError:
                 pass
 
-    def __call__(self, prompt: str, timeout_seconds: int | float) -> str:
+    def __call__(self, prompt: str, timeout_seconds: int | float, *, cancel_event: threading.Event | None = None) -> str:
         if not isinstance(prompt, str):
             raise TypeError("provider prompt must be text")
+        if cancel_event is not None and not isinstance(cancel_event, threading.Event):
+            raise TypeError("cancel_event must be a threading.Event")
+        if cancel_event is not None and cancel_event.is_set():
+            raise InterruptedError("provider invocation cancelled before launch")
         if isinstance(timeout_seconds, bool) or not isinstance(timeout_seconds, (int, float)) or timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be positive")
         payload = prompt.encode("utf-8")
@@ -126,16 +132,42 @@ class SubprocessProviderInvoker:
         writer = threading.Thread(target=write_stdin, name="auren-provider-stdin", daemon=True)
         reader.start()
         writer.start()
-        remaining = timeout - (time.monotonic() - started)
-        try:
-            process.wait(timeout=max(0.001, remaining))
-        except subprocess.TimeoutExpired as exc:
-            self._kill(process)
-            try:
-                process.wait(timeout=1.0)
-            except subprocess.TimeoutExpired:
+        while process.poll() is None:
+            if cancel_event is not None and cancel_event.is_set():
                 self._kill(process)
-            raise TimeoutError("provider subprocess exceeded its deadline and was terminated") from exc
+                try:
+                    process.wait(timeout=1.0)
+                except subprocess.TimeoutExpired:
+                    self._kill(process)
+                writer.join(timeout=0.2)
+                reader.join(timeout=0.2)
+                for stream in (process.stdin, process.stdout):
+                    if stream is not None:
+                        try:
+                            stream.close()
+                        except OSError:
+                            pass
+                raise InterruptedError("provider subprocess was cancelled and terminated")
+            remaining = timeout - (time.monotonic() - started)
+            if remaining <= 0:
+                self._kill(process)
+                try:
+                    process.wait(timeout=1.0)
+                except subprocess.TimeoutExpired:
+                    self._kill(process)
+                writer.join(timeout=0.2)
+                reader.join(timeout=0.2)
+                for stream in (process.stdin, process.stdout):
+                    if stream is not None:
+                        try:
+                            stream.close()
+                        except OSError:
+                            pass
+                raise TimeoutError("provider subprocess exceeded its deadline and was terminated")
+            try:
+                process.wait(timeout=min(0.05, remaining))
+            except subprocess.TimeoutExpired:
+                continue
         writer.join(timeout=0.2)
         reader.join(timeout=max(0.0, timeout - (time.monotonic() - started)))
         if overflow.is_set():
