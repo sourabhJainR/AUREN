@@ -1,4 +1,4 @@
-"Public SDK contract tests."
+"""Public SDK contract tests."""
 from __future__ import annotations
 
 import tempfile
