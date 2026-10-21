@@ -297,4 +297,6 @@ The router prefers explicit capability metadata from the local model discovery r
 
 The console exposes progress-journal snapshots emitted by the execution supervisor: queueing, dispatch, preflight, handler dispatch, heartbeat, quota waits, recovery, and terminal outcomes. Stale and unknown states remain visible, with a next action where available. SQLite task state remains authoritative; the journal is a durable projection and a missing journal is not treated as success.
 
+Provider-backed crew events are projected when the host registers adapters with `progress_journal=controller.progress_journal` (PRs [#775](https://github.com/sourabhJainR/AUREN/pull/775) and [#776](https://github.com/sourabhJainR/AUREN/pull/776)). The active graph must pass the supervisor-issued task ID to dispatch; the alternate harness graph API accepts `supervisor_task_id`. If either wiring input is missing, provider lifecycle events cannot be attributed to the canonical task. The dashboard does not create provider credentials or infer task identity.
+
 The same journal can be inspected without opening the dashboard using `python auren_cli.py progress --json`; the command is read-only and preserves JSON output without creating a work report.
