@@ -952,9 +952,14 @@ class ExecutionController:
         return task
 
     def _commit_work_unit_outcome(
-        self, work_unit_id: str, *, success: bool, reason: str, evidence: tuple[str, ...] | list[str] = (),
+        self, task_id: str, work_unit_id: str, *, success: bool, reason: str,
+        evidence: tuple[str, ...] | list[str] = (),
     ) -> TrustScore:
         """Commit the executive receipt before making the task row terminal."""
+        self._record_progress(
+            task_id, "receipt_commit_started", state="running", stage="finalization",
+            message="Committing executive work-unit receipt; task remains nonterminal.",
+        )
         state = "completed" if success else "failed"
         try:
             self.company.record(work_unit_id, "execution", state, reason, evidence)
@@ -1439,7 +1444,7 @@ class ExecutionController:
             if not gates_passed:
                 evidence = [f"handler:{task.handler}", *gate_evidence]
                 score = self._commit_work_unit_outcome(
-                    task.work_unit_id, success=False, reason=gate_detail, evidence=evidence,
+                    task.id, task.work_unit_id, success=False, reason=gate_detail, evidence=evidence,
                 )
                 if not self._finalize_claim(task, "failed"):
                     raise LeaseLostError("stale worker cannot finalize rejected task")
@@ -1470,7 +1475,7 @@ class ExecutionController:
                 return None
             detail = f"{type(exc).__name__}: {exc}"
             self._commit_work_unit_outcome(
-                task.work_unit_id, success=False, reason=detail, evidence=(f"handler:{task.handler}",),
+                task.id, task.work_unit_id, success=False, reason=detail, evidence=(f"handler:{task.handler}",),
             )
             if not self._finalize_claim(task, "failed"):
                 raise LeaseLostError(
@@ -1501,7 +1506,7 @@ class ExecutionController:
 
         state = "completed" if success else "failed"
         score = self._commit_work_unit_outcome(
-            task.work_unit_id, success=success, reason=detail, evidence=evidence,
+            task.id, task.work_unit_id, success=success, reason=detail, evidence=evidence,
         )
         if not self._finalize_claim(task, state):
             raise LeaseLostError("task lease was lost; stale worker cannot finalize task outcome")
