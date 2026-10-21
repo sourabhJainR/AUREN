@@ -8,6 +8,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / ".ai-harness"))
 
+from portable.progress_journal import ProgressJournal
 from portable.crew_adapters import (
     ApprovedTool,
     ApprovedToolRegistry,
@@ -100,6 +101,75 @@ class ProviderBackedCrewAdapterTests(unittest.TestCase):
             self.assertEqual(calls, [1])
         finally:
             release.set()
+
+
+    def test_provider_lifecycle_is_written_to_canonical_journal_without_payload_leakage(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as temp:
+            journal = ProgressJournal(Path(temp) / "progress.jsonl")
+            response = json.dumps({"tool_calls": [], "proposal": self.proposal()})
+            adapter = ProviderBackedCrewAdapter(
+                "backend_api", "host-provider", "pinned-v1",
+                lambda _prompt, _timeout: response,
+                ApprovedToolRegistry(), allowed_tools=(),
+                progress_callback=journal.record_provider_event,
+            )
+            request = {"task_id": "supervisor-task-17", "crew_id": "backend_api",
+                       "task": "safe fixture", "secret": "must-not-be-recorded"}
+            adapter.propose(request)
+            snapshot = journal.snapshot("supervisor-task-17")
+            self.assertEqual(snapshot["event_count"], 2)
+            self.assertEqual(snapshot["stage"], "provider:host-provider")
+            self.assertEqual(snapshot["reported_state"], "running")
+            raw = journal.path.read_text(encoding="utf-8")
+            self.assertNotIn("must-not-be-recorded", raw)
+            self.assertNotIn('"secret"', raw)
+            self.assertNotIn("supervisor-task-17", json.loads(
+                next(line for line in raw.splitlines() if '"provider_call_started"' in line)
+            ).get("message", ""))
+
+    def test_provider_timeout_is_durable_blocked_progress(self):
+        import tempfile
+        import time
+        from threading import Event
+
+        started, release = Event(), Event()
+        with tempfile.TemporaryDirectory() as temp:
+            journal = ProgressJournal(Path(temp) / "progress.jsonl")
+
+            def hung_provider(_prompt, _timeout):
+                started.set()
+                release.wait(1)
+                return json.dumps({"tool_calls": [], "proposal": self.proposal()})
+
+            adapter = ProviderBackedCrewAdapter(
+                "backend_api", "host-provider", "pinned-v1", hung_provider,
+                ApprovedToolRegistry(), allowed_tools=(), timeout_seconds=1,
+                progress_callback=journal.record_provider_event,
+            )
+            before = time.monotonic()
+            try:
+                with self.assertRaisesRegex(TimeoutError, "bounded wait"):
+                    adapter.propose({"task_id": "timeout-task", "task": "safe"})
+                self.assertTrue(started.is_set())
+                self.assertLess(time.monotonic() - before, 1.8)
+                snapshot = journal.snapshot("timeout-task")
+                self.assertEqual(snapshot["reported_state"], "blocked")
+                self.assertIn("Reconcile before retry", snapshot["message"])
+                self.assertEqual(snapshot["event_count"], 2)
+            finally:
+                release.set()
+
+    def test_provider_progress_requires_supervisor_task_identity(self):
+        adapter = ProviderBackedCrewAdapter(
+            "backend_api", "host-provider", "pinned-v1",
+            lambda _prompt, _timeout: json.dumps({"tool_calls": [], "proposal": self.proposal()}),
+            ApprovedToolRegistry(), allowed_tools=(),
+            progress_callback=lambda _event: None,
+        )
+        with self.assertRaisesRegex(ValueError, "supervisor-issued task_id"):
+            adapter.propose({"crew_id": "backend_api", "task": "safe"})
 
     def test_provider_response_rejects_duplicate_keys_and_unapproved_tools(self):
         tools = ApprovedToolRegistry([
