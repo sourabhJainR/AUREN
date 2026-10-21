@@ -10,7 +10,7 @@ AUREN separates **execution authority from learning**. Active runs operate under
 
 ## Project status (reviewed 2026-10-21)
 
-**Reviewed main baseline before this progress-integration PR:** [`0fd4380ba78a3ad02ce8cdfe7b243f828c12e317`](https://github.com/sourabhJainR/AUREN/commit/0fd4380ba78a3ad02ce8cdfe7b243f828c12e317). **Current release remains `1.0.5`**; the progress-journal merge is not a versioned release.
+**Latest implementation baseline before this documentation sync:** [`dbc9dab7798d413be67b7154ea7e07ff795ef373`](https://github.com/sourabhJainR/AUREN/commit/dbc9dab7798d413be67b7154ea7e07ff795ef373). **Current release remains `1.0.5`**; the progress-journal merge is not a versioned release.
 
 PR [#764](https://github.com/sourabhJainR/AUREN/pull/764) merged the durable, append-only task progress journal, monotonic per-task event sequencing, cross-instance/process writer locking, heartbeat/staleness reporting, terminal-state handling, redaction, and concurrent-writer regression coverage. Five exact-head checks passed before merge: Runtime Resilience Matrix, Production AI Harness Hardening, AUREN Portable Bundle, Architecture Integrity, and AI Harness Check. Those results apply to the reviewed PR head; they are not independent external evaluation or a substitute for verifying workflows and deployment on the current main SHA.
 
