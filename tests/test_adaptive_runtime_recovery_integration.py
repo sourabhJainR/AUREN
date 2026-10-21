@@ -70,6 +70,40 @@ class AdaptiveRuntimeRecoveryIntegrationTests(unittest.TestCase):
         self.assertEqual([item.hypothesis for item in resumed_attempts], [item.hypothesis for item in attempts])
         self.assertEqual(resumed.recovery_ledger.get_checkpoint(work_id, "execution").payload["recovery_mode"], "alternate-plan")
 
+    def test_journal_persistence_failure_stops_before_another_recovery_attempt(self):
+        graph = Graph([Node("work", NodeKind.DETERMINISTIC, lambda state: "ok")])
+        runtime = AdaptiveRuntime(graph, state_root=self.root / "journal-failure-state")
+        observed = []
+
+        def failing_execution(**kwargs):
+            observed.append(dict(kwargs.get("context") or {}))
+            raise RuntimeError("repeatable failure")
+
+        runtime._run_once = failing_execution
+
+        def fail_receipt_write(**_kwargs):
+            raise OSError("simulated journal storage outage")
+
+        runtime.recovery_decision_journal.record = fail_receipt_write
+        with self.assertRaisesRegex(RuntimeError, "stopped safely"):
+            runtime.run(
+                session_id="journal-failure-session",
+                task_id="journal-failure-task",
+                project_root=self.root,
+                intent="never continue recovery without its durable decision receipt",
+                context={"auren_max_iterations": 3},
+            )
+
+        self.assertEqual(1, len(observed), "must stop before dispatching another attempt")
+        with sqlite3.connect(runtime.execution_controller.db_path) as db:
+            work_id = db.execute(
+                "SELECT work_unit_id FROM sessions WHERE session_id=?",
+                ("journal-failure-session:journal-failure-task",),
+            ).fetchone()[0]
+        attempts = runtime.recovery_ledger.attempts(work_id)
+        self.assertEqual(1, len(attempts))
+        self.assertEqual("failed", attempts[0].outcome)
+
     def test_real_adaptive_graph_uses_supervisor_owned_guard(self):
         seen = []
         graph = Graph([
