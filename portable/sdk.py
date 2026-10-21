@@ -101,10 +101,15 @@ class AurenClient:
         return self.dashboard.snapshot().as_dict()
 
     def remember(
-        self, project: str, category: str, text: str, **metadata: Any
+        self, project: str, category: str, text: str, *,
+        approved: bool = False, **metadata: Any
     ) -> Any:
-        """Write to the canonical persistent-memory facade."""
-        return self.memory.remember(project, category, text, **metadata)
+        """Write to canonical memory only when the caller grants write approval."""
+        if type(approved) is not bool:
+            raise ValueError("approved must be a boolean")
+        return self.memory.remember(
+            project, category, text, approved=approved, **metadata
+        )
 
     def search_memory(self, project: str, query: str, **filters: Any) -> Any:
         """Search canonical memory. Results retain their stored provenance."""
