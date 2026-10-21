@@ -31,6 +31,7 @@ from .evidence_gate import EvidenceCheck
 from .evidence_gate_integration import EvidenceGateIntegration, IntegratedEvidenceReceipt
 from .persistent_memory import PersistentMemory
 from .progress_journal import ProgressJournal
+from .provider_operation_lifecycle import ProviderOutcomeBlocked
 
 Handler = Callable[[Mapping[str, Any]], Any]
 
@@ -1017,6 +1018,66 @@ class ExecutionController:
             raise TypeError("provider adapter must implement trusted verify_reconciliation(key, evidence_ref, receipt)")
         self._provider_operation_adapters[handler_name.strip()] = adapter
 
+    def resume_blocked_provider_task(
+        self, task_id: str, *, clarification_id: str, operator_id: str, operator_reason: str,
+    ) -> bool:
+        """Explicitly resume a blocked task for provider reconciliation only.
+
+        A trusted provider adapter must already be registered. The resumed
+        invocation performs status lookup first; it never dispatches while the
+        durable side-effect record remains ambiguous.
+        """
+        for value, name in (
+            (task_id, "task_id"), (clarification_id, "clarification_id"),
+            (operator_id, "operator_id"), (operator_reason, "operator_reason"),
+        ):
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"{name} is required")
+        with sqlite3.connect(self.db_path, timeout=10) as db:
+            row = db.execute(
+                "SELECT handler,work_unit_id,state FROM tasks WHERE id=?", (task_id,),
+            ).fetchone()
+        if row is None:
+            raise KeyError(task_id)
+        handler_name, work_unit_id, task_state = str(row[0]), str(row[1]), str(row[2])
+        if task_state != "blocked_reconciliation":
+            raise RuntimeError("only provider-reconciliation-blocked tasks may be resumed")
+        if handler_name not in self._provider_operation_adapters:
+            raise RuntimeError("register a trusted provider status adapter before resuming reconciliation")
+        with sqlite3.connect(self.company.db_path, timeout=10) as db:
+            clarification = db.execute(
+                "SELECT state FROM clarifications WHERE id=? AND work_unit_id=?",
+                (clarification_id, work_unit_id),
+            ).fetchone()
+        if clarification is None:
+            raise KeyError("clarification does not belong to the blocked task")
+        if clarification[0] == "open":
+            self.company.resolve_clarification(
+                clarification_id,
+                f"Operator {operator_id.strip()} authorized reconciliation-only resume: {operator_reason.strip()}",
+            )
+        elif clarification[0] != "resolved":
+            raise RuntimeError("provider clarification is not in a resolvable state")
+        if self.company.open_clarifications(work_unit_id):
+            raise RuntimeError("other open clarifications must be resolved before resuming the task")
+        with sqlite3.connect(self.db_path, timeout=10) as db:
+            cursor = db.execute(
+                "UPDATE tasks SET state='pending',updated_at=?,heartbeat_at=NULL,lease_until=NULL,"
+                "lease_token=NULL WHERE id=? AND state='blocked_reconciliation'",
+                (_now(), task_id),
+            )
+        if cursor.rowcount != 1:
+            raise RuntimeError("blocked task state changed; refresh before retrying")
+        self.company.record(
+            work_unit_id, "provider_operation", "operator_reconciliation_resumed",
+            operator_reason.strip(), (f"operator:{operator_id.strip()}", f"task:{task_id}"),
+        )
+        self._record_progress(
+            task_id, "provider_reconciliation_resumed", state="queued", stage="provider_operation",
+            message=f"Operator {operator_id.strip()} authorized status lookup only; no remote redispatch is permitted.",
+        )
+        return True
+
     def observe_failed_ci_check(self, *, recovery_ledger: Any, **observation: Any) -> Mapping[str, Any]:
         """Called by the existing supervisor's CI poll cycle; never starts another loop."""
         from .ci_repair_watchdog import CIRepairWatchdog
@@ -1104,7 +1165,7 @@ class ExecutionController:
         return task
 
     def _finalize_claim(self, task: DurableTask, state: str) -> bool:
-        if state not in {"completed", "failed", "cancelled"}:
+        if state not in {"completed", "failed", "cancelled", "blocked_reconciliation"}:
             raise ValueError("task final state is invalid")
         if not task.lease_token or task.lease_generation < 1:
             raise LeaseLostError("task claim has no fencing token")
@@ -1533,10 +1594,14 @@ class ExecutionController:
             return dict(receipt["result"])
         if decision.action != "execute":
             adapter = self._provider_operation_adapters.get(task.handler)
-            if decision.state != "reconcile_required" or adapter is None:
+            if decision.state != "reconcile_required":
                 raise RuntimeError(
                     "consequential side effect requires reconciliation; provider dispatch is blocked "
                     f"(ledger_state={decision.state or 'unknown'})"
+                )
+            if adapter is None:
+                raise ProviderOutcomeBlocked(
+                    "provider outcome remains uncertain; task is blocked for explicit operator resolution"
                 )
             lookup_fn = getattr(adapter, "lookup_operation", None)
             verify_fn = getattr(adapter, "verify_reconciliation", None)
@@ -1707,6 +1772,31 @@ class ExecutionController:
                 result = self._invoke_with_lease_heartbeat(task, handler)
         except LeaseLostError:
             raise
+        except ProviderOutcomeBlocked as exc:
+            if not self._finalize_claim(task, "blocked_reconciliation"):
+                raise LeaseLostError(
+                    "task lease was lost; stale worker cannot finalize an ambiguous provider outcome"
+                ) from exc
+            detail = f"Provider outcome is uncertain; explicit resolution required: {exc}"
+            self._capture_event("provider_operation_blocked", task, status="unknown", metadata={
+                "handler": task.handler, "failure_class": "provider_outcome_uncertain",
+            })
+            self.company.record(
+                task.work_unit_id, "provider_operation", "blocked", detail,
+                (f"handler:{task.handler}", f"task:{task.id}"),
+            )
+            self.company._transition(task.work_unit_id, "waiting_external")
+            clarification_id = self.company.hold_clarification(
+                task.work_unit_id,
+                "Provider outcome cannot be established automatically. Verify the remote operation before resuming.",
+                dependency=f"provider-operation-task:{task.id}",
+                evidence=(f"task:{task.id}",),
+            )
+            self._record_progress(
+                task.id, "provider_operation_blocked", state="blocked", stage="provider_operation",
+                message=detail + f" Clarification required: {clarification_id}",
+            )
+            return None
         except Exception as exc:
             if self._pause_for_quota(task, exc):
                 return None

@@ -114,7 +114,7 @@ class CIRepairWatchdog:
     def finalize_terminal_tasks(self) -> list[Mapping[str, Any]]:
         """Close repair budgets from terminal supervisor state; missing validation evidence blocks."""
         with sqlite3.connect(self.controller.db_path) as db:
-            rows = db.execute("SELECT id,payload,state FROM tasks WHERE state IN ('completed','failed','cancelled')").fetchall()
+            rows = db.execute("SELECT id,payload,state FROM tasks WHERE state IN ('completed','failed','cancelled','blocked_reconciliation')").fetchall()
         journal_events = self.controller.progress_journal._events()
         finalized = []
         for task_id, raw_payload, state in rows:

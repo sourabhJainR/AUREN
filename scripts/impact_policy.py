@@ -41,6 +41,7 @@ _RULES: tuple[tuple[str, tuple[str, ...], bool], ...] = (
     ("portable/*rollback*", ("tests.test_state_root_rollback_rehearsal", "tests.test_execution_controller_promotion_rollback_contract", "tests.test_execution_controls"), True),
     ("portable/*provider*", ("tests.test_provider_operation_lifecycle", "tests.test_side_effect_ledger"), True),
     ("tests/test_execution_controller*.py", ("tests.test_execution_controller", "tests.test_execution_controller_restart", "tests.test_execution_controller_promotion_rollback_contract"), True),
+    ("tests/test_consequential_run_once_recovery.py", ("tests.test_consequential_run_once_recovery", "tests.test_execution_controller"), True),
     ("tests/test_progress_journal*.py", ("tests.test_progress_journal", "tests.test_progress_journal_integration"), True),
     ("tests/test_side_effect_ledger*.py", ("tests.test_side_effect_ledger", "tests.test_side_effect_ledger_crash_fault_injection"), True),
     ("tests/test_engineering_recovery*.py", ("tests.test_engineering_recovery", "tests.test_engineering_recovery_fault_matrix"), True),

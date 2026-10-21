@@ -10,6 +10,8 @@ Every consequential provider operation has one stable operation ID and one immut
 
 Register a trusted adapter against the consequential handler with `ExecutionController.register_provider_operation_adapter(handler_name, adapter)`. The adapter must expose `lookup_operation(operation_id, idempotency_key)` and a host-trusted `verify_reconciliation(idempotency_key, evidence_ref, receipt)`. The consequential handler receives `auren_provider_operation` metadata containing the stable operation ID and idempotency key and must pass that key to the provider when supported.
 
+An unresolved consequential task is persisted as `blocked_reconciliation`, and its work unit waits for external resolution. After registering the trusted adapter, an operator can call `resume_blocked_provider_task` with the task ID, its clarification ID, operator identity, and reason. That action requeues status lookup only; it does not authorize a remote side effect.
+
 On recovery, the controller performs the adapter's read-only lookup before allowing any further dispatch. Only a completed outcome with a provider evidence reference accepted by the trusted verifier closes the ledger. Pending, absent, malformed, not-found, or failed lookup results remain blocked. Adapters must be re-registered by the trusted host after worker restart; missing adapter configuration never triggers a replay.
 
 ## Required lifecycle

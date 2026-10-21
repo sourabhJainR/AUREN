@@ -11,6 +11,7 @@ class ImpactPolicyTests(unittest.TestCase):
             "portable/ci_repair_watchdog.py": {"tests.test_ci_repair_watchdog", "tests.test_engineering_recovery"},
             "portable/continuous_execution.py": {"tests.test_continuous_execution", "tests.test_ci_repair_watchdog", "tests.test_engineering_recovery"},
             "portable/execution_controller.py": {"tests.test_execution_controller", "tests.test_execution_controller_restart", "tests.test_execution_controller_promotion_rollback_contract", "tests.test_provider_operation_lifecycle"},
+            "tests/test_consequential_run_once_recovery.py": {"tests.test_consequential_run_once_recovery", "tests.test_execution_controller"},
             "portable/engineering_recovery.py": {"tests.test_engineering_recovery", "tests.test_engineering_recovery_fault_matrix"},
             "portable/progress_journal.py": {"tests.test_progress_journal", "tests.test_progress_journal_integration"},
             "portable/canonical_evidence_ledger.py": {"tests.test_canonical_evidence_ledger", "tests.test_provider_operation_lifecycle"},

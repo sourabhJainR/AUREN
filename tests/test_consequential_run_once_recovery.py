@@ -71,9 +71,9 @@ class ConsequentialRunOnceRecoveryTests(unittest.TestCase):
         first = self.controller.submit(
             "consequential-recovery-action", self._payload()
         )
-        with self.assertRaisesRegex(TimeoutError, "response was lost"):
-            self.controller.run_once(first.id)
-        self.assertEqual("failed", self.controller.task(first.id).state)
+        self.assertIsNone(self.controller.run_once(first.id))
+        self.assertEqual("blocked_reconciliation", self.controller.task(first.id).state)
+        self.assertEqual("waiting_external", self.controller.company._state(first.work_unit_id)[0])
         self.assertEqual(["abc123"], _PROVIDER_CALLS)
 
         # Recreate the controller as a fresh worker over the same durable store.
@@ -82,8 +82,8 @@ class ConsequentialRunOnceRecoveryTests(unittest.TestCase):
         resumed = restarted.submit(
             "consequential-recovery-action", self._payload()
         )
-        with self.assertRaisesRegex(RuntimeError, "requires reconciliation"):
-            restarted.run_once(resumed.id)
+        self.assertIsNone(restarted.run_once(resumed.id))
+        self.assertEqual("blocked_reconciliation", restarted.task(resumed.id).state)
 
         self.assertEqual(["abc123"], _PROVIDER_CALLS)
         from portable.side_effect_ledger import DurableSideEffectLedger
