@@ -1608,7 +1608,7 @@ class ExecutionController:
             if not callable(lookup_fn) or not callable(verify_fn):
                 raise RuntimeError("provider adapter reconciliation capabilities are incomplete")
             from .provider_operation_lifecycle import (
-                ProviderOperationLifecycle, ProviderOutcomeBlocked, stable_provider_operation_id,
+                ProviderOperationLifecycle, stable_provider_operation_id,
             )
             provider_name = task.handler
             provider_intent = {"binding": binding, "payload": safe_payload}

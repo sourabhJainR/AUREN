@@ -67,6 +67,48 @@ class ConsequentialRunOnceRecoveryTests(unittest.TestCase):
             "auren_idempotency": {"key": "run-recovery-1:deploy:staging"},
         }
 
+    def test_operator_resume_reconciles_status_without_redispatch(self):
+        first = self.controller.submit("consequential-recovery-action", self._payload())
+        self.assertIsNone(self.controller.run_once(first.id))
+        self.assertEqual("blocked_reconciliation", self.controller.task(first.id).state)
+        clarification = self.controller.company.open_clarifications(first.work_unit_id)[0]
+
+        class Adapter:
+            def lookup_operation(self, operation_id, idempotency_key):
+                return {
+                    "status": "completed",
+                    "evidence_ref": "https://provider.example/operations/remote-99",
+                    "receipt": {
+                        "result": {"success": True, "detail": "remote outcome verified",
+                                   "evidence": ["https://provider.example/operations/remote-99"]},
+                        "provider_operation_id": operation_id,
+                    },
+                }
+
+            def verify_reconciliation(self, key, evidence_ref, receipt):
+                return (
+                    key.startswith("provider-operation:")
+                    and evidence_ref == "https://provider.example/operations/remote-99"
+                    and receipt.get("provider_operation_id", "").startswith("auren-op-")
+                    and receipt.get("result", {}).get("success") is True
+                )
+
+        self.controller.register_provider_operation_adapter("consequential-recovery-action", Adapter())
+        self.assertTrue(self.controller.resume_blocked_provider_task(
+            first.id, clarification_id=clarification["id"], operator_id="operator-7",
+            operator_reason="Verified the provider operation record; reconcile only.",
+        ))
+        self.assertEqual("pending", self.controller.task(first.id).state)
+        score = self.controller.run_once(first.id)
+        self.assertIsNotNone(score)
+        self.assertEqual("completed", self.controller.task(first.id).state)
+        self.assertEqual(["abc123"], _PROVIDER_CALLS)
+        from portable.side_effect_ledger import DurableSideEffectLedger
+        record = DurableSideEffectLedger(self.controller.db_path).get(
+            "consequential-idempotency:run-recovery-1:deploy:staging"
+        )
+        self.assertEqual("completed", record["state"])
+
     def test_unknown_provider_outcome_after_restart_never_redispatches(self):
         first = self.controller.submit(
             "consequential-recovery-action", self._payload()
