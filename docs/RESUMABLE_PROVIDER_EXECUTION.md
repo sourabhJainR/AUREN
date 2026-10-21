@@ -19,3 +19,9 @@ The provider executor is a checkpointable runtime component and its persistence/
 The executor bounds how long the supervisor waits for each provider call (default 120 seconds; hosts may configure a stricter finite positive value) and emits provider attempt/start/completion/failure/timeout events through an optional progress callback. A hung call returns an explicit `timed_out` result with `late_result_possible=true`; it does not fail over or retry automatically because the worker may still finish after the timeout. This is a responsiveness guard, not a way to kill a Python thread. Use provider-native transport deadlines and process isolation where hard termination is required. Reconcile the attempt before retrying, and do not use this thread wrapper for irreversible side effects.
 
 Regression tests: `test_hung_provider_returns_bounded_unknown_and_never_fails_over` and `test_invalid_provider_call_timeout_rejected`.
+
+## Shared provider-call boundary
+
+The resumable executor and `ProviderBackedCrewAdapter` now use the same bounded provider-call helper and share an eight-worker cap. A host invoker that ignores its timeout can no longer hold the calling graph node indefinitely. The caller receives an explicit timeout; the late worker is daemonized and consumes one of the bounded slots until it exits. A timed-out attempt must be reconciled before retry. This still does not kill the worker or make a provider-side operation exactly-once; configure native transport deadlines and use process isolation for hard termination.
+
+Regression coverage: `test_hung_provider_is_bounded_even_if_invoker_ignores_timeout` and the resumable executor timeout/no-failover tests.

@@ -73,6 +73,34 @@ class ProviderBackedCrewAdapterTests(unittest.TestCase):
         self.assertEqual(adapter.implementation_version, "host-provider@model-2026-10")
         self.assertEqual(len(adapter.configuration_digest), 64)
 
+    def test_hung_provider_is_bounded_even_if_invoker_ignores_timeout(self):
+        from threading import Event
+        import time
+
+        started = Event()
+        release = Event()
+        calls = []
+
+        def hung_provider(prompt, timeout_seconds):
+            calls.append(timeout_seconds)
+            started.set()
+            release.wait(2)
+            return "{}"
+
+        adapter = ProviderBackedCrewAdapter(
+            "backend_api", "host-provider", "pinned-v1", hung_provider,
+            ApprovedToolRegistry(), allowed_tools=(), timeout_seconds=1,
+        )
+        before = time.monotonic()
+        try:
+            with self.assertRaisesRegex(TimeoutError, "exceeded its bounded wait"):
+                adapter.propose({"crew_id": "backend_api", "task": "test"})
+            self.assertTrue(started.is_set())
+            self.assertLess(time.monotonic() - before, 1.8)
+            self.assertEqual(calls, [1])
+        finally:
+            release.set()
+
     def test_provider_response_rejects_duplicate_keys_and_unapproved_tools(self):
         tools = ApprovedToolRegistry([
             ApprovedTool("read", lambda _args: {"ok": True}, "Read-only test tool."),

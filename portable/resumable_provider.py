@@ -11,18 +11,12 @@ from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import math
-from queue import Empty, Queue
-from threading import BoundedSemaphore, Thread
-from time import monotonic
 from typing import Any, Callable, Mapping
 
-from .crew_adapters import TaskRetryBudget
+from .crew_adapters import TaskRetryBudget, invoke_provider_with_bounded_wait
 
 
 SCHEMA_VERSION = "auren-provider-resume-v1"
-# Timed-out Python threads cannot be killed safely; cap orphaned provider workers.
-_MAX_PROVIDER_WORKERS = 8
-_PROVIDER_WORKER_SLOTS = BoundedSemaphore(_MAX_PROVIDER_WORKERS)
 
 
 def _canonical(value: Any) -> bytes:
@@ -172,51 +166,12 @@ class ResumableProviderExecutor:
                 raise ProviderProgressError(f"provider progress callback failed during {event}") from exc
 
     def _call_bounded(self, provider: str, request: Mapping[str, Any], key: str) -> tuple[str, Any]:
-        """Bound caller wait without pretending Python can kill a running thread.
-
-        A timed-out call may finish later. It is therefore never automatically
-        retried or failed over; the returned state requires reconciliation first.
-        Providers must be proposal/read-only operations, and host adapters should
-        also configure their native transport timeout.
-        """
-        if not _PROVIDER_WORKER_SLOTS.acquire(blocking=False):
-            self._emit("provider_call_blocked", provider=provider, reason="bounded provider worker capacity exhausted",
-                       max_workers=_MAX_PROVIDER_WORKERS)
-            return "capacity", None
-        outcome: Queue[tuple[str, Any]] = Queue(maxsize=1)
-        def invoke() -> None:
-            try:
-                outcome.put(("result", self.providers[provider](dict(request), key)))
-            except Exception as exc:
-                outcome.put(("error", exc))
-            finally:
-                _PROVIDER_WORKER_SLOTS.release()
-        worker = Thread(target=invoke, name=f"auren-provider-{provider}", daemon=True)
-        try:
-            self._emit("provider_call_started", provider=provider, timeout_seconds=self.call_timeout_seconds)
-        except Exception:
-            _PROVIDER_WORKER_SLOTS.release()
-            raise
-        started = monotonic()
-        worker.start()
-        while True:
-            remaining = self.call_timeout_seconds - (monotonic() - started)
-            if remaining <= 0:
-                try:
-                    self._emit("provider_call_timed_out", provider=provider, timeout_seconds=self.call_timeout_seconds,
-                               late_result_possible=True, retry_blocked=True)
-                except ProviderProgressError:
-                    # The timeout result itself is the durable caller-visible signal;
-                    # do not let a failed observer callback trigger unsafe failover.
-                    pass
-                return "timeout", None
-            try:
-                kind, value = outcome.get(timeout=min(remaining, 0.05))
-            except Empty:
-                continue
-            if kind == "error":
-                return "error", value
-            return "result", value
+        """Bound the caller wait without pretending Python can kill a thread."""
+        return invoke_provider_with_bounded_wait(
+            self.providers[provider], (dict(request), key),
+            timeout_seconds=self.call_timeout_seconds, provider_id=provider,
+            on_event=lambda event, **fields: self._emit(event, **fields),
+        )
 
     def _save(self, *, status: str | None = None) -> None:
         if status is not None:
