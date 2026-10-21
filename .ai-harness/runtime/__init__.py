@@ -70,6 +70,7 @@ def register_provider_backed_crew_adapters(
     timeout_seconds_by_crew: Mapping[str, int] | None = None,
     max_response_chars: int = 100_000,
     max_tool_calls: int = 4,
+    progress_callbacks_by_crew: Mapping[str, Callable[[Mapping[str, Any]], None]] | None = None,
     replace: bool = False,
 ) -> dict[str, Any]:
     """Build and register explicit provider-backed proposal adapters at host bootstrap.
@@ -90,6 +91,7 @@ def register_provider_backed_crew_adapters(
         timeout_seconds_by_crew=timeout_seconds_by_crew,
         max_response_chars=max_response_chars,
         max_tool_calls=max_tool_calls,
+        progress_callbacks_by_crew=progress_callbacks_by_crew,
     )
     register_crew_adapters(adapters, replace=replace)
     return adapters
