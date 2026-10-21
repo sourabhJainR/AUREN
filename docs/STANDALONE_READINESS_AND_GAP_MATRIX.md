@@ -24,7 +24,7 @@
 - [x] Durable execution and progress-journal recovery have regression coverage for selected commit boundaries.
 - [ ] Extend fault injection to every external side-effect boundary: intent persisted, dispatch started, provider accepted, remote operation completed, receipt persisted, terminal state persisted.
 - [x] Add a command-backed provider invoker that terminates a timed-out child process and has regression tests for timeout, environment isolation, output limits, and error redaction. This is a bounded process adapter, not a full sandbox.
-- [ ] Verify process-tree termination on all supported platforms; POSIX kills the process group, while Windows currently terminates the direct child only. Apply OS/container memory limits for untrusted provider output.
+- [ ] Verify hard termination and process-tree termination on all supported platforms; POSIX kills the process group, while Windows currently terminates the direct child only. Apply OS/container memory limits for untrusted provider output.
 - [ ] Prove cancellation and absolute deadlines propagate through supervisor, graph nodes, provider/model adapters, child processes, and validation commands.
 - [ ] Prove unknown remote outcomes reconcile by idempotency key or operation lookup before retry. No automatic replay when completion is uncertain.
 
