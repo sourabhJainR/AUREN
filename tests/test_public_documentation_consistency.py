@@ -94,6 +94,7 @@ class TestPublicDocumentationConsistency(unittest.TestCase):
         matrix = (ROOT / "docs" / "STANDALONE_READINESS_AND_GAP_MATRIX.md").read_text(encoding="utf-8")
         provider_tests = (ROOT / "tests" / "test_provider_backed_crew_adapters.py").read_text(encoding="utf-8")
         graph_tests = (ROOT / "tests" / "test_graph_agent_team_crew_dispatch.py").read_text(encoding="utf-8")
+        runtime_bootstrap = (ROOT / ".ai-harness" / "runtime" / "__init__.py").read_text(encoding="utf-8")
         self.assertIn("STANDALONE_READINESS_AND_GAP_MATRIX.md", readme)
         self.assertIn("STANDALONE_READINESS_AND_GAP_MATRIX.md", site)
         self.assertIn("Prove hard termination", matrix)
@@ -102,6 +103,7 @@ class TestPublicDocumentationConsistency(unittest.TestCase):
         self.assertIn("test_hung_provider_is_bounded_even_if_invoker_ignores_timeout", provider_tests)
         self.assertIn("test_provider_timeout_is_durable_blocked_progress", provider_tests)
         self.assertIn("test_provider_progress_uses_supervisor_identity_through_graph_dispatch", graph_tests)
+        self.assertIn("register_supervised_provider_backed_crew_adapters", runtime_bootstrap)
 
 if __name__ == "__main__":
     unittest.main()
