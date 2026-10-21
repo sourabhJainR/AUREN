@@ -224,9 +224,8 @@ def _load_work_report_module(root: Path):
 
 def _emit_work_report(args: list[str], result: int, root: Path) -> None:
     """Create a durable HTML report for work commands, excluding read-only status views."""
-    if args and args[0] == "progress":
-        # Preserve clean JSON output and avoid creating a misleading work report
-        # for a read-only inspection command.
+    if args and (args[0] == "progress" or (args[0] == "continuous" and len(args) > 1 and args[1] in {"status", "audit", "stop"})):
+        # Preserve clean JSON output and avoid reports for inspection/control commands.
         return
     try:
         loaded = _load_work_report_module(root)
@@ -266,6 +265,89 @@ def _emit_work_report(args: list[str], result: int, root: Path) -> None:
         print(f"Engineering HTML report warning: {exc}")
 
 
+
+def _run_continuous(args: list[str]) -> int:
+    """Run/status/stop AUREN's durable supervisor without a second task store."""
+    parser = argparse.ArgumentParser(
+        prog="auren continuous",
+        description="Continuously execute durable tasks, poll exact-head CI, and preserve an auditable stop/resume boundary.",
+    )
+    sub = parser.add_subparsers(dest="action", required=True)
+    start = sub.add_parser("start", help="start or recover the continuous worker")
+    start.add_argument("--project-root", default=".", help="project checkout (default: current directory)")
+    start.add_argument("--poll-seconds", type=float, default=5.0)
+    start.add_argument("--batch-size", type=int, default=20)
+    start.add_argument("--max-cycles", type=int, default=None, help="bounded diagnostic run; omit for continuous operation")
+    start.add_argument("--watch", action="append", default=[], metavar="OWNER/REPO@FULL_SHA", help="poll exact-head GitHub checks; repeat for multiple heads")
+    start.add_argument("--required-check", action="append", default=[], help="exact required GitHub check name; repeat as needed")
+    stop = sub.add_parser("stop", help="persist an interrupt request; pending work and audit remain intact")
+    stop.add_argument("--project-root", default=".")
+    stop.add_argument("--reason", default="operator_stop_command")
+    status = sub.add_parser("status", help="show worker state and task counts")
+    status.add_argument("--project-root", default=".")
+    audit = sub.add_parser("audit", help="verify the continuous-execution hash chain")
+    audit.add_argument("--project-root", default=".")
+    options = parser.parse_args(args)
+
+    from portable.execution_controller import ExecutionController
+    from portable.continuous_execution import ContinuousExecutionSupervisor, GitHubActionsCheckPoller
+
+    root = Path(options.project_root).expanduser().resolve()
+    if not root.is_dir():
+        parser.error(f"project root is not an existing directory: {root}")
+    controller = ExecutionController(root)
+    try:
+        if options.action == "stop":
+            supervisor = ContinuousExecutionSupervisor(controller)
+            print(json.dumps(supervisor.request_stop(options.reason), indent=2, sort_keys=True))
+            return 0
+        if options.action == "status":
+            print(json.dumps(ContinuousExecutionSupervisor(controller).status(), indent=2, sort_keys=True))
+            return 0
+        if options.action == "audit":
+            valid = ContinuousExecutionSupervisor(controller).verify_audit_chain()
+            print(json.dumps({"audit_chain_valid": valid}, indent=2, sort_keys=True))
+            return 0 if valid else 2
+
+        if options.watch and not options.required_check:
+            parser.error("--watch requires at least one --required-check")
+        pollers = {}
+        for target in options.watch:
+            if "@" not in target:
+                parser.error("--watch must use OWNER/REPO@FULL_SHA")
+            repository, head_sha = target.rsplit("@", 1)
+            key = f"ci:{repository}@{head_sha[:12]}"
+            if key in pollers:
+                parser.error(f"duplicate CI watch: {target}")
+            pollers[key] = GitHubActionsCheckPoller(repository, head_sha, options.required_check)
+        supervisor = ContinuousExecutionSupervisor(controller, pollers=pollers)
+        import signal
+        from threading import Event
+        stop_event = Event()
+        prior_handlers = {}
+        def request_interrupt(signum, _frame):
+            stop_event.set()
+        for signum in (signal.SIGINT, signal.SIGTERM):
+            try:
+                prior_handlers[signum] = signal.signal(signum, request_interrupt)
+            except (ValueError, OSError):
+                pass
+        try:
+            result = supervisor.run(
+                poll_seconds=options.poll_seconds,
+                batch_size=options.batch_size,
+                max_cycles=options.max_cycles,
+                stop_event=stop_event,
+            )
+        finally:
+            for signum, handler in prior_handlers.items():
+                signal.signal(signum, handler)
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 0 if result.get("state") == "stopped" and result.get("audit_chain_valid") else 1
+    finally:
+        controller.company.close() if hasattr(controller.company, "close") else None
+
+
 def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     if len(args) == 1 and Path(args[0]).suffix.lower() == ".zip":
@@ -278,7 +360,10 @@ def main(argv: list[str] | None = None) -> int:
     _prepare_runtime_for_distribution(runtime)
     result = 1
     try:
-        result = int(runtime.main(args))
+        if args and args[0] == "continuous":
+            result = int(_run_continuous(args[1:]))
+        else:
+            result = int(runtime.main(args))
         if result == 0 and _should_activate_claude(args):
             auren_home = Path.home() / ".auren"
             current = auren_home / "current"
