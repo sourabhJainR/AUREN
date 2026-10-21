@@ -115,6 +115,52 @@ class RecoveryDecisionJournalTests(unittest.TestCase):
         self.assertEqual("inconsistent", result["status"])
         self.assertEqual([3], result["missing"])
 
+    def test_legacy_receipts_import_idempotently_and_preserve_source(self):
+        legacy_path = Path(self.temp.name) / "legacy-journal.sqlite3"
+        legacy = RecoveryDecisionJournal(legacy_path)
+        original = legacy.record(
+            work_id="work-123", phase="execution", attempt_number=2, action="retry",
+            strategy_id=None, failure_class="execution_failure", attempts_remaining=1,
+            checkpoint_digest="b" * 64, side_effect_state="ambiguous", reason_code="bounded_retry",
+        )
+        target = RecoveryDecisionJournal(Path(self.temp.name) / "canonical-ledger.sqlite3")
+        self.assertEqual(1, target.import_from(legacy_path))
+        self.assertEqual(0, target.import_from(legacy_path))
+        migrated = target.get("work-123", "execution", 2)
+        self.assertEqual(original.decision_digest, migrated.decision_digest)
+        self.assertEqual(original.created_at, migrated.created_at)
+        self.assertTrue(legacy_path.exists(), "migration must preserve the source journal")
+
+    def test_attempt_and_receipt_roll_back_together_on_journal_write_failure(self):
+        shared_path = Path(self.temp.name) / "shared-recovery.sqlite3"
+        ledger = EngineeringRecoveryLedger(shared_path)
+        journal = RecoveryDecisionJournal(shared_path)
+        ledger.start_run("work-123", "intent")
+        first = ledger.begin_attempt("work-123", "execution", "failure", "default-plan", action="reproduce")
+        ledger.finish_attempt(first, outcome="failed")
+        checkpoint = ledger.checkpoint(
+            "work-123", "execution", status="pending", head_sha="",
+            payload={"iteration": 1, "hypothesis": "default-plan"},
+        )
+        receipt = {
+            "work_id": "work-123", "phase": "execution", "attempt_number": 2,
+            "action": "retry", "strategy_id": None, "failure_class": "execution_failure",
+            "attempts_remaining": 1, "checkpoint_digest": journal._checkpoint_digest(checkpoint),
+            "side_effect_state": "ambiguous", "reason_code": "bounded_retry",
+        }
+
+        def fail_write(*_args, **_kwargs):
+            raise OSError("injected crash at receipt transaction")
+
+        journal.record_in_transaction = fail_write
+        with self.assertRaisesRegex(OSError, "injected crash"):
+            ledger.begin_attempt(
+                "work-123", "execution", "failure", "default-plan", action="narrow_fix",
+                decision_receipt=receipt, decision_journal=journal,
+            )
+        self.assertEqual(1, len(ledger.attempts("work-123")))
+        self.assertIsNone(journal.get("work-123", "execution", 2))
+
     def test_reconcile_accepts_receipt_and_started_attempt_pair(self):
         ledger = EngineeringRecoveryLedger(Path(self.temp.name) / "ledger.sqlite3")
         ledger.start_run("work-123", "intent")

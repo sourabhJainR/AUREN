@@ -104,9 +104,13 @@ class AdaptiveRuntime:
             max_total_attempts=12,
             max_elapsed_seconds=3600,
         )
-        self.recovery_decision_journal = RecoveryDecisionJournal(
-            state / "recovery-decisions.sqlite3",
-        )
+        # Keep recovery attempts and their decision receipts in one SQLite
+        # database so a retry/alternate receipt can commit atomically with the
+        # attempt claim. Import the previous separate journal idempotently and
+        # retain the source file as a rollback/audit artifact.
+        legacy_recovery_journal = state / "recovery-decisions.sqlite3"
+        self.recovery_decision_journal = RecoveryDecisionJournal(self.recovery_ledger.path)
+        self.recovery_decision_journal.import_from(legacy_recovery_journal)
 
     def capability(self, name: str, preferred: tuple[str, ...] = ()) -> RoutingDecision:
         return self.provider_fabric.route(CapabilityRequest(name, preferred))
@@ -424,52 +428,49 @@ class AdaptiveRuntime:
                     },
                 )
                 return "failed", last["failure"], ("runtime-budget-exhausted",)
+            decision_receipt: dict[str, Any] | None = None
             if iteration > 1:
                 previous_hypothesis = str(attempts["hypothesis"])
                 decision = self.recovery_ledger.decision(
                     work_id, "execution", "execution-failure", previous_hypothesis,
                 )
-                # This receipt is audit-only: it never grants recovery authority.
-                # Unknown side-effect state is recorded conservatively as ambiguous.
                 checkpoint_for_receipt = self.recovery_ledger.get_checkpoint(work_id, "execution")
-                checkpoint_material = {
-                    "status": checkpoint_for_receipt.status if checkpoint_for_receipt is not None else "missing",
-                    "head_sha": checkpoint_for_receipt.head_sha if checkpoint_for_receipt is not None else "",
-                    "payload": checkpoint_for_receipt.payload if checkpoint_for_receipt is not None else {},
-                }
-                checkpoint_digest = hashlib.sha256(
-                    json.dumps(checkpoint_material, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
-                ).hexdigest()
+                checkpoint_digest = self.recovery_decision_journal._checkpoint_digest(checkpoint_for_receipt)
                 if decision.action is RecoveryAction.BLOCKED:
-                    receipt_action, strategy_id, reason_code = "block", None, "recovery_blocked"
-                elif decision.action is RecoveryAction.ALTERNATE_PLAN:
-                    receipt_action, strategy_id, reason_code = "alternate", f"alternate-plan-{attempts['alternate_count'] + 1}", "alternate_plan"
-                else:
-                    receipt_action, strategy_id, reason_code = "retry", None, "bounded_retry"
-                # The recovery-decision branch runs before attempt context is built.
-                # Until a trusted reconciler supplies a state, record ambiguity.
-                side_effect_state = "ambiguous"
-                try:
-                    self.recovery_decision_journal.record(
-                        work_id=work_id,
-                        phase="execution",
-                        attempt_number=iteration,
-                        action=receipt_action,
-                        strategy_id=strategy_id,
-                        failure_class="execution_failure",
-                        attempts_remaining=max(0, requested_iterations - iteration),
-                        checkpoint_digest=checkpoint_digest,
-                        side_effect_state=side_effect_state,
-                        reason_code=reason_code,
-                    )
-                except Exception as journal_error:
-                    attempts["blocked"] = f"recovery decision could not be durably recorded: {type(journal_error).__name__}"
-                    last["failure"] = attempts["blocked"]
-                    return "failed", attempts["blocked"], ("recovery-journal-write-failed",)
-                if decision.action is RecoveryAction.BLOCKED:
+                    try:
+                        self.recovery_decision_journal.record(
+                            work_id=work_id, phase="execution", attempt_number=iteration,
+                            action="block", strategy_id=None, failure_class="execution_failure",
+                            attempts_remaining=0, checkpoint_digest=checkpoint_digest,
+                            side_effect_state="ambiguous", reason_code="recovery_blocked",
+                        )
+                    except Exception as journal_error:
+                        attempts["blocked"] = f"recovery decision could not be durably recorded: {type(journal_error).__name__}"
+                        last["failure"] = attempts["blocked"]
+                        return "failed", attempts["blocked"], ("recovery-journal-write-failed",)
                     attempts["blocked"] = decision.reason
                     last["failure"] = decision.reason
                     return "failed", decision.reason, ("recovery-budget-exhausted",)
+                if decision.action is RecoveryAction.ALTERNATE_PLAN:
+                    receipt_action = "alternate"
+                    strategy_id = f"alternate-plan-{attempts['alternate_count'] + 1}"
+                    reason_code = "alternate_plan"
+                else:
+                    receipt_action, strategy_id, reason_code = "retry", None, "bounded_retry"
+                # The receipt is committed in the same transaction as the attempt
+                # row. A crash cannot leave a receipt-only retry eligible for replay.
+                decision_receipt = {
+                    "work_id": work_id,
+                    "phase": "execution",
+                    "attempt_number": iteration,
+                    "action": receipt_action,
+                    "strategy_id": strategy_id,
+                    "failure_class": "execution_failure",
+                    "attempts_remaining": max(0, requested_iterations - iteration),
+                    "checkpoint_digest": checkpoint_digest,
+                    "side_effect_state": "ambiguous",
+                    "reason_code": reason_code,
+                }
                 if decision.action is RecoveryAction.ALTERNATE_PLAN:
                     attempts["alternate_count"] += 1
                     attempts["hypothesis"] = f"alternate-plan-{attempts['alternate_count']}"
@@ -489,11 +490,33 @@ class AdaptiveRuntime:
                         else "narrow_fix"
                     ),
                     head_sha=str((kwargs.get("context") or {}).get("head_sha", "")),
+                    decision_receipt=decision_receipt,
+                    decision_journal=self.recovery_decision_journal,
                 )
             except RecoveryLimitReached as exc:
+                if iteration > 1:
+                    try:
+                        checkpoint_for_receipt = self.recovery_ledger.get_checkpoint(work_id, "execution")
+                        self.recovery_decision_journal.record(
+                            work_id=work_id, phase="execution", attempt_number=iteration,
+                            action="block", strategy_id=None, failure_class="execution_failure",
+                            attempts_remaining=0,
+                            checkpoint_digest=self.recovery_decision_journal._checkpoint_digest(checkpoint_for_receipt),
+                            side_effect_state="ambiguous", reason_code="recovery_budget_exhausted",
+                        )
+                    except Exception as journal_error:
+                        attempts["blocked"] = f"recovery decision could not be durably recorded: {type(journal_error).__name__}"
+                        last["failure"] = attempts["blocked"]
+                        return "failed", attempts["blocked"], ("recovery-journal-write-failed",)
                 attempts["blocked"] = exc.reason
                 last["failure"] = exc.reason
                 return "failed", exc.reason, ("recovery-budget-exhausted",)
+            except Exception as journal_error:
+                if decision_receipt is None:
+                    raise
+                attempts["blocked"] = f"recovery decision and attempt could not be committed atomically: {type(journal_error).__name__}"
+                last["failure"] = attempts["blocked"]
+                return "failed", attempts["blocked"], ("recovery-journal-write-failed",)
             attempts["attempt_id"] = attempt_id
             self.recovery_ledger.checkpoint(
                 work_id, "execution", status="in_progress", head_sha="",

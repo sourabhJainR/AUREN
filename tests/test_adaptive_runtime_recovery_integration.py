@@ -8,6 +8,7 @@ from pathlib import Path
 from portable.adaptive_runtime import AdaptiveRuntime
 from portable.orchestration import Graph, Node, NodeKind
 from portable.runtime_recovery import RuntimeExecutionGuard
+from portable.recovery_decision_journal import RecoveryDecisionJournal
 
 
 class AdaptiveRuntimeRecoveryIntegrationTests(unittest.TestCase):
@@ -105,6 +106,25 @@ class AdaptiveRuntimeRecoveryIntegrationTests(unittest.TestCase):
             )
         self.assertEqual([], calls, "the interrupted decision must not dispatch another attempt")
 
+    def test_runtime_migrates_legacy_journal_into_the_shared_recovery_database(self):
+        graph = Graph([Node("work", NodeKind.DETERMINISTIC, lambda state: "ok")])
+        state_root = self.root / "legacy-journal-migration"
+        legacy_path = state_root / "recovery-decisions.sqlite3"
+        legacy = RecoveryDecisionJournal(legacy_path)
+        original = legacy.record(
+            work_id="legacy-work", phase="execution", attempt_number=2, action="retry",
+            strategy_id=None, failure_class="execution_failure", attempts_remaining=1,
+            checkpoint_digest="c" * 64, side_effect_state="ambiguous", reason_code="bounded_retry",
+        )
+
+        runtime = AdaptiveRuntime(graph, state_root=state_root)
+
+        self.assertEqual(runtime.recovery_ledger.path.resolve(), runtime.recovery_decision_journal.path)
+        migrated = runtime.recovery_decision_journal.get("legacy-work", "execution", 2)
+        self.assertIsNotNone(migrated)
+        self.assertEqual(original.decision_digest, migrated.decision_digest)
+        self.assertTrue(legacy_path.exists(), "legacy source must remain available for rollback/audit")
+
     def test_journal_persistence_failure_stops_before_another_recovery_attempt(self):
         graph = Graph([Node("work", NodeKind.DETERMINISTIC, lambda state: "ok")])
         runtime = AdaptiveRuntime(graph, state_root=self.root / "journal-failure-state")
@@ -116,10 +136,10 @@ class AdaptiveRuntimeRecoveryIntegrationTests(unittest.TestCase):
 
         runtime._run_once = failing_execution
 
-        def fail_receipt_write(**_kwargs):
+        def fail_receipt_write(*_args, **_kwargs):
             raise OSError("simulated journal storage outage")
 
-        runtime.recovery_decision_journal.record = fail_receipt_write
+        runtime.recovery_decision_journal.record_in_transaction = fail_receipt_write
         with self.assertRaisesRegex(RuntimeError, "stopped safely"):
             runtime.run(
                 session_id="journal-failure-session",
