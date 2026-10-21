@@ -126,6 +126,27 @@ class ResumableProviderTests(unittest.TestCase):
         self.assertEqual(calls, ["primary"])
         release.set()
 
+    def test_checkpoint_write_failure_after_provider_result_never_fails_over(self):
+        calls = []
+
+        def persist(snapshot):
+            if snapshot["status"] == "completed":
+                raise OSError("controlled checkpoint store outage")
+
+        executor = ResumableProviderExecutor(
+            task_id="task-persist-failure", stage_id="stage",
+            providers={
+                "primary": lambda request, key: calls.append("primary") or {"ok": True},
+                "backup": lambda request, key: calls.append("backup") or {"ok": True},
+            },
+            provider_versions={"primary": "1", "backup": "1"},
+            preferred_provider="primary", retry_budget=TaskRetryBudget(max_retries=2),
+            persist=persist, call_timeout_seconds=0.2,
+        )
+        with self.assertRaisesRegex(OSError, "checkpoint store outage"):
+            executor.run({"prompt": "safe"})
+        self.assertEqual(calls, ["primary"])
+
     def test_invalid_provider_call_timeout_rejected(self):
         for value in (0, -1, float("inf"), float("nan"), True):
             with self.subTest(value=value), self.assertRaises(ValueError):
