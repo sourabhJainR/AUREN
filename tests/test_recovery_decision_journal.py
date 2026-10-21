@@ -74,7 +74,7 @@ class RecoveryDecisionJournalTests(unittest.TestCase):
         first = ledger.begin_attempt("work-123", "execution", "failure", "default-plan", action="reproduce")
         ledger.finish_attempt(first, outcome="failed")
         checkpoint = ledger.checkpoint(
-            "work-123", "execution", status="failed", head_sha="",
+            "work-123", "execution", status="pending", head_sha="",
             payload={"iteration": 1, "hypothesis": "default-plan"},
         )
         self.record(
@@ -94,7 +94,7 @@ class RecoveryDecisionJournalTests(unittest.TestCase):
         first = ledger.begin_attempt("work-123", "execution", "failure", "default-plan", action="reproduce")
         ledger.finish_attempt(first, outcome="failed")
         checkpoint = ledger.checkpoint(
-            "work-123", "execution", status="failed", head_sha="",
+            "work-123", "execution", status="pending", head_sha="",
             payload={"iteration": 1, "hypothesis": "default-plan"},
         )
         self.record(
@@ -105,7 +105,7 @@ class RecoveryDecisionJournalTests(unittest.TestCase):
         second = ledger.begin_attempt("work-123", "execution", "failure", "default-plan", action="narrow_fix")
         ledger.finish_attempt(second, outcome="failed")
         ledger.checkpoint(
-            "work-123", "execution", status="failed", head_sha="",
+            "work-123", "execution", status="pending", head_sha="",
             payload={"iteration": 2, "hypothesis": "default-plan"},
         )
         third = ledger.begin_attempt("work-123", "execution", "failure", "alternate-plan-1", action="alternate_implementation")
@@ -121,7 +121,7 @@ class RecoveryDecisionJournalTests(unittest.TestCase):
         first = ledger.begin_attempt("work-123", "execution", "failure", "default-plan", action="reproduce")
         ledger.finish_attempt(first, outcome="failed")
         checkpoint = ledger.checkpoint(
-            "work-123", "execution", status="failed", head_sha="",
+            "work-123", "execution", status="pending", head_sha="",
             payload={"iteration": 1, "hypothesis": "default-plan"},
         )
         self.record(
