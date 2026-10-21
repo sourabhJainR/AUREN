@@ -155,6 +155,28 @@ class ProgressJournalRuntimeIntegrationTests(unittest.TestCase):
             self.assertTrue(any("progress_reconciliation_required=1" in finding
                                 for finding in restarted.health_findings()))
 
+    def test_bounded_startup_reconciliation_reports_and_clears_incomplete_scan(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            controller = ExecutionController(root)
+            controller.register_handler(
+                "tests.progress_success", progress_success_handler, execution_class="read_only"
+            )
+            controller.submit("tests.progress_success", {"request_id": "first"})
+            controller.submit("tests.progress_success", {"request_id": "second"})
+
+            partial = controller.reconcile_progress_journal(limit=1, time_budget_seconds=2.0)
+            self.assertTrue(partial["incomplete"])
+            self.assertIsNotNone(partial["next_action"])
+            self.assertTrue(any("progress_reconciliation_incomplete" in finding
+                                for finding in controller.health_findings()))
+
+            complete = controller.reconcile_progress_journal(limit=100, time_budget_seconds=5.0)
+            self.assertFalse(complete["incomplete"])
+            self.assertIsNone(complete["next_action"])
+            self.assertFalse(any("progress_reconciliation_incomplete" in finding
+                                 for finding in controller.health_findings()))
+
     def test_journal_failure_is_visible_without_falsifying_task_state(self):
         with tempfile.TemporaryDirectory() as temp:
             controller = ExecutionController(temp)
