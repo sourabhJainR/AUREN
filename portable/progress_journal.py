@@ -6,6 +6,36 @@ import json, os, re, threading
 from pathlib import Path
 from typing import Any
 
+from contextlib import contextmanager
+
+@contextmanager
+def _journal_file_lock(path: Path):
+    """Serialize read-modify-append across journal instances and processes."""
+    lock_path = path.with_name(path.name + ".lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("a+b") as lock_file:
+        if os.name == "nt":
+            import msvcrt
+            lock_file.seek(0)
+            if lock_file.read(1) == b"":
+                lock_file.seek(0)
+                lock_file.write(b"\\0")
+                lock_file.flush()
+            lock_file.seek(0)
+            msvcrt.locking(lock_file.fileno(), msvcrt.LK_LOCK, 1)
+            try:
+                yield
+            finally:
+                lock_file.seek(0)
+                msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
 TERMINAL = {"completed", "failed", "cancelled"}
 STATES = {"queued", "running", "blocked", "recovering", "completed", "failed", "cancelled"}
 REDACTORS = (
@@ -71,7 +101,7 @@ class ProgressJournal:
             raise ValueError("completed_units cannot exceed total_units")
         if state == "completed" and completed_units is not None and total_units is not None and completed_units != total_units:
             raise ValueError("completed task must account for all declared units")
-        with self._lock:
+        with self._lock, _journal_file_lock(self.path):
             task_rows = [r for r in self._events() if r["task_id"] == task_id]
             if task_rows and task_rows[-1]["state"] in TERMINAL:
                 raise ValueError("cannot append progress to a terminal task")
