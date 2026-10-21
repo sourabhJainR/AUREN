@@ -62,7 +62,7 @@ class ProgressJournalRuntimeIntegrationTests(unittest.TestCase):
 
             self.assertEqual(controller.task(task.id).state, "running")
             self.assertEqual(controller.company._state(task.work_unit_id)[0], "running")
-            self.assertTrue(any("work_unit_receipt_commit_failed" in finding
+            self.assertTrue(any("cross_store_reconciliation_required" in finding
                                 for finding in controller.health_findings()))
             snapshot = ProgressJournal(controller.db_path.parent / "progress.jsonl").snapshot(
                 task.id, stale_after_seconds=3600
@@ -107,6 +107,62 @@ class ProgressJournalRuntimeIntegrationTests(unittest.TestCase):
                 task.id, stale_after_seconds=3600
             )
             self.assertEqual(snapshot["reported_state"], "completed")
+    def test_startup_repairs_missing_terminal_journal_event_from_matching_receipt(self):
+        with tempfile.TemporaryDirectory() as temp:
+            controller = ExecutionController(temp)
+            controller.register_handler(
+                "tests.progress_success", progress_success_handler, execution_class="read_only"
+            )
+            task = controller.submit("tests.progress_success", {"request_id": "status-repair"})
+            original_record = controller._record_progress
+
+            def omit_terminal(task_id, event, **kwargs):
+                if event == "task_terminal":
+                    return
+                return original_record(task_id, event, **kwargs)
+
+            controller._record_progress = omit_terminal
+            controller.run_once(task.id)
+            self.assertEqual(controller.task(task.id).state, "completed")
+            before = ProgressJournal(controller.db_path.parent / "progress.jsonl").snapshot(
+                task.id, stale_after_seconds=3600
+            )
+            self.assertNotEqual(before["reported_state"], "completed")
+
+            restarted = ExecutionController(temp)
+            after = ProgressJournal(restarted.db_path.parent / "progress.jsonl").snapshot(
+                task.id, stale_after_seconds=3600
+            )
+            self.assertEqual(after["reported_state"], "completed")
+            self.assertIn("task_terminal_reconciled", [
+                row["event"] for row in ProgressJournal(restarted.db_path.parent / "progress.jsonl")._events()
+                if row["task_id"] == task.id
+            ])
+
+    def test_terminal_task_without_matching_receipt_is_quarantined(self):
+        with tempfile.TemporaryDirectory() as temp:
+            controller = ExecutionController(temp)
+            controller.register_handler(
+                "tests.progress_success", progress_success_handler, execution_class="read_only"
+            )
+            task = controller.submit("tests.progress_success", {"request_id": "mismatch"})
+            with sqlite3.connect(controller.db_path) as db:
+                db.execute(
+                    "UPDATE tasks SET state='completed',lease_until=NULL,lease_token=NULL WHERE id=?",
+                    (task.id,),
+                )
+
+            restarted = ExecutionController(temp)
+            self.assertEqual(restarted.task(task.id).state, "reconcile_required")
+            self.assertTrue(any("cross_store_reconciliation_required" in finding
+                                for finding in restarted.health_findings()))
+            snapshot = ProgressJournal(restarted.db_path.parent / "progress.jsonl").snapshot(
+                task.id, stale_after_seconds=3600
+            )
+            self.assertEqual(snapshot["reported_state"], "blocked")
+            self.assertIn("automatic replay is blocked", snapshot["message"])
+            self.assertIsNone(restarted.run_once(task.id))
+
     def test_journal_failure_is_visible_without_falsifying_task_state(self):
         with tempfile.TemporaryDirectory() as temp:
             controller = ExecutionController(temp)
