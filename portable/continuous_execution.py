@@ -11,6 +11,7 @@ import json
 import math
 import os
 import re
+import subprocess
 import sqlite3
 import time
 import urllib.error
@@ -75,7 +76,7 @@ class GitHubActionsCheckPoller:
         if not isinstance(head_sha, str) or not _SHA.fullmatch(head_sha):
             raise ValueError("head_sha must be a full lowercase commit SHA")
         checks = tuple(dict.fromkeys(required_checks))
-        if not checks or any(not isinstance(item, str) or not item.strip() for item in checks):
+        if any(not isinstance(item, str) or not item.strip() for item in checks):
             raise ValueError("required_checks must contain non-empty exact check names")
         if isinstance(timeout_seconds, bool) or not isinstance(timeout_seconds, (int, float)) or not 0.1 <= timeout_seconds <= 60:
             raise ValueError("timeout_seconds must be between 0.1 and 60")
@@ -112,20 +113,32 @@ class GitHubActionsCheckPoller:
             if not isinstance(run, dict) or not isinstance(run.get("name"), str):
                 continue
             by_name.setdefault(run["name"], []).append(run)
+        latest_by_name = {name: max(matches, key=lambda item: (str(item.get('started_at') or ''), int(item.get('id') or 0))) for name, matches in by_name.items()}
+        if not self.required_checks:
+            pending_names = sorted(name for name, item in latest_by_name.items() if item.get('status') != 'completed')
+            failed_names = sorted(name for name, item in latest_by_name.items() if item.get('status') == 'completed' and item.get('conclusion') != 'success')
+            if pending_names:
+                observed_status = 'running'
+            elif failed_names:
+                observed_status = 'failure'
+            elif not latest_by_name:
+                observed_status = 'waiting_for_required_checks'
+            else:
+                observed_status = 'observed_complete_unverified'
+            return {'status': observed_status, 'repository': self.repository, 'head_sha': self.head_sha, 'required_checks': [], 'missing_checks': [], 'pending_checks': pending_names, 'failed_checks': failed_names, 'checks': {name: {'status': item.get('status'), 'conclusion': item.get('conclusion'), 'id': item.get('id')} for name, item in latest_by_name.items()}}
         details: dict[str, Any] = {}
         missing: list[str] = []
         pending: list[str] = []
         failed: list[str] = []
         for name in self.required_checks:
-            matches = by_name.get(name, [])
-            if not matches:
+            latest = latest_by_name.get(name)
+            if latest is None:
                 missing.append(name)
                 continue
             # A repeated check name is considered passing only when every observed
             # run is complete and successful; this avoids hiding a failed rerun.
             # GitHub retains failed runs after a rerun. Bind the decision to the
             # latest exact-name check on this immutable SHA, not stale prior attempts.
-            latest = max(matches, key=lambda item: (str(item.get("started_at") or ""), int(item.get("id") or 0)))
             details[name] = {"status": latest.get("status"), "conclusion": latest.get("conclusion"), "id": latest.get("id")}
             if latest.get("status") != "completed":
                 pending.append(name)
@@ -399,7 +412,7 @@ class ContinuousExecutionSupervisor:
                         if not isinstance(result, Mapping):
                             raise TypeError("poller must return a mapping")
                         clean = dict(result)
-                        if clean.get("status") not in {"success", "failure", "running", "waiting_for_required_checks", "poll_error", "pending"}:
+                        if clean.get("status") not in {"success", "failure", "running", "waiting_for_required_checks", "poll_error", "pending", "observed_complete_unverified"}:
                             raise ValueError("poller returned an unsupported status")
                         poll_results[name] = clean
                         self._event(run_id, "poll_result", {"cycle": cycles, "poller": name, "result": clean})
