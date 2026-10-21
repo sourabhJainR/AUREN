@@ -924,8 +924,8 @@ class ExecutionController:
             )
         if cursor.rowcount == 1:
             self._record_progress(
-                task.id, "task_terminal", state=state, stage="terminal",
-                message=f"Supervisor persisted terminal state: {state}.",
+                task.id, "outcome_commit_started", state="running", stage="finalization",
+                message="Task row updated; waiting for the executive work-unit receipt to commit.",
             )
             return True
         return False
@@ -1373,7 +1373,12 @@ class ExecutionController:
                     "handler": task.handler, "phase": "preflight", "failure_class": "gate_rejection",
                 })
                 self.company.record(task.work_unit_id, "execution", "failed", gate_detail, evidence)
-                return self.company.finish(task.work_unit_id, success=False, reason=gate_detail, evidence=evidence)
+                score = self.company.finish(task.work_unit_id, success=False, reason=gate_detail, evidence=evidence)
+                self._record_progress(
+                    task.id, "task_terminal", state="failed", stage="terminal",
+                    message="Preflight gate rejected the task; failure receipt committed.",
+                )
+                return score
 
             self._record_progress(
                 task.id, "handler_started", state="running", stage="handler",
@@ -1400,6 +1405,10 @@ class ExecutionController:
             })
             self.company.record(task.work_unit_id, "execution", "failed", detail, (f"handler:{task.handler}",))
             self.company.finish(task.work_unit_id, success=False, reason=detail)
+            self._record_progress(
+                task.id, "task_terminal", state="failed", stage="terminal",
+                message="Handler failed; durable failure receipt committed.",
+            )
             raise
 
         evidence = [f"handler:{task.handler}", *gate_evidence]
@@ -1428,7 +1437,12 @@ class ExecutionController:
             },
         )
         self.company.record(task.work_unit_id, "execution", state, detail, evidence)
-        return self.company.finish(task.work_unit_id, success=success, reason=detail, evidence=evidence)
+        score = self.company.finish(task.work_unit_id, success=success, reason=detail, evidence=evidence)
+        self._record_progress(
+            task.id, "task_terminal", state=state, stage="terminal",
+            message=f"Supervisor committed terminal state and work-unit receipt: {state}.",
+        )
+        return score
 
     def resume_pending(
         self, *, limit: int = 20, continue_after_durable_failure: bool = False
