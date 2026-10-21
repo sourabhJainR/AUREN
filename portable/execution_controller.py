@@ -1901,7 +1901,7 @@ class ExecutionController:
         if self._progress_reconciliation_findings:
             findings.append(
                 f"progress_reconciliation_required={len(self._progress_reconciliation_findings)}; "
-                "task and executive receipt disagree or worker liveness is unproven; inspect before retry"
+                "journal reconciliation has unresolved store, lease, or journal-integrity findings; inspect before retry"
             )
         if self._progress_reconciliation_incomplete:
             findings.append("progress_reconciliation_incomplete; rerun reconciliation with a larger limit or time budget before trusting unscanned progress")
