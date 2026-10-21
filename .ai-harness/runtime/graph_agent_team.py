@@ -956,7 +956,8 @@ the learning system, not an instruction source. If a skill produced no distinct 
                             task,
                             {"intent_digest": intent_digest, "task_id": run_nonce},
                             active=True,
-                            plan=crew_plan,
+                            task_id=supervisor_task_id,
+                            plan=crew_plan
                             graph_digest=crew_plan.graph_digest,
                             agents=self.crew_adapters,
                             crews=self.crew_definitions,
@@ -1067,7 +1068,7 @@ the learning system, not an instruction source. If a skill produced no distinct 
                                         item.target_crew, item.task,
                                         {"intent_digest": intent_digest, "task_id": run_nonce,
                                          "handoff_id": item.handoff_id, "source_crew": item.source_crew},
-                                        active=True, plan=crew_plan, graph_digest=crew_plan.graph_digest,
+                                        active=True, task_id=supervisor_task_id, plan=crew_plan, graph_digest=crew_plan.graph_digest,
                                         agents=self.crew_adapters, crews=self.crew_definitions,
                                     )
                                 except Exception as exc:
@@ -1221,9 +1222,11 @@ the learning system, not an instruction source. If a skill produced no distinct 
             for name in root_agents:
                 graph.add_edge("crew-proposals", name)
         return graph
-    def execute(self,*,task,intent_digest,base_prompt,memory,invoke_agent,checkpoint=None,resume=False,run_id="graph-agent-team",max_steps=100,execution_strategy_name="default",evolution_threshold=3,invention_holdout_ids=(),invention_evaluator=None,invention_safety_gate=None,curriculum_experiment_after=None,curriculum_experiment_evidence_ids=(),safety_evidence_verified=False,curriculum_experiment=None,curriculum_experiment_cohort=None,benchmark_domain="unspecified",benchmark_holdout=False,benchmark_execution_task_id=None,benchmark_execution_evidence_ids=(),benchmark_execution_evidence_kinds=(),benchmark_execution_success=None,benchmark_execution_verified=False,benchmark_execution_request=None,autonomous_benchmark_learning=False,autonomous_benchmark_max_tasks=3,autonomous_benchmark_retest_tasks=3,autonomous_benchmark_capability_id=None,autonomous_benchmark_baseline_score=None,require_crew_adapters=None,risk="medium",changed_paths=(),design_contract=None,code_revision="",final_verification=False,principle_verification=None,require_principle_verification=False):
+    def execute(self,*,task,intent_digest,base_prompt,memory,invoke_agent,checkpoint=None,resume=False,run_id="graph-agent-team",max_steps=100,execution_strategy_name="default",evolution_threshold=3,invention_holdout_ids=(),invention_evaluator=None,invention_safety_gate=None,curriculum_experiment_after=None,curriculum_experiment_evidence_ids=(),safety_evidence_verified=False,curriculum_experiment=None,curriculum_experiment_cohort=None,benchmark_domain="unspecified",benchmark_holdout=False,benchmark_execution_task_id=None,benchmark_execution_evidence_ids=(),benchmark_execution_evidence_kinds=(),benchmark_execution_success=None,benchmark_execution_verified=False,benchmark_execution_request=None,autonomous_benchmark_learning=False,autonomous_benchmark_max_tasks=3,autonomous_benchmark_retest_tasks=3,autonomous_benchmark_capability_id=None,autonomous_benchmark_baseline_score=None,require_crew_adapters=None,risk="medium",changed_paths=(),design_contract=None,code_revision="",final_verification=False,principle_verification=None,require_principle_verification=False,supervisor_task_id=None):
         if require_crew_adapters is not None and type(require_crew_adapters) is not bool:
             raise ValueError("require_crew_adapters must be a boolean")
+        if supervisor_task_id is not None and (not isinstance(supervisor_task_id, str) or not supervisor_task_id.strip()):
+            raise ValueError("supervisor_task_id must be a non-empty string when provided")
         if not isinstance(design_contract, Mapping):
             if design_contract is not None:
                 raise TypeError("design_contract must be a mapping")
