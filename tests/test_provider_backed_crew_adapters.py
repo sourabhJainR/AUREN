@@ -151,7 +151,7 @@ class ProviderBackedCrewAdapterTests(unittest.TestCase):
             before = time.monotonic()
             try:
                 with self.assertRaisesRegex(TimeoutError, "bounded wait"):
-                    adapter.propose({"task_id": "timeout-task", "task": "safe"})
+                    adapter.propose({"task_id": "timeout-task", "crew_id": "backend_api", "task": "safe"})
                 self.assertTrue(started.is_set())
                 self.assertLess(time.monotonic() - before, 1.8)
                 snapshot = journal.snapshot("timeout-task")
