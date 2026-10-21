@@ -225,6 +225,23 @@ class EngineeringRecoveryLedger:
             if not run:
                 return RecoveryDecision(RecoveryAction.BLOCKED, "run must be initialized before recovery", 0, 0)
             total = int(db.execute("SELECT COUNT(*) FROM recovery_attempts WHERE task_id=?", (task_id,)).fetchone()[0])
+            phase_total = int(db.execute(
+                "SELECT COUNT(*) FROM recovery_attempts WHERE task_id=? AND phase=?",
+                (task_id, phase),
+            ).fetchone()[0])
+            if decision_receipt is not None:
+                if not isinstance(decision_receipt, Mapping):
+                    raise TypeError("decision_receipt must be a mapping")
+                if (
+                    decision_receipt.get("work_id") != task_id
+                    or decision_receipt.get("phase") != phase
+                    or decision_receipt.get("attempt_number") != phase_total + 1
+                ):
+                    raise ValueError("decision receipt key does not match the next ledger attempt")
+                # Receipt and attempt row share this SQLite transaction: either both
+                # become durable, or neither does. Never split these commits.
+                from .recovery_decision_journal import RecoveryDecisionJournal
+                RecoveryDecisionJournal.record_in_transaction(db, **dict(decision_receipt))
             same = int(db.execute(
                 """SELECT COUNT(*) FROM recovery_attempts
                    WHERE task_id=? AND phase=? AND failure_signature=? AND hypothesis=?""",
@@ -252,6 +269,7 @@ class EngineeringRecoveryLedger:
         action: str,
         failure_class: FailureClass | str = FailureClass.UNKNOWN,
         head_sha: str = "",
+        decision_receipt: Mapping[str, Any] | None = None,
     ) -> int:
         decision = self.decision(task_id, phase, failure_signature, hypothesis)
         if decision.action != RecoveryAction.RETRY:
