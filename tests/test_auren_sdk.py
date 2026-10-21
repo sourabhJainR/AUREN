@@ -28,7 +28,7 @@ class AurenClientTests(unittest.TestCase):
                 self.assertEqual(task.id, persisted.id)
                 self.assertEqual("pending", persisted.state)
                 progress = client.progress(task.id)
-                self.assertEqual("queued", progress.state)
+                self.assertEqual("queued", progress["state"])
             finally:
                 client.close()
 
