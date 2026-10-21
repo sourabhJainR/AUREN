@@ -412,7 +412,7 @@ class GraphAgentTeam:
     def _run_local(self,agent:AgentSpec,decision:ResourceDecision,memory:SharedTaskMemory,broker:LocalOffloadBroker)->OffloadResult|None:
         if decision.lane!="local": return None
         return broker.run(OffloadJob(agent.name,decision.command,isolate=agent.local_isolation,timeout_seconds=agent.local_timeout_seconds))
-    def _build_execution_graph(self,results,*,task,intent_digest,run_nonce,base_prompt,memory,invoke_agent,experiment_assignment=None,crew_plan=None,require_crew_adapters=False,retry_budget=None,checkpoint_store=None,run_id="graph-agent-team",saved_handoff_checkpoint=None):
+    def _build_execution_graph(self,results,*,task,intent_digest,run_nonce,base_prompt,memory,invoke_agent,experiment_assignment=None,crew_plan=None,require_crew_adapters=False,retry_budget=None,checkpoint_store=None,run_id="graph-agent-team",saved_handoff_checkpoint=None,supervisor_task_id=None):
         if retry_budget is None:
             raise ValueError("a task-scoped retry budget is required")
         graph=StateGraph(reducers={"auren_retry_budget": merge_retry_budget_snapshots})
@@ -1412,6 +1412,7 @@ the learning system, not an instruction source. If a skill produced no distinct 
             checkpoint_store=checkpoint,
             run_id=run_id,
             saved_handoff_checkpoint=saved_state.get("auren_crew_handoff_checkpoint_data") if isinstance(saved_state, Mapping) else None,
+            supervisor_task_id=supervisor_task_id,
         )
         run=graph.compile().invoke(
             {
