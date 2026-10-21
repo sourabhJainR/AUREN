@@ -283,6 +283,7 @@ def _dispatch_crew_proposal(
     execution_guard_persist: Callable[[Mapping[str, Any]], None] | None = None,
     operation_scope: str = "direct",
     execution_guard_lock: Any = None,
+    task_id: str | None = None,
 ) -> dict[str, Any]:
     """Validate and invoke one selected proposal adapter without granting execution authority."""
     if type(active) is not bool:
@@ -301,6 +302,8 @@ def _dispatch_crew_proposal(
     guarded_proposer = getattr(agent, "propose_with_execution_guard", None)
     if not callable(proposer) and not callable(guarded_proposer):
         raise TypeError("crew agents must expose a side-effect-free propose(...) or propose_with_execution_guard(...) interface")
+    if task_id is not None and (not isinstance(task_id, str) or not task_id.strip()):
+        raise ValueError("task_id must be a non-empty supervisor-issued string when provided")
     if not isinstance(task, str) or not task.strip():
         raise ValueError("crew task must be non-empty text")
     if evidence is not None and not isinstance(evidence, Mapping):
@@ -337,6 +340,8 @@ def _dispatch_crew_proposal(
         "graph_digest": graph_digest,
         "crew_plan_digest": plan.digest,
     }
+    if task_id is not None:
+        request["task_id"] = task_id
     try:
         json.dumps(request, sort_keys=True, separators=(",", ":"))
     except (TypeError, ValueError) as exc:
@@ -612,6 +617,7 @@ class GraphAgentTeam:
         def dispatch_crew(crew_id: str, task: str, evidence: Mapping[str, Any] | None = None) -> dict[str, Any]:
             return _dispatch_crew_proposal(
                 crew_id, task, evidence,
+                task_id=task_id,
                 active=dispatch_active["value"],
                 plan=plan,
                 graph_digest=self.graph.digest(),
@@ -690,6 +696,7 @@ class GraphAgentTeam:
             def propose(crew_id: str) -> dict[str, Any]:
                 return _dispatch_crew_proposal(
                     crew_id, normalized[crew_id], evidence_map.get(crew_id, {}),
+                    task_id=task_id,
                     active=dispatch_active["value"], plan=plan,
                     graph_digest=self.graph.digest(), agents=self.agents, crews=self.crews,
                     execution_guard=None, operation_scope=operation_scope,
