@@ -47,6 +47,74 @@ def repo_root() -> Path:
 def home_auren(auren_home: Path | None = None) -> Path:
     return (auren_home or (Path.home() / ".auren")).expanduser().resolve()
 
+def _progress_snapshot_rows(project_root: Path, stale_after_seconds: int) -> tuple[list[dict], bool]:
+    """Read durable progress from the workspace or canonical supervisor state."""
+    from .identity_compat import canonical_auren_home
+    from .progress_journal import ProgressJournal
+
+    candidates = (
+        project_root.expanduser().resolve() / ".auren" / "progress.jsonl",
+        canonical_auren_home() / "executive" / ".auren" / "progress.jsonl",
+    )
+    snapshots: dict[str, dict] = {}
+    seen: set[str] = set()
+    degraded = False
+    for path in candidates:
+        key = str(path.resolve())
+        if key in seen or not path.is_file():
+            continue
+        seen.add(key)
+        try:
+            rows = ProgressJournal(path).list_snapshots(stale_after_seconds=stale_after_seconds)
+        except Exception:
+            degraded = True
+            rows = [{
+                "task_id": "progress-journal", "state": "unknown", "reported_state": "unknown",
+                "stage": "journal", "message": "Progress journal could not be read safely.",
+                "last_update": None, "seconds_since_update": None, "stale": False,
+                "progress_percent": None, "completed_units": None, "total_units": None,
+                "event_count": 0, "next_action": "inspect journal integrity before trusting progress",
+            }]
+        for row in rows:
+            snapshots[str(row.get("task_id", "unknown"))] = row
+    ordered = sorted(
+        snapshots.values(), key=lambda row: str(row.get("last_update") or ""), reverse=True
+    )
+    return ordered[:100], degraded
+
+
+def _print_progress(args) -> int:
+    if type(args.stale_after_seconds) is not int or not 1 <= args.stale_after_seconds <= 86400:
+        raise SystemExit("--stale-after-seconds must be between 1 and 86400")
+    rows, degraded = _progress_snapshot_rows(args.project_root, args.stale_after_seconds)
+    if args.task_id:
+        rows = [row for row in rows if row.get("task_id") == args.task_id]
+    if args.task_id and not rows and not degraded:
+        payload = {"status": "not_found", "task_id": args.task_id, "tasks": []}
+        if args.json:
+            print(json.dumps(payload, indent=2, sort_keys=True))
+        else:
+            print(f"No progress recorded for task {args.task_id}.")
+        return 1
+    status = "degraded" if degraded else ("ok" if rows else "empty")
+    if args.json:
+        print(json.dumps({"status": status, "tasks": rows}, indent=2, sort_keys=True))
+    elif not rows:
+        print("No durable task progress recorded.")
+    else:
+        for row in rows:
+            age = row.get("seconds_since_update")
+            age_text = f"{age}s since update" if age is not None else "age unknown"
+            print(
+                f"{row.get('state', 'unknown'):<10} {row.get('task_id', 'unknown')} "
+                f"stage={row.get('stage') or 'unknown'} seq={row.get('sequence', '?')} "
+                f"{age_text} | {row.get('message') or ''}"
+            )
+            if row.get("next_action"):
+                print(f"  next: {row['next_action']}")
+    return 2 if degraded else 0
+
+
 def should_include(path: Path, root: Path) -> bool:
     rel = path.relative_to(root)
     if any(part in EXCLUDED_PARTS for part in rel.parts):
@@ -539,6 +607,11 @@ def parser() -> argparse.ArgumentParser:
     status_parser = sub.add_parser("status")
     status_parser.add_argument("--json", action="store_true")
     status_parser.add_argument("--auren-home", type=Path, default=None)
+    progress_parser = sub.add_parser("progress", help="Show truthful durable task progress.")
+    progress_parser.add_argument("--project-root", type=Path, default=Path("."))
+    progress_parser.add_argument("--task-id", default=None)
+    progress_parser.add_argument("--stale-after-seconds", type=int, default=60)
+    progress_parser.add_argument("--json", action="store_true")
     console_parser = sub.add_parser("console")
     console_parser.add_argument("--host", default="127.0.0.1")
     console_parser.add_argument("--port", type=int, default=0)
@@ -580,6 +653,8 @@ def main(argv: list[str] | None = None) -> int:
     elif args.command == "status":
         from .auren_console import collect_snapshot, render_status
         print(render_status(collect_snapshot(args.auren_home), args.json))
+    elif args.command == "progress":
+        return _print_progress(args)
     elif args.command == "console":
         from .auren_console import serve_console
         if args.host not in {"127.0.0.1", "localhost", "::1"}:
