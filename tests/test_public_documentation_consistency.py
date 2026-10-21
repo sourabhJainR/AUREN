@@ -70,6 +70,15 @@ class TestPublicDocumentationConsistency(unittest.TestCase):
         self.assertIn(version, site)
         self.assertIn("docs/RESPONSIVE_EXECUTION_AND_TIMEOUTS.md", readme)
 
+    def test_public_status_does_not_leave_completed_deployment_as_pending(self):
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        site = (ROOT / "site" / "index.html").read_text(encoding="utf-8")
+        self.assertIn("c7d16a646dca1d56cebc026ccc376c14ea89eb70", readme)
+        self.assertIn("c7d16a646dca1d56cebc026ccc376c14ea89eb70", site)
+        self.assertNotIn("Verify after this documentation merge", site)
+        self.assertIn("39545731991", site)
+        self.assertIn("39545731999", site)
+
     def test_readme_status_and_section_format_are_current(self):
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
         import re
