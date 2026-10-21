@@ -23,11 +23,12 @@
 - [x] Provider timeout progress events identify the task and block implicit retry while a late result remains possible.
 - [x] Durable execution and progress-journal recovery have regression coverage for selected commit boundaries.
 - [ ] Extend fault injection to every external side-effect boundary: intent persisted, dispatch started, provider accepted, remote operation completed, receipt persisted, terminal state persisted.
-- [ ] Verify hard termination for non-cooperative work using a process boundary; Python thread timeout alone cannot stop a running thread.
+- [x] Add a command-backed provider invoker that terminates a timed-out child process and has regression tests for timeout, environment isolation, output limits, and error redaction. This is a bounded process adapter, not a full sandbox.
+- [ ] Verify process-tree termination on all supported platforms; POSIX kills the process group, while Windows currently terminates the direct child only. Apply OS/container memory limits for untrusted provider output.
 - [ ] Prove cancellation and absolute deadlines propagate through supervisor, graph nodes, provider/model adapters, child processes, and validation commands.
 - [ ] Prove unknown remote outcomes reconcile by idempotency key or operation lookup before retry. No automatic replay when completion is uncertain.
 
-**Exit evidence:** bounded wall-clock tests, process-tree termination, durable checkpoint snapshots, duplicate-side-effect counters, restart/reconciliation tests, and no false-success assertions.
+**Exit evidence:** bounded wall-clock tests, platform-specific process-tree termination, durable checkpoint snapshots, duplicate-side-effect counters, restart/reconciliation tests, and no false-success assertions.
 
 ### P0 — Canonical run, plan, progress, and evidence state
 
@@ -62,6 +63,7 @@
 ### P1 — Extensions and provider adapters
 
 - [x] Data-only extension manifest validates names, semantic versions, capabilities, trust labels, permissions, output limits, and timeouts.
+- [x] Command-backed provider invocation uses an absolute executable, explicit working directory, no shell, a minimal environment, a timeout, and a response byte check. This does not sandbox arbitrary extension code or strictly bound output memory before process exit.
 - [ ] Add an adapter host that executes untrusted extensions in a bounded process with explicit IPC, no inherited secrets, restricted filesystem/network access, and forced termination.
 - [ ] Add compatibility negotiation, permission grants, capability revocation, health/circuit-breaker behavior, bounded output, and pinned provider identity.
 - [ ] Test malformed manifests, downgrade attempts, timeout, crash, oversized output, permission escalation, duplicate registration, and rollback.
