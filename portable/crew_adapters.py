@@ -433,8 +433,10 @@ class ProviderBackedCrewAdapter(ApprovedToolCrewAdapter):
         self._progress_callback = progress_callback
 
         def planner(request: Mapping[str, Any]) -> Mapping[str, Any]:
+            # task_id is supervisor telemetry context, not model input.
+            task_request = {key: value for key, value in request.items() if key != "task_id"}
             prompt_payload = {
-                "task_request": dict(request),
+                "task_request": task_request,
                 "approved_tools": [
                     {"name": name, "description": tools.description(name)}
                     for name in sorted(set(allowed_tools))
@@ -523,6 +525,7 @@ class ProviderBackedCrewAdapter(ApprovedToolCrewAdapter):
             "provider_version": self.provider_version,
             "timeout_seconds": self.timeout_seconds,
             "max_response_chars": self.max_response_chars,
+            "progress_callback_enabled": self._progress_callback is not None,
             "approved_tool_configuration": super().configuration_digest,
         }
         return hashlib.sha256(
