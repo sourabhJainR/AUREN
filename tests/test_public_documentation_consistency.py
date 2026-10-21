@@ -99,6 +99,10 @@ class TestPublicDocumentationConsistency(unittest.TestCase):
         self.assertIn("sealed corpus custody", matrix.lower())
         self.assertIn("skipped jobs are not passes", matrix.lower())
         self.assertIn("clean-install smoke test", matrix)
+        provider_tests = (ROOT / "tests" / "test_provider_backed_crew_adapters.py").read_text(encoding="utf-8")
+        runtime_bootstrap = (ROOT / ".ai-harness" / "runtime" / "__init__.py").read_text(encoding="utf-8")
+        self.assertIn("test_supervised_registration_uses_controller_owned_progress_journal", provider_tests)
+        self.assertIn("register_supervised_provider_backed_crew_adapters", runtime_bootstrap)
 
 
 if __name__ == "__main__":
