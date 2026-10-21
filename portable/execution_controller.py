@@ -122,6 +122,10 @@ class LeaseLostError(RuntimeError):
     """Raised when a stale worker attempts to renew or finalize a task lease."""
 
 
+class WorkUnitReceiptCommitError(RuntimeError):
+    """The executive receipt could not be committed; the task must remain recoverable."""
+
+
 class ExecutionController:
     """Durable supervisor used as the default owner of graph/team execution."""
 
@@ -137,6 +141,7 @@ class ExecutionController:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self.progress_journal = ProgressJournal(self.db_path.parent / "progress.jsonl")
         self._progress_journal_error: str | None = None
+        self._work_unit_receipt_error: str | None = None
         with sqlite3.connect(self.db_path) as db:
             db.executescript("""
             CREATE TABLE IF NOT EXISTS sessions(
@@ -907,6 +912,19 @@ class ExecutionController:
         )
         return task
 
+    def _commit_work_unit_outcome(
+        self, work_unit_id: str, *, success: bool, reason: str, evidence: tuple[str, ...] | list[str] = (),
+    ) -> TrustScore:
+        """Commit the executive receipt before making the task row terminal."""
+        state = "completed" if success else "failed"
+        try:
+            self.company.record(work_unit_id, "execution", state, reason, evidence)
+            return self.company.finish(work_unit_id, success=success, reason=reason, evidence=evidence)
+        except Exception as exc:
+            self._work_unit_receipt_error = type(exc).__name__
+            raise WorkUnitReceiptCommitError(
+                "work-unit receipt commit failed; task remains nonterminal for reconciliation"
+            ) from exc
     def _finalize_claim(self, task: DurableTask, state: str) -> bool:
         if state not in {"completed", "failed", "cancelled"}:
             raise ValueError("task final state is invalid")
