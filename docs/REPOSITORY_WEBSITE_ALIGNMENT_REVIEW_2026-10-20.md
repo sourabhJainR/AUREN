@@ -43,7 +43,7 @@ The initial repository review found two competing publishers: the canonical `Dep
 
 | Area | Historical evidence from the `fe7452118b95` baseline | Limit |
 |---|---|---|
-| Historical baseline | `fe7452118b95d110c1be48f2b7a731a7843e5ddd` | Historical only; latest main at this review is `c7d16a646dca1d56cebc026ccc376c14ea89eb70` |
+| Historical baseline | `fe7452118b95d110c1be48f2b7a731a7843e5ddd` | Historical only; latest verified main snapshot before provider-progress bridge is `0eab9c83441d717d5c1abdfaf1bd7123c247825d` |
 | AI Harness Check | [Run 39435832928](https://github.com/sourabhJainR/AUREN/actions/runs/39435832928) passed on `fe7452118b95` | Revision-specific repository checks only |
 | Runtime Resilience Matrix | [Run 39435832872](https://github.com/sourabhJainR/AUREN/actions/runs/39435832872) passed on `fe7452118b95` across Linux/Windows and Python 3.11/3.12, including the checkpoint crash matrix | Check its jobs for impact-based skips; previous full Linux/Windows and Python 3.11/3.12 runtime evidence is revision-specific |
 | Architecture Integrity | [Run 39435832873](https://github.com/sourabhJainR/AUREN/actions/runs/39435832873) passed on `fe7452118b95` | Structural/repository contract only |
