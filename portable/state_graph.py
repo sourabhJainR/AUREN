@@ -283,6 +283,7 @@ def _dispatch_crew_proposal(
     execution_guard_persist: Callable[[Mapping[str, Any]], None] | None = None,
     operation_scope: str = "direct",
     execution_guard_lock: Any = None,
+    task_id: str | None = None,
 ) -> dict[str, Any]:
     """Validate and invoke one selected proposal adapter without granting execution authority."""
     if type(active) is not bool:
@@ -301,6 +302,8 @@ def _dispatch_crew_proposal(
     guarded_proposer = getattr(agent, "propose_with_execution_guard", None)
     if not callable(proposer) and not callable(guarded_proposer):
         raise TypeError("crew agents must expose a side-effect-free propose(...) or propose_with_execution_guard(...) interface")
+    if task_id is not None and (not isinstance(task_id, str) or not task_id.strip()):
+        raise ValueError("task_id must be a non-empty supervisor-issued string when provided")
     if not isinstance(task, str) or not task.strip():
         raise ValueError("crew task must be non-empty text")
     if evidence is not None and not isinstance(evidence, Mapping):
@@ -324,19 +327,30 @@ def _dispatch_crew_proposal(
         else:
             with execution_guard_lock:
                 charge_and_persist()
+    trusted_task_id = task_id
+    safe_evidence = dict(evidence or {})
+    reserved_task_id = safe_evidence.pop("_auren_supervisor_task_id", None)
+    if reserved_task_id is not None:
+        if not isinstance(reserved_task_id, str) or not reserved_task_id.strip():
+            raise ValueError("supervisor task identity in dispatch metadata must be non-empty text")
+        if trusted_task_id is not None and trusted_task_id != reserved_task_id:
+            raise ValueError("conflicting supervisor task identities at crew dispatch")
+        trusted_task_id = reserved_task_id
     definition = crews[crew_id]
     request = {
         "crew_id": crew_id,
         "specialty": definition.specialty,
         "instructions": definition.instructions,
         "task": task,
-        "evidence": dict(evidence or {}),
+        "evidence": safe_evidence,
         "required_artifacts": list(definition.required_artifacts),
         "acceptance_checks": list(definition.acceptance_checks),
         "allowed_authorities": list(definition.allowed_authorities),
         "graph_digest": graph_digest,
         "crew_plan_digest": plan.digest,
     }
+    if trusted_task_id is not None:
+        request["task_id"] = trusted_task_id
     try:
         json.dumps(request, sort_keys=True, separators=(",", ":"))
     except (TypeError, ValueError) as exc:
@@ -612,6 +626,7 @@ class GraphAgentTeam:
         def dispatch_crew(crew_id: str, task: str, evidence: Mapping[str, Any] | None = None) -> dict[str, Any]:
             return _dispatch_crew_proposal(
                 crew_id, task, evidence,
+                task_id=task_id,
                 active=dispatch_active["value"],
                 plan=plan,
                 graph_digest=self.graph.digest(),
@@ -690,6 +705,7 @@ class GraphAgentTeam:
             def propose(crew_id: str) -> dict[str, Any]:
                 return _dispatch_crew_proposal(
                     crew_id, normalized[crew_id], evidence_map.get(crew_id, {}),
+                    task_id=task_id,
                     active=dispatch_active["value"], plan=plan,
                     graph_digest=self.graph.digest(), agents=self.agents, crews=self.crews,
                     execution_guard=None, operation_scope=operation_scope,

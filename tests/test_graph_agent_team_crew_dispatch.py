@@ -78,6 +78,7 @@ class HarnessCrewDispatchTests(unittest.TestCase):
                 memory=memory,
                 invoke_agent=invoke,
                 code_revision="exact-source-revision-123",
+                supervisor_task_id="supervisor-task-17",
             )
 
             self.assertTrue(result["accepted"])
@@ -86,6 +87,7 @@ class HarnessCrewDispatchTests(unittest.TestCase):
             self.assertEqual(len(envelope["digest"]), 64)
             self.assertEqual(len(adapter_calls), 1)
             self.assertEqual(adapter_calls[0]["crew_id"], "frontend_ui")
+            self.assertEqual(adapter_calls[0]["task_id"], "supervisor-task-17")
             self.assertEqual(adapter_calls[0]["evidence"]["intent_digest"], "intent-ui")
             self.assertEqual(
                 result["crew_execution"]["proposals"]["frontend_ui"]["review_status"],

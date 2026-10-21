@@ -73,15 +73,18 @@ class TestPublicDocumentationConsistency(unittest.TestCase):
     def test_public_status_does_not_leave_completed_deployment_as_pending(self):
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
         site = (ROOT / "site" / "index.html").read_text(encoding="utf-8")
-        self.assertIn("Verified main snapshot", readme)
-        self.assertIn("0eab9c83441d717d5c1abdfaf1bd7123c247825d", readme)
-        self.assertIn("0eab9c83441d717d5c1abdfaf1bd7123c247825d", site)
+        self.assertIn("Last verified merged baseline before PR #776", readme)
+        self.assertIn("87831dc3e08029b82f51fc81bc8f79f569c9be6d", readme)
+        self.assertIn("87831dc3e08029b82f51fc81bc8f79f569c9be6d", site)
         self.assertNotIn("Verify after this documentation merge", site)
-        self.assertIn("39556244925", site)
-        self.assertIn("39556245107", site)
+        self.assertIn("39571276176", site)
+        self.assertIn("39571276135", site)
         self.assertIn("pull/770", site)
         self.assertIn("pull/771", site)
         self.assertIn("pull/773", site)
+        self.assertIn("pull/775", site)
+        self.assertIn("pull/776", site)
+        self.assertIn("all ten post-merge workflows passed", site)
 
     def test_readme_status_and_section_format_are_current(self):
         readme = (ROOT / "README.md").read_text(encoding="utf-8")

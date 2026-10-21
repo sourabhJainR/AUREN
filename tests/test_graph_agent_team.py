@@ -437,7 +437,7 @@ class GraphAgentTeamTests(unittest.TestCase):
         self.assertEqual(supplied_digest, expected_digest)
         self.assertEqual(envelope["intent_digest"], "intent-crew-envelope")
         self.assertEqual(envelope["crew_plan_digest"], result["crew_plan"]["digest"])
-        self.assertIn("frontend_ui", execution["proposal_receipts"])
+        self.assertIn("frontend_ui", execution["proposal_receipts"], execution.get("dispatch_failures"))
         proposal = execution["proposals"]["frontend_ui"]
         expected_receipt = hashlib.sha256(
             json.dumps(proposal, sort_keys=True, separators=(",", ":")).encode("utf-8")

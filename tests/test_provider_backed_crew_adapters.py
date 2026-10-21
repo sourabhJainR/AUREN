@@ -61,6 +61,7 @@ class ProviderBackedCrewAdapterTests(unittest.TestCase):
             "task": "Review endpoint contract",
             "graph_digest": "graph-1",
             "crew_plan_digest": "plan-1",
+            "evidence": {"intent_digest": "intent-safe", "task_id": "internal-run-42"},
             "secret": "must-not-cross-provider-boundary",
         }
         proposal = adapter.propose(request)
@@ -71,6 +72,8 @@ class ProviderBackedCrewAdapterTests(unittest.TestCase):
         prompt_payload = json.loads(provider_calls[0][0].split("\n", 1)[1])
         self.assertEqual(prompt_payload["task_request"]["task"], "Review endpoint contract")
         self.assertEqual(prompt_payload["approved_tools"][0]["name"], "lookup_ticket")
+        self.assertEqual(prompt_payload["task_request"]["evidence"], {"intent_digest": "intent-safe"})
+        self.assertNotIn("internal-run-42", provider_calls[0][0])
         self.assertEqual(adapter.implementation_version, "host-provider@model-2026-10")
         self.assertEqual(len(adapter.configuration_digest), 64)
 
@@ -217,6 +220,35 @@ class ProviderBackedCrewAdapterTests(unittest.TestCase):
                 tools=tools,
                 allowed_tools_by_crew=scopes,
             )
+
+    def test_runtime_registration_wires_canonical_journal_to_every_specialist_crew(self):
+        import tempfile
+
+        runtime._CREW_ADAPTERS.clear()
+        try:
+            with tempfile.TemporaryDirectory() as temp:
+                journal = ProgressJournal(Path(temp) / "progress.jsonl")
+                tools = ApprovedToolRegistry()
+                invokers = {crew: (lambda _prompt, _timeout: "{}") for crew in SPECIALIST_CREW_IDS}
+                ids = {crew: "host-provider" for crew in SPECIALIST_CREW_IDS}
+                versions = {crew: "pinned-v1" for crew in SPECIALIST_CREW_IDS}
+                scopes = {crew: () for crew in SPECIALIST_CREW_IDS}
+                adapters = runtime.register_provider_backed_crew_adapters(
+                    provider_invokers=invokers,
+                    provider_ids=ids,
+                    provider_versions=versions,
+                    tools=tools,
+                    allowed_tools_by_crew=scopes,
+                    progress_journal=journal,
+                    replace=True,
+                )
+                self.assertEqual(set(adapters), set(SPECIALIST_CREW_IDS))
+                for crew in SPECIALIST_CREW_IDS:
+                    self.assertIs(adapters[crew]._progress_callback.__self__, journal)
+                    self.assertIs(adapters[crew]._progress_callback.__func__,
+                                  journal.record_provider_event.__func__)
+        finally:
+            runtime._CREW_ADAPTERS.clear()
 
     def test_runtime_registration_wires_host_adapters_into_default_phase_team(self):
         runtime._CREW_ADAPTERS.clear()
