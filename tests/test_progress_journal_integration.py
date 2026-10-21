@@ -37,7 +37,8 @@ class ProgressJournalRuntimeIntegrationTests(unittest.TestCase):
             self.assertIn("task_terminal", events)
 
             dashboard = EngineeringDashboard(root)
-            rows = dashboard._progress_snapshots()
+            payload = dashboard.snapshot().as_dict()
+            rows = payload["tasks"]["progress"]
             matching = [row for row in rows if row["task_id"] == task.id]
             self.assertEqual(len(matching), 1)
             self.assertEqual(matching[0]["state"], "completed")
