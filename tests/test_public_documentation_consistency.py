@@ -73,13 +73,19 @@ class TestPublicDocumentationConsistency(unittest.TestCase):
     def test_public_status_is_a_dated_snapshot_not_a_stale_head_claim(self):
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
         site = (ROOT / "site" / "index.html").read_text(encoding="utf-8")
-        for content in (readme, site):
-            self.assertIn("Verification snapshot", content)
-            self.assertRegex(content, r"(?:captured )?at main SHA `[0-9a-f]{40}`")
-            self.assertRegex(content, r"\d+ check runs succeeded, \d+ remained in progress, and \d+ were skipped")
-            self.assertIn("skipped checks are not passes", content.lower())
-            self.assertIn("github.com/sourabhJainR/AUREN/actions", content)
-            self.assertIn("does not claim that its SHA is the current main head", content)
+        self.assertIn("Verification snapshot", readme)
+        self.assertRegex(readme, r"(?:captured )?at main SHA `[0-9a-f]{40}`")
+        self.assertRegex(readme, r"\d+ check runs succeeded, \d+ remained in progress, and \d+ were skipped")
+        self.assertIn("skipped checks are not passes", readme.lower())
+        self.assertIn("github.com/sourabhJainR/AUREN/actions", readme)
+        self.assertIn("does not claim that its SHA is the current main head", readme)
+
+        self.assertIn("Verification snapshot", site)
+        self.assertRegex(site, r"at main SHA <code>[0-9a-f]{40}</code>")
+        self.assertRegex(site, r"\d+ check runs succeeded, \d+ remained in progress, and \d+ were skipped")
+        self.assertIn("skipped checks are not passes", site.lower())
+        self.assertIn("github.com/sourabhJainR/AUREN/actions", site)
+        self.assertIn("does not claim that its SHA is the current main head", site)
 
     def test_readme_status_and_section_format_are_current(self):
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
