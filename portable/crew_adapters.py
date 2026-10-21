@@ -390,9 +390,10 @@ class ApprovedToolCrewAdapter:
 class ProviderBackedCrewAdapter(ApprovedToolCrewAdapter):
     """Proposal-only crew adapter backed by a host-injected structured provider.
 
-    The host owns provider credentials and process/client lifecycle. Its callable
-    must honor the supplied timeout; late responses are rejected even if the host
-    provider cannot be forcibly cancelled by this adapter.
+    The host owns provider credentials and process/client lifecycle. The shared
+    bounded-call boundary limits caller wait even if an invoker ignores its timeout.
+    Python cannot kill a timed-out thread, so late completion remains possible and
+    consumes one of the globally bounded provider-worker slots until it exits.
     """
 
     def __init__(
