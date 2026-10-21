@@ -290,7 +290,7 @@ def _run_continuous(args: list[str]) -> int:
     options = parser.parse_args(args)
 
     from portable.execution_controller import ExecutionController
-    from portable.continuous_execution import ContinuousExecutionSupervisor, GitHubActionsCheckPoller
+    from portable.continuous_execution import ContinuousExecutionSupervisor, GitHubActionsCheckPoller, discover_git_target
 
     root = Path(options.project_root).expanduser().resolve()
     if not root.is_dir():
@@ -310,9 +310,19 @@ def _run_continuous(args: list[str]) -> int:
             return 0 if valid else 2
 
         if options.watch and not options.required_check:
-            parser.error("--watch requires at least one --required-check")
+            parser.error("explicit --watch requires at least one --required-check")
         pollers = {}
-        for target in options.watch:
+        targets = list(options.watch)
+        if not targets:
+            # Implicit default: observe this checkout's current immutable HEAD.
+            # Without configured required checks, this is observation, never a gate pass.
+            discovered = discover_git_target(root)
+            if discovered is not None:
+                repository, head_sha = discovered
+                targets.append(f"{repository}@{head_sha}")
+            else:
+                print("AUREN CI polling: no GitHub origin/HEAD discovered; durable task polling remains active.", file=sys.stderr)
+        for target in targets:
             if "@" not in target:
                 parser.error("--watch must use OWNER/REPO@FULL_SHA")
             repository, head_sha = target.rsplit("@", 1)
