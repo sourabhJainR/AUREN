@@ -143,7 +143,7 @@ class ProviderBackedCrewAdapterTests(unittest.TestCase):
 
             def hung_provider(_prompt, _timeout):
                 started.set()
-                release.wait(1)
+                release.wait(2)
                 return json.dumps({"tool_calls": [], "proposal": self.proposal()})
 
             adapter = ProviderBackedCrewAdapter(
@@ -220,6 +220,50 @@ class ProviderBackedCrewAdapterTests(unittest.TestCase):
                 tools=tools,
                 allowed_tools_by_crew=scopes,
             )
+
+    def test_supervised_registration_uses_controller_owned_progress_journal(self):
+        import tempfile
+        from types import SimpleNamespace
+
+        runtime._CREW_ADAPTERS.clear()
+        try:
+            with tempfile.TemporaryDirectory() as temp:
+                journal = ProgressJournal(Path(temp) / "progress.jsonl")
+                controller = SimpleNamespace(progress_journal=journal)
+                tools = ApprovedToolRegistry()
+                invokers = {crew: (lambda _prompt, _timeout: "{}") for crew in SPECIALIST_CREW_IDS}
+                ids = {crew: "host-provider" for crew in SPECIALIST_CREW_IDS}
+                versions = {crew: "pinned-v1" for crew in SPECIALIST_CREW_IDS}
+                scopes = {crew: () for crew in SPECIALIST_CREW_IDS}
+                adapters = runtime.register_supervised_provider_backed_crew_adapters(
+                    controller,
+                    provider_invokers=invokers,
+                    provider_ids=ids,
+                    provider_versions=versions,
+                    tools=tools,
+                    allowed_tools_by_crew=scopes,
+                    replace=True,
+                )
+                self.assertEqual(set(adapters), set(SPECIALIST_CREW_IDS))
+                for adapter in adapters.values():
+                    self.assertIs(adapter._progress_callback.__self__, journal)
+                    self.assertIs(
+                        adapter._progress_callback.__func__,
+                        journal.record_provider_event.__func__,
+                    )
+                with self.assertRaisesRegex(ValueError, "owns provider progress wiring"):
+                    runtime.register_supervised_provider_backed_crew_adapters(
+                        controller,
+                        provider_invokers=invokers,
+                        provider_ids=ids,
+                        provider_versions=versions,
+                        tools=tools,
+                        allowed_tools_by_crew=scopes,
+                        progress_callbacks_by_crew={crew: (lambda _event: None) for crew in SPECIALIST_CREW_IDS},
+                        replace=True,
+                    )
+        finally:
+            runtime._CREW_ADAPTERS.clear()
 
     def test_runtime_registration_wires_canonical_journal_to_every_specialist_crew(self):
         import tempfile

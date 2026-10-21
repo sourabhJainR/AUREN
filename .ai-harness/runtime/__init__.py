@@ -111,6 +111,28 @@ def register_provider_backed_crew_adapters(
     return adapters
 
 
+
+def register_supervised_provider_backed_crew_adapters(
+    controller: Any, **configuration: Any
+) -> dict[str, Any]:
+    """Register provider adapters against the canonical supervisor journal.
+
+    The controller must own a canonical ProgressJournal. Callers cannot replace
+    that journal or inject per-crew callbacks through this helper. All remaining
+    keyword arguments follow register_provider_backed_crew_adapters.
+    """
+    from portable.progress_journal import ProgressJournal
+
+    journal = getattr(controller, "progress_journal", None)
+    if not isinstance(journal, ProgressJournal):
+        raise TypeError("controller must expose its canonical ProgressJournal")
+    if "progress_journal" in configuration or "progress_callbacks_by_crew" in configuration:
+        raise ValueError("supervised registration owns provider progress wiring")
+    return register_provider_backed_crew_adapters(
+        **configuration,
+        progress_journal=journal,
+    )
+
 def _requires_crew_contract(route: dict[str, Any], phase: str) -> bool:
     if phase not in {"poc", "debug", "execute", "repair", "review"}:
         return False

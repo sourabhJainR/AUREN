@@ -73,19 +73,42 @@ class TestPublicDocumentationConsistency(unittest.TestCase):
     def test_public_status_is_a_dated_snapshot_not_a_stale_head_claim(self):
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
         site = (ROOT / "site" / "index.html").read_text(encoding="utf-8")
-        for content in (readme, site):
-            self.assertIn("Verification snapshot", content)
-            self.assertIn("57b1a2b367f32b3ab47a1853664a5c47f227aa6e", content)
-            self.assertIn("22 check runs succeeded and 4", content)
-            self.assertIn("skipped checks are not passes", content.lower())
-            self.assertIn("github.com/sourabhJainR/AUREN/actions", content)
-            self.assertIn("does not claim that its SHA is the current main head", content)
+        self.assertIn("Verification snapshot", readme)
+        self.assertRegex(readme, r"(?:captured )?at main SHA `[0-9a-f]{40}`")
+        self.assertRegex(readme, r"\d+ check runs succeeded, \d+ remained in progress, and \d+ were skipped")
+        self.assertIn("skipped checks are not passes", readme.lower())
+        self.assertIn("github.com/sourabhJainR/AUREN/actions", readme)
+        self.assertIn("does not claim that its SHA is the current main head", readme)
+
+        self.assertIn("Verification snapshot", site)
+        self.assertRegex(site, r"at main SHA <code>[0-9a-f]{40}</code>")
+        self.assertRegex(site, r"\d+ check runs succeeded, \d+ remained in progress, and \d+ were skipped")
+        self.assertIn("skipped checks are not passes", site.lower())
+        self.assertIn("github.com/sourabhJainR/AUREN/actions", site)
+        self.assertIn("does not claim that its SHA is the current main head", site)
 
     def test_readme_status_and_section_format_are_current(self):
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
         import re
         self.assertRegex(readme, r"## Project status \(reviewed \d{4}-\d{2}-\d{2}\)")
         self.assertNotIn(r"\n\n## Deterministic repository intelligence", readme)
+
+    def test_standalone_readiness_matrix_tracks_external_gates(self):
+        matrix = (ROOT / "docs" / "STANDALONE_READINESS_AND_GAP_MATRIX.md").read_text(encoding="utf-8")
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        site = (ROOT / "site" / "index.html").read_text(encoding="utf-8")
+        self.assertIn("STANDALONE_READINESS_AND_GAP_MATRIX.md", readme)
+        self.assertIn("STANDALONE_READINESS_AND_GAP_MATRIX.md", site)
+        self.assertIn("Verify hard termination", matrix)
+        self.assertIn("Prove cancellation and absolute deadlines", matrix)
+        self.assertIn("independent evaluator", matrix.lower())
+        self.assertIn("sealed corpus custody", matrix.lower())
+        self.assertIn("skipped jobs are not passes", matrix.lower())
+        self.assertIn("clean-install smoke test", matrix)
+        provider_tests = (ROOT / "tests" / "test_provider_backed_crew_adapters.py").read_text(encoding="utf-8")
+        runtime_bootstrap = (ROOT / ".ai-harness" / "runtime" / "__init__.py").read_text(encoding="utf-8")
+        self.assertIn("test_supervised_registration_uses_controller_owned_progress_journal", provider_tests)
+        self.assertIn("register_supervised_provider_backed_crew_adapters", runtime_bootstrap)
 
 
 if __name__ == "__main__":
