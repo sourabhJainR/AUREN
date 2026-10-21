@@ -56,7 +56,12 @@ class AurenClientTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             client = AurenClient(tmp, dashboard_enabled=False)
             try:
-                client.remember("repo-a", "semantic", "keep verified decisions")
+                denied = client.remember("repo-a", "semantic", "keep verified decisions")
+                self.assertIsNone(denied)
+                saved = client.remember(
+                    "repo-a", "semantic", "keep verified decisions", approved=True
+                )
+                self.assertIsNotNone(saved)
                 records = client.search_memory("repo-a", "verified decisions")
                 self.assertTrue(records)
                 self.assertIn("verified decisions", records[0].text)
