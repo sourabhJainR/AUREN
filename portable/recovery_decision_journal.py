@@ -12,6 +12,7 @@ import sqlite3
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 _TOKEN = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$")
 _DIGEST = re.compile(r"^[0-9a-f]{64}$")
@@ -39,6 +40,10 @@ class RecoveryDecisionReceipt:
     reason_code: str
     created_at: str
     decision_digest: str
+
+
+class RecoveryJournalConsistencyError(RuntimeError):
+    """Raised when recovery ledger and journal cannot be reconciled safely."""
 
 
 class RecoveryDecisionJournal:
@@ -152,6 +157,97 @@ class RecoveryDecisionJournal:
         return RecoveryDecisionReceipt(
             **payload, created_at=row["created_at"], decision_digest=row["decision_digest"]
         )
+
+    @staticmethod
+    def _checkpoint_digest(checkpoint: Any) -> str:
+        material = {
+            "status": checkpoint.status if checkpoint is not None else "missing",
+            "head_sha": checkpoint.head_sha if checkpoint is not None else "",
+            "payload": checkpoint.payload if checkpoint is not None else {},
+        }
+        canonical = json.dumps(material, sort_keys=True, separators=(",", ":"), default=str)
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+    def reconcile_ledger(self, ledger: Any, work_id: str, phase: str = "execution") -> dict[str, Any]:
+        """Compare receipts to durable attempt order before permitting resumed execution.
+
+        No receipts means a legacy run predating journaling and is reported, not
+        silently rewritten. Once journaling exists, every later started attempt
+        must have its preceding decision receipt. A decision persisted just before
+        its attempt row is an interrupted boundary and is blocked for explicit
+        reconciliation rather than replayed.
+        """
+        if not callable(getattr(ledger, "attempts", None)) or not callable(getattr(ledger, "get_checkpoint", None)):
+            raise TypeError("ledger must expose attempts() and get_checkpoint()")
+        attempts = tuple(item for item in ledger.attempts(work_id) if item.phase == phase)
+        receipts = self.list_for_work(work_id, phase)
+        if not receipts:
+            return {"status": "legacy_unjournaled", "attempts": len(attempts), "receipts": 0, "missing": [], "pending_decision": None}
+        by_number = {item.attempt_number: item for item in receipts}
+        first_receipt = min(by_number)
+        missing = [
+            number for number in range(max(2, first_receipt), len(attempts) + 1)
+            if number not in by_number
+        ]
+        if missing:
+            return {
+                "status": "inconsistent", "attempts": len(attempts), "receipts": len(receipts),
+                "missing": missing, "pending_decision": None,
+                "reason": "a started recovery attempt has no preceding durable decision receipt",
+            }
+        for receipt in receipts:
+            number = receipt.attempt_number
+            if number > len(attempts) + 1:
+                return {
+                    "status": "inconsistent", "attempts": len(attempts), "receipts": len(receipts),
+                    "missing": [], "pending_decision": number,
+                    "reason": "decision receipt is ahead of the ledger by more than one attempt",
+                }
+            attempt = attempts[number - 1] if number <= len(attempts) else None
+            if receipt.action in {"block", "stop"}:
+                if attempt is not None:
+                    return {
+                        "status": "inconsistent", "attempts": len(attempts), "receipts": len(receipts),
+                        "missing": [], "pending_decision": number,
+                        "reason": "a blocked decision has a corresponding started attempt",
+                    }
+                if number == len(attempts) + 1:
+                    return {
+                        "status": "blocked_decision", "attempts": len(attempts), "receipts": len(receipts),
+                        "missing": [], "pending_decision": number,
+                        "reason": receipt.reason_code,
+                    }
+            if attempt is not None:
+                if receipt.action == "alternate" and attempt.hypothesis != receipt.strategy_id:
+                    return {
+                        "status": "inconsistent", "attempts": len(attempts), "receipts": len(receipts),
+                        "missing": [], "pending_decision": number,
+                        "reason": "alternate strategy receipt does not match the started attempt",
+                    }
+                if receipt.action == "retry" and number > 1 and attempt.hypothesis != attempts[number - 2].hypothesis:
+                    return {
+                        "status": "inconsistent", "attempts": len(attempts), "receipts": len(receipts),
+                        "missing": [], "pending_decision": number,
+                        "reason": "retry receipt does not match the preceding hypothesis",
+                    }
+            elif receipt.action in {"retry", "alternate"}:
+                checkpoint = ledger.get_checkpoint(work_id, phase)
+                actual_digest = self._checkpoint_digest(checkpoint)
+                if actual_digest != receipt.checkpoint_digest:
+                    return {
+                        "status": "inconsistent", "attempts": len(attempts), "receipts": len(receipts),
+                        "missing": [], "pending_decision": number,
+                        "reason": "pending decision checkpoint digest does not match the durable checkpoint",
+                    }
+                return {
+                    "status": "pending_decision", "attempts": len(attempts), "receipts": len(receipts),
+                    "missing": [], "pending_decision": number,
+                    "reason": "decision persisted before attempt claim; do not replay without an explicit recovery path",
+                }
+        return {
+            "status": "consistent", "attempts": len(attempts), "receipts": len(receipts),
+            "missing": [], "pending_decision": None,
+        }
 
     def list_for_work(self, work_id: str, phase: str) -> tuple[RecoveryDecisionReceipt, ...]:
         _token(work_id, "work_id")

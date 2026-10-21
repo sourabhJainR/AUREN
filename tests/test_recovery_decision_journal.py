@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from portable.engineering_recovery import EngineeringRecoveryLedger
 from portable.recovery_decision_journal import RecoveryDecisionJournal
 
 
@@ -65,6 +66,74 @@ class RecoveryDecisionJournalTests(unittest.TestCase):
 
     def test_unknown_decision_returns_none(self):
         self.assertIsNone(self.journal.get("work-123", "execution", 1))
+
+
+    def test_reconcile_reports_decision_written_before_attempt_as_pending(self):
+        ledger = EngineeringRecoveryLedger(Path(self.temp.name) / "ledger.sqlite3")
+        ledger.start_run("work-123", "intent")
+        first = ledger.begin_attempt("work-123", "execution", "failure", "default-plan", action="reproduce")
+        ledger.finish_attempt(first, outcome="failed")
+        checkpoint = ledger.checkpoint(
+            "work-123", "execution", status="pending", head_sha="",
+            payload={"iteration": 1, "hypothesis": "default-plan"},
+        )
+        self.record(
+            attempt_number=2, action="retry", strategy_id=None,
+            checkpoint_digest=self.journal._checkpoint_digest(checkpoint),
+            side_effect_state="ambiguous",
+        )
+
+        result = self.journal.reconcile_ledger(ledger, "work-123")
+        self.assertEqual("pending_decision", result["status"])
+        self.assertEqual(2, result["pending_decision"])
+        self.assertIn("do not replay", result["reason"])
+
+    def test_reconcile_detects_started_attempt_without_receipt(self):
+        ledger = EngineeringRecoveryLedger(Path(self.temp.name) / "ledger.sqlite3")
+        ledger.start_run("work-123", "intent")
+        first = ledger.begin_attempt("work-123", "execution", "failure", "default-plan", action="reproduce")
+        ledger.finish_attempt(first, outcome="failed")
+        checkpoint = ledger.checkpoint(
+            "work-123", "execution", status="pending", head_sha="",
+            payload={"iteration": 1, "hypothesis": "default-plan"},
+        )
+        self.record(
+            attempt_number=2, action="retry", strategy_id=None,
+            checkpoint_digest=self.journal._checkpoint_digest(checkpoint),
+            side_effect_state="ambiguous",
+        )
+        second = ledger.begin_attempt("work-123", "execution", "failure", "default-plan", action="narrow_fix")
+        ledger.finish_attempt(second, outcome="failed")
+        ledger.checkpoint(
+            "work-123", "execution", status="pending", head_sha="",
+            payload={"iteration": 2, "hypothesis": "default-plan"},
+        )
+        third = ledger.begin_attempt("work-123", "execution", "failure", "alternate-plan-1", action="alternate_implementation")
+        ledger.finish_attempt(third, outcome="failed")
+
+        result = self.journal.reconcile_ledger(ledger, "work-123")
+        self.assertEqual("inconsistent", result["status"])
+        self.assertEqual([3], result["missing"])
+
+    def test_reconcile_accepts_receipt_and_started_attempt_pair(self):
+        ledger = EngineeringRecoveryLedger(Path(self.temp.name) / "ledger.sqlite3")
+        ledger.start_run("work-123", "intent")
+        first = ledger.begin_attempt("work-123", "execution", "failure", "default-plan", action="reproduce")
+        ledger.finish_attempt(first, outcome="failed")
+        checkpoint = ledger.checkpoint(
+            "work-123", "execution", status="pending", head_sha="",
+            payload={"iteration": 1, "hypothesis": "default-plan"},
+        )
+        self.record(
+            attempt_number=2, action="retry", strategy_id=None,
+            checkpoint_digest=self.journal._checkpoint_digest(checkpoint),
+            side_effect_state="ambiguous",
+        )
+        second = ledger.begin_attempt("work-123", "execution", "failure", "default-plan", action="narrow_fix")
+        ledger.finish_attempt(second, outcome="failed")
+
+        result = self.journal.reconcile_ledger(ledger, "work-123")
+        self.assertEqual("consistent", result["status"])
 
 
 if __name__ == "__main__":

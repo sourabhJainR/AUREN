@@ -14,7 +14,7 @@ The module `portable/recovery_decision_journal.py` provides an append-only, SQLi
 
 This journal records a decision; it does not execute a strategy, verify the checkpoint, approve a consequential action, or reconcile external effects. The caller must derive checkpoint digest, failure classification, side-effect state, and attempt budget from trusted AUREN-owned state. A decision receipt is not evidence that the chosen strategy succeeded.
 
-Integration into AdaptiveRuntime / ExecutionController remains a separate gate: persist the policy outcome atomically with recovery progress where possible, and test crashes around both commits. External effects with ambiguous outcomes must still block until provider reconciliation confirms whether the effect occurred. Keep independent evaluator, isolation, exact-head CI, and rollback checks separate.
+AdaptiveRuntime now reconciles journal receipts against the durable recovery ledger before a resumed run. It checks ordered attempt coverage, strategy/hypothesis agreement, blocked decisions, and checkpoint digests for a decision persisted before its attempt row. A mismatch or orphaned decision fails closed before dispatch; legacy work with no receipts is reported as `legacy_unjournaled` so rollout does not silently reinterpret old history. This is detection and fail-closed recovery, not cross-database atomicity: an interrupted pending decision currently requires an explicit recovery path rather than automatic replay. External effects with ambiguous outcomes must still block until provider reconciliation confirms whether the effect occurred. Keep independent evaluator, isolation, exact-head CI, and rollback checks separate.
 
 ## Tests
 
@@ -22,4 +22,4 @@ Integration into AdaptiveRuntime / ExecutionController remains a separate gate: 
 python -m unittest tests.test_recovery_decision_journal -v
 ```
 
-These tests cover restart reads, idempotent writes, conflicting writes, ordered history, and invalid receipt fields. They do not prove end-to-end controller integration.
+These tests cover restart reads, idempotent writes, conflicting writes, ordered history, invalid receipt fields, decision-before-attempt interruption, missing receipts for started attempts, and the AdaptiveRuntime no-replay boundary. They do not prove cross-store atomicity or automatic resumption from an interrupted pending decision.
