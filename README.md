@@ -14,11 +14,23 @@ AUREN separates **execution authority from learning**. Active runs operate under
 
 PR [#764](https://github.com/sourabhJainR/AUREN/pull/764) merged the durable, append-only task progress journal, monotonic per-task event sequencing, cross-instance/process writer locking, heartbeat/staleness reporting, terminal-state handling, redaction, and concurrent-writer regression coverage. Five exact-head checks passed before merge: Runtime Resilience Matrix, Production AI Harness Hardening, AUREN Portable Bundle, Architecture Integrity, and AI Harness Check. Those results apply to the reviewed PR head; they are not independent external evaluation or a substitute for verifying workflows and deployment on the current main SHA.
 
-**Progress integration in [PR #766](https://github.com/sourabhJainR/AUREN/pull/766):** `ExecutionController` now emits queued, claimed, preflight, handler, heartbeat, quota-wait, stale-recovery, and terminal events to the durable journal. The dashboard API exposes journal snapshots and the console renders stage, state, stale/unknown status, and next action. A terminal `completed` event is emitted only after the work-unit receipt commits; journal write failures surface through health findings without rewriting SQLite task state. Remaining gates include provider-specific progress callbacks, CLI visibility, cross-store crash reconciliation, cancellation/deadline/hard-termination fault injection, and external-effect reconciliation.
+**Progress integration in [PR #766](https://github.com/sourabhJainR/AUREN/pull/766):** `ExecutionController` now emits queued, claimed, preflight, handler, heartbeat, quota-wait, stale-recovery, and terminal events to the durable journal. The dashboard API exposes journal snapshots and the console renders stage, state, stale/unknown status, and next action. A terminal `completed` event is emitted only after the work-unit receipt commits; journal write failures surface through health findings without rewriting SQLite task state. Remaining gates include provider-specific progress callbacks, cross-store crash reconciliation, cancellation/deadline/hard-termination fault injection, and external-effect reconciliation. Use `python auren_cli.py progress --json` to inspect the same durable journal from the command line.
 
 **Open gates:** effective main-branch required-check enforcement; independent Arena evaluator and sealed-corpus custody; external sandbox/host-isolation audit; staging migration and rollback rehearsal; full worker/provider/graph/dashboard/CLI/API journal integration; cross-store restart/fault-injection coverage; and task-scoped idempotency plus ambiguity reconciliation for consequential external effects. See the [alignment review](docs/REPOSITORY_WEBSITE_ALIGNMENT_REVIEW_2026-10-20.md), the [unified engineering completion roadmap](https://github.com/sourabhJainR/AUREN/issues/696), and the live [issues](https://github.com/sourabhJainR/AUREN/issues) for current owners and acceptance criteria.
 
 For the responsive-execution contract, see [Responsive Execution and Timeout Policy](docs/RESPONSIVE_EXECUTION_AND_TIMEOUTS.md). For progress semantics and acceptance tests, see [Visible Incremental Progress](docs/VISIBLE_INCREMENTAL_PROGRESS.md). PR and issue state changes continuously; use the [live pull-request list](https://github.com/sourabhJainR/AUREN/pulls), [Actions](https://github.com/sourabhJainR/AUREN/actions), and [recent main commits](https://github.com/sourabhJainR/AUREN/commits/main) for live status.
+
+## Inspect durable task progress
+
+Read the supervisor's durable progress journal without starting or resuming work:
+
+```bash
+python auren_cli.py progress
+python auren_cli.py progress --task-id <task-id> --json
+python auren_cli.py progress --project-root /path/to/repository --stale-after-seconds 120
+```
+
+The command reads the project-local journal and the canonical executive journal, reports stale/unknown tasks explicitly, and returns a non-zero status for a missing task or unreadable journal. It is observational only; it does not imply that a task is running, successful, or safe to retry.
 
 ## Pre-implementation blind-spot review
 
