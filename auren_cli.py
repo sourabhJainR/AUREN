@@ -275,7 +275,7 @@ def _run_continuous(args: list[str]) -> int:
     sub = parser.add_subparsers(dest="action", required=True)
     start = sub.add_parser("start", help="start or recover the continuous worker")
     start.add_argument("--project-root", default=".", help="project checkout (default: current directory)")
-    start.add_argument("--poll-seconds", type=float, default=5.0)
+    start.add_argument("--poll-seconds", type=float, default=60.0)
     start.add_argument("--batch-size", type=int, default=20)
     start.add_argument("--max-cycles", type=int, default=None, help="bounded diagnostic run; omit for continuous operation")
     start.add_argument("--watch", action="append", default=[], metavar="OWNER/REPO@FULL_SHA", help="poll exact-head GitHub checks; repeat for multiple heads")
