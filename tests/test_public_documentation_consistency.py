@@ -88,5 +88,20 @@ class TestPublicDocumentationConsistency(unittest.TestCase):
         self.assertNotIn(r"\n\n## Deterministic repository intelligence", readme)
 
 
+    def test_standalone_readiness_matrix_and_provider_progress_contract(self):
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        site = (ROOT / "site" / "index.html").read_text(encoding="utf-8")
+        matrix = (ROOT / "docs" / "STANDALONE_READINESS_AND_GAP_MATRIX.md").read_text(encoding="utf-8")
+        provider_tests = (ROOT / "tests" / "test_provider_backed_crew_adapters.py").read_text(encoding="utf-8")
+        graph_tests = (ROOT / "tests" / "test_graph_agent_team_crew_dispatch.py").read_text(encoding="utf-8")
+        self.assertIn("STANDALONE_READINESS_AND_GAP_MATRIX.md", readme)
+        self.assertIn("STANDALONE_READINESS_AND_GAP_MATRIX.md", site)
+        self.assertIn("Prove hard termination", matrix)
+        self.assertIn("independent evaluation", matrix)
+        self.assertIn("skipped checks are not passes", matrix.lower())
+        self.assertIn("test_hung_provider_is_bounded_even_if_invoker_ignores_timeout", provider_tests)
+        self.assertIn("test_provider_timeout_is_durable_blocked_progress", provider_tests)
+        self.assertIn("test_provider_progress_uses_supervisor_identity_through_graph_dispatch", graph_tests)
+
 if __name__ == "__main__":
     unittest.main()
