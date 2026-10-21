@@ -187,7 +187,7 @@ class ResumableProviderExecutor:
         def invoke() -> None:
             try:
                 outcome.put(("result", self.providers[provider](dict(request), key)))
-            except BaseException as exc:
+            except Exception as exc:
                 outcome.put(("error", exc))
             finally:
                 _PROVIDER_WORKER_SLOTS.release()
