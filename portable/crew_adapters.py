@@ -409,6 +409,7 @@ class ProviderBackedCrewAdapter(ApprovedToolCrewAdapter):
         max_response_chars: int = 100_000,
         finalizer: Callable[[Mapping[str, Any]], Mapping[str, Any]] | None = None,
         max_tool_calls: int = 4,
+        progress_callback: Callable[[Mapping[str, Any]], None] | None = None,
     ) -> None:
         if not isinstance(provider_id, str) or not provider_id.strip():
             raise ValueError("provider_id is required")
@@ -427,6 +428,9 @@ class ProviderBackedCrewAdapter(ApprovedToolCrewAdapter):
         self.timeout_seconds = timeout_seconds
         self.max_response_chars = max_response_chars
         self._invoke_provider = invoke_provider
+        if progress_callback is not None and not callable(progress_callback):
+            raise TypeError("progress_callback must be callable")
+        self._progress_callback = progress_callback
 
         def planner(request: Mapping[str, Any]) -> Mapping[str, Any]:
             prompt_payload = {
@@ -452,15 +456,32 @@ class ProviderBackedCrewAdapter(ApprovedToolCrewAdapter):
                 "tool boundary, not permission to execute side effects.\n"
                 + json.dumps(prompt_payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
             )
+            task_id = request.get("task_id")
+            if self._progress_callback is not None and (not isinstance(task_id, str) or not task_id.strip()):
+                raise ValueError("provider progress integration requires a supervisor-issued task_id")
+
+            def emit_provider_event(event: str, **fields: Any) -> None:
+                if self._progress_callback is None:
+                    return
+                # Explicit allowlist: never forward prompt, response, request payload,
+                # exception text, or arbitrary provider metadata into the journal.
+                safe_fields = {
+                    key: value for key, value in fields.items()
+                    if key in {"provider", "timeout_seconds", "late_result_possible", "retry_blocked", "max_workers"}
+                }
+                self._progress_callback({"task_id": task_id, "event": event, **safe_fields})
+
             outcome, raw = invoke_provider_with_bounded_wait(
                 self._invoke_provider, (prompt, self.timeout_seconds),
                 timeout_seconds=self.timeout_seconds, provider_id=self.provider_id,
+                on_event=emit_provider_event if self._progress_callback is not None else None,
             )
             if outcome == "capacity":
                 raise RuntimeError("bounded provider worker capacity exhausted; retry after capacity is available")
             if outcome == "timeout":
                 raise TimeoutError("provider call exceeded its bounded wait; a late response may still arrive")
             if outcome == "error":
+                emit_provider_event("provider_call_failed", error_type=type(raw).__name__)
                 raise raw
             if not isinstance(raw, str):
                 raise TypeError("provider response must be text")
@@ -481,6 +502,7 @@ class ProviderBackedCrewAdapter(ApprovedToolCrewAdapter):
                 raise ValueError("provider response must be one valid JSON object") from exc
             if not isinstance(parsed, Mapping) or set(parsed) != {"tool_calls", "proposal"}:
                 raise ValueError("provider response must contain exactly tool_calls and proposal")
+            emit_provider_event("provider_result_ready")
             return parsed
 
         super().__init__(
@@ -519,6 +541,7 @@ def build_provider_backed_specialist_crew_adapters(
     timeout_seconds_by_crew: Mapping[str, int] | None = None,
     max_response_chars: int = 100_000,
     max_tool_calls: int = 4,
+    progress_callbacks_by_crew: Mapping[str, Callable[[Mapping[str, Any]], None]] | None = None,
 ) -> dict[str, ProviderBackedCrewAdapter]:
     """Build all eight host-backed adapters with pinned provider identity and tool scope."""
     if not isinstance(tools, ApprovedToolRegistry):
@@ -541,10 +564,13 @@ def build_provider_backed_specialist_crew_adapters(
             raise ValueError(f"{name} is missing specialist crew IDs: " + ", ".join(sorted(missing)))
     finalizers = {} if finalizers is None else finalizers
     timeouts = {} if timeout_seconds_by_crew is None else timeout_seconds_by_crew
-    if not isinstance(finalizers, Mapping) or not isinstance(timeouts, Mapping):
-        raise TypeError("finalizers and timeout_seconds_by_crew must be mappings")
-    if set(finalizers) - expected or set(timeouts) - expected:
-        raise ValueError("finalizers or timeout_seconds_by_crew contains unknown crew IDs")
+    progress_callbacks_by_crew = {} if progress_callbacks_by_crew is None else progress_callbacks_by_crew
+    if not all(isinstance(value, Mapping) for value in (finalizers, timeouts, progress_callbacks_by_crew)):
+        raise TypeError("finalizers, timeout_seconds_by_crew, and progress_callbacks_by_crew must be mappings")
+    if set(finalizers) - expected or set(timeouts) - expected or set(progress_callbacks_by_crew) - expected:
+        raise ValueError("finalizers, timeout_seconds_by_crew, or progress_callbacks_by_crew contains unknown crew IDs")
+    if any(not callable(callback) for callback in progress_callbacks_by_crew.values()):
+        raise TypeError("every provider progress callback must be callable")
     return {
         crew_id: ProviderBackedCrewAdapter(
             crew_id,
@@ -557,6 +583,7 @@ def build_provider_backed_specialist_crew_adapters(
             max_response_chars=max_response_chars,
             finalizer=finalizers.get(crew_id),
             max_tool_calls=max_tool_calls,
+            progress_callback=progress_callbacks_by_crew.get(crew_id),
         )
         for crew_id in SPECIALIST_CREW_IDS
     }
