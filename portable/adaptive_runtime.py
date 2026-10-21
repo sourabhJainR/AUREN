@@ -438,9 +438,9 @@ class AdaptiveRuntime:
                     receipt_action, strategy_id, reason_code = "alternate", f"alternate-plan-{attempts['alternate_count'] + 1}", "alternate_plan"
                 else:
                     receipt_action, strategy_id, reason_code = "retry", None, "bounded_retry"
-                side_effect_state = context.get("auren_side_effect_state", "ambiguous")
-                if side_effect_state not in {"none", "confirmed", "reconciled", "ambiguous"}:
-                    side_effect_state = "ambiguous"
+                # The recovery-decision branch runs before attempt context is built.
+                # Until a trusted reconciler supplies a state, record ambiguity.
+                side_effect_state = "ambiguous"
                 try:
                     self.recovery_decision_journal.record(
                         work_id=work_id,
