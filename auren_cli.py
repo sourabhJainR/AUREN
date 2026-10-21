@@ -31,7 +31,7 @@ def _load_runtime_from(root: Path):
     package = sys.modules.get("portable")
     if package is None:
         package = types.ModuleType("portable")
-        package.__path__ = [runtime_root]
+        package.__path__ = [str(runtime.parent)]
         sys.modules["portable"] = package
     spec = importlib.util.spec_from_file_location("portable.auren_runtime", runtime)
     if spec is None or spec.loader is None:
@@ -223,7 +223,11 @@ def _load_work_report_module(root: Path):
 
 
 def _emit_work_report(args: list[str], result: int, root: Path) -> None:
-    """Create a durable HTML report for every CLI invocation, including failures."""
+    """Create a durable HTML report for work commands, excluding read-only status views."""
+    if args and args[0] == "progress":
+        # Preserve clean JSON output and avoid creating a misleading work report
+        # for a read-only inspection command.
+        return
     try:
         loaded = _load_work_report_module(root)
         if loaded is None:
