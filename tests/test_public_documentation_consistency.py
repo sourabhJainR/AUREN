@@ -73,7 +73,7 @@ class TestPublicDocumentationConsistency(unittest.TestCase):
     def test_readme_status_and_section_format_are_current(self):
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
         import re
-        self.assertRegex(readme, r"## Project status \\(reviewed \\d{4}-\\d{2}-\\d{2}\\)")
+        self.assertRegex(readme, r"## Project status \(reviewed \d{4}-\d{2}-\d{2}\)")
         self.assertNotIn(r"\n\n## Deterministic repository intelligence", readme)
 
 
