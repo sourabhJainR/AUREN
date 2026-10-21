@@ -280,6 +280,7 @@ def _run_continuous(args: list[str]) -> int:
     start.add_argument("--max-cycles", type=int, default=None, help="bounded diagnostic run; omit for continuous operation")
     start.add_argument("--watch", action="append", default=[], metavar="OWNER/REPO@FULL_SHA", help="poll exact-head GitHub checks; repeat for multiple heads")
     start.add_argument("--required-check", action="append", default=[], help="exact required GitHub check name; repeat as needed")
+    start.add_argument("--repair-handler", default=None, help="registered durable handler for bounded repair tasks from failed required checks")
     stop = sub.add_parser("stop", help="persist an interrupt request; pending work and audit remain intact")
     stop.add_argument("--project-root", default=".")
     stop.add_argument("--reason", default="operator_stop_command")
@@ -330,7 +331,11 @@ def _run_continuous(args: list[str]) -> int:
             if key in pollers:
                 parser.error(f"duplicate CI watch: {target}")
             pollers[key] = GitHubActionsCheckPoller(repository, head_sha, options.required_check)
-        supervisor = ContinuousExecutionSupervisor(controller, pollers=pollers)
+        if options.repair_handler and not options.required_check:
+            parser.error("--repair-handler requires explicit --required-check names")
+        supervisor = ContinuousExecutionSupervisor(
+            controller, pollers=pollers, repair_handler=options.repair_handler,
+        )
         import signal
         from threading import Event
         stop_event = Event()

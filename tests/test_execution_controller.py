@@ -1332,7 +1332,8 @@ def test_consequential_unknown_provider_outcome_blocks_new_task_redispatch(tmp_p
             },
         )
 
-    with pytest.raises(TimeoutError):
+    from portable.provider_operation_lifecycle import ProviderOutcomeBlocked
+    with pytest.raises(ProviderOutcomeBlocked):
         controller._invoke_consequential_with_ledger(task("task-timeout"), provider)
     with pytest.raises(RuntimeError, match="requires reconciliation"):
         controller._invoke_consequential_with_ledger(task("task-resume"), provider)

@@ -999,6 +999,19 @@ class ExecutionController:
             goal=goal,
         )
 
+    def observe_failed_ci_check(self, *, recovery_ledger: Any, **observation: Any) -> Mapping[str, Any]:
+        """Called by the existing supervisor's CI poll cycle; never starts another loop."""
+        from .ci_repair_watchdog import CIRepairWatchdog
+        return CIRepairWatchdog(self, recovery_ledger).observe_failed_check(**observation)
+
+    def stale_work_findings(self, *, recovery_ledger: Any, stale_after_seconds: float,
+                            now: float | None = None) -> list[Mapping[str, Any]]:
+        """Expose bounded stale-heartbeat findings to the supervisor's existing cycle."""
+        from .ci_repair_watchdog import CIRepairWatchdog
+        return CIRepairWatchdog(self, recovery_ledger).stale_tasks(
+            stale_after_seconds=stale_after_seconds, now=now,
+        )
+
     def submit(self, handler: str, payload: Mapping[str, Any], *, goal: str | None = None) -> DurableTask:
         execution_class = self._handler_execution_class(handler)
         if execution_class == "context_provider":
@@ -1505,15 +1518,57 @@ class ExecutionController:
                 "consequential side effect requires reconciliation; provider dispatch is blocked "
                 f"(ledger_state={decision.state or 'unknown'})"
             )
-        result = self._invoke_with_lease_heartbeat(task, handler)
+        # Keep provider identity and operation identity in the same canonical
+        # ledger, while the outer row remains the supervisor's task-level gate.
+        from .provider_operation_lifecycle import ProviderOperationLifecycle
+
+        provider_name = task.handler
+        provider_intent = {"binding": binding, "payload": safe_payload}
+        def record_provider_event(event: Mapping[str, Any]) -> None:
+            operation_state = str(event.get("state", "unknown"))
+            operation_id = str(event.get("operation_id", ""))
+            safe_metadata = {
+                "operation_id": operation_id,
+                "intent_digest": str(event.get("intent_digest", "")),
+                "provider": provider_name,
+                "state": operation_state,
+            }
+            if hasattr(task, "work_unit_id") and hasattr(task, "attempts"):
+                self._capture_event("provider_operation_" + operation_state, task,
+                                    status=operation_state, metadata=safe_metadata)
+            self._record_progress(
+                task.id, "provider_operation_" + operation_state,
+                state="running", stage="provider_operation",
+                message="Provider operation state: " + operation_state,
+                evidence_ref=operation_id or None,
+            )
+
+        lifecycle = ProviderOperationLifecycle(
+            DurableSideEffectLedger(self.db_path), record_event=record_provider_event,
+        )
+        def dispatch_provider(intent: Mapping[str, Any], operation_id: str, idempotency_key: str) -> Mapping[str, Any]:
+            provider_payload = dict(task.payload)
+            provider_payload["auren_provider_operation"] = {
+                "operation_id": operation_id, "idempotency_key": idempotency_key,
+                "provider": provider_name,
+                "intent_digest": hashlib.sha256(
+                    json.dumps(dict(intent), sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
+                ).hexdigest(),
+            }
+            value = self._invoke_with_lease_heartbeat(task, lambda _payload: handler(provider_payload))
+            if not isinstance(value, Mapping):
+                raise RuntimeError("consequential handlers must return a mapping receipt/result")
+            return {"result": dict(value), "provider_operation_id": operation_id}
+
+        provider_receipt = lifecycle.execute(
+            "provider-operation:" + key, provider_name, provider_intent, dispatch_provider,
+        )
+        result = provider_receipt.get("result")
         if not isinstance(result, Mapping):
-            # A non-serializable/ambiguous result must not permit implicit replay.
-            raise RuntimeError("consequential handlers must return a mapping receipt/result")
-        receipt = {"result": dict(result)}
-        # If durable receipt persistence fails, the ledger remains executing. The
-        # next attempt will require reconciliation and will not invoke the provider.
+            raise RuntimeError("provider operation receipt is malformed; task remains blocked")
+        receipt = {"result": dict(result), "provider_operation_id": provider_receipt.get("provider_operation_id")}
         DurableSideEffectLedger(self.db_path).complete(key, receipt)
-        return result
+        return dict(result)
 
     def run_once(self, task_id: str) -> TrustScore | None:
         task = self._claim(task_id)

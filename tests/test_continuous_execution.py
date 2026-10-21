@@ -13,6 +13,11 @@ def durable_continuous_handler(payload):
     return {"success": True, "detail": "processed", "evidence": [payload["work_key"]]}
 
 
+def durable_repair_handler(payload):
+    return {"success": True, "stable_key": payload["auren_ci_repair"]["stable_key"],
+            "evidence_refs": payload["evidence_refs"]}
+
+
 class _Response:
     def __init__(self, payload):
         self.payload = json.dumps(payload).encode("utf-8")
@@ -125,6 +130,35 @@ def test_audit_chain_detects_tampering(tmp_path):
         db.execute("UPDATE events SET payload_json='{}' WHERE sequence=1")
     assert not supervisor.verify_audit_chain()
 
+
+
+def test_failed_required_check_enqueues_one_bounded_repair_through_existing_supervisor(tmp_path):
+    from portable.engineering_recovery import EngineeringRecoveryLedger
+
+    controller = ExecutionController(tmp_path)
+    controller.register_handler("tests.repair_ci", durable_repair_handler, execution_class="read_only")
+    head = "e" * 40
+    result = {
+        "status": "failure", "repository": "owner/repo", "head_sha": head,
+        "failed_checks": ["hardening"],
+        "checks": {"hardening": {"status": "completed", "conclusion": "failure", "id": 17,
+                                  "evidence_url": "https://github.com/owner/repo/actions/runs/17"}},
+    }
+    supervisor = ContinuousExecutionSupervisor(
+        controller, pollers={"ci:owner/repo": lambda: result},
+        repair_handler="tests.repair_ci",
+        recovery_ledger=EngineeringRecoveryLedger(tmp_path / ".auren" / "engineering-recovery.sqlite3"),
+    )
+    report = supervisor.run(poll_seconds=0.1, batch_size=10, max_cycles=2)
+    status = supervisor.status()
+    assert report["audit_chain_valid"] is True
+    assert any(event["event_type"] == "ci_repair_queued" for event in status["recent_events"])
+    assert any(event["event_type"] == "ci_repair_finalized" for event in status["recent_events"])
+    with __import__("sqlite3").connect(controller.db_path) as db:
+        rows = db.execute("SELECT payload FROM tasks").fetchall()
+    repairs = [json.loads(row[0]) for row in rows if "auren_ci_repair" in json.loads(row[0])]
+    assert len(repairs) == 1
+    assert repairs[0]["auren_ci_repair"]["head_sha"] == head
 
 
 def test_github_poller_observation_without_configured_required_checks_is_not_a_pass():

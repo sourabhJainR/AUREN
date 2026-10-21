@@ -36,8 +36,15 @@ jobs:
                   required, changed = True, []
               else:
                   changed = subprocess.check_output(['git', 'diff', '--name-only', base, head], text=True).splitlines()
-                  patterns = [".github/workflows/**",".github/actions/**","architecture/**",".ai-harness/**","portable/**","state/**","scripts/validate_architecture.py","scripts/validate_auren_identity.py","scripts/arena*","tests/test_architecture_contract.py","tests/test_decision_gate.py","tests/test_capability_promotion_gate.py","tests/test_execution_controller_promotion_gate.py","tests/test_canonical_evidence_ledger.py","tests/test_independent_arena.py","tests/test_arena_acceptance.py","tests/test_contract_alignment.py","tests/test_principle_traceability.py","docs/engineering-principle-traceability.json","docs/ENGINEERING_PRINCIPLE_TRACEABILITY.md","docs/architecture*","docs/DEFAULT_EXECUTION_CONTROLLER.md"]
+                  patterns = [".github/workflows/**",".github/actions/**","architecture/**",".ai-harness/**","portable/**","scripts/impact_policy.py","tests/test_impact_policy.py","tests/test_provider_operation_lifecycle.py","state/**","scripts/validate_architecture.py","scripts/validate_auren_identity.py","scripts/arena*","tests/test_architecture_contract.py","tests/test_decision_gate.py","tests/test_capability_promotion_gate.py","tests/test_execution_controller_promotion_gate.py","tests/test_canonical_evidence_ledger.py","tests/test_independent_arena.py","tests/test_arena_acceptance.py","tests/test_contract_alignment.py","tests/test_principle_traceability.py","docs/engineering-principle-traceability.json","docs/ENGINEERING_PRINCIPLE_TRACEABILITY.md","docs/architecture*","docs/DEFAULT_EXECUTION_CONTROLLER.md"]
                   required = any(fnmatch.fnmatchcase(path, pattern) for path in changed for pattern in patterns)
+          import sys
+          sys.path.insert(0, '.')
+          from scripts.impact_policy import classify_changes
+          policy = classify_changes(changed)
+          required = required or bool(policy['hardening_required'])
+          print('Required focused suites:')
+          print(', '.join(policy['required_suites']) if policy['required_suites'] else '(none)')
           print('Changed files:')
           print('\n'.join(changed) if changed else '(none or full validation requested)')
           print(f'Validation required: {required}')

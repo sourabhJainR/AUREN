@@ -1,6 +1,6 @@
 # Provider operation lifecycle and recovery boundary
 
-Status: required implementation contract; runtime integration is not yet verified.
+Status: lifecycle implementation and supervisor integration added on this branch; exact-head tests and independent review are still required.
 
 ## Invariant
 
@@ -56,12 +56,13 @@ Assert provider call counts, durable states, immutable receipts, operation-ID st
 
 ## Integration sequence
 
-1. Extend the existing durable side-effect ledger rather than creating a competing source of truth.
-2. Persist the canonical intent and stable provider operation ID in the ledger before invoking consequential handlers.
-3. Add provider adapter capability metadata and a common dispatch/reconcile contract.
-4. Wire the lifecycle into ExecutionController, supervisor dispatch, progress journal, and evidence graph.
-5. Add adapter-specific failure-injection tests, then run exact-head required CI and post-merge main verification.
-6. Keep any provider without authoritative recovery blocked until an operator resolves it with evidence.
+1. ProviderOperationLifecycle composes with DurableSideEffectLedger; it does not create a second database or polling daemon.
+2. Consequential ExecutionController dispatch persists a stable provider operation identity and intent before invoking the handler, passes the idempotency key in adapter context, and records bounded events in the progress journal and canonical engineering evidence capture.
+3. Provider adapters can use ProviderOperationLifecycle.execute and reconcile; completion during reconciliation requires the trusted ledger verifier and an evidence reference. Unknown, pending, not-found, malformed, or failed lookup outcomes do not authorize replay.
+4. CIRepairWatchdog is callable from the existing supervisor cycle through ExecutionController.observe_failed_ci_check. It deduplicates by repository, immutable head SHA, check identity, and failure fingerprint, using the existing task table and EngineeringRecoveryLedger.
+5. Repair attempts remain open until their real validation outcome is recorded. finish_repair_attempt blocks when no new evidence reference is produced. Stale-work findings are returned to the existing supervisor; no second polling loop is created.
+6. The impact policy maps sensitive recovery paths to mandatory suites and fails closed on unclassified sensitive paths. Production hardening is required for recovery ledger, journal, controller, provider lifecycle, authority, and rollback paths; documentation-only changes do not trigger that expensive workflow.
+7. Exact-head CI, review, and post-merge main verification remain required. No merge is permitted while checks are pending, skipped-but-required, or failing.
 
 ## Non-goals and safety
 

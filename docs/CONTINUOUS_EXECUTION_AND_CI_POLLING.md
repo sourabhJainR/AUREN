@@ -29,6 +29,8 @@ python auren_cli.py continuous start \
   --required-check "unit-tests (3.12, 3)"
 ```
 
+For automatic bounded repair, also pass `--repair-handler` with an already registered, reviewed handler name. Repair is enabled only when explicit required checks are configured. Failed checks are deduplicated by repository, immutable head SHA, exact check name, and failure fingerprint; repair tasks use the existing ExecutionController queue and EngineeringRecoveryLedger. Without a registered repair handler, failures remain visible but are not silently converted into executable tasks.
+
 Repeat `--watch` for each commit and `--required-check` for each required check. Check names match exactly. A missing check remains pending; `skipped`, `neutral`, `cancelled`, timed-out and other non-success conclusions are not passes. API/network errors are recorded as poll errors and never interpreted as success. The poller is read-only: it does not merge, approve, or alter branch protection. A separate trusted execution task must consume verified exact-head evidence before promotion.
 
 ```bash
@@ -47,4 +49,4 @@ python auren_cli.py continuous start --project-root . --max-cycles 3
 
 ## Current boundary
 
-The continuous loop, exact-head check polling, stop command, task inventory and hash-chain audit are implemented. Remaining gates are: automatically translating a failed required check into a bounded, evidence-linked repair task; cross-store crash injection for the recovery ledger versus decision journal; child-process hard termination/deadline propagation; external side-effect reconciliation; independent evaluator/isolation custody; and a real staging rollback rehearsal. These must remain visible as pending rather than being marked complete by a green polling result.
+The continuous loop, exact-head check polling, stop command, task inventory and hash-chain audit are implemented. Remaining gates are: connecting each deployed repair handler to its provider-specific evidence and review contracts; cross-store crash injection for the recovery ledger versus decision journal; child-process hard termination/deadline propagation; external side-effect reconciliation; independent evaluator/isolation custody; and a real staging rollback rehearsal. These must remain visible as pending rather than being marked complete by a green polling result.
