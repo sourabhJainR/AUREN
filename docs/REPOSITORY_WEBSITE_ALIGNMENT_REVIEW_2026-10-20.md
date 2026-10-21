@@ -1,7 +1,7 @@
 # AUREN Repository and Website Alignment Review
 
 **Review date:** 2026-10-21  
-**Main SHA at documentation refresh:** `99c8fdfc90fd86d4821e74b7ac2b04505477f566` (PR #771 exact-head CI passed; post-merge checks should be read from live Actions)  
+**Verified implementation snapshot:** `99c8fdfc90fd86d4821e74b7ac2b04505477f566` (all six post-merge workflows passed; the following documentation-only refresh is independently checked)  
 **Current product version:** `1.0.5` (merged)  
 **Scope:** repository-facing status, architecture claims, website/documentation consistency, workflow evidence, and implementation gaps.
 
@@ -15,7 +15,7 @@ The merged progress journal provides durable append-only events, monotonic per-t
 
 PR [#770](https://github.com/sourabhJainR/AUREN/pull/770) merged as [`6bbfae84b9b8d0e65e8063a771fae90f4c61a7e6`](https://github.com/sourabhJainR/AUREN/commit/6bbfae84b9b8d0e65e8063a771fae90f4c61a7e6). All five exact-head checks passed and all six post-merge workflows passed on that main SHA. It adds bounded provider-call waiting, lifecycle progress callbacks, a cap on orphaned timed-out worker threads, and a timeout checkpoint that prevents automatic retry before reconciliation. This is not hard termination and is not yet wired across every production provider adapter.
 
-PR [#771](https://github.com/sourabhJainR/AUREN/pull/771) merged at [`99c8fdfc90fd86d4821e74b7ac2b04505477f566`](https://github.com/sourabhJainR/AUREN/commit/99c8fdfc90fd86d4821e74b7ac2b04505477f566) after all five exact-head workflows passed. It adds a finite deadline for both in-process and cross-process journal lock acquisition, with contention tests. Post-merge workflows for this main SHA must be confirmed through the [live Actions page](https://github.com/sourabhJainR/AUREN/actions) before declaring that revision fully verified.
+PR [#771](https://github.com/sourabhJainR/AUREN/pull/771) merged at [`99c8fdfc90fd86d4821e74b7ac2b04505477f566`](https://github.com/sourabhJainR/AUREN/commit/99c8fdfc90fd86d4821e74b7ac2b04505477f566) after all five exact-head workflows passed. It adds a finite deadline for both in-process and cross-process journal lock acquisition, with contention tests. All six post-merge workflows passed on this main SHA; the subsequent documentation-only refresh has its own checks and deployment, tracked in [live Actions](https://github.com/sourabhJainR/AUREN/actions).
 
 ## Executive summary
 
