@@ -9,6 +9,7 @@ import re
 import sqlite3
 from typing import Any, Iterable
 from .repository_intelligence import RepositoryIntelligence
+from .engineering_plan import EngineeringPlan, EngineeringPlanRun
 
 def _utc() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -30,6 +31,7 @@ class DashboardSnapshot:
     project: str
     repository: dict[str, Any]
     executions: tuple[dict[str, Any], ...]
+    plan_runs: tuple[dict[str, Any], ...]
     tasks: dict[str, Any]
     learnings: dict[str, Any]
     findings: dict[str, Any]
@@ -74,14 +76,16 @@ class EngineeringDashboard:
         tables = self._table_counts(dbs)
         events = self._events()
         tests = self._tests_snapshot(events)
+        plan_runs = self._plan_runs(dbs)
         return DashboardSnapshot(
             generated_at=_utc(), project=self.project,
             repository={"root": str(self.root), "snapshot": repo.digest(),
                         "files": len(repo.files),
                         "symbols": sum(len(f.symbols) for f in repo.files.values()),
                         "edges": len(repo.edges)},
-            executions=self._executions(events, dbs),
-            tasks=self._tasks(tables, events),
+            executions=self._executions(events, dbs, plan_runs),
+            plan_runs=plan_runs,
+            tasks=self._tasks(tables, events, plan_runs),
             learnings=self._learnings(tables),
             findings=self._findings(tables, events),
             usage=self._usage(tables, events, dbs),
@@ -155,13 +159,95 @@ class EngineeringDashboard:
     def _sum(tables: dict[str, int], needles: Iterable[str]) -> int:
         return sum(v for k, v in tables.items() if any(n in k.lower() for n in needles))
 
-    def _executions(self, events: tuple[dict[str, Any], ...], dbs: Iterable[Path]) -> tuple[dict[str, Any], ...]:
+    def _plan_runs(self, paths: Iterable[Path]) -> tuple[dict[str, Any], ...]:
+        """Project persisted plan/run state without treating corrupt state as success.
+
+        The dashboard is a read-only observer. It verifies the stored plan and run
+        digests before deriving status; invalid rows remain visible as ``unknown``.
+        """
+        latest: dict[str, dict[str, Any]] = {}
+        for path in paths:
+            try:
+                uri = f"file:{path.as_posix()}?mode=ro"
+                with sqlite3.connect(uri, uri=True, timeout=0.5) as db:
+                    table = db.execute(
+                        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='engineering_plan_runs'"
+                    ).fetchone()
+                    if not table:
+                        continue
+                    columns = {row[1] for row in db.execute("PRAGMA table_info(engineering_plan_runs)")}
+                    required = {"run_id", "schema_version", "plan_digest", "plan_json", "run_json", "run_digest", "updated_at"}
+                    if not required.issubset(columns):
+                        continue
+                    rows = db.execute(
+                        "SELECT run_id, schema_version, plan_digest, plan_json, run_json, run_digest, updated_at "
+                        "FROM engineering_plan_runs ORDER BY updated_at DESC LIMIT 100"
+                    ).fetchall()
+                for row in rows:
+                    run_id = str(row[0])
+                    try:
+                        plan_payload = json.loads(row[3])
+                        run_payload = json.loads(row[4])
+                        plan = EngineeringPlan.from_dict(plan_payload)
+                        run = EngineeringPlanRun.from_dict(run_payload)
+                        if (int(row[1]) != 2 or plan.run_id != run_id or plan.digest != row[2]
+                                or run.digest != row[5] or run.plan_digest != plan.digest):
+                            raise ValueError("persisted plan/run identity or digest mismatch")
+                        run.verify_against(plan)
+                        counts: dict[str, int] = {}
+                        for progress in run.tasks:
+                            counts[progress.status] = counts.get(progress.status, 0) + 1
+                        total = len(run.tasks)
+                        passed = counts.get("passed", 0)
+                        blocked = counts.get("blocked", 0)
+                        failed = counts.get("failed", 0)
+                        cancelled = counts.get("cancelled", 0)
+                        if total and passed == total:
+                            status = "completed"
+                        elif failed:
+                            status = "failed"
+                        elif cancelled:
+                            status = "cancelled"
+                        elif blocked:
+                            status = "blocked"
+                        elif counts.get("running", 0) or counts.get("verifying", 0):
+                            status = "running"
+                        elif counts.get("ready", 0):
+                            status = "ready"
+                        else:
+                            status = "planned"
+                        detail = (f"{passed}/{total} tasks passed; {blocked} blocked; "
+                                  f"{failed} failed; revision {run.revision}")
+                        projected = {
+                            "run_id": run_id, "task_id": run_id, "goal": plan.goal,
+                            "status": status, "detail": detail, "plan_digest": plan.digest,
+                            "source_revision": plan.source_revision, "revision": run.revision,
+                            "task_counts": counts,
+                            "evidence_count": sum(len(progress.evidence_refs) for progress in run.tasks),
+                            "updated_at": row[6],
+                        }
+                    except (ValueError, TypeError, KeyError, json.JSONDecodeError, AttributeError):
+                        projected = {
+                            "run_id": run_id, "task_id": run_id, "status": "unknown",
+                            "detail": "Persisted plan/run state failed integrity validation; reconciliation required.",
+                            "plan_digest": str(row[2]), "updated_at": row[6],
+                        }
+                    prior = latest.get(run_id)
+                    if prior is None or str(projected.get("updated_at", "")) >= str(prior.get("updated_at", "")):
+                        latest[run_id] = projected
+            except (OSError, sqlite3.Error):
+                continue
+        return tuple(sorted(latest.values(), key=lambda row: str(row.get("updated_at", "")), reverse=True)[:50])
+
+    def _executions(self, events: tuple[dict[str, Any], ...], dbs: Iterable[Path],
+                    plan_runs: Iterable[dict[str, Any]] = ()) -> tuple[dict[str, Any], ...]:
         latest = {}
         for row in events:
             if row.get("run_id"):
                 latest[str(row["run_id"])] = row
         active = [r for r in latest.values() if r.get("status") in {"running", "executing", "started"}]
         active.extend(self._active_episode_rows(dbs))
+        active.extend(row for row in plan_runs if row.get("status") == "running")
         unique = {}
         for row in active:
             key = str(row.get("run_id") or row.get("episode_id") or "")
@@ -198,11 +284,17 @@ class EngineeringDashboard:
                 continue
         return tuple(rows)
 
-    def _tasks(self, tables, events):
+    def _tasks(self, tables, events, plan_runs=()):
         ids = {str(e.get("task_id")) for e in events if e.get("task_id")}
         experience = self._sum(tables, ("experience_history",))
+        plan_rows = tuple(plan_runs)
+        plan_task_counts = {}
+        for row in plan_rows:
+            for status, count in row.get("task_counts", {}).items():
+                plan_task_counts[status] = plan_task_counts.get(status, 0) + count
         return {"observed": max(experience, len(ids)), "event_runs": len({e.get("run_id") for e in events if e.get("run_id")}),
-                "completed_experience_records": experience}
+                "completed_experience_records": experience, "plan_runs": len(plan_rows),
+                "plan_tasks": sum(plan_task_counts.values()), "plan_task_counts": plan_task_counts}
 
     def _learnings(self, tables):
         return {"deferred_jobs": self._sum(tables, ("deferred_learning",)),

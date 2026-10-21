@@ -51,3 +51,58 @@ def test_dashboard_reads_durable_active_engineering_episode():
         snapshot=EngineeringDashboard(root).snapshot().as_dict()
         assert snapshot["executions"][0]["episode_id"]=="ep-1"
         assert snapshot["executions"][0]["status"]=="verifying"
+
+
+def _create_plan_run(root, run_id="plan-run-active"):
+    from portable.engineering_plan import EngineeringPlan, PlanTask
+    from portable.engineering_plan_store import EngineeringPlanStore
+    plan = EngineeringPlan(
+        run_id=run_id,
+        goal="Make dashboard reflect durable plan state",
+        requirements=("Plan state must be visible after restart",),
+        tasks=(
+            PlanTask("inspect", "Inspect persisted state", ("Digest verified",), "Restore the prior dashboard projection"),
+            PlanTask("implement", "Implement projection", ("Tests pass",), "Revert the projection change", depends_on=("inspect",)),
+        ),
+        source_revision="a" * 40,
+        budget={"dispatches": 4},
+    )
+    store = EngineeringPlanStore(root / ".auren" / "plans.sqlite3")
+    run = store.create(plan)
+    return plan, run, store
+
+
+def test_dashboard_projects_durable_plan_run_and_task_counts():
+    from portable.engineering_plan import EngineeringPlanRun
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        plan, run, store = _create_plan_run(root)
+        running = run.transition_task("inspect", "ready", plan=plan, reason="dependencies satisfied")
+        store.save_run(plan.run_id, running, expected_revision=run.revision)
+        active = running.transition_task("inspect", "running", plan=plan, reason="worker claimed task")
+        store.save_run(plan.run_id, active, expected_revision=running.revision)
+
+        snapshot = EngineeringDashboard(root).snapshot().as_dict()
+        row = next(item for item in snapshot["plan_runs"] if item["run_id"] == plan.run_id)
+        assert row["status"] == "running"
+        assert row["revision"] == active.revision
+        assert row["task_counts"] == {"running": 1, "pending": 1}
+        assert row["plan_digest"] == plan.digest
+        assert row["evidence_count"] == 0
+        assert snapshot["tasks"]["plan_runs"] == 1
+        assert snapshot["tasks"]["plan_tasks"] == 2
+        assert snapshot["executions"][0]["run_id"] == plan.run_id
+
+
+def test_dashboard_keeps_corrupt_durable_plan_visible_as_unknown_not_success():
+    import sqlite3
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        plan, run, store = _create_plan_run(root, "plan-run-corrupt")
+        with sqlite3.connect(store.database_path) as db:
+            db.execute("UPDATE engineering_plan_runs SET run_json='{}' WHERE run_id=?", (plan.run_id,))
+        snapshot = EngineeringDashboard(root).snapshot().as_dict()
+        row = next(item for item in snapshot["plan_runs"] if item["run_id"] == plan.run_id)
+        assert row["status"] == "unknown"
+        assert "reconciliation required" in row["detail"]
+        assert row["status"] != "completed"
