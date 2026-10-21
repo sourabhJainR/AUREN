@@ -120,23 +120,29 @@ class ProgressJournal:
             raise ValueError("completed_units cannot exceed total_units")
         if state == "completed" and completed_units is not None and total_units is not None and completed_units != total_units:
             raise ValueError("completed task must account for all declared units")
-        with self._lock, _journal_file_lock(self.path, timeout_seconds=self.lock_timeout_seconds):
-            task_rows = [r for r in self._events() if r["task_id"] == task_id]
-            if task_rows and task_rows[-1]["state"] in TERMINAL:
-                raise ValueError("cannot append progress to a terminal task")
-            row = ProgressEvent(
-                sequence=task_rows[-1]["sequence"] + 1 if task_rows else 1,
-                task_id=task_id, event=_safe(event, 80), state=state,
-                stage=_safe(stage, 120), message=_safe(message),
-                timestamp=timestamp or _now(), completed_units=completed_units,
-                total_units=total_units, evidence_ref=_safe(evidence_ref, 1000) if evidence_ref else None,
-            )
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            with self.path.open("a", encoding="utf-8") as stream:
-                stream.write(json.dumps(asdict(row), sort_keys=True, separators=(",", ":")) + "\n")
-                stream.flush()
-                os.fsync(stream.fileno())
-            return row
+        if not self._lock.acquire(timeout=self.lock_timeout_seconds):
+            raise TimeoutError("progress journal thread lock acquisition timed out")
+        try:
+            with _journal_file_lock(self.path, timeout_seconds=self.lock_timeout_seconds):
+                task_rows = [r for r in self._events() if r["task_id"] == task_id]
+                if task_rows and task_rows[-1]["state"] in TERMINAL:
+                    raise ValueError("cannot append progress to a terminal task")
+                row = ProgressEvent(
+                    sequence=task_rows[-1]["sequence"] + 1 if task_rows else 1,
+                    task_id=task_id, event=_safe(event, 80), state=state,
+                    stage=_safe(stage, 120), message=_safe(message),
+                    timestamp=timestamp or _now(), completed_units=completed_units,
+                    total_units=total_units, evidence_ref=_safe(evidence_ref, 1000) if evidence_ref else None,
+                )
+                self.path.parent.mkdir(parents=True, exist_ok=True)
+                with self.path.open("a", encoding="utf-8") as stream:
+                    stream.write(json.dumps(asdict(row), sort_keys=True, separators=(",", ":")) + "\n")
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                return row
+
+        finally:
+            self._lock.release()
 
     def heartbeat(self, task_id: str, *, stage: str, message: str = "Still working",
                   timestamp: str | None = None) -> ProgressEvent:
