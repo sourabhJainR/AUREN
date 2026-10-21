@@ -12,7 +12,7 @@ import hashlib
 import json
 import math
 from queue import Empty, Queue
-from threading import Thread
+from threading import BoundedSemaphore, Thread
 from time import monotonic
 from typing import Any, Callable, Mapping
 
@@ -20,6 +20,9 @@ from .crew_adapters import TaskRetryBudget
 
 
 SCHEMA_VERSION = "auren-provider-resume-v1"
+# Timed-out Python threads cannot be killed safely; cap orphaned provider workers.
+_MAX_PROVIDER_WORKERS = 8
+_PROVIDER_WORKER_SLOTS = BoundedSemaphore(_MAX_PROVIDER_WORKERS)
 
 
 def _canonical(value: Any) -> bytes:
@@ -168,12 +171,18 @@ class ResumableProviderExecutor:
         Providers must be proposal/read-only operations, and host adapters should
         also configure their native transport timeout.
         """
+        if not _PROVIDER_WORKER_SLOTS.acquire(blocking=False):
+            self._emit("provider_call_blocked", provider=provider, reason="bounded provider worker capacity exhausted",
+                       max_workers=_MAX_PROVIDER_WORKERS)
+            return "capacity", None
         outcome: Queue[tuple[str, Any]] = Queue(maxsize=1)
         def invoke() -> None:
             try:
                 outcome.put(("result", self.providers[provider](dict(request), key)))
             except BaseException as exc:
                 outcome.put(("error", exc))
+            finally:
+                _PROVIDER_WORKER_SLOTS.release()
         worker = Thread(target=invoke, name=f"auren-provider-{provider}", daemon=True)
         started = monotonic()
         worker.start()
@@ -245,6 +254,11 @@ class ResumableProviderExecutor:
             self._emit("provider_attempt_started", provider=provider, attempt=index + 1)
             try:
                 outcome, value = self._call_bounded(provider, request, idempotency_key)
+                if outcome == "capacity":
+                    self._save(status="deferred")
+                    return {"status": "blocked", "reason": "bounded provider worker capacity exhausted",
+                            "retryable": True, "resume_after_seconds": 1,
+                            "checkpoint": self.snapshot()["digest"]}
                 if outcome == "timeout":
                     self._state["timed_out_provider"] = provider
                     self._state["retry_blocked_reason"] = "provider call timed out; late completion is possible"
