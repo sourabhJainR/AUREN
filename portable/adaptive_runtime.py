@@ -104,9 +104,13 @@ class AdaptiveRuntime:
             max_total_attempts=12,
             max_elapsed_seconds=3600,
         )
-        self.recovery_decision_journal = RecoveryDecisionJournal(
-            state / "recovery-decisions.sqlite3",
-        )
+        # Keep recovery attempts and their decision receipts in one SQLite
+        # database so a retry/alternate receipt can commit atomically with the
+        # attempt claim. Import the previous separate journal idempotently and
+        # retain the source file as a rollback/audit artifact.
+        legacy_recovery_journal = state / "recovery-decisions.sqlite3"
+        self.recovery_decision_journal = RecoveryDecisionJournal(self.recovery_ledger.path)
+        self.recovery_decision_journal.import_from(legacy_recovery_journal)
 
     def capability(self, name: str, preferred: tuple[str, ...] = ()) -> RoutingDecision:
         return self.provider_fabric.route(CapabilityRequest(name, preferred))
