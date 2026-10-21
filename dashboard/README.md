@@ -296,3 +296,5 @@ The router prefers explicit capability metadata from the local model discovery r
 ## Durable task progress
 
 The console exposes progress-journal snapshots emitted by the execution supervisor: queueing, dispatch, preflight, handler dispatch, heartbeat, quota waits, recovery, and terminal outcomes. Stale and unknown states remain visible, with a next action where available. SQLite task state remains authoritative; the journal is a durable projection and a missing journal is not treated as success.
+
+The same journal can be inspected without opening the dashboard using `python auren_cli.py progress --json`; the command is read-only and preserves JSON output without creating a work report.
