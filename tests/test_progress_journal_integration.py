@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from portable.engineering_dashboard import EngineeringDashboard
@@ -64,6 +65,133 @@ class ProgressJournalRuntimeIntegrationTests(unittest.TestCase):
             self.assertEqual(snapshot["reported_state"], "running")
             self.assertEqual(snapshot["stage"], "finalization")
             self.assertNotEqual(snapshot["reported_state"], "completed")
+
+    def test_startup_rebuilds_missing_terminal_progress_from_both_durable_stores(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            controller = ExecutionController(root)
+            controller.register_handler(
+                "tests.progress_success", progress_success_handler, execution_class="read_only"
+            )
+            task = controller.submit("tests.progress_success", {"request_id": "safe-fixture"})
+            controller.run_once(task.id)
+
+            journal_path = controller.db_path.parent / "progress.jsonl"
+            journal_path.write_text("", encoding="utf-8")
+            restarted = ExecutionController(root)
+
+            snapshot = restarted.progress_journal.snapshot(task.id)
+            self.assertEqual(snapshot["reported_state"], "completed")
+            self.assertEqual(snapshot["stage"], "startup-reconciliation")
+            self.assertEqual(snapshot["event_count"], 1)
+            self.assertFalse(any("progress_reconciliation_required" in finding
+                                 for finding in restarted.health_findings()))
+
+    def test_startup_blocks_terminal_sqlite_row_without_terminal_receipt(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            controller = ExecutionController(root)
+            controller.register_handler(
+                "tests.progress_success", progress_success_handler, execution_class="read_only"
+            )
+            task = controller.submit("tests.progress_success", {"request_id": "safe-fixture"})
+
+            def fail_finish(*args, **kwargs):
+                raise OSError("controlled receipt store failure")
+
+            controller.company.finish = fail_finish
+            with self.assertRaisesRegex(OSError, "controlled receipt store failure"):
+                controller.run_once(task.id)
+
+            restarted = ExecutionController(root)
+            snapshot = restarted.progress_journal.snapshot(task.id, stale_after_seconds=3600)
+            self.assertEqual(restarted.task(task.id).state, "completed")
+            self.assertEqual(snapshot["reported_state"], "blocked")
+            self.assertEqual(snapshot["stage"], "startup-reconciliation")
+            self.assertTrue(any("progress_reconciliation_required=1" in finding
+                                for finding in restarted.health_findings()))
+
+    def test_startup_correction_can_supersede_false_terminal_journal_event(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            controller = ExecutionController(root)
+            controller.register_handler(
+                "tests.progress_success", progress_success_handler, execution_class="read_only"
+            )
+            task = controller.submit("tests.progress_success", {"request_id": "safe-fixture"})
+            controller.progress_journal.record(
+                task.id, "corrupt_fixture_terminal", state="completed", stage="fixture",
+                message="Injected stale terminal projection.",
+            )
+
+            restarted = ExecutionController(root)
+            snapshot = restarted.progress_journal.snapshot(task.id, stale_after_seconds=3600)
+            self.assertEqual(snapshot["reported_state"], "queued")
+            self.assertEqual(snapshot["stage"], "startup-reconciliation")
+            events = [row["event"] for row in restarted.progress_journal._events()
+                      if row["task_id"] == task.id]
+            self.assertEqual(events[-1], "startup_reconciliation")
+
+    def test_startup_marks_expired_running_lease_as_recovering(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            controller = ExecutionController(root)
+            controller.register_handler(
+                "tests.progress_success", progress_success_handler, execution_class="read_only"
+            )
+            task = controller.submit("tests.progress_success", {"request_id": "safe-fixture"})
+            claimed = controller._claim(task.id)
+            self.assertIsNotNone(claimed)
+            with __import__("sqlite3").connect(controller.db_path) as db:
+                stale = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
+                db.execute(
+                    "UPDATE tasks SET heartbeat_at=?,lease_until=? WHERE id=?",
+                    (stale, stale, task.id),
+                )
+
+            restarted = ExecutionController(root)
+            snapshot = restarted.progress_journal.snapshot(task.id, stale_after_seconds=3600)
+            self.assertEqual(snapshot["reported_state"], "recovering")
+            self.assertTrue(any("progress_reconciliation_required=1" in finding
+                                for finding in restarted.health_findings()))
+
+    def test_reconciliation_refuses_to_overwrite_a_newer_journal_event(self):
+        with tempfile.TemporaryDirectory() as temp:
+            journal = ProgressJournal(Path(temp) / "progress.jsonl")
+            journal.record("task-1", "task_started", state="running", stage="dispatch")
+            journal.record("task-1", "heartbeat", state="running", stage="handler")
+
+            with self.assertRaisesRegex(RuntimeError, "changed during reconciliation"):
+                journal.record_reconciliation(
+                    "task-1", state="recovering", stage="startup-reconciliation",
+                    message="Stale snapshot must not overwrite a concurrent heartbeat.",
+                    expected_sequence=1,
+                )
+
+            self.assertEqual(journal.snapshot("task-1")["sequence"], 2)
+            self.assertEqual(journal.snapshot("task-1")["reported_state"], "running")
+
+    def test_bounded_startup_reconciliation_reports_and_clears_incomplete_scan(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            controller = ExecutionController(root)
+            controller.register_handler(
+                "tests.progress_success", progress_success_handler, execution_class="read_only"
+            )
+            controller.submit("tests.progress_success", {"request_id": "first"})
+            controller.submit("tests.progress_success", {"request_id": "second"})
+
+            partial = controller.reconcile_progress_journal(limit=1, time_budget_seconds=2.0)
+            self.assertTrue(partial["incomplete"])
+            self.assertIsNotNone(partial["next_action"])
+            self.assertTrue(any("progress_reconciliation_incomplete" in finding
+                                for finding in controller.health_findings()))
+
+            complete = controller.reconcile_progress_journal(limit=100, time_budget_seconds=5.0)
+            self.assertFalse(complete["incomplete"])
+            self.assertIsNone(complete["next_action"])
+            self.assertFalse(any("progress_reconciliation_incomplete" in finding
+                                 for finding in controller.health_findings()))
 
     def test_journal_failure_is_visible_without_falsifying_task_state(self):
         with tempfile.TemporaryDirectory() as temp:
