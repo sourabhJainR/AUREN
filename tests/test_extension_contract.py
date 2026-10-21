@@ -65,7 +65,7 @@ class ExtensionContractTests(unittest.TestCase):
             ["local_graph"],
             [item.name for item in registry.providers_for("graph", allow_external=False)],
         )
-        self.assertEqual(2, len(registry.snapshot()))
+        self.assertEqual(3, len(registry.snapshot()))
 
     def test_manifest_claim_does_not_execute_or_authorize_provider(self):
         registry = ExtensionRegistry()
