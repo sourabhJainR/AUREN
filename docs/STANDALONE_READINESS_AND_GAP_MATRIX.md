@@ -33,6 +33,8 @@
 
 - [x] Durable execution controller, plan/run store, progress journal, and dashboard projections exist.
 - [x] Supervisor task identity and allowlisted provider lifecycle events are propagated into progress records.
+- [x] Host bootstrap helper binds provider adapters to the controller-owned journal and rejects caller-supplied progress callbacks.
+- [ ] Verify each production host uses the supervisor-bound registration helper; helper availability alone does not prove deployment wiring.
 - [ ] Run a cross-store crash matrix over task state, plan/run revision, progress journal, executive receipt, and evidence index. Detect and reconcile split commits without replay.
 - [ ] Prove dashboard and CLI use canonical durable status, not generated progress text; show blocked, cancelled, timed-out, unknown, stale, and unscored states distinctly.
 - [ ] Verify shared memory search across agents and branches with project scope, access control, provenance, freshness, and retraction tests.
