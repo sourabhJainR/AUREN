@@ -140,10 +140,8 @@ def test_github_poller_observation_without_configured_required_checks_is_not_a_p
 
 
 def test_discover_git_target_uses_current_head_and_github_origin(tmp_path):
-    remote = Mock(stdout="git@github.com:sourabhJainR/AUREN.git
-")
-    head = Mock(stdout="d" * 40 + "
-")
+    remote = Mock(stdout="git@github.com:sourabhJainR/AUREN.git" + chr(10))
+    head = Mock(stdout="d" * 40 + chr(10))
     with patch("subprocess.run", side_effect=[remote, head]) as run:
         assert discover_git_target(tmp_path) == ("sourabhJainR/AUREN", "d" * 40)
     assert run.call_count == 2
