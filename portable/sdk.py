@@ -1,8 +1,8 @@
-"Stable, provider-neutral Python SDK for the AUREN durable runtime.
+"""Stable, provider-neutral Python SDK for the AUREN durable runtime.
 
 The SDK is a thin facade over canonical runtime services. It does not create a
 second scheduler, memory store, progress journal, or policy authority.
-"
+"""
 from __future__ import annotations
 
 from pathlib import Path
