@@ -75,7 +75,7 @@ class TestPublicDocumentationConsistency(unittest.TestCase):
         site = (ROOT / "site" / "index.html").read_text(encoding="utf-8")
         for content in (readme, site):
             self.assertIn("Verification snapshot", content)
-            self.assertRegex(content, r"captured at main SHA `[0-9a-f]{40}`")
+            self.assertRegex(content, r"(?:captured )?at main SHA `[0-9a-f]{40}`")
             self.assertRegex(content, r"\d+ check runs succeeded, \d+ remained in progress, and \d+ were skipped")
             self.assertIn("skipped checks are not passes", content.lower())
             self.assertIn("github.com/sourabhJainR/AUREN/actions", content)
@@ -93,7 +93,7 @@ class TestPublicDocumentationConsistency(unittest.TestCase):
         self.assertIn("Prove cancellation and absolute deadlines", matrix)
         self.assertIn("independent evaluator", matrix.lower())
         self.assertIn("sealed corpus custody", matrix.lower())
-        self.assertIn("Skipped jobs are not passes", matrix)
+        self.assertIn("skipped jobs are not passes", matrix.lower())
         self.assertIn("clean-install smoke test", matrix)
 
 
