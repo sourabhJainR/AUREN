@@ -93,7 +93,7 @@ class TestPublicDocumentationConsistency(unittest.TestCase):
         self.assertIn("pull/776", site)
         self.assertIn("pull/777", site)
         self.assertIn("startup reconciliation", site)
-        self.assertIn("Six post-merge workflows passed", site)
+        self.assertIn("had six post-merge workflows pass", site)
 
     def test_readme_status_and_section_format_are_current(self):
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
