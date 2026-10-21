@@ -58,7 +58,9 @@ class SubprocessProviderInvoker:
 
     @staticmethod
     def _kill(process: subprocess.Popen[bytes]) -> None:
-        if process.poll() is not None:
+        # On POSIX, the group can outlive its leader while descendants keep
+        # stdout open. Kill the group even when the direct child has exited.
+        if os.name != "posix" and process.poll() is not None:
             return
         try:
             if os.name == "posix":
@@ -137,6 +139,14 @@ class SubprocessProviderInvoker:
                     process.wait(timeout=1.0)
                 except subprocess.TimeoutExpired:
                     self._kill(process)
+                writer.join(timeout=0.2)
+                reader.join(timeout=0.2)
+                for stream in (process.stdin, process.stdout):
+                    if stream is not None:
+                        try:
+                            stream.close()
+                        except OSError:
+                            pass
                 raise InterruptedError("provider subprocess was cancelled and terminated")
             remaining = timeout - (time.monotonic() - started)
             if remaining <= 0:
@@ -145,6 +155,14 @@ class SubprocessProviderInvoker:
                     process.wait(timeout=1.0)
                 except subprocess.TimeoutExpired:
                     self._kill(process)
+                writer.join(timeout=0.2)
+                reader.join(timeout=0.2)
+                for stream in (process.stdin, process.stdout):
+                    if stream is not None:
+                        try:
+                            stream.close()
+                        except OSError:
+                            pass
                 raise TimeoutError("provider subprocess exceeded its deadline and was terminated")
             try:
                 process.wait(timeout=min(0.05, remaining))
