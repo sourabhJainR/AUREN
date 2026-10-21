@@ -451,11 +451,16 @@ class ProviderBackedCrewAdapter(ApprovedToolCrewAdapter):
                 "tool boundary, not permission to execute side effects.\n"
                 + json.dumps(prompt_payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
             )
-            started = time.monotonic()
-            raw = self._invoke_provider(prompt, self.timeout_seconds)
-            elapsed = time.monotonic() - started
-            if elapsed > self.timeout_seconds:
-                raise TimeoutError("provider response arrived after the adapter timeout")
+            outcome, raw = invoke_provider_with_bounded_wait(
+                self._invoke_provider, (prompt, self.timeout_seconds),
+                timeout_seconds=self.timeout_seconds, provider_id=self.provider_id,
+            )
+            if outcome == "capacity":
+                raise RuntimeError("bounded provider worker capacity exhausted; retry after capacity is available")
+            if outcome == "timeout":
+                raise TimeoutError("provider call exceeded its bounded wait; a late response may still arrive")
+            if outcome == "error":
+                raise raw
             if not isinstance(raw, str):
                 raise TypeError("provider response must be text")
             if len(raw) > self.max_response_chars:
