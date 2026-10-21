@@ -239,6 +239,30 @@ class ContinuousExecutionSupervisor:
             counts = {str(state): int(count) for state, count in db.execute(
                 "SELECT state,COUNT(*) FROM tasks GROUP BY state"
             ).fetchall()} if self._table_exists(db, "tasks") else {}
+            pending_tasks = []
+            recent_terminal_tasks = []
+            if self._table_exists(db, "tasks"):
+                columns = {item[1] for item in db.execute("PRAGMA table_info(tasks)").fetchall()}
+                optional = lambda column: column if column in columns else "NULL AS " + column
+                query = (
+                    "SELECT id,handler,state,attempts,work_unit_id,updated_at,"
+                    + optional("next_retry_at") + "," + optional("quota_blocked")
+                    + " FROM tasks WHERE state NOT IN ('completed','failed','cancelled') ORDER BY updated_at LIMIT 100"
+                )
+                pending_tasks = [
+                    {"task_id": row[0], "handler": row[1], "state": row[2], "attempts": int(row[3]),
+                     "work_unit_id": row[4], "updated_at": row[5], "next_retry_at": row[6], "quota_blocked": row[7]}
+                    for row in db.execute(query).fetchall()
+                ]
+                terminal_query = (
+                    "SELECT id,handler,state,attempts,work_unit_id,updated_at FROM tasks "
+                    "WHERE state IN ('completed','failed','cancelled') ORDER BY updated_at DESC LIMIT 20"
+                )
+                recent_terminal_tasks = [
+                    {"task_id": row[0], "handler": row[1], "state": row[2], "attempts": int(row[3]),
+                     "work_unit_id": row[4], "updated_at": row[5]}
+                    for row in db.execute(terminal_query).fetchall()
+                ]
             events = db.execute(
                 "SELECT sequence,event_type,payload_json,digest,created_at FROM events ORDER BY sequence DESC LIMIT ?",
                 (event_limit,),
@@ -246,7 +270,8 @@ class ContinuousExecutionSupervisor:
         return {
             "state": row[0], "owner_id": row[1], "lease_until": row[2], "cycle_count": int(row[3]),
             "last_cycle_at": row[4], "stop_reason": row[5], "updated_at": row[6],
-            "task_counts": counts, "pollers": sorted(self.pollers),
+            "task_counts": counts, "pending_tasks": pending_tasks,
+            "recent_terminal_tasks": recent_terminal_tasks, "pollers": sorted(self.pollers),
             "recent_events": [
                 {"sequence": int(e[0]), "event_type": e[1], "payload": json.loads(e[2]), "digest": e[3], "created_at": e[4]}
                 for e in events
