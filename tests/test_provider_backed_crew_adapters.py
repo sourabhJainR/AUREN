@@ -218,6 +218,35 @@ class ProviderBackedCrewAdapterTests(unittest.TestCase):
                 allowed_tools_by_crew=scopes,
             )
 
+    def test_runtime_registration_wires_canonical_journal_to_every_specialist_crew(self):
+        import tempfile
+
+        runtime._CREW_ADAPTERS.clear()
+        try:
+            with tempfile.TemporaryDirectory() as temp:
+                journal = ProgressJournal(Path(temp) / "progress.jsonl")
+                tools = ApprovedToolRegistry()
+                invokers = {crew: (lambda _prompt, _timeout: "{}") for crew in SPECIALIST_CREW_IDS}
+                ids = {crew: "host-provider" for crew in SPECIALIST_CREW_IDS}
+                versions = {crew: "pinned-v1" for crew in SPECIALIST_CREW_IDS}
+                scopes = {crew: () for crew in SPECIALIST_CREW_IDS}
+                adapters = runtime.register_provider_backed_crew_adapters(
+                    provider_invokers=invokers,
+                    provider_ids=ids,
+                    provider_versions=versions,
+                    tools=tools,
+                    allowed_tools_by_crew=scopes,
+                    progress_journal=journal,
+                    replace=True,
+                )
+                self.assertEqual(set(adapters), set(SPECIALIST_CREW_IDS))
+                for crew in SPECIALIST_CREW_IDS:
+                    self.assertIs(adapters[crew]._progress_callback.__self__, journal)
+                    self.assertIs(adapters[crew]._progress_callback.__func__,
+                                  journal.record_provider_event.__func__)
+        finally:
+            runtime._CREW_ADAPTERS.clear()
+
     def test_runtime_registration_wires_host_adapters_into_default_phase_team(self):
         runtime._CREW_ADAPTERS.clear()
         try:
