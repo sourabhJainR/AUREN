@@ -32,12 +32,12 @@ def _token_tuple(name: str, values: Any, *, required: bool) -> tuple[str, ...]:
         raise ExtensionContractError(f"{name} must be a tuple of strings")
     if required and not values:
         raise ExtensionContractError(f"{name} must not be empty")
+    if any(isinstance(value, str) and value in {"*", "all", "admin", "unrestricted"} for value in values):
+        raise ExtensionContractError(f"{name} contains a forbidden wildcard")
     if any(not isinstance(value, str) or not _NAME.fullmatch(value) for value in values):
         raise ExtensionContractError(f"{name} contains an invalid token")
     if len(set(values)) != len(values):
         raise ExtensionContractError(f"{name} values must be unique")
-    if any(value in {"*", "all", "admin", "unrestricted"} for value in values):
-        raise ExtensionContractError(f"{name} contains a forbidden wildcard")
     return values
 
 
