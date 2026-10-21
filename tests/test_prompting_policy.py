@@ -27,7 +27,7 @@ class PromptingPolicyTests(unittest.TestCase):
         self.assertIn("## Response contract", result)
         self.assertIn("## Verification economy", result)
         self.assertIn("## Communication and data format", result)
-        self.assertIn("Prefer TOON when the receiver supports it", result)
+        self.assertIn("prefer TOON when the receiver supports it", result)
         self.assertIn("Keep JSON when an API", result)
         self.assertIn("A skipped check is not a pass", result)
         self.assertIn("CLARIFICATION_NEEDED", result)
