@@ -86,7 +86,7 @@ class AdaptiveRuntimeRecoveryIntegrationTests(unittest.TestCase):
         )
         runtime.recovery_ledger.finish_attempt(first, outcome="failed")
         checkpoint = runtime.recovery_ledger.checkpoint(
-            work_id, "execution", status="failed", head_sha="",
+            work_id, "execution", status="pending", head_sha="",
             payload={"iteration": 1, "hypothesis": "default-plan", "recovery_mode": "initial"},
         )
         runtime.recovery_decision_journal.record(
