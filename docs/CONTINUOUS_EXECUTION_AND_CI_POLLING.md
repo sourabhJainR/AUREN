@@ -17,6 +17,8 @@ python auren_cli.py continuous stop --project-root . --reason "operator requeste
 
 When no `--watch` is supplied, AUREN implicitly discovers the current checkout's GitHub `origin` and full `HEAD` SHA and polls that commit. Without explicit `--required-check` names, the result is labelled `observed_complete_unverified`; it is not CI-gate evidence and cannot authorize a merge. Configure exact required-check names once in the service invocation (or pass them on the command) when a verified CI gate is needed.
 
+The default polling interval is 60 seconds to avoid exhausting unauthenticated GitHub API limits. Set `GH_TOKEN` or `GITHUB_TOKEN` for authenticated polling; `--poll-seconds` can then be tuned to the repository's rate budget. Stop requests are checked independently at short intervals, so a longer CI poll interval does not delay interruption by the full interval.
+
 To watch one or more exact GitHub commit heads, supply the full SHA and every required check name:
 
 ```bash
