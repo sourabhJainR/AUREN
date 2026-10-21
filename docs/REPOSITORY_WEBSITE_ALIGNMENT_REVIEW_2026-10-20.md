@@ -9,7 +9,7 @@
 
 PR [#764](https://github.com/sourabhJainR/AUREN/pull/764) merged at main commit [`dc395dac3c832154769344f13006d39bc387e6b4`](https://github.com/sourabhJainR/AUREN/commit/dc395dac3c832154769344f13006d39bc387e6b4). Five exact-head workflows passed before merge: Runtime Resilience Matrix, Production AI Harness Hardening, AUREN Portable Bundle, Architecture Integrity, and AI Harness Check. These are PR-head results, not proof of post-merge workflows or public Pages refresh. The current product version remains `1.0.5`.
 
-The merged progress journal provides durable append-only events, monotonic per-task sequencing, cross-instance/process writer locking, heartbeats, staleness reporting, terminal-state handling, redaction, and concurrent-writer tests. End-to-end adoption by workers, provider adapters, graph execution, CLI/API and dashboard remains open. Treat this update as a status synchronization, not closure of the outstanding runtime, trust, evaluation, migration, or external-operation gates.
+The merged progress journal provides durable append-only events, monotonic per-task sequencing, cross-instance/process writer locking, heartbeats, staleness reporting, terminal-state handling, redaction, and concurrent-writer tests. The current integration slice connects `ExecutionController` lifecycle transitions to the journal and projects snapshots into the dashboard API/console; provider-specific progress callbacks, CLI visibility, cross-store crash reconciliation, and hard termination/deadline/cancellation fault injection remain open. Treat this update as a status synchronization, not closure of the outstanding runtime, trust, evaluation, migration, or external-operation gates.
 
 ## Executive summary
 
