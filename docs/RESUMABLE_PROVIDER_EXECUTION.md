@@ -13,3 +13,9 @@ Provider-backed graph stages can fail over across operator-registered, version-p
 ## Limits and safety
 
 The provider executor is a checkpointable runtime component and its persistence/evidence callbacks must be wired to the canonical supervisor graph checkpoint and evidence ledger in production. It does not claim transport-level exactly-once execution. Provider calls should be proposal/read-only operations; irreversible effects require durable outbox/inbox semantics and downstream idempotency enforcement. Rate-limit recovery is scheduler-driven; this module does not sleep or run background timers.
+
+## Bounded waits and silent-stall prevention
+
+The executor bounds how long the supervisor waits for each provider call (default 120 seconds; hosts may configure a stricter finite positive value) and emits provider attempt/start/completion/failure/timeout events through an optional progress callback. A hung call returns an explicit `timed_out` result with `late_result_possible=true`; it does not fail over or retry automatically because the worker may still finish after the timeout. This is a responsiveness guard, not a way to kill a Python thread. Use provider-native transport deadlines and process isolation where hard termination is required. Reconcile the attempt before retrying, and do not use this thread wrapper for irreversible side effects.
+
+Regression tests: `test_hung_provider_returns_bounded_unknown_and_never_fails_over` and `test_invalid_provider_call_timeout_rejected`.
