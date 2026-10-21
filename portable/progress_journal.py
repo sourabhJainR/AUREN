@@ -117,7 +117,7 @@ class ProgressJournal:
 
     def record_reconciliation(
         self, task_id: str, *, state: str, stage: str, message: str,
-        evidence_ref: str | None = None,
+        evidence_ref: str | None = None, expected_sequence: int = 0,
     ) -> ProgressEvent:
         """Append an explicit supervisor correction when durable stores disagree.
 
@@ -128,6 +128,7 @@ class ProgressJournal:
         return self._record(
             task_id, "startup_reconciliation", state=state, stage=stage,
             message=message, evidence_ref=evidence_ref,
+            expected_sequence=expected_sequence,
             allow_terminal_correction=True,
         )
 
@@ -135,6 +136,7 @@ class ProgressJournal:
                 stage: str = "execution", message: str = "",
                 completed_units: int | None = None, total_units: int | None = None,
                 evidence_ref: str | None = None, timestamp: str | None = None,
+                expected_sequence: int | None = None,
                 allow_terminal_correction: bool = False) -> ProgressEvent:
         if not task_id or not task_id.strip():
             raise ValueError("task_id must be non-empty")
@@ -157,6 +159,10 @@ class ProgressJournal:
                 raise TimeoutError("progress journal lock acquisition timed out")
             with _journal_file_lock(self.path, timeout_seconds=remaining):
                 task_rows = [r for r in self._events() if r["task_id"] == task_id]
+                if expected_sequence is not None:
+                    actual_sequence = int(task_rows[-1]["sequence"]) if task_rows else 0
+                    if actual_sequence != expected_sequence:
+                        raise RuntimeError("progress journal changed during reconciliation; retry")
                 if task_rows and task_rows[-1]["state"] in TERMINAL and not allow_terminal_correction:
                     raise ValueError("cannot append progress to a terminal task")
                 row = ProgressEvent(
