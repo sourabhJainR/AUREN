@@ -29,6 +29,9 @@ _RULES: tuple[tuple[str, tuple[str, ...], bool], ...] = (
     ("portable/engineering_recovery.py", ("tests.test_engineering_recovery", "tests.test_engineering_recovery_fault_matrix"), True),
     ("portable/progress_journal.py", ("tests.test_progress_journal", "tests.test_progress_journal_integration"), True),
     ("portable/canonical_evidence_ledger.py", ("tests.test_canonical_evidence_ledger", "tests.test_provider_operation_lifecycle"), True),
+    ("portable/engineering_evidence_capture.py", ("tests.test_engineering_evidence_capture", "tests.test_execution_controller_evidence_capture"), True),
+    ("tests/test_engineering_evidence_capture.py", ("tests.test_engineering_evidence_capture",), True),
+    ("tests/test_execution_controller_evidence_capture.py", ("tests.test_execution_controller_evidence_capture",), True),
     ("portable/authority/**", ("tests.test_security_gate",), True),
     ("portable/*authority*", ("tests.test_security_gate",), True),
     ("portable/*security*", ("tests.test_security_gate",), True),
@@ -61,7 +64,7 @@ _SENSITIVE_PREFIXES = (
     ".ai-harness/security", ".ai-harness/runtime/rollback",
 )
 _SENSITIVE_NAMES = ("authority", "security", "guard", "approval", "rollback", "recovery", "side_effect", "execution_controller",
-                    "progress_journal", "canonical_evidence", "provider_operation")
+                    "progress_journal", "canonical_evidence", "engineering_evidence", "provider_operation")
 
 
 def is_sensitive_path(path: str) -> bool:

@@ -80,6 +80,27 @@ class EngineeringEvidenceCaptureTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "bearer token"):
             HttpsEvidenceSink("https://collector.invalid/events", "")
 
+    def test_provider_operation_lifecycle_events_are_allowlisted_and_hash_chained(self):
+        capture = EvidenceCapture(self.path)
+        operation_id = "auren-op-" + "b" * 64
+        digest = "a" * 64
+        states = (
+            ("provider_operation_dispatching", "dispatching"),
+            ("provider_operation_reconcile_required", "reconcile_required"),
+            ("provider_operation_blocked", "blocked"),
+            ("provider_operation_completed", "completed"),
+        )
+        for event_type, state in states:
+            self.record(
+                capture, event_type=event_type, status="unknown",
+                metadata={
+                    "operation_id": operation_id, "intent_digest": digest,
+                    "provider": "deploy.handler", "operation_state": state,
+                },
+            )
+        self.assertEqual(4, len(capture.events()))
+        self.assertTrue(capture.verify_chain())
+
     def test_signed_events_use_external_signer_without_storing_private_key(self):
         calls = []
         def signer(message):

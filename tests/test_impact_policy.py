@@ -14,6 +14,7 @@ class ImpactPolicyTests(unittest.TestCase):
             "portable/engineering_recovery.py": {"tests.test_engineering_recovery", "tests.test_engineering_recovery_fault_matrix"},
             "portable/progress_journal.py": {"tests.test_progress_journal", "tests.test_progress_journal_integration"},
             "portable/canonical_evidence_ledger.py": {"tests.test_canonical_evidence_ledger", "tests.test_provider_operation_lifecycle"},
+            "portable/engineering_evidence_capture.py": {"tests.test_engineering_evidence_capture", "tests.test_execution_controller_evidence_capture"},
             "portable/authority/policy.py": {"tests.test_security_gate"},
             "portable/rollback_controller.py": {"tests.test_state_root_rollback_rehearsal", "tests.test_execution_controller_promotion_rollback_contract", "tests.test_execution_controls"},
             ".ai-harness/security_gate.py": {"tests.test_security_gate"},

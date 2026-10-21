@@ -1531,7 +1531,7 @@ class ExecutionController:
                 "operation_id": operation_id,
                 "intent_digest": str(event.get("intent_digest", "")),
                 "provider": provider_name,
-                "state": operation_state,
+                "operation_state": operation_state,
             }
             if hasattr(task, "work_unit_id") and hasattr(task, "attempts"):
                 self._capture_event("provider_operation_" + operation_state, task,
