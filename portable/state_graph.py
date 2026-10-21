@@ -327,21 +327,30 @@ def _dispatch_crew_proposal(
         else:
             with execution_guard_lock:
                 charge_and_persist()
+    trusted_task_id = task_id
+    safe_evidence = dict(evidence or {})
+    reserved_task_id = safe_evidence.pop("_auren_supervisor_task_id", None)
+    if reserved_task_id is not None:
+        if not isinstance(reserved_task_id, str) or not reserved_task_id.strip():
+            raise ValueError("supervisor task identity in dispatch metadata must be non-empty text")
+        if trusted_task_id is not None and trusted_task_id != reserved_task_id:
+            raise ValueError("conflicting supervisor task identities at crew dispatch")
+        trusted_task_id = reserved_task_id
     definition = crews[crew_id]
     request = {
         "crew_id": crew_id,
         "specialty": definition.specialty,
         "instructions": definition.instructions,
         "task": task,
-        "evidence": dict(evidence or {}),
+        "evidence": safe_evidence,
         "required_artifacts": list(definition.required_artifacts),
         "acceptance_checks": list(definition.acceptance_checks),
         "allowed_authorities": list(definition.allowed_authorities),
         "graph_digest": graph_digest,
         "crew_plan_digest": plan.digest,
     }
-    if task_id is not None:
-        request["task_id"] = task_id
+    if trusted_task_id is not None:
+        request["task_id"] = trusted_task_id
     try:
         json.dumps(request, sort_keys=True, separators=(",", ":"))
     except (TypeError, ValueError) as exc:
