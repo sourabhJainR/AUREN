@@ -226,16 +226,20 @@ class ProviderBackedCrewAdapterTests(unittest.TestCase):
             ids = {crew: "host-provider" for crew in SPECIALIST_CREW_IDS}
             versions = {crew: "pinned-v1" for crew in SPECIALIST_CREW_IDS}
             scopes = {crew: () for crew in SPECIALIST_CREW_IDS}
+            callbacks = {crew: (lambda _event: None) for crew in SPECIALIST_CREW_IDS}
             adapters = runtime.register_provider_backed_crew_adapters(
                 provider_invokers=invokers,
                 provider_ids=ids,
                 provider_versions=versions,
                 tools=tools,
                 allowed_tools_by_crew=scopes,
+                progress_callbacks_by_crew=callbacks,
                 replace=True,
             )
             self.assertEqual(set(runtime._CREW_ADAPTERS), set(SPECIALIST_CREW_IDS))
             self.assertEqual(set(adapters), set(SPECIALIST_CREW_IDS))
+            self.assertTrue(all(adapters[crew]._progress_callback is callbacks[crew]
+                                for crew in SPECIALIST_CREW_IDS))
         finally:
             runtime._CREW_ADAPTERS.clear()
 
