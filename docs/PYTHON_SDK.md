@@ -44,6 +44,7 @@ Submission persists a pending task. It does not mean that work has started or co
 - Registration must name one of read_only, context_provider, ci_gated, or consequential. The controller rejects unclassified work.
 - The dashboard is observational. Do not use dashboard text as authority.
 - Cancellation, deadline, recovery, side-effect reconciliation and promotion remain controller-owned contracts.
+- Memory writes require explicit approved=True; the SDK does not bypass memory write approval.
 - Closing the client does not delete durable state.
 
 ## Distribution status
