@@ -35,7 +35,7 @@ from .trigger_runtime import TriggerEvent, TriggerRuntime
 from .world_model import PredictionError, WorldPrediction
 from .world_mega_model import WorldMegaModel
 from .engineering_recovery import EngineeringRecoveryLedger, RecoveryAction, RecoveryLimitReached
-from .recovery_decision_journal import RecoveryDecisionJournal
+from .recovery_decision_journal import RecoveryDecisionJournal, RecoveryJournalConsistencyError
 from .state_paths import AurenStatePaths
 from .identity_compat import canonical_auren_home, legacy_state_home
 from .runtime_recovery import ExecutionBudgetExceeded, RuntimeExecutionGuard
@@ -308,6 +308,14 @@ class AdaptiveRuntime:
         if requested_iterations < 1 or requested_iterations > 12:
             raise ValueError("auren_max_iterations must be between 1 and 12")
         work_id = self.execution_controller.work_unit_for_session(f"{session_id}:{task_id}", f"{task_id}: {intent}")
+        recovery_consistency = self.recovery_decision_journal.reconcile_ledger(
+            self.recovery_ledger, work_id, "execution",
+        )
+        if recovery_consistency["status"] in {"inconsistent", "pending_decision", "blocked_decision"}:
+            reason = str(recovery_consistency.get("reason", recovery_consistency["status"]))
+            raise RecoveryJournalConsistencyError(
+                f"recovery state is not safe to resume ({recovery_consistency['status']}): {reason}"
+            )
         saved_checkpoint = self.recovery_ledger.get_checkpoint(work_id, "execution")
         saved_payload = saved_checkpoint.payload if saved_checkpoint is not None else {}
         if saved_checkpoint is not None and saved_checkpoint.status == "in_progress":
