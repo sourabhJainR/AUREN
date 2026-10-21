@@ -4,7 +4,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 import errno, json, math, os, re, threading, time
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from contextlib import contextmanager
 
@@ -147,6 +147,48 @@ class ProgressJournal:
 
         finally:
             self._lock.release()
+
+    def record_provider_event(self, payload: Mapping[str, Any]) -> ProgressEvent:
+        """Project allowlisted provider lifecycle metadata into canonical task progress.
+
+        Never persist provider prompts, responses, exception messages, or arbitrary
+        callback fields. The task ID must be injected by the trusted host.
+        """
+        if not isinstance(payload, Mapping):
+            raise TypeError("provider progress payload must be a mapping")
+        task_id = payload.get("task_id")
+        event = payload.get("event")
+        if not isinstance(task_id, str) or not task_id.strip():
+            raise ValueError("provider progress requires a supervisor-issued task_id")
+        if not isinstance(event, str) or event not in {
+            "provider_call_started", "provider_call_timed_out", "provider_call_blocked",
+            "provider_attempt_started", "provider_call_failed", "provider_result_ready",
+        }:
+            raise ValueError("unsupported provider progress event")
+        provider = payload.get("provider", "provider")
+        if not isinstance(provider, str) or not provider.strip():
+            provider = "provider"
+        stage = f"provider:{provider}"
+        details = {
+            "provider_call_started": ("running", "Provider call started with a bounded wait."),
+            "provider_attempt_started": ("running", "Provider attempt started."),
+            "provider_call_timed_out": ("blocked", "Provider wait timed out; late completion is possible. Reconcile before retry."),
+            "provider_call_blocked": ("blocked", "Provider call could not start because bounded worker capacity is exhausted."),
+            "provider_call_failed": ("recovering", "Provider attempt failed; supervisor is evaluating safe recovery."),
+            "provider_result_ready": ("running", "Provider returned a result; validation and durable checkpointing remain."),
+        }
+        state, message = details[event]
+        if event == "provider_call_failed":
+            error_type = payload.get("error_type")
+            if isinstance(error_type, str) and re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,79}", error_type):
+                message = f"Provider attempt failed ({error_type}); supervisor is evaluating safe recovery."
+        evidence_ref = payload.get("evidence_ref")
+        if not isinstance(evidence_ref, str) or not evidence_ref.strip():
+            evidence_ref = None
+        return self.record(
+            task_id, event, state=state, stage=stage, message=message,
+            evidence_ref=evidence_ref,
+        )
 
     def heartbeat(self, task_id: str, *, stage: str, message: str = "Still working",
                   timestamp: str | None = None) -> ProgressEvent:
