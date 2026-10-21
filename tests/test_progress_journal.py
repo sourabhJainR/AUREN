@@ -86,7 +86,7 @@ class ProgressJournalTests(unittest.TestCase):
             self.assertTrue(acquired.wait(0.5))
             started = time.monotonic()
             try:
-                with self.assertRaisesRegex(TimeoutError, "thread lock acquisition timed out"):
+                with self.assertRaisesRegex(TimeoutError, "lock acquisition timed out"):
                     journal.record("blocked-thread", "must-not-hang")
                 self.assertLess(time.monotonic() - started, 0.5)
             finally:
