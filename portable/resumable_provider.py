@@ -10,7 +10,11 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
-from typing import Any, Callable, Mapping, Sequence
+import math
+from queue import Queue
+from threading import Event, Thread
+from time import monotonic
+from typing import Any, Callable, Mapping
 
 from .crew_adapters import TaskRetryBudget
 
@@ -70,6 +74,8 @@ class ResumableProviderExecutor:
         provider_versions: Mapping[str, str], preferred_provider: str, retry_budget: TaskRetryBudget,
         persist: Callable[[Mapping[str, Any]], None], record_evidence: Callable[[Mapping[str, Any]], None] | None = None,
         checkpoint: Mapping[str, Any] | None = None,
+        call_timeout_seconds: float = 120.0,
+        progress: Callable[[Mapping[str, Any]], None] | None = None,
     ) -> None:
         if not isinstance(task_id, str) or not task_id.strip() or not isinstance(stage_id, str) or not stage_id.strip():
             raise ValueError("task_id and stage_id are required")
@@ -86,10 +92,16 @@ class ResumableProviderExecutor:
             raise TypeError("retry_budget must be the canonical task retry budget")
         if not callable(persist) or (record_evidence is not None and not callable(record_evidence)):
             raise TypeError("persistence and evidence callbacks must be callable")
+        if isinstance(call_timeout_seconds, bool) or not isinstance(call_timeout_seconds, (int, float)) or not math.isfinite(call_timeout_seconds) or call_timeout_seconds <= 0:
+            raise ValueError("call_timeout_seconds must be finite and positive")
+        if progress is not None and not callable(progress):
+            raise TypeError("progress callback must be callable")
         self.task_id, self.stage_id = task_id, stage_id
         self.providers, self.provider_versions = dict(providers), dict(provider_versions)
         self.preferred_provider = preferred_provider
         self.retry_budget, self.persist, self.record_evidence = retry_budget, persist, record_evidence
+        self.call_timeout_seconds = float(call_timeout_seconds)
+        self.progress = progress
         self._state = {
             "schema_version": SCHEMA_VERSION, "task_id": task_id, "stage_id": stage_id,
             "preferred_provider": preferred_provider, "attempted_providers": [],
@@ -142,6 +154,47 @@ class ResumableProviderExecutor:
         payload["digest"] = _digest(payload)
         return payload
 
+    def _emit(self, event: str, **fields: Any) -> None:
+        if self.progress is not None:
+            # The host callback is expected to be a bounded local journal write.
+            # Callback failures fail closed rather than hiding a loss of progress evidence.
+            self.progress({"event": event, "task_id": self.task_id, "stage_id": self.stage_id, **fields})
+
+    def _call_bounded(self, provider: str, request: Mapping[str, Any], key: str) -> tuple[str, Any]:
+        """Bound caller wait without pretending Python can kill a running thread.
+
+        A timed-out call may finish later. It is therefore never automatically
+        retried or failed over; the returned state requires reconciliation first.
+        Providers must be proposal/read-only operations, and host adapters should
+        also configure their native transport timeout.
+        """
+        outcome: Queue[tuple[str, Any]] = Queue(maxsize=1)
+        def invoke() -> None:
+            try:
+                outcome.put(("result", self.providers[provider](dict(request), key)))
+            except BaseException as exc:
+                outcome.put(("error", exc))
+        worker = Thread(target=invoke, name=f"auren-provider-{provider}", daemon=True)
+        started = monotonic()
+        worker.start()
+        self._emit("provider_call_started", provider=provider, timeout_seconds=self.call_timeout_seconds)
+        while True:
+            remaining = self.call_timeout_seconds - (monotonic() - started)
+            if remaining <= 0:
+                self._emit("provider_call_timed_out", provider=provider, timeout_seconds=self.call_timeout_seconds,
+                           late_result_possible=True, retry_blocked=True)
+                return "timeout", None
+            try:
+                kind, value = outcome.get(timeout=min(remaining, 0.05))
+            except Exception as exc:
+                from queue import Empty
+                if isinstance(exc, Empty):
+                    continue
+                raise
+            if kind == "error":
+                return "error", value
+            return "result", value
+
     def _save(self, *, status: str | None = None) -> None:
         if status is not None:
             self._state["status"] = status
@@ -190,19 +243,33 @@ class ResumableProviderExecutor:
             if provider not in self._state["attempted_providers"]:
                 self._state["attempted_providers"].append(provider)
             self._save(status="ready")
+            self._emit("provider_attempt_started", provider=provider, attempt=index + 1)
             try:
-                result = self.providers[provider](dict(request), idempotency_key)
+                outcome, value = self._call_bounded(provider, request, idempotency_key)
+                if outcome == "timeout":
+                    self._state["timed_out_provider"] = provider
+                    self._state["retry_blocked_reason"] = "provider call timed out; late completion is possible"
+                    self._save(status="failed")
+                    return {"status": "timed_out", "provider": provider,
+                            "reason": "provider call exceeded its bounded wait; reconcile before retrying",
+                            "late_result_possible": True, "retryable": False,
+                            "checkpoint": self.snapshot()["digest"]}
+                if outcome == "error":
+                    raise value
+                result = value
                 encoded = _canonical(result)
                 self._state["result_digest"] = hashlib.sha256(encoded).hexdigest()
                 self._state["selected_provider"] = provider
                 self._state["selected_provider_version"] = self.provider_versions[provider]
                 self._state["deferred_until"].pop(provider, None)
                 self._save(status="completed")
+                self._emit("provider_call_completed", provider=provider, result_digest=self._state["result_digest"])
                 return result
             except Exception as exc:
                 retryable = getattr(exc, "retryable", None)
                 status_code = getattr(exc, "status_code", None)
                 if retryable is False:
+                    self._emit("provider_call_failed", provider=provider, error_type=type(exc).__name__, retryable=False)
                     self._save(status="failed")
                     raise
                 if status_code == 429 or isinstance(exc, ProviderCallError) and status_code == 429:
@@ -216,6 +283,7 @@ class ResumableProviderExecutor:
                         reset_at = current + timedelta(minutes=1)
                     self._state["deferred_until"][provider] = _iso(reset_at)
                 errors.append({"provider": provider, "error_type": type(exc).__name__})
+                self._emit("provider_call_failed", provider=provider, error_type=type(exc).__name__, retryable=True)
                 # Connection resets, timeouts, and transient server errors try the
                 # next pinned provider. No exception message/prompt is persisted.
                 continue
