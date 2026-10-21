@@ -171,7 +171,12 @@ class ProgressJournal:
             "stale": stale, "progress_percent": percent, "completed_units": done,
             "total_units": total, "evidence_ref": latest.get("evidence_ref"),
             "event_count": len(rows),
-            "next_action": "inspect worker health and deadline; recover or fail visibly" if stale else None,
+            "next_action": (
+                "inspect worker health and deadline; recover or fail visibly" if stale else
+                "reconcile the blocker before retrying" if latest["state"] == "blocked" else
+                "inspect recovery checkpoint and publish a terminal result" if latest["state"] == "recovering" else
+                None
+            ),
         }
 
     def list_snapshots(self, *, now: datetime | None = None, stale_after_seconds: int = 60) -> list[dict[str, Any]]:
