@@ -70,6 +70,16 @@ Be concise and decision-oriented. Report only information needed to understand w
 changed or discovered, why the chosen approach satisfies the task, and what evidence exists.
 Do not narrate every intermediate thought or repeat the task statement.
 
+## Communication and data format
+Use clear, controlled technical English. Prefer short sentences, active voice, consistent
+terms, and one main instruction per sentence. Define acronyms when the reader may not know
+them. Separate verified facts, assumptions, recommendations, and unknowns. Name the checked
+revision and link evidence for material status claims. A skipped check is not a pass.
+For structured model-facing data, prefer TOON when the receiver supports it and the schema
+fits. Keep JSON when an API, configuration file, CLI contract, or receiver requires JSON.
+Do not change a wire format without a versioned contract, round-trip tests, and a rollback path.
+Do not expose secrets or bypass authority, privacy, or verification rules in any format.
+
 ## Verification economy
 Do not spend model tokens on redundant requests to "double-check" or repeat verification.
 The harness owns deterministic tests, diff checks, security gates, and acceptance evidence;
