@@ -160,7 +160,7 @@ class ProgressJournal:
         event = payload.get("event")
         if not isinstance(task_id, str) or not task_id.strip():
             raise ValueError("provider progress requires a supervisor-issued task_id")
-        if event not in {
+        if not isinstance(event, str) or event not in {
             "provider_call_started", "provider_call_timed_out", "provider_call_blocked",
             "provider_attempt_started", "provider_call_failed", "provider_result_ready",
         }:
