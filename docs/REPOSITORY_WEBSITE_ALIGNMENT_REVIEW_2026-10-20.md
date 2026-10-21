@@ -1,13 +1,19 @@
 # AUREN Repository and Website Alignment Review
 
 **Review date:** 2026-10-21  
-**Review baseline before this PR:** `main` at `fe7452118b95d110c1be48f2b7a731a7843e5ddd`  
+**Latest verified main before this documentation PR:** `dc395dac3c832154769344f13006d39bc387e6b4`  
 **Current product version:** `1.0.5` (merged)  
 **Scope:** repository-facing status, architecture claims, website/documentation consistency, workflow evidence, and implementation gaps.
 
-## Latest synchronization update — 2026-10-21\n\nPR [#764](https://github.com/sourabhJainR/AUREN/pull/764) merged at main commit [`dc395dac3c832154769344f13006d39bc387e6b4`](https://github.com/sourabhJainR/AUREN/commit/dc395dac3c832154769344f13006d39bc387e6b4). Five exact-head workflows passed before merge: Runtime Resilience Matrix, Production AI Harness Hardening, AUREN Portable Bundle, Architecture Integrity, and AI Harness Check. These are PR-head results, not proof of post-merge workflows or public Pages refresh. The current product version remains `1.0.5`.\n\nThe merged progress journal provides durable append-only events, monotonic per-task sequencing, cross-instance/process writer locking, heartbeats, staleness reporting, terminal-state handling, redaction, and concurrent-writer tests. End-to-end adoption by workers, provider adapters, graph execution, CLI/API and dashboard remains open. Treat this update as a status synchronization, not closure of the outstanding runtime, trust, evaluation, migration, or external-operation gates.\n\n## Executive summary
+## Latest synchronization update — 2026-10-21
 
-The current main revision contains durable supervisor-owned execution, revision-bound evidence receipts, canonical evidence-graph integration, fail-closed promotion checks, post-check revision revalidation, capability-aware local-model ranking, hard-stop subprocess execution, deadline propagation into evidence checks, opt-in process-isolated crew dispatch, and Windows Job Object descendant containment. Revision-specific AI Harness, runtime resilience, architecture integrity, hardening, portable bundle, agent capability, and Pages workflows passed for the reviewed commit. The bundle workflow produced portable and checksum artifacts.
+PR [#764](https://github.com/sourabhJainR/AUREN/pull/764) merged at main commit [`dc395dac3c832154769344f13006d39bc387e6b4`](https://github.com/sourabhJainR/AUREN/commit/dc395dac3c832154769344f13006d39bc387e6b4). Five exact-head workflows passed before merge: Runtime Resilience Matrix, Production AI Harness Hardening, AUREN Portable Bundle, Architecture Integrity, and AI Harness Check. These are PR-head results, not proof of post-merge workflows or public Pages refresh. The current product version remains `1.0.5`.
+
+The merged progress journal provides durable append-only events, monotonic per-task sequencing, cross-instance/process writer locking, heartbeats, staleness reporting, terminal-state handling, redaction, and concurrent-writer tests. End-to-end adoption by workers, provider adapters, graph execution, CLI/API and dashboard remains open. Treat this update as a status synchronization, not closure of the outstanding runtime, trust, evaluation, migration, or external-operation gates.
+
+## Executive summary
+
+The current main revision contains the durable progress journal merged in PR #764 alongside the previously implemented supervisor-owned execution, revision-bound evidence receipts, canonical evidence-graph integration, fail-closed promotion checks, capability-aware local-model ranking, hard-stop subprocess execution, deadline propagation into selected evidence checks, opt-in process-isolated crew dispatch, and Windows Job Object descendant containment. PR #764's five listed workflows passed on its exact PR head before merge. Post-merge Actions and Pages publication must be verified against the relevant merge SHA; the journal merge does not close the end-to-end progress integration or the independent trust and operational gates.
 
 Release 1.0.5 adds an explicit responsive-execution contract and a version-consistency regression test. PR #743 adds executable process-tree hard-stop tests; PR #747 integrates hard-stop execution and deadline propagation into the default revision-bound evidence gate; PR #749 adds opt-in process-isolated crew execution and fixes a concurrent dispatch replay row-mapping race; PR #753 adds Windows Job Object containment and a delayed-descendant side-effect test. These results establish repository-level checks only. They do not establish independent external benchmark performance, OS-level sandbox isolation, production migration/rollback safety, or enforcement of GitHub required checks. The repository branch metadata returned `protected=true` but `protection.enabled=false`, enforcement off, and no required status checks. This is a high-priority governance gap.
 
@@ -23,11 +29,11 @@ Release 1.0.5 adds an explicit responsive-execution contract and a version-consi
 
 ## Post-review finding: single Pages deployment authority
 
-The initial repository review found two competing publishers: the canonical `Deploy AUREN documentation` workflow deploys `site/`, while the sample Jekyll workflow built the repository root and used the same Pages concurrency group. Both could run on a push to `main`; the last deployment could therefore overwrite the intended site with a different build. The remediation in the follow-up Pages fix makes the legacy workflow manual-only and non-deploying, adds a regression contract, and ensures changes to the legacy workflow trigger the canonical publisher. After that fix merges, verify the canonical Pages workflow for the merge SHA and inspect the deployed content.
+The initial repository review found two competing publishers: the canonical `Deploy AUREN documentation` workflow deploys `site/`, while the sample Jekyll workflow built the repository root and used the same Pages concurrency group. Both could run on a push to `main`; the last deployment could therefore overwrite the intended site with a different build. The remediation in the follow-up Pages fix makes the legacy workflow manual-only and non-deploying, adds a regression contract, and ensures changes to the legacy workflow trigger the canonical publisher. The legacy publisher remediation is present on the reviewed branch; this documentation PR adds an explicit byte-for-byte mirror check. After merge, verify the canonical Pages workflow for the merge SHA and inspect the deployed content.
 
 ## Historical evidence from the `fe7452118b95` baseline (not current-main evidence)
 
-| Area | Current-main evidence | Limit |
+| Area | Historical evidence from the `fe7452118b95` baseline | Limit |
 |---|---|---|
 | Historical baseline | `fe7452118b95d110c1be48f2b7a731a7843e5ddd` | Historical only; latest main is `dc395dac3c832154769344f13006d39bc387e6b4` |
 | AI Harness Check | [Run 39435832928](https://github.com/sourabhJainR/AUREN/actions/runs/39435832928) passed on `fe7452118b95` | Revision-specific repository checks only |
