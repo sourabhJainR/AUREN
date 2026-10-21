@@ -83,7 +83,7 @@ class TestPublicDocumentationConsistency(unittest.TestCase):
         self.assertIn("not fully verified", site)
         self.assertIn("STANDALONE_READINESS_AND_GAP_MATRIX.md", site)
         self.assertIn("external evaluator", matrix)
-        self.assertIn("Hard termination", matrix)
+        self.assertIn("Prove hard termination", matrix)
         self.assertIn("Skipped jobs are not passes", matrix)
         self.assertIn("independent evaluator", matrix)
 
