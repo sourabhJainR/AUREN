@@ -241,7 +241,8 @@ class EngineeringRecoveryLedger:
                 # Receipt and attempt row share this SQLite transaction: either both
                 # become durable, or neither does. Never split these commits.
                 from .recovery_decision_journal import RecoveryDecisionJournal
-                RecoveryDecisionJournal.record_in_transaction(db, **dict(decision_receipt))
+                writer = decision_journal or RecoveryDecisionJournal
+                writer.record_in_transaction(db, **dict(decision_receipt))
             same = int(db.execute(
                 """SELECT COUNT(*) FROM recovery_attempts
                    WHERE task_id=? AND phase=? AND failure_signature=? AND hypothesis=?""",
@@ -270,6 +271,7 @@ class EngineeringRecoveryLedger:
         failure_class: FailureClass | str = FailureClass.UNKNOWN,
         head_sha: str = "",
         decision_receipt: Mapping[str, Any] | None = None,
+        decision_journal: Any | None = None,
     ) -> int:
         decision = self.decision(task_id, phase, failure_signature, hypothesis)
         if decision.action != RecoveryAction.RETRY:
