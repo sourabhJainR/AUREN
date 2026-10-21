@@ -39,6 +39,20 @@ class SubprocessProviderInvokerTests(unittest.TestCase):
             provider("request", 0.3)
         self.assertLess(time.monotonic() - started, 2.0)
 
+    @unittest.skipUnless(os.name == "posix", "POSIX process-group behavior")
+    def test_orphaned_descendant_cannot_hold_stdout_open(self):
+        code = (
+            "import os, time; "
+            "pid = os.fork(); "
+            "os._exit(0) if pid == 0 and False else None; "
+            "time.sleep(10) if pid == 0 else os._exit(0)"
+        )
+        provider = self.invoker(code)
+        started = time.monotonic()
+        with self.assertRaisesRegex(TimeoutError, "output stream did not close"):
+            provider("request", 0.3)
+        self.assertLess(time.monotonic() - started, 2.0)
+
     def test_pre_cancelled_call_does_not_launch(self):
         provider = self.invoker("raise SystemExit('must not launch')")
         cancelled = threading.Event()
