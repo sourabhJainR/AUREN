@@ -50,3 +50,22 @@ Submission persists a pending task. It does not mean that work has started or co
 ## Distribution status
 
 The supported standalone artifact is the version-pinned portable bundle, with manifest digests, verification, update and rollback handled by portable/auren_runtime.py and auren_cli.py. Separate wheel publication, a formal external isolation audit, and independent sealed-corpus custody remain open release gates. Repository tests do not prove external isolation or independent evaluation.
+
+## Command-backed provider boundary
+
+For providers exposed as a command-line process, use `portable.subprocess_provider.SubprocessProviderInvoker` as the injected callable for `ProviderBackedCrewAdapter`. It requires an absolute executable path and explicit working directory, uses no shell, does not inherit the full host environment, and applies a timeout before returning provider output.
+
+```python
+import sys
+from pathlib import Path
+from portable.subprocess_provider import SubprocessProviderInvoker
+
+provider = SubprocessProviderInvoker(
+    [sys.executable, "-m", "my_provider_adapter"],
+    cwd=Path.cwd(),
+    env={"AUREN_PROVIDER_PROFILE": "review"},
+    max_response_bytes=1_000_000,
+)
+```
+
+The provider command must read the prompt from standard input and write its response to standard output. The adapter does not include standard error in exception text. On POSIX, timeout termination targets the child process group. On Windows, this implementation terminates the direct child only; deployments that allow child processes need a Windows Job Object or equivalent host-level process supervisor. Output size is checked after the process exits, so use an OS/container memory limit when a provider is not trusted to bound its own output. This adapter is not a sandbox and does not prove external isolation.
