@@ -9,9 +9,84 @@ from __future__ import annotations
 from dataclasses import dataclass
 import hashlib
 import json
+import math
 import time
+from queue import Empty, Queue
+from threading import BoundedSemaphore, RLock, Thread
 from typing import Any, Callable, Mapping, Sequence
-from threading import RLock
+
+
+# Shared cap across the resumable executor and host-injected provider adapters.
+# Python cannot kill a running thread, so timed-out workers remain daemonized but
+# cannot grow without bound if a host ignores its native timeout.
+_MAX_PROVIDER_CALL_WORKERS = 8
+_PROVIDER_CALL_SLOTS = BoundedSemaphore(_MAX_PROVIDER_CALL_WORKERS)
+
+
+def invoke_provider_with_bounded_wait(
+    invoke: Callable[..., Any], args: Sequence[Any], *, timeout_seconds: float,
+    provider_id: str, on_event: Callable[..., None] | None = None,
+) -> tuple[str, Any]:
+    """Bound the caller wait for one provider invocation.
+
+    Returns (result, value), (error, exception), (timeout, None), or
+    (capacity, None). A timed-out call may finish later; callers must not retry
+    it automatically until the attempt has been reconciled.
+    """
+    if not callable(invoke):
+        raise TypeError("provider invoker must be callable")
+    if isinstance(timeout_seconds, bool) or not isinstance(timeout_seconds, (int, float)) or not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
+        raise ValueError("provider timeout must be finite and positive")
+    if not isinstance(provider_id, str) or not provider_id.strip():
+        raise ValueError("provider_id is required")
+    if on_event is not None and not callable(on_event):
+        raise TypeError("provider event callback must be callable")
+
+    def emit(event: str, **fields: Any) -> None:
+        if on_event is not None:
+            on_event(event, provider=provider_id, **fields)
+
+    if not _PROVIDER_CALL_SLOTS.acquire(blocking=False):
+        emit("provider_call_blocked", reason="bounded provider worker capacity exhausted",
+             max_workers=_MAX_PROVIDER_CALL_WORKERS)
+        return "capacity", None
+    outcome: Queue[tuple[str, Any]] = Queue(maxsize=1)
+
+    def worker_call() -> None:
+        try:
+            outcome.put(("result", invoke(*args)))
+        except Exception as exc:
+            outcome.put(("error", exc))
+        finally:
+            _PROVIDER_CALL_SLOTS.release()
+
+    try:
+        emit("provider_call_started", timeout_seconds=float(timeout_seconds))
+    except Exception:
+        _PROVIDER_CALL_SLOTS.release()
+        raise
+    worker = Thread(target=worker_call, name=f"auren-provider-{provider_id}", daemon=True)
+    started = time.monotonic()
+    try:
+        worker.start()
+    except Exception:
+        _PROVIDER_CALL_SLOTS.release()
+        raise
+    while True:
+        remaining = float(timeout_seconds) - (time.monotonic() - started)
+        if remaining <= 0:
+            try:
+                emit("provider_call_timed_out", timeout_seconds=float(timeout_seconds),
+                     late_result_possible=True, retry_blocked=True)
+            except Exception:
+                # The timeout return is still the caller-visible liveness signal.
+                pass
+            return "timeout", None
+        try:
+            kind, value = outcome.get(timeout=min(remaining, 0.05))
+        except Empty:
+            continue
+        return ("error", value) if kind == "error" else ("result", value)
 
 
 class TaskRetryBudget:
