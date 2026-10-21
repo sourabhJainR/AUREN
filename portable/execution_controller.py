@@ -30,6 +30,7 @@ from .side_effect_ledger import DurableSideEffectLedger
 from .evidence_gate import EvidenceCheck
 from .evidence_gate_integration import EvidenceGateIntegration, IntegratedEvidenceReceipt
 from .persistent_memory import PersistentMemory
+from .progress_journal import ProgressJournal
 
 Handler = Callable[[Mapping[str, Any]], Any]
 
@@ -134,6 +135,8 @@ class ExecutionController:
         self.company = company or AutonomousCompany(self.root)
         self.db_path = self.root / ".auren" / "execution.sqlite3"
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self.progress_journal = ProgressJournal(self.db_path.parent / "progress.jsonl")
+        self._progress_journal_error: str | None = None
         with sqlite3.connect(self.db_path) as db:
             db.executescript("""
             CREATE TABLE IF NOT EXISTS sessions(
@@ -707,6 +710,24 @@ class ExecutionController:
             # The gate fails closed before the task handler can cause side effects.
             return False, f"preflight gate rejected task: {type(exc).__name__}: {exc}", tuple((*evidence, "preflight-gate:rejected"))
 
+    def _record_progress(
+        self, task_id: str, event: str, *, state: str, stage: str, message: str,
+        evidence_ref: str | None = None,
+    ) -> None:
+        """Project supervisor transitions into the truthful progress journal.
+
+        Task state remains authoritative in SQLite. Journal failures are surfaced
+        through health_findings instead of falsely changing the task outcome.
+        """
+        try:
+            self.progress_journal.record(
+                task_id, event, state=state, stage=stage, message=message,
+                evidence_ref=evidence_ref,
+            )
+        except Exception as exc:
+            if self._progress_journal_error is None:
+                self._progress_journal_error = type(exc).__name__
+
     def _capture_event(
         self, event_type: str, task: DurableTask, *, status: str,
         metadata: Mapping[str, Any] | None = None,
@@ -831,6 +852,10 @@ class ExecutionController:
                  task.state, task.attempts, task.work_unit_id, now, now, now, now),
             )
         self._capture_event("task_submitted", task, status="pending", metadata={"handler": task.handler})
+        self._record_progress(
+            task.id, "task_submitted", state="queued", stage="queued",
+            message="Task durably queued; execution has not started.",
+        )
         return task
 
     def _claim(self, task_id: str) -> DurableTask | None:
@@ -872,10 +897,15 @@ class ExecutionController:
             )
             if cursor.rowcount != 1:
                 return None
-        return DurableTask(
+        task = DurableTask(
             row[0], row[1], json.loads(row[2]), "running", attempts, row[5],
             lease_generation=generation, lease_token=token,
         )
+        self._record_progress(
+            task.id, "attempt_started", state="running", stage="dispatch",
+            message=f"Worker claimed attempt {attempts}; preflight checks are next.",
+        )
+        return task
 
     def _finalize_claim(self, task: DurableTask, state: str) -> bool:
         if state not in {"completed", "failed", "cancelled"}:
@@ -892,7 +922,13 @@ class ExecutionController:
                 "WHERE id=? AND state='running' AND lease_token=? AND lease_generation=?",
                 (state, now, now, state, state, state, task.id, task.lease_token, task.lease_generation),
             )
-        return cursor.rowcount == 1
+        if cursor.rowcount == 1:
+            self._record_progress(
+                task.id, "outcome_commit_started", state="running", stage="finalization",
+                message="Task row updated; waiting for the executive work-unit receipt to commit.",
+            )
+            return True
+        return False
 
     def _invoke_with_lease_heartbeat(self, task: DurableTask, handler: Handler) -> Any:
         """Renew the current lease while a handler runs; reject results after lease loss."""
@@ -1037,6 +1073,13 @@ class ExecutionController:
                 "retry_action": "wait_until_reset" if not blocked else "operator_action_required",
             },
         )
+        self._record_progress(
+            task.id, "provider_quota_wait", state="blocked", stage="provider_quota",
+            message=(
+                "Provider quota/rate limit; bounded retry is pending."
+                if not blocked else "Provider quota/rate limit; operator action is required."
+            ),
+        )
         self.company.record(task.work_unit_id, "execution", state, detail,
                             (f"handler:{task.handler}", f"provider:{provider[:100]}"))
         self.company._transition(task.work_unit_id, "waiting_external")
@@ -1116,6 +1159,11 @@ class ExecutionController:
                     woken_ids.append(task_id)
         for work_unit_id in work_units:
             self.company._transition(work_unit_id, "running")
+        for task_id in woken_ids:
+            self._record_progress(
+                task_id, "quota_retry_queued", state="queued", stage="provider_quota",
+                message="Quota wait expired; task returned to the durable queue.",
+            )
         return woken_ids
 
     def unblock_quota_task(self, task_id: str, *, operator_reason: str) -> bool:
@@ -1309,6 +1357,10 @@ class ExecutionController:
         self._capture_event("task_attempt_started", task, status="running", metadata={
             "handler": task.handler,
         })
+        self._record_progress(
+            task.id, "preflight_started", state="running", stage="preflight",
+            message="Checking dispatch policy, revision binding, and required evidence.",
+        )
         try:
             self.heartbeat(task)
             self._verify_engineering_plan_dispatch_checkpoint(task)
@@ -1321,8 +1373,17 @@ class ExecutionController:
                     "handler": task.handler, "phase": "preflight", "failure_class": "gate_rejection",
                 })
                 self.company.record(task.work_unit_id, "execution", "failed", gate_detail, evidence)
-                return self.company.finish(task.work_unit_id, success=False, reason=gate_detail, evidence=evidence)
+                score = self.company.finish(task.work_unit_id, success=False, reason=gate_detail, evidence=evidence)
+                self._record_progress(
+                    task.id, "task_terminal", state="failed", stage="terminal",
+                    message="Preflight gate rejected the task; failure receipt committed.",
+                )
+                return score
 
+            self._record_progress(
+                task.id, "handler_started", state="running", stage="handler",
+                message="Preflight passed; handler dispatch is starting.",
+            )
             handler = self._load_handler(task.handler)
             if self._handler_execution_class(task.handler) == "consequential":
                 result = self._invoke_consequential_with_ledger(task, handler)
@@ -1344,6 +1405,10 @@ class ExecutionController:
             })
             self.company.record(task.work_unit_id, "execution", "failed", detail, (f"handler:{task.handler}",))
             self.company.finish(task.work_unit_id, success=False, reason=detail)
+            self._record_progress(
+                task.id, "task_terminal", state="failed", stage="terminal",
+                message="Handler failed; durable failure receipt committed.",
+            )
             raise
 
         evidence = [f"handler:{task.handler}", *gate_evidence]
@@ -1372,7 +1437,12 @@ class ExecutionController:
             },
         )
         self.company.record(task.work_unit_id, "execution", state, detail, evidence)
-        return self.company.finish(task.work_unit_id, success=success, reason=detail, evidence=evidence)
+        score = self.company.finish(task.work_unit_id, success=success, reason=detail, evidence=evidence)
+        self._record_progress(
+            task.id, "task_terminal", state=state, stage="terminal",
+            message=f"Supervisor committed terminal state and work-unit receipt: {state}.",
+        )
+        return score
 
     def resume_pending(
         self, *, limit: int = 20, continue_after_durable_failure: bool = False
@@ -1546,6 +1616,10 @@ class ExecutionController:
             )
         if cursor.rowcount != 1:
             raise LeaseLostError("task lease was lost; stale worker cannot renew it")
+        self._record_progress(
+            task.id, "heartbeat", state="running", stage="execution",
+            message="Worker lease renewed; completion is not implied.",
+        )
 
     def detect_stale(self, stale_after_seconds: int = 900) -> list[DurableTask]:
         cutoff = (datetime.now(timezone.utc) - timedelta(seconds=max(1, stale_after_seconds))).isoformat()
@@ -1595,6 +1669,14 @@ class ExecutionController:
             if cursor.rowcount == 1:
                 recovered = (task_id, str(row[3]))
         if recovered is not None:
+            self._record_progress(
+                recovered[0], "stale_task_recovering", state="recovering", stage="recovery",
+                message="Stale lease expired; supervisor is reconciling the task before retry.",
+            )
+            self._record_progress(
+                recovered[0], "stale_task_requeued", state="queued", stage="recovery",
+                message="Recovery returned the task to the durable queue; completion is not implied.",
+            )
             self.company.record(
                 recovered[1], "recovery", "detected", reason, (f"task:{recovered[0]}",)
             )
@@ -1648,6 +1730,10 @@ class ExecutionController:
             findings.append(f"blocked_quota_tasks={blocked_quota}; operator action required")
         if stale:
             findings.append(f"stale_tasks={stale}")
+        if self._progress_journal_error is not None:
+            findings.append(
+                "progress_journal_write_failed; task state remains in SQLite and progress visibility needs repair"
+            )
         if self.evidence_capture.sink is not None:
             delivery = self.evidence_capture.flush_pending(limit=100)
             if delivery["pending"]:

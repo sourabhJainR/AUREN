@@ -10,6 +10,8 @@ import sqlite3
 from typing import Any, Iterable
 from .repository_intelligence import RepositoryIntelligence
 from .engineering_plan import EngineeringPlan, EngineeringPlanRun
+from .progress_journal import ProgressJournal
+from .identity_compat import canonical_auren_home
 
 def _utc() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -294,7 +296,40 @@ class EngineeringDashboard:
                 plan_task_counts[status] = plan_task_counts.get(status, 0) + count
         return {"observed": max(experience, len(ids)), "event_runs": len({e.get("run_id") for e in events if e.get("run_id")}),
                 "completed_experience_records": experience, "plan_runs": len(plan_rows),
-                "plan_tasks": sum(plan_task_counts.values()), "plan_task_counts": plan_task_counts}
+                "plan_tasks": sum(plan_task_counts.values()), "plan_task_counts": plan_task_counts,
+                "progress": self._progress_snapshots()}
+
+    def _progress_snapshots(self) -> list[dict[str, Any]]:
+        """Expose supervisor journal snapshots; never infer progress from model text."""
+        home = canonical_auren_home()
+        candidates = (
+            self.root / ".auren" / "progress.jsonl",
+            home / "executive" / ".auren" / "progress.jsonl",
+        )
+        snapshots: dict[str, dict[str, Any]] = {}
+        seen_paths: set[str] = set()
+        for path in candidates:
+            key = str(path.resolve())
+            if key in seen_paths or not path.is_file():
+                continue
+            seen_paths.add(key)
+            try:
+                rows = ProgressJournal(path).list_snapshots(stale_after_seconds=60)
+            except Exception:
+                rows = [{
+                    "task_id": "progress-journal", "state": "unknown", "reported_state": "unknown",
+                    "stage": "journal", "message": "Durable progress journal could not be read safely.",
+                    "last_update": None, "seconds_since_update": None, "stale": False,
+                    "progress_percent": None, "completed_units": None, "total_units": None,
+                    "event_count": 0, "next_action": "inspect journal integrity before trusting progress",
+                }]
+            for row in rows:
+                snapshots[str(row.get("task_id", "unknown"))] = row
+        return sorted(
+            snapshots.values(),
+            key=lambda row: str(row.get("last_update") or ""),
+            reverse=True,
+        )[:20]
 
     def _learnings(self, tables):
         return {"deferred_jobs": self._sum(tables, ("deferred_learning",)),
