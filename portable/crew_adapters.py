@@ -347,7 +347,7 @@ class ApprovedToolCrewAdapter:
             for key in (
                 "crew_id", "specialty", "instructions", "task", "evidence",
                 "required_artifacts", "acceptance_checks", "allowed_authorities",
-                "graph_digest", "crew_plan_digest",
+                "graph_digest", "crew_plan_digest", "task_id",
             )
             if key in request
         }
