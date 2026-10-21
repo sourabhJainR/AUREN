@@ -68,10 +68,6 @@ class RecoveryDecisionJournalTests(unittest.TestCase):
         self.assertIsNone(self.journal.get("work-123", "execution", 1))
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
     def test_reconcile_reports_decision_written_before_attempt_as_pending(self):
         ledger = EngineeringRecoveryLedger(Path(self.temp.name) / "ledger.sqlite3")
         ledger.start_run("work-123", "intent")
@@ -138,3 +134,7 @@ if __name__ == "__main__":
 
         result = self.journal.reconcile_ledger(ledger, "work-123")
         self.assertEqual("consistent", result["status"])
+
+
+if __name__ == "__main__":
+    unittest.main()
