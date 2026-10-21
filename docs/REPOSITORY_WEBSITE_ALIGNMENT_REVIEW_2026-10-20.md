@@ -1,7 +1,7 @@
 # AUREN Repository and Website Alignment Review
 
 **Review date:** 2026-10-21  
-**Verified implementation snapshot:** `99c8fdfc90fd86d4821e74b7ac2b04505477f566` (all six post-merge workflows passed; the following documentation-only refresh is independently checked)  
+**Verified implementation snapshot:** `c072838aeb28656aedd7730cdae8941312c9065b` (all six post-merge workflows passed; the following documentation-only refresh is independently checked)  
 **Current product version:** `1.0.5` (merged)  
 **Scope:** repository-facing status, architecture claims, website/documentation consistency, workflow evidence, and implementation gaps.
 
@@ -19,7 +19,7 @@ PR [#771](https://github.com/sourabhJainR/AUREN/pull/771) merged at [`99c8fdfc90
 
 ## Executive summary
 
-The reviewed implementation snapshot (`6bbfae84b9b8d0e65e8063a771fae90f4c61a7e6`) contains the durable progress journal merged in PR #764, supervisor/dashboard integration in PR #766, the read-only CLI view in PR #767, and the documentation refresh in PR #768, alongside the previously implemented supervisor-owned execution, revision-bound evidence receipts, canonical evidence-graph integration, fail-closed promotion checks, capability-aware local-model ranking, hard-stop subprocess execution, deadline propagation into selected evidence checks, opt-in process-isolated crew dispatch, and Windows Job Object descendant containment. Exact-head CI passed for each merged PR; PR #767's nine post-merge workflows and Pages deployment also passed on `dbc9dab7798d413be67b7154ea7e07ff795ef373`. Provider adapter wiring, cross-store crash recovery, and deadline/cancellation/hard-termination fault injection remain open.
+The reviewed implementation snapshot (`6bbfae84b9b8d0e65e8063a771fae90f4c61a7e6`) contains the durable progress journal merged in PR #764, supervisor/dashboard integration in PR #766, the read-only CLI view in PR #767, and the documentation refresh in PR #768, alongside the previously implemented supervisor-owned execution, revision-bound evidence receipts, canonical evidence-graph integration, fail-closed promotion checks, capability-aware local-model ranking, hard-stop subprocess execution, deadline propagation into selected evidence checks, opt-in process-isolated crew dispatch, and Windows Job Object descendant containment. Exact-head CI passed for each merged PR; PR #767's nine post-merge workflows and Pages deployment also passed on `dbc9dab7798d413be67b7154ea7e07ff795ef373`. Canonical provider lifecycle-event wiring, cross-store crash recovery, and deadline/cancellation/hard-termination fault injection remain open.
 
 Release 1.0.5 adds an explicit responsive-execution contract and a version-consistency regression test. PR #743 adds executable process-tree hard-stop tests; PR #747 integrates hard-stop execution and deadline propagation into the default revision-bound evidence gate; PR #749 adds opt-in process-isolated crew execution and fixes a concurrent dispatch replay row-mapping race; PR #753 adds Windows Job Object containment and a delayed-descendant side-effect test. These results establish repository-level checks only. They do not establish independent external benchmark performance, OS-level sandbox isolation, production migration/rollback safety, or enforcement of GitHub required checks. The repository branch metadata returned `protected=true` but `protection.enabled=false`, enforcement off, and no required status checks. This is a high-priority governance gap.
 
