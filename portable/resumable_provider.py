@@ -202,8 +202,13 @@ class ResumableProviderExecutor:
         while True:
             remaining = self.call_timeout_seconds - (monotonic() - started)
             if remaining <= 0:
-                self._emit("provider_call_timed_out", provider=provider, timeout_seconds=self.call_timeout_seconds,
-                           late_result_possible=True, retry_blocked=True)
+                try:
+                    self._emit("provider_call_timed_out", provider=provider, timeout_seconds=self.call_timeout_seconds,
+                               late_result_possible=True, retry_blocked=True)
+                except ProviderProgressError:
+                    # The timeout result itself is the durable caller-visible signal;
+                    # do not let a failed observer callback trigger unsafe failover.
+                    pass
                 return "timeout", None
             try:
                 kind, value = outcome.get(timeout=min(remaining, 0.05))
