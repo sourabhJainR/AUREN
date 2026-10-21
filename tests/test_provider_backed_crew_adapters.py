@@ -143,7 +143,7 @@ class ProviderBackedCrewAdapterTests(unittest.TestCase):
 
             def hung_provider(_prompt, _timeout):
                 started.set()
-                release.wait(1)
+                release.wait(2)
                 return json.dumps({"tool_calls": [], "proposal": self.proposal()})
 
             adapter = ProviderBackedCrewAdapter(
