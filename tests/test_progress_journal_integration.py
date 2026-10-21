@@ -1,9 +1,11 @@
+import sqlite3
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from portable.engineering_dashboard import EngineeringDashboard
-from portable.execution_controller import ExecutionController
+from portable.execution_controller import ExecutionController, LeaseLostError, WorkUnitReceiptCommitError
 from portable.progress_journal import ProgressJournal
 
 
@@ -55,9 +57,13 @@ class ProgressJournalRuntimeIntegrationTests(unittest.TestCase):
                 raise OSError("controlled receipt store failure")
 
             controller.company.finish = fail_finish
-            with self.assertRaisesRegex(OSError, "controlled receipt store failure"):
+            with self.assertRaises(WorkUnitReceiptCommitError):
                 controller.run_once(task.id)
 
+            self.assertEqual(controller.task(task.id).state, "running")
+            self.assertEqual(controller.company._state(task.work_unit_id)[0], "running")
+            self.assertTrue(any("work_unit_receipt_commit_failed" in finding
+                                for finding in controller.health_findings()))
             snapshot = ProgressJournal(controller.db_path.parent / "progress.jsonl").snapshot(
                 task.id, stale_after_seconds=3600
             )
@@ -65,6 +71,42 @@ class ProgressJournalRuntimeIntegrationTests(unittest.TestCase):
             self.assertEqual(snapshot["stage"], "finalization")
             self.assertNotEqual(snapshot["reported_state"], "completed")
 
+    def test_receipt_commit_before_task_terminal_is_reconciled_without_replay(self):
+        with tempfile.TemporaryDirectory() as temp:
+            controller = ExecutionController(temp)
+            calls = []
+
+            def counted_handler(payload):
+                calls.append(payload["request_id"])
+                return {"success": True, "detail": "committed fixture"}
+
+            controller.register_handler(
+                "tests.progress_counted", counted_handler, execution_class="read_only"
+            )
+            task = controller.submit("tests.progress_counted", {"request_id": "once-only"})
+            finalize = controller._finalize_claim
+            controller._finalize_claim = lambda _task, _state: False
+            with self.assertRaises(LeaseLostError):
+                controller.run_once(task.id)
+            self.assertEqual(calls, ["once-only"])
+            self.assertEqual(controller.task(task.id).state, "running")
+            self.assertEqual(controller.company._state(task.work_unit_id)[0], "completed")
+
+            expired = (datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat()
+            with sqlite3.connect(controller.db_path) as db:
+                db.execute(
+                    "UPDATE tasks SET lease_until=?, heartbeat_at=? WHERE id=?",
+                    (expired, expired, task.id),
+                )
+            controller._finalize_claim = finalize
+            scores = controller.resume_pending()
+            self.assertTrue(scores)
+            self.assertEqual(calls, ["once-only"], "committed receipt must prevent handler replay")
+            self.assertEqual(controller.task(task.id).state, "completed")
+            snapshot = ProgressJournal(controller.db_path.parent / "progress.jsonl").snapshot(
+                task.id, stale_after_seconds=3600
+            )
+            self.assertEqual(snapshot["reported_state"], "completed")
     def test_journal_failure_is_visible_without_falsifying_task_state(self):
         with tempfile.TemporaryDirectory() as temp:
             controller = ExecutionController(temp)
