@@ -155,6 +155,22 @@ class ProgressJournalRuntimeIntegrationTests(unittest.TestCase):
             self.assertTrue(any("progress_reconciliation_required=1" in finding
                                 for finding in restarted.health_findings()))
 
+    def test_reconciliation_refuses_to_overwrite_a_newer_journal_event(self):
+        with tempfile.TemporaryDirectory() as temp:
+            journal = ProgressJournal(Path(temp) / "progress.jsonl")
+            journal.record("task-1", "task_started", state="running", stage="dispatch")
+            journal.record("task-1", "heartbeat", state="running", stage="handler")
+
+            with self.assertRaisesRegex(RuntimeError, "changed during reconciliation"):
+                journal.record_reconciliation(
+                    "task-1", state="recovering", stage="startup-reconciliation",
+                    message="Stale snapshot must not overwrite a concurrent heartbeat.",
+                    expected_sequence=1,
+                )
+
+            self.assertEqual(journal.snapshot("task-1")["sequence"], 2)
+            self.assertEqual(journal.snapshot("task-1")["reported_state"], "running")
+
     def test_bounded_startup_reconciliation_reports_and_clears_incomplete_scan(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
