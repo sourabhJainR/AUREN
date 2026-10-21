@@ -1,6 +1,6 @@
 # Provider operation lifecycle and recovery boundary
 
-Status: lifecycle implementation and supervisor integration added on this branch; exact-head tests and independent review are still required.
+Status: required implementation contract; runtime integration is not yet verified.
 
 ## Invariant
 
@@ -56,13 +56,12 @@ Assert provider call counts, durable states, immutable receipts, operation-ID st
 
 ## Integration sequence
 
-1. The current implementation composes ProviderOperationLifecycle with DurableSideEffectLedger; it does not create a second database or polling daemon.
-2. Consequential ExecutionController dispatch persists a stable provider operation identity and intent before invoking the handler, passes the idempotency key in the adapter context, and writes bounded operation events to the progress journal and canonical engineering evidence capture.
-3. Provider adapters can use ProviderOperationLifecycle.execute and reconcile; reconciliation completion requires a trusted DurableSideEffectLedger verifier and evidence reference. Unknown, pending, not-found, malformed, or failed lookup outcomes do not authorize replay.
-4. CIRepairWatchdog is invoked by the existing supervisor cycle through ExecutionController.observe_failed_ci_check; it deduplicates by repository, immutable head SHA, check identity, and failure fingerprint, and uses the existing task table and EngineeringRecoveryLedger.
-5. Repair attempts remain open until actual validation outcome is recorded. finish_repair_attempt blocks when no new evidence reference is produced. Stale-work findings are observational and returned to the existing supervisor; this module does not start a second polling loop.
-6. Focused impact policy maps sensitive recovery paths to mandatory suites and fails closed on unclassified sensitive paths. Production hardening is required for recovery ledger, journal, controller, provider lifecycle, authority, and rollback paths; documentation-only changes do not trigger that expensive workflow.
-7. Exact-head CI, review, and post-merge main verification remain required. No merge is permitted while checks are pending, skipped-but-required, or failing.
+1. Extend the existing durable side-effect ledger rather than creating a competing source of truth.
+2. Persist the canonical intent and stable provider operation ID in the ledger before invoking consequential handlers.
+3. Add provider adapter capability metadata and a common dispatch/reconcile contract.
+4. Wire the lifecycle into ExecutionController, supervisor dispatch, progress journal, and evidence graph.
+5. Add adapter-specific failure-injection tests, then run exact-head required CI and post-merge main verification.
+6. Keep any provider without authoritative recovery blocked until an operator resolves it with evidence.
 
 ## Non-goals and safety
 
