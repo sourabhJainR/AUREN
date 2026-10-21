@@ -744,7 +744,7 @@ class ExecutionController:
             self._progress_journal_error = type(exc).__name__
             self._progress_reconciliation_findings = ["journal-unreadable"]
             self._progress_reconciliation_incomplete = True
-            return {"scanned": 0, "reconciled": 0, "blocked": 1, "incomplete": True}
+            return {"scanned": 0, "reconciled": 0, "blocked": 1, "incomplete": True, "next_action": "repair or restore the journal, then rerun reconciliation"}
 
         with sqlite3.connect(self.db_path, timeout=5) as db:
             total = int(db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0])
@@ -868,6 +868,10 @@ class ExecutionController:
             "reconciled": reconciled,
             "blocked": len(self._progress_reconciliation_findings),
             "incomplete": incomplete,
+            "next_action": (
+                "rerun reconcile_progress_journal with a larger limit or time budget; "
+                "do not trust unscanned task projections"
+            ) if incomplete else None,
         }
 
     def _record_progress(
@@ -1900,7 +1904,7 @@ class ExecutionController:
                 "task and executive receipt disagree or worker liveness is unproven; inspect before retry"
             )
         if self._progress_reconciliation_incomplete:
-            findings.append("progress_reconciliation_incomplete; bounded startup scan must be resumed")
+            findings.append("progress_reconciliation_incomplete; rerun reconciliation with a larger limit or time budget before trusting unscanned progress")
         if self.evidence_capture.sink is not None:
             delivery = self.evidence_capture.flush_pending(limit=100)
             if delivery["pending"]:
