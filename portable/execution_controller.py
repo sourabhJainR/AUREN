@@ -209,6 +209,45 @@ class ExecutionController:
         # Registered by EngineeringPlanDispatch; keyed by the durable plan-store path.
         # A restarted worker must explicitly restore this trusted bridge before execution.
         self._engineering_plan_recovery_bridges: dict[str, Any] = {}
+        self._reconcile_terminal_progress()
+
+    def _reconcile_terminal_progress(self) -> None:
+        """Repair journal gaps from committed receipts; quarantine contradictory terminal rows."""
+        with sqlite3.connect(self.db_path, timeout=10) as db:
+            rows = db.execute(
+                "SELECT id,state,work_unit_id FROM tasks WHERE state IN ('completed','failed','cancelled')"
+            ).fetchall()
+            quarantined = db.execute("SELECT COUNT(*) FROM tasks WHERE state='reconcile_required'").fetchone()[0]
+        if quarantined:
+            self._work_unit_receipt_error = "cross_store_state_mismatch"
+        for task_id, task_state, work_unit_id in rows:
+            try:
+                work_state, _ = self.company._state(str(work_unit_id))
+            except Exception:
+                work_state = "unknown"
+            snapshot = self.progress_journal.snapshot(str(task_id), stale_after_seconds=10**9)
+            journal_state = snapshot.get("reported_state", snapshot.get("state", "unknown"))
+            if work_state != task_state:
+                with sqlite3.connect(self.db_path, timeout=10) as db:
+                    db.execute(
+                        "UPDATE tasks SET state='reconcile_required',updated_at=?,lease_until=NULL,lease_token=NULL "
+                        "WHERE id=? AND state=?", (_now(), task_id, task_state),
+                    )
+                self._work_unit_receipt_error = "cross_store_state_mismatch"
+                if journal_state not in {"completed", "failed", "cancelled"}:
+                    self._record_progress(
+                        str(task_id), "cross_store_reconciliation_required", state="blocked", stage="recovery",
+                        message="Task and executive receipt disagree; automatic replay is blocked pending reconciliation.",
+                    )
+                continue
+            if journal_state in {"completed", "failed", "cancelled"}:
+                if journal_state != task_state:
+                    self._work_unit_receipt_error = "terminal_progress_state_mismatch"
+                continue
+            self._record_progress(
+                str(task_id), "task_terminal_reconciled", state=str(task_state), stage="recovery",
+                message="Rebuilt missing terminal progress from matching durable task and work-unit receipt states.",
+            )
 
     def register_handler(
         self,
@@ -1772,7 +1811,7 @@ class ExecutionController:
                 "progress_journal_write_failed; task state remains in SQLite and progress visibility needs repair"
             )        if self._work_unit_receipt_error is not None:
             findings.append(
-                "work_unit_receipt_commit_failed; task remains nonterminal and must be reconciled before retry"
+                "cross_store_reconciliation_required; inspect task and executive receipt state before retry"
             )
         if self.evidence_capture.sink is not None:
             delivery = self.evidence_capture.flush_pending(limit=100)
