@@ -1,11 +1,11 @@
 # AUREN Repository and Website Alignment Review
 
-**Review date:** 2026-10-20  
+**Review date:** 2026-10-21  
 **Review baseline before this PR:** `main` at `fe7452118b95d110c1be48f2b7a731a7843e5ddd`  
 **Current product version:** `1.0.5` (merged)  
 **Scope:** repository-facing status, architecture claims, website/documentation consistency, workflow evidence, and implementation gaps.
 
-## Executive summary
+## Latest synchronization update — 2026-10-21\n\nPR [#764](https://github.com/sourabhJainR/AUREN/pull/764) merged at main commit [`dc395dac3c832154769344f13006d39bc387e6b4`](https://github.com/sourabhJainR/AUREN/commit/dc395dac3c832154769344f13006d39bc387e6b4). Five exact-head workflows passed before merge: Runtime Resilience Matrix, Production AI Harness Hardening, AUREN Portable Bundle, Architecture Integrity, and AI Harness Check. These are PR-head results, not proof of post-merge workflows or public Pages refresh. The current product version remains `1.0.5`.\n\nThe merged progress journal provides durable append-only events, monotonic per-task sequencing, cross-instance/process writer locking, heartbeats, staleness reporting, terminal-state handling, redaction, and concurrent-writer tests. End-to-end adoption by workers, provider adapters, graph execution, CLI/API and dashboard remains open. Treat this update as a status synchronization, not closure of the outstanding runtime, trust, evaluation, migration, or external-operation gates.\n\n## Executive summary
 
 The current main revision contains durable supervisor-owned execution, revision-bound evidence receipts, canonical evidence-graph integration, fail-closed promotion checks, post-check revision revalidation, capability-aware local-model ranking, hard-stop subprocess execution, deadline propagation into evidence checks, opt-in process-isolated crew dispatch, and Windows Job Object descendant containment. Revision-specific AI Harness, runtime resilience, architecture integrity, hardening, portable bundle, agent capability, and Pages workflows passed for the reviewed commit. The bundle workflow produced portable and checksum artifacts.
 
@@ -25,11 +25,11 @@ Release 1.0.5 adds an explicit responsive-execution contract and a version-consi
 
 The initial repository review found two competing publishers: the canonical `Deploy AUREN documentation` workflow deploys `site/`, while the sample Jekyll workflow built the repository root and used the same Pages concurrency group. Both could run on a push to `main`; the last deployment could therefore overwrite the intended site with a different build. The remediation in the follow-up Pages fix makes the legacy workflow manual-only and non-deploying, adds a regression contract, and ensures changes to the legacy workflow trigger the canonical publisher. After that fix merges, verify the canonical Pages workflow for the merge SHA and inspect the deployed content.
 
-## Confirmed current-main evidence
+## Historical evidence from the `fe7452118b95` baseline (not current-main evidence)
 
 | Area | Current-main evidence | Limit |
 |---|---|---|
-| Main revision before this PR | `fe7452118b95d110c1be48f2b7a731a7843e5ddd` | Recheck after merge |
+| Historical baseline | `fe7452118b95d110c1be48f2b7a731a7843e5ddd` | Historical only; latest main is `dc395dac3c832154769344f13006d39bc387e6b4` |
 | AI Harness Check | [Run 39435832928](https://github.com/sourabhJainR/AUREN/actions/runs/39435832928) passed on `fe7452118b95` | Revision-specific repository checks only |
 | Runtime Resilience Matrix | [Run 39435832872](https://github.com/sourabhJainR/AUREN/actions/runs/39435832872) passed on `fe7452118b95` across Linux/Windows and Python 3.11/3.12, including the checkpoint crash matrix | Check its jobs for impact-based skips; previous full Linux/Windows and Python 3.11/3.12 runtime evidence is revision-specific |
 | Architecture Integrity | [Run 39435832873](https://github.com/sourabhJainR/AUREN/actions/runs/39435832873) passed on `fe7452118b95` | Structural/repository contract only |
