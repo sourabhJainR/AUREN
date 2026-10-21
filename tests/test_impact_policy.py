@@ -1,4 +1,5 @@
 import unittest
+from pathlib import Path
 
 from scripts.impact_policy import classify_changes, classify_path, final_status
 
@@ -16,6 +17,9 @@ class ImpactPolicyTests(unittest.TestCase):
             "portable/progress_journal.py": {"tests.test_progress_journal", "tests.test_progress_journal_integration"},
             "portable/canonical_evidence_ledger.py": {"tests.test_canonical_evidence_ledger", "tests.test_provider_operation_lifecycle"},
             "portable/engineering_evidence_capture.py": {"tests.test_engineering_evidence_capture", "tests.test_execution_controller_evidence_capture"},
+            "tests/test_engineering_evidence_capture.py": {"tests.test_engineering_evidence_capture"},
+            "tests/test_execution_controller_evidence_capture.py": {"tests.test_execution_controller_evidence_capture"},
+            "auren_cli.py": {"tests.test_continuous_execution_cli", "tests.test_continuous_execution"},
             "portable/authority/policy.py": {"tests.test_security_gate"},
             "portable/rollback_controller.py": {"tests.test_state_root_rollback_rehearsal", "tests.test_execution_controller_promotion_rollback_contract", "tests.test_execution_controls"},
             ".ai-harness/security_gate.py": {"tests.test_security_gate"},
@@ -27,6 +31,12 @@ class ImpactPolicyTests(unittest.TestCase):
                 self.assertIsNotNone(impact)
                 self.assertTrue(impact.hardening_required)
                 self.assertTrue(required.issubset(set(impact.required_suites)))
+        hardening_workflow = Path(".github/workflows/production-hardening.yml").read_text(encoding="utf-8")
+        for path in expected:
+            with self.subTest(hardening_suite_path=path):
+                impact = classify_path(path)
+                for suite in impact.required_suites:
+                    self.assertIn(suite, hardening_workflow, f"{path} requires {suite}, but hardening does not run it")
 
     def test_unclassified_sensitive_path_fails_closed(self):
         with self.assertRaisesRegex(ValueError, "no impact classification"):
