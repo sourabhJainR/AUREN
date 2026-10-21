@@ -38,7 +38,7 @@ jobs:
                   required, changed = True, []
               else:
                   changed = subprocess.check_output(['git', 'diff', '--name-only', base, head], text=True).splitlines()
-                  patterns = [".github/workflows/portable-bundle.yml",".ai-harness/**",".agents/skills/ai-coding-orchestrator/**",".claude-plugin/**",".claude/skills/ai-coding-orchestrator/**","skills/ai-coding-orchestrator/**","skills/engineering/**","portable/**","state/**","architecture/**","auren_cli.py","VERSION","pyproject.toml","setup.py","MANIFEST.in","tests/test_portable_auren.py","tests/test_task_planner.py","tests/test_impact_analysis.py","tests/test_bidirectional_install.py","tests/test_contract_alignment.py","tests/test_graph_agent_team.py","tests/test_engineering_design_guard.py","tests/test_state_graph_hardening.py","tests/test_execution_contract.py","tests/test_evidence_contract.py","tests/test_adaptive_planning_evidence.py","tests/test_execution_strategy_learning.py","tests/test_skill_group_evidence.py","tests/test_vibe_coding.py","tests/test_vibe_coding_adapters.py"]
+                  patterns = [".github/workflows/portable-bundle.yml",".ai-harness/**",".agents/skills/ai-coding-orchestrator/**",".claude-plugin/**",".claude/skills/ai-coding-orchestrator/**","skills/ai-coding-orchestrator/**","skills/engineering/**","portable/**","state/**","architecture/**","auren_cli.py","VERSION","pyproject.toml","setup.py","MANIFEST.in","tests/test_portable_auren.py","tests/test_auren_sdk.py","tests/test_task_planner.py","tests/test_impact_analysis.py","tests/test_bidirectional_install.py","tests/test_contract_alignment.py","tests/test_graph_agent_team.py","tests/test_engineering_design_guard.py","tests/test_state_graph_hardening.py","tests/test_execution_contract.py","tests/test_evidence_contract.py","tests/test_adaptive_planning_evidence.py","tests/test_execution_strategy_learning.py","tests/test_skill_group_evidence.py","tests/test_vibe_coding.py","tests/test_vibe_coding_adapters.py"]
                   required = any(fnmatch.fnmatchcase(path, pattern) for path in changed for pattern in patterns)
           print('Changed files:')
           print('\n'.join(changed) if changed else '(none or full validation requested)')
@@ -60,7 +60,7 @@ jobs:
       - name: Run deterministic contract tests
         run: |
           PYTHONPATH=.:.ai-harness python -m unittest \
-            tests.test_portable_auren tests.test_task_planner tests.test_impact_analysis \
+            tests.test_portable_auren tests.test_auren_sdk tests.test_task_planner tests.test_impact_analysis \
             tests.test_bidirectional_install tests.test_contract_alignment tests.test_graph_agent_team \
             tests.test_engineering_design_guard tests.test_state_graph_hardening \
             tests.test_execution_contract tests.test_evidence_contract tests.test_adaptive_planning_evidence tests.test_execution_strategy_learning tests.test_skill_group_evidence tests.test_vibe_coding tests.test_vibe_coding_adapters tests.test_vibe_coding_host -v
