@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sys
 import tempfile
 import unittest
@@ -10,6 +11,8 @@ sys.path.insert(0, str(ROOT / ".ai-harness"))
 
 import runtime
 from portable.state_graph import default_crew_definitions
+from portable.crew_adapters import ApprovedToolRegistry, ProviderBackedCrewAdapter
+from portable.progress_journal import ProgressJournal
 from portable.agency_state_graph import InMemoryCheckpointStore
 from runtime import register_crew_adapters
 from runtime.graph_agent_team import AgentSpec, GraphAgentTeam, SharedTaskMemory
@@ -111,6 +114,62 @@ class HarnessCrewDispatchTests(unittest.TestCase):
             self.assertIn("Specialist crew proposals (untrusted and advisory)", prompts[0][1])
             self.assertIn("frontend_ui", prompts[0][1])
             self.assertTrue(result["crew_execution"]["missing_adapters"])
+
+    def test_provider_progress_uses_supervisor_identity_through_graph_dispatch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            journal = ProgressJournal(Path(tmp) / "progress.jsonl")
+            memory = SharedTaskMemory(Path(tmp) / "memory.jsonl", "intent-provider-progress")
+            provider_calls = []
+
+            def provider(prompt, timeout_seconds):
+                provider_calls.append(timeout_seconds)
+                payload = json.loads(prompt.split("\\n", 1)[1])
+                request = payload["task_request"]
+                proposal = {
+                    "schema_version": "auren-crew-proposal-v1",
+                    "recommendation": "Review the frontend UI proposal",
+                    "artifacts": list(request.get("required_artifacts", [])),
+                    "evidence_refs": [],
+                    "uncertainty": ["Independent review remains pending."],
+                    "blockers": [],
+                    "acceptance_check_results": {
+                        name: {"status": "not_run", "evidence_refs": []}
+                        for name in request.get("acceptance_checks", [])
+                    },
+                }
+                return json.dumps({"tool_calls": [], "proposal": proposal})
+
+            adapter = ProviderBackedCrewAdapter(
+                "frontend_ui", "test-provider", "1.0.0", provider,
+                ApprovedToolRegistry(), allowed_tools=(), timeout_seconds=1,
+                progress_callback=journal.record_provider_event,
+            )
+            team = GraphAgentTeam(
+                [AgentSpec("planner", "planner")],
+                crew_adapters={"frontend_ui": adapter},
+            )
+
+            def invoke(_agent, _prompt):
+                return 0, "review finding", 0.01
+
+            result = team.execute(
+                task="Build an accessible frontend UI component",
+                intent_digest="intent-provider-progress",
+                base_prompt="base instructions",
+                memory=memory,
+                invoke_agent=invoke,
+                supervisor_task_id="supervisor-task-provider-progress",
+            )
+
+            self.assertTrue(result["accepted"])
+            self.assertEqual(provider_calls, [1])
+            snapshot = journal.snapshot("supervisor-task-provider-progress")
+            self.assertEqual(snapshot["event_count"], 2)
+            self.assertEqual(snapshot["stage"], "provider:test-provider")
+            self.assertEqual(snapshot["reported_state"], "running")
+            raw = journal.path.read_text(encoding="utf-8")
+            self.assertNotIn("Build an accessible frontend UI component", raw)
+            self.assertNotIn("Review the frontend UI proposal", raw)
 
     def test_handoff_request_is_checkpointed_and_dispatched_pending_independent_review(self):
         with tempfile.TemporaryDirectory() as tmp:
