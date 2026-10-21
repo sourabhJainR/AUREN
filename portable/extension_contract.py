@@ -17,6 +17,7 @@ _VERSION = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$")
 _HEALTH = frozenset({"healthy", "degraded", "unavailable"})
 _COST = frozenset({"low", "medium", "high"})
 _TRUST = frozenset({"native", "verified", "external"})
+_TRUST_ORDER = {"native": 0, "verified": 1, "external": 2}
 _ALLOWED_FIELDS = frozenset({
     "name", "version", "capabilities", "health", "cost_class", "trust",
     "permissions", "contract_version", "output_limit_bytes", "timeout_seconds",
@@ -147,7 +148,7 @@ class ExtensionRegistry:
         if type(allow_external) is not bool:
             raise ExtensionContractError("allow_external must be a boolean")
         return tuple(
-            item for item in sorted(self._manifests.values(), key=lambda x: x.name)
+            item for item in sorted(self._manifests.values(), key=lambda x: (_TRUST_ORDER[x.trust], x.name))
             if item.health == "healthy"
             and capability in item.capabilities
             and (allow_external or item.trust != "external")
