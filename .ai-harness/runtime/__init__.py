@@ -71,15 +71,29 @@ def register_provider_backed_crew_adapters(
     max_response_chars: int = 100_000,
     max_tool_calls: int = 4,
     progress_callbacks_by_crew: Mapping[str, Callable[[Mapping[str, Any]], None]] | None = None,
+    progress_journal: Any | None = None,
     replace: bool = False,
 ) -> dict[str, Any]:
     """Build and register explicit provider-backed proposal adapters at host bootstrap.
 
     No provider is auto-discovered and no credentials are loaded by AUREN. The host
     must supply pinned provider identities/versions, bounded invokers, and per-crew
-    read-only tool scopes before this function can register the adapters.
+    read-only tool scopes before this function can register the adapters. To enable
+    canonical provider progress, pass the supervisor-owned ``progress_journal``;
+    callbacks are then wired for every specialist crew. The graph must pass its
+    supervisor-issued task ID into dispatch for those events to be accepted.
     """
-    from portable.crew_adapters import build_provider_backed_specialist_crew_adapters
+    from portable.crew_adapters import SPECIALIST_CREW_IDS, build_provider_backed_specialist_crew_adapters
+    from portable.progress_journal import ProgressJournal
+
+    if progress_journal is not None:
+        if not isinstance(progress_journal, ProgressJournal):
+            raise TypeError("progress_journal must be the canonical ProgressJournal instance")
+        if progress_callbacks_by_crew is not None:
+            raise ValueError("pass progress_journal or progress_callbacks_by_crew, not both")
+        progress_callbacks_by_crew = {
+            crew_id: progress_journal.record_provider_event for crew_id in SPECIALIST_CREW_IDS
+        }
 
     adapters = build_provider_backed_specialist_crew_adapters(
         provider_invokers=provider_invokers,
