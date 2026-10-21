@@ -1,6 +1,7 @@
 """Reusable facade that composes AUREN orchestration and agent capabilities."""
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import threading
@@ -34,6 +35,7 @@ from .trigger_runtime import TriggerEvent, TriggerRuntime
 from .world_model import PredictionError, WorldPrediction
 from .world_mega_model import WorldMegaModel
 from .engineering_recovery import EngineeringRecoveryLedger, RecoveryAction, RecoveryLimitReached
+from .recovery_decision_journal import RecoveryDecisionJournal
 from .state_paths import AurenStatePaths
 from .identity_compat import canonical_auren_home, legacy_state_home
 from .runtime_recovery import ExecutionBudgetExceeded, RuntimeExecutionGuard
@@ -101,6 +103,9 @@ class AdaptiveRuntime:
             max_same_hypothesis_attempts=2,
             max_total_attempts=12,
             max_elapsed_seconds=3600,
+        )
+        self.recovery_decision_journal = RecoveryDecisionJournal(
+            state / "recovery-decisions.sqlite3",
         )
 
     def capability(self, name: str, preferred: tuple[str, ...] = ()) -> RoutingDecision:
@@ -416,6 +421,43 @@ class AdaptiveRuntime:
                 decision = self.recovery_ledger.decision(
                     work_id, "execution", "execution-failure", previous_hypothesis,
                 )
+                # This receipt is audit-only: it never grants recovery authority.
+                # Unknown side-effect state is recorded conservatively as ambiguous.
+                checkpoint_for_receipt = self.recovery_ledger.get_checkpoint(work_id, "execution")
+                checkpoint_material = {
+                    "status": checkpoint_for_receipt.status if checkpoint_for_receipt is not None else "missing",
+                    "head_sha": checkpoint_for_receipt.head_sha if checkpoint_for_receipt is not None else "",
+                    "payload": checkpoint_for_receipt.payload if checkpoint_for_receipt is not None else {},
+                }
+                checkpoint_digest = hashlib.sha256(
+                    json.dumps(checkpoint_material, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+                ).hexdigest()
+                if decision.action is RecoveryAction.BLOCKED:
+                    receipt_action, strategy_id, reason_code = "block", None, "recovery_blocked"
+                elif decision.action is RecoveryAction.ALTERNATE_PLAN:
+                    receipt_action, strategy_id, reason_code = "alternate", f"alternate-plan-{attempts['alternate_count'] + 1}", "alternate_plan"
+                else:
+                    receipt_action, strategy_id, reason_code = "retry", None, "bounded_retry"
+                # The recovery-decision branch runs before attempt context is built.
+                # Until a trusted reconciler supplies a state, record ambiguity.
+                side_effect_state = "ambiguous"
+                try:
+                    self.recovery_decision_journal.record(
+                        work_id=work_id,
+                        phase="execution",
+                        attempt_number=iteration,
+                        action=receipt_action,
+                        strategy_id=strategy_id,
+                        failure_class="execution_failure",
+                        attempts_remaining=max(0, requested_iterations - iteration),
+                        checkpoint_digest=checkpoint_digest,
+                        side_effect_state=side_effect_state,
+                        reason_code=reason_code,
+                    )
+                except Exception as journal_error:
+                    attempts["blocked"] = f"recovery decision could not be durably recorded: {type(journal_error).__name__}"
+                    last["failure"] = attempts["blocked"]
+                    return "failed", attempts["blocked"], ("recovery-journal-write-failed",)
                 if decision.action is RecoveryAction.BLOCKED:
                     attempts["blocked"] = decision.reason
                     last["failure"] = decision.reason
