@@ -1372,6 +1372,20 @@ class ExecutionController:
         task = self._claim(task_id)
         if task is None:
             return None
+        # A process may die after the executive receipt commits but before the
+        # task row becomes terminal. Reconcile the receipt before any handler replay.
+        work_state, _ = self.company._state(task.work_unit_id)
+        if work_state in {"completed", "failed"}:
+            if not self._finalize_claim(task, work_state):
+                raise LeaseLostError("task lease was lost during receipt reconciliation")
+            self._capture_event("task_reconciled_from_work_unit_receipt", task, status=work_state, metadata={
+                "handler": task.handler, "phase": "recovery", "source": "executive_work_unit_receipt",
+            })
+            self._record_progress(
+                task.id, "task_terminal", state=work_state, stage="recovery",
+                message="Recovered terminal task state from the committed work-unit receipt without replaying the handler.",
+            )
+            return self.company.trust(task.work_unit_id)
         self._capture_event("task_attempt_started", task, status="running", metadata={
             "handler": task.handler,
         })
@@ -1756,6 +1770,9 @@ class ExecutionController:
         if self._progress_journal_error is not None:
             findings.append(
                 "progress_journal_write_failed; task state remains in SQLite and progress visibility needs repair"
+            )        if self._work_unit_receipt_error is not None:
+            findings.append(
+                "work_unit_receipt_commit_failed; task remains nonterminal and must be reconciled before retry"
             )
         if self.evidence_capture.sink is not None:
             delivery = self.evidence_capture.flush_pending(limit=100)
