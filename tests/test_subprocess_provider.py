@@ -14,22 +14,20 @@ from portable.subprocess_provider import SubprocessProviderInvoker, SubprocessPr
 
 class SubprocessProviderInvokerTests(unittest.TestCase):
     def invoker(self, code: str, **kwargs) -> SubprocessProviderInvoker:
-        return SubprocessProviderInvoker(
-            [sys.executable, "-c", code],
-            cwd=ROOT,
-            **kwargs,
-        )
+        return SubprocessProviderInvoker([sys.executable, "-c", code], cwd=ROOT, **kwargs)
 
     def test_round_trips_prompt_without_shell_or_inherited_environment(self):
         secret_name = "AUREN_SUBPROCESS_PROVIDER_TEST_SECRET"
+        previous = os.environ.get(secret_name)
         os.environ[secret_name] = "must-not-cross-boundary"
         try:
-            provider = self.invoker(
-                "import os,sys; print(os.environ.get('AUREN_SUBPROCESS_PROVIDER_TEST_SECRET', 'absent')); print(sys.stdin.read())"
-            )
+            provider = self.invoker("import os,sys; print(os.environ.get('AUREN_SUBPROCESS_PROVIDER_TEST_SECRET', 'absent')); print(sys.stdin.read())")
             result = provider('{"task":"safe"}', 3)
         finally:
-            os.environ.pop(secret_name, None)
+            if previous is None:
+                os.environ.pop(secret_name, None)
+            else:
+                os.environ[secret_name] = previous
         self.assertTrue(result.startswith("absent\n"))
         self.assertIn('{"task":"safe"}', result)
 
