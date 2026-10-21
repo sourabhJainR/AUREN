@@ -1,8 +1,9 @@
 import tempfile
 import unittest
 from datetime import datetime, timezone
+import time
 from pathlib import Path
-from portable.progress_journal import ProgressJournal
+from portable.progress_journal import ProgressJournal, _journal_file_lock
 
 class ProgressJournalTests(unittest.TestCase):
     def test_durable_monotonic_events_and_truthful_percentage(self):
@@ -57,6 +58,22 @@ class ProgressJournalTests(unittest.TestCase):
             snapshot = ProgressJournal(path).snapshot("shared")
             self.assertEqual(snapshot["sequence"], 80)
             self.assertEqual(snapshot["event_count"], 80)
+
+    def test_file_lock_contention_fails_within_budget(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "progress.jsonl"
+            journal = ProgressJournal(path, lock_timeout_seconds=0.05)
+            with _journal_file_lock(path, timeout_seconds=1.0):
+                started = time.monotonic()
+                with self.assertRaisesRegex(TimeoutError, "lock acquisition timed out"):
+                    journal.record("blocked", "must-not-hang")
+                self.assertLess(time.monotonic() - started, 0.5)
+
+    def test_invalid_lock_timeout_rejected(self):
+        with tempfile.TemporaryDirectory() as temp:
+            for value in (0, -1, float("inf"), float("nan"), True):
+                with self.subTest(value=value), self.assertRaises(ValueError):
+                    ProgressJournal(Path(temp) / "progress.jsonl", lock_timeout_seconds=value)
 
     def test_invalid_progress_units_rejected(self):
         with tempfile.TemporaryDirectory() as temp:
