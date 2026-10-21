@@ -3,9 +3,9 @@ from __future__ import annotations
 import json
 import threading
 import time
-from unittest.mock import patch
+from unittest.mock import patch, Mock
 
-from portable.continuous_execution import ContinuousExecutionSupervisor, GitHubActionsCheckPoller
+from portable.continuous_execution import ContinuousExecutionSupervisor, GitHubActionsCheckPoller, discover_git_target
 from portable.execution_controller import ExecutionController
 
 
@@ -124,3 +124,27 @@ def test_audit_chain_detects_tampering(tmp_path):
     with sqlite3.connect(supervisor.path) as db:
         db.execute("UPDATE events SET payload_json='{}' WHERE sequence=1")
     assert not supervisor.verify_audit_chain()
+
+
+
+def test_github_poller_observation_without_configured_required_checks_is_not_a_pass():
+    poller = GitHubActionsCheckPoller("owner/repo", "c" * 40, [])
+    with patch("urllib.request.urlopen", return_value=_Response({
+        "check_runs": [
+            {"id": 1, "name": "validate", "status": "completed", "conclusion": "success"},
+        ]
+    })):
+        result = poller()
+    assert result["status"] == "observed_complete_unverified"
+    assert result["required_checks"] == []
+
+
+def test_discover_git_target_uses_current_head_and_github_origin(tmp_path):
+    remote = Mock(stdout="git@github.com:sourabhJainR/AUREN.git
+")
+    head = Mock(stdout="d" * 40 + "
+")
+    with patch("subprocess.run", side_effect=[remote, head]) as run:
+        assert discover_git_target(tmp_path) == ("sourabhJainR/AUREN", "d" * 40)
+    assert run.call_count == 2
+    assert all(call.kwargs["timeout"] == 3 for call in run.call_args_list)
