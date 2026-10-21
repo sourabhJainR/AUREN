@@ -75,8 +75,8 @@ class TestPublicDocumentationConsistency(unittest.TestCase):
         site = (ROOT / "site" / "index.html").read_text(encoding="utf-8")
         for content in (readme, site):
             self.assertIn("Verification snapshot", content)
-            self.assertIn("57b1a2b367f32b3ab47a1853664a5c47f227aa6e", content)
-            self.assertIn("22 check runs succeeded and 4", content)
+            self.assertRegex(content, r"captured at main SHA `[0-9a-f]{40}`")
+            self.assertRegex(content, r"\d+ check runs succeeded, \d+ remained in progress, and \d+ were skipped")
             self.assertIn("skipped checks are not passes", content.lower())
             self.assertIn("github.com/sourabhJainR/AUREN/actions", content)
             self.assertIn("does not claim that its SHA is the current main head", content)
@@ -86,6 +86,15 @@ class TestPublicDocumentationConsistency(unittest.TestCase):
         import re
         self.assertRegex(readme, r"## Project status \(reviewed \d{4}-\d{2}-\d{2}\)")
         self.assertNotIn(r"\n\n## Deterministic repository intelligence", readme)
+
+    def test_standalone_readiness_matrix_tracks_external_gates(self):
+        matrix = (ROOT / "docs" / "STANDALONE_READINESS_AND_GAP_MATRIX.md").read_text(encoding="utf-8")
+        self.assertIn("Verify hard termination", matrix)
+        self.assertIn("Prove cancellation and absolute deadlines", matrix)
+        self.assertIn("independent evaluator", matrix.lower())
+        self.assertIn("sealed corpus custody", matrix.lower())
+        self.assertIn("Skipped jobs are not passes", matrix)
+        self.assertIn("clean-install smoke test", matrix)
 
 
 if __name__ == "__main__":
