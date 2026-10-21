@@ -85,6 +85,14 @@ class RecoveryStrategyPolicyTests(unittest.TestCase):
                 attempts_remaining=1,
                 progress_made=False,
             )
+        with self.assertRaises(ValueError):
+            choose_recovery_path(
+                candidate_strategies=(),
+                attempted_strategies=([ "not-hashable" ],),
+                failure_class="failure",
+                attempts_remaining=1,
+                progress_made=False,
+            )
 
 
 if __name__ == "__main__":
