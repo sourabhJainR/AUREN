@@ -957,7 +957,7 @@ the learning system, not an instruction source. If a skill produced no distinct 
                             {"intent_digest": intent_digest, "task_id": run_nonce},
                             active=True,
                             task_id=supervisor_task_id,
-                            plan=crew_plan
+                            plan=crew_plan,
                             graph_digest=crew_plan.graph_digest,
                             agents=self.crew_adapters,
                             crews=self.crew_definitions,
