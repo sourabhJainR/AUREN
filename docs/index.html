@@ -123,7 +123,7 @@ and report open risks.</code></pre>
 
 <section id="latest"><div class="wrap">
 <h2>Latest implementation and verification</h2>
-<p class="lead">Reviewed 2026-10-21. Current main is <a href="https://github.com/sourabhJainR/AUREN/commit/dc395dac3c832154769344f13006d39bc387e6b4"><code>dc395dac3c832154769344f13006d39bc387e6b4</code></a>. The product release remains <code>1.0.5</code>; this merge does not declare a new release.</p>
+<p class="lead">Reviewed 2026-10-21. Reviewed main baseline before this documentation PR is <a href="https://github.com/sourabhJainR/AUREN/commit/dc395dac3c832154769344f13006d39bc387e6b4"><code>dc395dac3c832154769344f13006d39bc387e6b4</code></a>. The product release remains <code>1.0.5</code>; this merge does not declare a new release.</p>
 <div class="grid">
 <div class="card"><h3>Durable truthful progress journal</h3><p><a href="https://github.com/sourabhJainR/AUREN/pull/764">PR #764</a> merged an append-only task event journal, monotonic per-task sequencing, cross-instance/process writer locking, heartbeats, stale-task detection, terminal states, secret-like value redaction, and concurrent-writer regression coverage. Five exact-head workflows passed before merge: Runtime Resilience Matrix, Production AI Harness Hardening, AUREN Portable Bundle, Architecture Integrity, and AI Harness Check.</p></div>
 <div class="card"><h3>Progress integration is still a gate</h3><p>The journal is a foundation, not proof of end-to-end progress. Workers, provider adapters, graph execution, CLI/API, and dashboard must publish and consume the same canonical state. Restart reconciliation, cancellation, deadlines, hard termination, and ambiguous side effects require integration-level fault injection.</p></div>
@@ -144,7 +144,7 @@ and report open risks.</code></pre>
 <tr><td>Migration and rollback rehearsal</td><td><strong>Pending</strong></td><td>Run an operator-controlled staging rehearsal with backup, interruption, rollback, and retained-state evidence before closing <a href="https://github.com/sourabhJainR/AUREN/issues/534">issue #534</a>.</td></tr>
 <tr><td>Consequential external side effects</td><td><strong>Integration-dependent</strong></td><td>Use task-scoped idempotency keys, durable receipts, and ambiguity reconciliation at each effect boundary.</td></tr>
 </tbody></table>
-<p class="small">The <a href="https://github.com/sourabhJainR/AUREN/blob/main/docs/REPOSITORY_WEBSITE_ALIGNMENT_REVIEW_2026-10-20.md">alignment review and gap register</a> defines ownership and exit criteria. Do not describe an open gate as complete without matching evidence.</p>
+<p class="small">The <a href="https://github.com/sourabhJainR/AUREN/blob/main/docs/REPOSITORY_WEBSITE_ALIGNMENT_REVIEW_2026-10-20.md">alignment review and gap register</a> and <a href="https://github.com/sourabhJainR/AUREN/issues/696">unified engineering completion roadmap</a> define ownership and exit criteria. Do not describe an open gate as complete without matching evidence.</p>
 </div></section>
 
 <section><div class="wrap">
