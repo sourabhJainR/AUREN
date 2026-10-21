@@ -15,6 +15,8 @@ python auren_cli.py continuous stop --project-root . --reason "operator requeste
 
 `continuous start` remains active, automatically scans and executes eligible durable tasks, and polls configured CI watches on every cycle. It records cycle boundaries, poll outcomes, recoverable poll errors, task counts, stop requests, and terminal supervisor state. The stop command is durable and can be run from a second process; it does not delete pending tasks, checkpoints, progress history, or evidence. `status` shows pending task IDs and recent terminal tasks without exposing task payloads. `audit` verifies the append-only SHA-256 hash chain.
 
+When no `--watch` is supplied, AUREN implicitly discovers the current checkout's GitHub `origin` and full `HEAD` SHA and polls that commit. Without explicit `--required-check` names, the result is labelled `observed_complete_unverified`; it is not CI-gate evidence and cannot authorize a merge. Configure exact required-check names once in the service invocation (or pass them on the command) when a verified CI gate is needed.
+
 To watch one or more exact GitHub commit heads, supply the full SHA and every required check name:
 
 ```bash
