@@ -46,6 +46,8 @@ jobs:
           test -s docs/404.html
           grep -q '<title>AUREN' site/index.html
           grep -q '<title>AUREN' site/404.html
+          cmp -s site/index.html docs/index.html
+          cmp -s site/404.html docs/404.html
 
       - name: Build deployment manifest
         run: |

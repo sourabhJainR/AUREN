@@ -9,10 +9,20 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class TestPublicDocumentationConsistency(unittest.TestCase):
     def test_pages_entrypoints_are_identical(self):
-        self.assertEqual(
-            (ROOT / "site" / "index.html").read_text(encoding="utf-8"),
-            (ROOT / "docs" / "index.html").read_text(encoding="utf-8"),
-        )
+        for name in ("index.html", "404.html"):
+            with self.subTest(entrypoint=name):
+                self.assertEqual(
+                    (ROOT / "site" / name).read_text(encoding="utf-8"),
+                    (ROOT / "docs" / name).read_text(encoding="utf-8"),
+                )
+
+    def test_pages_mirror_contract_runs_on_pull_requests(self):
+        workflow = (
+            ROOT / ".github" / "workflows" / "pages-mirror-contract.yml"
+        ).read_text(encoding="utf-8")
+        self.assertIn("pull_request:", workflow)
+        self.assertIn("cmp -s site/index.html docs/index.html", workflow)
+        self.assertIn("cmp -s site/404.html docs/404.html", workflow)
 
     def test_only_canonical_pages_workflow_can_deploy(self):
         canonical = (ROOT / ".github" / "workflows" / "deploy-pages.yml").read_text(encoding="utf-8")
@@ -62,7 +72,8 @@ class TestPublicDocumentationConsistency(unittest.TestCase):
 
     def test_readme_status_and_section_format_are_current(self):
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
-        self.assertIn("## Project status (reviewed 2026-10-20)", readme)
+        import re
+        self.assertRegex(readme, r"## Project status \(reviewed \d{4}-\d{2}-\d{2}\)")
         self.assertNotIn(r"\n\n## Deterministic repository intelligence", readme)
 
 

@@ -1,5 +1,7 @@
 # Visible Incremental Progress and No-Silent-Stall Contract
 
+**Journal foundation:** merged in [PR #764](https://github.com/sourabhJainR/AUREN/pull/764), main commit [`dc395dac3c832154769344f13006d39bc387e6b4`](https://github.com/sourabhJainR/AUREN/commit/dc395dac3c832154769344f13006d39bc387e6b4). The append-only journal, monotonic task sequencing, cross-instance/process writer locking, redaction, and concurrent-writer regression test are implemented. **End-to-end status:** not complete until workers, providers, graph execution, CLI/API, and dashboard consume the same canonical task state and pass restart/cancellation/deadline/fault-injection tests.
+
 AUREN must keep users informed from task acceptance through terminal outcome. A long task may take time; an unobservable task is a runtime defect.
 
 ## Required behavior

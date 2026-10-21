@@ -38,3 +38,7 @@ The registry and digest-bound runtime receipt improve traceability; they do not 
 - [Engineering design policy](.ai-harness/ENGINEERING_DESIGN_POLICY.md)
 - [GitHub Pages site](https://sourabhjainr.github.io/AUREN/)
 - [Repository and current pull requests](https://github.com/sourabhJainR/AUREN)
+
+## Current implementation status
+
+The durable progress-journal foundation is merged in [PR #764](https://github.com/sourabhJainR/AUREN/pull/764). It persists truthful task events and handles concurrent writers, but this alone does not make progress visibility end-to-end. Worker/provider/graph integration, shared CLI/API/dashboard state, restart and cancellation fault injection, independent evaluation, external isolation review, and staging migration/rollback evidence remain explicit acceptance gates. See the [README](README.md) and [repository/website alignment review](docs/REPOSITORY_WEBSITE_ALIGNMENT_REVIEW_2026-10-20.md) for the latest revision and evidence boundaries.
