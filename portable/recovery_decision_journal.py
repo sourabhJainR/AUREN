@@ -225,7 +225,14 @@ class RecoveryDecisionJournal:
             raise TypeError("ledger must expose attempts() and get_checkpoint()")
         attempts = tuple(item for item in ledger.attempts(work_id) if item.phase == phase)
         receipts = self.list_for_work(work_id, phase)
+        running_numbers = [number for number, attempt in enumerate(attempts, start=1) if attempt.outcome == "running"]
         if not receipts:
+            if running_numbers:
+                return {
+                    "status": "in_progress_attempt", "attempts": len(attempts), "receipts": 0,
+                    "missing": [], "pending_decision": running_numbers[0],
+                    "reason": "a started attempt has no terminal outcome; side effects may be ambiguous",
+                }
             return {"status": "legacy_unjournaled", "attempts": len(attempts), "receipts": 0, "missing": [], "pending_decision": None}
         by_number = {item.attempt_number: item for item in receipts}
         first_receipt = min(by_number)
@@ -248,6 +255,12 @@ class RecoveryDecisionJournal:
                     "reason": "decision receipt is ahead of the ledger by more than one attempt",
                 }
             attempt = attempts[number - 1] if number <= len(attempts) else None
+            if attempt is not None and attempt.outcome == "running":
+                return {
+                    "status": "in_progress_attempt", "attempts": len(attempts), "receipts": len(receipts),
+                    "missing": [], "pending_decision": number,
+                    "reason": "a started attempt has no terminal outcome; side effects may be ambiguous",
+                }
             if receipt.action in {"block", "stop"}:
                 if attempt is not None:
                     return {
