@@ -2,15 +2,31 @@
 from __future__ import annotations
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
-import json, os, re, threading
+import errno, json, math, os, re, threading, time
 from pathlib import Path
 from typing import Any
 
 from contextlib import contextmanager
 
 @contextmanager
-def _journal_file_lock(path: Path):
-    """Serialize read-modify-append across journal instances and processes."""
+def _journal_file_lock(path: Path, *, timeout_seconds: float = 2.0):
+    """Serialize journal writes with a finite lock-acquisition budget."""
+    if isinstance(timeout_seconds, bool) or not isinstance(timeout_seconds, (int, float)) or not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
+        raise ValueError("journal lock timeout must be finite and positive")
+    deadline = time.monotonic() + float(timeout_seconds)
+
+    def acquire_bounded(acquire):
+        while True:
+            try:
+                acquire()
+                return
+            except OSError as exc:
+                if exc.errno not in {errno.EACCES, errno.EAGAIN, errno.EDEADLK}:
+                    raise
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError("progress journal lock acquisition timed out") from exc
+                time.sleep(min(0.01, remaining))
     lock_path = path.with_name(path.name + ".lock")
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     with lock_path.open("a+b") as lock_file:
@@ -22,7 +38,7 @@ def _journal_file_lock(path: Path):
                 lock_file.write(b"\\0")
                 lock_file.flush()
             lock_file.seek(0)
-            msvcrt.locking(lock_file.fileno(), msvcrt.LK_LOCK, 1)
+            acquire_bounded(lambda: (lock_file.seek(0), msvcrt.locking(lock_file.fileno(), msvcrt.LK_NBLCK, 1)))
             try:
                 yield
             finally:
@@ -30,7 +46,7 @@ def _journal_file_lock(path: Path):
                 msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
         else:
             import fcntl
-            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+            acquire_bounded(lambda: fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB))
             try:
                 yield
             finally:
@@ -67,8 +83,11 @@ class ProgressEvent:
 
 class ProgressJournal:
     """Append-only JSONL event journal; progress reflects observed work only."""
-    def __init__(self, path: str | Path):
+    def __init__(self, path: str | Path, *, lock_timeout_seconds: float = 2.0):
+        if isinstance(lock_timeout_seconds, bool) or not isinstance(lock_timeout_seconds, (int, float)) or not math.isfinite(lock_timeout_seconds) or lock_timeout_seconds <= 0:
+            raise ValueError("lock_timeout_seconds must be finite and positive")
         self.path = Path(path)
+        self.lock_timeout_seconds = float(lock_timeout_seconds)
         self._lock = threading.RLock()
 
     def _events(self) -> list[dict[str, Any]]:
@@ -101,23 +120,33 @@ class ProgressJournal:
             raise ValueError("completed_units cannot exceed total_units")
         if state == "completed" and completed_units is not None and total_units is not None and completed_units != total_units:
             raise ValueError("completed task must account for all declared units")
-        with self._lock, _journal_file_lock(self.path):
-            task_rows = [r for r in self._events() if r["task_id"] == task_id]
-            if task_rows and task_rows[-1]["state"] in TERMINAL:
-                raise ValueError("cannot append progress to a terminal task")
-            row = ProgressEvent(
-                sequence=task_rows[-1]["sequence"] + 1 if task_rows else 1,
-                task_id=task_id, event=_safe(event, 80), state=state,
-                stage=_safe(stage, 120), message=_safe(message),
-                timestamp=timestamp or _now(), completed_units=completed_units,
-                total_units=total_units, evidence_ref=_safe(evidence_ref, 1000) if evidence_ref else None,
-            )
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            with self.path.open("a", encoding="utf-8") as stream:
-                stream.write(json.dumps(asdict(row), sort_keys=True, separators=(",", ":")) + "\n")
-                stream.flush()
-                os.fsync(stream.fileno())
-            return row
+        lock_deadline = time.monotonic() + self.lock_timeout_seconds
+        if not self._lock.acquire(timeout=self.lock_timeout_seconds):
+            raise TimeoutError("progress journal lock acquisition timed out (in-process contention)")
+        try:
+            remaining = lock_deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError("progress journal lock acquisition timed out")
+            with _journal_file_lock(self.path, timeout_seconds=remaining):
+                task_rows = [r for r in self._events() if r["task_id"] == task_id]
+                if task_rows and task_rows[-1]["state"] in TERMINAL:
+                    raise ValueError("cannot append progress to a terminal task")
+                row = ProgressEvent(
+                    sequence=task_rows[-1]["sequence"] + 1 if task_rows else 1,
+                    task_id=task_id, event=_safe(event, 80), state=state,
+                    stage=_safe(stage, 120), message=_safe(message),
+                    timestamp=timestamp or _now(), completed_units=completed_units,
+                    total_units=total_units, evidence_ref=_safe(evidence_ref, 1000) if evidence_ref else None,
+                )
+                self.path.parent.mkdir(parents=True, exist_ok=True)
+                with self.path.open("a", encoding="utf-8") as stream:
+                    stream.write(json.dumps(asdict(row), sort_keys=True, separators=(",", ":")) + "\n")
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                return row
+
+        finally:
+            self._lock.release()
 
     def heartbeat(self, task_id: str, *, stage: str, message: str = "Still working",
                   timestamp: str | None = None) -> ProgressEvent:

@@ -29,3 +29,9 @@ AUREN must keep users informed from task acceptance through terminal outcome. A 
 8. Dashboard, CLI, API and notifications consume the same canonical task state.
 
 A standalone journal is a foundation, not proof that every worker, dashboard or provider is integrated. Keep integration gaps explicit until end-to-end tests demonstrate them.
+
+## Bounded journal lock acquisition
+
+Cross-instance/process append serialization uses a finite lock-acquisition budget (2 seconds by default, configurable with a finite positive `lock_timeout_seconds`). Contention past the budget raises an explicit `TimeoutError` rather than blocking the task indefinitely. The supervisor must surface that write failure through health findings; it must not report progress as durable when the journal append did not commit. This timeout bounds lock acquisition, not filesystem write/fsync latency.
+
+Regression coverage: `test_file_lock_contention_fails_within_budget` and `test_invalid_lock_timeout_rejected`.
