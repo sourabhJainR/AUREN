@@ -35,3 +35,9 @@ A standalone journal is a foundation, not proof that every worker, dashboard or 
 Cross-instance/process append serialization uses a finite lock-acquisition budget (2 seconds by default, configurable with a finite positive `lock_timeout_seconds`). Contention past the budget raises an explicit `TimeoutError` rather than blocking the task indefinitely. The supervisor must surface that write failure through health findings; it must not report progress as durable when the journal append did not commit. This timeout bounds lock acquisition, not filesystem write/fsync latency.
 
 Regression coverage: `test_file_lock_contention_fails_within_budget` and `test_invalid_lock_timeout_rejected`.
+
+## Latest liveness safeguards — 2026-10-21
+
+- [PR #770](https://github.com/sourabhJainR/AUREN/pull/770) bounds resumable provider-call waiting, emits provider lifecycle events through a host callback, caps the number of orphaned timed-out worker threads, and checkpoints timeout as a state that requires reconciliation before retry. This does not forcibly kill a Python thread and does not mean every provider adapter is wired to the component.
+- [PR #771](https://github.com/sourabhJainR/AUREN/pull/771) bounds both in-process and cross-process journal lock acquisition to a finite budget (2 seconds by default). Lock contention fails visibly rather than blocking forever; the supervisor must not claim an event is durable if the append failed.
+- Remaining integration gates: wire provider timeouts/progress callbacks into production adapters, prove cancellation/deadline/hard-termination behavior at runtime boundaries, reconcile journal/SQLite/checkpoint state after crashes, and reconcile ambiguous external effects before retry.

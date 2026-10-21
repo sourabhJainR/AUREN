@@ -73,11 +73,14 @@ class TestPublicDocumentationConsistency(unittest.TestCase):
     def test_public_status_does_not_leave_completed_deployment_as_pending(self):
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
         site = (ROOT / "site" / "index.html").read_text(encoding="utf-8")
-        self.assertIn("c7d16a646dca1d56cebc026ccc376c14ea89eb70", readme)
-        self.assertIn("c7d16a646dca1d56cebc026ccc376c14ea89eb70", site)
+        self.assertIn("Verified implementation evidence snapshot", readme)
+        self.assertIn("99c8fdfc90fd86d4821e74b7ac2b04505477f566", readme)
+        self.assertIn("99c8fdfc90fd86d4821e74b7ac2b04505477f566", site)
         self.assertNotIn("Verify after this documentation merge", site)
-        self.assertIn("39545731991", site)
-        self.assertIn("39545731999", site)
+        self.assertIn("39554077140", site)
+        self.assertIn("39554077048", site)
+        self.assertIn("pull/770", site)
+        self.assertIn("pull/771", site)
 
     def test_readme_status_and_section_format_are_current(self):
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
