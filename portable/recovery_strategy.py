@@ -34,12 +34,15 @@ def choose_recovery_path(
         raise ValueError("failure_class must be non-empty text")
     if side_effect_state not in {"none", "confirmed", "reconciled", "ambiguous"}:
         raise ValueError("unsupported side_effect_state")
+
     candidates = tuple(candidate_strategies)
-    attempted = set(attempted_strategies)
-    if any(not isinstance(item, str) or not item.strip() for item in candidates + tuple(attempted)):
+    attempted_items = tuple(attempted_strategies)
+    if any(not isinstance(item, str) or not item.strip() for item in candidates + attempted_items):
         raise ValueError("strategy IDs must be non-empty text")
     if len(set(candidates)) != len(candidates):
         raise ValueError("candidate strategies must be unique")
+    attempted = set(attempted_items)
+
     if cancelled:
         return RecoveryDecision("stop", None, "cancellation requested")
     if deadline_expired:
