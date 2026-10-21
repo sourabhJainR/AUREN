@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import re
 import sqlite3
@@ -41,8 +42,10 @@ def _safe_value(value: Any, *, key: str = "", depth: int = 0) -> Any:
         return "[REDACTED]"
     if depth >= 5:
         return "[DEPTH_LIMIT]"
-    if value is None or isinstance(value, (bool, int, float)):
+    if value is None or isinstance(value, (bool, int)):
         return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else "[NON_FINITE_NUMBER]"
     if isinstance(value, str):
         return value[:1000]
     if isinstance(value, Mapping):
@@ -120,11 +123,13 @@ class GitHubActionsCheckPoller:
                 continue
             # A repeated check name is considered passing only when every observed
             # run is complete and successful; this avoids hiding a failed rerun.
-            statuses = [{"status": item.get("status"), "conclusion": item.get("conclusion")} for item in matches]
-            details[name] = statuses
-            if any(item.get("status") != "completed" for item in matches):
+            # GitHub retains failed runs after a rerun. Bind the decision to the
+            # latest exact-name check on this immutable SHA, not stale prior attempts.
+            latest = max(matches, key=lambda item: (str(item.get("started_at") or ""), int(item.get("id") or 0)))
+            details[name] = {"status": latest.get("status"), "conclusion": latest.get("conclusion"), "id": latest.get("id")}
+            if latest.get("status") != "completed":
                 pending.append(name)
-            elif any(item.get("conclusion") != "success" for item in matches):
+            elif latest.get("conclusion") != "success":
                 # Skipped, neutral, cancelled, timed_out and action_required are not passes.
                 failed.append(name)
         if failed:
@@ -382,11 +387,11 @@ class ContinuousExecutionSupervisor:
                 try:
                     self.controller.resume_pending(limit=batch_size, continue_after_durable_failure=True)
                 except Exception as exc:
-                    # Do not silently turn lease loss or inconsistent durable state into success.
+                    # resume_pending already handles independently verified terminal task failures.
+                    # Anything that escapes means recovery/lease/store state is ambiguous: fail closed.
                     batch_error = type(exc).__name__
                     self._event(run_id, "task_batch_error", {"cycle": cycles, "error_type": batch_error})
-                    if type(exc).__name__ in {"LeaseLostError", "StatePathConflict"}:
-                        raise
+                    raise
                 poll_results: dict[str, Any] = {}
                 for name, poller in self.pollers.items():
                     try:
