@@ -25,3 +25,22 @@ Regression tests: `test_hung_provider_returns_bounded_unknown_and_never_fails_ov
 The resumable executor and `ProviderBackedCrewAdapter` now use the same bounded provider-call helper and share an eight-worker cap. A host invoker that ignores its timeout can no longer hold the calling graph node indefinitely. The caller receives an explicit timeout; the late worker is daemonized and consumes one of the bounded slots until it exits. A timed-out attempt must be reconciled before retry. This still does not kill the worker or make a provider-side operation exactly-once; configure native transport deadlines and use process isolation for hard termination.
 
 Regression coverage: `test_hung_provider_is_bounded_even_if_invoker_ignores_timeout` and the resumable executor timeout/no-failover tests.
+
+
+## Wiring provider lifecycle events into the canonical task journal
+
+When registering provider-backed specialist crews, pass the exact `ProgressJournal` instance owned by the execution supervisor:
+
+```python
+adapters = runtime.register_provider_backed_crew_adapters(
+    provider_invokers=provider_invokers,
+    provider_ids=provider_ids,
+    provider_versions=provider_versions,
+    tools=approved_tools,
+    allowed_tools_by_crew=allowed_tools_by_crew,
+    progress_journal=controller.progress_journal,
+    replace=True,
+)
+```
+
+The registration API wires the journal's allowlisted callback to every specialist crew; do not create a second journal for telemetry. The graph dispatch must propagate the supervisor-issued task ID. `portable.state_graph.GraphAgentTeam.run()` receives that ID directly; the alternate `.ai-harness/runtime/graph_agent_team.py` path accepts `supervisor_task_id` on `execute()`. If provider callbacks are enabled but the task ID is missing, the adapter fails closed instead of recording an un-attributed event. Never substitute a model-generated task ID. This makes provider progress observable, but does not make timed-out Python threads killable or resolve cross-store crash recovery by itself.
