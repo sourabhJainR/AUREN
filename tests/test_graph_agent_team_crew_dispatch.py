@@ -123,7 +123,7 @@ class HarnessCrewDispatchTests(unittest.TestCase):
 
             def provider(prompt, timeout_seconds):
                 provider_calls.append(timeout_seconds)
-                payload = json.loads(prompt.split("\\n", 1)[1])
+                payload = json.loads(prompt.split("\n", 1)[1])
                 request = payload["task_request"]
                 proposal = {
                     "schema_version": "auren-crew-proposal-v1",
