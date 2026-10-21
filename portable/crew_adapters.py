@@ -435,6 +435,13 @@ class ProviderBackedCrewAdapter(ApprovedToolCrewAdapter):
         def planner(request: Mapping[str, Any]) -> Mapping[str, Any]:
             # task_id is supervisor telemetry context, not model input.
             task_request = {key: value for key, value in request.items() if key != "task_id"}
+            # Internal task identity can appear in evidence for checkpoint lineage,
+            # but must not be forwarded into provider/model input.
+            task_evidence = task_request.get("evidence")
+            if isinstance(task_evidence, Mapping) and "task_id" in task_evidence:
+                task_request["evidence"] = {
+                    key: value for key, value in task_evidence.items() if key != "task_id"
+                }
             prompt_payload = {
                 "task_request": task_request,
                 "approved_tools": [
