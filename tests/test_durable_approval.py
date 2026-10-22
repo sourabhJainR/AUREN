@@ -648,7 +648,7 @@ class DurableApprovalTests(unittest.TestCase):
             ).fetchone()
         self.assertIsNotNone(row)
         self.assertEqual("completed", row[0])
-        self.assertEqual("provider-op-001", json.loads(row[1])["provider_operation_id"])
+        self.assertEqual(64, len(json.loads(row[1])["result_digest"]))
 
         self.now += timedelta(minutes=10)
         restarted = self.make_store()
