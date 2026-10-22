@@ -133,11 +133,12 @@ def test_stale_ci_poller_is_visible_and_audited_on_next_cycle(tmp_path):
         supervisor._event("previous-run", "poll_result", {
             "poller": poller_name, "result": {"status": "success"},
         })
-    health = supervisor.status()["poller_health"]
-    assert health == [{
-        "poller": poller_name, "last_poll_at": stale_timestamp,
-        "age_seconds": health[0]["age_seconds"], "last_status": "success", "stale": True,
-    }]
+    health = supervisor.status()["poller_health"][0]
+    assert health["poller"] == poller_name
+    assert health["last_poll_at"] == stale_timestamp
+    assert health["last_status"] == "success"
+    assert health["age_seconds"] >= 300
+    assert health["stale"] is True
 
     report = supervisor.run(poll_seconds=0.1, batch_size=10, max_cycles=1)
     status = supervisor.status(event_limit=100)
