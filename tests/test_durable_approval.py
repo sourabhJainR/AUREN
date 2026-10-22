@@ -43,6 +43,25 @@ def _crash_after_approval_commit(db_path: str, approval_id: str, now_iso: str) -
     os._exit(77)
 
 
+def _crash_before_approval_progress_projection(root: str, approval_id: str, now_iso: str) -> None:
+    now = datetime.fromisoformat(now_iso)
+    controller = ExecutionController(Path(root))
+    store = DurableApprovalStore(
+        controller,
+        approver_authorizer=lambda approver, role, scope, roles: (
+            approver == "reviewer-1" and role in roles and scope == "repo:publish"
+        ),
+        clock=lambda: now,
+    )
+    store._project_progress = lambda record, event_type: os._exit(78)
+    store.decide(
+        approval_id, "approve", approver_id="reviewer-1",
+        roles=("release-approver",), scope="repo:publish",
+        reason="decision committed before simulated journal projection crash",
+    )
+    os._exit(79)
+
+
 APPROVAL_FLOW = {}
 
 
@@ -515,6 +534,37 @@ class DurableApprovalTests(unittest.TestCase):
         self.assertEqual(1, restarted.wake_approved())
         self.assertEqual([(record.task_id, record.approval_id)], recovered_wakeups)
         self.assertEqual("approved", restarted.get(record.approval_id).status)
+
+
+    def test_process_death_after_approval_commit_repairs_missing_progress_projection(self):
+        record = self.create()
+        before = [
+            row for row in self.controller.progress_journal._events()
+            if row.get("task_id") == record.task_id and record.approval_id in row.get("message", "")
+        ]
+        self.assertEqual(1, len(before))
+        process = multiprocessing.get_context("spawn").Process(
+            target=_crash_before_approval_progress_projection,
+            args=(str(self.root), record.approval_id, self.now.isoformat()),
+        )
+        process.start()
+        process.join(15)
+        if process.is_alive():
+            process.terminate()
+            process.join(3)
+            self.fail("approval progress-projection crash fixture exceeded its time budget")
+        self.assertEqual(78, process.exitcode)
+
+        restarted = self.make_store()
+        self.assertEqual("approved", restarted.get(record.approval_id).status)
+        self.assertEqual(1, restarted.reconcile_progress())
+        events = [
+            row for row in restarted.progress_journal._events()
+            if row.get("task_id") == record.task_id and record.approval_id in row.get("message", "")
+        ]
+        self.assertEqual(2, len(events))
+        self.assertTrue(any(f"[approval:{record.approval_id}:v1]" in row["message"] for row in events))
+        self.assertEqual(0, restarted.reconcile_progress())
 
     def test_audit_chain_and_progress_reconciliation(self):
         record = self.create()
