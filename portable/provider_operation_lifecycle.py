@@ -158,14 +158,14 @@ class ProviderOperationLifecycle:
             if (
                 receipt.get("status") != "completed"
                 or not isinstance(provider_operation_id, str)
-                or not provider_operation_id.strip()
+                or provider_operation_id != op_id
             ):
                 self._event(
                     operation_key, "blocked", op_id, record["payload_digest"],
                     reason="reconciliation_receipt_incomplete",
                 )
                 raise ProviderOutcomeBlocked(
-                    "provider lookup did not return a completed receipt with an operation ID"
+                    "provider lookup did not return a completed receipt bound to the requested operation ID"
                 )
             result = self.ledger.record_reconciled_effect(
                 operation_key, evidence_ref=evidence_ref, receipt=receipt
