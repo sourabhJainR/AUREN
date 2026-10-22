@@ -8,7 +8,7 @@ is finalized after an ambiguous result.
 from __future__ import annotations
 
 from contextlib import contextmanager
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
@@ -308,6 +308,7 @@ class DurableApprovalStore:
         }
         approval_id = "approval-" + _digest(identity)[:40]
         created_new = False
+        superseded_records: list[ApprovalRecord] = []
         with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
             same = db.execute(
@@ -330,10 +331,11 @@ class DurableApprovalStore:
                             "operation is executing, unresolved, or completed; use a new operation_id for changed content"
                         )
                     if prior["status"] in {"pending", "approved"}:
-                        self._transition(
+                        prior = self._transition(
                             db, prior, "superseded", event_type="approval_superseded",
                             actor="system", reason="a new request changed the approved binding",
                         )
+                        superseded_records.append(_record(prior))
                 created_at = _time_text(now)
                 db.execute(
                     "INSERT INTO durable_approvals (approval_id,task_id,operation_id,requested_action,"
@@ -360,6 +362,8 @@ class DurableApprovalStore:
                 db.commit()
                 result = _record(row)
                 created_new = True
+        for prior_record in superseded_records:
+            self._project_progress(prior_record, "approval_superseded")
         self._project_progress(result, "approval_requested" if created_new else "approval_state")
         return result
 
@@ -469,6 +473,10 @@ class DurableApprovalStore:
                 db.rollback()
                 raise KeyError("unknown approval_id")
             row = self._expire(db, row)
+            if row["status"] == "expired":
+                db.commit()
+                self._project_progress(_record(row), "approval_expired")
+                raise InvalidApprovalTransition("approval expired before the decision was recorded")
             prior_vote = db.execute(
                 "SELECT decision FROM durable_approval_decisions WHERE approval_id=? AND approver_id=?",
                 (approval_id, approver_id),
@@ -553,6 +561,10 @@ class DurableApprovalStore:
                 db.rollback()
                 raise KeyError("unknown approval_id")
             row = self._expire(db, row)
+            if row["status"] == "expired":
+                db.commit()
+                self._project_progress(_record(row), "approval_expired")
+                raise InvalidApprovalTransition("approval expired before execution")
             if row["status"] != "approved":
                 db.rollback()
                 raise InvalidApprovalTransition(f"approval is {row['status']}, not approved")
