@@ -1,3 +1,7 @@
+from contextlib import closing
+import multiprocessing
+import os
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
@@ -8,6 +12,23 @@ from portable.canonical_evidence_ledger import CanonicalEvidenceLedger, Evidence
 HEAD = "b" * 40
 OTHER_HEAD = "c" * 40
 PAYLOAD_DIGEST = "a" * 64
+
+
+def _record_evidence_then_exit(database: str) -> None:
+    ledger = CanonicalEvidenceLedger(database)
+    ledger.record(
+        evidence_id="ci:crash-after-commit",
+        repository="sourabhJainR/AUREN",
+        head_sha=HEAD,
+        evidence_type="ci_check",
+        status="passed",
+        source_uri="https://github.com/sourabhJainR/AUREN/actions/runs/crash-fixture",
+        payload_digest=PAYLOAD_DIGEST,
+        signer_id="operator-ci",
+    )
+    # The durable row is committed, but the parent never receives the return
+    # value. This models a caller crash at the commit/acknowledgement boundary.
+    os._exit(86)
 
 
 class CanonicalEvidenceLedgerTests(unittest.TestCase):
@@ -40,6 +61,47 @@ class CanonicalEvidenceLedgerTests(unittest.TestCase):
         resolved = reopened.resolve(created["evidence_id"], repository="sourabhJainR/AUREN", head_sha=HEAD)
         self.assertEqual(resolved["record_digest"], created["record_digest"])
         self.assertIsNone(reopened.resolve(created["evidence_id"], repository="sourabhJainR/AUREN", head_sha=OTHER_HEAD))
+
+
+    def test_process_death_after_evidence_commit_allows_idempotent_retry(self):
+        process = multiprocessing.get_context("spawn").Process(
+            target=_record_evidence_then_exit,
+            args=(str(self.database),),
+        )
+        process.start()
+        process.join(15)
+        if process.is_alive():
+            process.terminate()
+            process.join(3)
+            self.fail("evidence commit crash fixture exceeded its time budget")
+        self.assertEqual(86, process.exitcode)
+
+        reopened = CanonicalEvidenceLedger(self.database)
+        recovered = reopened.record(
+            evidence_id="ci:crash-after-commit",
+            repository="sourabhJainR/AUREN",
+            head_sha=HEAD,
+            evidence_type="ci_check",
+            status="passed",
+            source_uri="https://github.com/sourabhJainR/AUREN/actions/runs/crash-fixture",
+            payload_digest=PAYLOAD_DIGEST,
+            signer_id="operator-ci",
+        )
+        self.assertEqual("ci:crash-after-commit", recovered["evidence_id"])
+        self.assertEqual(
+            ("ci:crash-after-commit",),
+            reopened.known_evidence_ids(repository="sourabhJainR/AUREN", head_sha=HEAD),
+        )
+        with closing(sqlite3.connect(self.database)) as db, db:
+            count = db.execute(
+                "SELECT COUNT(*) FROM canonical_evidence WHERE evidence_id=?",
+                ("ci:crash-after-commit",),
+            ).fetchone()[0]
+        self.assertEqual(1, count)
+        self.assertEqual(
+            recovered["record_digest"],
+            reopened.resolve("ci:crash-after-commit", repository="sourabhJainR/AUREN", head_sha=HEAD)["record_digest"],
+        )
 
     def test_same_evidence_id_cannot_be_rebound_to_different_content(self):
         first = self.record()
