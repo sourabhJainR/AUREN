@@ -79,6 +79,7 @@ class ConsequentialRunOnceRecoveryTests(unittest.TestCase):
                     "status": "completed",
                     "evidence_ref": "https://provider.example/operations/remote-99",
                     "receipt": {
+                        "status": "completed",
                         "result": {"success": True, "detail": "remote outcome verified",
                                    "evidence": ["https://provider.example/operations/remote-99"]},
                         "provider_operation_id": operation_id,

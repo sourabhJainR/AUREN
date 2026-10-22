@@ -147,10 +147,28 @@ class ProviderOperationLifecycle:
             raise ProviderOutcomeBlocked("provider lookup result is invalid; explicit resolution required")
         if status.get("status") == "completed" and isinstance(status.get("receipt"), Mapping):
             evidence_ref = status.get("evidence_ref")
+            receipt = dict(status["receipt"])
             if not isinstance(evidence_ref, str) or not evidence_ref.strip():
                 raise ProviderOutcomeBlocked("provider completion lacks a trusted evidence reference")
+            # The lookup envelope and receipt are separate claims. Do not let a
+            # completed lookup envelope promote a pending/malformed receipt.
+            # The provider operation ID is part of the evidence binding checked
+            # by the trusted reconciliation verifier.
+            provider_operation_id = receipt.get("provider_operation_id")
+            if (
+                receipt.get("status") != "completed"
+                or not isinstance(provider_operation_id, str)
+                or provider_operation_id != op_id
+            ):
+                self._event(
+                    operation_key, "blocked", op_id, record["payload_digest"],
+                    reason="reconciliation_receipt_incomplete",
+                )
+                raise ProviderOutcomeBlocked(
+                    "provider lookup did not return a completed receipt bound to the requested operation ID"
+                )
             result = self.ledger.record_reconciled_effect(
-                operation_key, evidence_ref=evidence_ref, receipt=dict(status["receipt"])
+                operation_key, evidence_ref=evidence_ref, receipt=receipt
             )
             self._event(operation_key, "completed", op_id, result.payload_digest,
                         evidence_ref=evidence_ref, reconciled=True)
