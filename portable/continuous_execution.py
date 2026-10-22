@@ -416,6 +416,99 @@ class ContinuousExecutionSupervisor:
                 (lease_until, cycle, _now(), _now()),
             )
 
+    def _repair_transition(
+        self, run_id: str, *, stable_key: str, to_state: str,
+        task_id: str | None = None, head_sha: str | None = None, reason: str = "",
+    ) -> None:
+        """Append each CI repair lifecycle transition once to the hash-chained audit."""
+        allowed = {"observed", "triaged", "queued", "claimed", "repairing", "validating", "resolved", "blocked"}
+        if to_state not in allowed or not stable_key:
+            raise ValueError("invalid CI repair lifecycle transition")
+        with sqlite3.connect(self.path, timeout=5) as db:
+            rows = db.execute(
+                "SELECT payload_json FROM events WHERE event_type='ci_repair_lifecycle' ORDER BY sequence"
+            ).fetchall()
+        previous = None
+        for (raw,) in rows:
+            try:
+                payload = json.loads(raw)
+            except (TypeError, json.JSONDecodeError):
+                raise RuntimeError("CI repair lifecycle audit record is corrupt")
+            if payload.get("stable_key") == stable_key:
+                previous = payload.get("to_state")
+        # Terminal outcomes never regress because a later poll can repeat the
+        # same failed check after the repair has already been finalized.
+        if previous in {"resolved", "blocked"}:
+            return
+        if previous == to_state:
+            return
+        self._event(run_id, "ci_repair_lifecycle", {
+            "stable_key": stable_key, "task_id": task_id,
+            "head_sha": head_sha, "from_state": previous, "to_state": to_state,
+            "reason": reason[:240],
+        })
+
+    def _sync_repair_lifecycle(self, run_id: str) -> None:
+        """Rebuild lifecycle transitions from durable task and progress records."""
+        if self.repair_watchdog is None:
+            return
+        with sqlite3.connect(self.controller.db_path, timeout=5) as db:
+            rows = db.execute("SELECT id,payload,state FROM tasks").fetchall()
+        progress = self.controller.progress_journal._events()
+        finalizations = []
+        with sqlite3.connect(self.path, timeout=5) as db:
+            finalizations = db.execute(
+                "SELECT payload_json FROM events WHERE event_type='ci_repair_finalized' ORDER BY sequence"
+            ).fetchall()
+        finalized_by_task: dict[str, str] = {}
+        for (raw,) in finalizations:
+            try:
+                item = json.loads(raw)
+            except (TypeError, json.JSONDecodeError):
+                raise RuntimeError("CI repair finalization audit record is corrupt")
+            task_id = item.get("task_id")
+            if isinstance(task_id, str):
+                finalized_by_task[task_id] = str(item.get("status", "blocked"))
+        for task_id, raw_payload, task_state in rows:
+            try:
+                payload = json.loads(raw_payload)
+            except (TypeError, json.JSONDecodeError):
+                continue
+            repair = payload.get("auren_ci_repair")
+            if not isinstance(repair, Mapping):
+                continue
+            stable_key = repair.get("stable_key")
+            head_sha = repair.get("head_sha")
+            if not isinstance(stable_key, str) or not stable_key:
+                continue
+            task_events = [event for event in progress if event.get("task_id") == task_id]
+            for event in task_events:
+                name = event.get("event")
+                stage = event.get("stage")
+                if name == "task_submitted":
+                    self._repair_transition(run_id, stable_key=stable_key, to_state="queued",
+                                            task_id=task_id, head_sha=head_sha, reason="durable task submitted")
+                elif name == "attempt_started":
+                    self._repair_transition(run_id, stable_key=stable_key, to_state="claimed",
+                                            task_id=task_id, head_sha=head_sha, reason="execution controller claimed task")
+                    self._repair_transition(run_id, stable_key=stable_key, to_state="repairing",
+                                            task_id=task_id, head_sha=head_sha, reason="repair execution started")
+                elif stage in {"validation", "verification", "ci_repair_validation"}:
+                    self._repair_transition(run_id, stable_key=stable_key, to_state="validating",
+                                            task_id=task_id, head_sha=head_sha, reason="validation stage observed")
+                elif event.get("state") in {"running", "recovering"} and stage not in {"queued"}:
+                    self._repair_transition(run_id, stable_key=stable_key, to_state="repairing",
+                                            task_id=task_id, head_sha=head_sha, reason="active repair progress observed")
+            if task_state in {"completed", "failed", "cancelled", "blocked_reconciliation"}:
+                outcome = finalized_by_task.get(task_id)
+                target = "resolved" if task_state == "completed" and outcome == "passed" else "blocked"
+                self._repair_transition(
+                    run_id, stable_key=stable_key, to_state=target, task_id=task_id,
+                    head_sha=head_sha,
+                    reason="validated repair outcome recorded" if target == "resolved"
+                    else "terminal task lacks passing validation evidence or ended unsuccessfully",
+                )
+
     def run(
         self,
         *,
@@ -455,6 +548,7 @@ class ContinuousExecutionSupervisor:
                         stale = self.repair_watchdog.stale_tasks(stale_after_seconds=max(300.0, poll_seconds * 3))
                         for finding in stale:
                             self._event(run_id, "stale_work_detected", _safe_value(finding))
+                        self._sync_repair_lifecycle(run_id)
                 except Exception as exc:
                     # resume_pending already handles independently verified terminal task failures.
                     # Anything that escapes means recovery/lease/store state is ambiguous: fail closed.
@@ -487,6 +581,19 @@ class ContinuousExecutionSupervisor:
                                     "check_id": detail.get("id"), "head_sha": head_sha,
                                 }).encode("utf-8")).hexdigest()
                                 try:
+                                    identity = {
+                                        "repository": str(repository), "head_sha": str(head_sha).lower(),
+                                        "check_identity": str(check_name), "failure_fingerprint": fingerprint,
+                                    }
+                                    stable_key = "ci-repair-" + hashlib.sha256(_canonical(identity).encode("utf-8")).hexdigest()
+                                    self._repair_transition(
+                                        run_id, stable_key=stable_key, to_state="observed",
+                                        head_sha=str(head_sha).lower(), reason="terminal failed required check observed",
+                                    )
+                                    self._repair_transition(
+                                        run_id, stable_key=stable_key, to_state="triaged",
+                                        head_sha=str(head_sha).lower(), reason="failure identity and bounded evidence selected",
+                                    )
                                     queued = self.controller.observe_failed_ci_check(
                                         recovery_ledger=self.recovery_ledger,
                                         repository=str(repository), head_sha=str(head_sha),
@@ -499,6 +606,13 @@ class ContinuousExecutionSupervisor:
                                         "head_sha": head_sha, "task_id": queued.get("task_id"),
                                         "stable_key": queued.get("stable_key"), "reason": queued.get("reason"),
                                     })
+                                    lifecycle_status = "queued" if queued.get("status") in {"queued", "already_queued"} else "blocked"
+                                    self._repair_transition(
+                                        run_id, stable_key=stable_key, to_state=lifecycle_status,
+                                        task_id=queued.get("task_id"), head_sha=str(head_sha).lower(),
+                                        reason="repair task is durably queued" if lifecycle_status == "queued"
+                                        else str(queued.get("reason", "repair budget or policy blocked enqueue")),
+                                    )
                                 except Exception as repair_exc:
                                     self._event(run_id, "ci_repair_enqueue_error", {
                                         "cycle": cycles, "poller": name, "check": check_name,
