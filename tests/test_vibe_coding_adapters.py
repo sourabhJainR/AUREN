@@ -34,7 +34,7 @@ def _crash_after_vibe_stage_receipt(database: str, call_log: str) -> None:
     stage = VibeStage.PREVIEW_DEPLOYMENT
     def invoke(request):
         with open(call_log, "a", encoding="utf-8") as handle:
-            handle.write("dispatched\\n")
+            handle.write("dispatched\n")
         return output_for(stage, request["state"])
     registry.register(AdapterRegistration(
         "crash-deployment-adapter", "1", (stage,),
