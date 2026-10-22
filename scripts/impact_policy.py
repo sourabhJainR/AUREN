@@ -20,14 +20,11 @@ class Impact:
 # a mandatory focused suite; recovery changes also require production hardening.
 _RULES: tuple[tuple[str, tuple[str, ...], bool], ...] = (
     ("portable/side_effect_ledger.py", ("tests.test_side_effect_ledger", "tests.test_provider_operation_lifecycle"), True),
-    ("portable/action_governance.py", ("tests.test_durable_approval",), True),
-    ("portable/durable_approval.py", ("tests.test_durable_approval", "tests.test_side_effect_ledger", "tests.test_execution_controller"), True),
+    ("portable/durable_approval.py", ("tests.test_durable_approval", "tests.test_side_effect_ledger", "tests.test_execution_controller", "tests.test_execution_boundary"), True),
     ("portable/provider_operation_lifecycle.py", ("tests.test_provider_operation_lifecycle", "tests.test_side_effect_ledger"), True),
     ("portable/ci_repair_watchdog.py", ("tests.test_ci_repair_watchdog", "tests.test_engineering_recovery"), True),
-    ("portable/durable_approval.py", ("tests.test_durable_approval", "tests.test_execution_boundary"), True),
     ("portable/action_governance.py", ("tests.test_durable_approval", "tests.test_execution_boundary"), True),
     ("portable/execution_boundary.py", ("tests.test_execution_boundary", "tests.test_durable_approval"), True),
-    ("tests/test_durable_approval.py", ("tests.test_durable_approval",), True),
     ("portable/continuous_execution.py", ("tests.test_continuous_execution", "tests.test_ci_repair_watchdog", "tests.test_engineering_recovery"), True),
     ("tests/test_continuous_execution.py", ("tests.test_continuous_execution",), True),
     ("tests/test_ci_repair_watchdog.py", ("tests.test_ci_repair_watchdog",), True),
@@ -58,6 +55,7 @@ _RULES: tuple[tuple[str, tuple[str, ...], bool], ...] = (
     ("tests/test_provider_operation_lifecycle.py", ("tests.test_provider_operation_lifecycle",), True),
     ("tests/test_side_effect_ledger.py", ("tests.test_side_effect_ledger",), True),
     ("tests/test_durable_approval.py", ("tests.test_durable_approval", "tests.test_side_effect_ledger_crash_fault_injection"), True),
+    ("tests/test_continuous_execution_cli.py", ("tests.test_continuous_execution_cli",), True),
     ("scripts/impact_policy.py", ("tests.test_impact_policy",), True),
     ("auren_cli.py", ("tests.test_continuous_execution_cli", "tests.test_continuous_execution"), True),
     ("tests/test_impact_policy.py", ("tests.test_impact_policy",), True),
