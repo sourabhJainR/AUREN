@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import threading
+from datetime import datetime, timedelta, timezone
 import time
 from unittest.mock import patch, Mock
 
@@ -119,6 +120,30 @@ def test_github_poller_waits_for_missing_checks_and_never_guesses_success():
         result = poller()
     assert result["status"] == "waiting_for_required_checks"
     assert result["missing_checks"] == ["required-check"]
+
+
+def test_stale_ci_poller_is_visible_and_audited_on_next_cycle(tmp_path):
+    controller = ExecutionController(tmp_path)
+    poller_name = "ci:owner/repo"
+    supervisor = ContinuousExecutionSupervisor(
+        controller, pollers={poller_name: lambda: {"status": "success", "repository": "owner/repo", "head_sha": "a" * 40}},
+    )
+    stale_timestamp = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
+    with patch("portable.continuous_execution._now", return_value=stale_timestamp):
+        supervisor._event("previous-run", "poll_result", {
+            "poller": poller_name, "result": {"status": "success"},
+        })
+    health = supervisor.status()["poller_health"]
+    assert health == [{
+        "poller": poller_name, "last_poll_at": stale_timestamp,
+        "age_seconds": health[0]["age_seconds"], "last_status": "success", "stale": True,
+    }]
+
+    report = supervisor.run(poll_seconds=0.1, batch_size=10, max_cycles=1)
+    status = supervisor.status(event_limit=100)
+    assert report["audit_chain_valid"] is True
+    assert any(event["event_type"] == "stale_ci_polling_detected" for event in status["recent_events"])
+    assert status["poller_health"][0]["stale"] is False
 
 
 def test_audit_chain_detects_tampering(tmp_path):
