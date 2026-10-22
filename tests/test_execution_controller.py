@@ -1332,9 +1332,68 @@ def test_consequential_unknown_provider_outcome_blocks_new_task_redispatch(tmp_p
             },
         )
 
-    with pytest.raises(TimeoutError):
+    from portable.provider_operation_lifecycle import ProviderOutcomeBlocked
+    with pytest.raises(ProviderOutcomeBlocked):
         controller._invoke_consequential_with_ledger(task("task-timeout"), provider)
-    with pytest.raises(RuntimeError, match="requires reconciliation"):
+    with pytest.raises(ProviderOutcomeBlocked, match="explicit operator resolution"):
         controller._invoke_consequential_with_ledger(task("task-resume"), provider)
 
     assert calls == ["def456"]
+
+def test_provider_adapter_reconciles_ambiguous_outcome_before_any_redispatch(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    import pytest
+    from portable.provider_operation_lifecycle import ProviderOutcomeBlocked
+    from portable.side_effect_ledger import DurableSideEffectLedger
+
+    controller = ExecutionController(tmp_path)
+    calls = []
+
+    def provider(payload):
+        calls.append(payload["auren_provider_operation"]["idempotency_key"])
+        raise TimeoutError("remote operation accepted but response was lost")
+
+    monkeypatch.setattr(
+        controller, "_invoke_with_lease_heartbeat",
+        lambda _task, handler: handler(_task.payload),
+    )
+
+    class Adapter:
+        def lookup_operation(self, operation_id, idempotency_key):
+            return {
+                "status": "completed",
+                "evidence_ref": "https://provider.example/operations/remote-42",
+                "receipt": {
+                    "result": {"success": True, "provider_operation_id": "remote-42"},
+                    "provider_operation_id": operation_id,
+                },
+            }
+
+        def verify_reconciliation(self, key, evidence_ref, receipt):
+            return (
+                key.startswith("provider-operation:")
+                and evidence_ref == "https://provider.example/operations/remote-42"
+                and receipt.get("provider_operation_id", "").startswith("auren-op-")
+                and receipt.get("result", {}).get("success") is True
+            )
+
+    controller.register_provider_operation_adapter("tests.deploy", Adapter())
+    task = SimpleNamespace(
+        id="provider-adapter-reconcile",
+        handler="tests.deploy",
+        payload={"target": "production", "revision": "abc123"},
+        work_unit_id="work-provider-reconcile",
+        attempts=1,
+    )
+    with pytest.raises(ProviderOutcomeBlocked):
+        controller._invoke_consequential_with_ledger(task, provider)
+
+    result = controller._invoke_consequential_with_ledger(task, provider)
+    assert result["success"] is True
+    assert calls == ["provider-operation:execution-task:provider-adapter-reconcile"]
+    row = DurableSideEffectLedger(controller.db_path).get(
+        "execution-task:provider-adapter-reconcile"
+    )
+    assert row["state"] == "completed"
+    assert row["receipt"]["result"]["success"] is True
+

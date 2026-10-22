@@ -1,10 +1,18 @@
 # Provider operation lifecycle and recovery boundary
 
-Status: required implementation contract; runtime integration is not yet verified.
+Status: lifecycle implementation and supervisor integration added on this branch; exact-head tests and independent review are still required.
 
 ## Invariant
 
 Every consequential provider operation has one stable operation ID and one immutable canonical intent. Persist both, along with the provider identity, intent digest, idempotency capability, and initial state, before the first network dispatch. The operation ID is derived from the stable logical operation key and intent digest, not an ephemeral worker attempt or regenerated task ID.
+
+## Controller and provider adapter contract
+
+Register a trusted adapter against the consequential handler with `ExecutionController.register_provider_operation_adapter(handler_name, adapter)`. The adapter must expose `lookup_operation(operation_id, idempotency_key)` and a host-trusted `verify_reconciliation(idempotency_key, evidence_ref, receipt)`. The consequential handler receives `auren_provider_operation` metadata containing the stable operation ID and idempotency key and must pass that key to the provider when supported.
+
+An unresolved consequential task is persisted as `blocked_reconciliation`, and its work unit waits for external resolution. After registering the trusted adapter, an operator can call `resume_blocked_provider_task` with the task ID, its clarification ID, operator identity, and reason. That action requeues status lookup only; it does not authorize a remote side effect.
+
+On recovery, the controller performs the adapter's read-only lookup before allowing any further dispatch. Only a completed outcome with a provider evidence reference accepted by the trusted verifier closes the ledger. Pending, absent, malformed, not-found, or failed lookup results remain blocked. Adapters must be re-registered by the trusted host after worker restart; missing adapter configuration never triggers a replay.
 
 ## Required lifecycle
 
@@ -56,12 +64,13 @@ Assert provider call counts, durable states, immutable receipts, operation-ID st
 
 ## Integration sequence
 
-1. Extend the existing durable side-effect ledger rather than creating a competing source of truth.
-2. Persist the canonical intent and stable provider operation ID in the ledger before invoking consequential handlers.
-3. Add provider adapter capability metadata and a common dispatch/reconcile contract.
-4. Wire the lifecycle into ExecutionController, supervisor dispatch, progress journal, and evidence graph.
-5. Add adapter-specific failure-injection tests, then run exact-head required CI and post-merge main verification.
-6. Keep any provider without authoritative recovery blocked until an operator resolves it with evidence.
+1. ProviderOperationLifecycle composes with DurableSideEffectLedger; it does not create a second database or polling daemon.
+2. Consequential ExecutionController dispatch persists a stable provider operation identity and intent before invoking the handler, passes the idempotency key in adapter context, and records bounded events in the progress journal and canonical engineering evidence capture.
+3. Provider adapters can use ProviderOperationLifecycle.execute and reconcile; completion during reconciliation requires the trusted ledger verifier and an evidence reference. Unknown, pending, not-found, malformed, or failed lookup outcomes do not authorize replay.
+4. CIRepairWatchdog is callable from the existing supervisor cycle through ExecutionController.observe_failed_ci_check. It deduplicates by repository, immutable head SHA, check identity, and failure fingerprint, using the existing task table and EngineeringRecoveryLedger.
+5. Repair attempts remain open until their real validation outcome is recorded. finish_repair_attempt blocks when no new evidence reference is produced. Stale-work findings are returned to the existing supervisor; no second polling loop is created.
+6. The impact policy maps sensitive recovery paths to mandatory suites and fails closed on unclassified sensitive paths. Production hardening is required for recovery ledger, journal, controller, provider lifecycle, authority, and rollback paths; documentation-only changes do not trigger that expensive workflow.
+7. Exact-head CI, review, and post-merge main verification remain required. No merge is permitted while checks are pending, skipped-but-required, or failing.
 
 ## Non-goals and safety
 

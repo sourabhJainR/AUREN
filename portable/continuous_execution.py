@@ -169,7 +169,11 @@ class GitHubActionsCheckPoller:
             # run is complete and successful; this avoids hiding a failed rerun.
             # GitHub retains failed runs after a rerun. Bind the decision to the
             # latest exact-name check on this immutable SHA, not stale prior attempts.
-            details[name] = {"status": latest.get("status"), "conclusion": latest.get("conclusion"), "id": latest.get("id")}
+            details[name] = {
+                "status": latest.get("status"), "conclusion": latest.get("conclusion"),
+                "id": latest.get("id"),
+                "evidence_url": latest.get("html_url") or latest.get("details_url"),
+            }
             if latest.get("status") != "completed":
                 pending.append(name)
             elif latest.get("conclusion") != "success":
@@ -204,6 +208,8 @@ class ContinuousExecutionSupervisor:
         *,
         pollers: Mapping[str, Callable[[], Mapping[str, Any]]] | None = None,
         lease_seconds: int = 30,
+        repair_handler: str | None = None,
+        recovery_ledger: Any | None = None,
     ) -> None:
         if not isinstance(controller, ExecutionController):
             raise TypeError("controller must be an ExecutionController")
@@ -214,6 +220,20 @@ class ContinuousExecutionSupervisor:
         self.path = self.root / ".auren" / "continuous-execution.sqlite3"
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.pollers = dict(pollers or {})
+        if repair_handler is not None and (not isinstance(repair_handler, str) or not repair_handler.strip()):
+            raise ValueError("repair_handler must be a registered handler name")
+        self.repair_handler = repair_handler.strip() if isinstance(repair_handler, str) else None
+        self.recovery_ledger = recovery_ledger
+        if self.repair_handler is not None and self.recovery_ledger is None:
+            from .engineering_recovery import EngineeringRecoveryLedger
+            self.recovery_ledger = EngineeringRecoveryLedger(self.root / ".auren" / "engineering-recovery.sqlite3")
+        self.repair_watchdog = None
+        if self.repair_handler is not None:
+            from .engineering_recovery import EngineeringRecoveryLedger
+            from .ci_repair_watchdog import CIRepairWatchdog
+            if not isinstance(self.recovery_ledger, EngineeringRecoveryLedger):
+                raise TypeError("repair automation requires the canonical EngineeringRecoveryLedger")
+            self.repair_watchdog = CIRepairWatchdog(self.controller, self.recovery_ledger)
         for name, callback in self.pollers.items():
             if not isinstance(name, str) or not name.strip() or not callable(callback):
                 raise ValueError("pollers require non-empty names and callable values")
@@ -429,6 +449,12 @@ class ContinuousExecutionSupervisor:
                 batch_error = None
                 try:
                     self.controller.resume_pending(limit=batch_size, continue_after_durable_failure=True)
+                    if self.repair_watchdog is not None:
+                        for finding in self.repair_watchdog.finalize_terminal_tasks():
+                            self._event(run_id, "ci_repair_finalized", _safe_value(finding))
+                        stale = self.repair_watchdog.stale_tasks(stale_after_seconds=max(300.0, poll_seconds * 3))
+                        for finding in stale:
+                            self._event(run_id, "stale_work_detected", _safe_value(finding))
                 except Exception as exc:
                     # resume_pending already handles independently verified terminal task failures.
                     # Anything that escapes means recovery/lease/store state is ambiguous: fail closed.
@@ -446,6 +472,38 @@ class ContinuousExecutionSupervisor:
                             raise ValueError("poller returned an unsupported status")
                         poll_results[name] = clean
                         self._event(run_id, "poll_result", {"cycle": cycles, "poller": name, "result": clean})
+                        if clean.get("status") == "failure" and self.repair_handler and self.recovery_ledger is not None:
+                            failed_checks = clean.get("failed_checks", [])
+                            check_details = clean.get("checks", {})
+                            for check_name in failed_checks:
+                                detail = check_details.get(check_name, {}) if isinstance(check_details, Mapping) else {}
+                                evidence_url = detail.get("evidence_url") if isinstance(detail, Mapping) else None
+                                repository = clean.get("repository")
+                                head_sha = clean.get("head_sha")
+                                if not isinstance(evidence_url, str) or not evidence_url.startswith("https://"):
+                                    evidence_url = f"https://api.github.com/repos/{repository}/commits/{head_sha}/check-runs"
+                                fingerprint = hashlib.sha256(_canonical({
+                                    "check": check_name, "conclusion": detail.get("conclusion"),
+                                    "check_id": detail.get("id"), "head_sha": head_sha,
+                                }).encode("utf-8")).hexdigest()
+                                try:
+                                    queued = self.controller.observe_failed_ci_check(
+                                        recovery_ledger=self.recovery_ledger,
+                                        repository=str(repository), head_sha=str(head_sha),
+                                        check_identity=str(check_name), failure_fingerprint=fingerprint,
+                                        evidence_refs=[evidence_url], handler=self.repair_handler,
+                                        diagnosis=f"Required check {check_name} concluded {detail.get('conclusion', 'failure')} on the immutable head.",
+                                    )
+                                    self._event(run_id, "ci_repair_" + str(queued.get("status", "unknown")), {
+                                        "cycle": cycles, "poller": name, "check": check_name,
+                                        "head_sha": head_sha, "task_id": queued.get("task_id"),
+                                        "stable_key": queued.get("stable_key"), "reason": queued.get("reason"),
+                                    })
+                                except Exception as repair_exc:
+                                    self._event(run_id, "ci_repair_enqueue_error", {
+                                        "cycle": cycles, "poller": name, "check": check_name,
+                                        "head_sha": head_sha, "error_type": type(repair_exc).__name__,
+                                    })
                     except Exception as exc:
                         poll_results[name] = {"status": "poll_error", "error_type": type(exc).__name__}
                         self._event(run_id, "poll_error", {"cycle": cycles, "poller": name, "error_type": type(exc).__name__})

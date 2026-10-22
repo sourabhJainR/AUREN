@@ -31,6 +31,7 @@ from .evidence_gate import EvidenceCheck
 from .evidence_gate_integration import EvidenceGateIntegration, IntegratedEvidenceReceipt
 from .persistent_memory import PersistentMemory
 from .progress_journal import ProgressJournal
+from .provider_operation_lifecycle import ProviderOutcomeBlocked
 
 Handler = Callable[[Mapping[str, Any]], Any]
 
@@ -204,6 +205,9 @@ class ExecutionController:
         # Registered by EngineeringPlanDispatch; keyed by the durable plan-store path.
         # A restarted worker must explicitly restore this trusted bridge before execution.
         self._engineering_plan_recovery_bridges: dict[str, Any] = {}
+        # Provider adapters are restored by the host on worker startup. Missing
+        # adapters never authorize a retry; ambiguous effects remain blocked.
+        self._provider_operation_adapters: dict[str, Any] = {}
         self._progress_reconciliation_findings: list[str] = []
         self._progress_reconciliation_incomplete = False
         self.reconcile_progress_journal()
@@ -999,6 +1003,94 @@ class ExecutionController:
             goal=goal,
         )
 
+    def register_provider_operation_adapter(self, handler_name: str, adapter: Any) -> None:
+        """Register trusted lookup and evidence-verification capabilities for a handler.
+
+        The registered handler still performs dispatch and receives the stable
+        operation ID/idempotency key in its payload. This adapter supplies the
+        read-only outcome lookup and host-trusted receipt verifier.
+        """
+        if not isinstance(handler_name, str) or not handler_name.strip():
+            raise ValueError("handler_name is required")
+        if not callable(getattr(adapter, "lookup_operation", None)):
+            raise TypeError("provider adapter must implement lookup_operation(operation_id, idempotency_key)")
+        if not callable(getattr(adapter, "verify_reconciliation", None)):
+            raise TypeError("provider adapter must implement trusted verify_reconciliation(key, evidence_ref, receipt)")
+        self._provider_operation_adapters[handler_name.strip()] = adapter
+
+    def resume_blocked_provider_task(
+        self, task_id: str, *, clarification_id: str, operator_id: str, operator_reason: str,
+    ) -> bool:
+        """Explicitly resume a blocked task for provider reconciliation only.
+
+        A trusted provider adapter must already be registered. The resumed
+        invocation performs status lookup first; it never dispatches while the
+        durable side-effect record remains ambiguous.
+        """
+        for value, name in (
+            (task_id, "task_id"), (clarification_id, "clarification_id"),
+            (operator_id, "operator_id"), (operator_reason, "operator_reason"),
+        ):
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"{name} is required")
+        with sqlite3.connect(self.db_path, timeout=10) as db:
+            row = db.execute(
+                "SELECT handler,work_unit_id,state FROM tasks WHERE id=?", (task_id,),
+            ).fetchone()
+        if row is None:
+            raise KeyError(task_id)
+        handler_name, work_unit_id, task_state = str(row[0]), str(row[1]), str(row[2])
+        if task_state != "blocked_reconciliation":
+            raise RuntimeError("only provider-reconciliation-blocked tasks may be resumed")
+        if handler_name not in self._provider_operation_adapters:
+            raise RuntimeError("register a trusted provider status adapter before resuming reconciliation")
+        with sqlite3.connect(self.company.db_path, timeout=10) as db:
+            clarification = db.execute(
+                "SELECT state FROM clarifications WHERE id=? AND work_unit_id=?",
+                (clarification_id, work_unit_id),
+            ).fetchone()
+        if clarification is None:
+            raise KeyError("clarification does not belong to the blocked task")
+        if clarification[0] == "open":
+            self.company.resolve_clarification(
+                clarification_id,
+                f"Operator {operator_id.strip()} authorized reconciliation-only resume: {operator_reason.strip()}",
+            )
+        elif clarification[0] != "resolved":
+            raise RuntimeError("provider clarification is not in a resolvable state")
+        if self.company.open_clarifications(work_unit_id):
+            raise RuntimeError("other open clarifications must be resolved before resuming the task")
+        with sqlite3.connect(self.db_path, timeout=10) as db:
+            cursor = db.execute(
+                "UPDATE tasks SET state='pending',updated_at=?,heartbeat_at=NULL,lease_until=NULL,"
+                "lease_token=NULL WHERE id=? AND state='blocked_reconciliation'",
+                (_now(), task_id),
+            )
+        if cursor.rowcount != 1:
+            raise RuntimeError("blocked task state changed; refresh before retrying")
+        self.company.record(
+            work_unit_id, "provider_operation", "operator_reconciliation_resumed",
+            operator_reason.strip(), (f"operator:{operator_id.strip()}", f"task:{task_id}"),
+        )
+        self._record_progress(
+            task_id, "provider_reconciliation_resumed", state="queued", stage="provider_operation",
+            message=f"Operator {operator_id.strip()} authorized status lookup only; no remote redispatch is permitted.",
+        )
+        return True
+
+    def observe_failed_ci_check(self, *, recovery_ledger: Any, **observation: Any) -> Mapping[str, Any]:
+        """Called by the existing supervisor's CI poll cycle; never starts another loop."""
+        from .ci_repair_watchdog import CIRepairWatchdog
+        return CIRepairWatchdog(self, recovery_ledger).observe_failed_check(**observation)
+
+    def stale_work_findings(self, *, recovery_ledger: Any, stale_after_seconds: float,
+                            now: float | None = None) -> list[Mapping[str, Any]]:
+        """Expose bounded stale-heartbeat findings to the supervisor's existing cycle."""
+        from .ci_repair_watchdog import CIRepairWatchdog
+        return CIRepairWatchdog(self, recovery_ledger).stale_tasks(
+            stale_after_seconds=stale_after_seconds, now=now,
+        )
+
     def submit(self, handler: str, payload: Mapping[str, Any], *, goal: str | None = None) -> DurableTask:
         execution_class = self._handler_execution_class(handler)
         if execution_class == "context_provider":
@@ -1073,7 +1165,7 @@ class ExecutionController:
         return task
 
     def _finalize_claim(self, task: DurableTask, state: str) -> bool:
-        if state not in {"completed", "failed", "cancelled"}:
+        if state not in {"completed", "failed", "cancelled", "blocked_reconciliation"}:
             raise ValueError("task final state is invalid")
         if not task.lease_token or task.lease_generation < 1:
             raise LeaseLostError("task claim has no fencing token")
@@ -1501,19 +1593,143 @@ class ExecutionController:
                 raise RuntimeError("consequential side-effect receipt is malformed; refusing handler replay")
             return dict(receipt["result"])
         if decision.action != "execute":
-            raise RuntimeError(
-                "consequential side effect requires reconciliation; provider dispatch is blocked "
-                f"(ledger_state={decision.state or 'unknown'})"
+            adapter = self._provider_operation_adapters.get(task.handler)
+            if decision.state != "reconcile_required":
+                raise RuntimeError(
+                    "consequential side effect requires reconciliation; provider dispatch is blocked "
+                    f"(ledger_state={decision.state or 'unknown'})"
+                )
+            if adapter is None:
+                raise ProviderOutcomeBlocked(
+                    "provider outcome remains uncertain; task is blocked for explicit operator resolution"
+                )
+            lookup_fn = getattr(adapter, "lookup_operation", None)
+            verify_fn = getattr(adapter, "verify_reconciliation", None)
+            if not callable(lookup_fn) or not callable(verify_fn):
+                raise RuntimeError("provider adapter reconciliation capabilities are incomplete")
+            from .provider_operation_lifecycle import (
+                ProviderOperationLifecycle, stable_provider_operation_id,
             )
-        result = self._invoke_with_lease_heartbeat(task, handler)
+            provider_name = task.handler
+            provider_intent = {"binding": binding, "payload": safe_payload}
+            operation_key = "provider-operation:" + key
+            operation_id = stable_provider_operation_id(operation_key, provider_name, provider_intent)
+            try:
+                lookup_result = lookup_fn(operation_id, operation_key)
+            except Exception as exc:
+                raise ProviderOutcomeBlocked(
+                    f"provider operation {operation_id} lookup failed; explicit resolution required"
+                ) from exc
+            if (
+                not isinstance(lookup_result, Mapping)
+                or lookup_result.get("status") != "completed"
+                or not isinstance(lookup_result.get("evidence_ref"), str)
+                or not lookup_result.get("evidence_ref", "").strip()
+                or not isinstance(lookup_result.get("receipt"), Mapping)
+            ):
+                raise ProviderOutcomeBlocked(
+                    f"provider operation {operation_id} outcome is not established; task remains blocked"
+                )
+            evidence_ref = lookup_result["evidence_ref"]
+
+            def record_provider_event(event: Mapping[str, Any]) -> None:
+                operation_state = str(event.get("state", "unknown"))
+                safe_metadata = {
+                    "operation_id": str(event.get("operation_id", "")),
+                    "intent_digest": str(event.get("intent_digest", "")),
+                    "provider": provider_name,
+                    "operation_state": operation_state,
+                }
+                if hasattr(task, "work_unit_id") and hasattr(task, "attempts"):
+                    self._capture_event(
+                        "provider_operation_" + operation_state, task,
+                        status="unknown", metadata=safe_metadata,
+                    )
+                self._record_progress(
+                    task.id, "provider_operation_" + operation_state,
+                    state="running", stage="provider_operation",
+                    message="Provider operation state: " + operation_state + " (" + operation_id + ")",
+                    evidence_ref=None,
+                )
+
+            lifecycle = ProviderOperationLifecycle(
+                DurableSideEffectLedger(self.db_path, reconciliation_verifier=verify_fn),
+                record_event=record_provider_event,
+            )
+            provider_receipt = lifecycle.reconcile(
+                operation_key, provider_name, provider_intent,
+                lambda _operation_id, _idempotency_key: lookup_result,
+            )
+            result = provider_receipt.get("result")
+            if not isinstance(result, Mapping):
+                raise ProviderOutcomeBlocked("reconciled provider receipt is malformed; task remains blocked")
+            outer_receipt = {
+                "result": dict(result),
+                "provider_operation_id": provider_receipt.get("provider_operation_id"),
+                "provider_receipt": dict(provider_receipt),
+            }
+
+            def verify_outer(_key: str, ref: str, receipt: Mapping[str, Any]) -> bool:
+                nested = receipt.get("provider_receipt")
+                if not isinstance(nested, Mapping) or ref != evidence_ref:
+                    return False
+                return bool(verify_fn(operation_key, ref, nested))
+
+            DurableSideEffectLedger(
+                self.db_path, reconciliation_verifier=verify_outer,
+            ).record_reconciled_effect(key, evidence_ref=evidence_ref, receipt=outer_receipt)
+            return dict(result)
+        # Keep provider identity and operation identity in the same canonical
+        # ledger, while the outer row remains the supervisor's task-level gate.
+        from .provider_operation_lifecycle import ProviderOperationLifecycle
+
+        provider_name = task.handler
+        provider_intent = {"binding": binding, "payload": safe_payload}
+        def record_provider_event(event: Mapping[str, Any]) -> None:
+            operation_state = str(event.get("state", "unknown"))
+            operation_id = str(event.get("operation_id", ""))
+            safe_metadata = {
+                "operation_id": operation_id,
+                "intent_digest": str(event.get("intent_digest", "")),
+                "provider": provider_name,
+                "operation_state": operation_state,
+            }
+            if hasattr(task, "work_unit_id") and hasattr(task, "attempts"):
+                self._capture_event("provider_operation_" + operation_state, task,
+                                    status="unknown", metadata=safe_metadata)
+            self._record_progress(
+                task.id, "provider_operation_" + operation_state,
+                state="running", stage="provider_operation",
+                message="Provider operation state: " + operation_state + " (" + operation_id + ")",
+                evidence_ref=None,
+            )
+
+        lifecycle = ProviderOperationLifecycle(
+            DurableSideEffectLedger(self.db_path), record_event=record_provider_event,
+        )
+        def dispatch_provider(intent: Mapping[str, Any], operation_id: str, idempotency_key: str) -> Mapping[str, Any]:
+            provider_payload = dict(task.payload)
+            provider_payload["auren_provider_operation"] = {
+                "operation_id": operation_id, "idempotency_key": idempotency_key,
+                "provider": provider_name,
+                "intent_digest": hashlib.sha256(
+                    json.dumps(dict(intent), sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
+                ).hexdigest(),
+            }
+            value = self._invoke_with_lease_heartbeat(task, lambda _payload: handler(provider_payload))
+            if not isinstance(value, Mapping):
+                raise RuntimeError("consequential handlers must return a mapping receipt/result")
+            return {"result": dict(value), "provider_operation_id": operation_id}
+
+        provider_receipt = lifecycle.execute(
+            "provider-operation:" + key, provider_name, provider_intent, dispatch_provider,
+        )
+        result = provider_receipt.get("result")
         if not isinstance(result, Mapping):
-            # A non-serializable/ambiguous result must not permit implicit replay.
-            raise RuntimeError("consequential handlers must return a mapping receipt/result")
-        receipt = {"result": dict(result)}
-        # If durable receipt persistence fails, the ledger remains executing. The
-        # next attempt will require reconciliation and will not invoke the provider.
+            raise RuntimeError("provider operation receipt is malformed; task remains blocked")
+        receipt = {"result": dict(result), "provider_operation_id": provider_receipt.get("provider_operation_id")}
         DurableSideEffectLedger(self.db_path).complete(key, receipt)
-        return result
+        return dict(result)
 
     def run_once(self, task_id: str) -> TrustScore | None:
         task = self._claim(task_id)
@@ -1556,6 +1772,31 @@ class ExecutionController:
                 result = self._invoke_with_lease_heartbeat(task, handler)
         except LeaseLostError:
             raise
+        except ProviderOutcomeBlocked as exc:
+            if not self._finalize_claim(task, "blocked_reconciliation"):
+                raise LeaseLostError(
+                    "task lease was lost; stale worker cannot finalize an ambiguous provider outcome"
+                ) from exc
+            detail = f"Provider outcome is uncertain; explicit resolution required: {exc}"
+            self._capture_event("provider_operation_blocked", task, status="unknown", metadata={
+                "handler": task.handler, "failure_class": "provider_outcome_uncertain",
+            })
+            self.company.record(
+                task.work_unit_id, "provider_operation", "blocked", detail,
+                (f"handler:{task.handler}", f"task:{task.id}"),
+            )
+            self.company._transition(task.work_unit_id, "waiting_external")
+            clarification_id = self.company.hold_clarification(
+                task.work_unit_id,
+                "Provider outcome cannot be established automatically. Verify the remote operation before resuming.",
+                dependency=f"provider-operation-task:{task.id}",
+                evidence=(f"task:{task.id}",),
+            )
+            self._record_progress(
+                task.id, "provider_operation_blocked", state="blocked", stage="provider_operation",
+                message=detail + f" Clarification required: {clarification_id}",
+            )
+            return None
         except Exception as exc:
             if self._pause_for_quota(task, exc):
                 return None
