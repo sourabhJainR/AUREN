@@ -850,13 +850,39 @@ class DurableApprovalStore:
         changed: list[ApprovalRecord] = []
         with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
-            rows = db.execute(
-                "SELECT * FROM durable_approvals WHERE status='executing' AND updated_at<=? ORDER BY updated_at LIMIT 1000",
-                (cutoff,),
-            ).fetchall()
+            has_tasks = db.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='tasks'"
+            ).fetchone() is not None
+            if has_tasks:
+                rows = db.execute(
+                    "SELECT a.*,t.state AS task_state,t.lease_until AS task_lease_until,"
+                    "t.heartbeat_at AS task_heartbeat_at FROM durable_approvals a "
+                    "LEFT JOIN tasks t ON t.id=a.task_id "
+                    "WHERE a.status='executing' AND a.updated_at<=? ORDER BY a.updated_at LIMIT 1000",
+                    (cutoff,),
+                ).fetchall()
+            else:
+                rows = db.execute(
+                    "SELECT * FROM durable_approvals WHERE status='executing' AND updated_at<=? ORDER BY updated_at LIMIT 1000",
+                    (cutoff,),
+                ).fetchall()
+            now = self._now()
             for row in rows:
+                if has_tasks and row["task_state"] == "running":
+                    try:
+                        lease = _parse_time(row["task_lease_until"], "task_lease_until") if row["task_lease_until"] else None
+                        heartbeat = _parse_time(row["task_heartbeat_at"], "task_heartbeat_at") if row["task_heartbeat_at"] else None
+                    except (TypeError, ValueError):
+                        lease, heartbeat = None, None
+                    if lease is not None and heartbeat is not None and lease > now and (now - heartbeat).total_seconds() <= 90:
+                        continue
+                base_row = db.execute(
+                    "SELECT * FROM durable_approvals WHERE approval_id=?", (row["approval_id"],)
+                ).fetchone()
+                if base_row is None or base_row["status"] != "executing":
+                    continue
                 changed.append(_record(self._transition(
-                    db, row, "outcome_unknown", event_type="interrupted_execution_detected",
+                    db, base_row, "outcome_unknown", event_type="interrupted_execution_detected",
                     actor="recovery", reason="execution lease expired; remote outcome requires reconciliation",
                 )))
             db.commit()
