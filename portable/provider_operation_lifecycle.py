@@ -85,8 +85,12 @@ class ProviderOperationLifecycle:
         # A returned mapping proves only that the adapter returned. It does not
         # prove that the remote side effect completed. Never persist pending,
         # failed, malformed, or unknown provider states as a completed receipt.
-        if receipt.get("status") != "completed":
-            provider_status = receipt.get("status")
+        provider_status = receipt.get("status")
+        explicit_completion = (
+            provider_status == "completed"
+            or ("status" not in receipt and receipt.get("success") is True)
+        )
+        if not explicit_completion:
             status_label = provider_status.strip()[:80] if isinstance(provider_status, str) else "missing"
             reason = f"dispatch returned non-completed status ({status_label})"
             self.ledger.require_reconciliation(operation_key, reason)
