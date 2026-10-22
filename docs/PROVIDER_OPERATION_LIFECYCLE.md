@@ -90,3 +90,27 @@ cannot be replayed or redispatched automatically.
 The trusted lookup/reconciliation path must establish the remote outcome before
 the operation can leave that state. This guard prevents an adapter's ordinary
 return path from turning an unconfirmed side effect into a false success.
+
+
+## Exact provider-operation identity binding
+
+A reconciliation lookup may close an ambiguous operation only when the optional
+top-level operation ID, if supplied, and the required
+`receipt.provider_operation_id` match the deterministic AUREN operation ID
+derived from the persisted logical key, provider identity, and immutable intent.
+The controller also requires a mapping-valued `receipt.result` before it lets
+the inner provider ledger or outer task ledger complete. A mismatched identity
+is rejected before the trusted verifier is called, and the outer operation
+remains `reconcile_required`; a permissive test verifier cannot bypass this
+binding.
+
+This check is not proof that the provider record is genuine. The host-trusted
+verifier must still validate the provider, operation key, intent digest, receipt,
+and evidence reference against trusted provider history. Unknown, absent,
+malformed, or mismatched records never authorize a retry.
+
+Rollback: revert this change through a reviewed PR if compatibility problems
+are found. Preserve both ledgers and the evidence trail; do not delete or reset
+ambiguous operation rows. Existing mismatched operations remain blocked until
+a trusted, evidence-backed reconciliation is supplied. Never redispatch to
+make the state appear healthy.

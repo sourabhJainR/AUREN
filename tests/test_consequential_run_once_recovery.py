@@ -109,6 +109,42 @@ class ConsequentialRunOnceRecoveryTests(unittest.TestCase):
         )
         self.assertEqual("completed", record["state"])
 
+    def test_mismatched_provider_receipt_identity_stays_blocked_without_redispatch(self):
+        first = self.controller.submit("consequential-recovery-action", self._payload())
+        self.assertIsNone(self.controller.run_once(first.id))
+        self.assertEqual("blocked_reconciliation", self.controller.task(first.id).state)
+        clarification = self.controller.company.open_clarifications(first.work_unit_id)[0]
+
+        class Adapter:
+            def lookup_operation(self, operation_id, idempotency_key):
+                return {
+                    "status": "completed",
+                    "evidence_ref": "https://provider.example/operations/wrong",
+                    "receipt": {
+                        "result": {"success": True, "detail": "must not be trusted"},
+                        "provider_operation_id": "auren-op-wrong",
+                    },
+                }
+
+            def verify_reconciliation(self, key, evidence_ref, receipt):
+                # Deliberately permissive: controller identity checks must run first.
+                return True
+
+        self.controller.register_provider_operation_adapter("consequential-recovery-action", Adapter())
+        self.assertTrue(self.controller.resume_blocked_provider_task(
+            first.id, clarification_id=clarification["id"], operator_id="operator-7",
+            operator_reason="Recheck the provider result identity; reconciliation only.",
+        ))
+        self.assertIsNone(self.controller.run_once(first.id))
+        self.assertEqual("blocked_reconciliation", self.controller.task(first.id).state)
+        self.assertEqual(["abc123"], _PROVIDER_CALLS)
+
+        from portable.side_effect_ledger import DurableSideEffectLedger
+        record = DurableSideEffectLedger(self.controller.db_path).get(
+            "consequential-idempotency:run-recovery-1:deploy:staging"
+        )
+        self.assertEqual("reconcile_required", record["state"])
+
     def test_unknown_provider_outcome_after_restart_never_redispatches(self):
         first = self.controller.submit(
             "consequential-recovery-action", self._payload()

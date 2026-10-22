@@ -70,6 +70,41 @@ class ProviderOperationLifecycleTests(unittest.TestCase):
                 lifecycle.reconcile("deploy-3", "provider-a", {"target": "prod"}, lookup)
         self.assertEqual("reconcile_required", self.ledger().get("deploy-3")["state"])
 
+    def test_reconciliation_rejects_receipt_bound_to_different_operation(self):
+        def unexpected_verifier(*_args):
+            self.fail("mismatched provider identity must be rejected before evidence verification")
+
+        lifecycle = ProviderOperationLifecycle(self.ledger(verify=unexpected_verifier))
+        intent = {"target": "prod", "revision": "abc"}
+        operation_key = "deploy-identity"
+        with self.assertRaises(ProviderOutcomeBlocked):
+            lifecycle.execute(
+                operation_key, "provider-a", intent,
+                lambda *_: (_ for _ in ()).throw(TimeoutError("response lost")),
+            )
+        expected_id = stable_provider_operation_id(operation_key, "provider-a", intent)
+        mismatches = (
+            {
+                "status": "completed",
+                "operation_id": "auren-op-wrong",
+                "evidence_ref": "provider://operations/wrong",
+                "receipt": {"status": "completed", "provider_operation_id": expected_id},
+            },
+            {
+                "status": "completed",
+                "evidence_ref": "provider://operations/wrong",
+                "receipt": {"status": "completed", "provider_operation_id": "auren-op-wrong"},
+            },
+        )
+        for lookup_result in mismatches:
+            with self.subTest(lookup_result=lookup_result):
+                with self.assertRaises(ProviderOutcomeBlocked):
+                    lifecycle.reconcile(
+                        operation_key, "provider-a", intent,
+                        lambda *_args, value=lookup_result: value,
+                    )
+                self.assertEqual("reconcile_required", self.ledger().get(operation_key)["state"])
+
     def test_non_completed_dispatch_receipt_never_becomes_success(self):
         lifecycle = ProviderOperationLifecycle(self.ledger(), record_event=self.events.append)
         for index, receipt in enumerate((
