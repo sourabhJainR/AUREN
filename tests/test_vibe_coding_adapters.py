@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 import tempfile
 import os
+import multiprocessing
 from pathlib import Path
 
 from portable.vibe_coding import STAGE_ORDER, STAGE_SPECS, VibeStage
@@ -16,6 +17,38 @@ from portable.vibe_coding_adapters import (
 )
 from portable.orchestration import Orchestrator, RunStatus
 from portable.side_effect_ledger import DurableSideEffectLedger
+
+
+def _crash_after_vibe_stage_receipt(database: str, call_log: str) -> None:
+    ledger = DurableSideEffectLedger(database)
+    def record_event(event):
+        if event.get("state") == "completed":
+            # Provider receipt is already committed; kill the caller before
+            # the graph receives the stage result/checkpoint.
+            os._exit(87)
+    registry = VibeAdapterRegistry(
+        max_risk="critical",
+        side_effect_ledger=ledger,
+        side_effect_event_recorder=record_event,
+    )
+    stage = VibeStage.PREVIEW_DEPLOYMENT
+    def invoke(request):
+        with open(call_log, "a", encoding="utf-8") as handle:
+            handle.write("dispatched\n")
+        return output_for(stage, request["state"])
+    registry.register(AdapterRegistration(
+        "crash-deployment-adapter", "1", (stage,),
+        frozenset(default_stage_capabilities()[stage.value]),
+        invoke,
+        risk=next(spec.risk for spec in STAGE_SPECS if spec.stage == stage),
+        external_side_effects=True,
+    ))
+    registry.invoke(stage, {
+        "vibe_coding_workflow_id": "crash-replay-workflow",
+        "intent": "deploy preview",
+        "risk": "high",
+    })
+    os._exit(88)
 
 
 def output_for(stage, state):
@@ -159,6 +192,48 @@ class VibeCodingAdapterTests(unittest.TestCase):
         self.assertEqual(run.status, RunStatus.ACCEPTED, run.stop_reason)
         self.assertEqual(len(run.results), 18)
 
+
+
+    def test_process_death_after_vibe_receipt_commit_replays_without_redispatch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            database = Path(directory) / "operations.sqlite3"
+            call_log = Path(directory) / "provider-calls.log"
+            process = multiprocessing.get_context("spawn").Process(
+                target=_crash_after_vibe_stage_receipt,
+                args=(str(database), str(call_log)),
+            )
+            process.start()
+            process.join(15)
+            if process.is_alive():
+                process.terminate()
+                process.join(3)
+                self.fail("Vibe receipt crash fixture exceeded its time budget")
+            self.assertEqual(87, process.exitcode)
+            self.assertEqual(["dispatched"], call_log.read_text(encoding="utf-8").splitlines())
+
+            ledger = DurableSideEffectLedger(database)
+            replay_registry = VibeAdapterRegistry(max_risk="critical", side_effect_ledger=ledger)
+            stage = VibeStage.PREVIEW_DEPLOYMENT
+            def must_not_dispatch(_request):
+                self.fail("committed Vibe receipt must replay without another provider call")
+            replay_registry.register(AdapterRegistration(
+                "crash-deployment-adapter", "1", (stage,),
+                frozenset(default_stage_capabilities()[stage.value]),
+                must_not_dispatch,
+                risk=next(spec.risk for spec in STAGE_SPECS if spec.stage == stage),
+                external_side_effects=True,
+            ))
+            result = replay_registry.invoke(stage, {
+                "vibe_coding_workflow_id": "crash-replay-workflow",
+                "intent": "deploy preview",
+                "risk": "high",
+            })
+            self.assertEqual("preview-receipt", result["deployment_receipt"])
+            self.assertEqual(["dispatched"], call_log.read_text(encoding="utf-8").splitlines())
+            self.assertEqual(
+                "completed",
+                ledger.get("vibe-stage:crash-replay-workflow:preview_deployment:crash-deployment-adapter:1")["state"],
+            )
 
     def test_external_side_effect_adapter_fails_closed_without_durable_ledger(self):
         registry = VibeAdapterRegistry(max_risk="critical")

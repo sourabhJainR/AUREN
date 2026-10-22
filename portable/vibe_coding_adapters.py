@@ -167,6 +167,7 @@ class VibeAdapterRegistry:
         self, *, max_risk: str = "high", exploration: float = 0.08,
         learning_store_path: str | Path | None = None,
         side_effect_ledger: DurableSideEffectLedger | None = None,
+        side_effect_event_recorder: Callable[[Mapping[str, Any]], None] | None = None,
     ) -> None:
         if max_risk not in {"low", "medium", "high", "critical"}:
             raise ValueError("invalid max_risk")
@@ -180,8 +181,12 @@ class VibeAdapterRegistry:
         self._evaluation_stats: dict[str, AdapterStats] = {}
         if side_effect_ledger is not None and not isinstance(side_effect_ledger, DurableSideEffectLedger):
             raise TypeError("side_effect_ledger must be the canonical DurableSideEffectLedger")
+        if side_effect_event_recorder is not None and not callable(side_effect_event_recorder):
+            raise TypeError("side_effect_event_recorder must be callable")
         self.side_effect_lifecycle = (
-            ProviderOperationLifecycle(side_effect_ledger) if side_effect_ledger is not None else None
+            ProviderOperationLifecycle(
+                side_effect_ledger, record_event=side_effect_event_recorder,
+            ) if side_effect_ledger is not None else None
         )
         self.learning_store_path = Path(learning_store_path).expanduser() if learning_store_path else None
         self._learning_loaded = False
