@@ -3,6 +3,8 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 import gc
+import multiprocessing
+import os
 import json
 import sqlite3
 import tempfile
@@ -21,6 +23,24 @@ from portable.side_effect_ledger import DurableSideEffectLedger
 
 def durable_approval_test_handler(payload):
     return {"success": True, "evidence": [payload["work_key"]]}
+
+
+def _crash_after_approval_commit(db_path: str, approval_id: str, now_iso: str) -> None:
+    now = datetime.fromisoformat(now_iso)
+    store = DurableApprovalStore(
+        db_path,
+        approver_authorizer=lambda approver, role, scope, roles: (
+            approver == "reviewer-1" and role in roles and scope == "repo:publish"
+        ),
+        clock=lambda: now,
+        wake_callback=lambda task_id, approved_id: os._exit(76),
+    )
+    store.decide(
+        approval_id, "approve", approver_id="reviewer-1",
+        roles=("release-approver",), scope="repo:publish",
+        reason="decision committed before simulated worker death",
+    )
+    os._exit(77)
 
 
 APPROVAL_FLOW = {}
@@ -467,6 +487,34 @@ class DurableApprovalTests(unittest.TestCase):
         self.assertEqual(APPROVAL_FLOW["retrieval_count"], 1)
         self.assertEqual(APPROVAL_FLOW["publish_calls"], [task.id])
         self.assertEqual(self.store.get(approval_id).status, "completed")
+
+
+    def test_process_death_after_approval_commit_recovers_missed_wakeup(self):
+        record = self.create()
+        process = multiprocessing.get_context("spawn").Process(
+            target=_crash_after_approval_commit,
+            args=(
+                str(self.controller.db_path), record.approval_id,
+                self.now.isoformat(),
+            ),
+        )
+        process.start()
+        process.join(15)
+        if process.is_alive():
+            process.terminate()
+            process.join(3)
+            self.fail("approval wake-up crash fixture exceeded its time budget")
+        self.assertEqual(76, process.exitcode)
+
+        restarted = self.make_store()
+        recovered_wakeups = []
+        restarted.wake_callback = lambda task_id, approval_id: recovered_wakeups.append(
+            (task_id, approval_id)
+        )
+        self.assertEqual("approved", restarted.get(record.approval_id).status)
+        self.assertEqual(1, restarted.wake_approved())
+        self.assertEqual([(record.task_id, record.approval_id)], recovered_wakeups)
+        self.assertEqual("approved", restarted.get(record.approval_id).status)
 
     def test_audit_chain_and_progress_reconciliation(self):
         record = self.create()
