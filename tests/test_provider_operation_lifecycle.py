@@ -111,6 +111,17 @@ class ProviderOperationLifecycleTests(unittest.TestCase):
             )
         self.assertEqual("reconcile_required", self.ledger().get("conflicting-status")["state"])
 
+        nested = {"result": {"success": True, "detail": "completed"}, "provider_operation_id": "remote-1"}
+        self.assertEqual(nested, lifecycle.execute(
+            "nested-success", "provider-a", {"target": "staging"},
+            lambda *_: nested,
+        ))
+        with self.assertRaises(ProviderOutcomeBlocked):
+            lifecycle.execute(
+                "nested-pending", "provider-a", {"target": "prod"},
+                lambda *_: {"result": {"status": "pending", "success": True}},
+            )
+
     def test_reused_key_with_changed_intent_is_rejected(self):
         lifecycle = ProviderOperationLifecycle(self.ledger())
         lifecycle.execute("deploy-4", "provider-a", {"target": "staging"}, lambda *_: {"status": "completed"})
