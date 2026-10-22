@@ -62,6 +62,60 @@ def _crash_before_approval_progress_projection(root: str, approval_id: str, now_
     os._exit(79)
 
 
+def _crash_after_effect_receipt_before_approval_completion(
+    root: str, task_id: str, approval_id: str, provider_log: str, now_iso: str,
+    artifact: str, evidence: str, policy_digest: str,
+) -> None:
+    now = datetime.fromisoformat(now_iso)
+    controller = ExecutionController(Path(root))
+    store = DurableApprovalStore(
+        controller,
+        approver_authorizer=lambda approver, role, scope, roles: (
+            approver == "reviewer-1" and role in roles and scope == "repo:publish"
+        ),
+        context_provider=lambda request: {
+            "artifact_digest": artifact,
+            "evidence_digest": evidence,
+            "policy_digest": policy_digest,
+        },
+        reconciliation_verifier=lambda record, outcome, ref: (
+            ref.startswith("https://evidence.example/") and outcome in {"completed", "failed"}
+        ),
+        clock=lambda: now,
+    )
+    request = ActionRequest(
+        run_id="run-1", action_id="publish-1", actor="agent:writer",
+        capability="publish", action="publish", target="customer/reply",
+        risk="external_effect", idempotency_key="publish:task:1",
+        evidence_refs=("sha256:" + "d" * 64,), task_id=task_id,
+    )
+    ledger = DurableSideEffectLedger(controller.db_path)
+    gateway = ActionGovernanceGateway(
+        ActionPolicy(
+            allowed_capabilities=frozenset({"publish"}),
+            approval_required_actions=frozenset({"publish"}),
+            external_effect_actions=frozenset({"publish"}),
+            require_durable_ledger_for_external_effects=True,
+        ),
+        approval_verifier=store.verify_receipt,
+        side_effect_ledger=ledger,
+    )
+
+    def publish_once():
+        with Path(provider_log).open("a", encoding="utf-8") as stream:
+            stream.write("provider-op-001\\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        return {"published": True, "provider_operation_id": "provider-op-001"}
+
+    store.mark_outcome = lambda approval_id, outcome, **kwargs: os._exit(80)
+    store.execute_approved_action(
+        approval_id, request, gateway, publish_once,
+        artifact_digest=artifact, evidence_digest=evidence, policy_digest=policy_digest,
+    )
+    os._exit(81)
+
+
 APPROVAL_FLOW = {}
 
 
@@ -565,6 +619,47 @@ class DurableApprovalTests(unittest.TestCase):
         self.assertEqual(2, len(events))
         self.assertTrue(any(f"[approval:{record.approval_id}:v1]" in row["message"] for row in events))
         self.assertEqual(0, restarted.reconcile_progress())
+
+
+    def test_crash_after_side_effect_receipt_before_approval_completion_requires_reconciliation(self):
+        record = self.create()
+        self.approve(record)
+        provider_log = self.root / "provider-operations.log"
+        process = multiprocessing.get_context("spawn").Process(
+            target=_crash_after_effect_receipt_before_approval_completion,
+            args=(
+                str(self.root), record.task_id, record.approval_id, str(provider_log),
+                self.now.isoformat(), self.artifact, self.evidence, self.policy,
+            ),
+        )
+        process.start()
+        process.join(15)
+        if process.is_alive():
+            process.terminate()
+            process.join(3)
+            self.fail("side-effect/approval crash fixture exceeded its time budget")
+        self.assertEqual(80, process.exitcode)
+        self.assertEqual(["provider-op-001"], provider_log.read_text(encoding="utf-8").splitlines())
+
+        with sqlite3.connect(self.controller.db_path) as db:
+            row = db.execute(
+                "SELECT state,receipt_json FROM durable_side_effects WHERE idempotency_key=?",
+                ("publish:task:1",),
+            ).fetchone()
+        self.assertIsNotNone(row)
+        self.assertEqual("completed", row[0])
+        self.assertEqual("provider-op-001", json.loads(row[1])["provider_operation_id"])
+
+        self.now += timedelta(minutes=10)
+        restarted = self.make_store()
+        self.assertEqual(1, restarted.recover_interrupted(older_than_seconds=60))
+        self.assertEqual("outcome_unknown", restarted.get(record.approval_id).status)
+        reconciled = restarted.reconcile_outcome(
+            record.approval_id, outcome="completed",
+            evidence_ref="https://evidence.example/provider-operation/provider-op-001",
+        )
+        self.assertEqual("completed", reconciled.status)
+        self.assertEqual(["provider-op-001"], provider_log.read_text(encoding="utf-8").splitlines())
 
     def test_audit_chain_and_progress_reconciliation(self):
         record = self.create()
