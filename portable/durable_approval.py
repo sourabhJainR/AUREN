@@ -498,14 +498,30 @@ class DurableApprovalStore:
 
     def verify_audit_chain(self) -> bool:
         previous = "0" * 64
+        recorded_decision_digests: set[str] = set()
         with self._connect() as db:
             rows = db.execute("SELECT event_json,previous_digest,event_digest FROM durable_approval_events ORDER BY sequence").fetchall()
+            decisions = db.execute("SELECT * FROM durable_approval_decisions ORDER BY decision_id").fetchall()
         for row in rows:
             encoded = row["event_json"]
             expected = hashlib.sha256((previous + encoded).encode("utf-8")).hexdigest()
             if row["previous_digest"] != previous or row["event_digest"] != expected:
                 return False
+            body = json.loads(encoded)
+            details = body.get("details", {})
+            if isinstance(details, Mapping) and isinstance(details.get("decision_digest"), str):
+                recorded_decision_digests.add(details["decision_digest"])
             previous = expected
+        for decision in decisions:
+            vote_body = {
+                "approval_id": decision["approval_id"], "approver_id": decision["approver_id"],
+                "decision": decision["decision"], "roles": json.loads(decision["roles_json"]),
+                "scope": decision["scope"], "reason": decision["reason"],
+                "created_at": decision["created_at"],
+            }
+            digest = _digest(vote_body)
+            if digest != decision["decision_digest"] or digest not in recorded_decision_digests:
+                return False
         return True
 
     def decide(
@@ -583,6 +599,7 @@ class DurableApprovalStore:
                     row = self._transition(
                         db, row, "rejected", event_type="approval_rejected", actor=approver_id,
                         reason=reason or "approval rejected",
+                        details={"decision_digest": _digest(vote_body), "decision": decision, "scope": scope},
                     )
                 else:
                     count = int(db.execute(
@@ -593,7 +610,8 @@ class DurableApprovalStore:
                     row = self._transition(
                         db, row, target, event_type="approval_vote_recorded", actor=approver_id,
                         reason=reason or ("approval threshold reached" if target == "approved" else "additional approver required"),
-                        details={"approval_count": count, "required_approvals": int(row["required_approvals"])},
+                        details={"approval_count": count, "required_approvals": int(row["required_approvals"]),
+                                 "decision_digest": _digest(vote_body), "decision": decision, "scope": scope},
                     )
                 db.commit()
                 result = _record(row)
@@ -662,7 +680,7 @@ class DurableApprovalStore:
             result = _record(row)
         self._project_progress(result, "operation_claimed")
         return ApprovalReceipt(
-            approval_id=approval_id, approver=",".join(item["approver_id"] for item in approvers),
+            approval_id=approval_id, approver=_canonical([item["approver_id"] for item in approvers]),
             request_fingerprint=result.request_fingerprint,
         )
 
@@ -692,7 +710,7 @@ class DurableApprovalStore:
                 ).fetchall()
             return (
                 receipt.request_fingerprint == record.request_fingerprint
-                and receipt.approver == ",".join(item["approver_id"] for item in rows)
+                and receipt.approver == _canonical([item["approver_id"] for item in rows])
                 and bool(rows)
             )
         except Exception:
