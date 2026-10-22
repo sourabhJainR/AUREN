@@ -34,6 +34,7 @@ _EVENT_TYPES = frozenset({
     "engineering_plan_dispatch_cancelled",
     "provider_operation_dispatching", "provider_operation_completed",
     "provider_operation_reconcile_required", "provider_operation_blocked",
+    "approval_waiting", "approval_recovered_after_restart", "approval_resume_ready",
 })
 _SOURCE_TYPES = frozenset({
     "auren_runtime", "ci", "external_evaluator", "oracle_custody",
@@ -172,7 +173,7 @@ class EvidenceCapture:
             "target_id", "last_known_good_commit", "recovered_head_sha",
             "checkpoint_digest", "crew_plan_digest", "retry_budget_digest",
             "plan_digest", "packet_digest", "dispatch_key_digest", "binding_digest", "run_revision",
-            "provider_resume_digest", "intent_digest", "operation_id", "provider", "operation_state",
+            "provider_resume_digest", "intent_digest", "operation_id", "provider", "operation_state", "approval_id",
         }
         if "signature_verified" in metadata:
             raise ValueError("signature_verified is derived from the verified receipt store, not caller metadata")
