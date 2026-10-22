@@ -800,6 +800,12 @@ class DurableApprovalStore:
             if row is None:
                 db.rollback()
                 raise KeyError("unknown approval_id")
+            row = self._expire(db, row)
+            if row["status"] == "expired":
+                db.commit()
+                result = _record(row)
+                self._project_progress(result, "approval_expired")
+                return result
             row = self._transition(
                 db, row, "cancelled", event_type="approval_cancelled", actor=actor, reason=reason,
             )
