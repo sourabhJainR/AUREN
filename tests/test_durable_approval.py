@@ -21,6 +21,60 @@ def durable_approval_test_handler(payload):
     return {"success": True, "evidence": [payload["work_key"]]}
 
 
+APPROVAL_FLOW = {}
+
+
+def durable_approval_flow_handler(payload):
+    from portable.durable_approval import ApprovalPending
+
+    context = payload.get("_auren_execution_context")
+    if not isinstance(context, dict) or not context.get("task_id"):
+        raise RuntimeError("trusted execution context is missing")
+    task_id = context["task_id"]
+    request = ActionRequest(
+        run_id="run-approval-flow", action_id="publish-approval-flow",
+        actor="agent:writer", capability="publish", action="publish",
+        target="customer/reply", risk="external_effect",
+        idempotency_key=f"publish:{task_id}",
+        evidence_refs=("sha256:" + "d" * 64,), task_id=task_id,
+    )
+    resume = payload.get("auren_approval_resume")
+    if not isinstance(resume, dict) or resume.get("status") != "approved":
+        APPROVAL_FLOW["retrieval_count"] += 1
+        checkpoint = {
+            "operation_id": "publish:approval-flow:v1",
+            "artifact_digest": APPROVAL_FLOW["artifact"],
+            "evidence_digest": APPROVAL_FLOW["evidence"],
+            "policy_digest": APPROVAL_FLOW["policy"],
+            "request_fingerprint": request.fingerprint(),
+            "artifact_ref": "sha256:" + APPROVAL_FLOW["artifact"],
+        }
+        record = APPROVAL_FLOW["store"].create_request(
+            request=request, operation_id=checkpoint["operation_id"],
+            artifact_digest=checkpoint["artifact_digest"],
+            evidence_digest=checkpoint["evidence_digest"],
+            policy_digest=checkpoint["policy_digest"], requester_id="requester-1",
+            required_role="release-approver", scope="repo:publish",
+            expires_at=APPROVAL_FLOW["now"] + timedelta(hours=2),
+            checkpoint=checkpoint,
+        )
+        APPROVAL_FLOW["approval_id"] = record.approval_id
+        raise ApprovalPending(record.approval_id, checkpoint)
+    approval_id = resume["approval_id"]
+    checkpoint = resume["checkpoint"]
+    result = APPROVAL_FLOW["store"].execute_approved_action(
+        approval_id, request, APPROVAL_FLOW["gateway"],
+        lambda: APPROVAL_FLOW["publish_calls"].append(task_id) or {"published": True},
+        artifact_digest=checkpoint["artifact_digest"],
+        evidence_digest=checkpoint["evidence_digest"],
+        policy_digest=checkpoint["policy_digest"],
+    )
+    return {
+        "success": bool(getattr(result, "executed", False) or getattr(result, "replayed", False)),
+        "evidence": [f"approval:{approval_id}"],
+    }
+
+
 class DurableApprovalTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -42,6 +96,11 @@ class DurableApprovalTests(unittest.TestCase):
         self.policy = "c" * 64
         self.wakeups = []
         self.store = self.make_store()
+        APPROVAL_FLOW.clear()
+        APPROVAL_FLOW.update({
+            "store": self.store, "artifact": self.artifact, "evidence": self.evidence,
+            "policy": self.policy, "now": self.now, "retrieval_count": 0, "publish_calls": [],
+        })
 
     def tearDown(self):
         self.temp.cleanup()
@@ -271,6 +330,49 @@ class DurableApprovalTests(unittest.TestCase):
             results = list(pool.map(lambda _n: claim(), range(2)))
         self.assertEqual(sum(result is not None for result in results), 1)
         self.assertEqual(self.store.get(record.approval_id).status, "executing")
+
+    def test_controller_pauses_and_resumes_same_checkpoint_without_retrieval_repeat(self):
+        self.store.wake_callback = lambda task_id, approval_id: self.controller.resume_approved_task(
+            task_id, approval_id, approval_store=self.store,
+        )
+        self.controller.register_handler(
+            "approval-flow", durable_approval_flow_handler,
+            execution_class="approval_gated",
+            approval_gate_policy={
+                "approval_store": "DurableApprovalStore",
+                "gateway": "ActionGovernanceGateway",
+                "durable_side_effect_ledger": True,
+            },
+        )
+        APPROVAL_FLOW["gateway"] = ActionGovernanceGateway(
+            ActionPolicy(
+                allowed_capabilities=frozenset({"publish"}),
+                approval_required_actions=frozenset({"publish"}),
+                external_effect_actions=frozenset({"publish"}),
+                require_durable_ledger_for_external_effects=True,
+            ),
+            approval_verifier=self.store.verify_receipt,
+            side_effect_ledger=DurableSideEffectLedger(self.controller.db_path),
+        )
+        task = self.controller.submit(
+            "approval-flow", {"auren_approval_aware": True, "work_key": "approval-flow"},
+            goal="resume approval-bound publication",
+        )
+        self.assertIsNone(self.controller.run_once(task.id))
+        self.assertEqual(self.controller.task(task.id).state, "waiting_approval")
+        approval_id = APPROVAL_FLOW["approval_id"]
+        self.assertEqual(self.store.get(approval_id).status, "pending")
+        self.assertEqual(APPROVAL_FLOW["retrieval_count"], 1)
+        self.store.decide(
+            approval_id, "approve", approver_id="reviewer-1",
+            roles=("release-approver",), scope="repo:publish",
+        )
+        self.assertEqual(self.controller.task(task.id).state, "pending")
+        self.controller.run_once(task.id)
+        self.assertEqual(self.controller.task(task.id).state, "completed")
+        self.assertEqual(APPROVAL_FLOW["retrieval_count"], 1)
+        self.assertEqual(APPROVAL_FLOW["publish_calls"], [task.id])
+        self.assertEqual(self.store.get(approval_id).status, "completed")
 
     def test_audit_chain_and_progress_reconciliation(self):
         record = self.create()
