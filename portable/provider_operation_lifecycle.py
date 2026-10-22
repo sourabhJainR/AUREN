@@ -86,9 +86,23 @@ class ProviderOperationLifecycle:
         # prove that the remote side effect completed. Never persist pending,
         # failed, malformed, or unknown provider states as a completed receipt.
         provider_status = receipt.get("status")
+        nested_result = receipt.get("result")
+        nested_completion = (
+            isinstance(nested_result, Mapping)
+            and (
+                nested_result.get("status") == "completed"
+                or (
+                    "status" not in nested_result
+                    and nested_result.get("success") is True
+                )
+            )
+        )
         explicit_completion = (
             provider_status == "completed"
-            or ("status" not in receipt and receipt.get("success") is True)
+            or (
+                "status" not in receipt
+                and (receipt.get("success") is True or nested_completion)
+            )
         )
         if not explicit_completion:
             status_label = provider_status.strip()[:80] if isinstance(provider_status, str) else "missing"
