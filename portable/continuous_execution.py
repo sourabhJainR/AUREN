@@ -582,23 +582,23 @@ class ContinuousExecutionSupervisor:
                                 }).encode("utf-8")).hexdigest()
                                 try:
                                     if (
-                                    not isinstance(repository, str)
-                                    or not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository)
-                                    or not isinstance(head_sha, str)
-                                    or not _SHA.fullmatch(head_sha)
-                                ):
-                                    self._event(run_id, "ci_repair_enqueue_error", {
-                                        "cycle": cycles, "poller": name, "check": check_name,
-                                        "error_type": "invalid_repository_or_head_identity",
-                                    })
-                                    continue
-                                identity = {
-                                    "repository": repository, "head_sha": head_sha.lower(),
-                                    "check_identity": str(check_name), "failure_fingerprint": fingerprint,
-                                }
-                                # Match CIRepairWatchdog's canonical key encoding exactly.
-                                stable_material = json.dumps(identity, sort_keys=True, separators=(",", ":"), allow_nan=False)
-                                stable_key = "ci-repair-" + hashlib.sha256(stable_material.encode("utf-8")).hexdigest()
+                                        not isinstance(repository, str)
+                                        or not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository)
+                                        or not isinstance(head_sha, str)
+                                        or not _SHA.fullmatch(head_sha)
+                                    ):
+                                        self._event(run_id, "ci_repair_enqueue_error", {
+                                            "cycle": cycles, "poller": name, "check": check_name,
+                                            "error_type": "invalid_repository_or_head_identity",
+                                        })
+                                        continue
+                                    identity = {
+                                        "repository": repository, "head_sha": head_sha.lower(),
+                                        "check_identity": str(check_name), "failure_fingerprint": fingerprint,
+                                    }
+                                    # Match CIRepairWatchdog's canonical key encoding exactly.
+                                    stable_material = json.dumps(identity, sort_keys=True, separators=(",", ":"), allow_nan=False)
+                                    stable_key = "ci-repair-" + hashlib.sha256(stable_material.encode("utf-8")).hexdigest()
                                     self._repair_transition(
                                         run_id, stable_key=stable_key, to_state="observed",
                                         head_sha=str(head_sha).lower(), reason="terminal failed required check observed",
