@@ -13,6 +13,7 @@ import json
 import math
 import re
 import sqlite3
+from contextlib import closing
 import time
 from threading import Event, Thread
 from dataclasses import dataclass
@@ -138,7 +139,7 @@ class ExecutionController:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self.progress_journal = ProgressJournal(self.db_path.parent / "progress.jsonl")
         self._progress_journal_error: str | None = None
-        with sqlite3.connect(self.db_path) as db:
+        with closing(sqlite3.connect(self.db_path)) as db, db:
             db.executescript("""
             CREATE TABLE IF NOT EXISTS sessions(
               session_id TEXT PRIMARY KEY, work_unit_id TEXT NOT NULL, goal TEXT NOT NULL, updated_at TEXT NOT NULL);
@@ -256,7 +257,7 @@ class ExecutionController:
         explicit_action_tokens = {"promote", "promotion", "promoter", "merge", "merger", "release", "deploy", "deployment", "publish"}
         provider_action_exceptions = {"merge", "merger", "release", "deploy", "deployment", "publish", "promote", "promoter"}
 
-        with sqlite3.connect(self.db_path) as db:
+        with closing(sqlite3.connect(self.db_path)) as db, db:
             prior_registration = db.execute(
                 "SELECT reference, execution_class, implementation_digest FROM handlers WHERE name=?", (name,)
             ).fetchone()
@@ -308,7 +309,7 @@ class ExecutionController:
         if requires_promotion_gate and not promotion_gate_policy:
             # A prior trusted policy is retained on re-registration below. For
             # a new handler, require the caller to declare the gate explicitly.
-            with sqlite3.connect(self.db_path) as db:
+            with closing(sqlite3.connect(self.db_path)) as db, db:
                 prior = db.execute(
                     "SELECT promotion_gate_policy_json FROM handlers WHERE name=?", (name,)
                 ).fetchone()
@@ -317,7 +318,7 @@ class ExecutionController:
                     f"consequential handler {name!r} requires an operator-owned promotion_gate_policy"
                 )
         if requires_exact_head_ci and not ci_gate_policy:
-            with sqlite3.connect(self.db_path) as db:
+            with closing(sqlite3.connect(self.db_path)) as db, db:
                 prior = db.execute(
                     "SELECT ci_gate_policy_json FROM handlers WHERE name=?", (name,)
                 ).fetchone()
@@ -384,7 +385,7 @@ class ExecutionController:
                 seen_check_names.add(check_name)
             promotion_policy = {"context_handler": context_handler, "evidence_checks": normalized_checks}
 
-        with sqlite3.connect(self.db_path) as db:
+        with closing(sqlite3.connect(self.db_path)) as db, db:
             prior = db.execute(
                 "SELECT ci_gate_policy_json,promotion_gate_policy_json FROM handlers WHERE name=?",
                 (name,),
@@ -409,7 +410,7 @@ class ExecutionController:
         return reference
 
     def _handler_execution_class(self, name: str) -> str:
-        with sqlite3.connect(self.db_path) as db:
+        with closing(sqlite3.connect(self.db_path)) as db, db:
             row = db.execute("SELECT execution_class FROM handlers WHERE name=?", (name,)).fetchone()
         if not row:
             raise KeyError(f"unknown durable handler: {name}")
@@ -417,7 +418,7 @@ class ExecutionController:
         return value if isinstance(value, str) else "unclassified"
 
     def _handler_ci_gate_policy(self, name: str) -> dict[str, Any]:
-        with sqlite3.connect(self.db_path) as db:
+        with closing(sqlite3.connect(self.db_path)) as db, db:
             row = db.execute("SELECT ci_gate_policy_json FROM handlers WHERE name=?", (name,)).fetchone()
         if not row:
             raise KeyError(f"unknown durable handler: {name}")
@@ -427,7 +428,7 @@ class ExecutionController:
         return policy
 
     def _handler_promotion_gate_policy(self, name: str) -> dict[str, Any]:
-        with sqlite3.connect(self.db_path) as db:
+        with closing(sqlite3.connect(self.db_path)) as db, db:
             row = db.execute("SELECT promotion_gate_policy_json FROM handlers WHERE name=?", (name,)).fetchone()
         if not row:
             raise KeyError(f"unknown durable handler: {name}")
@@ -455,7 +456,7 @@ class ExecutionController:
         return hashlib.sha256(source.encode("utf-8")).hexdigest()
 
     def _load_handler(self, name: str) -> Handler:
-        with sqlite3.connect(self.db_path) as db:
+        with closing(sqlite3.connect(self.db_path)) as db, db:
             row = db.execute(
                 "SELECT reference, implementation_digest, execution_class FROM handlers WHERE name=?", (name,)
             ).fetchone()
@@ -750,7 +751,7 @@ class ExecutionController:
             self._progress_reconciliation_incomplete = True
             return {"scanned": 0, "reconciled": 0, "blocked": 1, "incomplete": True, "next_action": "repair or restore the journal, then rerun reconciliation"}
 
-        with sqlite3.connect(self.db_path, timeout=5) as db:
+        with closing(sqlite3.connect(self.db_path, timeout=5)) as db, db:
             total = int(db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0])
             rows = db.execute(
                 "SELECT id,state,work_unit_id,heartbeat_at,lease_until,updated_at "
@@ -780,7 +781,7 @@ class ExecutionController:
                     # Keep the canonical task row fail-closed as well as the
                     # progress projection. A terminal SQLite row is not proof
                     # of completion when the durable work-unit receipt disagrees.
-                    with sqlite3.connect(self.db_path, timeout=5) as db:
+                    with closing(sqlite3.connect(self.db_path, timeout=5)) as db, db:
                         cursor = db.execute(
                             "UPDATE tasks SET state='blocked',updated_at=?,heartbeat_at=NULL,"
                             "lease_until=NULL,lease_token=NULL WHERE id=? AND state=?",
@@ -951,7 +952,7 @@ class ExecutionController:
         session_id = session_id.strip()
         goal = goal.strip()
         goal_digest = hashlib.sha256(goal.encode("utf-8")).hexdigest()[:16]
-        with sqlite3.connect(self.db_path) as db:
+        with closing(sqlite3.connect(self.db_path)) as db, db:
             row = db.execute(
                 "SELECT work_unit_id, goal FROM sessions WHERE session_id=?", (session_id,)
             ).fetchone()
@@ -1045,7 +1046,7 @@ class ExecutionController:
         ):
             if not isinstance(value, str) or not value.strip():
                 raise ValueError(f"{name} is required")
-        with sqlite3.connect(self.db_path, timeout=10) as db:
+        with closing(sqlite3.connect(self.db_path, timeout=10)) as db, db:
             row = db.execute(
                 "SELECT handler,work_unit_id,state FROM tasks WHERE id=?", (task_id,),
             ).fetchone()
@@ -1056,7 +1057,7 @@ class ExecutionController:
             raise RuntimeError("only provider-reconciliation-blocked tasks may be resumed")
         if handler_name not in self._provider_operation_adapters:
             raise RuntimeError("register a trusted provider status adapter before resuming reconciliation")
-        with sqlite3.connect(self.company.db_path, timeout=10) as db:
+        with closing(sqlite3.connect(self.company.db_path, timeout=10)) as db, db:
             clarification = db.execute(
                 "SELECT state FROM clarifications WHERE id=? AND work_unit_id=?",
                 (clarification_id, work_unit_id),
@@ -1072,7 +1073,7 @@ class ExecutionController:
             raise RuntimeError("provider clarification is not in a resolvable state")
         if self.company.open_clarifications(work_unit_id):
             raise RuntimeError("other open clarifications must be resolved before resuming the task")
-        with sqlite3.connect(self.db_path, timeout=10) as db:
+        with closing(sqlite3.connect(self.db_path, timeout=10)) as db, db:
             cursor = db.execute(
                 "UPDATE tasks SET state='pending',updated_at=?,heartbeat_at=NULL,lease_until=NULL,"
                 "lease_token=NULL WHERE id=? AND state='blocked_reconciliation'",
@@ -1112,7 +1113,7 @@ class ExecutionController:
         self._load_handler(handler)
         work = self.company.start(goal or f"execute durable handler: {handler}")
         task = DurableTask(uuid4().hex, handler, dict(payload), "pending", 0, work.id)
-        with sqlite3.connect(self.db_path) as db:
+        with closing(sqlite3.connect(self.db_path)) as db, db:
             now = _now()
             db.execute(
                 "INSERT INTO tasks(id,handler,payload,state,attempts,work_unit_id,created_at,updated_at,heartbeat_at,lease_until) "
@@ -1131,7 +1132,7 @@ class ExecutionController:
         # Claim under a write lock so two controllers cannot both observe
         # "pending" and execute the same side-effecting handler. Each claim
         # increments a fencing generation and receives a fresh unguessable token.
-        with sqlite3.connect(self.db_path, timeout=10) as db:
+        with closing(sqlite3.connect(self.db_path, timeout=10)) as db, db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute(
                 "SELECT id,handler,payload,state,attempts,work_unit_id,lease_until,lease_generation "
@@ -1182,7 +1183,7 @@ class ExecutionController:
         if not task.lease_token or task.lease_generation < 1:
             raise LeaseLostError("task claim has no fencing token")
         now = _now()
-        with sqlite3.connect(self.db_path, timeout=10) as db:
+        with closing(sqlite3.connect(self.db_path, timeout=10)) as db, db:
             cursor = db.execute(
                 "UPDATE tasks SET state=?,updated_at=?,heartbeat_at=?,lease_until=NULL,lease_token=NULL,"
                 "quota_attempts=CASE WHEN ?='completed' THEN 0 ELSE quota_attempts END,"
@@ -1305,7 +1306,7 @@ class ExecutionController:
         is_quota, provider, retry_after, permanent = self._quota_signal(exc)
         if not is_quota or not task.lease_token or task.lease_generation < 1:
             return False
-        with sqlite3.connect(self.db_path, timeout=10) as db:
+        with closing(sqlite3.connect(self.db_path, timeout=10)) as db, db:
             row = db.execute(
                 "SELECT quota_attempts FROM tasks WHERE id=? AND state='running' AND lease_token=? AND lease_generation=?",
                 (task.id, task.lease_token, task.lease_generation),
@@ -1361,7 +1362,7 @@ class ExecutionController:
         current = now or datetime.now(timezone.utc)
         if current.tzinfo is None:
             raise ValueError("now must be timezone-aware")
-        with sqlite3.connect(self.db_path, timeout=10) as db:
+        with closing(sqlite3.connect(self.db_path, timeout=10)) as db, db:
             rows = db.execute(
                 "SELECT id FROM tasks WHERE state='waiting_quota' AND next_retry_at IS NOT NULL "
                 "AND next_retry_at<=? ORDER BY next_retry_at,created_at LIMIT ?",
@@ -1371,7 +1372,7 @@ class ExecutionController:
 
     def quota_status(self, task_id: str) -> dict[str, Any] | None:
         """Expose the durable wait/block reason without leaking provider exception text."""
-        with sqlite3.connect(self.db_path, timeout=10) as db:
+        with closing(sqlite3.connect(self.db_path, timeout=10)) as db, db:
             row = db.execute(
                 "SELECT state,quota_provider,quota_reason,quota_attempts,next_retry_at,quota_blocked "
                 "FROM tasks WHERE id=?", (task_id,),
@@ -1389,7 +1390,7 @@ class ExecutionController:
         current = now or datetime.now(timezone.utc)
         if current.tzinfo is None:
             raise ValueError("now must be timezone-aware")
-        with sqlite3.connect(self.db_path, timeout=10) as db:
+        with closing(sqlite3.connect(self.db_path, timeout=10)) as db, db:
             row = db.execute(
                 "SELECT MIN(next_retry_at) FROM tasks WHERE state='waiting_quota' AND next_retry_at IS NOT NULL"
             ).fetchone()
@@ -1409,7 +1410,7 @@ class ExecutionController:
         stamp = current.astimezone(timezone.utc).isoformat()
         work_units: list[str] = []
         woken_ids: list[str] = []
-        with sqlite3.connect(self.db_path, timeout=10) as db:
+        with closing(sqlite3.connect(self.db_path, timeout=10)) as db, db:
             db.execute("BEGIN IMMEDIATE")
             for task_id in ids:
                 row = db.execute(
@@ -1440,7 +1441,7 @@ class ExecutionController:
         if not isinstance(operator_reason, str) or not operator_reason.strip():
             raise ValueError("operator_reason is required to unblock quota work")
         now = _now()
-        with sqlite3.connect(self.db_path, timeout=10) as db:
+        with closing(sqlite3.connect(self.db_path, timeout=10)) as db, db:
             row = db.execute(
                 "SELECT work_unit_id FROM tasks WHERE id=? AND state='blocked_quota'", (task_id,),
             ).fetchone()
@@ -1502,7 +1503,7 @@ class ExecutionController:
                 "queued dispatch plan task is no longer in a dispatchable state"
             )
         dispatch_key = metadata.get("dispatch_key")
-        with sqlite3.connect(self.db_path, timeout=10) as db:
+        with closing(sqlite3.connect(self.db_path, timeout=10)) as db, db:
             db.row_factory = sqlite3.Row
             intent = db.execute(
                 "SELECT * FROM engineering_dispatch_intents WHERE dispatch_key=?",
@@ -1605,20 +1606,11 @@ class ExecutionController:
                 raise RuntimeError("consequential side-effect receipt is malformed; refusing handler replay")
             return dict(receipt["result"])
         if decision.action != "execute":
-            adapter = self._provider_operation_adapters.get(task.handler)
             if decision.state != "reconcile_required":
                 raise RuntimeError(
                     "consequential side effect requires reconciliation; provider dispatch is blocked "
                     f"(ledger_state={decision.state or 'unknown'})"
                 )
-            if adapter is None:
-                raise ProviderOutcomeBlocked(
-                    "provider outcome remains uncertain; task is blocked for explicit operator resolution"
-                )
-            lookup_fn = getattr(adapter, "lookup_operation", None)
-            verify_fn = getattr(adapter, "verify_reconciliation", None)
-            if not callable(lookup_fn) or not callable(verify_fn):
-                raise RuntimeError("provider adapter reconciliation capabilities are incomplete")
             from .provider_operation_lifecycle import (
                 ProviderOperationLifecycle, stable_provider_operation_id,
             )
@@ -1626,23 +1618,6 @@ class ExecutionController:
             provider_intent = {"binding": binding, "payload": safe_payload}
             operation_key = "provider-operation:" + key
             operation_id = stable_provider_operation_id(operation_key, provider_name, provider_intent)
-            try:
-                lookup_result = lookup_fn(operation_id, operation_key)
-            except Exception as exc:
-                raise ProviderOutcomeBlocked(
-                    f"provider operation {operation_id} lookup failed; explicit resolution required"
-                ) from exc
-            if (
-                not isinstance(lookup_result, Mapping)
-                or lookup_result.get("status") != "completed"
-                or not isinstance(lookup_result.get("evidence_ref"), str)
-                or not lookup_result.get("evidence_ref", "").strip()
-                or not isinstance(lookup_result.get("receipt"), Mapping)
-            ):
-                raise ProviderOutcomeBlocked(
-                    f"provider operation {operation_id} outcome is not established; task remains blocked"
-                )
-            evidence_ref = lookup_result["evidence_ref"]
 
             def record_provider_event(event: Mapping[str, Any]) -> None:
                 operation_state = str(event.get("state", "unknown"))
@@ -1664,6 +1639,117 @@ class ExecutionController:
                     evidence_ref=None,
                 )
 
+            provider_ledger = DurableSideEffectLedger(self.db_path)
+            inner_record = provider_ledger.get(operation_key)
+            if inner_record is None:
+                raise ProviderOutcomeBlocked(
+                    "provider operation ledger record is missing; explicit resolution required"
+                )
+            if inner_record["state"] == "executing":
+                # A crash can occur after the child operation is claimed but before
+                # dispatch or receipt persistence. Convert that claim to an explicit
+                # reconciliation state; never treat it as permission to redispatch.
+                try:
+                    child_decision = provider_ledger.begin(
+                        operation_key,
+                        {"provider": provider_name, "operation_id": operation_id, "intent": provider_intent},
+                    )
+                except Exception as exc:
+                    raise ProviderOutcomeBlocked(
+                        "provider operation ledger identity is inconsistent; explicit resolution required"
+                    ) from exc
+                if child_decision.action != "reconcile":
+                    raise ProviderOutcomeBlocked(
+                        "provider operation child claim could not be safely reconciled"
+                    )
+                inner_record = provider_ledger.get(operation_key)
+
+            if inner_record and inner_record["state"] == "completed":
+                # The provider receipt committed, but the supervisor's outer receipt
+                # may have failed. Rebuild the outer receipt from that exact immutable
+                # child receipt before contacting a provider that may now be offline.
+                lifecycle = ProviderOperationLifecycle(
+                    provider_ledger, record_event=record_provider_event,
+                )
+                provider_receipt = lifecycle.reconcile(
+                    operation_key, provider_name, provider_intent, None,
+                )
+                result = provider_receipt.get("result")
+                if (
+                    not isinstance(result, Mapping)
+                    or provider_receipt.get("provider_operation_id") != operation_id
+                ):
+                    raise ProviderOutcomeBlocked(
+                        "completed provider receipt does not match the durable operation identity"
+                    )
+                outer_receipt = {
+                    "result": dict(result),
+                    "provider_operation_id": operation_id,
+                    "provider_receipt": dict(provider_receipt),
+                }
+                local_evidence_ref = "auren://durable-side-effect-ledger/" + operation_key
+
+                def verify_local_outer(_key: str, ref: str, receipt: Mapping[str, Any]) -> bool:
+                    nested = receipt.get("provider_receipt")
+                    nested_result = nested.get("result") if isinstance(nested, Mapping) else None
+                    current = DurableSideEffectLedger(self.db_path).get(operation_key)
+                    return bool(
+                        ref == local_evidence_ref
+                        and isinstance(nested, Mapping)
+                        and isinstance(nested_result, Mapping)
+                        and current is not None
+                        and current.get("state") == "completed"
+                        and current.get("receipt") == dict(nested)
+                        and nested.get("provider_operation_id") == operation_id
+                        and receipt.get("provider_operation_id") == operation_id
+                        and isinstance(receipt.get("result"), Mapping)
+                        and dict(receipt["result"]) == dict(nested_result)
+                    )
+
+                DurableSideEffectLedger(
+                    self.db_path, reconciliation_verifier=verify_local_outer,
+                ).record_reconciled_effect(
+                    key, evidence_ref=local_evidence_ref, receipt=outer_receipt,
+                )
+                record_provider_event({
+                    "state": "completed", "operation_id": operation_id,
+                    "intent_digest": provider_ledger._digest({
+                        "provider": provider_name, "operation_id": operation_id, "intent": provider_intent,
+                    }),
+                    "reconciled_from_durable_receipt": True,
+                })
+                return dict(result)
+
+            if not inner_record or inner_record["state"] != "reconcile_required":
+                raise ProviderOutcomeBlocked(
+                    "provider child operation is not in a reconcilable state; explicit resolution required"
+                )
+            adapter = self._provider_operation_adapters.get(task.handler)
+            if adapter is None:
+                raise ProviderOutcomeBlocked(
+                    "provider outcome remains uncertain; task is blocked for explicit operator resolution"
+                )
+            lookup_fn = getattr(adapter, "lookup_operation", None)
+            verify_fn = getattr(adapter, "verify_reconciliation", None)
+            if not callable(lookup_fn) or not callable(verify_fn):
+                raise RuntimeError("provider adapter reconciliation capabilities are incomplete")
+            try:
+                lookup_result = lookup_fn(operation_id, operation_key)
+            except Exception as exc:
+                raise ProviderOutcomeBlocked(
+                    f"provider operation {operation_id} lookup failed; explicit resolution required"
+                ) from exc
+            if (
+                not isinstance(lookup_result, Mapping)
+                or lookup_result.get("status") != "completed"
+                or not isinstance(lookup_result.get("evidence_ref"), str)
+                or not lookup_result.get("evidence_ref", "").strip()
+                or not isinstance(lookup_result.get("receipt"), Mapping)
+            ):
+                raise ProviderOutcomeBlocked(
+                    f"provider operation {operation_id} outcome is not established; task remains blocked"
+                )
+            evidence_ref = lookup_result["evidence_ref"]
             lifecycle = ProviderOperationLifecycle(
                 DurableSideEffectLedger(self.db_path, reconciliation_verifier=verify_fn),
                 record_event=record_provider_event,
@@ -1673,11 +1759,16 @@ class ExecutionController:
                 lambda _operation_id, _idempotency_key: lookup_result,
             )
             result = provider_receipt.get("result")
-            if not isinstance(result, Mapping):
-                raise ProviderOutcomeBlocked("reconciled provider receipt is malformed; task remains blocked")
+            if (
+                not isinstance(result, Mapping)
+                or provider_receipt.get("provider_operation_id") != operation_id
+            ):
+                raise ProviderOutcomeBlocked(
+                    "reconciled provider receipt is malformed or mismatched; task remains blocked"
+                )
             outer_receipt = {
                 "result": dict(result),
-                "provider_operation_id": provider_receipt.get("provider_operation_id"),
+                "provider_operation_id": operation_id,
                 "provider_receipt": dict(provider_receipt),
             }
 
@@ -1879,7 +1970,7 @@ class ExecutionController:
             raise ValueError("continue_after_durable_failure must be a boolean")
         self.wake_due_quota_tasks(limit=limit)
         now = datetime.now(timezone.utc)
-        with sqlite3.connect(self.db_path) as db:
+        with closing(sqlite3.connect(self.db_path)) as db, db:
             rows = db.execute(
                 "SELECT id,state,lease_until FROM tasks "
                 "WHERE state IN ('pending','running') ORDER BY updated_at",
@@ -1919,7 +2010,7 @@ class ExecutionController:
                 work_state, _ = self.company._state(task.work_unit_id)
                 if work_state != "failed":
                     raise
-                with sqlite3.connect(self.company.db_path) as db:
+                with closing(sqlite3.connect(self.company.db_path)) as db, db:
                     failure_event = db.execute(
                         "SELECT 1 FROM events WHERE work_unit_id=? "
                         "AND kind='execution' AND status='failed' LIMIT 1",
@@ -1966,7 +2057,7 @@ class ExecutionController:
         ):
             raise ValueError("idle_sleep_seconds must be finite and between 0 and 300 seconds")
         event = stop_event if stop_event is not None else Event()
-        with sqlite3.connect(self.db_path) as db:
+        with closing(sqlite3.connect(self.db_path)) as db, db:
             before_states = {
                 str(task_id): str(state)
                 for task_id, state in db.execute("SELECT id,state FROM tasks").fetchall()
@@ -1998,7 +2089,7 @@ class ExecutionController:
             stop_reason = "cycle_budget_exhausted"
         if event.is_set() and stop_reason != "idle_budget_exhausted":
             stop_reason = "cancelled"
-        with sqlite3.connect(self.db_path) as db:
+        with closing(sqlite3.connect(self.db_path)) as db, db:
             after_states = {
                 str(task_id): str(state)
                 for task_id, state in db.execute("SELECT id,state FROM tasks").fetchall()
@@ -2026,7 +2117,7 @@ class ExecutionController:
             raise LeaseLostError("heartbeat requires the current durable task fencing token")
         now = datetime.now(timezone.utc)
         lease = (now + timedelta(seconds=max(1, lease_seconds))).isoformat()
-        with sqlite3.connect(self.db_path, timeout=10) as db:
+        with closing(sqlite3.connect(self.db_path, timeout=10)) as db, db:
             cursor = db.execute(
                 "UPDATE tasks SET heartbeat_at=?,lease_until=?,updated_at=? "
                 "WHERE id=? AND state='running' AND lease_token=? AND lease_generation=?",
@@ -2041,7 +2132,7 @@ class ExecutionController:
 
     def detect_stale(self, stale_after_seconds: int = 900) -> list[DurableTask]:
         cutoff = (datetime.now(timezone.utc) - timedelta(seconds=max(1, stale_after_seconds))).isoformat()
-        with sqlite3.connect(self.db_path) as db:
+        with closing(sqlite3.connect(self.db_path)) as db, db:
             rows = db.execute(
                 "SELECT id,handler,payload,state,attempts,work_unit_id FROM tasks "
                 "WHERE state='running' AND (heartbeat_at IS NULL OR heartbeat_at<?)",
@@ -2056,7 +2147,7 @@ class ExecutionController:
         cutoff = datetime.now(timezone.utc) - timedelta(seconds=max(1, stale_after_seconds))
         now_dt = datetime.now(timezone.utc)
         recovered: tuple[str, str] | None = None
-        with sqlite3.connect(self.db_path, timeout=10) as db:
+        with closing(sqlite3.connect(self.db_path, timeout=10)) as db, db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute(
                 "SELECT state,heartbeat_at,lease_until,work_unit_id FROM tasks WHERE id=?",
@@ -2119,7 +2210,7 @@ class ExecutionController:
 
     def self_review(self, *, limit: int = 20) -> int:
         count = 0
-        with sqlite3.connect(self.db_path) as db:
+        with closing(sqlite3.connect(self.db_path)) as db, db:
             rows = db.execute(
                 "SELECT id,work_unit_id,state,attempts FROM tasks ORDER BY updated_at DESC LIMIT ?",
                 (limit,),
@@ -2135,7 +2226,7 @@ class ExecutionController:
 
     def health_findings(self) -> tuple[str, ...]:
         findings = []
-        with sqlite3.connect(self.db_path) as db:
+        with closing(sqlite3.connect(self.db_path)) as db, db:
             failed = db.execute("SELECT COUNT(*) FROM tasks WHERE state='failed'").fetchone()[0]
             blocked_quota = db.execute("SELECT COUNT(*) FROM tasks WHERE state='blocked_quota'").fetchone()[0]
             stale = db.execute(
@@ -2166,7 +2257,7 @@ class ExecutionController:
         return tuple(findings)
 
     def task(self, task_id: str) -> DurableTask | None:
-        with sqlite3.connect(self.db_path) as db:
+        with closing(sqlite3.connect(self.db_path)) as db, db:
             row = db.execute(
                 "SELECT id,handler,payload,state,attempts,work_unit_id FROM tasks WHERE id=?",
                 (task_id,),
@@ -2246,7 +2337,7 @@ class ExecutionController:
         payload = self._validate_graph_checkpoint_envelope(task_id, envelope)
         encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
         digest = hashlib.sha256(encoded.encode("utf-8")).hexdigest()
-        with sqlite3.connect(self.db_path, timeout=10) as db:
+        with closing(sqlite3.connect(self.db_path, timeout=10)) as db, db:
             db.execute("BEGIN IMMEDIATE")
             prior = db.execute(
                 "SELECT envelope_json,envelope_digest FROM graph_checkpoints WHERE task_id=?", (task_id,)
@@ -2277,7 +2368,7 @@ class ExecutionController:
             + ":"
             + digest
         )
-        with sqlite3.connect(self.evidence_capture.path, timeout=10) as db:
+        with closing(sqlite3.connect(self.evidence_capture.path, timeout=10)) as db, db:
             already_recorded = db.execute(
                 "SELECT 1 FROM engineering_events WHERE event_id=?", (event_id,)
             ).fetchone()
@@ -2326,7 +2417,7 @@ class ExecutionController:
         """Load a checkpoint only after validating its stored digest and task binding."""
         if not isinstance(task_id, str) or not task_id.strip():
             raise ValueError("graph checkpoint task_id is required")
-        with sqlite3.connect(self.db_path, timeout=10) as db:
+        with closing(sqlite3.connect(self.db_path, timeout=10)) as db, db:
             row = db.execute(
                 "SELECT envelope_json,envelope_digest FROM graph_checkpoints WHERE task_id=?",
                 (task_id,),

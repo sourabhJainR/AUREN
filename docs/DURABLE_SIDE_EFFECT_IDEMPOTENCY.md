@@ -77,8 +77,13 @@ Run: `python -m unittest tests.test_side_effect_ledger_crash_fault_injection -v`
 
 These tests demonstrate the local ledger's restart behavior. They do not prove every external provider's idempotency, that remote effects are atomic with SQLite, or that production credentials/host access are isolated.
 
+## Recovery after the provider receipt but before the supervisor receipt
+
+The inner provider-operation ledger and the outer supervisor idempotency row are separate durable records. A process or storage failure can leave the inner receipt completed while the outer row remains `executing`. On resume, AUREN first validates the inner receipt against the stable operation identity and intent digest. If it is complete and immutable, AUREN reconstructs the outer receipt from that record without contacting or redispatching to the provider. The local evidence reference is accepted only when a fresh ledger read matches the exact nested receipt and operation ID. Missing, corrupt, mismatched, or non-terminal child records remain blocked. If the child record is only `reconcile_required`, AUREN still requires provider history lookup and the configured trusted verifier; unknown provider outcomes never authorize a retry.
+
+The regression test injects a failure only at the outer receipt commit, restarts the controller, and confirms that the durable inner receipt closes the outer record with a single provider invocation and no provider adapter available. This proves local cross-ledger recovery for that boundary; it does not prove provider-native idempotency or distributed exactly-once execution.
+
+
 ## Rollback
 
-This change only adds regression coverage and does not change runtime behavior. If the
-test is invalid or unstable, revert the test-only commit/PR; do not disable the ledger
-or relax reconciliation behavior. Keep the existing fail-closed ledger tests enabled.
+If the recovery path regresses, revert this commit/PR. The prior behavior leaves the outer operation blocked and does not redispatch; do not bypass either ledger, weaken receipt verification, or authorize a retry to restore availability. Keep all corruption and crash-injection tests enabled.
