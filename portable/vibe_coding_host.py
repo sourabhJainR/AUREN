@@ -298,6 +298,12 @@ class SideEffectJournal:
         with closing(self._connect()) as connection:
             connection.execute("PRAGMA journal_mode=WAL")
             connection.execute("CREATE TABLE IF NOT EXISTS operations (operation_key TEXT PRIMARY KEY, payload_json TEXT NOT NULL, digest TEXT NOT NULL)")
+            connection.execute(
+                "CREATE TABLE IF NOT EXISTS provider_operation_events ("
+                "event_type TEXT NOT NULL, operation_key TEXT NOT NULL, operation_id TEXT NOT NULL, "
+                "intent_digest TEXT NOT NULL, state TEXT NOT NULL, details_json TEXT NOT NULL, "
+                "created_at REAL NOT NULL, UNIQUE(operation_key,state,intent_digest))"
+            )
         self._secure_permissions()
 
     def _secure_permissions(self) -> None:
@@ -405,6 +411,38 @@ class SideEffectJournal:
                 sidecar = Path(str(self.path) + suffix)
                 if sidecar.exists():
                     os.chmod(sidecar, 0o600)
+
+    def record_provider_event(self, payload: Mapping[str, Any]) -> None:
+        """Project bounded provider lifecycle events idempotently into this operations DB."""
+        if not isinstance(payload, Mapping) or payload.get("event_type") != "provider_operation":
+            raise ValueError("provider event must use the provider_operation schema")
+        required = ("operation_key", "operation_id", "intent_digest", "state")
+        values = {key: payload.get(key) for key in required}
+        if any(not isinstance(value, str) or not value.strip() for value in values.values()):
+            raise ValueError("provider event identity fields must be non-empty strings")
+        if payload["state"] not in {"dispatching", "completed", "blocked"}:
+            raise ValueError("provider event state is not supported")
+        details: dict[str, Any] = {}
+        provider = payload.get("provider")
+        if isinstance(provider, str) and provider.strip():
+            details["provider"] = provider.strip()[:160]
+        if isinstance(payload.get("replay"), bool):
+            details["replay"] = payload["replay"]
+        reason = payload.get("reason")
+        if isinstance(reason, str) and reason.strip():
+            details["reason"] = reason.strip()[:160]
+        encoded = json.dumps(details, sort_keys=True, separators=(",", ":"), allow_nan=False)
+        with closing(self._connect()) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            connection.execute(
+                "INSERT OR IGNORE INTO provider_operation_events "
+                "(event_type,operation_key,operation_id,intent_digest,state,details_json,created_at) "
+                "VALUES(?,?,?,?,?,?,?)",
+                ("provider_operation", values["operation_key"], values["operation_id"],
+                 values["intent_digest"], values["state"], encoded, time.time()),
+            )
+            connection.commit()
+        self._secure_permissions()
 
     def resolve_uncertain(
         self, workflow_id: str, stage: str, capability: str, *, action: str,
@@ -1572,6 +1610,7 @@ class LocalVibeCodingHost:
         registry = build_host_adapter_registry(
             active_agent, tools, version=f"local-host-v1-{tool_config_digest[:16]}", max_risk="critical",
             side_effect_ledger=side_effect_ledger,
+            side_effect_event_recorder=journal.record_provider_event,
         )
         registry.attach_learning_store(learning_path)
         checkpoints = DurableVibeCheckpointStore(self.state_root / "checkpoints")
