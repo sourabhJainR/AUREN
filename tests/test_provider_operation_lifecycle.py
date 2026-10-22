@@ -70,6 +70,30 @@ class ProviderOperationLifecycleTests(unittest.TestCase):
                 lifecycle.reconcile("deploy-3", "provider-a", {"target": "prod"}, lookup)
         self.assertEqual("reconcile_required", self.ledger().get("deploy-3")["state"])
 
+    def test_non_completed_dispatch_receipt_never_becomes_success(self):
+        lifecycle = ProviderOperationLifecycle(self.ledger(), record_event=self.events.append)
+        for index, receipt in enumerate((
+            {"status": "pending"},
+            {"status": "failed"},
+            {"detail": "adapter returned without a status"},
+            {"status": "unknown"},
+        ), start=10):
+            key = f"uncertain-{index}"
+            calls = []
+            with self.assertRaises(ProviderOutcomeBlocked):
+                lifecycle.execute(
+                    key, "provider-a", {"target": "prod", "case": index},
+                    lambda *args, value=receipt: calls.append(args) or value,
+                )
+            self.assertEqual(1, len(calls))
+            self.assertEqual("reconcile_required", self.ledger().get(key)["state"])
+            with self.assertRaises(ProviderOutcomeBlocked):
+                lifecycle.execute(
+                    key, "provider-a", {"target": "prod", "case": index},
+                    lambda *_: self.fail("uncertain operation must not be redispatched"),
+                )
+            self.assertEqual(1, len(calls))
+
     def test_reused_key_with_changed_intent_is_rejected(self):
         lifecycle = ProviderOperationLifecycle(self.ledger())
         lifecycle.execute("deploy-4", "provider-a", {"target": "staging"}, lambda *_: {"status": "completed"})
