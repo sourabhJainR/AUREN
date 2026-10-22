@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import threading
+from datetime import datetime, timedelta, timezone
 import time
 from unittest.mock import patch, Mock
 
@@ -121,6 +122,31 @@ def test_github_poller_waits_for_missing_checks_and_never_guesses_success():
     assert result["missing_checks"] == ["required-check"]
 
 
+def test_stale_ci_poller_is_visible_and_audited_on_next_cycle(tmp_path):
+    controller = ExecutionController(tmp_path)
+    poller_name = "ci:owner/repo"
+    supervisor = ContinuousExecutionSupervisor(
+        controller, pollers={poller_name: lambda: {"status": "success", "repository": "owner/repo", "head_sha": "a" * 40}},
+    )
+    stale_timestamp = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
+    with patch("portable.continuous_execution._now", return_value=stale_timestamp):
+        supervisor._event("previous-run", "poll_result", {
+            "poller": poller_name, "result": {"status": "success"},
+        })
+    health = supervisor.status()["poller_health"][0]
+    assert health["poller"] == poller_name
+    assert health["last_poll_at"] == stale_timestamp
+    assert health["last_status"] == "success"
+    assert health["age_seconds"] >= 300
+    assert health["stale"] is True
+
+    report = supervisor.run(poll_seconds=0.1, batch_size=10, max_cycles=1)
+    status = supervisor.status(event_limit=100)
+    assert report["audit_chain_valid"] is True
+    assert any(event["event_type"] == "stale_ci_polling_detected" for event in status["recent_events"])
+    assert status["poller_health"][0]["stale"] is False
+
+
 def test_audit_chain_detects_tampering(tmp_path):
     supervisor = ContinuousExecutionSupervisor(ExecutionController(tmp_path))
     supervisor.request_stop("audit test")
@@ -150,10 +176,17 @@ def test_failed_required_check_enqueues_one_bounded_repair_through_existing_supe
         recovery_ledger=EngineeringRecoveryLedger(tmp_path / ".auren" / "engineering-recovery.sqlite3"),
     )
     report = supervisor.run(poll_seconds=0.1, batch_size=10, max_cycles=2)
-    status = supervisor.status()
+    status = supervisor.status(event_limit=100)
     assert report["audit_chain_valid"] is True
     assert any(event["event_type"] == "ci_repair_queued" for event in status["recent_events"])
     assert any(event["event_type"] == "ci_repair_finalized" for event in status["recent_events"])
+    lifecycle = [
+        event["payload"]["to_state"]
+        for event in reversed(status["recent_events"])
+        if event["event_type"] == "ci_repair_lifecycle"
+    ]
+    assert lifecycle == ["observed", "triaged", "queued", "claimed", "repairing", "blocked"]
+    assert "resolved" not in lifecycle  # completed task is not success without new validation evidence
     with __import__("sqlite3").connect(controller.db_path) as db:
         rows = db.execute("SELECT payload FROM tasks").fetchall()
     repairs = [json.loads(row[0]) for row in rows if "auren_ci_repair" in json.loads(row[0])]
