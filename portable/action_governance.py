@@ -229,6 +229,7 @@ class ActionGovernanceGateway:
     ) -> PolicyVerdict:
         request.validate()
         fingerprint = request.fingerprint()
+        protected = _normal_target(request.target)
         needs_approval = self.requires_approval(request)
 
         reason = "allowed"
