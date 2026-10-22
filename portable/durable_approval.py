@@ -388,15 +388,26 @@ class DurableApprovalStore:
         )
 
     def reconcile_progress(self) -> int:
-        """Repair missing journal projections from durable approval events without replaying actions."""
+        """Rebuild missing journal transitions from the append-only approval event log."""
         if self.progress_journal is None:
             return 0
         with self._connect() as db:
             rows = db.execute("SELECT * FROM durable_approvals ORDER BY created_at,approval_id").fetchall()
+        records = {row["approval_id"]: _record(row) for row in rows}
         count = 0
-        for row in rows:
+        for event in self.events():
+            record = records.get(str(event["approval_id"]))
+            if record is None:
+                raise RuntimeError("approval audit event has no durable approval record")
+            body = event["event"]
+            projected = replace(
+                record,
+                status=str(body.get("to_state", record.status)),
+                version=int(body.get("version", record.version)),
+                reason=str((body.get("details") or {}).get("reason", record.reason)),
+            )
             before = len(self.progress_journal._events())
-            self._project_progress(_record(row), "approval_reconciliation")
+            self._project_progress(projected, str(event["event_type"]))
             after = len(self.progress_journal._events())
             count += max(0, after - before)
         return count
