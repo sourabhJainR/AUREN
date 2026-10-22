@@ -1,3 +1,4 @@
+from contextlib import closing
 import multiprocessing
 import os
 import sqlite3
@@ -91,7 +92,7 @@ class CanonicalEvidenceLedgerTests(unittest.TestCase):
             ("ci:crash-after-commit",),
             reopened.known_evidence_ids(repository="sourabhJainR/AUREN", head_sha=HEAD),
         )
-        with sqlite3.connect(self.database) as db:
+        with closing(sqlite3.connect(self.database)) as db, db:
             count = db.execute(
                 "SELECT COUNT(*) FROM canonical_evidence WHERE evidence_id=?",
                 ("ci:crash-after-commit",),
