@@ -431,10 +431,10 @@ class DurableApprovalStore:
         rows = journal._events()
         if any(row.get("task_id") == record.task_id and token in row.get("message", "") for row in rows):
             return
-        if record.status in {"pending"}:
+        if record.status in {"pending", "rejected", "expired", "cancelled", "superseded", "failed", "outcome_unknown"}:
             state = "blocked"
-        elif record.status in {"rejected", "expired", "cancelled", "superseded", "failed", "outcome_unknown"}:
-            state = "blocked"
+        elif record.status == "approved":
+            state = "queued"
         else:
             state = "running"
         message = f"{token} {record.status}: {record.reason or event_type}"
