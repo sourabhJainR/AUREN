@@ -121,6 +121,11 @@ DIRECT_GATEWAY_CALLSITE_POLICY: tuple[dict[str, str], ...] = (
         "scope": "run.effective_spawn",
         "disposition": "legacy branch requires durable ledger for external effects; bound mode uses execute_bound_action",
     },
+    {
+        "path": "portable/durable_approval.py",
+        "scope": "execute_approved_action",
+        "disposition": "canonical only after durable approval claim, digest revalidation, trusted receipt verification, and side-effect ledger preflight",
+    },
 )
 
 
