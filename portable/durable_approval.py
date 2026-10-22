@@ -697,6 +697,14 @@ class DurableApprovalStore:
         artifact_digest: str, evidence_digest: str, policy_digest: str,
     ) -> Any:
         """Claim once, invoke the existing governance gateway, and record truthful outcome."""
+        if not callable(getattr(gateway, "requires_approval", None)) or not gateway.requires_approval(request):
+            raise PermissionError("the action gateway policy does not require approval for this request")
+        if not callable(getattr(gateway, "is_external_effect", None)) or not gateway.is_external_effect(request):
+            raise PermissionError("approval-gated execution requires an external effect protected by the durable ledger")
+        if not getattr(gateway, "has_durable_side_effect_ledger", False):
+            raise PermissionError("approval-gated execution requires the durable side-effect ledger")
+        if gateway.durable_side_effect_preflight(request) is not None:
+            raise PermissionError("action gateway rejected the durable side-effect preflight")
         receipt = self.claim_execution(
             approval_id, request, artifact_digest=artifact_digest,
             evidence_digest=evidence_digest, policy_digest=policy_digest,
