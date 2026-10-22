@@ -777,12 +777,24 @@ class ExecutionController:
                         f"SQLite task state and executive work-unit receipt agree on terminal state {task_state}."
                     )
                 else:
+                    # Keep the canonical task row fail-closed as well as the
+                    # progress projection. A terminal SQLite row is not proof
+                    # of completion when the durable work-unit receipt disagrees.
+                    with sqlite3.connect(self.db_path, timeout=5) as db:
+                        cursor = db.execute(
+                            "UPDATE tasks SET state='blocked',updated_at=?,heartbeat_at=NULL,"
+                            "lease_until=NULL,lease_token=NULL WHERE id=? AND state=?",
+                            (_now(), str(task_id), str(task_state)),
+                        )
                     target_state = "blocked"
                     reason = (
                         "Task and executive receipt disagree at startup; terminal success is not trusted. "
-                        "Inspect the durable work-unit receipt and reconcile before retry."
+                        "The task was blocked in the canonical store. Inspect the durable work-unit receipt "
+                        "and reconcile before retry."
                     )
                     findings.append(str(task_id))
+                    if cursor.rowcount != 1:
+                        reason += " The task row changed concurrently; refresh canonical state before acting."
             elif work_state in {"completed", "failed", "cancelled"}:
                 target_state = "blocked"
                 reason = (
