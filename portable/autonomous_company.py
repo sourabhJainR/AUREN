@@ -8,6 +8,7 @@ evidence, recovery and learning state.
 from __future__ import annotations
 
 import hashlib, json, sqlite3, time
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -104,10 +105,19 @@ class AutonomousCompany:
             )
             db.commit()
 
+    @contextmanager
     def _db(self):
+        """Commit or roll back each transaction and always release its file handle."""
         db = sqlite3.connect(self.db_path, timeout=30)
-        db.execute("PRAGMA journal_mode=WAL")
-        return db
+        try:
+            db.execute("PRAGMA journal_mode=WAL")
+            yield db
+            db.commit()
+        except BaseException:
+            db.rollback()
+            raise
+        finally:
+            db.close()
 
     def start(
         self, goal: str, *, scope: str = "single-company-unit",
