@@ -43,6 +43,39 @@ class InvalidApprovalTransition(RuntimeError):
     """An approval or operation state transition is not permitted."""
 
 
+class ApprovalPending(Exception):
+    """Suspend a durable task at an approval boundary with a small safe checkpoint."""
+
+    _FORBIDDEN_KEY_PARTS = ("secret", "password", "credential", "token", "prompt", "answer", "draft", "content", "response")
+
+    def __init__(self, approval_id: str, checkpoint: Mapping[str, Any]):
+        self.approval_id = _required(approval_id, "approval_id")
+        if not isinstance(checkpoint, Mapping) or not checkpoint:
+            raise ValueError("approval checkpoint must be a non-empty mapping")
+        payload = dict(checkpoint)
+        def validate(value: Any, path: str = "") -> None:
+            if isinstance(value, Mapping):
+                for key, child in value.items():
+                    name = _required(str(key), "checkpoint key").lower()
+                    if any(part in name for part in self._FORBIDDEN_KEY_PARTS):
+                        raise ValueError("checkpoint must store content references/digests, not prompts, drafts, or secrets")
+                    validate(child, f"{path}.{name}")
+            elif isinstance(value, (list, tuple)):
+                for child in value:
+                    validate(child, path)
+            elif isinstance(value, str):
+                if len(value) > 2048:
+                    raise ValueError("checkpoint strings must be references or bounded identifiers")
+            elif value is not None and type(value) not in {bool, int, float}:
+                raise ValueError("checkpoint must be JSON-safe")
+        validate(payload)
+        encoded = _canonical(payload)
+        if len(encoded.encode("utf-8")) > 16384:
+            raise ValueError("approval checkpoint exceeds 16 KiB")
+        self.checkpoint = payload
+        super().__init__(f"approval pending: {self.approval_id}")
+
+
 @dataclass(frozen=True)
 class ApprovalRecord:
     approval_id: str
