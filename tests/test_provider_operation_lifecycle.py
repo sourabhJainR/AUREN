@@ -1,3 +1,5 @@
+import multiprocessing
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -6,6 +8,23 @@ from portable.provider_operation_lifecycle import (
     ProviderOperationLifecycle, ProviderOutcomeBlocked, stable_provider_operation_id,
 )
 from portable.side_effect_ledger import DurableSideEffectLedger
+
+
+_CRASH_OPERATION_KEY = "deploy:provider-crash:staging"
+_CRASH_PROVIDER = "provider-a"
+_CRASH_INTENT = {"target": "staging", "revision": "crash-revision"}
+
+
+def _crash_inside_provider_dispatch(database: str, provider_log: str) -> None:
+    lifecycle = ProviderOperationLifecycle(DurableSideEffectLedger(database))
+    def dispatch(intent, operation_id, idempotency_key):
+        with Path(provider_log).open("a", encoding="utf-8") as stream:
+            stream.write(operation_id + "\\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os._exit(82)
+    lifecycle.execute(_CRASH_OPERATION_KEY, _CRASH_PROVIDER, _CRASH_INTENT, dispatch)
+    os._exit(83)
 
 
 class ProviderOperationLifecycleTests(unittest.TestCase):
@@ -17,6 +36,57 @@ class ProviderOperationLifecycleTests(unittest.TestCase):
 
     def ledger(self, *, verify=None):
         return DurableSideEffectLedger(self.path, reconciliation_verifier=verify)
+
+
+    def test_process_death_inside_real_dispatch_path_requires_lookup_before_replay(self):
+        database = str(self.path)
+        provider_log = str(self.path.parent / "provider-operations.log")
+        process = multiprocessing.get_context("spawn").Process(
+            target=_crash_inside_provider_dispatch,
+            args=(database, provider_log),
+        )
+        process.start()
+        process.join(15)
+        if process.is_alive():
+            process.terminate()
+            process.join(3)
+            self.fail("provider dispatch crash fixture exceeded its time budget")
+        self.assertEqual(82, process.exitcode)
+        self.assertEqual(1, len(Path(provider_log).read_text(encoding="utf-8").splitlines()))
+
+        operation_id = stable_provider_operation_id(
+            _CRASH_OPERATION_KEY, _CRASH_PROVIDER, _CRASH_INTENT,
+        )
+        verified = lambda key, evidence, receipt: (
+            key == _CRASH_OPERATION_KEY
+            and evidence == f"provider://operation/{operation_id}"
+            and receipt.get("status") == "completed"
+            and receipt.get("provider_operation_id") == operation_id
+        )
+        lifecycle = ProviderOperationLifecycle(self.ledger(verify=verified), record_event=self.events.append)
+        with self.assertRaises(ProviderOutcomeBlocked):
+            lifecycle.execute(
+                _CRASH_OPERATION_KEY, _CRASH_PROVIDER, _CRASH_INTENT,
+                lambda *_: self.fail("ambiguous provider operation must not be redispatched"),
+            )
+        self.assertEqual("reconcile_required", self.ledger().get(_CRASH_OPERATION_KEY)["state"])
+
+        receipt = lifecycle.reconcile(
+            _CRASH_OPERATION_KEY, _CRASH_PROVIDER, _CRASH_INTENT,
+            lambda requested_id, key: {
+                "status": "completed",
+                "evidence_ref": f"provider://operation/{requested_id}",
+                "receipt": {"status": "completed", "provider_operation_id": requested_id},
+            },
+        )
+        self.assertEqual(operation_id, receipt["provider_operation_id"])
+        self.assertEqual("completed", self.ledger().get(_CRASH_OPERATION_KEY)["state"])
+        replay = lifecycle.execute(
+            _CRASH_OPERATION_KEY, _CRASH_PROVIDER, _CRASH_INTENT,
+            lambda *_: self.fail("reconciled operation must replay its receipt, not dispatch"),
+        )
+        self.assertEqual(receipt, replay)
+        self.assertEqual([operation_id], Path(provider_log).read_text(encoding="utf-8").splitlines())
 
     def test_stable_operation_id_is_bound_to_key_provider_and_intent(self):
         intent = {"target": "staging", "revision": "abc"}
