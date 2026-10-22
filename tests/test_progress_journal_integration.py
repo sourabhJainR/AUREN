@@ -105,8 +105,13 @@ class ProgressJournalRuntimeIntegrationTests(unittest.TestCase):
 
             restarted = ExecutionController(root)
             snapshot = restarted.progress_journal.snapshot(task.id, stale_after_seconds=3600)
-            self.assertEqual(restarted.task(task.id).state, "completed")
+            self.assertEqual(restarted.task(task.id).state, "blocked")
             self.assertEqual(snapshot["reported_state"], "blocked")
+            dashboard = EngineeringDashboard(root)
+            progress_rows = dashboard.snapshot().as_dict()["tasks"]["progress"]
+            matching = [row for row in progress_rows if row["task_id"] == task.id]
+            self.assertEqual(len(matching), 1)
+            self.assertEqual(matching[0]["state"], "blocked")
             self.assertEqual(snapshot["stage"], "startup-reconciliation")
             self.assertTrue(any("progress_reconciliation_required=1" in finding
                                 for finding in restarted.health_findings()))
