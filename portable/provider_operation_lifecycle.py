@@ -82,6 +82,39 @@ class ProviderOperationLifecycle:
             raise ProviderOutcomeBlocked(
                 f"provider operation {op_id} outcome is uncertain; no automatic retry"
             ) from exc
+        # A returned mapping proves only that the adapter returned. It does not
+        # prove that the remote side effect completed. Never persist pending,
+        # failed, malformed, or unknown provider states as a completed receipt.
+        provider_status = receipt.get("status")
+        nested_result = receipt.get("result")
+        nested_completion = (
+            isinstance(nested_result, Mapping)
+            and (
+                nested_result.get("status") == "completed"
+                or (
+                    "status" not in nested_result
+                    and nested_result.get("success") is True
+                )
+            )
+        )
+        explicit_completion = (
+            provider_status == "completed"
+            or (
+                "status" not in receipt
+                and (receipt.get("success") is True or nested_completion)
+            )
+        )
+        if not explicit_completion:
+            status_label = provider_status.strip()[:80] if isinstance(provider_status, str) else "missing"
+            reason = f"dispatch returned non-completed status ({status_label})"
+            self.ledger.require_reconciliation(operation_key, reason)
+            self._event(
+                operation_key, "reconcile_required", op_id, decision.payload_digest,
+                provider_status=status_label,
+            )
+            raise ProviderOutcomeBlocked(
+                f"provider operation {op_id} did not confirm completion; reconciliation required"
+            )
         completed = self.ledger.complete(operation_key, dict(receipt))
         self._event(operation_key, "completed", op_id, completed.payload_digest,
                     receipt_digest=hashlib.sha256(_canonical(receipt).encode("utf-8")).hexdigest())

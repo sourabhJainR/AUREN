@@ -75,3 +75,18 @@ Assert provider call counts, durable states, immutable receipts, operation-ID st
 ## Non-goals and safety
 
 This contract does not claim distributed exactly-once execution. Local SQLite transactions cannot be atomic with an external provider. Provider cooperation, native idempotency/status lookup, durable receipts, and evidence-backed reconciliation are required. Never weaken the existing durable side-effect ledger, retry authorization, approval, security, or rollback gates to make an operation appear recoverable.
+
+
+## Dispatch receipt acceptance
+
+The adapter returning a mapping is not proof of remote completion. The lifecycle
+accepts a dispatch receipt as completed when `status` is exactly `completed`,
+or when a legacy adapter omits `status` and explicitly returns `success: true`
+at the receipt or wrapped `result` level. If a status field is present at
+the receipt level, only `completed` is accepted; a nested non-completed status
+cannot be overridden by a success flag. Missing success,
+pending, failed, and unknown states are persisted as `reconcile_required`; they
+cannot be replayed or redispatched automatically.
+The trusted lookup/reconciliation path must establish the remote outcome before
+the operation can leave that state. This guard prevents an adapter's ordinary
+return path from turning an unconfirmed side effect into a false success.

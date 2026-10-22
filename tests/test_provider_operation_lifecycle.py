@@ -70,6 +70,58 @@ class ProviderOperationLifecycleTests(unittest.TestCase):
                 lifecycle.reconcile("deploy-3", "provider-a", {"target": "prod"}, lookup)
         self.assertEqual("reconcile_required", self.ledger().get("deploy-3")["state"])
 
+    def test_non_completed_dispatch_receipt_never_becomes_success(self):
+        lifecycle = ProviderOperationLifecycle(self.ledger(), record_event=self.events.append)
+        for index, receipt in enumerate((
+            {"status": "pending"},
+            {"status": "failed"},
+            {"detail": "adapter returned without a status"},
+            {"status": "unknown"},
+        ), start=10):
+            key = f"uncertain-{index}"
+            calls = []
+            with self.assertRaises(ProviderOutcomeBlocked):
+                lifecycle.execute(
+                    key, "provider-a", {"target": "prod", "case": index},
+                    lambda *args, value=receipt: calls.append(args) or value,
+                )
+            self.assertEqual(1, len(calls))
+            self.assertEqual("reconcile_required", self.ledger().get(key)["state"])
+            with self.assertRaises(ProviderOutcomeBlocked):
+                lifecycle.execute(
+                    key, "provider-a", {"target": "prod", "case": index},
+                    lambda *_: self.fail("uncertain operation must not be redispatched"),
+                )
+            self.assertEqual(1, len(calls))
+
+    def test_explicit_legacy_success_is_accepted_but_conflicting_status_is_not(self):
+        lifecycle = ProviderOperationLifecycle(self.ledger())
+        receipt = {"success": True, "detail": "operation completed"}
+        result = lifecycle.execute(
+            "legacy-success", "provider-a", {"target": "staging"},
+            lambda *_: receipt,
+        )
+        self.assertEqual(receipt, result)
+        self.assertEqual("completed", self.ledger().get("legacy-success")["state"])
+
+        with self.assertRaises(ProviderOutcomeBlocked):
+            lifecycle.execute(
+                "conflicting-status", "provider-a", {"target": "prod"},
+                lambda *_: {"status": "pending", "success": True},
+            )
+        self.assertEqual("reconcile_required", self.ledger().get("conflicting-status")["state"])
+
+        nested = {"result": {"success": True, "detail": "completed"}, "provider_operation_id": "remote-1"}
+        self.assertEqual(nested, lifecycle.execute(
+            "nested-success", "provider-a", {"target": "staging"},
+            lambda *_: nested,
+        ))
+        with self.assertRaises(ProviderOutcomeBlocked):
+            lifecycle.execute(
+                "nested-pending", "provider-a", {"target": "prod"},
+                lambda *_: {"result": {"status": "pending", "success": True}},
+            )
+
     def test_reused_key_with_changed_intent_is_rejected(self):
         lifecycle = ProviderOperationLifecycle(self.ledger())
         lifecycle.execute("deploy-4", "provider-a", {"target": "staging"}, lambda *_: {"status": "completed"})
