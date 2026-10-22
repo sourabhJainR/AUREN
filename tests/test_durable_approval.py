@@ -213,7 +213,7 @@ class DurableApprovalTests(unittest.TestCase):
         record = self.create()
         self.approve(record)
         gateway = ActionGovernanceGateway(
-            ActionPolicy(allowed_capabilities=frozenset({"publish"})),
+            ActionPolicy(allowed_capabilities=frozenset({"publish"}), approval_required_actions=frozenset({"publish"})),
             approval_verifier=self.store.verify_receipt,
         )
         calls = []
