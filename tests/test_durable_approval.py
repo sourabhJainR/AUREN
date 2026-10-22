@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
+import gc
 import sqlite3
 import tempfile
 import unittest
@@ -109,6 +110,7 @@ class DurableApprovalTests(unittest.TestCase):
         APPROVAL_FLOW.clear()
         self.store = None
         self.controller = None
+        gc.collect()
         self.temp.cleanup()
 
     def make_store(self):
