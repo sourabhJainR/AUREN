@@ -400,6 +400,30 @@ class DurableApprovalTests(unittest.TestCase):
             restarted_controller.task(task.id).payload["auren_approval_resume"]["checkpoint"], checkpoint,
         )
 
+    def test_rejected_approval_is_reconciled_without_process_restart(self):
+        record = self.create()
+        checkpoint = self.store.checkpoint_for(record.approval_id)
+        with sqlite3.connect(self.controller.db_path) as db:
+            payload = json.loads(db.execute(
+                "SELECT payload FROM tasks WHERE id=?", (self.task.id,),
+            ).fetchone()[0])
+            payload["auren_approval_resume"] = {
+                "approval_id": record.approval_id, "status": "pending",
+                "checkpoint": checkpoint,
+            }
+            db.execute(
+                "UPDATE tasks SET state='waiting_approval',payload=? WHERE id=?",
+                (json.dumps(payload, sort_keys=True), self.task.id),
+            )
+        self.store.decide(
+            record.approval_id, "reject", approver_id="reviewer-1",
+            roles=("release-approver",), scope="repo:publish",
+            reason="not approved",
+        )
+        self.controller.resume_pending()
+        self.assertEqual(self.controller.task(self.task.id).state, "blocked_approval")
+        self.assertEqual(self.store.get(record.approval_id).status, "rejected")
+
     def test_controller_pauses_and_resumes_same_checkpoint_without_retrieval_repeat(self):
         self.store.wake_callback = lambda task_id, approval_id: self.controller.resume_approved_task(
             task_id, approval_id, approval_store=self.store,
