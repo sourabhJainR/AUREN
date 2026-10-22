@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -352,6 +353,16 @@ print(json.dumps({"type": "item.completed", "item": {"type": "agent_message", "t
             self.assertFalse((project / "src" / "feature.py").exists())
             self.assertTrue(Path(report["learning_receipt"]).is_file())
             self.assertTrue(Path(report["checkpoint_receipt"]).is_file())
+            # The stage-level durable receipt ledger and host side-effect journal
+            # must share one operations database, not drift into parallel stores.
+            with sqlite3.connect(base / "auren-state" / "operations.sqlite3") as db:
+                tables = {
+                    row[0] for row in db.execute(
+                        "SELECT name FROM sqlite_master WHERE type='table'"
+                    )
+                }
+            self.assertIn("operations", tables)
+            self.assertIn("durable_side_effects", tables)
             source_status = subprocess.run(
                 ["git", "-C", str(project), "status", "--porcelain"],
                 check=True, text=True, capture_output=True,
