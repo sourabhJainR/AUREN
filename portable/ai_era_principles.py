@@ -26,9 +26,20 @@ _ROWS = [
 ("ECONOMY","Engineering Cost Optimization Measured Over the Full Lifecycle, Not Yield Alone","Optimize inference, tools, CI, memory, review, rework, latency and risk together."," .ai-harness/runtime/context_broker.py".strip(),"tests/test_context_broker.py"),
 ("MEASURE","Metrics, Evidence, And Results Evaluated","Measure quality, recovery, cost and outcomes rather than activity alone.","portable/agency_observability.py","tests/test_agency_observability.py"),
 ("CONTEXT","Context Is an Engineering Dependency","Retrieve relevant, current, authoritative context before acting."," .ai-harness/runtime/context_broker.py".strip(),"tests/test_context_broker.py"),
+("DETERM","Deterministic Decisions and Artifacts","Make planning, state transitions, artifact generation, and evidence reconciliation deterministic where correctness requires it; bind outputs to explicit inputs and versions.","portable/state_graph.py","tests/test_state_graph_hardening.py"),
+("MINCORE","Minimal Trusted Execution Core","Keep authorization and security-critical execution in a small, auditable core; optional agents and plugins cannot expand its authority.","portable/secure_execution.py","tests/test_security_engineering_gate.py"),
+("OUTCOME","Explicit Operation Outcomes","Represent success, failure, timeout, cancellation, partial completion, and unknown outcome distinctly; never convert uncertainty into success.","portable/execution_controller.py","tests/test_execution_controller_promotion_gate.py"),
+("MIGSAFE","Compatible and Reversible State Evolution","Require compatibility checks, migration rehearsal, rollback or forward-fix plans, and continued readability of prior state.","portable/state_migration.py","tests/test_state_migration.py"),
+("PROVEN","Verified Supply Chain and Artifacts","Pin dependencies and build inputs; verify source provenance, signatures, and artifact contents before execution or release.","portable/agency_provenance.py","tests/test_agency_provenance.py"),
+("HUMANE","Honest and Actionable Operator Feedback","Expose blockers, next actions, uncertainty, and recovery choices; progress indicators must not hide failures or imply unsupported completion.","portable/agency_observability.py","tests/test_agency_observability.py"),
+("ACCESS","Accessible Operational Interfaces","Treat accessibility of applicable CLI, dashboard, and operator workflows as a quality requirement; verify interfaces with appropriate checks.","dashboard/README.md","tests/test_principle_traceability.py"),
+("REVERS","Reversibility Before Abstraction","Assess migration complexity, operational burden, and reversal cost before adding abstractions; prefer a smaller reversible change when it meets the need.","portable/engineering_design_guard.py","tests/test_engineering_design_guard.py"),
+("LIFECYCLE","Named Ownership and Retirement","Give every agent, provider, plugin, policy, and compatibility layer a named owner, support status, and explicit retirement condition.","portable/identity_compat.py","tests/test_identity_compat.py"),
+("PRIORITY","Correctness and Authority Over Optimization","Token savings, speed, autonomy, and availability never override permission, evidence, security, or correctness gates.","portable/decision_gate.py","tests/test_decision_gate.py"),
+]
 ]
 PRINCIPLES = tuple({"id": row[0], "name": row[1], "meaning": row[2], "owner": row[3], "test": row[4]} for row in _ROWS)
-SCHEMA_VERSION = "auren-ai-era-principles-v1"
+SCHEMA_VERSION = "auren-ai-era-principles-v2"
 ALLOWED_RISKS = {"low", "medium", "high", "critical"}
 
 def canonical_registry() -> dict[str, Any]:
@@ -54,7 +65,7 @@ def build_contract_receipt(intent: str, changed_paths: list[str] | tuple[str, ..
     if normalized_risk not in ALLOWED_RISKS:
         raise ValueError(f"risk must be one of: {', '.join(sorted(ALLOWED_RISKS))}")
     paths = sorted({str(p).replace("\\", "/").strip("/") for p in changed_paths if str(p).strip()})
-    payload = {"schema_version": "auren-ai-era-principle-receipt-v1",
+    payload = {"schema_version": "auren-ai-era-principle-receipt-v2",
         "intent_digest": hashlib.sha256(intent.strip().encode()).hexdigest(),
         "changed_paths": paths, "risk": normalized_risk, "code_revision": str(code_revision or ""),
         "registry_digest": registry_digest(), "principles": [p["id"] for p in PRINCIPLES],
