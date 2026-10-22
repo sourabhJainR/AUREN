@@ -232,7 +232,7 @@ class ExecutionController:
 
         Execution class is an operator-owned registration contract, persisted
         separately from task payload. New handlers must explicitly be classified
-        as read_only, context_provider, ci_gated, or consequential. Unknown legacy
+        as read_only, context_provider, ci_gated, consequential, or approval_gated. Unknown legacy
         registrations fail closed until reclassified. Consequential handlers
         require both trusted decision-record and exact-head CI gates. Context
         providers are internal-only and cannot be submitted as tasks.
@@ -1400,7 +1400,7 @@ class ExecutionController:
         execution_class = self._handler_execution_class(handler)
         if execution_class == "context_provider":
             raise ValueError("context providers are internal-only and cannot be submitted as tasks")
-        if execution_class not in {"read_only", "ci_gated", "consequential"}:
+        if execution_class not in {"read_only", "ci_gated", "consequential", "approval_gated"}:
             raise ValueError("unclassified legacy handler fails closed; re-register with an explicit execution_class")
         self._load_handler(handler)
         work = self.company.start(goal or f"execute durable handler: {handler}")
