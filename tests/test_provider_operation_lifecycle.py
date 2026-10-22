@@ -19,7 +19,7 @@ def _crash_inside_provider_dispatch(database: str, provider_log: str) -> None:
     lifecycle = ProviderOperationLifecycle(DurableSideEffectLedger(database))
     def dispatch(intent, operation_id, idempotency_key):
         with Path(provider_log).open("a", encoding="utf-8") as stream:
-            stream.write(operation_id + "\\n")
+            stream.write(operation_id + "\n")
             stream.flush()
             os.fsync(stream.fileno())
         os._exit(82)
