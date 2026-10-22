@@ -11,6 +11,7 @@ import hashlib
 import json
 import re
 import sqlite3
+from contextlib import closing
 from typing import Any, Mapping
 
 
@@ -37,7 +38,7 @@ class CanonicalEvidenceLedger:
         if self.database_path == ":memory:":
             raise ValueError("canonical evidence ledger requires persistent storage")
         Path(self.database_path).parent.mkdir(parents=True, exist_ok=True)
-        with sqlite3.connect(self.database_path, timeout=10) as db:
+        with closing(sqlite3.connect(self.database_path, timeout=10)) as db, db:
             db.execute(
                 """CREATE TABLE IF NOT EXISTS canonical_evidence (
                     evidence_id TEXT PRIMARY KEY,
@@ -114,7 +115,7 @@ class CanonicalEvidenceLedger:
         record_digest = hashlib.sha256(
             json.dumps(record_body, sort_keys=True, separators=(",", ":")).encode("utf-8")
         ).hexdigest()
-        with sqlite3.connect(self.database_path, timeout=10) as db:
+        with closing(sqlite3.connect(self.database_path, timeout=10)) as db, db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute(
                 "SELECT repository,head_sha,evidence_type,status,source_uri,payload_digest,signer_id,recorded_at,record_digest "
@@ -146,7 +147,7 @@ class CanonicalEvidenceLedger:
         head_sha = _required_text(head_sha, "head_sha")
         if not _SHA_RE.fullmatch(head_sha):
             raise ValueError("head_sha must be a full lowercase 40-character commit SHA")
-        with sqlite3.connect(self.database_path, timeout=10) as db:
+        with closing(sqlite3.connect(self.database_path, timeout=10)) as db, db:
             rows = db.execute(
                 "SELECT evidence_id FROM canonical_evidence WHERE repository=? AND head_sha=? AND status IN ('passed','verified') ORDER BY evidence_id",
                 (repository, head_sha),
@@ -158,7 +159,7 @@ class CanonicalEvidenceLedger:
         evidence_id = _required_text(evidence_id, "evidence_id")
         repository = _required_text(repository, "repository")
         head_sha = _required_text(head_sha, "head_sha")
-        with sqlite3.connect(self.database_path, timeout=10) as db:
+        with closing(sqlite3.connect(self.database_path, timeout=10)) as db, db:
             row = db.execute(
                 "SELECT evidence_id,repository,head_sha,evidence_type,status,source_uri,payload_digest,signer_id,recorded_at,record_digest "
                 "FROM canonical_evidence WHERE evidence_id=? AND repository=? AND head_sha=?",
