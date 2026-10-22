@@ -544,7 +544,9 @@ def build_host_adapter_registry(
     runtime. Each tools entry is a real, permission-scoped host adapter keyed by
     capability (research, web_search, design, repository, deployment, etc.). Tool
     receipts override agent-generated claims for the same fields; tool evidence is
-    retained. Missing capability adapters fail fast before execution.
+    retained. Missing capability adapters fail fast before execution. Stages that
+    can write externally require side_effect_ledger; without it, invocation is
+    blocked before the host adapter runs.
     """
     if not callable(active_agent):
         raise TypeError("active_agent must be a callable host agent dispatcher")
