@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 import re
 import sqlite3
+from contextlib import closing
 from typing import Any, Iterable
 from .repository_intelligence import RepositoryIntelligence
 from .engineering_plan import EngineeringPlan, EngineeringPlanRun
@@ -127,7 +128,7 @@ class EngineeringDashboard:
         for path in paths:
             try:
                 uri = f"file:{path.as_posix()}?mode=ro"
-                with sqlite3.connect(uri, uri=True, timeout=0.5) as db:
+                with closing(sqlite3.connect(uri, uri=True, timeout=0.5)) as db, db:
                     names = [r[0] for r in db.execute(
                         "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")]
                     for name in names:
@@ -171,7 +172,7 @@ class EngineeringDashboard:
         for path in paths:
             try:
                 uri = f"file:{path.as_posix()}?mode=ro"
-                with sqlite3.connect(uri, uri=True, timeout=0.5) as db:
+                with closing(sqlite3.connect(uri, uri=True, timeout=0.5)) as db, db:
                     table = db.execute(
                         "SELECT 1 FROM sqlite_master WHERE type='table' AND name='engineering_plan_runs'"
                     ).fetchone()
@@ -262,7 +263,7 @@ class EngineeringDashboard:
         for path in paths:
             try:
                 uri = f"file:{path.as_posix()}?mode=ro"
-                with sqlite3.connect(uri, uri=True, timeout=0.5) as db:
+                with closing(sqlite3.connect(uri, uri=True, timeout=0.5)) as db, db:
                     table = db.execute(
                         "SELECT name FROM sqlite_master WHERE type='table' AND name='engineering_episodes'"
                     ).fetchone()
