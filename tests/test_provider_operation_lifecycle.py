@@ -94,6 +94,23 @@ class ProviderOperationLifecycleTests(unittest.TestCase):
                 )
             self.assertEqual(1, len(calls))
 
+    def test_explicit_legacy_success_is_accepted_but_conflicting_status_is_not(self):
+        lifecycle = ProviderOperationLifecycle(self.ledger())
+        receipt = {"success": True, "detail": "operation completed"}
+        result = lifecycle.execute(
+            "legacy-success", "provider-a", {"target": "staging"},
+            lambda *_: receipt,
+        )
+        self.assertEqual(receipt, result)
+        self.assertEqual("completed", self.ledger().get("legacy-success")["state"])
+
+        with self.assertRaises(ProviderOutcomeBlocked):
+            lifecycle.execute(
+                "conflicting-status", "provider-a", {"target": "prod"},
+                lambda *_: {"status": "pending", "success": True},
+            )
+        self.assertEqual("reconcile_required", self.ledger().get("conflicting-status")["state"])
+
     def test_reused_key_with_changed_intent_is_rejected(self):
         lifecycle = ProviderOperationLifecycle(self.ledger())
         lifecycle.execute("deploy-4", "provider-a", {"target": "staging"}, lambda *_: {"status": "completed"})
