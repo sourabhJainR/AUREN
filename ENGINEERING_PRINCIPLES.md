@@ -15,6 +15,21 @@ See the [12-family enforcement traceability matrix](docs/ENGINEERING_PRINCIPLE_T
 7. Re-evaluate after fixes on the exact final commit. Missing, stale, queued, skipped, or failed evidence is not a pass. Use bounded retries, change approach when a repeated hypothesis fails, and preserve the last verified state and rollback path.
 8. Learn from verified outcomes only. Never silently modify permanent rules, credentials, permissions, approval gates, or safety controls.
 
+## Additional non-negotiable execution principles
+
+These requirements are part of the same canonical contract and use the existing guard, execution controller, migration, provenance, observability, identity, and verification owners. The registry receipt records applicability; it does not replace behavioral enforcement.
+
+1. **Determinism:** planning decisions, state transitions, artifact generation, and evidence reconciliation must be deterministic where correctness requires it. Bind results to explicit inputs, versions, and source revisions.
+2. **Minimal trusted core:** keep authorization and security-critical execution small and auditable. Optional agents, plugins, model providers, and compatibility layers cannot grant themselves authority or bypass the core.
+3. **Explicit outcomes:** every operation defines and distinguishes success, failure, timeout, cancellation, partial completion, and unknown outcome. An unknown remote result blocks unsafe replay until reconciled.
+4. **Safe state evolution:** preserve compatibility and old-state readability. Before migration, define validation, rehearsal, backup, rollback or forward-recovery, interruption handling, and post-migration checks.
+5. **Supply-chain integrity:** pin dependencies and build inputs where supported; bind artifacts to source revision and build evidence; verify provenance, signatures, and contents before execution or release. Missing required verification blocks release.
+6. **Truthful operator feedback:** report observed progress, blockers, next action, uncertainty, and available recovery choices. A progress display must not conceal failure or imply completion without committed evidence.
+7. **Accessibility:** treat accessible CLI, dashboard, and operational workflows as quality requirements where applicable, and include suitable automated and manual checks in acceptance evidence.
+8. **Reversibility before abstraction:** evaluate migration complexity, operational burden, and the cost of reversing a change before adding a layer or dependency. Prefer the smallest reversible design that meets the requirements.
+9. **Capability lifecycle ownership:** each agent, provider, plugin, policy, and compatibility layer has an accountable owner, support status, compatibility promise, and retirement condition.
+10. **Correctness over optimization:** token savings, speed, autonomy, and availability never override permission, security, required evidence, or correctness gates.
+
 ## Canonical 12-family taxonomy
 
 Use these 12 families to classify task risk and select detailed principles. Security, correctness, testing, observability, and recovery remain cross-cutting requirements whenever relevant.
