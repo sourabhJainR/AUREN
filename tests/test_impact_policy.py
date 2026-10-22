@@ -46,7 +46,7 @@ class ImpactPolicyTests(unittest.TestCase):
 
     def test_runtime_resilience_filter_covers_recovery_sensitive_paths(self):
         workflow = Path(".github/workflows/runtime-resilience.yml").read_text(encoding="utf-8")
-        match = re.search(r"patterns = (\\[.*?\\])", workflow, re.DOTALL)
+        match = re.search(r"patterns = (\[.*?\])", workflow, re.DOTALL)
         self.assertIsNotNone(match, "runtime resilience workflow must expose its changed-path policy")
         patterns = ast.literal_eval(match.group(1))
         required_paths = (
