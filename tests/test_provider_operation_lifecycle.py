@@ -76,6 +76,7 @@ class ProviderOperationLifecycleTests(unittest.TestCase):
             {"status": "pending", "provider_operation_id": "remote-1"},
             {"status": "completed"},
             {"provider_operation_id": "remote-1"},
+            {"status": "completed", "provider_operation_id": "auren-op-unrelated"},
         )
         for index, receipt in enumerate(invalid_receipts, start=20):
             key = f"reconcile-receipt-{index}"
