@@ -99,6 +99,37 @@ class ProgressJournalTests(unittest.TestCase):
                 with self.subTest(value=value), self.assertRaises(ValueError):
                     ProgressJournal(Path(temp) / "progress.jsonl", lock_timeout_seconds=value)
 
+    def test_corrupt_json_line_blocks_snapshot_and_future_writes_without_rewriting_history(self):
+        from portable.progress_journal import ProgressJournalCorruption
+
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "progress.jsonl"
+            journal = ProgressJournal(path)
+            journal.record("task", "started", stage="plan")
+            with path.open("a", encoding="utf-8") as stream:
+                stream.write('{"task_id":"task","sequence":2,broken-json}\\n')
+            original = path.read_bytes()
+
+            with self.assertRaisesRegex(ProgressJournalCorruption, "line 2"):
+                journal.snapshot("task")
+            with self.assertRaisesRegex(ProgressJournalCorruption, "line 2"):
+                journal.record("task", "must-not-append")
+
+            self.assertEqual(path.read_bytes(), original)
+
+    def test_invalid_record_shape_and_invalid_utf8_fail_closed(self):
+        from portable.progress_journal import ProgressJournalCorruption
+
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "progress.jsonl"
+            path.write_text('{"task_id":"task"}\\n', encoding="utf-8")
+            with self.assertRaisesRegex(ProgressJournalCorruption, "invalid record"):
+                ProgressJournal(path).snapshot("task")
+
+            path.write_bytes(b"\\xff\\xfe")
+            with self.assertRaisesRegex(ProgressJournalCorruption, "UTF-8"):
+                ProgressJournal(path).snapshot("task")
+
     def test_invalid_progress_units_rejected(self):
         with tempfile.TemporaryDirectory() as temp:
             with self.assertRaises(ValueError):
