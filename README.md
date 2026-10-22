@@ -41,7 +41,7 @@ The review should be constructive: explain why a concern matters, ask the smalle
 
 ## AI-era foundation principles
 
-AUREN now maintains a canonical, machine-readable catalogue of 20 AI-era engineering principles in [`portable/ai_era_principles.py`](portable/ai_era_principles.py), documented in [AI-era Foundation Principles](docs/AI_ERA_FOUNDATION_PRINCIPLES.md). They extend established practices such as SOLID, DRY, YAGNI, and KISS with controls for autonomous agents, tool authority, context integrity, independent evaluation, recovery, learning, and evidence-based promotion.
+AUREN now maintains a canonical, machine-readable catalogue of 30 AI-era engineering principles in [`portable/ai_era_principles.py`](portable/ai_era_principles.py), documented in [AI-era Foundation Principles](docs/AI_ERA_FOUNDATION_PRINCIPLES.md). They extend established practices such as SOLID, DRY, YAGNI, and KISS with controls for autonomous agents, tool authority, context integrity, independent evaluation, recovery, learning, and evidence-based promotion.
 
 | Principle | Required behavior |
 |---|---|
@@ -65,6 +65,16 @@ AUREN now maintains a canonical, machine-readable catalogue of 20 AI-era enginee
 | ECONOMY — Engineering Cost Optimization Measured Over the Full Lifecycle, Not Yield Alone | Optimize full lifecycle cost and risk, not output speed alone. |
 | MEASURE — Metrics, Evidence, And Results Evaluated | Measure outcomes, quality, recovery, and cost, not activity alone. |
 | CONTEXT — Context Is an Engineering Dependency | Retrieve relevant, current, authoritative context before acting. |
+| DETERM — Deterministic Decisions and Artifacts | Make planning, state transitions, artifact generation, and evidence reconciliation deterministic where correctness requires it. |
+| MINCORE — Minimal Trusted Execution Core | Keep authorization and security-critical execution small and auditable; optional agents and plugins cannot expand authority. |
+| OUTCOME — Explicit Operation Outcomes | Distinguish success, failure, timeout, cancellation, partial completion, and unknown outcome. |
+| MIGSAFE — Compatible and Reversible State Evolution | Require compatibility checks, migration rehearsal, rollback or forward-fix plans, and old-state readability. |
+| PROVEN — Verified Supply Chain and Artifacts | Pin dependencies and build inputs; verify provenance, signatures, and artifact contents before execution or release. |
+| HUMANE — Honest and Actionable Operator Feedback | Show blockers, next actions, uncertainty, and recovery choices without hiding failures behind progress indicators. |
+| ACCESS — Accessible Operational Interfaces | Treat accessible CLI, dashboard, and operational workflows as quality requirements where applicable. |
+| REVERS — Reversibility Before Abstraction | Assess migration complexity, operational burden, and reversal cost before adding abstractions. |
+| LIFECYCLE — Named Ownership and Retirement | Give each agent, provider, plugin, policy, and compatibility layer an owner, support status, and retirement condition. |
+| PRIORITY — Correctness and Authority Over Optimization | Token savings, speed, autonomy, and availability cannot override permission, evidence, security, or correctness gates. |
 
 ### How this is integrated
 
