@@ -1242,6 +1242,30 @@ class ExecutionController:
         DurableApprovalStore(self).recover_interrupted(older_than_seconds=300)
         return len(recovered)
 
+    def _verify_approval_gated_result(self, task: DurableTask, result: Any) -> None:
+        """Require completed durable approval receipts before an approval-gated task can finish."""
+        if not isinstance(result, Mapping):
+            raise RuntimeError("approval-gated handler must return a mapping with approval_receipts")
+        receipt_ids = result.get("approval_receipts")
+        if (
+            not isinstance(receipt_ids, (list, tuple)) or not receipt_ids
+            or len(receipt_ids) > 10
+            or not all(isinstance(value, str) and value.strip() for value in receipt_ids)
+            or len(set(receipt_ids)) != len(receipt_ids)
+        ):
+            raise RuntimeError("approval-gated handler must return unique completed approval receipt IDs")
+        from .durable_approval import DurableApprovalStore
+        store = DurableApprovalStore(self)
+        if not store.verify_audit_chain():
+            raise RuntimeError("approval audit chain is corrupt; task completion is blocked")
+        for approval_id in receipt_ids:
+            record = store.get(approval_id)
+            if (
+                record.task_id != task.id or record.status != "completed"
+                or not record.receipt_digest
+            ):
+                raise RuntimeError("approval-gated task cannot complete without its own durable completed receipt")
+
     def _handler_payload(self, task: DurableTask, base_payload: Mapping[str, Any] | None = None) -> dict[str, Any]:
         """Inject supervisor identity only for explicitly approval-aware handlers."""
         payload = dict(base_payload if base_payload is not None else task.payload)
@@ -2080,10 +2104,13 @@ class ExecutionController:
                 message="Preflight passed; handler dispatch is starting.",
             )
             handler = self._load_handler(task.handler)
-            if self._handler_execution_class(task.handler) == "consequential":
+            execution_class = self._handler_execution_class(task.handler)
+            if execution_class == "consequential":
                 result = self._invoke_consequential_with_ledger(task, handler)
             else:
                 result = self._invoke_with_lease_heartbeat(task, handler)
+            if execution_class == "approval_gated":
+                self._verify_approval_gated_result(task, result)
         except LeaseLostError:
             raise
         except ApprovalPending as exc:
