@@ -148,6 +148,7 @@ class ExecutionController:
               name TEXT PRIMARY KEY, reference TEXT NOT NULL, updated_at TEXT NOT NULL,
               ci_gate_policy_json TEXT NOT NULL DEFAULT '{}',
               promotion_gate_policy_json TEXT NOT NULL DEFAULT '{}',
+              approval_gate_policy_json TEXT NOT NULL DEFAULT '{}',
               execution_class TEXT NOT NULL DEFAULT 'unclassified',
               implementation_digest TEXT NOT NULL DEFAULT '');
             CREATE TABLE IF NOT EXISTS tasks(
@@ -169,6 +170,8 @@ class ExecutionController:
                 db.execute("ALTER TABLE handlers ADD COLUMN ci_gate_policy_json TEXT NOT NULL DEFAULT '{}'")
             if "promotion_gate_policy_json" not in handler_columns:
                 db.execute("ALTER TABLE handlers ADD COLUMN promotion_gate_policy_json TEXT NOT NULL DEFAULT '{}'")
+            if "approval_gate_policy_json" not in handler_columns:
+                db.execute("ALTER TABLE handlers ADD COLUMN approval_gate_policy_json TEXT NOT NULL DEFAULT '{}'")
             if "execution_class" not in handler_columns:
                 db.execute("ALTER TABLE handlers ADD COLUMN execution_class TEXT NOT NULL DEFAULT 'unclassified'")
             if "implementation_digest" not in handler_columns:
@@ -222,6 +225,7 @@ class ExecutionController:
         *,
         ci_gate_policy: Mapping[str, Any] | None = None,
         promotion_gate_policy: Mapping[str, Any] | None = None,
+        approval_gate_policy: Mapping[str, Any] | None = None,
         execution_class: str | None = None,
     ) -> str:
         """Register a durable handler and trusted, operator-owned gate policies.
@@ -288,10 +292,10 @@ class ExecutionController:
             raise ValueError(
                 "registered execution_class is immutable; use a new handler identity for a different effect class"
             )
-        if execution_class not in {"read_only", "context_provider", "ci_gated", "consequential"}:
+        if execution_class not in {"read_only", "context_provider", "ci_gated", "consequential", "approval_gated"}:
             raise ValueError(
                 "handler registration requires an explicit execution_class: "
-                "read_only, context_provider, ci_gated, or consequential"
+                "read_only, context_provider, ci_gated, consequential, or approval_gated"
             )
         is_trusted_provider_identity = (
             execution_class == "context_provider"
@@ -327,6 +331,28 @@ class ExecutionController:
             if not prior or not json.loads(prior[0] or "{}"):
                 raise ValueError(
                     f"consequential handler {name!r} requires an exact-head ci_gate_policy"
+                )
+
+        if execution_class == "approval_gated" and not approval_gate_policy:
+            with closing(sqlite3.connect(self.db_path)) as db, db:
+                prior = db.execute(
+                    "SELECT approval_gate_policy_json FROM handlers WHERE name=?", (name,)
+                ).fetchone()
+            if not prior or not json.loads(prior[0] or "{}"):
+                raise ValueError(
+                    f"approval-gated handler {name!r} requires an operator-owned approval_gate_policy"
+                )
+
+        approval_policy = dict(approval_gate_policy or {})
+        if approval_policy:
+            if (
+                approval_policy.get("approval_store") != "DurableApprovalStore"
+                or approval_policy.get("gateway") != "ActionGovernanceGateway"
+                or approval_policy.get("durable_side_effect_ledger") is not True
+            ):
+                raise ValueError(
+                    "approval_gate_policy must bind DurableApprovalStore, ActionGovernanceGateway, "
+                    "and durable_side_effect_ledger=true"
                 )
 
         ci_policy = dict(ci_gate_policy or {})
@@ -398,16 +424,23 @@ class ExecutionController:
                 ci_policy = json.loads(prior[0] or "{}")
             if not promotion_policy and prior:
                 promotion_policy = json.loads(prior[1] or "{}")
+            prior_approval_policy = db.execute(
+                "SELECT approval_gate_policy_json FROM handlers WHERE name=?", (name,)
+            ).fetchone()
+            if not approval_policy and prior_approval_policy:
+                approval_policy = json.loads(prior_approval_policy[0] or "{}")
             db.execute(
-                "INSERT INTO handlers(name,reference,updated_at,ci_gate_policy_json,promotion_gate_policy_json,execution_class,implementation_digest) "
-                "VALUES(?,?,?,?,?,?,?) ON CONFLICT(name) DO UPDATE SET "
+                "INSERT INTO handlers(name,reference,updated_at,ci_gate_policy_json,promotion_gate_policy_json,approval_gate_policy_json,execution_class,implementation_digest) "
+                "VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(name) DO UPDATE SET "
                 "reference=excluded.reference,updated_at=excluded.updated_at,"
                 "ci_gate_policy_json=excluded.ci_gate_policy_json,"
                 "promotion_gate_policy_json=excluded.promotion_gate_policy_json,"
+                "approval_gate_policy_json=excluded.approval_gate_policy_json,"
                 "execution_class=excluded.execution_class,"
                 "implementation_digest=excluded.implementation_digest",
                 (name, reference, _now(), json.dumps(ci_policy, sort_keys=True),
-                 json.dumps(promotion_policy, sort_keys=True), execution_class, implementation_digest),
+                 json.dumps(promotion_policy, sort_keys=True), json.dumps(approval_policy, sort_keys=True),
+                 execution_class, implementation_digest),
             )
         return reference
 
@@ -591,7 +624,7 @@ class ExecutionController:
             execution_class = self._handler_execution_class(task.handler)
             if execution_class == "context_provider":
                 return False, "internal context providers cannot be executed as task handlers", ("handler-class:rejected",)
-            if execution_class not in {"read_only", "ci_gated", "consequential"}:
+            if execution_class not in {"read_only", "ci_gated", "consequential", "approval_gated"}:
                 return False, "unclassified legacy handler fails closed", ("handler-class:unclassified",)
             configured_promotion_policy = self._handler_promotion_gate_policy(task.handler)
             configured_ci_policy = self._handler_ci_gate_policy(task.handler)
