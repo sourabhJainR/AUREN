@@ -37,7 +37,6 @@ _ROWS = [
 ("LIFECYCLE","Named Ownership and Retirement","Give every agent, provider, plugin, policy, and compatibility layer a named owner, support status, and explicit retirement condition.","portable/identity_compat.py","tests/test_identity_compat.py"),
 ("PRIORITY","Correctness and Authority Over Optimization","Token savings, speed, autonomy, and availability never override permission, evidence, security, or correctness gates.","portable/decision_gate.py","tests/test_decision_gate.py"),
 ]
-]
 PRINCIPLES = tuple({"id": row[0], "name": row[1], "meaning": row[2], "owner": row[3], "test": row[4]} for row in _ROWS)
 SCHEMA_VERSION = "auren-ai-era-principles-v2"
 ALLOWED_RISKS = {"low", "medium", "high", "critical"}
