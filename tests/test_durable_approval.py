@@ -374,9 +374,24 @@ class DurableApprovalTests(unittest.TestCase):
             )
         restarted_controller = ExecutionController(self.root)
         self.assertEqual(restarted_controller.task(task.id).state, "waiting_approval")
-        restarted_store = self.make_store()
+        restarted_store = DurableApprovalStore(
+            restarted_controller, approver_authorizer=self.store.approver_authorizer,
+            context_provider=self.store.context_provider,
+            reconciliation_verifier=self.store.reconciliation_verifier, clock=lambda: self.now,
+        )
+        restarted_store.wake_callback = lambda task_id, approval_id: restarted_controller.resume_approved_task(
+            task_id, approval_id, approval_store=restarted_store,
+        )
         self.assertEqual(restarted_store.checkpoint_for(record.approval_id), checkpoint)
         self.assertEqual(restarted_store.get(record.approval_id).status, "pending")
+        restarted_store.decide(
+            record.approval_id, "approve", approver_id="reviewer-1",
+            roles=("release-approver",), scope="repo:publish",
+        )
+        self.assertEqual(restarted_controller.task(task.id).state, "pending")
+        self.assertEqual(
+            restarted_controller.task(task.id).payload["auren_approval_resume"]["checkpoint"], checkpoint,
+        )
 
     def test_controller_pauses_and_resumes_same_checkpoint_without_retrieval_repeat(self):
         self.store.wake_callback = lambda task_id, approval_id: self.controller.resume_approved_task(
