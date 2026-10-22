@@ -1162,7 +1162,7 @@ class ExecutionController:
             rows = db.execute(
                 "SELECT t.id,t.handler,t.payload,t.state,t.attempts,t.work_unit_id,t.lease_until,"
                 "t.heartbeat_at,t.lease_generation,t.lease_token,a.approval_id,a.status,"
-                "a.checkpoint_json,a.checkpoint_digest "
+                "a.checkpoint_json,a.checkpoint_digest,a.artifact_digest,a.evidence_digest,a.policy_digest "
                 "FROM tasks t JOIN durable_approvals a ON a.task_id=t.id "
                 "WHERE t.state IN ('running','recovering','waiting_approval') "
                 "AND a.status IN ('pending','approved','rejected','expired','cancelled','superseded',"
@@ -1176,6 +1176,7 @@ class ExecutionController:
                 task_id, handler, raw_payload, task_state, attempts, work_unit_id = row[:6]
                 lease_until, heartbeat_at, generation, lease_token = row[6:10]
                 approval_id, approval_status, checkpoint_json, checkpoint_digest = row[10:14]
+                artifact_digest, evidence_digest, policy_digest = row[14:17]
                 lease_live = False
                 try:
                     lease_dt = datetime.fromisoformat(str(lease_until)) if lease_until else None
@@ -1195,6 +1196,13 @@ class ExecutionController:
                 if not isinstance(checkpoint, Mapping) or checkpoint_digest_expected != checkpoint_digest:
                     db.rollback()
                     raise RuntimeError("approval checkpoint is corrupt; task remains blocked for operator recovery")
+                for key, expected in (
+                    ("artifact_digest", artifact_digest), ("evidence_digest", evidence_digest),
+                    ("policy_digest", policy_digest),
+                ):
+                    if key in checkpoint and checkpoint[key] != expected:
+                        db.rollback()
+                        raise RuntimeError("approval checkpoint does not match the immutable action binding")
                 payload = json.loads(raw_payload)
                 prior = payload.get("auren_approval_resume")
                 if isinstance(prior, Mapping) and prior.get("approval_id") not in {None, approval_id}:
