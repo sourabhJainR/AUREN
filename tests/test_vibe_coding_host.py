@@ -212,7 +212,8 @@ class VibeCodingHostTests(unittest.TestCase):
                 base_revision="a" * 40, workspace_root=str(root / "worktree"),
                 adapter_config_digest="config-digest",
             )
-            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+            if os.name != "nt":
+                self.assertEqual(path.stat().st_mode & 0o777, 0o600)
             loaded = store.load(
                 "workflow-1", project_key="project-key", intent_digest="intent-digest",
                 base_revision="a" * 40, workspace_root=str(root / "worktree"),
