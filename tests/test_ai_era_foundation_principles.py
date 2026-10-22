@@ -22,6 +22,16 @@ class TestAIEraFoundationPrinciples(unittest.TestCase):
             self.assertTrue((ROOT / p["owner"]).is_file(), p["id"])
             self.assertTrue((ROOT / p["test"]).is_file(), p["id"])
 
+    def test_principle_registry_changes_require_production_hardening(self):
+        workflow = (ROOT / ".github" / "workflows" / "production-hardening.yml").read_text(encoding="utf-8")
+        for path in (
+            "portable/ai_era_principles.py",
+            "ENGINEERING_PRINCIPLES.md",
+            "docs/AI_ERA_FOUNDATION_PRINCIPLES.md",
+            "tests/test_ai_era_foundation_principles.py",
+        ):
+            self.assertIn(path, workflow)
+
     def test_receipt_is_deterministic_and_binds_intent_paths_risk_revision_and_registry(self):
         receipt = build_contract_receipt("Implement principles", ["portable/orchestration.py"], "HIGH", "abc123")
         self.assertEqual(receipt, build_contract_receipt("Implement principles", ["portable/orchestration.py"] * 2, "high", "abc123"))
