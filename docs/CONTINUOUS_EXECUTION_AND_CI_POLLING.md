@@ -46,6 +46,22 @@ python auren_cli.py continuous start --project-root . --max-cycles 3
 - A poll error, missing required check, stale/missing task receipt, failed task, or skipped required check is never reported as success.
 - The supervisor is not a substitute for installing it as a host service. For unattended operation, run `continuous start` under the OS service manager with restart-on-process-exit enabled; use `continuous stop` for a graceful, auditable interruption.
 - CI polling observes an explicitly supplied immutable commit SHA. It does not discover arbitrary PRs or infer a merge target. The existing controller remains the authority for CI-gated and consequential operations.
+- A configured repair handler now receives a durable `EngineeringRecoveryLedger`; repair attempts remain bounded by the same-hypothesis, total-attempt, and elapsed-time limits.
+- Repository CI workflows cancel superseded runs for the same PR/ref and apply job-level timeouts. A newer commit therefore replaces stale validation work instead of waiting behind an unbounded queue. Only checks for the current immutable head count toward promotion.
+
+## Restart on a host
+
+A sample systemd unit is available at `deploy/systemd/auren-continuous.service.example`. Copy it to `/etc/systemd/system/auren-continuous.service`, edit the service user and checkout paths, then run:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now auren-continuous.service
+sudo systemctl status auren-continuous.service
+```
+
+Put `GH_TOKEN` or `GITHUB_TOKEN` in the root-readable `/etc/auren/continuous.env` file; do not place credentials in task payloads or commit them. For an approval-gated repair lane, edit `ExecStart` to include the exact `--watch OWNER/REPO@FULL_SHA`, each required `--required-check`, and an already registered `--repair-handler`. The handler must be reviewed and must preserve the existing evidence, authority, and promotion gates. The sample unit restarts the process after failures, while SQLite task/approval state and audit events remain on disk. A deliberate durable stop is not auto-undone; start the service again only after the stop has been acknowledged.
+
+If a run appears stuck, inspect `continuous status` and `continuous audit` first. Do not start a second worker against the same project root. Check the exact-head workflow runs and the service journal; stale runs are cancelled by concurrency policy, failed checks remain failures, and job timeouts bound the wait. After fixing the cause, let the current head's checks complete rather than repeatedly pushing cosmetic commits.
 
 ## Current boundary
 
