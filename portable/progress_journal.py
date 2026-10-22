@@ -32,14 +32,16 @@ def _journal_file_lock(path: Path, *, timeout_seconds: float = 2.0):
     with lock_path.open("a+b") as lock_file:
         if os.name == "nt":
             import msvcrt
-            lock_file.seek(0)
-            if lock_file.read(1) == b"":
-                lock_file.seek(0)
-                lock_file.write(b"\\0")
-                lock_file.flush()
-            lock_file.seek(0)
+            # Acquire before reading or writing. On Windows, probing byte zero
+            # while another process holds the range lock can raise PermissionError
+            # instead of the bounded lock error handled above.
             acquire_bounded(lambda: (lock_file.seek(0), msvcrt.locking(lock_file.fileno(), msvcrt.LK_NBLCK, 1)))
             try:
+                lock_file.seek(0, os.SEEK_END)
+                if lock_file.tell() == 0:
+                    lock_file.seek(0)
+                    lock_file.write(b"\\0")
+                    lock_file.flush()
                 yield
             finally:
                 lock_file.seek(0)
