@@ -103,7 +103,7 @@ def _crash_after_effect_receipt_before_approval_completion(
 
     def publish_once():
         with Path(provider_log).open("a", encoding="utf-8") as stream:
-            stream.write("provider-op-001\\n")
+            stream.write("provider-op-001\n")
             stream.flush()
             os.fsync(stream.fileno())
         return {"published": True, "provider_operation_id": "provider-op-001"}
