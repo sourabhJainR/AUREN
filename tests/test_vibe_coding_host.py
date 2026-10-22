@@ -144,6 +144,28 @@ class VibeCodingHostTests(unittest.TestCase):
             result = tool({"stage": "research", "intent": "test", "state": {"workspace_root": str(project)}})
             self.assertEqual(result["competitors"], ["example.com"])
 
+    def test_provider_operation_event_projection_is_idempotent(self):
+        with tempfile.TemporaryDirectory() as temp:
+            journal = SideEffectJournal(Path(temp) / "operations.sqlite3")
+            event = {
+                "event_type": "provider_operation",
+                "operation_key": "workflow:preview_deployment:deployment",
+                "operation_id": "auren-op-test",
+                "intent_digest": "a" * 64,
+                "state": "completed",
+                "provider": "deployment-adapter",
+            }
+            journal.record_provider_event(event)
+            journal.record_provider_event({**event, "replay": True})
+            with sqlite3.connect(Path(temp) / "operations.sqlite3") as db:
+                rows = db.execute(
+                    "SELECT operation_key,state,intent_digest FROM provider_operation_events"
+                ).fetchall()
+            self.assertEqual(
+                [("workflow:preview_deployment:deployment", "completed", "a" * 64)],
+                rows,
+            )
+
     def test_side_effect_journal_reuses_completed_receipt_without_replaying(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp) / "project"
@@ -363,6 +385,10 @@ print(json.dumps({"type": "item.completed", "item": {"type": "agent_message", "t
                 }
             self.assertIn("operations", tables)
             self.assertIn("durable_side_effects", tables)
+            self.assertIn("provider_operation_events", tables)
+            with sqlite3.connect(base / "auren-state" / "operations.sqlite3") as db:
+                event_count = db.execute("SELECT COUNT(*) FROM provider_operation_events").fetchone()[0]
+            self.assertGreater(event_count, 0)
             source_status = subprocess.run(
                 ["git", "-C", str(project), "status", "--porcelain"],
                 check=True, text=True, capture_output=True,
