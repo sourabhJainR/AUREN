@@ -482,11 +482,16 @@ class ContinuousExecutionSupervisor:
                 raise RuntimeError("CI repair lifecycle audit record is corrupt")
             if payload.get("stable_key") == stable_key:
                 previous = payload.get("to_state")
-        # Terminal outcomes never regress because a later poll can repeat the
-        # same failed check after the repair has already been finalized.
+        # Lifecycle is monotonic. _sync_repair_lifecycle replays durable progress
+        # records on every supervisor cycle; without ordering, old "queued" and
+        # "claimed" records would append duplicate/backward transitions forever.
+        rank = {
+            "observed": 0, "triaged": 1, "queued": 2, "claimed": 3,
+            "repairing": 4, "validating": 5, "resolved": 6, "blocked": 6,
+        }
         if previous in {"resolved", "blocked"}:
             return
-        if previous == to_state:
+        if previous in rank and rank[to_state] <= rank[previous]:
             return
         self._event(run_id, "ci_repair_lifecycle", {
             "stable_key": stable_key, "task_id": task_id,

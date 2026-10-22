@@ -169,6 +169,26 @@ def test_audit_chain_detects_tampering(tmp_path):
 
 
 
+def test_replayed_ci_repair_progress_never_regresses_or_duplicates_lifecycle(tmp_path):
+    supervisor = ContinuousExecutionSupervisor(ExecutionController(tmp_path))
+    stable_key = "ci-repair-monotonic-test"
+    states = ["observed", "triaged", "queued", "claimed", "repairing", "validating"]
+    for state in states:
+        supervisor._repair_transition("run-1", stable_key=stable_key, to_state=state)
+    # Replaying older durable progress on later supervisor cycles must be a no-op.
+    for state in ["queued", "claimed", "repairing", "validating", "observed", "triaged"]:
+        supervisor._repair_transition("run-2", stable_key=stable_key, to_state=state)
+    with __import__("sqlite3").connect(supervisor.path) as db:
+        recorded = [
+            json.loads(row[0])["to_state"]
+            for row in db.execute(
+                "SELECT payload_json FROM events WHERE event_type='ci_repair_lifecycle' ORDER BY sequence"
+            ).fetchall()
+        ]
+    assert recorded == states
+    assert supervisor.verify_audit_chain()
+
+
 def test_failed_required_check_enqueues_one_bounded_repair_through_existing_supervisor(tmp_path):
     from portable.engineering_recovery import EngineeringRecoveryLedger
 
