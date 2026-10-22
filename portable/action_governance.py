@@ -207,6 +207,20 @@ class ActionGovernanceGateway:
         with self._lock:
             return tuple(dict(event) for event in self._events)
 
+    def requires_approval(self, request: ActionRequest) -> bool:
+        """Expose the exact policy decision used by evaluate for approval-bound execution."""
+        request.validate()
+        protected = _normal_target(request.target)
+        protected_hit = any(
+            _matches_protected_target(protected, root)
+            for root in self._policy.protected_targets
+        )
+        return (
+            request.action in self._policy.approval_required_actions
+            or protected_hit
+            or request.risk == "release"
+        )
+
     def evaluate(
         self,
         request: ActionRequest,
@@ -216,15 +230,7 @@ class ActionGovernanceGateway:
         request.validate()
         fingerprint = request.fingerprint()
         protected = _normal_target(request.target)
-        protected_hit = any(
-            _matches_protected_target(protected, root)
-            for root in self._policy.protected_targets
-        )
-        needs_approval = (
-            request.action in self._policy.approval_required_actions
-            or protected_hit
-            or request.risk == "release"
-        )
+        needs_approval = self.requires_approval(request)
 
         reason = "allowed"
         decision = "allow"

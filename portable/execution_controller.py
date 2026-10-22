@@ -33,6 +33,7 @@ from .evidence_gate_integration import EvidenceGateIntegration, IntegratedEviden
 from .persistent_memory import PersistentMemory
 from .progress_journal import ProgressJournal
 from .provider_operation_lifecycle import ProviderOutcomeBlocked
+from .durable_approval import ApprovalPending, InvalidApprovalTransition
 
 Handler = Callable[[Mapping[str, Any]], Any]
 
@@ -147,6 +148,7 @@ class ExecutionController:
               name TEXT PRIMARY KEY, reference TEXT NOT NULL, updated_at TEXT NOT NULL,
               ci_gate_policy_json TEXT NOT NULL DEFAULT '{}',
               promotion_gate_policy_json TEXT NOT NULL DEFAULT '{}',
+              approval_gate_policy_json TEXT NOT NULL DEFAULT '{}',
               execution_class TEXT NOT NULL DEFAULT 'unclassified',
               implementation_digest TEXT NOT NULL DEFAULT '');
             CREATE TABLE IF NOT EXISTS tasks(
@@ -168,6 +170,8 @@ class ExecutionController:
                 db.execute("ALTER TABLE handlers ADD COLUMN ci_gate_policy_json TEXT NOT NULL DEFAULT '{}'")
             if "promotion_gate_policy_json" not in handler_columns:
                 db.execute("ALTER TABLE handlers ADD COLUMN promotion_gate_policy_json TEXT NOT NULL DEFAULT '{}'")
+            if "approval_gate_policy_json" not in handler_columns:
+                db.execute("ALTER TABLE handlers ADD COLUMN approval_gate_policy_json TEXT NOT NULL DEFAULT '{}'")
             if "execution_class" not in handler_columns:
                 db.execute("ALTER TABLE handlers ADD COLUMN execution_class TEXT NOT NULL DEFAULT 'unclassified'")
             if "implementation_digest" not in handler_columns:
@@ -212,6 +216,7 @@ class ExecutionController:
         self._progress_reconciliation_findings: list[str] = []
         self._progress_reconciliation_incomplete = False
         self.reconcile_progress_journal()
+        self.reconcile_approval_waits()
 
     def register_handler(
         self,
@@ -220,13 +225,14 @@ class ExecutionController:
         *,
         ci_gate_policy: Mapping[str, Any] | None = None,
         promotion_gate_policy: Mapping[str, Any] | None = None,
+        approval_gate_policy: Mapping[str, Any] | None = None,
         execution_class: str | None = None,
     ) -> str:
         """Register a durable handler and trusted, operator-owned gate policies.
 
         Execution class is an operator-owned registration contract, persisted
         separately from task payload. New handlers must explicitly be classified
-        as read_only, context_provider, ci_gated, or consequential. Unknown legacy
+        as read_only, context_provider, ci_gated, consequential, or approval_gated. Unknown legacy
         registrations fail closed until reclassified. Consequential handlers
         require both trusted decision-record and exact-head CI gates. Context
         providers are internal-only and cannot be submitted as tasks.
@@ -286,10 +292,10 @@ class ExecutionController:
             raise ValueError(
                 "registered execution_class is immutable; use a new handler identity for a different effect class"
             )
-        if execution_class not in {"read_only", "context_provider", "ci_gated", "consequential"}:
+        if execution_class not in {"read_only", "context_provider", "ci_gated", "consequential", "approval_gated"}:
             raise ValueError(
                 "handler registration requires an explicit execution_class: "
-                "read_only, context_provider, ci_gated, or consequential"
+                "read_only, context_provider, ci_gated, consequential, or approval_gated"
             )
         is_trusted_provider_identity = (
             execution_class == "context_provider"
@@ -325,6 +331,28 @@ class ExecutionController:
             if not prior or not json.loads(prior[0] or "{}"):
                 raise ValueError(
                     f"consequential handler {name!r} requires an exact-head ci_gate_policy"
+                )
+
+        if execution_class == "approval_gated" and not approval_gate_policy:
+            with closing(sqlite3.connect(self.db_path)) as db, db:
+                prior = db.execute(
+                    "SELECT approval_gate_policy_json FROM handlers WHERE name=?", (name,)
+                ).fetchone()
+            if not prior or not json.loads(prior[0] or "{}"):
+                raise ValueError(
+                    f"approval-gated handler {name!r} requires an operator-owned approval_gate_policy"
+                )
+
+        approval_policy = dict(approval_gate_policy or {})
+        if approval_policy:
+            if (
+                approval_policy.get("approval_store") != "DurableApprovalStore"
+                or approval_policy.get("gateway") != "ActionGovernanceGateway"
+                or approval_policy.get("durable_side_effect_ledger") is not True
+            ):
+                raise ValueError(
+                    "approval_gate_policy must bind DurableApprovalStore, ActionGovernanceGateway, "
+                    "and durable_side_effect_ledger=true"
                 )
 
         ci_policy = dict(ci_gate_policy or {})
@@ -396,16 +424,23 @@ class ExecutionController:
                 ci_policy = json.loads(prior[0] or "{}")
             if not promotion_policy and prior:
                 promotion_policy = json.loads(prior[1] or "{}")
+            prior_approval_policy = db.execute(
+                "SELECT approval_gate_policy_json FROM handlers WHERE name=?", (name,)
+            ).fetchone()
+            if not approval_policy and prior_approval_policy:
+                approval_policy = json.loads(prior_approval_policy[0] or "{}")
             db.execute(
-                "INSERT INTO handlers(name,reference,updated_at,ci_gate_policy_json,promotion_gate_policy_json,execution_class,implementation_digest) "
-                "VALUES(?,?,?,?,?,?,?) ON CONFLICT(name) DO UPDATE SET "
+                "INSERT INTO handlers(name,reference,updated_at,ci_gate_policy_json,promotion_gate_policy_json,approval_gate_policy_json,execution_class,implementation_digest) "
+                "VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(name) DO UPDATE SET "
                 "reference=excluded.reference,updated_at=excluded.updated_at,"
                 "ci_gate_policy_json=excluded.ci_gate_policy_json,"
                 "promotion_gate_policy_json=excluded.promotion_gate_policy_json,"
+                "approval_gate_policy_json=excluded.approval_gate_policy_json,"
                 "execution_class=excluded.execution_class,"
                 "implementation_digest=excluded.implementation_digest",
                 (name, reference, _now(), json.dumps(ci_policy, sort_keys=True),
-                 json.dumps(promotion_policy, sort_keys=True), execution_class, implementation_digest),
+                 json.dumps(promotion_policy, sort_keys=True), json.dumps(approval_policy, sort_keys=True),
+                 execution_class, implementation_digest),
             )
         return reference
 
@@ -425,6 +460,22 @@ class ExecutionController:
         policy = json.loads(row[0] or "{}")
         if not isinstance(policy, dict):
             raise ValueError(f"invalid persisted CI gate policy for handler: {name}")
+        return policy
+
+    def _handler_approval_gate_policy(self, name: str) -> dict[str, Any]:
+        with closing(sqlite3.connect(self.db_path)) as db, db:
+            row = db.execute("SELECT approval_gate_policy_json FROM handlers WHERE name=?", (name,)).fetchone()
+        if not row:
+            raise KeyError(f"unknown durable handler: {name}")
+        policy = json.loads(row[0] or "{}")
+        if not isinstance(policy, dict):
+            raise ValueError(f"invalid persisted approval gate policy for handler: {name}")
+        if policy and (
+            policy.get("approval_store") != "DurableApprovalStore"
+            or policy.get("gateway") != "ActionGovernanceGateway"
+            or policy.get("durable_side_effect_ledger") is not True
+        ):
+            raise ValueError(f"approval gate policy is incomplete for handler: {name}")
         return policy
 
     def _handler_promotion_gate_policy(self, name: str) -> dict[str, Any]:
@@ -589,10 +640,13 @@ class ExecutionController:
             execution_class = self._handler_execution_class(task.handler)
             if execution_class == "context_provider":
                 return False, "internal context providers cannot be executed as task handlers", ("handler-class:rejected",)
-            if execution_class not in {"read_only", "ci_gated", "consequential"}:
+            if execution_class not in {"read_only", "ci_gated", "consequential", "approval_gated"}:
                 return False, "unclassified legacy handler fails closed", ("handler-class:unclassified",)
             configured_promotion_policy = self._handler_promotion_gate_policy(task.handler)
             configured_ci_policy = self._handler_ci_gate_policy(task.handler)
+            configured_approval_policy = self._handler_approval_gate_policy(task.handler)
+            if execution_class == "approval_gated" and not configured_approval_policy:
+                return False, "approval-gated handler is missing its trusted gateway/ledger policy", ("approval-gate:missing",)
             if execution_class == "consequential" and (not configured_promotion_policy or not configured_ci_policy):
                 return False, "consequential handler is missing mandatory promotion or exact-head CI policy", ("promotion-gate:missing", "ci-gate:missing")
             if execution_class == "ci_gated" and not configured_ci_policy:
@@ -809,6 +863,9 @@ class ExecutionController:
             elif task_state == "blocked_quota" and work_state == "running":
                 target_state = "blocked"
                 reason = "Task remains blocked on provider quota; resume only after its durable retry time."
+            elif task_state in {"waiting_approval", "blocked_approval"} and work_state in {"waiting_external", "running"}:
+                target_state = "blocked"
+                reason = "Task is waiting for an explicit human approval decision; do not redispatch before the saved checkpoint is approved."
             elif task_state == "running" and work_state == "running":
                 lease_live = False
                 try:
@@ -1091,6 +1148,277 @@ class ExecutionController:
         )
         return True
 
+    def reconcile_approval_waits(self, *, limit: int = 1000) -> int:
+        """Recover approval pauses after process death without rerunning completed stages."""
+        if type(limit) is not int or not 1 <= limit <= 10000:
+            raise ValueError("approval recovery limit must be between 1 and 10000")
+        with closing(sqlite3.connect(self.db_path, timeout=10)) as db:
+            exists = db.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='durable_approvals'"
+            ).fetchone()
+            if not exists:
+                return 0
+            db.execute("BEGIN IMMEDIATE")
+            rows = db.execute(
+                "SELECT t.id,t.handler,t.payload,t.state,t.attempts,t.work_unit_id,t.lease_until,"
+                "t.heartbeat_at,t.lease_generation,t.lease_token,a.approval_id,a.status,"
+                "a.checkpoint_json,a.checkpoint_digest,a.artifact_digest,a.evidence_digest,a.policy_digest "
+                "FROM tasks t JOIN durable_approvals a ON a.task_id=t.id "
+                "WHERE t.state IN ('running','recovering','waiting_approval') "
+                "AND a.status IN ('pending','approved','rejected','expired','cancelled','superseded',"
+                "'executing','outcome_unknown','completed','failed') "
+                "ORDER BY t.updated_at LIMIT ?",
+                (limit,),
+            ).fetchall()
+            now = datetime.now(timezone.utc)
+            recovered = []
+            for row in rows:
+                task_id, handler, raw_payload, task_state, attempts, work_unit_id = row[:6]
+                lease_until, heartbeat_at, generation, lease_token = row[6:10]
+                approval_id, approval_status, checkpoint_json, checkpoint_digest = row[10:14]
+                artifact_digest, evidence_digest, policy_digest = row[14:17]
+                lease_live = False
+                try:
+                    lease_dt = datetime.fromisoformat(str(lease_until)) if lease_until else None
+                    heartbeat_dt = datetime.fromisoformat(str(heartbeat_at)) if heartbeat_at else None
+                    if lease_dt and heartbeat_dt and lease_dt.tzinfo and heartbeat_dt.tzinfo:
+                        lease_live = lease_dt > now and (now - heartbeat_dt).total_seconds() <= 90
+                except (TypeError, ValueError):
+                    lease_live = False
+                if lease_live:
+                    continue
+                if task_state == "waiting_approval" and approval_status == "pending":
+                    continue
+                checkpoint = json.loads(checkpoint_json)
+                checkpoint_digest_expected = hashlib.sha256(
+                    json.dumps(checkpoint, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")
+                ).hexdigest()
+                if not isinstance(checkpoint, Mapping) or checkpoint_digest_expected != checkpoint_digest:
+                    db.rollback()
+                    raise RuntimeError("approval checkpoint is corrupt; task remains blocked for operator recovery")
+                for key, expected in (
+                    ("artifact_digest", artifact_digest), ("evidence_digest", evidence_digest),
+                    ("policy_digest", policy_digest),
+                ):
+                    if key in checkpoint and checkpoint[key] != expected:
+                        db.rollback()
+                        raise RuntimeError("approval checkpoint does not match the immutable action binding")
+                payload = json.loads(raw_payload)
+                prior = payload.get("auren_approval_resume")
+                if isinstance(prior, Mapping) and prior.get("approval_id") not in {None, approval_id}:
+                    db.rollback()
+                    raise RuntimeError("task checkpoint references a different approval; refusing automatic recovery")
+                if approval_status == "pending":
+                    next_state = "waiting_approval"
+                elif approval_status == "approved":
+                    next_state = "pending"
+                else:
+                    next_state = "blocked_approval"
+                payload["auren_approval_resume"] = {
+                    "approval_id": approval_id, "status": approval_status,
+                    "checkpoint": checkpoint, "checkpoint_digest": checkpoint_digest,
+                }
+                cursor = db.execute(
+                    "UPDATE tasks SET state=?,payload=?,updated_at=?,heartbeat_at=NULL,lease_until=NULL,"
+                    "lease_token=NULL WHERE id=? AND state=? AND lease_generation=?",
+                    (next_state, json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False),
+                     _now(), task_id, task_state, int(generation or 0)),
+                )
+                if cursor.rowcount == 1:
+                    recovered.append((str(task_id), str(handler), next_state, int(attempts), str(work_unit_id), str(approval_id)))
+            db.commit()
+        for task_id, handler, next_state, attempts, work_unit_id, approval_id in recovered:
+            detail = f"Recovered approval {approval_id} after worker interruption; state={next_state}."
+            self.company.record(
+                work_unit_id, "approval", next_state, detail,
+                (f"task:{task_id}", f"approval:{approval_id}"),
+            )
+            if next_state in {"waiting_approval", "blocked_approval"}:
+                current_work_state, _ = self.company._state(work_unit_id)
+                if current_work_state != "waiting_external":
+                    self.company._transition(work_unit_id, "waiting_external")
+            task = DurableTask(task_id, handler, {}, next_state, attempts, work_unit_id)
+            self._capture_event("approval_recovered_after_restart", task, status=next_state, metadata={
+                "approval_id": approval_id,
+            })
+            self._record_progress(
+                task_id, "approval_recovered_after_restart",
+                state="queued" if next_state == "pending" else "blocked",
+                stage="approval", message=detail,
+            )
+        from .durable_approval import DurableApprovalStore
+        DurableApprovalStore(self).recover_interrupted(older_than_seconds=300)
+        return len(recovered)
+
+    def _verify_approval_gated_result(self, task: DurableTask, result: Any) -> None:
+        """Require completed durable approval receipts before an approval-gated task can finish."""
+        if not isinstance(result, Mapping):
+            raise RuntimeError("approval-gated handler must return a mapping with approval_receipts")
+        receipt_ids = result.get("approval_receipts")
+        if (
+            not isinstance(receipt_ids, (list, tuple)) or not receipt_ids
+            or len(receipt_ids) > 10
+            or not all(isinstance(value, str) and value.strip() for value in receipt_ids)
+            or len(set(receipt_ids)) != len(receipt_ids)
+        ):
+            raise RuntimeError("approval-gated handler must return unique completed approval receipt IDs")
+        from .durable_approval import DurableApprovalStore
+        store = DurableApprovalStore(self)
+        if not store.verify_audit_chain():
+            raise RuntimeError("approval audit chain is corrupt; task completion is blocked")
+        for approval_id in receipt_ids:
+            record = store.get(approval_id)
+            if (
+                record.task_id != task.id or record.status != "completed"
+                or not record.receipt_digest
+            ):
+                raise RuntimeError("approval-gated task cannot complete without its own durable completed receipt")
+
+    def _handler_payload(self, task: DurableTask, base_payload: Mapping[str, Any] | None = None) -> dict[str, Any]:
+        """Inject supervisor identity only for explicitly approval-aware handlers."""
+        payload = dict(base_payload if base_payload is not None else task.payload)
+        payload.pop("_auren_execution_context", None)
+        if payload.get("auren_approval_aware") is True:
+            payload["_auren_execution_context"] = {
+                "task_id": task.id, "work_unit_id": task.work_unit_id, "attempt": task.attempts,
+            }
+        return payload
+
+    def _pause_for_approval(self, task: DurableTask, pending: ApprovalPending) -> str:
+        """Persist a nonterminal approval wait and release the worker lease."""
+        with closing(sqlite3.connect(self.db_path, timeout=10)) as db:
+            db.execute("BEGIN IMMEDIATE")
+            approval = db.execute(
+                "SELECT task_id,status,artifact_digest,evidence_digest,policy_digest,checkpoint_json,checkpoint_digest "
+                "FROM durable_approvals WHERE approval_id=?",
+                (pending.approval_id,),
+            ).fetchone()
+            row = db.execute(
+                "SELECT payload,state,work_unit_id,lease_generation,lease_token FROM tasks WHERE id=?",
+                (task.id,),
+            ).fetchone()
+            if approval is None or approval[0] != task.id:
+                db.rollback()
+                raise RuntimeError("approval request is missing or belongs to another task")
+            if row is None or row[1] != "running" or row[4] != task.lease_token or int(row[3] or 0) != task.lease_generation:
+                db.rollback()
+                raise LeaseLostError("stale worker cannot pause a task for approval")
+            stored_checkpoint = json.loads(approval[5])
+            stored_checkpoint_digest = hashlib.sha256(
+                json.dumps(stored_checkpoint, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")
+            ).hexdigest()
+            if stored_checkpoint_digest != approval[6] or dict(pending.checkpoint) != stored_checkpoint:
+                db.rollback()
+                raise RuntimeError("approval continuation checkpoint differs from its durable digest-bound record")
+            for key, value in (
+                ("artifact_digest", approval[2]), ("evidence_digest", approval[3]),
+                ("policy_digest", approval[4]),
+            ):
+                supplied = pending.checkpoint.get(key)
+                if supplied is not None and supplied != value:
+                    db.rollback()
+                    raise RuntimeError(f"approval checkpoint {key} does not match the durable approval")
+            status = str(approval[1])
+            if status == "pending":
+                next_state = "waiting_approval"
+            elif status == "approved":
+                next_state = "pending"
+            else:
+                next_state = "blocked_approval"
+            payload = json.loads(row[0])
+            prior = payload.get("auren_approval_resume")
+            if isinstance(prior, Mapping) and prior.get("approval_id") != pending.approval_id:
+                db.rollback()
+                raise RuntimeError("task already has a different approval checkpoint")
+            payload["auren_approval_resume"] = {
+                "approval_id": pending.approval_id,
+                "status": status,
+                "checkpoint": dict(pending.checkpoint),
+            }
+            cursor = db.execute(
+                "UPDATE tasks SET state=?,payload=?,updated_at=?,heartbeat_at=NULL,lease_until=NULL,"
+                "lease_token=NULL WHERE id=? AND state='running' AND lease_token=? AND lease_generation=?",
+                (next_state, json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False),
+                 _now(), task.id, task.lease_token, task.lease_generation),
+            )
+            if cursor.rowcount != 1:
+                db.rollback()
+                raise LeaseLostError("task changed while approval wait was being persisted")
+            work_unit_id = str(row[2])
+            db.commit()
+        detail = f"Approval {pending.approval_id} is {status}; execution lease released."
+        self.company.record(
+            work_unit_id, "approval", next_state, detail,
+            (f"task:{task.id}", f"approval:{pending.approval_id}"),
+        )
+        if next_state in {"waiting_approval", "blocked_approval"}:
+            self.company._transition(work_unit_id, "waiting_external")
+        self._capture_event("approval_waiting", task, status=next_state, metadata={
+            "approval_id": pending.approval_id,
+            "checkpoint_digest": hashlib.sha256(
+                json.dumps(dict(pending.checkpoint), sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
+            ).hexdigest(),
+        })
+        self._record_progress(
+            task.id, "approval_requested" if next_state == "waiting_approval" else "approval_resume_ready",
+            state="blocked" if next_state in {"waiting_approval", "blocked_approval"} else "queued",
+            stage="approval", message=detail,
+        )
+        return next_state
+
+    def resume_approved_task(self, task_id: str, approval_id: str, *, approval_store: Any) -> bool:
+        """Wake the same task from its saved action checkpoint; duplicate wake-ups are harmless."""
+        for value, name in ((task_id, "task_id"), (approval_id, "approval_id")):
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"{name} is required")
+        approval = approval_store.get(approval_id)
+        if approval.task_id != task_id or approval.status != "approved":
+            raise PermissionError("only the matching durably approved operation can resume this task")
+        with closing(sqlite3.connect(self.db_path, timeout=10)) as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute(
+                "SELECT payload,state,work_unit_id FROM tasks WHERE id=?", (task_id,),
+            ).fetchone()
+            if row is None:
+                db.rollback()
+                raise KeyError(task_id)
+            if row[1] == "running":
+                # The approval may arrive between durable request creation and the
+                # handler raising ApprovalPending. The pause path will queue it.
+                db.commit()
+                return True
+            payload = json.loads(row[0])
+            checkpoint = payload.get("auren_approval_resume")
+            if not isinstance(checkpoint, Mapping) or checkpoint.get("approval_id") != approval_id:
+                db.rollback()
+                raise RuntimeError("task does not contain the matching approval checkpoint")
+            if row[1] == "pending" and checkpoint.get("status") == "approved":
+                db.commit()
+                return True
+            if row[1] != "waiting_approval" or checkpoint.get("status") != "pending":
+                db.rollback()
+                raise InvalidApprovalTransition(f"task is {row[1]}, not waiting for this approval")
+            payload["auren_approval_resume"] = {**dict(checkpoint), "status": "approved"}
+            cursor = db.execute(
+                "UPDATE tasks SET state='pending',payload=?,updated_at=?,heartbeat_at=NULL,lease_until=NULL,"
+                "lease_token=NULL WHERE id=? AND state='waiting_approval'",
+                (json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False), _now(), task_id),
+            )
+            if cursor.rowcount != 1:
+                db.rollback()
+                raise RuntimeError("task state changed while applying approval wake-up")
+            work_unit_id = str(row[2])
+            db.commit()
+        self.company.record(
+            work_unit_id, "approval", "approved", "Approved action checkpoint queued for continuation.",
+            (f"task:{task_id}", f"approval:{approval_id}"),
+        )
+        self._record_progress(
+            task_id, "approval_approved", state="queued", stage="approval",
+            message=f"Approval {approval_id} accepted; saved action checkpoint is ready to resume.",
+        )
+        return True
+
     def observe_failed_ci_check(self, *, recovery_ledger: Any, **observation: Any) -> Mapping[str, Any]:
         """Called by the existing supervisor's CI poll cycle; never starts another loop."""
         from .ci_repair_watchdog import CIRepairWatchdog
@@ -1108,8 +1436,13 @@ class ExecutionController:
         execution_class = self._handler_execution_class(handler)
         if execution_class == "context_provider":
             raise ValueError("context providers are internal-only and cannot be submitted as tasks")
-        if execution_class not in {"read_only", "ci_gated", "consequential"}:
+        if execution_class not in {"read_only", "ci_gated", "consequential", "approval_gated"}:
             raise ValueError("unclassified legacy handler fails closed; re-register with an explicit execution_class")
+        if execution_class == "approval_gated":
+            if payload.get("auren_approval_aware") is not True:
+                raise ValueError("approval-gated tasks must opt in to trusted execution context and checkpoint resume")
+            if not self._handler_approval_gate_policy(handler):
+                raise ValueError("approval-gated handler has no trusted gateway/ledger policy")
         self._load_handler(handler)
         work = self.company.start(goal or f"execute durable handler: {handler}")
         task = DurableTask(uuid4().hex, handler, dict(payload), "pending", 0, work.id)
@@ -1219,7 +1552,7 @@ class ExecutionController:
         result: Any = None
         handler_error: BaseException | None = None
         try:
-            result = handler(task.payload)
+            result = handler(self._handler_payload(task))
         except BaseException as exc:
             handler_error = exc
         finally:
@@ -1729,7 +2062,7 @@ class ExecutionController:
                     json.dumps(dict(intent), sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
                 ).hexdigest(),
             }
-            value = self._invoke_with_lease_heartbeat(task, lambda _payload: handler(provider_payload))
+            value = self._invoke_with_lease_heartbeat(task, lambda _payload: handler(self._handler_payload(task, provider_payload)))
             if not isinstance(value, Mapping):
                 raise RuntimeError("consequential handlers must return a mapping receipt/result")
             return {"result": dict(value), "provider_operation_id": operation_id}
@@ -1779,12 +2112,18 @@ class ExecutionController:
                 message="Preflight passed; handler dispatch is starting.",
             )
             handler = self._load_handler(task.handler)
-            if self._handler_execution_class(task.handler) == "consequential":
+            execution_class = self._handler_execution_class(task.handler)
+            if execution_class == "consequential":
                 result = self._invoke_consequential_with_ledger(task, handler)
             else:
                 result = self._invoke_with_lease_heartbeat(task, handler)
+            if execution_class == "approval_gated":
+                self._verify_approval_gated_result(task, result)
         except LeaseLostError:
             raise
+        except ApprovalPending as exc:
+            self._pause_for_approval(task, exc)
+            return None
         except ProviderOutcomeBlocked as exc:
             if not self._finalize_claim(task, "blocked_reconciliation"):
                 raise LeaseLostError(
@@ -1878,6 +2217,9 @@ class ExecutionController:
             raise ValueError("resume limit must be a positive integer")
         if type(continue_after_durable_failure) is not bool:
             raise ValueError("continue_after_durable_failure must be a boolean")
+        # Decisions can arrive while the worker is absent. Reconcile them on every
+        # bounded supervisor cycle so rejected/expired approvals do not wait for restart.
+        self.reconcile_approval_waits()
         self.wake_due_quota_tasks(limit=limit)
         now = datetime.now(timezone.utc)
         with closing(sqlite3.connect(self.db_path)) as db, db:

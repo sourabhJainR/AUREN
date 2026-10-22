@@ -8,12 +8,15 @@ class ImpactPolicyTests(unittest.TestCase):
     def test_every_recovery_sensitive_source_has_mandatory_test_suites(self):
         expected = {
             "portable/side_effect_ledger.py": {"tests.test_side_effect_ledger", "tests.test_provider_operation_lifecycle"},
+            "portable/action_governance.py": {"tests.test_durable_approval"},
+            "portable/durable_approval.py": {"tests.test_durable_approval", "tests.test_side_effect_ledger", "tests.test_execution_controller"},
             "portable/provider_operation_lifecycle.py": {"tests.test_provider_operation_lifecycle", "tests.test_side_effect_ledger"},
             "portable/ci_repair_watchdog.py": {"tests.test_ci_repair_watchdog", "tests.test_engineering_recovery"},
             "portable/continuous_execution.py": {"tests.test_continuous_execution", "tests.test_ci_repair_watchdog", "tests.test_engineering_recovery"},
-            "portable/execution_controller.py": {"tests.test_execution_controller", "tests.test_execution_controller_restart", "tests.test_execution_controller_promotion_rollback_contract", "tests.test_provider_operation_lifecycle"},
+            "portable/execution_controller.py": {"tests.test_execution_controller", "tests.test_execution_controller_restart", "tests.test_execution_controller_promotion_rollback_contract", "tests.test_provider_operation_lifecycle", "tests.test_durable_approval"},
             "tests/test_consequential_run_once_recovery.py": {"tests.test_consequential_run_once_recovery", "tests.test_execution_controller"},
             "portable/engineering_recovery.py": {"tests.test_engineering_recovery", "tests.test_engineering_recovery_fault_matrix"},
+            "tests/test_durable_approval.py": {"tests.test_durable_approval", "tests.test_side_effect_ledger_crash_fault_injection"},
             "portable/progress_journal.py": {"tests.test_progress_journal", "tests.test_progress_journal_integration"},
             "portable/canonical_evidence_ledger.py": {"tests.test_canonical_evidence_ledger", "tests.test_provider_operation_lifecycle"},
             "portable/engineering_evidence_capture.py": {"tests.test_engineering_evidence_capture", "tests.test_execution_controller_evidence_capture"},
