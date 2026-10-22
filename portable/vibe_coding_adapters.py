@@ -308,8 +308,12 @@ class VibeAdapterRegistry:
                     raw = selected.invoke(dict(intent))
                     if not isinstance(raw, Mapping):
                         raise TypeError("adapter must return a structured mapping")
-                    if raw.get("status") != "completed":
+                    valid, _reason = validate_stage_output(stage, raw)
+                    if not valid:
                         return dict(raw)
+                    # A stage may validly report "passed" or omit status when its
+                    # stage contract defines success. Normalize only after that
+                    # contract has passed; never bless malformed output as a receipt.
                     return {
                         "status": "completed",
                         "provider_operation_id": operation_id,
