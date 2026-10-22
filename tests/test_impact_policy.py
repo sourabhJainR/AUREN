@@ -65,6 +65,8 @@ class ImpactPolicyTests(unittest.TestCase):
             "tests/test_execution_controller_restart.py",
             "portable/durable_approval.py",
             "tests/test_durable_approval.py",
+            "portable/canonical_evidence_ledger.py",
+            "tests/test_canonical_evidence_ledger.py",
         )
         for path in required_paths:
             with self.subTest(path=path):
