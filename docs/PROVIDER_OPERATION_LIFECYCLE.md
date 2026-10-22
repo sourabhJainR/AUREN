@@ -80,9 +80,11 @@ This contract does not claim distributed exactly-once execution. Local SQLite tr
 ## Dispatch receipt acceptance
 
 The adapter returning a mapping is not proof of remote completion. The lifecycle
-accepts a dispatch receipt as completed only when `status` is exactly
-`completed`. Missing, pending, failed, and unknown statuses are persisted as
-`reconcile_required`; they cannot be replayed or redispatched automatically.
+accepts a dispatch receipt as completed when `status` is exactly `completed`,
+or when a legacy adapter omits `status` and explicitly returns `success: true`.
+If a status field is present, only `completed` is accepted. Missing success,
+pending, failed, and unknown states are persisted as `reconcile_required`; they
+cannot be replayed or redispatched automatically.
 The trusted lookup/reconciliation path must establish the remote outcome before
 the operation can leave that state. This guard prevents an adapter's ordinary
 return path from turning an unconfirmed side effect into a false success.
