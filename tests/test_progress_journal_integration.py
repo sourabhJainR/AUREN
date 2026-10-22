@@ -1,4 +1,5 @@
 import tempfile
+from contextlib import closing
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -147,7 +148,7 @@ class ProgressJournalRuntimeIntegrationTests(unittest.TestCase):
             task = controller.submit("tests.progress_success", {"request_id": "safe-fixture"})
             claimed = controller._claim(task.id)
             self.assertIsNotNone(claimed)
-            with __import__("sqlite3").connect(controller.db_path) as db:
+            with closing(__import__("sqlite3").connect(controller.db_path)) as db, db:
                 stale = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
                 db.execute(
                     "UPDATE tasks SET heartbeat_at=?,lease_until=? WHERE id=?",
