@@ -297,6 +297,50 @@ class ContinuousExecutionSupervisor:
         self._event("operator", "stop_requested", {"reason": reason.strip(), "prior_state": prior})
         return self.status()
 
+    def _poller_health(
+        self, *, stale_after_seconds: float = 300.0, now: float | None = None,
+    ) -> list[dict[str, Any]]:
+        """Report durable CI poll freshness without treating a missing poll as success."""
+        if isinstance(stale_after_seconds, bool) or not isinstance(stale_after_seconds, (int, float)) or stale_after_seconds <= 0:
+            raise ValueError("stale_after_seconds must be positive")
+        current = time.time() if now is None else float(now)
+        with sqlite3.connect(self.path, timeout=5) as db:
+            rows = db.execute(
+                "SELECT event_type,payload_json,created_at FROM events "
+                "WHERE event_type IN ('poll_result','poll_error') ORDER BY sequence DESC"
+            ).fetchall()
+        latest: dict[str, dict[str, Any]] = {}
+        for event_type, raw_payload, created_at in rows:
+            try:
+                payload = json.loads(raw_payload)
+            except (TypeError, json.JSONDecodeError):
+                raise RuntimeError("CI poll audit record is corrupt")
+            name = payload.get("poller")
+            if not isinstance(name, str) or name not in self.pollers or name in latest:
+                continue
+            try:
+                parsed = datetime.fromisoformat(str(created_at).replace("Z", "+00:00"))
+                if parsed.tzinfo is None or parsed.utcoffset() is None:
+                    continue
+                age = max(0.0, current - parsed.timestamp())
+            except ValueError:
+                continue
+            result = payload.get("result", {})
+            status = "poll_error" if event_type == "poll_error" else (
+                str(result.get("status", "unknown")) if isinstance(result, Mapping) else "unknown"
+            )
+            latest[name] = {
+                "poller": name, "last_poll_at": created_at, "age_seconds": age,
+                "last_status": status, "stale": age >= stale_after_seconds,
+            }
+        return [
+            latest.get(name, {
+                "poller": name, "last_poll_at": None, "age_seconds": None,
+                "last_status": "never_polled", "stale": False,
+            })
+            for name in sorted(self.pollers)
+        ]
+
     def status(self, *, event_limit: int = 20) -> dict[str, Any]:
         if type(event_limit) is not int or not 1 <= event_limit <= 100:
             raise ValueError("event_limit must be between 1 and 100")
@@ -340,6 +384,7 @@ class ContinuousExecutionSupervisor:
             "last_cycle_at": row[4], "stop_reason": row[5], "updated_at": row[6],
             "task_counts": counts, "pending_tasks": pending_tasks,
             "recent_terminal_tasks": recent_terminal_tasks, "pollers": sorted(self.pollers),
+            "poller_health": self._poller_health(),
             "recent_events": [
                 {"sequence": int(e[0]), "event_type": e[1], "payload": json.loads(e[2]), "digest": e[3], "created_at": e[4]}
                 for e in events
@@ -556,6 +601,13 @@ class ContinuousExecutionSupervisor:
                     self._event(run_id, "task_batch_error", {"cycle": cycles, "error_type": batch_error})
                     raise
                 poll_results: dict[str, Any] = {}
+                stale_polls = self._poller_health(stale_after_seconds=max(300.0, poll_seconds * 3))
+                for finding in stale_polls:
+                    if finding["stale"]:
+                        self._event(run_id, "stale_ci_polling_detected", {
+                            "poller": finding["poller"], "age_seconds": finding["age_seconds"],
+                            "last_poll_at": finding["last_poll_at"], "last_status": finding["last_status"],
+                        })
                 for name, poller in self.pollers.items():
                     try:
                         result = poller()
