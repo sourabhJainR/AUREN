@@ -1,6 +1,7 @@
 # AUREN — Autonomous Unified Reasoning & Engineering Network
 
-**Current release:** `1.0.5`  
+**Source version:** `1.0.6` (release not published yet)  
+**Latest published release:** `1.0.5`  
 **Canonical repository:** `sourabhJainR/AUREN`  
 **Runtime state:** `~/.auren`
 
@@ -622,6 +623,10 @@ Investigate why the nightly import occasionally drops records. Do not modify cod
 ```text
 Review this change for correctness, compatibility, security, regression risk, observability, and missing verification. Do not rewrite unrelated code.
 ```
+
+## Engineering principles contract
+
+The canonical 30-principle registry is enforced through existing AUREN gates, not a parallel policy engine. It explicitly covers deterministic planning and evidence, a minimal trusted core, complete operation outcomes, reversible migrations, verified artifacts, honest progress reporting, accessibility, lifecycle ownership, and correctness over optimization. See [the root engineering contract](ENGINEERING_PRINCIPLES.md) and [AI-era foundation principles](docs/AI_ERA_FOUNDATION_PRINCIPLES.md). A registry receipt is traceability evidence; it is not proof of universal enforcement.
 
 ## Design principle
 
