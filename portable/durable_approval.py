@@ -32,7 +32,7 @@ _ALLOWED_TRANSITIONS = {
     "rejected": frozenset(), "expired": frozenset(), "cancelled": frozenset(),
     "superseded": frozenset(), "completed": frozenset(), "failed": frozenset(),
 }
-_DIGEST = __import__("re").compile(r"^[0-9a-f]{64}$")
+_DIGEST = re.compile(r"^[0-9a-f]{64}$")
 
 
 class ApprovalConflict(ValueError):
@@ -178,6 +178,8 @@ class DurableApprovalStore:
                     artifact_digest TEXT NOT NULL,
                     evidence_digest TEXT NOT NULL,
                     policy_digest TEXT NOT NULL,
+                    checkpoint_json TEXT NOT NULL DEFAULT '{}',
+                    checkpoint_digest TEXT NOT NULL DEFAULT '',
                     requester_id TEXT NOT NULL,
                     required_role TEXT NOT NULL,
                     scope TEXT NOT NULL,
@@ -219,6 +221,11 @@ class DurableApprovalStore:
                     created_at TEXT NOT NULL
                 );
             """)
+            columns = {row[1] for row in db.execute("PRAGMA table_info(durable_approvals)").fetchall()}
+            if "checkpoint_json" not in columns:
+                db.execute("ALTER TABLE durable_approvals ADD COLUMN checkpoint_json TEXT NOT NULL DEFAULT '{}'")
+            if "checkpoint_digest" not in columns:
+                db.execute("ALTER TABLE durable_approvals ADD COLUMN checkpoint_digest TEXT NOT NULL DEFAULT ''")
 
     @contextmanager
     def _connect(self):
@@ -309,7 +316,7 @@ class DurableApprovalStore:
         self, request: ActionRequest, *, operation_id: str, artifact_digest: str,
         evidence_digest: str, policy_digest: str, requester_id: str, required_role: str,
         scope: str, expires_at: str | datetime, required_approvals: int = 1,
-        separation_of_duties: bool = True,
+        separation_of_duties: bool = True, checkpoint: Mapping[str, Any] | None = None,
     ) -> ApprovalRecord:
         if not isinstance(request, ActionRequest):
             raise TypeError("request must be an ActionRequest")
@@ -331,6 +338,15 @@ class DurableApprovalStore:
         if expires <= now:
             raise ValueError("expires_at must be in the future")
         fingerprint = request.fingerprint()
+        if checkpoint is None:
+            checkpoint = {
+                "operation_id": operation_id, "artifact_digest": artifact_digest,
+                "evidence_digest": evidence_digest, "policy_digest": policy_digest,
+                "request_fingerprint": fingerprint,
+            }
+        checkpoint = ApprovalPending("checkpoint-validation", checkpoint).checkpoint
+        checkpoint_json = _canonical(checkpoint)
+        checkpoint_digest = _digest(checkpoint)
         identity = {
             "task_id": task_id, "operation_id": operation_id,
             "request_fingerprint": fingerprint, "artifact_digest": artifact_digest,
@@ -338,6 +354,7 @@ class DurableApprovalStore:
             "requester_id": requester_id, "required_role": required_role, "scope": scope,
             "expires_at": _time_text(expires), "required_approvals": required_approvals,
             "separation_of_duties": separation_of_duties,
+            "checkpoint_digest": checkpoint_digest,
         }
         approval_id = "approval-" + _digest(identity)[:40]
         created_new = False
@@ -372,14 +389,14 @@ class DurableApprovalStore:
                 created_at = _time_text(now)
                 db.execute(
                     "INSERT INTO durable_approvals (approval_id,task_id,operation_id,requested_action,"
-                    "request_fingerprint,artifact_digest,evidence_digest,policy_digest,requester_id,"
-                    "required_role,scope,expires_at,required_approvals,separation_of_duties,status,version,"
+                    "request_fingerprint,artifact_digest,evidence_digest,policy_digest,checkpoint_json,checkpoint_digest,"
+                    "requester_id,required_role,scope,expires_at,required_approvals,separation_of_duties,status,version,"
                     "created_at,updated_at,reason,receipt_digest) "
-                    "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?,?, '', '')",
+                    "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?,?, '', '')",
                     (approval_id, task_id, operation_id, request.action, fingerprint, artifact_digest,
-                     evidence_digest, policy_digest, requester_id, required_role, scope,
-                     _time_text(expires), required_approvals, int(separation_of_duties), "pending",
-                     created_at, created_at),
+                     evidence_digest, policy_digest, checkpoint_json, checkpoint_digest, requester_id,
+                     required_role, scope, _time_text(expires), required_approvals,
+                     int(separation_of_duties), "pending", created_at, created_at),
                 )
                 self._append_event(
                     db, approval_id=approval_id, event_type="approval_requested", actor=requester_id,
@@ -433,6 +450,21 @@ class DurableApprovalStore:
             after = len(self.progress_journal._events())
             count += max(0, after - before)
         return count
+
+    def checkpoint_for(self, approval_id: str) -> Mapping[str, Any]:
+        """Load the exact bounded continuation checkpoint saved with the approval."""
+        approval_id = _required(approval_id, "approval_id")
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT checkpoint_json,checkpoint_digest FROM durable_approvals WHERE approval_id=?",
+                (approval_id,),
+            ).fetchone()
+        if row is None:
+            raise KeyError("unknown approval_id")
+        checkpoint = json.loads(row["checkpoint_json"])
+        if not isinstance(checkpoint, Mapping) or _digest(checkpoint) != row["checkpoint_digest"]:
+            raise ApprovalConflict("durable approval checkpoint digest mismatch")
+        return dict(checkpoint)
 
     def get(self, approval_id: str) -> ApprovalRecord:
         approval_id = _required(approval_id, "approval_id")
