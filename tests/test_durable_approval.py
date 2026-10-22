@@ -104,6 +104,11 @@ class DurableApprovalTests(unittest.TestCase):
         })
 
     def tearDown(self):
+        # The shared approval flow is module-global; release its controller/ledger
+        # references before Windows removes SQLite database and WAL files.
+        APPROVAL_FLOW.clear()
+        self.store = None
+        self.controller = None
         self.temp.cleanup()
 
     def make_store(self):
