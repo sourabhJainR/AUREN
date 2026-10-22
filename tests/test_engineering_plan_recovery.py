@@ -37,6 +37,29 @@ def _crash_after_plan_store_commit(plan_store_path: str, ledger_path: str) -> No
     os._exit(73)
 
 
+def _crash_during_bridge_checkpoint(plan_store_path: str, ledger_path: str) -> None:
+    plan = sample_plan()
+    bridge = EngineeringPlanRecoveryBridge(
+        store=EngineeringPlanStore(plan_store_path),
+        ledger=EngineeringRecoveryLedger(ledger_path),
+    )
+    bridge.start(plan)
+    original_checkpoint = bridge.ledger.checkpoint
+
+    def crash_before_checkpoint(*args, **kwargs):
+        # The bridge has already committed the plan/run CAS update when it calls
+        # this method. Exit without Python cleanup to model abrupt process death.
+        os._exit(74)
+
+    bridge.ledger.checkpoint = crash_before_checkpoint
+    bridge.transition_task(
+        plan.run_id, "implement", "ready", reason="crash after durable plan CAS",
+    )
+    # The checkpoint must never return in this fixture.
+    original_checkpoint  # keep the saved bound method referenced for clarity
+    os._exit(75)
+
+
 class EngineeringPlanRecoveryBridgeTests(unittest.TestCase):
     def make_bridge(self, root: Path) -> EngineeringPlanRecoveryBridge:
         return EngineeringPlanRecoveryBridge(
@@ -110,6 +133,41 @@ class EngineeringPlanRecoveryBridgeTests(unittest.TestCase):
             _, loaded_run = bridge.load_verified(plan.run_id)
             self.assertEqual(reconciled.digest, loaded_run.digest)
             self.assertEqual("ready", loaded_run.tasks[0].status)
+
+
+    def test_bridge_transition_process_death_after_store_commit_requires_reconciliation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            plan_store_path = str(root / "transition-plan-store.db")
+            ledger_path = str(root / "transition-recovery-ledger.db")
+            process = multiprocessing.get_context("spawn").Process(
+                target=_crash_during_bridge_checkpoint,
+                args=(plan_store_path, ledger_path),
+            )
+            process.start()
+            process.join(15)
+            if process.is_alive():
+                process.terminate()
+                process.join(3)
+                self.fail("bridge transition crash fixture exceeded its time budget")
+            self.assertEqual(74, process.exitcode)
+
+            plan = sample_plan()
+            restarted = EngineeringPlanRecoveryBridge(
+                store=EngineeringPlanStore(plan_store_path),
+                ledger=EngineeringRecoveryLedger(ledger_path),
+            )
+            with self.assertRaisesRegex(EngineeringPlanCheckpointMismatch, "run_digest"):
+                restarted.load_verified(plan.run_id)
+
+            reconciled = restarted.reconcile_checkpoint(
+                plan.run_id,
+                reason="operator verified committed CAS transition after interrupted checkpoint publication",
+                expected_plan_digest=plan.digest,
+            )
+            _, loaded = restarted.load_verified(plan.run_id)
+            self.assertEqual(reconciled.digest, loaded.digest)
+            self.assertEqual("ready", loaded.tasks[0].status)
 
     def test_store_checkpoint_split_write_fails_closed_until_explicit_reconciliation(self):
         with tempfile.TemporaryDirectory() as tmp:
