@@ -213,6 +213,7 @@ class ExecutionController:
         self._progress_reconciliation_findings: list[str] = []
         self._progress_reconciliation_incomplete = False
         self.reconcile_progress_journal()
+        self.reconcile_approval_waits()
 
     def register_handler(
         self,
@@ -1094,6 +1095,96 @@ class ExecutionController:
             message=f"Operator {operator_id.strip()} authorized status lookup only; no remote redispatch is permitted.",
         )
         return True
+
+    def reconcile_approval_waits(self, *, limit: int = 1000) -> int:
+        """Recover approval pauses after process death without rerunning completed stages."""
+        if type(limit) is not int or not 1 <= limit <= 10000:
+            raise ValueError("approval recovery limit must be between 1 and 10000")
+        with closing(sqlite3.connect(self.db_path, timeout=10)) as db:
+            exists = db.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='durable_approvals'"
+            ).fetchone()
+            if not exists:
+                return 0
+            db.execute("BEGIN IMMEDIATE")
+            rows = db.execute(
+                "SELECT t.id,t.handler,t.payload,t.state,t.attempts,t.work_unit_id,t.lease_until,"
+                "t.heartbeat_at,t.lease_generation,t.lease_token,a.approval_id,a.status,"
+                "a.checkpoint_json,a.checkpoint_digest "
+                "FROM tasks t JOIN durable_approvals a ON a.task_id=t.id "
+                "WHERE t.state IN ('running','recovering') "
+                "AND a.status IN ('pending','approved','rejected','expired','cancelled','superseded',"
+                "'executing','outcome_unknown','completed','failed') "
+                "ORDER BY t.updated_at LIMIT ?",
+                (limit,),
+            ).fetchall()
+            now = datetime.now(timezone.utc)
+            recovered = []
+            for row in rows:
+                task_id, handler, raw_payload, task_state, attempts, work_unit_id = row[:6]
+                lease_until, heartbeat_at, generation, lease_token = row[6:10]
+                approval_id, approval_status, checkpoint_json, checkpoint_digest = row[10:14]
+                lease_live = False
+                try:
+                    lease_dt = datetime.fromisoformat(str(lease_until)) if lease_until else None
+                    heartbeat_dt = datetime.fromisoformat(str(heartbeat_at)) if heartbeat_at else None
+                    if lease_dt and heartbeat_dt and lease_dt.tzinfo and heartbeat_dt.tzinfo:
+                        lease_live = lease_dt > now and (now - heartbeat_dt).total_seconds() <= 90
+                except (TypeError, ValueError):
+                    lease_live = False
+                if lease_live:
+                    continue
+                checkpoint = json.loads(checkpoint_json)
+                checkpoint_digest_expected = hashlib.sha256(
+                    json.dumps(checkpoint, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")
+                ).hexdigest()
+                if not isinstance(checkpoint, Mapping) or checkpoint_digest_expected != checkpoint_digest:
+                    db.rollback()
+                    raise RuntimeError("approval checkpoint is corrupt; task remains blocked for operator recovery")
+                payload = json.loads(raw_payload)
+                prior = payload.get("auren_approval_resume")
+                if isinstance(prior, Mapping) and prior.get("approval_id") not in {None, approval_id}:
+                    db.rollback()
+                    raise RuntimeError("task checkpoint references a different approval; refusing automatic recovery")
+                if approval_status == "pending":
+                    next_state = "waiting_approval"
+                elif approval_status == "approved":
+                    next_state = "pending"
+                else:
+                    next_state = "blocked_approval"
+                payload["auren_approval_resume"] = {
+                    "approval_id": approval_id, "status": approval_status,
+                    "checkpoint": checkpoint, "checkpoint_digest": checkpoint_digest,
+                }
+                cursor = db.execute(
+                    "UPDATE tasks SET state=?,payload=?,updated_at=?,heartbeat_at=NULL,lease_until=NULL,"
+                    "lease_token=NULL WHERE id=? AND state=? AND lease_generation=?",
+                    (next_state, json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False),
+                     _now(), task_id, task_state, int(generation or 0)),
+                )
+                if cursor.rowcount == 1:
+                    recovered.append((str(task_id), str(handler), next_state, int(attempts), str(work_unit_id), str(approval_id)))
+            db.commit()
+        for task_id, handler, next_state, attempts, work_unit_id, approval_id in recovered:
+            detail = f"Recovered approval {approval_id} after worker interruption; state={next_state}."
+            self.company.record(
+                work_unit_id, "approval", next_state, detail,
+                (f"task:{task_id}", f"approval:{approval_id}"),
+            )
+            if next_state in {"waiting_approval", "blocked_approval"}:
+                current_work_state, _ = self.company._state(work_unit_id)
+                if current_work_state != "waiting_external":
+                    self.company._transition(work_unit_id, "waiting_external")
+            task = DurableTask(task_id, handler, {}, next_state, attempts, work_unit_id)
+            self._capture_event("approval_recovered_after_restart", task, status=next_state, metadata={
+                "approval_id": approval_id,
+            })
+            self._record_progress(
+                task_id, "approval_recovered_after_restart",
+                state="queued" if next_state == "pending" else "blocked",
+                stage="approval", message=detail,
+            )
+        return len(recovered)
 
     def _handler_payload(self, task: DurableTask, base_payload: Mapping[str, Any] | None = None) -> dict[str, Any]:
         """Inject supervisor identity only for explicitly approval-aware handlers."""
