@@ -345,6 +345,12 @@ class DurableApprovalStore:
                 "request_fingerprint": fingerprint,
             }
         checkpoint = ApprovalPending("checkpoint-validation", checkpoint).checkpoint
+        for key, expected in (
+            ("artifact_digest", artifact_digest), ("evidence_digest", evidence_digest),
+            ("policy_digest", policy_digest), ("request_fingerprint", fingerprint),
+        ):
+            if key in checkpoint and checkpoint[key] != expected:
+                raise ValueError(f"checkpoint {key} does not match the approval binding")
         checkpoint_json = _canonical(checkpoint)
         checkpoint_digest = _digest(checkpoint)
         identity = {
