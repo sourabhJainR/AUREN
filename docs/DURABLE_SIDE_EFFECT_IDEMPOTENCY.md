@@ -47,6 +47,12 @@ with a stable key derived from the canonical run/task/action identity.
   a transient task ID, so recreating a task for the same canonical dispatch reuses its
   receipt or blocks for reconciliation. Ordinary tasks use their durable task ID. Distinct
   dispatches still require a stable provider idempotency key to deduplicate at the provider.
+- The 18-stage Vibe adapter registry also requires the canonical ledger for registrations
+  marked `external_side_effects=True`. It binds each stage operation to workflow ID,
+  stage, adapter ID/version, and the sanitized request; completed receipts replay without
+  invoking the adapter again. Missing ledger or workflow identity blocks the call before
+  adapter dispatch. The local stage receipt does not prove provider-native idempotency.
+
 - Production rollout still needs failure-injection evidence against each consequential adapter.
 
 ## Validation
