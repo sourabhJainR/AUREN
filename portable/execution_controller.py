@@ -33,7 +33,7 @@ from .evidence_gate_integration import EvidenceGateIntegration, IntegratedEviden
 from .persistent_memory import PersistentMemory
 from .progress_journal import ProgressJournal
 from .provider_operation_lifecycle import ProviderOutcomeBlocked
-from .durable_approval import ApprovalPending
+from .durable_approval import ApprovalPending, InvalidApprovalTransition
 
 Handler = Callable[[Mapping[str, Any]], Any]
 
@@ -1110,7 +1110,7 @@ class ExecutionController:
         with closing(sqlite3.connect(self.db_path, timeout=10)) as db:
             db.execute("BEGIN IMMEDIATE")
             approval = db.execute(
-                "SELECT task_id,status,artifact_digest,evidence_digest,policy_digest "
+                "SELECT task_id,status,artifact_digest,evidence_digest,policy_digest,checkpoint_json,checkpoint_digest "
                 "FROM durable_approvals WHERE approval_id=?",
                 (pending.approval_id,),
             ).fetchone()
@@ -1124,6 +1124,13 @@ class ExecutionController:
             if row is None or row[1] != "running" or row[4] != task.lease_token or int(row[3] or 0) != task.lease_generation:
                 db.rollback()
                 raise LeaseLostError("stale worker cannot pause a task for approval")
+            stored_checkpoint = json.loads(approval[5])
+            stored_checkpoint_digest = hashlib.sha256(
+                json.dumps(stored_checkpoint, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")
+            ).hexdigest()
+            if stored_checkpoint_digest != approval[6] or dict(pending.checkpoint) != stored_checkpoint:
+                db.rollback()
+                raise RuntimeError("approval continuation checkpoint differs from its durable digest-bound record")
             for key, value in (
                 ("artifact_digest", approval[2]), ("evidence_digest", approval[3]),
                 ("policy_digest", approval[4]),
@@ -1196,6 +1203,11 @@ class ExecutionController:
             if row is None:
                 db.rollback()
                 raise KeyError(task_id)
+            if row[1] == "running":
+                # The approval may arrive between durable request creation and the
+                # handler raising ApprovalPending. The pause path will queue it.
+                db.commit()
+                return True
             payload = json.loads(row[0])
             checkpoint = payload.get("auren_approval_resume")
             if not isinstance(checkpoint, Mapping) or checkpoint.get("approval_id") != approval_id:
