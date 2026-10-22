@@ -33,6 +33,7 @@ from .evidence_gate_integration import EvidenceGateIntegration, IntegratedEviden
 from .persistent_memory import PersistentMemory
 from .progress_journal import ProgressJournal
 from .provider_operation_lifecycle import ProviderOutcomeBlocked
+from .durable_approval import ApprovalPending
 
 Handler = Callable[[Mapping[str, Any]], Any]
 
@@ -809,6 +810,9 @@ class ExecutionController:
             elif task_state == "blocked_quota" and work_state == "running":
                 target_state = "blocked"
                 reason = "Task remains blocked on provider quota; resume only after its durable retry time."
+            elif task_state in {"waiting_approval", "blocked_approval"} and work_state in {"waiting_external", "running"}:
+                target_state = "blocked"
+                reason = "Task is waiting for an explicit human approval decision; do not redispatch before the saved checkpoint is approved."
             elif task_state == "running" and work_state == "running":
                 lease_live = False
                 try:
@@ -1091,6 +1095,139 @@ class ExecutionController:
         )
         return True
 
+    def _handler_payload(self, task: DurableTask, base_payload: Mapping[str, Any] | None = None) -> dict[str, Any]:
+        """Inject supervisor identity only for explicitly approval-aware handlers."""
+        payload = dict(base_payload if base_payload is not None else task.payload)
+        payload.pop("_auren_execution_context", None)
+        if payload.get("auren_approval_aware") is True:
+            payload["_auren_execution_context"] = {
+                "task_id": task.id, "work_unit_id": task.work_unit_id, "attempt": task.attempts,
+            }
+        return payload
+
+    def _pause_for_approval(self, task: DurableTask, pending: ApprovalPending) -> str:
+        """Persist a nonterminal approval wait and release the worker lease."""
+        with closing(sqlite3.connect(self.db_path, timeout=10)) as db:
+            db.execute("BEGIN IMMEDIATE")
+            approval = db.execute(
+                "SELECT task_id,status,artifact_digest,evidence_digest,policy_digest "
+                "FROM durable_approvals WHERE approval_id=?",
+                (pending.approval_id,),
+            ).fetchone()
+            row = db.execute(
+                "SELECT payload,state,work_unit_id,lease_generation,lease_token FROM tasks WHERE id=?",
+                (task.id,),
+            ).fetchone()
+            if approval is None or approval[0] != task.id:
+                db.rollback()
+                raise RuntimeError("approval request is missing or belongs to another task")
+            if row is None or row[1] != "running" or row[4] != task.lease_token or int(row[3] or 0) != task.lease_generation:
+                db.rollback()
+                raise LeaseLostError("stale worker cannot pause a task for approval")
+            for key, value in (
+                ("artifact_digest", approval[2]), ("evidence_digest", approval[3]),
+                ("policy_digest", approval[4]),
+            ):
+                supplied = pending.checkpoint.get(key)
+                if supplied is not None and supplied != value:
+                    db.rollback()
+                    raise RuntimeError(f"approval checkpoint {key} does not match the durable approval")
+            status = str(approval[1])
+            if status == "pending":
+                next_state = "waiting_approval"
+            elif status == "approved":
+                next_state = "pending"
+            else:
+                next_state = "blocked_approval"
+            payload = json.loads(row[0])
+            prior = payload.get("auren_approval_resume")
+            if isinstance(prior, Mapping) and prior.get("approval_id") != pending.approval_id:
+                db.rollback()
+                raise RuntimeError("task already has a different approval checkpoint")
+            payload["auren_approval_resume"] = {
+                "approval_id": pending.approval_id,
+                "status": status,
+                "checkpoint": dict(pending.checkpoint),
+            }
+            cursor = db.execute(
+                "UPDATE tasks SET state=?,payload=?,updated_at=?,heartbeat_at=NULL,lease_until=NULL,"
+                "lease_token=NULL WHERE id=? AND state='running' AND lease_token=? AND lease_generation=?",
+                (next_state, json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False),
+                 _now(), task.id, task.lease_token, task.lease_generation),
+            )
+            if cursor.rowcount != 1:
+                db.rollback()
+                raise LeaseLostError("task changed while approval wait was being persisted")
+            work_unit_id = str(row[2])
+            db.commit()
+        detail = f"Approval {pending.approval_id} is {status}; execution lease released."
+        self.company.record(
+            work_unit_id, "approval", next_state, detail,
+            (f"task:{task.id}", f"approval:{pending.approval_id}"),
+        )
+        if next_state in {"waiting_approval", "blocked_approval"}:
+            self.company._transition(work_unit_id, "waiting_external")
+        self._capture_event("approval_waiting", task, status=next_state, metadata={
+            "approval_id": pending.approval_id,
+            "checkpoint_digest": hashlib.sha256(
+                json.dumps(dict(pending.checkpoint), sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
+            ).hexdigest(),
+        })
+        self._record_progress(
+            task.id, "approval_requested" if next_state == "waiting_approval" else "approval_resume_ready",
+            state="blocked" if next_state in {"waiting_approval", "blocked_approval"} else "queued",
+            stage="approval", message=detail,
+        )
+        return next_state
+
+    def resume_approved_task(self, task_id: str, approval_id: str, *, approval_store: Any) -> bool:
+        """Wake the same task from its saved action checkpoint; duplicate wake-ups are harmless."""
+        for value, name in ((task_id, "task_id"), (approval_id, "approval_id")):
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"{name} is required")
+        approval = approval_store.get(approval_id)
+        if approval.task_id != task_id or approval.status != "approved":
+            raise PermissionError("only the matching durably approved operation can resume this task")
+        with closing(sqlite3.connect(self.db_path, timeout=10)) as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute(
+                "SELECT payload,state,work_unit_id FROM tasks WHERE id=?", (task_id,),
+            ).fetchone()
+            if row is None:
+                db.rollback()
+                raise KeyError(task_id)
+            payload = json.loads(row[0])
+            checkpoint = payload.get("auren_approval_resume")
+            if not isinstance(checkpoint, Mapping) or checkpoint.get("approval_id") != approval_id:
+                db.rollback()
+                raise RuntimeError("task does not contain the matching approval checkpoint")
+            if row[1] == "pending" and checkpoint.get("status") == "approved":
+                db.commit()
+                return True
+            if row[1] != "waiting_approval" or checkpoint.get("status") != "pending":
+                db.rollback()
+                raise InvalidApprovalTransition(f"task is {row[1]}, not waiting for this approval")
+            payload["auren_approval_resume"] = {**dict(checkpoint), "status": "approved"}
+            cursor = db.execute(
+                "UPDATE tasks SET state='pending',payload=?,updated_at=?,heartbeat_at=NULL,lease_until=NULL,"
+                "lease_token=NULL WHERE id=? AND state='waiting_approval'",
+                (json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False), _now(), task_id),
+            )
+            if cursor.rowcount != 1:
+                db.rollback()
+                raise RuntimeError("task state changed while applying approval wake-up")
+            work_unit_id = str(row[2])
+            db.commit()
+        self.company.record(
+            work_unit_id, "approval", "approved", "Approved action checkpoint queued for continuation.",
+            (f"task:{task_id}", f"approval:{approval_id}"),
+        )
+        self._record_progress(
+            task_id, "approval_approved", state="queued", stage="approval",
+            message=f"Approval {approval_id} accepted; saved action checkpoint is ready to resume.",
+        )
+        return True
+
     def observe_failed_ci_check(self, *, recovery_ledger: Any, **observation: Any) -> Mapping[str, Any]:
         """Called by the existing supervisor's CI poll cycle; never starts another loop."""
         from .ci_repair_watchdog import CIRepairWatchdog
@@ -1219,7 +1356,7 @@ class ExecutionController:
         result: Any = None
         handler_error: BaseException | None = None
         try:
-            result = handler(task.payload)
+            result = handler(self._handler_payload(task))
         except BaseException as exc:
             handler_error = exc
         finally:
@@ -1729,7 +1866,7 @@ class ExecutionController:
                     json.dumps(dict(intent), sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
                 ).hexdigest(),
             }
-            value = self._invoke_with_lease_heartbeat(task, lambda _payload: handler(provider_payload))
+            value = self._invoke_with_lease_heartbeat(task, lambda _payload: handler(self._handler_payload(task, provider_payload)))
             if not isinstance(value, Mapping):
                 raise RuntimeError("consequential handlers must return a mapping receipt/result")
             return {"result": dict(value), "provider_operation_id": operation_id}
@@ -1785,6 +1922,9 @@ class ExecutionController:
                 result = self._invoke_with_lease_heartbeat(task, handler)
         except LeaseLostError:
             raise
+        except ApprovalPending as exc:
+            self._pause_for_approval(task, exc)
+            return None
         except ProviderOutcomeBlocked as exc:
             if not self._finalize_claim(task, "blocked_reconciliation"):
                 raise LeaseLostError(
