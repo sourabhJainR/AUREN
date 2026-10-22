@@ -123,7 +123,7 @@ class ProgressJournal:
                         not isinstance(row.get("task_id"), str) or not row["task_id"].strip()
                         or isinstance(row.get("sequence"), bool)
                         or not isinstance(row.get("sequence"), int) or row["sequence"] < 1
-                        or row.get("state") not in STATES
+                        or not isinstance(row.get("state"), str) or row["state"] not in STATES
                         or not isinstance(row.get("event"), str)
                         or not isinstance(row.get("stage"), str)
                         or not isinstance(row.get("message"), str)
