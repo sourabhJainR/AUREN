@@ -44,8 +44,6 @@ def _crash_during_bridge_checkpoint(plan_store_path: str, ledger_path: str) -> N
         ledger=EngineeringRecoveryLedger(ledger_path),
     )
     bridge.start(plan)
-    original_checkpoint = bridge.ledger.checkpoint
-
     def crash_before_checkpoint(*args, **kwargs):
         # The bridge has already committed the plan/run CAS update when it calls
         # this method. Exit without Python cleanup to model abrupt process death.
@@ -56,7 +54,6 @@ def _crash_during_bridge_checkpoint(plan_store_path: str, ledger_path: str) -> N
         plan.run_id, "implement", "ready", reason="crash after durable plan CAS",
     )
     # The checkpoint must never return in this fixture.
-    original_checkpoint  # keep the saved bound method referenced for clarity
     os._exit(75)
 
 
