@@ -8,7 +8,7 @@ is finalized after an ambiguous result.
 from __future__ import annotations
 
 from contextlib import contextmanager
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
@@ -388,26 +388,15 @@ class DurableApprovalStore:
         )
 
     def reconcile_progress(self) -> int:
-        """Rebuild missing journal transitions from the append-only approval event log."""
+        """Repair the latest missing journal projection without replaying old states."""
         if self.progress_journal is None:
             return 0
         with self._connect() as db:
             rows = db.execute("SELECT * FROM durable_approvals ORDER BY created_at,approval_id").fetchall()
-        records = {row["approval_id"]: _record(row) for row in rows}
         count = 0
-        for event in self.events():
-            record = records.get(str(event["approval_id"]))
-            if record is None:
-                raise RuntimeError("approval audit event has no durable approval record")
-            body = event["event"]
-            projected = replace(
-                record,
-                status=str(body.get("to_state", record.status)),
-                version=int(body.get("version", record.version)),
-                reason=str((body.get("details") or {}).get("reason", record.reason)),
-            )
+        for row in rows:
             before = len(self.progress_journal._events())
-            self._project_progress(projected, str(event["event_type"]))
+            self._project_progress(_record(row), "approval_reconciliation")
             after = len(self.progress_journal._events())
             count += max(0, after - before)
         return count
@@ -647,6 +636,11 @@ class DurableApprovalStore:
             approval_id, request, artifact_digest=artifact_digest,
             evidence_digest=evidence_digest, policy_digest=policy_digest,
         )
+        if not self.verify_receipt(receipt, request):
+            self.mark_outcome(
+                approval_id, "failed", reason="approved binding changed or could not be revalidated before dispatch",
+            )
+            raise PermissionError("approval binding could not be revalidated before dispatch")
         try:
             result = gateway.execute(request, handler, approval=receipt)
         except BaseException as exc:
