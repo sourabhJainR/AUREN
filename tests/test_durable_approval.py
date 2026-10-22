@@ -338,6 +338,46 @@ class DurableApprovalTests(unittest.TestCase):
         self.assertEqual(sum(result is not None for result in results), 1)
         self.assertEqual(self.store.get(record.approval_id).status, "executing")
 
+    def test_restart_recovers_request_created_before_pause_checkpoint_was_written(self):
+        self.controller.register_handler(
+            "approval-flow", durable_approval_flow_handler,
+            execution_class="approval_gated",
+            approval_gate_policy={
+                "approval_store": "DurableApprovalStore",
+                "gateway": "ActionGovernanceGateway",
+                "durable_side_effect_ledger": True,
+            },
+        )
+        task = self.controller.submit(
+            "approval-flow", {"auren_approval_aware": True, "work_key": "restart-before-pause"},
+            goal="recover approval created before process interruption",
+        )
+        request = self.request(task_id=task.id)
+        checkpoint = {
+            "operation_id": "publish:restart-before-pause",
+            "artifact_digest": self.artifact, "evidence_digest": self.evidence,
+            "policy_digest": self.policy, "request_fingerprint": request.fingerprint(),
+            "artifact_ref": "sha256:" + self.artifact,
+        }
+        record = self.store.create_request(
+            request=request, operation_id=checkpoint["operation_id"],
+            artifact_digest=self.artifact, evidence_digest=self.evidence, policy_digest=self.policy,
+            requester_id="requester-1", required_role="release-approver", scope="repo:publish",
+            expires_at=self.now + timedelta(hours=2), checkpoint=checkpoint,
+        )
+        stale = "2020-01-01T00:00:00+00:00"
+        with sqlite3.connect(self.controller.db_path) as db:
+            db.execute(
+                "UPDATE tasks SET state='running',heartbeat_at=?,lease_until=?,lease_generation=1,"
+                "lease_token='stale-worker' WHERE id=?",
+                (stale, stale, task.id),
+            )
+        restarted_controller = ExecutionController(self.root)
+        self.assertEqual(restarted_controller.task(task.id).state, "waiting_approval")
+        restarted_store = self.make_store()
+        self.assertEqual(restarted_store.checkpoint_for(record.approval_id), checkpoint)
+        self.assertEqual(restarted_store.get(record.approval_id).status, "pending")
+
     def test_controller_pauses_and_resumes_same_checkpoint_without_retrieval_repeat(self):
         self.store.wake_callback = lambda task_id, approval_id: self.controller.resume_approved_task(
             task_id, approval_id, approval_store=self.store,
