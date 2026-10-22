@@ -1,4 +1,7 @@
+import ast
+import re
 import unittest
+from fnmatch import fnmatchcase
 from pathlib import Path
 
 from scripts.impact_policy import classify_changes, classify_path, final_status
@@ -40,6 +43,33 @@ class ImpactPolicyTests(unittest.TestCase):
                 impact = classify_path(path)
                 for suite in impact.required_suites:
                     self.assertIn(suite, hardening_workflow, f"{path} requires {suite}, but hardening does not run it")
+
+    def test_runtime_resilience_filter_covers_recovery_sensitive_paths(self):
+        workflow = Path(".github/workflows/runtime-resilience.yml").read_text(encoding="utf-8")
+        match = re.search(r"patterns = (\\[.*?\\])", workflow, re.DOTALL)
+        self.assertIsNotNone(match, "runtime resilience workflow must expose its changed-path policy")
+        patterns = ast.literal_eval(match.group(1))
+        required_paths = (
+            "portable/provider_operation_lifecycle.py",
+            "tests/test_provider_operation_lifecycle.py",
+            "portable/side_effect_ledger.py",
+            "tests/test_side_effect_ledger.py",
+            "portable/ci_repair_watchdog.py",
+            "tests/test_ci_repair_watchdog.py",
+            "portable/engineering_recovery.py",
+            "tests/test_engineering_recovery.py",
+            "tests/test_engineering_recovery_fault_matrix.py",
+            "portable/execution_controller.py",
+            "tests/test_execution_controller_restart.py",
+            "portable/durable_approval.py",
+            "tests/test_durable_approval.py",
+        )
+        for path in required_paths:
+            with self.subTest(path=path):
+                self.assertTrue(
+                    any(fnmatchcase(path, pattern) for pattern in patterns),
+                    f"{path} must trigger Runtime Resilience Matrix",
+                )
 
     def test_unclassified_sensitive_path_fails_closed(self):
         with self.assertRaisesRegex(ValueError, "no impact classification"):
