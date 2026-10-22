@@ -1164,7 +1164,7 @@ class ExecutionController:
                 "t.heartbeat_at,t.lease_generation,t.lease_token,a.approval_id,a.status,"
                 "a.checkpoint_json,a.checkpoint_digest "
                 "FROM tasks t JOIN durable_approvals a ON a.task_id=t.id "
-                "WHERE t.state IN ('running','recovering') "
+                "WHERE t.state IN ('running','recovering','waiting_approval') "
                 "AND a.status IN ('pending','approved','rejected','expired','cancelled','superseded',"
                 "'executing','outcome_unknown','completed','failed') "
                 "ORDER BY t.updated_at LIMIT ?",
@@ -1185,6 +1185,8 @@ class ExecutionController:
                 except (TypeError, ValueError):
                     lease_live = False
                 if lease_live:
+                    continue
+                if task_state == "waiting_approval" and approval_status == "pending":
                     continue
                 checkpoint = json.loads(checkpoint_json)
                 checkpoint_digest_expected = hashlib.sha256(
@@ -1402,6 +1404,11 @@ class ExecutionController:
             raise ValueError("context providers are internal-only and cannot be submitted as tasks")
         if execution_class not in {"read_only", "ci_gated", "consequential", "approval_gated"}:
             raise ValueError("unclassified legacy handler fails closed; re-register with an explicit execution_class")
+        if execution_class == "approval_gated":
+            if payload.get("auren_approval_aware") is not True:
+                raise ValueError("approval-gated tasks must opt in to trusted execution context and checkpoint resume")
+            if not self._handler_approval_gate_policy(handler):
+                raise ValueError("approval-gated handler has no trusted gateway/ledger policy")
         self._load_handler(handler)
         work = self.company.start(goal or f"execute durable handler: {handler}")
         task = DurableTask(uuid4().hex, handler, dict(payload), "pending", 0, work.id)
