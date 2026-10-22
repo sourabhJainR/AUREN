@@ -15,6 +15,7 @@ from portable.vibe_coding_adapters import (
     default_stage_capabilities,
 )
 from portable.orchestration import Orchestrator, RunStatus
+from portable.side_effect_ledger import DurableSideEffectLedger
 
 
 def output_for(stage, state):
@@ -135,7 +136,12 @@ class VibeCodingAdapterTests(unittest.TestCase):
                 active_agent, tools,
                 risk_by_stage={VibeStage.PRODUCTION_DEPLOY: "high"},
             )
-        registry = build_host_adapter_registry(active_agent, tools, max_risk="critical")
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        side_effect_ledger = DurableSideEffectLedger(Path(directory.name) / "side-effects.sqlite3")
+        registry = build_host_adapter_registry(
+            active_agent, tools, max_risk="critical", side_effect_ledger=side_effect_ledger,
+        )
         graph = build_integrated_vibe_coding_graph(registry)
         context = {
             "risk": "low",
@@ -152,6 +158,54 @@ class VibeCodingAdapterTests(unittest.TestCase):
         )
         self.assertEqual(run.status, RunStatus.ACCEPTED, run.stop_reason)
         self.assertEqual(len(run.results), 18)
+
+
+    def test_external_side_effect_adapter_fails_closed_without_durable_ledger(self):
+        registry = VibeAdapterRegistry(max_risk="critical")
+        stage = VibeStage.PREVIEW_DEPLOYMENT
+        calls = []
+        registry.register(AdapterRegistration(
+            "deployment-adapter", "1", (stage,),
+            frozenset(default_stage_capabilities()[stage.value]),
+            lambda request: calls.append(request) or output_for(stage, request["state"]),
+            risk=next(spec.risk for spec in STAGE_SPECS if spec.stage == stage),
+            external_side_effects=True,
+        ))
+        with self.assertRaisesRegex(AdapterUnavailable, "no durable side-effect ledger"):
+            registry.invoke(stage, {
+                "vibe_coding_workflow_id": "workflow-without-ledger",
+                "intent": "deploy preview",
+            })
+        self.assertEqual([], calls)
+
+    def test_external_side_effect_adapter_replays_durable_receipt_without_second_call(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ledger = DurableSideEffectLedger(Path(directory) / "side-effects.sqlite3")
+            registry = VibeAdapterRegistry(max_risk="critical", side_effect_ledger=ledger)
+            stage = VibeStage.PREVIEW_DEPLOYMENT
+            calls = []
+            def invoke(request):
+                calls.append(request)
+                return output_for(stage, request["state"])
+            registry.register(AdapterRegistration(
+                "deployment-adapter", "1", (stage,),
+                frozenset(default_stage_capabilities()[stage.value]),
+                invoke,
+                risk=next(spec.risk for spec in STAGE_SPECS if spec.stage == stage),
+                external_side_effects=True,
+            ))
+            state = {
+                "vibe_coding_workflow_id": "workflow-preview-42",
+                "intent": "deploy preview",
+                "risk": "high",
+            }
+            first = registry.invoke(stage, state)
+            second = registry.invoke(stage, state)
+            self.assertEqual(1, len(calls))
+            self.assertEqual("preview-receipt", first["deployment_receipt"])
+            self.assertEqual(first["deployment_receipt"], second["deployment_receipt"])
+            operation_key = "vibe-stage:workflow-preview-42:preview_deployment:deployment-adapter:1"
+            self.assertEqual("completed", ledger.get(operation_key)["state"])
 
     def test_missing_capability_adapter_fails_closed_before_graph_creation(self):
         registry = self.populated_registry()

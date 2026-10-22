@@ -21,6 +21,8 @@ from typing import Any, Callable, Mapping, Sequence
 from .agency_registry import rank as rank_agents
 from .agent_capabilities import redact
 from .vibe_coding import STAGE_ORDER, STAGE_SPECS, VibeStage, build_vibe_coding_graph, validate_stage_output
+from .provider_operation_lifecycle import ProviderOperationLifecycle
+from .side_effect_ledger import DurableSideEffectLedger
 
 Adapter = Callable[[Mapping[str, Any]], Mapping[str, Any]]
 _SCHEMA = "auren-vibe-adapter-learning-v3"
@@ -164,6 +166,7 @@ class VibeAdapterRegistry:
     def __init__(
         self, *, max_risk: str = "high", exploration: float = 0.08,
         learning_store_path: str | Path | None = None,
+        side_effect_ledger: DurableSideEffectLedger | None = None,
     ) -> None:
         if max_risk not in {"low", "medium", "high", "critical"}:
             raise ValueError("invalid max_risk")
@@ -175,6 +178,11 @@ class VibeAdapterRegistry:
         self._adapters: dict[str, AdapterRegistration] = {}
         self._stats: dict[str, AdapterStats] = {}
         self._evaluation_stats: dict[str, AdapterStats] = {}
+        if side_effect_ledger is not None and not isinstance(side_effect_ledger, DurableSideEffectLedger):
+            raise TypeError("side_effect_ledger must be the canonical DurableSideEffectLedger")
+        self.side_effect_lifecycle = (
+            ProviderOperationLifecycle(side_effect_ledger) if side_effect_ledger is not None else None
+        )
         self.learning_store_path = Path(learning_store_path).expanduser() if learning_store_path else None
         self._learning_loaded = False
 
@@ -249,8 +257,17 @@ class VibeAdapterRegistry:
     def invoke(self, stage: VibeStage, state: Mapping[str, Any], *,
                capabilities: Sequence[str] | None = None) -> Mapping[str, Any]:
         selected = self.select(stage, capabilities)
+        workflow_id = str(state.get("vibe_coding_workflow_id", state.get("task_id", ""))).strip()
+        if selected.external_side_effects:
+            if self.side_effect_lifecycle is None:
+                raise AdapterUnavailable(
+                    f"stage {stage.value} uses external side effects but has no durable side-effect ledger"
+                )
+            if not workflow_id or workflow_id == "unknown":
+                raise AdapterUnavailable(
+                    f"stage {stage.value} requires a stable workflow_id before external side effects"
+                )
         stats = self._stats[selected.adapter_id]
-        workflow_id = str(state.get("vibe_coding_workflow_id", state.get("task_id", "unknown")))
         stats.attempts += 1
         stats.workflows.add(workflow_id)
         # Persist before external work, so a crash cannot erase a possibly side-effecting attempt.
@@ -280,7 +297,37 @@ class VibeAdapterRegistry:
             "adapter": {"id": selected.adapter_id, "version": selected.version},
         }
         try:
-            output = selected.invoke(request)
+            if selected.external_side_effects:
+                assert self.side_effect_lifecycle is not None
+                operation_key = (
+                    f"vibe-stage:{workflow_id}:{stage.value}:"
+                    f"{selected.adapter_id}:{selected.version}"
+                )
+
+                def dispatch_stage(intent: Mapping[str, Any], operation_id: str, _key: str) -> Mapping[str, Any]:
+                    raw = selected.invoke(dict(intent))
+                    if not isinstance(raw, Mapping):
+                        raise TypeError("adapter must return a structured mapping")
+                    valid, _reason = validate_stage_output(stage, raw)
+                    if not valid:
+                        return dict(raw)
+                    # A stage may validly report "passed" or omit status when its
+                    # stage contract defines success. Normalize only after that
+                    # contract has passed; never bless malformed output as a receipt.
+                    return {
+                        "status": "completed",
+                        "provider_operation_id": operation_id,
+                        "result": dict(raw),
+                    }
+
+                durable_receipt = self.side_effect_lifecycle.execute(
+                    operation_key, selected.adapter_id, request, dispatch_stage,
+                )
+                output = durable_receipt.get("result")
+                if not isinstance(output, Mapping):
+                    raise AdapterUnavailable("durable side-effect receipt lacks a structured stage result")
+            else:
+                output = selected.invoke(request)
             if not isinstance(output, Mapping):
                 raise TypeError("adapter must return a structured mapping")
             sanitized_output = _safe_payload(dict(output))
@@ -493,6 +540,7 @@ def build_host_adapter_registry(
     version: str = "host-registered",
     max_risk: str = "critical",
     risk_by_stage: Mapping[VibeStage | str, str] | None = None,
+    side_effect_ledger: DurableSideEffectLedger | None = None,
 ) -> VibeAdapterRegistry:
     """Wire one active-agent dispatcher plus concrete capability tools into all stages.
 
@@ -500,7 +548,9 @@ def build_host_adapter_registry(
     runtime. Each tools entry is a real, permission-scoped host adapter keyed by
     capability (research, web_search, design, repository, deployment, etc.). Tool
     receipts override agent-generated claims for the same fields; tool evidence is
-    retained. Missing capability adapters fail fast before execution.
+    retained. Missing capability adapters fail fast before execution. Stages that
+    can write externally require side_effect_ledger; without it, invocation is
+    blocked before the host adapter runs.
     """
     if not callable(active_agent):
         raise TypeError("active_agent must be a callable host agent dispatcher")
@@ -531,7 +581,7 @@ def build_host_adapter_registry(
     if missing:
         raise AdapterUnavailable("host integration missing capability tools: " + ", ".join(missing))
 
-    registry = VibeAdapterRegistry(max_risk=max_risk)
+    registry = VibeAdapterRegistry(max_risk=max_risk, side_effect_ledger=side_effect_ledger)
     for stage in STAGE_ORDER:
         capabilities = tuple(_STAGE_CAPABILITIES[stage])
         def composite(request: Mapping[str, Any], *, _stage: VibeStage = stage,

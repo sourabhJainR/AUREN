@@ -39,6 +39,7 @@ from .vibe_coding_adapters import (
     _safe_payload,
 )
 from .orchestration import Orchestrator, RunStatus
+from .side_effect_ledger import DurableSideEffectLedger
 
 _CONFIG_SCHEMA = "auren-vibe-host-config-v1"
 _CHECKPOINT_SCHEMA = "auren-vibe-host-checkpoint-v1"
@@ -1566,8 +1567,10 @@ class LocalVibeCodingHost:
             "reviewer_provider_version": reviewer.capability.version if reviewer is not None else None,
         })
         learning_path = self.state_root / f"adapter-learning-{tool_config_digest[:12]}.json"
+        side_effect_ledger = DurableSideEffectLedger(self.state_root / "side-effects.sqlite3")
         registry = build_host_adapter_registry(
-            active_agent, tools, version=f"local-host-v1-{tool_config_digest[:16]}", max_risk="critical"
+            active_agent, tools, version=f"local-host-v1-{tool_config_digest[:16]}", max_risk="critical",
+            side_effect_ledger=side_effect_ledger,
         )
         registry.attach_learning_store(learning_path)
         checkpoints = DurableVibeCheckpointStore(self.state_root / "checkpoints")
