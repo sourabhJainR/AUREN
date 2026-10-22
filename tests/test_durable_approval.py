@@ -1,0 +1,290 @@
+from __future__ import annotations
+
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta, timezone
+import sqlite3
+import tempfile
+import unittest
+from pathlib import Path
+
+from portable.action_governance import ActionGovernanceGateway, ActionPolicy, ActionRequest
+from portable.durable_approval import (
+    ApprovalConflict,
+    DurableApprovalStore,
+    InvalidApprovalTransition,
+)
+from portable.execution_controller import ExecutionController
+from portable.side_effect_ledger import DurableSideEffectLedger
+
+
+def durable_approval_test_handler(payload):
+    return {"success": True, "evidence": [payload["work_key"]]}
+
+
+class DurableApprovalTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp.name)
+        self.now = datetime(2026, 10, 23, 10, 0, tzinfo=timezone.utc)
+        self.controller = ExecutionController(self.root)
+        self.controller.register_handler(
+            "tests.test_durable_approval.durable_approval_test_handler",
+            durable_approval_test_handler,
+            execution_class="read_only",
+        )
+        self.task = self.controller.submit(
+            "tests.test_durable_approval.durable_approval_test_handler",
+            {"work_key": "approval-test"},
+            goal="durable approval regression",
+        )
+        self.artifact = "a" * 64
+        self.evidence = "b" * 64
+        self.policy = "c" * 64
+        self.wakeups = []
+        self.store = self.make_store()
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def make_store(self):
+        return DurableApprovalStore(
+            self.controller,
+            approver_authorizer=lambda approver, role, scope, roles: (
+                approver in {"reviewer-1", "reviewer-2"}
+                and role in roles and scope == "repo:publish"
+            ),
+            context_provider=lambda request: {
+                "artifact_digest": self.artifact,
+                "evidence_digest": self.evidence,
+                "policy_digest": self.policy,
+            },
+            reconciliation_verifier=lambda record, outcome, ref: (
+                ref.startswith("https://evidence.example/") and outcome in {"completed", "failed"}
+            ),
+            wake_callback=lambda task_id, approval_id: self.wakeups.append((task_id, approval_id)),
+            clock=lambda: self.now,
+        )
+
+    def request(self, **overrides):
+        values = dict(
+            run_id="run-1", action_id="publish-1", actor="agent:writer",
+            capability="publish", action="publish", target="customer/reply",
+            risk="external_effect", idempotency_key="publish:task:1",
+            evidence_refs=("sha256:" + "d" * 64,), task_id=self.task.id,
+        )
+        values.update(overrides)
+        return ActionRequest(**values)
+
+    def create(self, **overrides):
+        values = dict(
+            request=self.request(), operation_id="publish-reply-v1",
+            artifact_digest=self.artifact, evidence_digest=self.evidence,
+            policy_digest=self.policy, requester_id="requester-1",
+            required_role="release-approver", scope="repo:publish",
+            expires_at=self.now + timedelta(hours=2),
+        )
+        values.update(overrides)
+        return self.store.create_request(**values)
+
+    def approve(self, record, approver="reviewer-1"):
+        return self.store.decide(
+            record.approval_id, "approve", approver_id=approver,
+            roles=("release-approver",), scope="repo:publish", reason="reviewed exact artifact",
+        )
+
+    def test_request_is_durable_and_idempotent_across_store_recreation(self):
+        first = self.create()
+        restarted = self.make_store()
+        second = restarted.create_request(
+            request=self.request(), operation_id="publish-reply-v1",
+            artifact_digest=self.artifact, evidence_digest=self.evidence,
+            policy_digest=self.policy, requester_id="requester-1",
+            required_role="release-approver", scope="repo:publish",
+            expires_at=self.now + timedelta(hours=2),
+        )
+        self.assertEqual(first.approval_id, second.approval_id)
+        self.assertEqual(second.status, "pending")
+        events = [
+            row for row in self.controller.progress_journal._events()
+            if row["task_id"] == self.task.id and row["event"] == "approval_state_transition"
+        ]
+        self.assertEqual(sum(first.approval_id in row["message"] for row in events), 1)
+
+    def test_role_scope_and_separation_of_duties_fail_closed(self):
+        record = self.create()
+        with self.assertRaises(PermissionError):
+            self.store.decide(
+                record.approval_id, "approve", approver_id="reviewer-1",
+                roles=("viewer",), scope="repo:publish",
+            )
+        with self.assertRaises(PermissionError):
+            self.store.decide(
+                record.approval_id, "approve", approver_id="requester-1",
+                roles=("release-approver",), scope="repo:publish",
+            )
+        self.assertEqual(self.store.get(record.approval_id).status, "pending")
+
+    def test_two_approvers_are_distinct_and_wake_only_after_threshold(self):
+        record = self.create(required_approvals=2)
+        first = self.approve(record, "reviewer-1")
+        self.assertEqual(first.status, "pending")
+        self.assertEqual(self.wakeups, [])
+        duplicate = self.approve(record, "reviewer-1")
+        self.assertEqual(duplicate.status, "pending")
+        approved = self.approve(record, "reviewer-2")
+        self.assertEqual(approved.status, "approved")
+        self.assertEqual(self.wakeups, [(self.task.id, record.approval_id)])
+        self.wakeups.clear()
+        self.assertEqual(self.store.wake_approved(), 1)
+        self.assertEqual(self.wakeups, [(self.task.id, record.approval_id)])
+
+    def test_rejection_is_durable_and_duplicate_decision_is_idempotent(self):
+        record = self.create()
+        first = self.store.decide(
+            record.approval_id, "reject", approver_id="reviewer-1",
+            roles=("release-approver",), scope="repo:publish", reason="unsupported claim",
+        )
+        second = self.store.decide(
+            record.approval_id, "reject", approver_id="reviewer-1",
+            roles=("release-approver",), scope="repo:publish", reason="duplicate delivery",
+        )
+        self.assertEqual(first.status, "rejected")
+        self.assertEqual(second.status, "rejected")
+        with self.assertRaises(InvalidApprovalTransition):
+            self.approve(record, "reviewer-2")
+
+    def test_changed_artifact_supersedes_prior_pending_approval(self):
+        first = self.create()
+        self.artifact = "e" * 64
+        second = self.create(artifact_digest=self.artifact)
+        self.assertNotEqual(first.approval_id, second.approval_id)
+        self.assertEqual(self.store.get(first.approval_id).status, "superseded")
+        self.assertEqual(second.status, "pending")
+
+    def test_changed_binding_after_approval_invalidates_before_execution(self):
+        record = self.create()
+        self.approve(record)
+        changed = self.request(target="customer/other-reply")
+        with self.assertRaises(ApprovalConflict):
+            self.store.claim_execution(
+                record.approval_id, changed, artifact_digest=self.artifact,
+                evidence_digest=self.evidence, policy_digest=self.policy,
+            )
+        self.assertEqual(self.store.get(record.approval_id).status, "superseded")
+
+    def test_expired_approval_cannot_be_decided_or_executed(self):
+        record = self.create()
+        self.now += timedelta(hours=3)
+        with self.assertRaises(InvalidApprovalTransition):
+            self.approve(record)
+        self.assertEqual(self.store.get(record.approval_id).status, "expired")
+
+    def test_gateway_execution_is_claimed_once_and_persisted(self):
+        record = self.create()
+        self.approve(record)
+        ledger = DurableSideEffectLedger(self.root / "effects.sqlite3")
+        gateway = ActionGovernanceGateway(
+            ActionPolicy(
+                allowed_capabilities=frozenset({"publish"}),
+                approval_required_actions=frozenset({"publish"}),
+                external_effect_actions=frozenset({"publish"}),
+                require_durable_ledger_for_external_effects=True,
+            ),
+            approval_verifier=self.store.verify_receipt,
+            side_effect_ledger=ledger,
+        )
+        calls = []
+        result = self.store.execute_approved_action(
+            record.approval_id, self.request(), gateway,
+            lambda: calls.append("publish") or {"published": True},
+            artifact_digest=self.artifact, evidence_digest=self.evidence,
+            policy_digest=self.policy,
+        )
+        self.assertTrue(result.executed)
+        self.assertEqual(calls, ["publish"])
+        self.assertEqual(self.store.get(record.approval_id).status, "completed")
+        with self.assertRaises(InvalidApprovalTransition):
+            self.store.claim_execution(
+                record.approval_id, self.request(), artifact_digest=self.artifact,
+                evidence_digest=self.evidence, policy_digest=self.policy,
+            )
+
+    def test_exception_marks_unknown_and_requires_trusted_reconciliation(self):
+        record = self.create()
+        self.approve(record)
+        gateway = ActionGovernanceGateway(
+            ActionPolicy(allowed_capabilities=frozenset({"publish"})),
+            approval_verifier=self.store.verify_receipt,
+        )
+        calls = []
+
+        def ambiguous():
+            calls.append("remote accepted")
+            raise TimeoutError("receipt lost")
+
+        with self.assertRaises(TimeoutError):
+            self.store.execute_approved_action(
+                record.approval_id, self.request(), gateway, ambiguous,
+                artifact_digest=self.artifact, evidence_digest=self.evidence,
+                policy_digest=self.policy,
+            )
+        self.assertEqual(self.store.get(record.approval_id).status, "outcome_unknown")
+        self.assertEqual(calls, ["remote accepted"])
+        with self.assertRaises(InvalidApprovalTransition):
+            self.store.claim_execution(
+                record.approval_id, self.request(), artifact_digest=self.artifact,
+                evidence_digest=self.evidence, policy_digest=self.policy,
+            )
+        reconciled = self.store.reconcile_outcome(
+            record.approval_id, outcome="completed",
+            evidence_ref="https://evidence.example/provider-operation/123",
+        )
+        self.assertEqual(reconciled.status, "completed")
+        self.assertEqual(calls, ["remote accepted"])
+
+    def test_interrupted_execution_becomes_unknown_not_retryable(self):
+        record = self.create()
+        self.approve(record)
+        self.store.claim_execution(
+            record.approval_id, self.request(), artifact_digest=self.artifact,
+            evidence_digest=self.evidence, policy_digest=self.policy,
+        )
+        self.now += timedelta(minutes=10)
+        self.assertEqual(self.store.recover_interrupted(older_than_seconds=60), 1)
+        self.assertEqual(self.store.get(record.approval_id).status, "outcome_unknown")
+        self.assertEqual(self.store.approved_for_resume(), ())
+
+    def test_concurrent_claims_have_one_winner(self):
+        record = self.create()
+        self.approve(record)
+
+        def claim():
+            try:
+                return self.store.claim_execution(
+                    record.approval_id, self.request(), artifact_digest=self.artifact,
+                    evidence_digest=self.evidence, policy_digest=self.policy,
+                )
+            except InvalidApprovalTransition:
+                return None
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(lambda _n: claim(), range(2)))
+        self.assertEqual(sum(result is not None for result in results), 1)
+        self.assertEqual(self.store.get(record.approval_id).status, "executing")
+
+    def test_audit_chain_and_progress_reconciliation(self):
+        record = self.create()
+        self.approve(record)
+        self.assertTrue(self.store.verify_audit_chain())
+        count = self.store.reconcile_progress()
+        self.assertEqual(count, 0)
+        with sqlite3.connect(self.controller.db_path) as db:
+            db.execute(
+                "UPDATE durable_approval_events SET event_json=? WHERE approval_id=? AND event_type='approval_requested'",
+                ('{"tampered":true}', record.approval_id),
+            )
+        self.assertFalse(self.store.verify_audit_chain())
+
+
+if __name__ == "__main__":
+    unittest.main()
