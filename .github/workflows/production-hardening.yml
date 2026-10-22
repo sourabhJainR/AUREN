@@ -6,9 +6,14 @@ on:
   push:
     branches: [main]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   impact:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     outputs:
       required: ${{ steps.detect.outputs.required }}
     steps:
@@ -187,6 +192,7 @@ jobs:
     if: always()
     needs: [impact, hardening]
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Classify required validation outcome
         env:
