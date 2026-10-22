@@ -462,6 +462,22 @@ class ExecutionController:
             raise ValueError(f"invalid persisted CI gate policy for handler: {name}")
         return policy
 
+    def _handler_approval_gate_policy(self, name: str) -> dict[str, Any]:
+        with closing(sqlite3.connect(self.db_path)) as db, db:
+            row = db.execute("SELECT approval_gate_policy_json FROM handlers WHERE name=?", (name,)).fetchone()
+        if not row:
+            raise KeyError(f"unknown durable handler: {name}")
+        policy = json.loads(row[0] or "{}")
+        if not isinstance(policy, dict):
+            raise ValueError(f"invalid persisted approval gate policy for handler: {name}")
+        if policy and (
+            policy.get("approval_store") != "DurableApprovalStore"
+            or policy.get("gateway") != "ActionGovernanceGateway"
+            or policy.get("durable_side_effect_ledger") is not True
+        ):
+            raise ValueError(f"approval gate policy is incomplete for handler: {name}")
+        return policy
+
     def _handler_promotion_gate_policy(self, name: str) -> dict[str, Any]:
         with closing(sqlite3.connect(self.db_path)) as db, db:
             row = db.execute("SELECT promotion_gate_policy_json FROM handlers WHERE name=?", (name,)).fetchone()
@@ -628,6 +644,9 @@ class ExecutionController:
                 return False, "unclassified legacy handler fails closed", ("handler-class:unclassified",)
             configured_promotion_policy = self._handler_promotion_gate_policy(task.handler)
             configured_ci_policy = self._handler_ci_gate_policy(task.handler)
+            configured_approval_policy = self._handler_approval_gate_policy(task.handler)
+            if execution_class == "approval_gated" and not configured_approval_policy:
+                return False, "approval-gated handler is missing its trusted gateway/ledger policy", ("approval-gate:missing",)
             if execution_class == "consequential" and (not configured_promotion_policy or not configured_ci_policy):
                 return False, "consequential handler is missing mandatory promotion or exact-head CI policy", ("promotion-gate:missing", "ci-gate:missing")
             if execution_class == "ci_gated" and not configured_ci_policy:
