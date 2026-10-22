@@ -150,7 +150,7 @@ def test_failed_required_check_enqueues_one_bounded_repair_through_existing_supe
         recovery_ledger=EngineeringRecoveryLedger(tmp_path / ".auren" / "engineering-recovery.sqlite3"),
     )
     report = supervisor.run(poll_seconds=0.1, batch_size=10, max_cycles=2)
-    status = supervisor.status()
+    status = supervisor.status(event_limit=100)
     assert report["audit_chain_valid"] is True
     assert any(event["event_type"] == "ci_repair_queued" for event in status["recent_events"])
     assert any(event["event_type"] == "ci_repair_finalized" for event in status["recent_events"])
