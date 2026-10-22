@@ -25,6 +25,7 @@ class TestAIEraFoundationPrinciples(unittest.TestCase):
     def test_receipt_is_deterministic_and_binds_intent_paths_risk_revision_and_registry(self):
         receipt = build_contract_receipt("Implement principles", ["portable/orchestration.py"], "HIGH", "abc123")
         self.assertEqual(receipt, build_contract_receipt("Implement principles", ["portable/orchestration.py"] * 2, "high", "abc123"))
+        self.assertEqual(receipt["schema_version"], "auren-ai-era-principle-receipt-v2")
         self.assertEqual(receipt["registry_digest"], registry_digest())
         self.assertEqual(receipt["principles"], EXPECTED_IDS)
         digest = receipt.pop("digest")
