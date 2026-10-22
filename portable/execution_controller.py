@@ -2217,6 +2217,9 @@ class ExecutionController:
             raise ValueError("resume limit must be a positive integer")
         if type(continue_after_durable_failure) is not bool:
             raise ValueError("continue_after_durable_failure must be a boolean")
+        # Decisions can arrive while the worker is absent. Reconcile them on every
+        # bounded supervisor cycle so rejected/expired approvals do not wait for restart.
+        self.reconcile_approval_waits()
         self.wake_due_quota_tasks(limit=limit)
         now = datetime.now(timezone.utc)
         with closing(sqlite3.connect(self.db_path)) as db, db:
