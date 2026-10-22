@@ -26,6 +26,16 @@ This is the canonical human-readable companion to `portable/ai_era_principles.py
 | ECONOMY | Engineering Cost Optimization Measured Over the Full Lifecycle, Not Yield Alone | Optimize inference, tools, CI, memory, review, rework, latency, and operational risk together. |
 | MEASURE | Metrics, Evidence, And Results Evaluated | Measure outcomes, quality, recovery, and cost rather than activity alone. |
 | CONTEXT | Context Is an Engineering Dependency | Retrieve relevant, current, authoritative context before generation or consequential action. |
+| DETERM | Deterministic Decisions and Artifacts | Make planning, state transitions, artifact generation, and evidence reconciliation deterministic where correctness requires it. |
+| MINCORE | Minimal Trusted Execution Core | Keep authorization and security-critical execution small and auditable; optional agents and plugins cannot expand authority. |
+| OUTCOME | Explicit Operation Outcomes | Distinguish success, failure, timeout, cancellation, partial completion, and unknown outcome. |
+| MIGSAFE | Compatible and Reversible State Evolution | Require compatibility checks, migration rehearsal, rollback or forward-fix plans, and old-state readability. |
+| PROVEN | Verified Supply Chain and Artifacts | Pin dependencies and build inputs; verify provenance, signatures, and artifact contents before execution or release. |
+| HUMANE | Honest and Actionable Operator Feedback | Show blockers, next actions, uncertainty, and recovery choices without hiding failures behind progress indicators. |
+| ACCESS | Accessible Operational Interfaces | Treat accessible CLI, dashboard, and operational workflows as quality requirements where applicable. |
+| REVERS | Reversibility Before Abstraction | Assess migration complexity, operational burden, and reversal cost before adding abstractions. |
+| LIFECYCLE | Named Ownership and Retirement | Give each agent, provider, plugin, policy, and compatibility layer an owner, support status, and retirement condition. |
+| PRIORITY | Correctness and Authority Over Optimization | Token savings, speed, autonomy, and availability cannot override permission, evidence, security, or correctness gates. |
 
 ## Enforcement model
 
@@ -34,7 +44,7 @@ This is the canonical human-readable companion to `portable/ai_era_principles.py
 - **Memory and context:** CIG, CONTEXT, TRACE, TRUST, and LEARN map to the existing context broker, canonical memory orchestrator, provenance records, and guarded learning controls. Memory is not a source of authority by itself.
 - **Verification and promotion:** VERA, INDEP, and PROMOTE map to existing verification, independent evaluation, decision, promotion, and rollback gates. A registry entry or receipt alone is not proof that a capability is safe.
 - **Recovery and autonomy:** R3, RAIL, DEGRADE, BLAST, and HANDOFF map to existing runtime budgets, recovery, sandbox, execution-controller, and durable handoff mechanisms.
-- **CI and regression:** focused tests validate the 20-entry registry, owner/test references, receipt digest, and pre-node orchestration recording. Architecture-integrity and repository test workflows validate the changed revision.
+- **CI and regression:** focused tests validate the 30-entry registry, owner/test references, receipt digest, and pre-node orchestration recording. Architecture-integrity and repository test workflows validate the changed revision.
 - **Exceptions:** task applicability remains risk-based and is decided by the canonical guard. Any `not_applicable` declaration must include a reason. Security, authority, user approval, and promotion gates cannot be waived by a principle receipt.
 - **Evidence limits:** repository CI can validate code and contracts; it cannot substitute for an independently operated Arena campaign, external evaluator attestation, or operator-run production rollback rehearsal.
 
