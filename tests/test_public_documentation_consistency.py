@@ -66,8 +66,15 @@ class TestPublicDocumentationConsistency(unittest.TestCase):
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
         site = (ROOT / "site" / "index.html").read_text(encoding="utf-8")
         self.assertEqual(version, plugin["version"])
-        self.assertIn(f"Current release:** `{version}`", readme)
-        self.assertIn(version, site)
+        if "release not published yet" in readme:
+            self.assertIn(f"Source version:** `{version}`", readme)
+            self.assertRegex(readme, r"Latest published release:\*\* `[^\`]+`")
+            published = readme.split("Latest published release:** `", 1)[1].split("`", 1)[0]
+            self.assertIn(published, site)
+            self.assertIn(f"Source version: <strong>{version}</strong> (not yet released)", site)
+        else:
+            self.assertIn(f"Current release:** `{version}`", readme)
+            self.assertIn(version, site)
         self.assertIn("docs/RESPONSIVE_EXECUTION_AND_TIMEOUTS.md", readme)
 
     def test_public_status_is_a_dated_snapshot_not_a_stale_head_claim(self):
