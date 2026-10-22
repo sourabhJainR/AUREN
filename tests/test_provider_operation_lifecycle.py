@@ -1,3 +1,4 @@
+import json
 import multiprocessing
 import os
 import tempfile
@@ -25,6 +26,36 @@ def _crash_inside_provider_dispatch(database: str, provider_log: str) -> None:
         os._exit(82)
     lifecycle.execute(_CRASH_OPERATION_KEY, _CRASH_PROVIDER, _CRASH_INTENT, dispatch)
     os._exit(83)
+
+
+def _crash_after_provider_receipt_before_event_projection(
+    database: str, provider_log: str, event_log: str,
+) -> None:
+    def record_event(event):
+        if event.get("state") == "completed":
+            # The provider receipt is already committed; die before its progress
+            # projection is written to the separate event sink.
+            os._exit(84)
+        with Path(event_log).open("a", encoding="utf-8") as stream:
+            stream.write(json.dumps(dict(event), sort_keys=True) + "\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+
+    lifecycle = ProviderOperationLifecycle(
+        DurableSideEffectLedger(database), record_event=record_event,
+    )
+    def dispatch(intent, operation_id, idempotency_key):
+        with Path(provider_log).open("a", encoding="utf-8") as stream:
+            stream.write(operation_id + "\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        return {"status": "completed", "provider_operation_id": operation_id}
+
+    lifecycle.execute(
+        "deploy:provider-receipt-crash:staging", "provider-a",
+        {"target": "staging", "revision": "receipt-crash"}, dispatch,
+    )
+    os._exit(85)
 
 
 class ProviderOperationLifecycleTests(unittest.TestCase):
@@ -86,6 +117,54 @@ class ProviderOperationLifecycleTests(unittest.TestCase):
             lambda *_: self.fail("reconciled operation must replay its receipt, not dispatch"),
         )
         self.assertEqual(receipt, replay)
+        self.assertEqual([operation_id], Path(provider_log).read_text(encoding="utf-8").splitlines())
+
+
+    def test_receipt_commit_before_event_projection_recovers_without_redispatch(self):
+        operation_key = "deploy:provider-receipt-crash:staging"
+        provider = "provider-a"
+        intent = {"target": "staging", "revision": "receipt-crash"}
+        database = str(self.path)
+        provider_log = str(self.path.parent / "provider-operations.log")
+        event_log = str(self.path.parent / "provider-events.jsonl")
+        process = multiprocessing.get_context("spawn").Process(
+            target=_crash_after_provider_receipt_before_event_projection,
+            args=(database, provider_log, event_log),
+        )
+        process.start()
+        process.join(15)
+        if process.is_alive():
+            process.terminate()
+            process.join(3)
+            self.fail("provider receipt/event crash fixture exceeded its time budget")
+        self.assertEqual(84, process.exitcode)
+        self.assertEqual(1, len(Path(provider_log).read_text(encoding="utf-8").splitlines()))
+        initial_events = [
+            json.loads(line) for line in Path(event_log).read_text(encoding="utf-8").splitlines()
+        ]
+        self.assertEqual(["dispatching"], [event["state"] for event in initial_events])
+
+        operation_id = stable_provider_operation_id(operation_key, provider, intent)
+        ledger = self.ledger()
+        stored = ledger.get(operation_key)
+        self.assertEqual("completed", stored["state"])
+        self.assertEqual(operation_id, stored["receipt"]["provider_operation_id"])
+
+        def record_event(event):
+            with Path(event_log).open("a", encoding="utf-8") as stream:
+                stream.write(json.dumps(dict(event), sort_keys=True) + "\n")
+                stream.flush()
+                os.fsync(stream.fileno())
+
+        restarted = ProviderOperationLifecycle(ledger, record_event=record_event)
+        receipt = restarted.execute(
+            operation_key, provider, intent,
+            lambda *_: self.fail("durable provider receipt must replay without dispatch"),
+        )
+        self.assertEqual(operation_id, receipt["provider_operation_id"])
+        events = [json.loads(line) for line in Path(event_log).read_text(encoding="utf-8").splitlines()]
+        self.assertEqual(["dispatching", "completed"], [event["state"] for event in events])
+        self.assertTrue(events[-1]["replay"])
         self.assertEqual([operation_id], Path(provider_log).read_text(encoding="utf-8").splitlines())
 
     def test_stable_operation_id_is_bound_to_key_provider_and_intent(self):
