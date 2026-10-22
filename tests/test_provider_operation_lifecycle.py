@@ -70,6 +70,31 @@ class ProviderOperationLifecycleTests(unittest.TestCase):
                 lifecycle.reconcile("deploy-3", "provider-a", {"target": "prod"}, lookup)
         self.assertEqual("reconcile_required", self.ledger().get("deploy-3")["state"])
 
+    def test_reconciliation_rejects_incomplete_receipt_even_if_lookup_says_completed(self):
+        lifecycle = ProviderOperationLifecycle(self.ledger(verify=lambda *_: True))
+        invalid_receipts = (
+            {"status": "pending", "provider_operation_id": "remote-1"},
+            {"status": "completed"},
+            {"provider_operation_id": "remote-1"},
+        )
+        for index, receipt in enumerate(invalid_receipts, start=20):
+            key = f"reconcile-receipt-{index}"
+            with self.assertRaises(ProviderOutcomeBlocked):
+                lifecycle.execute(
+                    key, "provider-a", {"target": "prod", "case": index},
+                    lambda *_: (_ for _ in ()).throw(TimeoutError("response lost")),
+                )
+            with self.assertRaises(ProviderOutcomeBlocked):
+                lifecycle.reconcile(
+                    key, "provider-a", {"target": "prod", "case": index},
+                    lambda op_id, _key, value=receipt: {
+                        "status": "completed",
+                        "evidence_ref": f"provider://operation/{index}",
+                        "receipt": value,
+                    },
+                )
+            self.assertEqual("reconcile_required", self.ledger().get(key)["state"])
+
     def test_non_completed_dispatch_receipt_never_becomes_success(self):
         lifecycle = ProviderOperationLifecycle(self.ledger(), record_event=self.events.append)
         for index, receipt in enumerate((
