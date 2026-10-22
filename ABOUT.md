@@ -25,9 +25,9 @@ Deterministic conflict patterns are limited and do not guarantee detection of ev
 
 ## AI-era principles and evidence
 
-AUREN maintains a canonical registry of 20 AI-era engineering principles covering intent, verification, authority, invariants, provenance, recoverability, bounded autonomy, context integrity, containment, independent challenge, accountability, guarded learning, targeted changes, handoffs, graceful degradation, untrusted sources, proof-required promotion, lifecycle cost, measurement, and context as an engineering dependency.
+AUREN maintains a canonical registry of 30 AI-era engineering principles covering intent, verification, authority, invariants, provenance, recoverability, bounded autonomy, context integrity, containment, independent challenge, accountability, guarded learning, targeted changes, handoffs, graceful degradation, untrusted sources, proof-required promotion, lifecycle cost, measurement, and context as an engineering dependency.
 
-The registry and digest-bound runtime receipt improve traceability; they do not alone prove that every control is fully enforced. Repository CI validates repository-level contracts. Independent external evaluation, corpus provenance, separate isolation audits, and operator-run production migration/rollback rehearsals require their own evidence.
+The expanded registry makes deterministic behavior, minimal trusted execution, explicit terminal outcomes, migration reversibility, supply-chain integrity, honest operator feedback, accessibility, lifecycle ownership, and correctness-over-optimization explicit. The registry and digest-bound runtime receipt improve traceability; they do not alone prove that every control is fully enforced. Repository CI validates repository-level contracts. Independent external evaluation, corpus provenance, separate isolation audits, and operator-run production migration/rollback rehearsals require their own evidence.
 
 ## Useful links
 
