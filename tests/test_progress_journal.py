@@ -107,7 +107,7 @@ class ProgressJournalTests(unittest.TestCase):
             journal = ProgressJournal(path)
             journal.record("task", "started", stage="plan")
             with path.open("a", encoding="utf-8") as stream:
-                stream.write('{"task_id":"task","sequence":2,broken-json}\\n')
+                stream.write('{"task_id":"task","sequence":2,broken-json}\n')
             original = path.read_bytes()
 
             with self.assertRaisesRegex(ProgressJournalCorruption, "line 2"):
@@ -122,11 +122,11 @@ class ProgressJournalTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "progress.jsonl"
-            path.write_text('{"task_id":"task"}\\n', encoding="utf-8")
+            path.write_text('{"task_id":"task"}\n', encoding="utf-8")
             with self.assertRaisesRegex(ProgressJournalCorruption, "invalid record"):
                 ProgressJournal(path).snapshot("task")
 
-            path.write_bytes(b"\\xff\\xfe")
+            path.write_bytes(b"\xff\xfe")
             with self.assertRaisesRegex(ProgressJournalCorruption, "UTF-8"):
                 ProgressJournal(path).snapshot("task")
 
