@@ -13,6 +13,7 @@ import os
 import re
 import subprocess
 import sqlite3
+from contextlib import closing
 import time
 import urllib.error
 import urllib.request
@@ -301,10 +302,10 @@ class ContinuousExecutionSupervisor:
         self, *, stale_after_seconds: float = 300.0, now: float | None = None,
     ) -> list[dict[str, Any]]:
         """Report durable CI poll freshness without treating a missing poll as success."""
-        if isinstance(stale_after_seconds, bool) or not isinstance(stale_after_seconds, (int, float)) or stale_after_seconds <= 0:
+        if isinstance(stale_after_seconds, bool) or not isinstance(stale_after_seconds, (int, float)) or not math.isfinite(stale_after_seconds) or stale_after_seconds <= 0:
             raise ValueError("stale_after_seconds must be positive")
         current = time.time() if now is None else float(now)
-        with sqlite3.connect(self.path, timeout=5) as db:
+        with closing(sqlite3.connect(self.path, timeout=5)) as db:
             rows = db.execute(
                 "SELECT event_type,payload_json,created_at FROM events "
                 "WHERE event_type IN ('poll_result','poll_error') ORDER BY sequence DESC"
@@ -469,7 +470,7 @@ class ContinuousExecutionSupervisor:
         allowed = {"observed", "triaged", "queued", "claimed", "repairing", "validating", "resolved", "blocked"}
         if to_state not in allowed or not stable_key:
             raise ValueError("invalid CI repair lifecycle transition")
-        with sqlite3.connect(self.path, timeout=5) as db:
+        with closing(sqlite3.connect(self.path, timeout=5)) as db:
             rows = db.execute(
                 "SELECT payload_json FROM events WHERE event_type='ci_repair_lifecycle' ORDER BY sequence"
             ).fetchall()
@@ -497,11 +498,11 @@ class ContinuousExecutionSupervisor:
         """Rebuild lifecycle transitions from durable task and progress records."""
         if self.repair_watchdog is None:
             return
-        with sqlite3.connect(self.controller.db_path, timeout=5) as db:
+        with closing(sqlite3.connect(self.controller.db_path, timeout=5)) as db:
             rows = db.execute("SELECT id,payload,state FROM tasks").fetchall()
         progress = self.controller.progress_journal._events()
         finalizations = []
-        with sqlite3.connect(self.path, timeout=5) as db:
+        with closing(sqlite3.connect(self.path, timeout=5)) as db:
             finalizations = db.execute(
                 "SELECT payload_json FROM events WHERE event_type='ci_repair_finalized' ORDER BY sequence"
             ).fetchall()
