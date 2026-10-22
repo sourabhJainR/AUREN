@@ -1635,9 +1635,15 @@ class ExecutionController:
             if (
                 not isinstance(lookup_result, Mapping)
                 or lookup_result.get("status") != "completed"
+                or (
+                    lookup_result.get("operation_id") is not None
+                    and lookup_result.get("operation_id") != operation_id
+                )
                 or not isinstance(lookup_result.get("evidence_ref"), str)
                 or not lookup_result.get("evidence_ref", "").strip()
                 or not isinstance(lookup_result.get("receipt"), Mapping)
+                or lookup_result["receipt"].get("provider_operation_id") != operation_id
+                or not isinstance(lookup_result["receipt"].get("result"), Mapping)
             ):
                 raise ProviderOutcomeBlocked(
                     f"provider operation {operation_id} outcome is not established; task remains blocked"

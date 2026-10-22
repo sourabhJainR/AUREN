@@ -90,3 +90,30 @@ cannot be replayed or redispatched automatically.
 The trusted lookup/reconciliation path must establish the remote outcome before
 the operation can leave that state. This guard prevents an adapter's ordinary
 return path from turning an unconfirmed side effect into a false success.
+
+
+## Controller receipt identity binding
+
+For an `ExecutionController`-owned consequential task, a reconciliation lookup
+may close the outer task-level operation only when the optional top-level
+operation ID, if supplied, and the required
+`receipt.provider_operation_id` match the deterministic AUREN operation ID
+derived from the persisted logical key, handler/provider identity, and immutable
+intent. The controller also requires a mapping-valued `receipt.result` before
+it lets the outer task ledger complete. A mismatch is rejected before the
+trusted verifier is called, and the outer operation remains
+`reconcile_required`; a permissive adapter verifier cannot bypass this binding.
+
+This is the controller wrapper contract. The generic
+`ProviderOperationLifecycle` may preserve provider-native receipt fields and
+does not assume that an external provider's own operation ID equals AUREN's
+deterministic operation ID. The host-trusted verifier must still validate the
+provider, operation key, intent digest, receipt, and evidence reference against
+trusted provider history. Unknown, absent, malformed, or mismatched controller
+receipts never authorize a retry.
+
+Rollback: revert this change through a reviewed PR if compatibility problems
+are found. Preserve the ledger and evidence trail; do not delete or reset
+ambiguous operation rows. Existing mismatched controller receipts remain
+blocked until trusted, evidence-backed reconciliation is supplied. Never
+redispatch to make the state appear healthy.
