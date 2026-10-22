@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import multiprocessing
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -22,6 +24,17 @@ def sample_plan() -> EngineeringPlan:
             ("tests pass",), "revert implementation",
         ),),
     )
+
+
+def _crash_after_plan_store_commit(plan_store_path: str, ledger_path: str) -> None:
+    plan = sample_plan()
+    store = EngineeringPlanStore(plan_store_path)
+    ledger = EngineeringRecoveryLedger(ledger_path)
+    bridge = EngineeringPlanRecoveryBridge(store=store, ledger=ledger)
+    current = bridge.start(plan)
+    advanced = current.transition_task("implement", "ready", plan=plan, reason="ready before crash")
+    store.save_run(plan.run_id, advanced, expected_revision=current.revision)
+    os._exit(73)
 
 
 class EngineeringPlanRecoveryBridgeTests(unittest.TestCase):
@@ -63,6 +76,40 @@ class EngineeringPlanRecoveryBridgeTests(unittest.TestCase):
             self.assertEqual("verified", checkpoint.status)
             self.assertEqual(plan.source_revision, checkpoint.payload["verified_head_sha"])
             self.assertEqual(["ci://run/123"], checkpoint.payload["verification_evidence"])
+
+    def test_process_crash_between_plan_store_and_recovery_checkpoint_fails_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            plan_store_path = str(root / "plan-store.db")
+            ledger_path = str(root / "recovery-ledger.db")
+            process = multiprocessing.get_context("spawn").Process(
+                target=_crash_after_plan_store_commit,
+                args=(plan_store_path, ledger_path),
+            )
+            process.start()
+            process.join(15)
+            if process.is_alive():
+                process.terminate()
+                process.join(3)
+                self.fail("cross-store crash fixture exceeded its time budget")
+            self.assertEqual(73, process.exitcode)
+
+            bridge = EngineeringPlanRecoveryBridge(
+                store=EngineeringPlanStore(plan_store_path),
+                ledger=EngineeringRecoveryLedger(ledger_path),
+            )
+            plan = sample_plan()
+            with self.assertRaisesRegex(EngineeringPlanCheckpointMismatch, "run_digest"):
+                bridge.load_verified(plan.run_id)
+
+            reconciled = bridge.reconcile_checkpoint(
+                plan.run_id,
+                reason="operator verified plan-store commit after simulated process crash",
+                expected_plan_digest=plan.digest,
+            )
+            _, loaded_run = bridge.load_verified(plan.run_id)
+            self.assertEqual(reconciled.digest, loaded_run.digest)
+            self.assertEqual("ready", loaded_run.tasks[0].status)
 
     def test_store_checkpoint_split_write_fails_closed_until_explicit_reconciliation(self):
         with tempfile.TemporaryDirectory() as tmp:
