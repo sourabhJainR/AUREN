@@ -20,12 +20,14 @@ class Impact:
 # a mandatory focused suite; recovery changes also require production hardening.
 _RULES: tuple[tuple[str, tuple[str, ...], bool], ...] = (
     ("portable/side_effect_ledger.py", ("tests.test_side_effect_ledger", "tests.test_provider_operation_lifecycle"), True),
+    ("portable/action_governance.py", ("tests.test_durable_approval",), True),
+    ("portable/durable_approval.py", ("tests.test_durable_approval", "tests.test_side_effect_ledger", "tests.test_execution_controller"), True),
     ("portable/provider_operation_lifecycle.py", ("tests.test_provider_operation_lifecycle", "tests.test_side_effect_ledger"), True),
     ("portable/ci_repair_watchdog.py", ("tests.test_ci_repair_watchdog", "tests.test_engineering_recovery"), True),
     ("portable/continuous_execution.py", ("tests.test_continuous_execution", "tests.test_ci_repair_watchdog", "tests.test_engineering_recovery"), True),
     ("tests/test_continuous_execution.py", ("tests.test_continuous_execution",), True),
     ("tests/test_ci_repair_watchdog.py", ("tests.test_ci_repair_watchdog",), True),
-    ("portable/execution_controller.py", ("tests.test_execution_controller", "tests.test_execution_controller_restart", "tests.test_execution_controller_promotion_rollback_contract", "tests.test_provider_operation_lifecycle"), True),
+    ("portable/execution_controller.py", ("tests.test_execution_controller", "tests.test_execution_controller_restart", "tests.test_execution_controller_promotion_rollback_contract", "tests.test_provider_operation_lifecycle", "tests.test_durable_approval"), True),
     ("portable/engineering_recovery.py", ("tests.test_engineering_recovery", "tests.test_engineering_recovery_fault_matrix"), True),
     ("portable/progress_journal.py", ("tests.test_progress_journal", "tests.test_progress_journal_integration"), True),
     ("portable/canonical_evidence_ledger.py", ("tests.test_canonical_evidence_ledger", "tests.test_provider_operation_lifecycle"), True),
@@ -51,6 +53,7 @@ _RULES: tuple[tuple[str, tuple[str, ...], bool], ...] = (
     ("tests/test_state_root_rollback_rehearsal.py", ("tests.test_state_root_rollback_rehearsal",), True),
     ("tests/test_provider_operation_lifecycle.py", ("tests.test_provider_operation_lifecycle",), True),
     ("tests/test_side_effect_ledger.py", ("tests.test_side_effect_ledger",), True),
+    ("tests/test_durable_approval.py", ("tests.test_durable_approval", "tests.test_side_effect_ledger_crash_fault_injection"), True),
     ("scripts/impact_policy.py", ("tests.test_impact_policy",), True),
     ("auren_cli.py", ("tests.test_continuous_execution_cli", "tests.test_continuous_execution"), True),
     ("tests/test_impact_policy.py", ("tests.test_impact_policy",), True),
@@ -65,7 +68,7 @@ _SENSITIVE_PREFIXES = (
     ".ai-harness/security", ".ai-harness/runtime/rollback",
 )
 _SENSITIVE_NAMES = ("authority", "security", "guard", "approval", "rollback", "recovery", "side_effect", "execution_controller",
-                    "progress_journal", "canonical_evidence", "engineering_evidence", "provider_operation")
+                    "progress_journal", "canonical_evidence", "engineering_evidence", "provider_operation", "action_governance")
 
 
 def is_sensitive_path(path: str) -> bool:
