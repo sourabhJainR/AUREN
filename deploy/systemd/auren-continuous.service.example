@@ -1,0 +1,25 @@
+# Example systemd unit for AUREN's durable continuous supervisor.
+# Copy to /etc/systemd/system/auren-continuous.service and edit paths/user.
+[Unit]
+Description=AUREN durable continuous execution and CI supervisor
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=auren
+WorkingDirectory=/opt/auren
+EnvironmentFile=-/etc/auren/continuous.env
+ExecStart=/opt/auren/.venv/bin/python /opt/auren/auren_cli.py continuous start --project-root /opt/auren --poll-seconds 60 --batch-size 20
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=30
+TimeoutStopSec=30
+KillSignal=SIGTERM
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/opt/auren
+
+[Install]
+WantedBy=multi-user.target

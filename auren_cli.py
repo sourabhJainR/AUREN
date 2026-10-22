@@ -333,8 +333,18 @@ def _run_continuous(args: list[str]) -> int:
             pollers[key] = GitHubActionsCheckPoller(repository, head_sha, options.required_check)
         if options.repair_handler and not options.required_check:
             parser.error("--repair-handler requires explicit --required-check names")
+        recovery_ledger = None
+        if options.repair_handler:
+            from portable.engineering_recovery import EngineeringRecoveryLedger
+            recovery_ledger = EngineeringRecoveryLedger(
+                root / ".auren" / "engineering-recovery.sqlite3",
+                max_same_hypothesis_attempts=2,
+                max_total_attempts=12,
+                max_elapsed_seconds=3600,
+            )
         supervisor = ContinuousExecutionSupervisor(
             controller, pollers=pollers, repair_handler=options.repair_handler,
+            recovery_ledger=recovery_ledger,
         )
         import signal
         from threading import Event

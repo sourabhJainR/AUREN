@@ -22,9 +22,14 @@ on:
       - '.github/actions/publish-ci-artifacts/**'
       - 'auren_cli.py'
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   traceability:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
     steps:

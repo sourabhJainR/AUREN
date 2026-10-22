@@ -4,6 +4,7 @@ import json
 import threading
 from datetime import datetime, timedelta, timezone
 import time
+from urllib.error import HTTPError
 from unittest.mock import patch, Mock
 
 from portable.continuous_execution import ContinuousExecutionSupervisor, GitHubActionsCheckPoller, discover_git_target
@@ -120,6 +121,16 @@ def test_github_poller_waits_for_missing_checks_and_never_guesses_success():
         result = poller()
     assert result["status"] == "waiting_for_required_checks"
     assert result["missing_checks"] == ["required-check"]
+
+
+def test_github_rate_limit_is_audited_as_poll_error_not_success():
+    poller = GitHubActionsCheckPoller("owner/repo", "c" * 40, ["required-check"])
+    rate_limit = HTTPError("https://api.github.com", 429, "rate limited", {}, None)
+    with patch("urllib.request.urlopen", side_effect=rate_limit):
+        result = poller()
+    assert result["status"] == "poll_error"
+    assert result["error_type"] == "HTTPError"
+    assert result["head_sha"] == "c" * 40
 
 
 def test_stale_ci_poller_is_visible_and_audited_on_next_cycle(tmp_path):
