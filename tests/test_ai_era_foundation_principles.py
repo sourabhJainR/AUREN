@@ -12,7 +12,7 @@ EXPECTED_IDS = ["IPACT","VERA","PACT","INVAR","TRACE","R3","RAIL","CIG","BLAST",
 
 
 class TestAIEraFoundationPrinciples(unittest.TestCase):
-    def test_registry_has_twenty_unique_principles_with_existing_owner_and_test(self):
+    def test_registry_has_thirty_unique_principles_with_existing_owner_and_test(self):
         registry = canonical_registry()
         self.assertEqual(registry["schema_version"], "auren-ai-era-principles-v2")
         self.assertEqual([p["id"] for p in PRINCIPLES], EXPECTED_IDS)
