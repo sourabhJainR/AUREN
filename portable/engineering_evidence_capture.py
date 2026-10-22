@@ -15,6 +15,7 @@ import os
 from pathlib import Path
 import re
 import sqlite3
+from contextlib import closing
 from typing import Any, Callable, Mapping
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -78,7 +79,7 @@ class EvidenceCapture:
         self.sink = sink
         self.signer = signer
         self.evidence_ledger = evidence_ledger
-        with sqlite3.connect(self.path, timeout=10) as db:
+        with closing(sqlite3.connect(self.path, timeout=10)) as db, db:
             db.execute("PRAGMA journal_mode=WAL")
             db.execute("""CREATE TABLE IF NOT EXISTS engineering_events(
                 sequence INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -231,7 +232,7 @@ class EvidenceCapture:
             "evidence_uri": evidence_uri,
             "metadata": safe_metadata,
         }
-        with sqlite3.connect(self.path, timeout=10) as db:
+        with closing(sqlite3.connect(self.path, timeout=10)) as db, db:
             db.execute("BEGIN IMMEDIATE")
             previous = db.execute(
                 "SELECT event_digest FROM engineering_events ORDER BY sequence DESC LIMIT 1"
@@ -262,7 +263,7 @@ class EvidenceCapture:
             )
         event = {**unsigned, "event_digest": event_digest, "signer_id": signer_id, "signature": signature}
         if self.sink:
-            with sqlite3.connect(self.path, timeout=10) as db:
+            with closing(sqlite3.connect(self.path, timeout=10)) as db, db:
                 db.execute(
                     "INSERT OR IGNORE INTO engineering_event_outbox(event_id,event_json,delivery_state,attempts,last_error,updated_at) VALUES(?,?,'pending',0,'',?)",
                     (base["event_id"], json.dumps(event, sort_keys=True), datetime.now(timezone.utc).isoformat()),
@@ -407,7 +408,7 @@ class EvidenceCapture:
             payload_digest=digest,
             signer_id=signer_id,
         )
-        with sqlite3.connect(self.path, timeout=10) as db:
+        with closing(sqlite3.connect(self.path, timeout=10)) as db, db:
             db.execute(
                 "INSERT OR IGNORE INTO external_signed_receipts(receipt_digest,evidence_id,signer_id,envelope_json,retained_at) VALUES(?,?,?,?,?)",
                 (receipt_digest, evidence_id, signer_id, json.dumps(envelope, sort_keys=True), datetime.now(timezone.utc).isoformat()),
@@ -431,7 +432,7 @@ class EvidenceCapture:
             # digests; sealed corpus cases and oracle answers are not accepted by
             # this schema. Ship the envelope to the configured retention sink.
             outbound = {**event, "signed_receipt": dict(envelope)}
-            with sqlite3.connect(self.path, timeout=10) as db:
+            with closing(sqlite3.connect(self.path, timeout=10)) as db, db:
                 db.execute(
                     "UPDATE engineering_event_outbox SET event_json=?,updated_at=? WHERE event_id=? AND delivery_state='pending'",
                     (json.dumps(outbound, sort_keys=True), datetime.now(timezone.utc).isoformat(), event["event_id"]),
@@ -452,7 +453,7 @@ class EvidenceCapture:
             query += " WHERE evidence_id=?"
             args = (evidence_id,)
         query += " ORDER BY retained_at"
-        with sqlite3.connect(self.path, timeout=10) as db:
+        with closing(sqlite3.connect(self.path, timeout=10)) as db, db:
             rows = db.execute(query, args).fetchall()
         return tuple({
             "receipt_digest": row[0], "evidence_id": row[1], "signer_id": row[2],
@@ -460,7 +461,7 @@ class EvidenceCapture:
         } for row in rows)
 
     def pending_exports(self) -> int:
-        with sqlite3.connect(self.path, timeout=10) as db:
+        with closing(sqlite3.connect(self.path, timeout=10)) as db, db:
             return int(db.execute(
                 "SELECT COUNT(*) FROM engineering_event_outbox WHERE delivery_state='pending'"
             ).fetchone()[0])
@@ -470,7 +471,7 @@ class EvidenceCapture:
             raise ValueError("limit must be a positive integer")
         if self.sink is None:
             return {"sent": 0, "pending": self.pending_exports()}
-        with sqlite3.connect(self.path, timeout=10) as db:
+        with closing(sqlite3.connect(self.path, timeout=10)) as db, db:
             rows = db.execute(
                 "SELECT event_id,event_json FROM engineering_event_outbox WHERE delivery_state='pending' ORDER BY updated_at LIMIT ?",
                 (limit,),
@@ -480,13 +481,13 @@ class EvidenceCapture:
             try:
                 self.sink(json.loads(event_json))
             except Exception as exc:
-                with sqlite3.connect(self.path, timeout=10) as db:
+                with closing(sqlite3.connect(self.path, timeout=10)) as db, db:
                     db.execute(
                         "UPDATE engineering_event_outbox SET attempts=attempts+1,last_error=?,updated_at=? WHERE event_id=?",
                         (type(exc).__name__, datetime.now(timezone.utc).isoformat(), event_id),
                     )
             else:
-                with sqlite3.connect(self.path, timeout=10) as db:
+                with closing(sqlite3.connect(self.path, timeout=10)) as db, db:
                     db.execute(
                         "UPDATE engineering_event_outbox SET delivery_state='sent',attempts=attempts+1,last_error='',updated_at=? WHERE event_id=?",
                         (datetime.now(timezone.utc).isoformat(), event_id),
@@ -501,7 +502,7 @@ class EvidenceCapture:
             query += " WHERE task_id=?"
             args = (task_id,)
         query += " ORDER BY sequence"
-        with sqlite3.connect(self.path, timeout=10) as db:
+        with closing(sqlite3.connect(self.path, timeout=10)) as db, db:
             rows = db.execute(query, args).fetchall()
         names = (
             "event_id", "event_type", "source_type", "occurred_at", "work_unit_id",

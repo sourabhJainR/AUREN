@@ -32,14 +32,16 @@ def _journal_file_lock(path: Path, *, timeout_seconds: float = 2.0):
     with lock_path.open("a+b") as lock_file:
         if os.name == "nt":
             import msvcrt
-            lock_file.seek(0)
-            if lock_file.read(1) == b"":
-                lock_file.seek(0)
-                lock_file.write(b"\\0")
-                lock_file.flush()
-            lock_file.seek(0)
+            # Acquire before reading or writing. On Windows, probing byte zero
+            # while another process holds the range lock can raise PermissionError
+            # instead of the bounded lock error handled above.
             acquire_bounded(lambda: (lock_file.seek(0), msvcrt.locking(lock_file.fileno(), msvcrt.LK_NBLCK, 1)))
             try:
+                lock_file.seek(0, os.SEEK_END)
+                if lock_file.tell() == 0:
+                    lock_file.seek(0)
+                    lock_file.write(b"\\0")
+                    lock_file.flush()
                 yield
             finally:
                 lock_file.seek(0)
@@ -81,6 +83,10 @@ class ProgressEvent:
     total_units: int | None = None
     evidence_ref: str | None = None
 
+class ProgressJournalCorruption(RuntimeError):
+    """The append-only progress journal contains data that cannot be trusted."""
+
+
 class ProgressJournal:
     """Append-only JSONL event journal; progress reflects observed work only."""
     def __init__(self, path: str | Path, *, lock_timeout_seconds: float = 2.0):
@@ -91,17 +97,48 @@ class ProgressJournal:
         self._lock = threading.RLock()
 
     def _events(self) -> list[dict[str, Any]]:
+        """Read the complete journal or fail closed on any damaged record.
+
+        Skipping a malformed line can hide an earlier state transition, reuse a
+        sequence number, or make a damaged terminal record look non-terminal.
+        Keep the original bytes for operator recovery; never silently repair or
+        truncate the audit trail.
+        """
         if not self.path.exists():
             return []
-        rows = []
-        with self.path.open(encoding="utf-8") as stream:
-            for line in stream:
-                try:
-                    row = json.loads(line)
-                    if isinstance(row, dict) and row.get("task_id"):
-                        rows.append(row)
-                except json.JSONDecodeError:
-                    continue
+        rows: list[dict[str, Any]] = []
+        required = {"sequence", "task_id", "event", "state", "stage", "message", "timestamp"}
+        try:
+            with self.path.open(encoding="utf-8") as stream:
+                for line_number, line in enumerate(stream, start=1):
+                    try:
+                        row = json.loads(line)
+                    except json.JSONDecodeError as exc:
+                        raise ProgressJournalCorruption(
+                            f"progress journal is corrupt at line {line_number}; writes and snapshots are blocked"
+                        ) from exc
+                    if not isinstance(row, dict) or not required.issubset(row):
+                        raise ProgressJournalCorruption(
+                            f"progress journal has an invalid record at line {line_number}; writes and snapshots are blocked"
+                        )
+                    if (
+                        not isinstance(row.get("task_id"), str) or not row["task_id"].strip()
+                        or isinstance(row.get("sequence"), bool)
+                        or not isinstance(row.get("sequence"), int) or row["sequence"] < 1
+                        or not isinstance(row.get("state"), str) or row["state"] not in STATES
+                        or not isinstance(row.get("event"), str)
+                        or not isinstance(row.get("stage"), str)
+                        or not isinstance(row.get("message"), str)
+                        or not isinstance(row.get("timestamp"), str)
+                    ):
+                        raise ProgressJournalCorruption(
+                            f"progress journal has invalid field values at line {line_number}; writes and snapshots are blocked"
+                        )
+                    rows.append(row)
+        except UnicodeDecodeError as exc:
+            raise ProgressJournalCorruption(
+                "progress journal is not valid UTF-8; writes and snapshots are blocked"
+            ) from exc
         return rows
 
     def record(self, task_id: str, event: str, *, state: str = "running",
