@@ -154,6 +154,13 @@ def test_failed_required_check_enqueues_one_bounded_repair_through_existing_supe
     assert report["audit_chain_valid"] is True
     assert any(event["event_type"] == "ci_repair_queued" for event in status["recent_events"])
     assert any(event["event_type"] == "ci_repair_finalized" for event in status["recent_events"])
+    lifecycle = [
+        event["payload"]["to_state"]
+        for event in reversed(status["recent_events"])
+        if event["event_type"] == "ci_repair_lifecycle"
+    ]
+    assert lifecycle == ["observed", "triaged", "queued", "claimed", "repairing", "blocked"]
+    assert "resolved" not in lifecycle  # completed task is not success without new validation evidence
     with __import__("sqlite3").connect(controller.db_path) as db:
         rows = db.execute("SELECT payload FROM tasks").fetchall()
     repairs = [json.loads(row[0]) for row in rows if "auren_ci_repair" in json.loads(row[0])]
