@@ -72,6 +72,7 @@ def durable_approval_flow_handler(payload):
     return {
         "success": bool(getattr(result, "executed", False) or getattr(result, "replayed", False)),
         "evidence": [f"approval:{approval_id}"],
+        "approval_receipts": [approval_id],
     }
 
 
