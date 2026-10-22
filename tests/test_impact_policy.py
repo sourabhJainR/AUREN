@@ -24,6 +24,8 @@ class ImpactPolicyTests(unittest.TestCase):
             "tests/test_durable_approval.py": {"tests.test_durable_approval", "tests.test_side_effect_ledger_crash_fault_injection"},
             "portable/progress_journal.py": {"tests.test_progress_journal", "tests.test_progress_journal_integration"},
             "portable/canonical_evidence_ledger.py": {"tests.test_canonical_evidence_ledger", "tests.test_provider_operation_lifecycle"},
+            "portable/vibe_coding_adapters.py": {"tests.test_vibe_coding_adapters", "tests.test_provider_operation_lifecycle", "tests.test_side_effect_ledger"},
+            "tests/test_vibe_coding_adapters.py": {"tests.test_vibe_coding_adapters"},
             "portable/engineering_evidence_capture.py": {"tests.test_engineering_evidence_capture", "tests.test_execution_controller_evidence_capture"},
             "tests/test_engineering_evidence_capture.py": {"tests.test_engineering_evidence_capture"},
             "tests/test_execution_controller_evidence_capture.py": {"tests.test_execution_controller_evidence_capture"},
@@ -65,6 +67,8 @@ class ImpactPolicyTests(unittest.TestCase):
             "tests/test_execution_controller_restart.py",
             "portable/durable_approval.py",
             "tests/test_durable_approval.py",
+            "portable/vibe_coding_adapters.py",
+            "tests/test_vibe_coding_adapters.py",
             "portable/canonical_evidence_ledger.py",
             "tests/test_canonical_evidence_ledger.py",
         )
