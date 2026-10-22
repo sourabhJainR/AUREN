@@ -1238,6 +1238,8 @@ class ExecutionController:
                 state="queued" if next_state == "pending" else "blocked",
                 stage="approval", message=detail,
             )
+        from .durable_approval import DurableApprovalStore
+        DurableApprovalStore(self).recover_interrupted(older_than_seconds=300)
         return len(recovered)
 
     def _handler_payload(self, task: DurableTask, base_payload: Mapping[str, Any] | None = None) -> dict[str, Any]:
