@@ -278,7 +278,7 @@ class ProviderOperationLifecycleTests(unittest.TestCase):
                 "deploy:binding-check", "provider-a", intent,
                 lambda *_: {
                     "status": "completed",
-                    "provider_operation_id": "provider-operation-from-another-request",
+                    "operation_id": "provider-operation-from-another-request",
                 },
             )
 
@@ -287,7 +287,7 @@ class ProviderOperationLifecycleTests(unittest.TestCase):
             self.ledger().get("deploy:binding-check")["state"],
         )
         self.assertTrue(any(
-            event.get("reason") == "provider_operation_id_mismatch"
+            event.get("reason") == "provider_operation_binding_mismatch"
             for event in self.events
         ))
         with self.assertRaises(ProviderOutcomeBlocked):
