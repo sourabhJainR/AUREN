@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 from contextlib import contextmanager
 
@@ -28,6 +29,12 @@ def test_content_addressed_lineage(tmp_path):
 def test_content_addressed_node_rejects_conflicting_metadata_without_mutation(tmp_path):
     g=graph(tmp_path)
     original=g.add_node("run","digest-123",{"source":"trusted","revision":"abc"})
+    # Existing releases serialized metadata with default JSON spacing.
+    with g.memory._lock, g.memory._connection() as db:
+        db.execute(
+            "UPDATE evidence_nodes SET metadata_json=? WHERE project=? AND node_id=?",
+            (json.dumps(dict(original.metadata), sort_keys=True), g.project, original.node_id),
+        )
     duplicate=g.add_node("run","digest-123",{"revision":"abc","source":"trusted"})
     assert duplicate == original
     with raises(ValueError,match="metadata conflict"):
