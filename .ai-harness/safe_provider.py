@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import argparse
 import os
+import queue
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -17,6 +19,7 @@ from runtime.auto_compaction import compact
 from runtime.feedback_loop import FeedbackLoop
 from portable.local_llm import LocalLLMError, enabled as local_llm_enabled, fallback_allowed as local_llm_fallback_allowed, generate as local_llm_generate
 from portable.identity_compat import get_auren_env
+from portable.subprocess_provider import SubprocessProviderInvoker, _close_windows_job, _windows_job
 
 _TRANSIENT_MARKERS = (
     "response stopped arriving", "response stopped", "api error", "connection reset",
@@ -87,6 +90,123 @@ def _prepare_prompt(prompt: str, run_dir: Path) -> tuple[str, dict]:
     return compose(result.text), metadata
 
 
+def _bounded_process_limits() -> tuple[float, int]:
+    try:
+        timeout = float(get_auren_env("HARNESS_PROVIDER_TIMEOUT_SECONDS", "1800"))
+        max_bytes = int(get_auren_env("HARNESS_PROVIDER_MAX_OUTPUT_BYTES", "1000000"))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("provider timeout/output limits must be numeric") from exc
+    if not 1 <= timeout <= 3600:
+        raise ValueError("HARNESS_PROVIDER_TIMEOUT_SECONDS must be between 1 and 3600")
+    if not 1024 <= max_bytes <= 16000000:
+        raise ValueError("HARNESS_PROVIDER_MAX_OUTPUT_BYTES must be between 1024 and 16000000")
+    return timeout, max_bytes
+
+
+def _bounded_process_output(command: list[str], *, cwd: Path, env: dict[str, str],
+                            timeout_seconds: float, max_output_bytes: int,
+                            output_sink=None) -> tuple[int, str]:
+    """Run a provider bridge with a hard deadline, bounded output, and tree cleanup.
+
+    Output is consumed in fixed-size binary chunks. The queue and retained output
+    are bounded; a single giant line cannot force an unbounded readline allocation.
+    The provider tree is terminated on timeout, overflow, and normal parent exit.
+    """
+    if not 1 <= timeout_seconds <= 3600:
+        raise ValueError("timeout_seconds must be between 1 and 3600")
+    if type(max_output_bytes) is not int or not 1024 <= max_output_bytes <= 16000000:
+        raise ValueError("max_output_bytes must be between 1024 and 16000000")
+    if output_sink is not None and not callable(output_sink):
+        raise TypeError("output_sink must be callable")
+    kwargs = {
+        "cwd": cwd, "env": env, "stdin": subprocess.DEVNULL,
+        "stdout": subprocess.PIPE, "stderr": subprocess.STDOUT, "bufsize": 0,
+    }
+    if os.name == "posix":
+        kwargs["start_new_session"] = True
+    elif os.name == "nt":
+        kwargs["creationflags"] = getattr(subprocess, "CREATE_SUSPENDED", 0x00000004)
+    process = subprocess.Popen(command, **kwargs)
+    if os.name == "nt":
+        _windows_job(process)
+    chunks: queue.Queue = queue.Queue(maxsize=8)
+    def pump_output() -> None:
+        try:
+            assert process.stdout is not None
+            while True:
+                chunk = process.stdout.read(65536)
+                if not chunk:
+                    break
+                chunks.put(chunk)
+        except BaseException as exc:
+            chunks.put(exc)
+        finally:
+            chunks.put(None)
+    reader = threading.Thread(target=pump_output, name="auren-provider-output", daemon=True)
+    reader.start()
+    output = bytearray()
+    deadline = time.monotonic() + timeout_seconds
+    stream_done = False
+    leader_cleanup_started = False
+    try:
+        while not stream_done or process.poll() is None:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError(f"provider bridge exceeded {timeout_seconds:g}s deadline")
+            if process.poll() is not None and not leader_cleanup_started:
+                # The parent may exit while a descendant still holds stdout or
+                # continues side effects. Kill the entire contained process tree.
+                SubprocessProviderInvoker._kill(process)
+                leader_cleanup_started = True
+            try:
+                item = chunks.get(timeout=min(0.1, remaining))
+            except queue.Empty:
+                continue
+            if item is None:
+                stream_done = True
+                continue
+            if isinstance(item, BaseException):
+                raise OSError("provider output reader failed") from item
+            if len(output) + len(item) > max_output_bytes:
+                raise ValueError(f"provider output exceeded {max_output_bytes}-byte limit")
+            output.extend(item)
+            if output_sink is not None:
+                output_sink(item)
+            elif hasattr(sys.stdout, "buffer"):
+                sys.stdout.buffer.write(item)
+                sys.stdout.buffer.flush()
+            else:
+                sys.stdout.write(item.decode("utf-8", errors="replace"))
+                sys.stdout.flush()
+        code = process.wait(timeout=max(0.1, deadline - time.monotonic()))
+        return code, output.decode("utf-8", errors="replace")
+    except BaseException:
+        SubprocessProviderInvoker._kill(process)
+        try:
+            process.wait(timeout=3)
+        except (subprocess.TimeoutExpired, OSError):
+            try:
+                process.kill()
+            except OSError:
+                pass
+        raise
+    finally:
+        # Drain bounded queued chunks after termination so the reader can exit.
+        if reader.is_alive():
+            drain_deadline = time.monotonic() + 2
+            while reader.is_alive() and time.monotonic() < drain_deadline:
+                try:
+                    chunks.get(timeout=0.05)
+                except queue.Empty:
+                    pass
+        reader.join(timeout=1)
+        if process.stdout is not None:
+            try:
+                process.stdout.close()
+            except OSError:
+                pass
+        _close_windows_job(process)
+
 def _run_resilient(command: list[str], prompt: str, run_dir: Path, feedback: FeedbackLoop) -> int:
     max_retries = max(0, min(8, int(os.environ.get("HARNESS_PROVIDER_MAX_RETRIES", "4"))))
     delay = max(0.0, min(30.0, float(os.environ.get("HARNESS_PROVIDER_RETRY_DELAY", "1.0"))))
@@ -114,24 +234,13 @@ def _run_resilient(command: list[str], prompt: str, run_dir: Path, feedback: Fee
                 "AER_SANDBOX": "enforced-for-local-execution",  # legacy provider contract
                 "AER_COMPACTION_DIGEST": compaction_meta["digest"],  # legacy provider contract
             })
-            process = subprocess.Popen(
+            timeout_seconds, max_output_bytes = _bounded_process_limits()
+            code, output = _bounded_process_output(
                 [sys.executable, str(Path(__file__).resolve().with_name("provider.py")), "--prompt-file", str(effective_path), "--", *command],
                 cwd=Path(os.environ.get("HARNESS_WORKSPACE", Path(__file__).resolve().parent.parent)),
-                env=env,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                bufsize=1,
+                env=env, timeout_seconds=timeout_seconds, max_output_bytes=max_output_bytes,
             )
-            output_parts: list[str] = []
-            assert process.stdout is not None
-            for line in process.stdout:
-                output_parts.append(line)
-                sys.stdout.write(line)
-                sys.stdout.flush()
-            code = process.wait()
-            output = "".join(output_parts)
-            transcript += output
+            transcript = (transcript + output)[-24000:]
             if code == 0:
                 feedback.observe(task_id=task_id, outcome="success", verified=False, strategy=strategy, evidence=[compaction_meta["digest"]])
                 return 0
