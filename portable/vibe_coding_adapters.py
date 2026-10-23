@@ -220,6 +220,7 @@ class VibeAdapterRegistry:
                 "estimated_cost": item.estimated_cost,
                 "estimated_latency_ms": item.estimated_latency_ms,
                 "external_side_effects": item.external_side_effects,
+                "lookup_operation_configured": item.lookup_operation is not None,
             }
             for item in sorted(self._adapters.values(), key=lambda adapter: adapter.adapter_id)
         ]
@@ -551,6 +552,7 @@ def build_host_adapter_registry(
     risk_by_stage: Mapping[VibeStage | str, str] | None = None,
     side_effect_ledger: DurableSideEffectLedger | None = None,
     side_effect_event_recorder: Callable[[Mapping[str, Any]], None] | None = None,
+    lookup_operations: Mapping[VibeStage | str, Callable[[str, str], Mapping[str, Any]]] | None = None,
 ) -> VibeAdapterRegistry:
     """Wire one active-agent dispatcher plus concrete capability tools into all stages.
 
@@ -590,6 +592,18 @@ def build_host_adapter_registry(
     missing = [capability for capability in required_tools if capability not in tools]
     if missing:
         raise AdapterUnavailable("host integration missing capability tools: " + ", ".join(missing))
+
+    lookup_by_stage: dict[VibeStage, Callable[[str, str], Mapping[str, Any]]] = {}
+    for key, lookup in (lookup_operations or {}).items():
+        try:
+            stage = key if isinstance(key, VibeStage) else VibeStage(str(key))
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"invalid lookup stage: {key!r}") from exc
+        if stage not in _SIDE_EFFECT_STAGES:
+            raise ValueError(f"provider lookup is only configurable for side-effect stages: {stage.value}")
+        if not callable(lookup):
+            raise ValueError(f"lookup operation for {stage.value} must be callable")
+        lookup_by_stage[stage] = lookup
 
     registry = VibeAdapterRegistry(
         max_risk=max_risk,
@@ -701,6 +715,7 @@ def build_host_adapter_registry(
             evidence_quality=0.65,
             historical_success=0.5,
             external_side_effects=stage in _SIDE_EFFECT_STAGES,
+            lookup_operation=lookup_by_stage.get(stage),
         ))
     return registry
 
