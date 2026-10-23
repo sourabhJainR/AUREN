@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import math
 import os
 import sys
 import tempfile
 import time
 import threading
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -32,6 +34,63 @@ class SubprocessProviderInvokerTests(unittest.TestCase):
                 os.environ[name] = previous
         self.assertEqual("absent", result.splitlines()[0])
         self.assertIn('{"task":"safe"}', result)
+
+
+    def test_absolute_supervisor_deadline_is_propagated_and_capped(self):
+        now = time.time()
+        inherited = now + 1.5
+        provider = self.invoker(
+            "import os; print(os.environ['AUREN_DEADLINE_EPOCH'])",
+            env={"AUREN_DEADLINE_EPOCH": str(inherited)},
+        )
+        result = provider("request", 5)
+        propagated = float(result.strip())
+        self.assertGreater(propagated, now)
+        self.assertLessEqual(propagated - inherited, 0.01)  # allow decimal serialization rounding
+        self.assertAlmostEqual(inherited, propagated, delta=0.01)
+
+        provider = self.invoker("import os; print(os.environ['AUREN_DEADLINE_EPOCH'])")
+        started = time.time()
+        propagated = float(provider("request", 2).strip())
+        self.assertGreaterEqual(propagated, started + 1.8)
+        self.assertLessEqual(propagated, started + 2.1)
+
+    def test_parent_environment_deadline_is_inherited(self):
+        inherited = time.time() + 1.5
+        provider = self.invoker("import os; print(os.environ['AUREN_DEADLINE_EPOCH'])")
+        with patch.dict(os.environ, {"AUREN_DEADLINE_EPOCH": str(inherited)}, clear=False):
+            result = provider("request", 5)
+        self.assertAlmostEqual(inherited, float(result.strip()), delta=0.02)
+
+    def test_inherited_deadline_caps_outer_wait(self):
+        provider = self.invoker(
+            "import time; time.sleep(10)",
+            env={"AUREN_DEADLINE_EPOCH": str(time.time() + 0.3)},
+        )
+        started = time.monotonic()
+        with self.assertRaisesRegex(TimeoutError, "exceeded its deadline"):
+            provider("request", 5)
+        self.assertLess(time.monotonic() - started, 2.0)
+
+    def test_expired_or_invalid_supervisor_deadline_prevents_launch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "provider-launched.txt"
+            command = f"import pathlib; pathlib.Path({str(marker)!r}).write_text('launched')"
+            expired = self.invoker(command, env={"AUREN_DEADLINE_EPOCH": str(time.time() - 1)})
+            with self.assertRaisesRegex(TimeoutError, "expired before provider launch"):
+                expired("request", 5)
+            self.assertFalse(marker.exists())
+
+            invalid = self.invoker(command, env={"AUREN_DEADLINE_EPOCH": "not-a-timestamp"})
+            with self.assertRaisesRegex(ValueError, "finite Unix timestamp"):
+                invalid("request", 5)
+            self.assertFalse(marker.exists())
+
+    def test_non_finite_and_excessive_timeouts_are_rejected_before_launch(self):
+        provider = self.invoker("raise SystemExit('must not launch')")
+        for timeout in (float("nan"), float("inf"), 86401):
+            with self.subTest(timeout=timeout), self.assertRaisesRegex(ValueError, "finite and between"):
+                provider("request", timeout)
 
     def test_timeout_terminates_non_cooperative_child(self):
         provider = self.invoker("import time; time.sleep(10)")

@@ -7,6 +7,7 @@ on cancellation, timeout, output failure, and normal provider exit.
 """
 from __future__ import annotations
 
+import math
 import os
 import signal
 import subprocess
@@ -235,12 +236,35 @@ class SubprocessProviderInvoker:
             raise TypeError("cancel_event must be a threading.Event")
         if cancel_event is not None and cancel_event.is_set():
             raise InterruptedError("provider invocation cancelled before launch")
-        if isinstance(timeout_seconds, bool) or not isinstance(timeout_seconds, (int, float)) or timeout_seconds <= 0:
-            raise ValueError("timeout_seconds must be positive")
+        if (
+            isinstance(timeout_seconds, bool)
+            or not isinstance(timeout_seconds, (int, float))
+            or not math.isfinite(float(timeout_seconds))
+            or not 0 < float(timeout_seconds) <= 86400
+        ):
+            raise ValueError("timeout_seconds must be finite and between 0 and 86400 seconds")
         payload = prompt.encode("utf-8")
         if len(payload) > self.max_prompt_bytes:
             raise ValueError("provider prompt exceeds configured byte limit")
         timeout = float(timeout_seconds)
+        wall_now = time.time()
+        deadline_epoch = wall_now + timeout
+        inherited_deadline = self.env.get("AUREN_DEADLINE_EPOCH", os.environ.get("AUREN_DEADLINE_EPOCH"))
+        if inherited_deadline is not None:
+            try:
+                inherited_value = float(inherited_deadline)
+            except (TypeError, ValueError) as exc:
+                raise ValueError("AUREN_DEADLINE_EPOCH must be a finite Unix timestamp") from exc
+            if not math.isfinite(inherited_value):
+                raise ValueError("AUREN_DEADLINE_EPOCH must be a finite Unix timestamp")
+            if inherited_value <= wall_now:
+                raise TimeoutError("inherited supervisor deadline expired before provider launch")
+            deadline_epoch = min(deadline_epoch, inherited_value)
+        timeout = deadline_epoch - wall_now
+        if timeout <= 0:
+            raise TimeoutError("inherited supervisor deadline expired before provider launch")
+        child_env = dict(self.env)
+        child_env["AUREN_DEADLINE_EPOCH"] = f"{deadline_epoch:.6f}"
         started = time.monotonic()
         kwargs: dict[str, object] = {}
         if os.name == "posix":
@@ -250,7 +274,7 @@ class SubprocessProviderInvoker:
             # Object, so it cannot spawn an uncontained descendant before assignment.
             kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP | 0x00000004
         process = subprocess.Popen(
-            self.command, cwd=str(self.cwd), env=dict(self.env),
+            self.command, cwd=str(self.cwd), env=child_env,
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
             shell=False, bufsize=0, **kwargs,
         )
