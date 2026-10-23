@@ -18,7 +18,6 @@ def succeeding_sink(_event):
     return None
 
 
-
 def _crash_after_sink_accept(database, accepted_log):
     def sink(event):
         with Path(accepted_log).open("a", encoding="utf-8") as stream:
@@ -92,7 +91,6 @@ class EngineeringEvidenceCaptureTests(unittest.TestCase):
         result = capture.flush_pending()
         self.assertEqual(result, {"sent": 1, "pending": 0})
         self.assertTrue(capture.verify_chain())
-
 
 
     def test_process_death_after_sink_accept_replays_same_stable_event_id(self):
