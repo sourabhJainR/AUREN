@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import zipfile
 
 from portable.auren_runtime import build, install, verify_bundle
 
@@ -45,6 +46,54 @@ class StandaloneBundleSmokeTests(unittest.TestCase):
             self.assertEqual(0, result.returncode, result.stderr[-2000:])
             self.assertIn("usage:", result.stdout.lower())
             self.assertNotIn(str(ROOT), result.stdout + result.stderr)
+
+
+    def test_bundle_excludes_sqlite_state_and_transient_sidecars(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "source"
+            for relative in (
+                ".ai-harness/runtime",
+                "skills/ai-coding-orchestrator",
+                "portable",
+                "dashboard",
+                ".claude-plugin",
+            ):
+                (root / relative).mkdir(parents=True, exist_ok=True)
+            (root / ".ai-harness/config.toml").write_text('[harness]\nversion = 1\n', encoding="utf-8")
+            (root / ".claude-plugin/plugin.json").write_text('{"version":"1.0.0"}\n', encoding="utf-8")
+            (root / "skills/ai-coding-orchestrator/SKILL.md").write_text("portable skill\n", encoding="utf-8")
+            (root / "portable/auren_runtime.py").write_text("portable runtime\n", encoding="utf-8")
+            (root / "dashboard/index.html").write_text("<html>dashboard</html>\n", encoding="utf-8")
+            (root / "auren_cli.py").write_text("launcher\n", encoding="utf-8")
+            (root / "auren_env_compat.py").write_text(
+                "def get_auren_env(suffix, default=None):\n    return default\n",
+                encoding="utf-8",
+            )
+
+            state = root / ".ai-harness" / "learning"
+            state.mkdir(parents=True, exist_ok=True)
+            names = (
+                "task-memory.sqlite",
+                "task-memory.sqlite3",
+                "task-memory.sqlite3-shm",
+                "task-memory.sqlite3-wal",
+                "task-memory.sqlite3-journal",
+                "cache.db",
+                "cache.db3",
+            )
+            for name in names:
+                (state / name).write_bytes(b"mutable runtime state")
+
+            bundle = Path(tmp) / "auren.zip"
+            build(root, bundle, source_commit="portable-state-test")
+            manifest = verify_bundle(bundle)
+            included = {item["path"] for item in manifest["files"]}
+            with zipfile.ZipFile(bundle) as archive:
+                archived = set(archive.namelist())
+            for name in names:
+                relative = f".ai-harness/learning/{name}"
+                self.assertNotIn(relative, included)
+                self.assertNotIn(f"payload/{relative}", archived)
 
 
 if __name__ == "__main__":
