@@ -393,6 +393,26 @@ class DurableApprovalTests(unittest.TestCase):
         self.assertEqual(self.store.get(record.approval_id).status, "pending")
         self.assertTrue(self.store.verify_audit_chain())
 
+    def test_approver_authorizer_must_return_literal_true(self):
+        record = self.create()
+        for result in ("true", 1, None):
+            with self.subTest(result=result):
+                store = DurableApprovalStore(
+                    self.controller,
+                    approver_authorizer=lambda _id, _role, _scope, _roles, value=result: value,
+                    clock=lambda: self.now,
+                )
+                with self.assertRaisesRegex(PermissionError, "rejected the decision"):
+                    store.decide(
+                        record.approval_id,
+                        "approve",
+                        approver_id="reviewer-1",
+                        roles=("release-approver",),
+                        scope="repo:publish",
+                    )
+                self.assertEqual(self.store.get(record.approval_id).status, "pending")
+        self.assertTrue(self.store.verify_audit_chain())
+
     def test_cancel_rejects_non_boolean_authorizer_results(self):
         record = self.create()
         for result in ("false", 1, None):
