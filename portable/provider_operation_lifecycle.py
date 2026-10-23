@@ -118,6 +118,45 @@ class ProviderOperationLifecycle:
             raise ProviderOutcomeBlocked(
                 f"provider operation {op_id} did not confirm completion; reconciliation required"
             )
+        binding_fields = (
+            ("operation_id", op_id),
+            ("auren_operation_id", op_id),
+            ("idempotency_key", operation_key),
+        )
+        mismatched_binding = next(
+            (
+                field for field, expected in binding_fields
+                if field in receipt
+                and (not isinstance(receipt.get(field), str) or receipt.get(field) != expected)
+            ),
+            None,
+        )
+        if mismatched_binding is not None:
+            reason = f"provider receipt {mismatched_binding} does not match requested operation"
+            self.ledger.require_reconciliation(operation_key, reason)
+            self._event(
+                operation_key, "reconcile_required", op_id, decision.payload_digest,
+                reason="provider_operation_binding_mismatch", binding_field=mismatched_binding,
+            )
+            raise ProviderOutcomeBlocked(
+                f"provider operation {op_id} returned a receipt bound to a different operation"
+            )
+        # provider_operation_id is the provider's own remote identifier and may
+        # differ from AUREN's stable operation ID. It is not used as the request
+        # binding; explicit operation_id/idempotency_key fields are.
+        if "provider_operation_id" in receipt and (
+            not isinstance(receipt.get("provider_operation_id"), str)
+            or not receipt.get("provider_operation_id").strip()
+        ):
+            reason = "provider receipt has an invalid provider_operation_id"
+            self.ledger.require_reconciliation(operation_key, reason)
+            self._event(
+                operation_key, "reconcile_required", op_id, decision.payload_digest,
+                reason="provider_operation_id_invalid",
+            )
+            raise ProviderOutcomeBlocked(
+                f"provider operation {op_id} returned an invalid provider operation identifier"
+            )
         completed = self.ledger.complete(operation_key, dict(receipt))
         self._event(operation_key, "completed", op_id, completed.payload_digest,
                     receipt_digest=hashlib.sha256(_canonical(receipt).encode("utf-8")).hexdigest())

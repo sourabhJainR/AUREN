@@ -269,6 +269,34 @@ class ProviderOperationLifecycleTests(unittest.TestCase):
                 )
             self.assertEqual(1, len(calls))
 
+    def test_completed_receipt_with_mismatched_provider_operation_id_is_blocked(self):
+        lifecycle = ProviderOperationLifecycle(self.ledger(), record_event=self.events.append)
+        intent = {"target": "production", "revision": "release-42"}
+
+        with self.assertRaisesRegex(ProviderOutcomeBlocked, "different operation"):
+            lifecycle.execute(
+                "deploy:binding-check", "provider-a", intent,
+                lambda *_: {
+                    "status": "completed",
+                    "operation_id": "provider-operation-from-another-request",
+                },
+            )
+
+        self.assertEqual(
+            "reconcile_required",
+            self.ledger().get("deploy:binding-check")["state"],
+        )
+        self.assertTrue(any(
+            event.get("reason") == "provider_operation_binding_mismatch"
+            for event in self.events
+        ))
+        with self.assertRaises(ProviderOutcomeBlocked):
+            lifecycle.execute(
+                "deploy:binding-check", "provider-a", intent,
+                lambda *_: self.fail("mismatched receipt must never permit redispatch"),
+            )
+        self.assertNotEqual("completed", self.ledger().get("deploy:binding-check")["state"])
+
     def test_explicit_legacy_success_is_accepted_but_conflicting_status_is_not(self):
         lifecycle = ProviderOperationLifecycle(self.ledger())
         receipt = {"success": True, "detail": "operation completed"}
