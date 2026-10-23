@@ -126,12 +126,23 @@ class CanonicalEvidenceLedgerTests(unittest.TestCase):
                 signer_id="operator-ci",
             )
 
-    def test_promotion_lookup_rejects_tampered_status_or_head(self):
+    def test_promotion_lookup_rejects_tampered_status(self):
         created = self.record(evidence_id="tampered-status")
         with closing(sqlite3.connect(self.database)) as db, db:
             db.execute(
                 "UPDATE canonical_evidence SET status='passed' WHERE evidence_id=?",
                 (created["evidence_id"],),
+            )
+        with self.assertRaisesRegex(ValueError, "record digest is corrupt"):
+            self.ledger.known_evidence_ids(repository="sourabhJainR/AUREN", head_sha=HEAD)
+
+
+    def test_promotion_lookup_rejects_rebound_head(self):
+        created = self.record(evidence_id="tampered-head", head_sha=OTHER_HEAD)
+        with closing(sqlite3.connect(self.database)) as db, db:
+            db.execute(
+                "UPDATE canonical_evidence SET head_sha=? WHERE evidence_id=?",
+                (HEAD, created["evidence_id"]),
             )
         with self.assertRaisesRegex(ValueError, "record digest is corrupt"):
             self.ledger.known_evidence_ids(repository="sourabhJainR/AUREN", head_sha=HEAD)
