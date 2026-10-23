@@ -190,6 +190,16 @@ def transcript_text(row: dict[str, Any]) -> str:
     return ""
 
 
+def _enforce_output_budget(current_bytes: int, additional_bytes: int, max_bytes: int, label: str) -> int:
+    if type(current_bytes) is not int or current_bytes < 0 or type(additional_bytes) is not int or additional_bytes < 0:
+        raise ValueError("output byte counts must be non-negative integers")
+    if type(max_bytes) is not int or not 1 <= max_bytes <= 16000000:
+        raise ValueError("max_bytes must be between 1 and 16000000")
+    total = current_bytes + additional_bytes
+    if total > max_bytes:
+        raise ValueError(f"{label} exceeded {max_bytes}-byte limit")
+    return total
+
 def _terminate_provider_tree(process: subprocess.Popen[str]) -> None:
     """Stop the provider process group before releasing bounded stream resources."""
     try:
@@ -314,11 +324,11 @@ def main() -> int:
                 line_bytes = len(line.encode("utf-8"))
                 stored_line = line.rstrip("\n") + "\n"
                 stored_bytes = len(stored_line.encode("utf-8"))
-                next_raw_bytes = raw_bytes + max(line_bytes, stored_bytes)
-                if next_raw_bytes > max_output_bytes:
+                try:
+                    raw_bytes = _enforce_output_budget(raw_bytes, max(line_bytes, stored_bytes), max_output_bytes, "provider stream")
+                except ValueError:
                     _terminate_provider_tree(process)
-                    raise ValueError(f"provider stream exceeded {max_output_bytes}-byte limit")
-                raw_bytes = next_raw_bytes
+                    raise
                 raw_handle.write(stored_line)
                 raw_handle.flush()
                 line = line.rstrip("\n")
@@ -326,10 +336,11 @@ def main() -> int:
                     row = json.loads(line)
                 except json.JSONDecodeError:
                     if line.strip():
-                        transcript_bytes += line_bytes
-                        if transcript_bytes > max_output_bytes:
+                        try:
+                            transcript_bytes = _enforce_output_budget(transcript_bytes, line_bytes, max_output_bytes, "provider transcript")
+                        except ValueError:
                             _terminate_provider_tree(process)
-                            raise ValueError(f"provider transcript exceeded {max_output_bytes}-byte limit")
+                            raise
                         transcript.append(line)
                     continue
                 if not isinstance(row, dict):
@@ -373,10 +384,11 @@ def main() -> int:
                     turn.observe_cache(CACHE_PREFIX + json.dumps(cache), context_digest)
                 text = transcript_text(row)
                 if text:
-                    transcript_bytes += len(text.encode("utf-8"))
-                    if transcript_bytes > max_output_bytes:
+                    try:
+                        transcript_bytes = _enforce_output_budget(transcript_bytes, len(text.encode("utf-8")), max_output_bytes, "provider transcript")
+                    except ValueError:
                         _terminate_provider_tree(process)
-                        raise ValueError(f"provider transcript exceeded {max_output_bytes}-byte limit")
+                        raise
                     transcript.append(text)
         code = interrupt_code if interrupt_code is not None else process.wait()
     except ValueError as exc:
