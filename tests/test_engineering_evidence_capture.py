@@ -1,4 +1,5 @@
 """Privacy and integrity regressions for automatic engineering evidence capture."""
+import json
 import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
@@ -80,6 +81,7 @@ class EngineeringEvidenceCaptureTests(unittest.TestCase):
         sink = HttpsEvidenceSink("https://collector.invalid/events", "token")
         response = MagicMock()
         response.status = 202
+        response.__enter__.return_value = response
         captured = []
 
         def fake_urlopen(request, timeout):
