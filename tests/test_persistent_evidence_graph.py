@@ -35,6 +35,8 @@ def test_content_addressed_node_rejects_conflicting_metadata_without_mutation(tm
             "UPDATE evidence_nodes SET metadata_json=? WHERE project=? AND node_id=?",
             (json.dumps(dict(original.metadata), sort_keys=True), g.project, original.node_id),
         )
+    # Identity-only lookups return the canonical persisted metadata.
+    assert g.add_node("run","digest-123") == original
     duplicate=g.add_node("run","digest-123",{"revision":"abc","source":"trusted"})
     assert duplicate == original
     with raises(ValueError,match="metadata conflict"):
