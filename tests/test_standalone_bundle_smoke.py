@@ -80,6 +80,10 @@ class StandaloneBundleSmokeTests(unittest.TestCase):
                 "task-memory.sqlite3-journal",
                 "cache.db",
                 "cache.db3",
+                "cache.db3-wal",
+                "cache.db3-shm",
+                "cache.db3-journal",
+                "notes-shm",
             )
             for name in names:
                 (state / name).write_bytes(b"mutable runtime state")
@@ -92,8 +96,12 @@ class StandaloneBundleSmokeTests(unittest.TestCase):
                 archived = set(archive.namelist())
             for name in names:
                 relative = f".ai-harness/learning/{name}"
-                self.assertNotIn(relative, included)
-                self.assertNotIn(f"payload/{relative}", archived)
+                if name == "notes-shm":
+                    self.assertIn(relative, included)
+                    self.assertIn(f"payload/{relative}", archived)
+                else:
+                    self.assertNotIn(relative, included)
+                    self.assertNotIn(f"payload/{relative}", archived)
 
 
 if __name__ == "__main__":
