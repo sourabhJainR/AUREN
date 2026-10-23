@@ -1391,6 +1391,63 @@ class IsolatedGitWorktree:
         return self.base_revision
 
 
+
+def _build_provider_operation_lookups(
+    mcp_tools: Mapping[str, Mapping[str, Any]],
+    *,
+    workspace_root: str | Path,
+    env_allowlist: Sequence[str] = (),
+) -> dict[VibeStage, Any]:
+    """Build stage-specific lookup callbacks from operator-configured MCP tools."""
+    workspace = Path(workspace_root).expanduser().resolve()
+    stage_capabilities = (
+        (VibeStage.DEVELOPMENT, "repository"),
+        (VibeStage.PREVIEW_DEPLOYMENT, "deployment"),
+        (VibeStage.PRODUCTION_DEPLOY, "release"),
+    )
+    lookups: dict[VibeStage, Any] = {}
+    for stage, capability in stage_capabilities:
+        capability_spec = mcp_tools.get(capability, {})
+        if not isinstance(capability_spec, Mapping):
+            continue
+        spec = capability_spec.get("operation_lookup")
+        if not isinstance(spec, Mapping):
+            continue
+        adapter = MCPStdioToolAdapter(
+            argv=spec["argv"],
+            tool_name=spec["tool_name"],
+            argument_map=spec.get(
+                "argument_map",
+                {"operation_id": "$operation_id", "idempotency_key": "$idempotency_key"},
+            ),
+            timeout_seconds=int(spec.get("timeout_seconds", 30)),
+            env_allowlist=tuple(spec.get("env_allowlist", env_allowlist)),
+        )
+
+        def lookup(
+            operation_id: str,
+            idempotency_key: str,
+            *,
+            _adapter: MCPStdioToolAdapter = adapter,
+            _stage: VibeStage = stage,
+        ) -> Mapping[str, Any]:
+            result = _adapter({
+                "stage": _stage.value,
+                "operation_id": operation_id,
+                "idempotency_key": idempotency_key,
+                "state": {
+                    "workspace_root": str(workspace),
+                    "project_root": str(workspace),
+                },
+            })
+            if not isinstance(result, Mapping):
+                raise AdapterUnavailable("provider operation lookup returned an invalid result")
+            return dict(result)
+
+        lookups[stage] = lookup
+    return lookups
+
+
 @dataclass(frozen=True)
 class VibeHostConfig:
     provider: str | None
@@ -1455,7 +1512,45 @@ def load_host_config(path: str | Path | None = None) -> VibeHostConfig:
         timeout = spec.get("timeout_seconds", 30)
         if type(timeout) is not int or not 1 <= timeout <= 300:
             raise ValueError(f"MCP tool {name} timeout_seconds must be 1..300")
-        tools[name] = spec
+        normalized_spec = dict(spec)
+        lookup_spec = spec.get("operation_lookup")
+        if lookup_spec is not None:
+            if name not in {"repository", "deployment", "release"}:
+                raise ValueError("operation_lookup is only valid for repository, deployment, and release tools")
+            if not isinstance(lookup_spec, dict):
+                raise ValueError(f"MCP tool {name} operation_lookup must be an object")
+            lookup_argv = lookup_spec.get("argv")
+            if not isinstance(lookup_argv, list) or not lookup_argv or any(
+                not isinstance(item, str) or not item for item in lookup_argv
+            ):
+                raise ValueError(f"MCP tool {name} operation_lookup requires an argv array")
+            lookup_name = lookup_spec.get("tool_name")
+            if not isinstance(lookup_name, str) or not lookup_name.strip():
+                raise ValueError(f"MCP tool {name} operation_lookup requires tool_name")
+            lookup_arguments = lookup_spec.get(
+                "argument_map",
+                {"operation_id": "$operation_id", "idempotency_key": "$idempotency_key"},
+            )
+            if not isinstance(lookup_arguments, dict) or any(
+                not isinstance(key, str) or not key.strip() for key in lookup_arguments
+            ):
+                raise ValueError(f"MCP tool {name} operation_lookup argument_map must be an object")
+            lookup_env = lookup_spec.get("env_allowlist", tool_env)
+            if not isinstance(lookup_env, list) or any(
+                not isinstance(item, str) or not re.fullmatch(r"[A-Z_][A-Z0-9_]*", item)
+                for item in lookup_env
+            ):
+                raise ValueError(f"MCP tool {name} operation_lookup env_allowlist must contain environment variable names")
+            lookup_timeout = lookup_spec.get("timeout_seconds", timeout)
+            if type(lookup_timeout) is not int or not 1 <= lookup_timeout <= 300:
+                raise ValueError(f"MCP tool {name} operation_lookup timeout_seconds must be 1..300")
+            normalized_spec["operation_lookup"] = {
+                **lookup_spec,
+                "argument_map": lookup_arguments,
+                "env_allowlist": lookup_env,
+                "timeout_seconds": lookup_timeout,
+            }
+        tools[name] = normalized_spec
     browser_required = raw.get("browser_qa_required", True)
     if type(browser_required) is not bool:
         raise ValueError("browser_qa_required must be a boolean")
@@ -1468,8 +1563,12 @@ def load_host_config(path: str | Path | None = None) -> VibeHostConfig:
     preview_rationale = raw.get("preview_deployment_rationale", "")
     if not isinstance(preview_rationale, str) or (not preview_required and not preview_rationale.strip()):
         raise ValueError("preview deployment not-applicable requires an explicit rationale")
-    if preview_required and not {"deployment", "preview"}.issubset(mcp_tools):
+    if preview_required and not {"deployment", "preview"}.issubset(tools):
         raise ValueError("preview deployment requires configured deployment and preview MCP tools")
+    if preview_required and "operation_lookup" not in tools["deployment"]:
+        raise ValueError("preview deployment requires a provider-native operation_lookup tool")
+    if "release" in tools and "operation_lookup" not in tools["release"]:
+        raise ValueError("production release requires a provider-native operation_lookup tool")
     if browser_required and not preview_required:
         raise ValueError("browser QA requires an explicitly configured isolated preview deployment; otherwise disable browser QA with a rationale")
     security_required = raw.get("security_tool_required", True)
@@ -1607,10 +1706,16 @@ class LocalVibeCodingHost:
         learning_path = self.state_root / f"adapter-learning-{tool_config_digest[:12]}.json"
         # Reuse the host operations database; do not create a parallel ledger file.
         side_effect_ledger = DurableSideEffectLedger(self.state_root / "operations.sqlite3")
+        lookup_operations = _build_provider_operation_lookups(
+            self.config.mcp_tools,
+            workspace_root=workspace,
+            env_allowlist=self.config.env_allowlist,
+        )
         registry = build_host_adapter_registry(
             active_agent, tools, version=f"local-host-v1-{tool_config_digest[:16]}", max_risk="critical",
             side_effect_ledger=side_effect_ledger,
             side_effect_event_recorder=journal.record_provider_event,
+            lookup_operations=lookup_operations,
         )
         registry.attach_learning_store(learning_path)
         checkpoints = DurableVibeCheckpointStore(self.state_root / "checkpoints")
