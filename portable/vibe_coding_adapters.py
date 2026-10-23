@@ -120,6 +120,8 @@ class AdapterRegistration:
     estimated_latency_ms: float = 500.0
     external_side_effects: bool = False
     lookup_operation: Callable[[str, str], Mapping[str, Any]] | None = None
+    supports_provider_idempotency: bool = False
+    lookup_not_found_is_authoritative: bool = False
 
     def __post_init__(self) -> None:
         if not self.adapter_id.strip() or not self.version.strip():
@@ -128,6 +130,12 @@ class AdapterRegistration:
             raise ValueError("adapter must serve at least one stage and have a callable")
         if self.lookup_operation is not None and not callable(self.lookup_operation):
             raise ValueError("lookup_operation must be callable when configured")
+        if not isinstance(self.supports_provider_idempotency, bool):
+            raise ValueError("supports_provider_idempotency must be boolean")
+        if not isinstance(self.lookup_not_found_is_authoritative, bool):
+            raise ValueError("lookup_not_found_is_authoritative must be boolean")
+        if self.lookup_not_found_is_authoritative and self.lookup_operation is None:
+            raise ValueError("authoritative lookup requires a configured provider lookup operation")
         if self.risk not in {"low", "medium", "high", "critical"}:
             raise ValueError("adapter risk must be low, medium, high, or critical")
         risk_rank = {"low": 0, "medium": 1, "high": 2, "critical": 3}
@@ -221,6 +229,8 @@ class VibeAdapterRegistry:
                 "estimated_latency_ms": item.estimated_latency_ms,
                 "external_side_effects": item.external_side_effects,
                 "lookup_operation_configured": item.lookup_operation is not None,
+                "supports_provider_idempotency": item.supports_provider_idempotency,
+                "lookup_not_found_is_authoritative": item.lookup_not_found_is_authoritative,
             }
             for item in sorted(self._adapters.values(), key=lambda adapter: adapter.adapter_id)
         ]
@@ -286,11 +296,15 @@ class VibeAdapterRegistry:
             # so an ambiguous remote outcome can be resolved without redispatch.
             if (
                 stage in {VibeStage.PREVIEW_DEPLOYMENT, VibeStage.PRODUCTION_DEPLOY}
-                and selected.lookup_operation is None
+                and (
+                    selected.lookup_operation is None
+                    or not selected.supports_provider_idempotency
+                    or not selected.lookup_not_found_is_authoritative
+                )
                 and (existing_effect is None or existing_effect["state"] == "retry_authorized")
             ):
                 raise AdapterUnavailable(
-                    f"stage {stage.value} requires provider-native operation lookup before deployment dispatch"
+                    f"stage {stage.value} requires provider-native idempotency and authoritative operation lookup before deployment dispatch"
                 )
         stats = self._stats[selected.adapter_id]
         stats.attempts += 1
@@ -584,6 +598,7 @@ def build_host_adapter_registry(
     side_effect_ledger: DurableSideEffectLedger | None = None,
     side_effect_event_recorder: Callable[[Mapping[str, Any]], None] | None = None,
     lookup_operations: Mapping[VibeStage | str, Callable[[str, str], Mapping[str, Any]]] | None = None,
+    provider_capabilities: Mapping[VibeStage | str, Mapping[str, bool]] | None = None,
 ) -> VibeAdapterRegistry:
     """Wire one active-agent dispatcher plus concrete capability tools into all stages.
 
@@ -635,6 +650,29 @@ def build_host_adapter_registry(
         if not callable(lookup):
             raise ValueError(f"lookup operation for {stage.value} must be callable")
         lookup_by_stage[stage] = lookup
+
+    provider_capabilities_by_stage: dict[VibeStage, dict[str, bool]] = {}
+    for key, capabilities in (provider_capabilities or {}).items():
+        try:
+            stage = key if isinstance(key, VibeStage) else VibeStage(str(key))
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"invalid provider-capability stage: {key!r}") from exc
+        if stage not in {VibeStage.PREVIEW_DEPLOYMENT, VibeStage.PRODUCTION_DEPLOY}:
+            raise ValueError(f"provider capabilities are only configurable for deployment stages: {stage.value}")
+        if not isinstance(capabilities, Mapping):
+            raise ValueError(f"provider capabilities for {stage.value} must be a mapping")
+        unknown = set(capabilities) - {"supports_provider_idempotency", "lookup_not_found_is_authoritative"}
+        if unknown:
+            raise ValueError(f"unknown provider capabilities for {stage.value}: {sorted(unknown)}")
+        values = {
+            "supports_provider_idempotency": capabilities.get("supports_provider_idempotency", False),
+            "lookup_not_found_is_authoritative": capabilities.get("lookup_not_found_is_authoritative", False),
+        }
+        if any(not isinstance(value, bool) for value in values.values()):
+            raise ValueError(f"provider capabilities for {stage.value} must be booleans")
+        if values["lookup_not_found_is_authoritative"] and stage not in lookup_by_stage:
+            raise ValueError(f"authoritative lookup for {stage.value} requires a lookup operation")
+        provider_capabilities_by_stage[stage] = values
 
     registry = VibeAdapterRegistry(
         max_risk=max_risk,
@@ -747,6 +785,8 @@ def build_host_adapter_registry(
             historical_success=0.5,
             external_side_effects=stage in _SIDE_EFFECT_STAGES,
             lookup_operation=lookup_by_stage.get(stage),
+            supports_provider_idempotency=provider_capabilities_by_stage.get(stage, {}).get("supports_provider_idempotency", False),
+            lookup_not_found_is_authoritative=provider_capabilities_by_stage.get(stage, {}).get("lookup_not_found_is_authoritative", False),
         ))
     return registry
 
