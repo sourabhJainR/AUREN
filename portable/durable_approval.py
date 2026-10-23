@@ -47,7 +47,23 @@ class InvalidApprovalTransition(RuntimeError):
 class ApprovalPending(Exception):
     """Suspend a durable task at an approval boundary with a small safe checkpoint."""
 
-    _FORBIDDEN_KEY_PARTS = ("secret", "password", "credential", "token", "prompt", "answer", "draft", "content", "response")
+    _FORBIDDEN_KEY_PARTS = (
+        "secret", "password", "credential", "token", "prompt", "answer",
+        "draft", "content", "response", "authorization", "api_key", "private_key",
+    )
+    # Defense in depth for values stored under otherwise harmless checkpoint keys.
+    # Checkpoints are metadata only; these patterns catch common credential formats,
+    # not every possible secret. Callers must still store references/digests, never
+    # raw prompts, payloads, credentials, or provider responses.
+    _SENSITIVE_VALUE_PATTERNS = (
+        re.compile(r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----", re.IGNORECASE),
+        re.compile(r"\bBearer\s+[A-Za-z0-9._~+/=-]{8,}", re.IGNORECASE),
+        re.compile(r"\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16}|xox[baprs]-[A-Za-z0-9-]{10,}|sk-[A-Za-z0-9_-]{20,})\b"),
+        re.compile(r"\b(?:api[_-]?key|access[_-]?token|refresh[_-]?token|password|passwd|client[_-]?secret|private[_-]?key|authorization)\s*[:=]\s*['\"]?[^,\s'\"]{4,}", re.IGNORECASE),
+        re.compile(r"\bhttps?://[^/\s:@]+:[^/\s@]+@", re.IGNORECASE),
+        re.compile(r"[?&](?:access_token|token|api_key|key|password|client_secret)=([^&#\s]{4,})", re.IGNORECASE),
+        re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b"),
+    )
 
     def __init__(self, approval_id: str, checkpoint: Mapping[str, Any]):
         self.approval_id = _required(approval_id, "approval_id")
@@ -65,6 +81,8 @@ class ApprovalPending(Exception):
                 for child in value:
                     validate(child, path)
             elif isinstance(value, str):
+                if any(pattern.search(value) for pattern in self._SENSITIVE_VALUE_PATTERNS):
+                    raise ValueError("checkpoint must not contain secret-like values; store a reference or digest instead")
                 if len(value) > 2048:
                     raise ValueError("checkpoint strings must be references or bounded identifiers")
             elif value is not None and type(value) not in {bool, int, float}:

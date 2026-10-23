@@ -14,6 +14,7 @@ from pathlib import Path
 from portable.action_governance import ActionGovernanceGateway, ActionPolicy, ActionRequest
 from portable.durable_approval import (
     ApprovalConflict,
+    ApprovalPending,
     DurableApprovalStore,
     InvalidApprovalTransition,
 )
@@ -252,6 +253,37 @@ class DurableApprovalTests(unittest.TestCase):
             record.approval_id, "approve", approver_id=approver,
             roles=("release-approver",), scope="repo:publish", reason="reviewed exact artifact",
         )
+
+    def test_approval_checkpoint_rejects_secret_like_values_recursively(self):
+        secret_like_values = (
+            "Authorization: Bearer synthetic-token-value-123456",
+            "https://user:synthetic-password@example.invalid/private",
+            "api_key=synthetic-api-key-value",
+            "-----BEGIN PRIVATE KEY-----\\nsynthetic-private-key\\n-----END PRIVATE KEY-----",
+            "ghp_" + "A" * 36,
+            "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0ZXN0In0.c2lnbmF0dXJl",
+            "?access_token=synthetic-access-token-value",
+        )
+        for value in secret_like_values:
+            with self.subTest(value_kind=value.split("=", 1)[0][:24]):
+                with self.assertRaisesRegex(ValueError, "secret-like values"):
+                    ApprovalPending("approval-secret-check", {"artifact_ref": value})
+
+        with self.assertRaisesRegex(ValueError, "secret-like values"):
+            ApprovalPending(
+                "approval-secret-check",
+                {"metadata": [{"note": "Bearer nested-synthetic-secret-value"}]},
+            )
+
+    def test_approval_checkpoint_accepts_digests_and_non_secret_references(self):
+        checkpoint = {
+            "operation_id": "publish:task-17:v1",
+            "artifact_digest": "a" * 64,
+            "evidence_digest": "b" * 64,
+            "artifact_ref": "https://evidence.example/artifacts/123",
+        }
+        pending = ApprovalPending("approval-safe-check", checkpoint)
+        self.assertEqual(pending.checkpoint, checkpoint)
 
     def test_request_is_durable_and_idempotent_across_store_recreation(self):
         first = self.create()
