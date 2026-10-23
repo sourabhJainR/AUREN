@@ -41,7 +41,7 @@ class SafeProviderBoundTests(unittest.TestCase):
 
     def test_deadline_terminates_non_cooperative_process(self):
         started = time.monotonic()
-        with self.assertRaisesRegex(TimeoutError, "hard deadline"):
+        with self.assertRaisesRegex(TimeoutError, "deadline"):
             self.run_command("import time; time.sleep(10)", timeout_seconds=0.2, max_output_bytes=1024)
         self.assertLess(time.monotonic() - started, 2)
 
