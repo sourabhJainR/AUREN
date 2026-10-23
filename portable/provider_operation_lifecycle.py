@@ -144,11 +144,11 @@ class ProviderOperationLifecycle:
         # provider_operation_id is the provider's own remote identifier and may
         # differ from AUREN's stable operation ID. It is not used as the request
         # binding; explicit operation_id/idempotency_key fields are.
-        if "provider_operation_id" in receipt and (
+        if (
             not isinstance(receipt.get("provider_operation_id"), str)
             or not receipt.get("provider_operation_id").strip()
         ):
-            reason = "provider receipt has an invalid provider_operation_id"
+            reason = "provider receipt has an invalid or missing provider_operation_id"
             self.ledger.require_reconciliation(operation_key, reason)
             self._event(
                 operation_key, "reconcile_required", op_id, decision.payload_digest,
