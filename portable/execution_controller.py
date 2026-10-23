@@ -121,6 +121,10 @@ class ContinuousRunReport:
     trust_scores: tuple[TrustScore, ...]
 
 
+class WorkKeyConflict(ValueError):
+    """A stable work key was reused for a different task intent."""
+
+
 class LeaseLostError(RuntimeError):
     """Raised when a stale worker attempts to renew or finalize a task lease."""
 
@@ -189,9 +193,16 @@ class ExecutionController:
                 ("quota_provider", "TEXT"), ("quota_reason", "TEXT"),
                 ("quota_attempts", "INTEGER NOT NULL DEFAULT 0"),
                 ("next_retry_at", "TEXT"), ("quota_blocked", "INTEGER NOT NULL DEFAULT 0"),
+                ("work_key", "TEXT"), ("intent_digest", "TEXT"),
             ):
                 if column not in columns:
                     db.execute(f"ALTER TABLE tasks ADD COLUMN {column} {declaration}")
+            # A stable key identifies one durable submission, not merely a shared work-unit label.
+            # Legacy rows keep NULL keys; new keyed submissions are serialized by this unique index.
+            db.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS tasks_work_key_unique "
+                "ON tasks(work_key) WHERE work_key IS NOT NULL AND work_key <> ''"
+            )
         self.evidence_ledger = CanonicalEvidenceLedger(
             self.root / ".auren" / "canonical-evidence.sqlite3"
         )
@@ -1432,8 +1443,17 @@ class ExecutionController:
             stale_after_seconds=stale_after_seconds, now=now,
         )
 
-    def submit(self, handler: str, payload: Mapping[str, Any], *, goal: str | None = None) -> DurableTask:
+    def submit(
+        self,
+        handler: str,
+        payload: Mapping[str, Any],
+        *,
+        goal: str | None = None,
+        work_key: str | None = None,
+    ) -> DurableTask:
         execution_class = self._handler_execution_class(handler)
+        if not isinstance(payload, Mapping):
+            raise TypeError("durable task payload must be a mapping")
         if execution_class == "context_provider":
             raise ValueError("context providers are internal-only and cannot be submitted as tasks")
         if execution_class not in {"read_only", "ci_gated", "consequential", "approval_gated"}:
@@ -1444,23 +1464,83 @@ class ExecutionController:
             if not self._handler_approval_gate_policy(handler):
                 raise ValueError("approval-gated handler has no trusted gateway/ledger policy")
         self._load_handler(handler)
-        work = self.company.start(goal or f"execute durable handler: {handler}")
-        task = DurableTask(uuid4().hex, handler, dict(payload), "pending", 0, work.id)
-        with closing(sqlite3.connect(self.db_path)) as db, db:
-            now = _now()
-            db.execute(
-                "INSERT INTO tasks(id,handler,payload,state,attempts,work_unit_id,created_at,updated_at,heartbeat_at,lease_until) "
-                "VALUES(?,?,?,?,?,?,?,?,?,?)",
-                (task.id, task.handler, json.dumps(task.payload, sort_keys=True),
-                 task.state, task.attempts, task.work_unit_id, now, now, now, now),
+        payload_copy = dict(payload)
+        payload_key = payload_copy.get("work_key")
+        candidate_key = work_key if work_key is not None else payload_key
+        stable_work_key: str | None = None
+        if candidate_key is not None:
+            if (
+                not isinstance(candidate_key, str)
+                or not candidate_key.strip()
+                or len(candidate_key.strip()) > 256
+                or any(not char.isprintable() for char in candidate_key)
+            ):
+                raise ValueError("work_key must be a non-empty, printable string of at most 256 characters")
+            stable_work_key = candidate_key.strip()
+            if payload_key is not None and (
+                not isinstance(payload_key, str) or payload_key.strip() != stable_work_key
+            ):
+                raise WorkKeyConflict("explicit work_key conflicts with payload work_key")
+            # Keep the key visible in the durable task envelope so operators and
+            # resumed handlers can identify the canonical work unit.
+            payload_copy["work_key"] = stable_work_key
+        goal_text = goal or f"execute durable handler: {handler}"
+        try:
+            payload_json = json.dumps(
+                payload_copy, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False,
             )
+            intent_json = json.dumps(
+                {"handler": handler, "goal": goal_text, "payload": payload_copy},
+                sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False,
+            )
+        except (TypeError, ValueError) as exc:
+            raise ValueError("durable task payload and intent must be JSON-safe") from exc
+        intent_digest = hashlib.sha256(intent_json.encode("utf-8")).hexdigest()
+
+        # Hold a SQLite write reservation across lookup, work-unit creation, and task
+        # insertion. If the process dies after company.start(), its own work_key
+        # makes the next submission recover that same work unit without duplication.
+        with closing(sqlite3.connect(self.db_path)) as db:
+            db.execute("BEGIN IMMEDIATE")
+            try:
+                if stable_work_key is not None:
+                    existing = db.execute(
+                        "SELECT id,handler,payload,state,attempts,work_unit_id,lease_generation,lease_token,intent_digest "
+                        "FROM tasks WHERE work_key=?",
+                        (stable_work_key,),
+                    ).fetchone()
+                    if existing is not None:
+                        if existing[8] != intent_digest:
+                            raise WorkKeyConflict(
+                                "work_key already belongs to a different handler, payload, or goal"
+                            )
+                        db.commit()
+                        return DurableTask(
+                            existing[0], existing[1], json.loads(existing[2]), existing[3],
+                            int(existing[4]), existing[5], int(existing[6] or 0), existing[7],
+                        )
+                work = self.company.start(goal_text, work_key=stable_work_key)
+                task = DurableTask(uuid4().hex, handler, payload_copy, "pending", 0, work.id)
+                now = _now()
+                db.execute(
+                    "INSERT INTO tasks(id,handler,payload,state,attempts,work_unit_id,created_at,updated_at,"
+                    "heartbeat_at,lease_until,work_key,intent_digest) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (
+                        task.id, task.handler, payload_json, task.state, task.attempts, task.work_unit_id,
+                        now, now, now, now, stable_work_key, intent_digest,
+                    ),
+                )
+                db.commit()
+            except BaseException:
+                if db.in_transaction:
+                    db.rollback()
+                raise
         self._capture_event("task_submitted", task, status="pending", metadata={"handler": task.handler})
         self._record_progress(
             task.id, "task_submitted", state="queued", stage="queued",
             message="Task durably queued; execution has not started.",
         )
         return task
-
     def _claim(self, task_id: str) -> DurableTask | None:
         # Claim under a write lock so two controllers cannot both observe
         # "pending" and execute the same side-effecting handler. Each claim
