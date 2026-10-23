@@ -53,6 +53,12 @@ with a stable key derived from the canonical run/task/action identity.
   invoking the adapter again. Missing ledger or workflow identity blocks the call before
   adapter dispatch. The local stage receipt does not prove provider-native idempotency.
 
+- A Vibe adapter may provide an `lookup_operation(operation_id, idempotency_key)`
+  callback. A lookup is used only after the durable ledger marks an operation
+  `reconcile_required`; it never triggers redispatch. The result is accepted only
+  when the ledger's configured trusted reconciliation verifier validates the
+  provider operation ID and evidence reference. Without both a lookup and trusted
+  verifier, recovery remains blocked.
 - Production rollout still needs failure-injection evidence against each consequential adapter.
 
 ## Validation

@@ -119,12 +119,15 @@ class AdapterRegistration:
     estimated_cost: float = 0.5
     estimated_latency_ms: float = 500.0
     external_side_effects: bool = False
+    lookup_operation: Callable[[str, str], Mapping[str, Any]] | None = None
 
     def __post_init__(self) -> None:
         if not self.adapter_id.strip() or not self.version.strip():
             raise ValueError("adapter_id and version are required")
         if not self.stages or not callable(self.invoke):
             raise ValueError("adapter must serve at least one stage and have a callable")
+        if self.lookup_operation is not None and not callable(self.lookup_operation):
+            raise ValueError("lookup_operation must be callable when configured")
         if self.risk not in {"low", "medium", "high", "critical"}:
             raise ValueError("adapter risk must be low, medium, high, or critical")
         risk_rank = {"low": 0, "medium": 1, "high": 2, "critical": 3}
@@ -327,6 +330,7 @@ class VibeAdapterRegistry:
 
                 durable_receipt = self.side_effect_lifecycle.execute(
                     operation_key, selected.adapter_id, request, dispatch_stage,
+                    lookup=selected.lookup_operation,
                 )
                 output = durable_receipt.get("result")
                 if not isinstance(output, Mapping):
