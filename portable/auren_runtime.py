@@ -698,6 +698,7 @@ def main(argv: list[str] | None = None) -> int:
             "completed_tasks": report.completed_tasks,
             "failed_tasks": report.failed_tasks,
             "remaining_nonterminal_tasks": report.remaining_nonterminal_tasks,
+            "task_state_counts": dict(report.task_state_counts),
             "idle_cycles": report.idle_cycles,
             "stop_reason": report.stop_reason,
             "trust_scores": [score.as_dict() for score in report.trust_scores],
@@ -711,7 +712,8 @@ def main(argv: list[str] | None = None) -> int:
                 f"processed_work_units={report.processed_work_units}; "
                 f"completed_tasks={report.completed_tasks}; failed_tasks={report.failed_tasks}; "
                 f"remaining_nonterminal_tasks={report.remaining_nonterminal_tasks}; "
-                f"idle_cycles={report.idle_cycles}"
+                f"idle_cycles={report.idle_cycles}; "
+                f"task_state_counts={json.dumps(payload['task_state_counts'], sort_keys=True)}"
             )
         if report.stop_reason == "cancelled":
             return 130
