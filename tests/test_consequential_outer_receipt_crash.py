@@ -84,58 +84,58 @@ class ConsequentialOuterReceiptCrashTests(unittest.TestCase):
     def test_restart_blocks_outer_receipt_gap_without_replaying_provider(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
-                marker = tmp_path / "provider-dispatches.log"
-                controller = ExecutionController(tmp_path)
-                _register(controller)
-                task = controller.submit(
-                    "outer-receipt-crash-action",
-                    {
-                        "marker_path": str(marker),
-                        "target": "staging",
-                        "revision": "abc123",
-                        "auren_idempotency": {"key": "outer-receipt-crash:staging:abc123"},
-                    },
-                    goal="prove provider receipt survives outer receipt crash",
-                    work_key="test:outer-provider-receipt-crash:staging:abc123",
+            marker = tmp_path / "provider-dispatches.log"
+            controller = ExecutionController(tmp_path)
+            _register(controller)
+            task = controller.submit(
+                "outer-receipt-crash-action",
+                {
+                    "marker_path": str(marker),
+                    "target": "staging",
+                    "revision": "abc123",
+                    "auren_idempotency": {"key": "outer-receipt-crash:staging:abc123"},
+                },
+                goal="prove provider receipt survives outer receipt crash",
+                work_key="test:outer-provider-receipt-crash:staging:abc123",
+            )
+
+            process = multiprocessing.get_context("spawn").Process(
+                target=_die_after_inner_receipt_before_outer_receipt,
+                args=(str(tmp_path), task.id),
+            )
+            process.start()
+            process.join(20)
+            if process.is_alive():
+                process.terminate()
+                process.join(3)
+                raise AssertionError("cross-ledger crash fixture exceeded its time budget")
+            assert process.exitcode == 91
+            assert marker.read_text(encoding="utf-8").splitlines() == ["dispatched"]
+
+            outer_key = "consequential-idempotency:outer-receipt-crash:staging:abc123"
+            provider_key = "provider-operation:" + outer_key
+            ledger = DurableSideEffectLedger(controller.db_path)
+            assert ledger.get(provider_key)["state"] == "completed"
+            assert ledger.get(outer_key)["state"] == "executing"
+
+            # A crashed process leaves a running task lease. Expire that lease explicitly
+            # so the restarted controller can claim it and exercise the durable outer gate.
+            with sqlite3.connect(controller.db_path) as db:
+                db.execute(
+                    "UPDATE tasks SET lease_until=?, heartbeat_at=? WHERE id=?",
+                    ("2000-01-01T00:00:00+00:00", "2000-01-01T00:00:00+00:00", task.id),
                 )
+                db.commit()
 
-                process = multiprocessing.get_context("spawn").Process(
-                    target=_die_after_inner_receipt_before_outer_receipt,
-                    args=(str(tmp_path), task.id),
-                )
-                process.start()
-                process.join(20)
-                if process.is_alive():
-                    process.terminate()
-                    process.join(3)
-                    raise AssertionError("cross-ledger crash fixture exceeded its time budget")
-                assert process.exitcode == 91
-                assert marker.read_text(encoding="utf-8").splitlines() == ["dispatched"]
-
-                outer_key = "consequential-idempotency:outer-receipt-crash:staging:abc123"
-                provider_key = "provider-operation:" + outer_key
-                ledger = DurableSideEffectLedger(controller.db_path)
-                assert ledger.get(provider_key)["state"] == "completed"
-                assert ledger.get(outer_key)["state"] == "executing"
-
-                # A crashed process leaves a running task lease. Expire that lease explicitly
-                # so the restarted controller can claim it and exercise the durable outer gate.
-                with sqlite3.connect(controller.db_path) as db:
-                    db.execute(
-                        "UPDATE tasks SET lease_until=?, heartbeat_at=? WHERE id=?",
-                        ("2000-01-01T00:00:00+00:00", "2000-01-01T00:00:00+00:00", task.id),
-                    )
-                    db.commit()
-
-                restarted = ExecutionController(tmp_path)
-                _register(restarted)
-                assert restarted.run_once(task.id) is None
-                assert restarted.task(task.id).state == "blocked_reconciliation"
-                assert ledger.get(provider_key)["state"] == "completed"
-                assert ledger.get(outer_key)["state"] == "reconcile_required"
-                assert marker.read_text(encoding="utf-8").splitlines() == ["dispatched"]
-                assert any(
-                    event.get("event") == "provider_operation_blocked"
-                    and event.get("task_id") == task.id
-                    for event in restarted.progress_journal._events()
-                )
+            restarted = ExecutionController(tmp_path)
+            _register(restarted)
+            assert restarted.run_once(task.id) is None
+            assert restarted.task(task.id).state == "blocked_reconciliation"
+            assert ledger.get(provider_key)["state"] == "completed"
+            assert ledger.get(outer_key)["state"] == "reconcile_required"
+            assert marker.read_text(encoding="utf-8").splitlines() == ["dispatched"]
+            assert any(
+                event.get("event") == "provider_operation_blocked"
+                and event.get("task_id") == task.id
+                for event in restarted.progress_journal._events()
+            )
