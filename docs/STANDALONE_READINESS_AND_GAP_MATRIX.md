@@ -24,12 +24,10 @@
 - [x] Durable execution and progress-journal recovery have regression coverage for selected commit boundaries.
 - [ ] Extend fault injection to every external side-effect boundary: intent persisted, dispatch started, provider accepted, remote operation completed, receipt persisted, terminal state persisted.
 - [x] Add a command-backed provider invoker that terminates a timed-out child process and has regression tests for timeout, environment isolation, output limits, and error redaction. This is a bounded process adapter, not a full sandbox.
-- [x] Hard termination and process-tree termination are implemented for the tested platforms: POSIX uses process-group termination, and Windows uses a kill-on-close Job Object. The descendant-process regression passed on main SHA `2ece3959991ac41f9b104242e25a4e1f8153e85e`.
+- [x] Verify hard termination and process-tree termination: implementation is present for the tested platforms: POSIX uses process-group termination, and Windows uses a kill-on-close Job Object. The descendant-process regression passed on main SHA `2ece3959991ac41f9b104242e25a4e1f8153e85e`.
 - [ ] Apply OS/container memory limits for untrusted provider execution. Byte-bounded output capture limits retained output, but does not enforce a process memory quota.
 - [ ] Prove cancellation and absolute deadlines propagate end-to-end through supervisor, graph nodes, provider/model adapters, child processes, and validation commands.
 - [ ] Prove unknown remote outcomes reconcile by idempotency key or authoritative operation lookup before retry. Never automatically replay an uncertain operation.
-- [ ] Prove cancellation and absolute deadlines propagate through supervisor, graph nodes, provider/model adapters, child processes, and validation commands.
-- [ ] Prove unknown remote outcomes reconcile by idempotency key or operation lookup before retry. No automatic replay when completion is uncertain.
 
 **Exit evidence:** bounded wall-clock tests, platform-specific process-tree termination, durable checkpoint snapshots, duplicate-side-effect counters, restart/reconciliation tests, and no false-success assertions.
 
