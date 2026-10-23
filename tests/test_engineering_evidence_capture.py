@@ -2,8 +2,10 @@
 import json
 import multiprocessing
 import os
+import sqlite3
 import tempfile
-from datetime import datetime, timezone
+import threading
+from datetime import datetime, timedelta, timezone
 import unittest
 from unittest.mock import MagicMock, patch
 from pathlib import Path
@@ -88,6 +90,16 @@ def _crash_after_sink_accept(database, accepted_log):
     os._exit(90)
 
 
+def _expire_outbox_claim(database_path):
+    stale_at = (datetime.now(timezone.utc) - timedelta(seconds=600)).isoformat()
+    with sqlite3.connect(database_path) as db:
+        db.execute(
+            "UPDATE engineering_event_outbox SET updated_at=? "
+            "WHERE delivery_state='pending' AND claim_token<>''",
+            (stale_at,),
+        )
+
+
 class EngineeringEvidenceCaptureTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -150,6 +162,107 @@ class EngineeringEvidenceCaptureTests(unittest.TestCase):
 
 
 
+
+    def test_concurrent_flushers_do_not_claim_the_same_pending_event(self):
+        capture = EvidenceCapture(self.path)
+        event = self.record(capture)
+        entered_sink = threading.Event()
+        release_sink = threading.Event()
+        delivered = []
+        results = []
+        errors = []
+
+        def slow_sink(item):
+            delivered.append(item["event_id"])
+            entered_sink.set()
+            if not release_sink.wait(5):
+                raise TimeoutError("test sink release timed out")
+
+        def flush():
+            try:
+                results.append(capture.flush_pending(lease_seconds=60))
+            except BaseException as exc:
+                errors.append(exc)
+
+        capture.sink = slow_sink
+        worker = threading.Thread(target=flush, daemon=True)
+        worker.start()
+        self.assertTrue(entered_sink.wait(5))
+        second = capture.flush_pending(lease_seconds=60)
+        self.assertEqual({"sent": 0, "pending": 1}, second)
+        self.assertEqual([event["event_id"]], delivered)
+
+        release_sink.set()
+        worker.join(5)
+        self.assertFalse(worker.is_alive())
+        self.assertEqual([], errors)
+        self.assertEqual([{"sent": 1, "pending": 0}], results)
+        self.assertEqual([event["event_id"]], delivered)
+        with sqlite3.connect(self.path) as db:
+            row = db.execute(
+                "SELECT delivery_state,attempts,claim_token FROM engineering_event_outbox WHERE event_id=?",
+                (event["event_id"],),
+            ).fetchone()
+        self.assertEqual(("sent", 1, ""), row)
+
+    def test_stale_outbox_claim_is_recovered_with_the_same_event_id(self):
+        capture = EvidenceCapture(self.path)
+        event = self.record(capture)
+        stale_at = (datetime.now(timezone.utc) - timedelta(seconds=600)).isoformat()
+        with sqlite3.connect(self.path) as db:
+            db.execute(
+                "UPDATE engineering_event_outbox SET claim_token='dead-worker',attempts=1,updated_at=? "
+                "WHERE event_id=?",
+                (stale_at, event["event_id"]),
+            )
+        delivered = []
+        capture.sink = lambda item: delivered.append(item["event_id"])
+
+        result = capture.flush_pending(lease_seconds=30)
+
+        self.assertEqual({"sent": 1, "pending": 0}, result)
+        self.assertEqual([event["event_id"]], delivered)
+        with sqlite3.connect(self.path) as db:
+            row = db.execute(
+                "SELECT delivery_state,attempts,claim_token FROM engineering_event_outbox WHERE event_id=?",
+                (event["event_id"],),
+            ).fetchone()
+        self.assertEqual(("sent", 2, ""), row)
+
+    def test_outbox_claim_token_migration_preserves_existing_pending_rows(self):
+        updated_at = datetime.now(timezone.utc).isoformat()
+        with sqlite3.connect(self.path) as db:
+            db.execute("""CREATE TABLE engineering_event_outbox(
+                event_id TEXT PRIMARY KEY,
+                event_json TEXT NOT NULL,
+                delivery_state TEXT NOT NULL DEFAULT 'pending',
+                attempts INTEGER NOT NULL DEFAULT 0,
+                last_error TEXT NOT NULL DEFAULT '',
+                updated_at TEXT NOT NULL
+            )""")
+            db.execute(
+                "INSERT INTO engineering_event_outbox(event_id,event_json,delivery_state,attempts,last_error,updated_at) "
+                "VALUES(?,?,?,?,?,?)",
+                ("legacy-event", json.dumps({"event_id": "legacy-event"}), "pending", 2, "", updated_at),
+            )
+
+        capture = EvidenceCapture(self.path)
+
+        with sqlite3.connect(self.path) as db:
+            columns = {row[1] for row in db.execute("PRAGMA table_info(engineering_event_outbox)")}
+            row = db.execute(
+                "SELECT delivery_state,attempts,claim_token FROM engineering_event_outbox WHERE event_id='legacy-event'"
+            ).fetchone()
+        self.assertIn("claim_token", columns)
+        self.assertEqual(("pending", 2, ""), row)
+        self.assertEqual(1, capture.pending_exports())
+
+    def test_flush_pending_rejects_invalid_lease_budget(self):
+        capture = EvidenceCapture(self.path)
+        for lease_seconds in (0, -1, True, 1.5, 86401):
+            with self.subTest(lease_seconds=lease_seconds):
+                with self.assertRaisesRegex(ValueError, "lease_seconds"):
+                    capture.flush_pending(lease_seconds=lease_seconds)
 
     def test_signed_evidence_rejects_secret_query_before_canonical_ledger_write(self):
         evidence_path = self.path.parent / "canonical-evidence.sqlite3"
@@ -351,6 +464,7 @@ class EngineeringEvidenceCaptureTests(unittest.TestCase):
         self.assertEqual(1, len(reopened.events()))
         self.assertEqual(1, len(reopened.signed_receipts()))
         self.assertEqual(1, reopened.pending_exports())
+        _expire_outbox_claim(self.path)
         result = reopened.ingest_signed_external_evidence(
             envelope,
             verifier=lambda _signer, _signature, _message: True,
@@ -387,6 +501,7 @@ class EngineeringEvidenceCaptureTests(unittest.TestCase):
         self.assertEqual([event["event_id"]], first_delivery)
 
         retried_ids = []
+        _expire_outbox_claim(self.path)
         restarted = EvidenceCapture(self.path, sink=lambda item: retried_ids.append(item["event_id"]))
         result = restarted.flush_pending()
         self.assertEqual([event["event_id"]], retried_ids)
