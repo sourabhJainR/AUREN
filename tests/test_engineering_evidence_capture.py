@@ -96,7 +96,8 @@ class EngineeringEvidenceCaptureTests(unittest.TestCase):
 
 
     def test_process_death_after_sink_accept_replays_same_stable_event_id(self):
-        capture = EvidenceCapture(self.path)
+        # Configure a failing sink first so the local outbox has a pending row.
+        capture = EvidenceCapture(self.path, sink=failing_sink)
         event = self.record(capture)
         accepted_log = self.path.parent / "accepted-event-ids.log"
         process = multiprocessing.get_context("spawn").Process(
