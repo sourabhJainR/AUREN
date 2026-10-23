@@ -314,7 +314,14 @@ class VibeAdapterRegistry:
                 )
 
                 def dispatch_stage(intent: Mapping[str, Any], operation_id: str, _key: str) -> Mapping[str, Any]:
-                    raw = selected.invoke(dict(intent))
+                    dispatch_request = dict(intent)
+                    dispatch_request["provider_operation"] = {
+                        "operation_id": operation_id,
+                        "idempotency_key": _key,
+                        "provider": selected.adapter_id,
+                        "adapter_version": selected.version,
+                    }
+                    raw = selected.invoke(dispatch_request)
                     if not isinstance(raw, Mapping):
                         raise TypeError("adapter must return a structured mapping")
                     valid, _reason = validate_stage_output(stage, raw)
