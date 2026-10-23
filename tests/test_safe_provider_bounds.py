@@ -100,8 +100,11 @@ class SafeProviderBoundTests(unittest.TestCase):
             "HARNESS_PROVIDER_MAX_RETRIES": "3",
             "HARNESS_PROVIDER_RETRY_DELAY": "0.5",
             "HARNESS_PROVIDER_TIMEOUT_SECONDS": "5",
+            "AUREN_HARNESS_PROVIDER_TIMEOUT_SECONDS": "5",
             "HARNESS_PROVIDER_TOTAL_TIMEOUT_SECONDS": "1",
+            "AUREN_HARNESS_PROVIDER_TOTAL_TIMEOUT_SECONDS": "1",
             "HARNESS_PROVIDER_MAX_OUTPUT_BYTES": "1024",
+            "AUREN_HARNESS_PROVIDER_MAX_OUTPUT_BYTES": "1024",
             "HARNESS_WORKSPACE": directory,
             "AUREN_DEADLINE_EPOCH": "",
         }, clear=False), patch("safe_provider._prepare_prompt", return_value=("bounded prompt", {"digest": "a" * 64})), patch(
@@ -130,11 +133,10 @@ class SafeProviderBoundTests(unittest.TestCase):
             with self.subTest(setting=name), tempfile.TemporaryDirectory() as directory:
                 feedback = RecordingFeedback()
 
-                def configured_value(key, default=None):
-                    return value if key == name else default
-
-                with patch("safe_provider.get_auren_env", side_effect=configured_value), \
-                     patch("safe_provider._bounded_process_output") as invoke:
+                with patch.dict(os.environ, {
+                    name: value,
+                    f"AUREN_{name}": value,
+                }, clear=False), patch("safe_provider._bounded_process_output") as invoke:
                     code = _run_resilient(
                         [sys.executable, "-c", "print('must-not-run')"],
                         "bounded provider configuration regression",
