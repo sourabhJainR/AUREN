@@ -228,8 +228,11 @@ class ExecutionController:
         self._progress_reconciliation_incomplete = False
         self._submission_reconciliation_findings: list[str] = []
         self._submission_reconciliation_incomplete = False
+        self._terminal_reconciliation_findings: list[str] = []
+        self._terminal_reconciliation_incomplete = False
         self.reconcile_progress_journal()
         self.reconcile_submission_events()
+        self.reconcile_terminal_events()
         self.reconcile_approval_waits()
 
     def register_handler(
@@ -1008,6 +1011,150 @@ class ExecutionController:
             metadata=dict(metadata or {}),
             event_id=event_id,
         )
+
+    def _capture_terminal_event(
+        self, event_type: str, task: DurableTask, *, status: str,
+        metadata: Mapping[str, Any] | None = None,
+    ) -> None:
+        """Project terminal evidence only after task and executive receipts commit."""
+        try:
+            self._capture_event(
+                event_type,
+                task,
+                status=status,
+                metadata=metadata,
+                event_id=f"task-terminal:{task.id}:{status}",
+            )
+        except Exception:
+            # SQLite task and work-unit receipt are authoritative. Keep the audit
+            # gap visible and let bounded startup reconciliation repair the event.
+            self._terminal_reconciliation_findings = list(dict.fromkeys(
+                [*self._terminal_reconciliation_findings, task.id]
+            ))
+
+    def _terminal_event_status(self, task: DurableTask) -> tuple[str, str]:
+        """Validate terminal evidence against the durable task identity and outcome."""
+        expected_type = "task_completed" if task.state == "completed" else "task_failed"
+        with closing(sqlite3.connect(self.evidence_capture.path, timeout=5)) as db, db:
+            rows = db.execute(
+                "SELECT event_type,work_unit_id,task_id,iteration,status,metadata_json "
+                "FROM engineering_events WHERE task_id=? "
+                "AND event_type IN ('task_completed','task_failed') ORDER BY sequence",
+                (task.id,),
+            ).fetchall()
+        if not rows:
+            return "missing", ""
+        if len(rows) != 1:
+            return "blocked", "multiple terminal evidence records exist for one task"
+        event_type, work_unit_id, task_id, iteration, status, metadata_json = rows[0]
+        try:
+            metadata = json.loads(metadata_json)
+        except (TypeError, json.JSONDecodeError):
+            return "blocked", "terminal evidence metadata is corrupt"
+        expected_category = "success" if task.state == "completed" else "failure"
+        if (
+            event_type != expected_type
+            or work_unit_id != task.work_unit_id
+            or task_id != task.id
+            or isinstance(iteration, bool)
+            or not isinstance(iteration, int)
+            or iteration != task.attempts
+            or status != task.state
+            or not isinstance(metadata, Mapping)
+            or metadata.get("handler") != task.handler
+            or metadata.get("result_category") not in {None, expected_category}
+        ):
+            return "blocked", "terminal evidence does not match the durable task identity and outcome"
+        return "present", ""
+
+    def reconcile_terminal_events(
+        self, *, limit: int = 1000, time_budget_seconds: float = 2.0
+    ) -> dict[str, Any]:
+        """Repair missing terminal evidence only when task and executive receipts agree.
+
+        A task-row terminal state alone is insufficient. Conflicting task/work-unit
+        state or duplicate/mismatched evidence remains blocked. This method never
+        invokes a handler or replays an external side effect.
+        """
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 10000:
+            raise ValueError("terminal reconciliation limit must be an integer from 1 to 10000")
+        if (
+            isinstance(time_budget_seconds, bool)
+            or not isinstance(time_budget_seconds, (int, float))
+            or not math.isfinite(time_budget_seconds)
+            or not 0.05 <= time_budget_seconds <= 30.0
+        ):
+            raise ValueError("terminal reconciliation time budget must be between 0.05 and 30 seconds")
+        deadline = time.monotonic() + float(time_budget_seconds)
+        findings: list[str] = []
+        repaired = 0
+        scanned = 0
+        incomplete = False
+        with closing(sqlite3.connect(self.db_path, timeout=5)) as db, db:
+            total = int(db.execute(
+                "SELECT COUNT(*) FROM tasks WHERE state IN ('completed','failed')"
+            ).fetchone()[0])
+            rows = db.execute(
+                "SELECT id,handler,payload,state,attempts,work_unit_id FROM tasks "
+                "WHERE state IN ('completed','failed') ORDER BY updated_at DESC,id LIMIT ?",
+                (limit,),
+            ).fetchall()
+        for task_id, handler, payload_json, task_state, attempts, work_unit_id in rows:
+            if time.monotonic() >= deadline:
+                incomplete = True
+                break
+            scanned += 1
+            try:
+                payload = json.loads(payload_json)
+                if not isinstance(payload, Mapping):
+                    raise ValueError("task payload is not a mapping")
+                task = DurableTask(
+                    str(task_id), str(handler), dict(payload), str(task_state),
+                    int(attempts), str(work_unit_id),
+                )
+                work_state, _iteration = self.company._state(task.work_unit_id)
+                if work_state != task.state:
+                    findings.append(task.id)
+                    continue
+                status, _reason = self._terminal_event_status(task)
+                if status == "present":
+                    continue
+                if status == "blocked":
+                    findings.append(task.id)
+                    continue
+                event_type = "task_completed" if task.state == "completed" else "task_failed"
+                category = "success" if task.state == "completed" else "failure"
+                self._capture_terminal_event(
+                    event_type,
+                    task,
+                    status=task.state,
+                    metadata={
+                        "handler": task.handler,
+                        "phase": "startup_reconciliation",
+                        "result_category": category,
+                    },
+                )
+                status, _reason = self._terminal_event_status(task)
+                if status == "present":
+                    repaired += 1
+                else:
+                    findings.append(task.id)
+            except Exception:
+                findings.append(str(task_id))
+        if total > len(rows) or scanned < len(rows):
+            incomplete = True
+        self._terminal_reconciliation_findings = list(dict.fromkeys(findings))
+        self._terminal_reconciliation_incomplete = incomplete
+        return {
+            "scanned": scanned,
+            "repaired": repaired,
+            "blocked": len(self._terminal_reconciliation_findings),
+            "incomplete": incomplete,
+            "next_action": (
+                "rerun reconcile_terminal_events with a larger limit or time budget; "
+                "do not trust unscanned terminal evidence"
+            ) if incomplete else None,
+        }
 
     def _submission_event_status(self, task: DurableTask) -> tuple[str, str]:
         """Validate the immutable submission event for one durable task."""
@@ -2373,11 +2520,11 @@ class ExecutionController:
                 if not self._finalize_claim(task, "failed"):
                     raise LeaseLostError("stale worker cannot finalize rejected task")
                 evidence = [f"handler:{task.handler}", *gate_evidence]
-                self._capture_event("task_failed", task, status="failed", metadata={
-                    "handler": task.handler, "phase": "preflight", "failure_class": "gate_rejection",
-                })
                 self.company.record(task.work_unit_id, "execution", "failed", gate_detail, evidence)
                 score = self.company.finish(task.work_unit_id, success=False, reason=gate_detail, evidence=evidence)
+                self._capture_terminal_event("task_failed", task, status="failed", metadata={
+                    "handler": task.handler, "phase": "preflight", "failure_class": "gate_rejection",
+                })
                 self._record_progress(
                     task.id, "task_terminal", state="failed", stage="terminal",
                     message="Preflight gate rejected the task; failure receipt committed.",
@@ -2434,12 +2581,12 @@ class ExecutionController:
                     "task lease was lost; stale worker cannot overwrite the current task outcome"
                 ) from exc
             detail = f"{type(exc).__name__}: {exc}"
-            self._capture_event("task_failed", task, status="failed", metadata={
+            self.company.record(task.work_unit_id, "execution", "failed", detail, (f"handler:{task.handler}",))
+            self.company.finish(task.work_unit_id, success=False, reason=detail)
+            self._capture_terminal_event("task_failed", task, status="failed", metadata={
                 "handler": task.handler, "phase": "exception",
                 "failure_class": type(exc).__name__,
             })
-            self.company.record(task.work_unit_id, "execution", "failed", detail, (f"handler:{task.handler}",))
-            self.company.finish(task.work_unit_id, success=False, reason=detail)
             self._record_progress(
                 task.id, "task_terminal", state="failed", stage="terminal",
                 message="Handler failed; durable failure receipt committed.",
@@ -2462,7 +2609,9 @@ class ExecutionController:
         state = "completed" if success else "failed"
         if not self._finalize_claim(task, state):
             raise LeaseLostError("task lease was lost; stale worker cannot finalize task outcome")
-        self._capture_event(
+        self.company.record(task.work_unit_id, "execution", state, detail, evidence)
+        score = self.company.finish(task.work_unit_id, success=success, reason=detail, evidence=evidence)
+        self._capture_terminal_event(
             "task_completed" if success else "task_failed",
             task,
             status=state,
@@ -2471,8 +2620,6 @@ class ExecutionController:
                 "result_category": "success" if success else "failure",
             },
         )
-        self.company.record(task.work_unit_id, "execution", state, detail, evidence)
-        score = self.company.finish(task.work_unit_id, success=success, reason=detail, evidence=evidence)
         self._record_progress(
             task.id, "task_terminal", state=state, stage="terminal",
             message=f"Supervisor committed terminal state and work-unit receipt: {state}.",
@@ -2787,6 +2934,15 @@ class ExecutionController:
         if self._submission_reconciliation_incomplete:
             findings.append(
                 "submission_evidence_reconciliation_incomplete; rerun bounded submission evidence repair before trusting unscanned tasks"
+            )
+        if self._terminal_reconciliation_findings:
+            findings.append(
+                f"terminal_evidence_reconciliation_required={len(self._terminal_reconciliation_findings)}; "
+                "terminal task evidence is missing or mismatched; inspect before treating the audit projection as complete"
+            )
+        if self._terminal_reconciliation_incomplete:
+            findings.append(
+                "terminal_evidence_reconciliation_incomplete; rerun bounded terminal evidence repair before trusting unscanned tasks"
             )
         if self.evidence_capture.sink is not None:
             delivery = self.evidence_capture.flush_pending(limit=100)
