@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 import json
 import os
 import sqlite3
@@ -157,7 +158,7 @@ class VibeCodingHostTests(unittest.TestCase):
             }
             journal.record_provider_event(event)
             journal.record_provider_event({**event, "replay": True})
-            with sqlite3.connect(Path(temp) / "operations.sqlite3") as db:
+            with closing(sqlite3.connect(Path(temp) / "operations.sqlite3")) as db, db:
                 rows = db.execute(
                     "SELECT operation_key,state,intent_digest FROM provider_operation_events"
                 ).fetchall()
@@ -377,7 +378,7 @@ print(json.dumps({"type": "item.completed", "item": {"type": "agent_message", "t
             self.assertTrue(Path(report["checkpoint_receipt"]).is_file())
             # The stage-level durable receipt ledger and host side-effect journal
             # must share one operations database, not drift into parallel stores.
-            with sqlite3.connect(base / "auren-state" / "operations.sqlite3") as db:
+            with closing(sqlite3.connect(base / "auren-state" / "operations.sqlite3")) as db, db:
                 tables = {
                     row[0] for row in db.execute(
                         "SELECT name FROM sqlite_master WHERE type='table'"
