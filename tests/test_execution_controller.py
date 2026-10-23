@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import os
 import sqlite3
@@ -5,7 +6,7 @@ import subprocess
 from threading import Event
 import sys
 
-from portable.execution_controller import ExecutionController
+from portable.execution_controller import ExecutionController, WorkKeyConflict
 
 
 def durable_handler(payload):
@@ -19,6 +20,120 @@ def test_handler_registration_submit_and_resume(tmp_path: Path):
     score = controller.run_once(task.id)
     assert score is not None
     assert controller.task(task.id).state == "completed"
+
+
+def test_submit_reuses_one_task_and_work_unit_for_stable_work_key(tmp_path: Path):
+    controller = ExecutionController(tmp_path)
+    controller.register_handler("tests.durable_handler", durable_handler, execution_class="read_only")
+    key = "AUREN:issue-696:continuous-engineering"
+    payload = {"id": "continuous-engineering"}
+
+    first = controller.submit(
+        "tests.durable_handler", payload, goal="continue issue 696", work_key=key,
+    )
+    second = controller.submit(
+        "tests.durable_handler", payload, goal="continue issue 696", work_key=key,
+    )
+
+    assert second.id == first.id
+    assert second.work_unit_id == first.work_unit_id
+    assert second.payload["work_key"] == key
+    with sqlite3.connect(controller.db_path) as db:
+        assert db.execute("SELECT COUNT(*) FROM tasks WHERE work_key=?", (key,)).fetchone()[0] == 1
+    with controller.company._db() as db:
+        assert db.execute("SELECT COUNT(*) FROM work_units WHERE work_key=?", (key,)).fetchone()[0] == 1
+
+
+def test_submit_uses_payload_work_key_when_argument_is_omitted(tmp_path: Path):
+    controller = ExecutionController(tmp_path)
+    controller.register_handler("tests.durable_handler", durable_handler, execution_class="read_only")
+    key = "AUREN:issue-696:continuous-engineering"
+    payload = {"id": "payload-key", "work_key": key}
+
+    first = controller.submit("tests.durable_handler", payload, goal="continue issue 696")
+    second = controller.submit("tests.durable_handler", payload, goal="continue issue 696")
+
+    assert second.id == first.id
+    assert second.work_unit_id == first.work_unit_id
+    assert second.payload["work_key"] == key
+
+
+def test_submit_rejects_stable_work_key_reuse_for_different_intent(tmp_path: Path):
+    controller = ExecutionController(tmp_path)
+    controller.register_handler("tests.durable_handler", durable_handler, execution_class="read_only")
+    key = "AUREN:issue-696:continuous-engineering"
+    controller.submit(
+        "tests.durable_handler", {"id": "original"}, goal="continue issue 696", work_key=key,
+    )
+
+    try:
+        controller.submit(
+            "tests.durable_handler", {"id": "changed"}, goal="continue issue 696", work_key=key,
+        )
+    except WorkKeyConflict as exc:
+        assert "different handler, payload, or goal" in str(exc)
+    else:
+        raise AssertionError("stable work key reuse with changed intent must fail closed")
+
+
+def test_submit_recovers_same_work_unit_after_crash_before_task_insert(tmp_path: Path):
+    controller = ExecutionController(tmp_path)
+    controller.register_handler("tests.durable_handler", durable_handler, execution_class="read_only")
+    key = "AUREN:issue-696:continuous-engineering"
+    payload = {"id": "continuous-engineering"}
+    original_start = controller.company.start
+    created = {}
+
+    def start_then_interrupt(goal, *, scope="single-company-unit", max_iterations=100000, work_key=None):
+        unit = original_start(goal, scope=scope, max_iterations=max_iterations, work_key=work_key)
+        created["work_unit_id"] = unit.id
+        raise RuntimeError("injected crash after work-unit commit")
+
+    controller.company.start = start_then_interrupt
+    try:
+        controller.submit(
+            "tests.durable_handler", payload, goal="continue issue 696", work_key=key,
+        )
+    except RuntimeError as exc:
+        assert "injected crash" in str(exc)
+    else:
+        raise AssertionError("fault injection must interrupt before task insertion")
+    finally:
+        controller.company.start = original_start
+
+    with sqlite3.connect(controller.db_path) as db:
+        assert db.execute("SELECT COUNT(*) FROM tasks WHERE work_key=?", (key,)).fetchone()[0] == 0
+    with controller.company._db() as db:
+        assert db.execute("SELECT COUNT(*) FROM work_units WHERE work_key=?", (key,)).fetchone()[0] == 1
+
+    resumed = controller.submit(
+        "tests.durable_handler", payload, goal="continue issue 696", work_key=key,
+    )
+    assert resumed.work_unit_id == created["work_unit_id"]
+    with sqlite3.connect(controller.db_path) as db:
+        assert db.execute("SELECT COUNT(*) FROM tasks WHERE work_key=?", (key,)).fetchone()[0] == 1
+    with controller.company._db() as db:
+        assert db.execute("SELECT COUNT(*) FROM work_units WHERE work_key=?", (key,)).fetchone()[0] == 1
+
+
+def test_concurrent_stable_work_key_submissions_have_one_task(tmp_path: Path):
+    controller = ExecutionController(tmp_path)
+    controller.register_handler("tests.durable_handler", durable_handler, execution_class="read_only")
+    key = "AUREN:issue-696:continuous-engineering"
+    payload = {"id": "continuous-engineering"}
+
+    def submit(_index):
+        return controller.submit(
+            "tests.durable_handler", payload, goal="continue issue 696", work_key=key,
+        )
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        tasks = list(pool.map(submit, range(8)))
+
+    assert len({task.id for task in tasks}) == 1
+    assert len({task.work_unit_id for task in tasks}) == 1
+    with sqlite3.connect(controller.db_path) as db:
+        assert db.execute("SELECT COUNT(*) FROM tasks WHERE work_key=?", (key,)).fetchone()[0] == 1
 
 
 def test_session_mapping_survives_new_controller(tmp_path: Path):
