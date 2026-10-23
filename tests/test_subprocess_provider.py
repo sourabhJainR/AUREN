@@ -54,6 +54,13 @@ class SubprocessProviderInvokerTests(unittest.TestCase):
         self.assertGreaterEqual(propagated, started + 1.8)
         self.assertLessEqual(propagated, started + 2.1)
 
+    def test_parent_environment_deadline_is_inherited(self):
+        inherited = time.time() + 1.5
+        provider = self.invoker("import os; print(os.environ['AUREN_DEADLINE_EPOCH'])")
+        with unittest.mock.patch.dict(os.environ, {"AUREN_DEADLINE_EPOCH": str(inherited)}, clear=False):
+            result = provider("request", 5)
+        self.assertAlmostEqual(inherited, float(result.strip()), delta=0.02)
+
     def test_inherited_deadline_caps_outer_wait(self):
         provider = self.invoker(
             "import time; time.sleep(10)",
