@@ -238,6 +238,7 @@ def _run_resilient(command: list[str], prompt: str, run_dir: Path, feedback: Fee
                 "AER_COMPACTION_DIGEST": compaction_meta["digest"],  # legacy provider contract
             })
             timeout_seconds, max_output_bytes = _bounded_process_limits()
+            env["HARNESS_PROVIDER_MAX_OUTPUT_BYTES"] = str(max_output_bytes)
             try:
                 code, output = _bounded_process_output(
                     [sys.executable, str(Path(__file__).resolve().with_name("provider.py")), "--prompt-file", str(effective_path), "--", *command],
