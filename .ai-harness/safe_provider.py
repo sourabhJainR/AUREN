@@ -237,8 +237,8 @@ def _run_resilient(command: list[str], prompt: str, run_dir: Path, feedback: Fee
                 "AER_SANDBOX": "enforced-for-local-execution",  # legacy provider contract
                 "AER_COMPACTION_DIGEST": compaction_meta["digest"],  # legacy provider contract
             })
-            timeout_seconds, max_output_bytes = _bounded_process_limits()
             try:
+                timeout_seconds, max_output_bytes = _bounded_process_limits()
                 code, output = _bounded_process_output(
                     [sys.executable, str(Path(__file__).resolve().with_name("provider.py")), "--prompt-file", str(effective_path), "--", *command],
                     cwd=Path(os.environ.get("HARNESS_WORKSPACE", Path(__file__).resolve().parent.parent)),
