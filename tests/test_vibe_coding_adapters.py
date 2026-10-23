@@ -271,6 +271,77 @@ class VibeCodingAdapterTests(unittest.TestCase):
             })
         self.assertEqual([], calls)
 
+    def test_uncertain_vibe_side_effect_uses_trusted_lookup_without_redispatch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            database = Path(directory) / "operations.sqlite3"
+            operation_key = "vibe-stage:lookup-workflow:preview_deployment:lookup-adapter:1"
+            observed = {"operation_id": None}
+            evidence_ref = "provider://operations/lookup-fixture"
+
+            def verify(key, evidence, receipt):
+                return (
+                    key == operation_key
+                    and evidence == evidence_ref
+                    and observed["operation_id"] is not None
+                    and receipt.get("status") == "completed"
+                    and receipt.get("provider_operation_id") == observed["operation_id"]
+                )
+
+            ledger = DurableSideEffectLedger(database, reconciliation_verifier=verify)
+            stage = VibeStage.PREVIEW_DEPLOYMENT
+            state = {
+                "vibe_coding_workflow_id": "lookup-workflow",
+                "intent": "deploy preview",
+                "risk": "high",
+            }
+            first_calls = []
+            def uncertain_dispatch(request):
+                first_calls.append(request)
+                raise RuntimeError("simulated lost acknowledgement after remote acceptance")
+
+            first = VibeAdapterRegistry(max_risk="critical", side_effect_ledger=ledger)
+            first.register(AdapterRegistration(
+                "lookup-adapter", "1", (stage,),
+                frozenset(default_stage_capabilities()[stage.value]),
+                uncertain_dispatch,
+                risk=next(spec.risk for spec in STAGE_SPECS if spec.stage == stage),
+                external_side_effects=True,
+            ))
+            with self.assertRaises(ProviderOutcomeBlocked):
+                first.invoke(stage, state)
+            self.assertEqual(1, len(first_calls))
+            self.assertEqual("reconcile_required", ledger.get(operation_key)["state"])
+
+            def lookup(operation_id, key):
+                self.assertEqual(operation_key, key)
+                observed["operation_id"] = operation_id
+                return {
+                    "status": "completed",
+                    "evidence_ref": evidence_ref,
+                    "receipt": {
+                        "status": "completed",
+                        "provider_operation_id": operation_id,
+                        "result": output_for(stage, {}),
+                    },
+                }
+
+            second_calls = []
+            second = VibeAdapterRegistry(max_risk="critical", side_effect_ledger=ledger)
+            second.register(AdapterRegistration(
+                "lookup-adapter", "1", (stage,),
+                frozenset(default_stage_capabilities()[stage.value]),
+                lambda request: second_calls.append(request) or self.fail(
+                    "trusted lookup must reconcile without redispatch"
+                ),
+                risk=next(spec.risk for spec in STAGE_SPECS if spec.stage == stage),
+                external_side_effects=True,
+                lookup_operation=lookup,
+            ))
+            result = second.invoke(stage, state)
+            self.assertEqual("preview-receipt", result["deployment_receipt"])
+            self.assertEqual([], second_calls)
+            self.assertEqual("completed", ledger.get(operation_key)["state"])
+
     def test_external_side_effect_adapter_replays_durable_receipt_without_second_call(self):
         with tempfile.TemporaryDirectory() as directory:
             ledger = DurableSideEffectLedger(Path(directory) / "side-effects.sqlite3")
