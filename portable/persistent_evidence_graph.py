@@ -54,7 +54,11 @@ class PersistentEvidenceGraph:
             ).fetchone()
             if stored is None or stored[0] != node.kind or stored[1] != node.digest:
                 raise ValueError("content-addressed evidence node identity conflict")
-            if stored[2] != metadata_json:
+            try:
+                stored_metadata = json.loads(stored[2])
+            except (TypeError, json.JSONDecodeError) as exc:
+                raise ValueError("stored evidence node metadata is corrupt") from exc
+            if stored_metadata != dict(node.metadata):
                 raise ValueError("content-addressed evidence node metadata conflict")
         return node
 
