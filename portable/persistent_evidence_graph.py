@@ -44,9 +44,18 @@ class PersistentEvidenceGraph:
 
     def add_node(self, kind: str, digest: str, metadata: dict[str,str] | None = None) -> EvidenceNode:
         node=EvidenceNode(self.node_id(kind,digest),kind,digest,tuple(sorted((metadata or {}).items())))
+        metadata_json = json.dumps(dict(node.metadata), sort_keys=True, separators=(",", ":"))
         with self.memory._lock, self.memory._connection() as db:
             db.execute("INSERT OR IGNORE INTO evidence_nodes VALUES(?,?,?,?,?)",
-                       (self.project,node.node_id,node.kind,node.digest,json.dumps(dict(node.metadata),sort_keys=True)))
+                       (self.project,node.node_id,node.kind,node.digest,metadata_json))
+            stored = db.execute(
+                "SELECT kind,digest,metadata_json FROM evidence_nodes WHERE project=? AND node_id=?",
+                (self.project, node.node_id),
+            ).fetchone()
+            if stored is None or stored[0] != node.kind or stored[1] != node.digest:
+                raise ValueError("content-addressed evidence node identity conflict")
+            if stored[2] != metadata_json:
+                raise ValueError("content-addressed evidence node metadata conflict")
         return node
 
     def add_edge(self, source: EvidenceNode, relation: str, target: EvidenceNode) -> EvidenceEdge:
