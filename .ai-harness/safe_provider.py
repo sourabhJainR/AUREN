@@ -152,7 +152,7 @@ def _bounded_process_output(command: list[str], *, cwd: Path, env: dict[str, str
         while not stream_done or process.poll() is None:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                raise TimeoutError(f"provider bridge exceeded {timeout_seconds:g}s deadline")
+                raise TimeoutError(f"provider bridge exceeded hard deadline of {timeout_seconds:g}s")
             if process.poll() is not None and not leader_cleanup_started:
                 # The parent may exit while a descendant still holds stdout or
                 # continues side effects. Kill the entire contained process tree.
@@ -178,6 +178,9 @@ def _bounded_process_output(command: list[str], *, cwd: Path, env: dict[str, str
             else:
                 sys.stdout.write(item.decode("utf-8", errors="replace"))
                 sys.stdout.flush()
+        # The leader can exit while a detached descendant continues. Kill the
+        # contained process tree before returning even on a successful exit.
+        SubprocessProviderInvoker._kill(process)
         code = process.wait(timeout=max(0.1, deadline - time.monotonic()))
         return code, output.decode("utf-8", errors="replace")
     except BaseException:
