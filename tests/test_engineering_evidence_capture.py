@@ -40,6 +40,19 @@ def _crash_after_canonical_evidence_commit(evidence_db, event_db, envelope, expe
     os._exit(92)
 
 
+
+def _crash_after_signed_receipt_retention(evidence_db, event_db, envelope, expected_head):
+    ledger = CanonicalEvidenceLedger(evidence_db)
+    capture = EvidenceCapture(event_db, evidence_ledger=ledger)
+    capture.record = lambda *args, **kwargs: os._exit(93)
+    capture.ingest_signed_external_evidence(
+        envelope,
+        verifier=lambda _signer, _signature, _message: True,
+        expected_repository="sourabhJainR/AUREN",
+        expected_head=expected_head,
+    )
+    os._exit(94)
+
 def _crash_after_sink_accept(database, accepted_log):
     def sink(event):
         with Path(accepted_log).open("a", encoding="utf-8") as stream:
@@ -207,6 +220,63 @@ class EngineeringEvidenceCaptureTests(unittest.TestCase):
             expected_head=expected_head,
         )
         self.assertEqual("external:crash-recovery:1", result["evidence_id"])
+        self.assertEqual(1, len(restarted.signed_receipts()))
+        self.assertEqual(1, len(restarted.events()))
+        self.assertTrue(restarted.verify_chain())
+
+
+    def test_process_death_after_signed_receipt_retention_recovers_missing_event(self):
+        evidence_path = self.path.parent / "canonical-evidence.sqlite3"
+        ledger = CanonicalEvidenceLedger(evidence_path)
+        capture = EvidenceCapture(self.path, evidence_ledger=ledger)
+        expected_head = "a" * 40
+        envelope = {
+            "payload": {
+                "evidence_id": "external:receipt-crash-recovery:1",
+                "repository": "sourabhJainR/AUREN",
+                "head_sha": expected_head,
+                "evidence_type": "evaluation",
+                "status": "passed",
+                "source_uri": "https://evaluator.invalid/runs/43/receipt",
+                "payload_digest": "c" * 64,
+                "source_type": "external_evaluator",
+                "issued_at": datetime.now(timezone.utc).isoformat(),
+                "run_id": "run-43",
+                "evaluator_id": "evaluator-independent-1",
+                "external_system": "test-evaluator",
+            },
+            "signer_id": "trusted-test-key-1",
+            "signature": "detached-test-signature",
+        }
+        process = multiprocessing.get_context("spawn").Process(
+            target=_crash_after_signed_receipt_retention,
+            args=(str(evidence_path), str(self.path), envelope, expected_head),
+        )
+        process.start()
+        process.join(30)
+        if process.is_alive():
+            process.terminate()
+            process.join(5)
+            self.fail("signed receipt retention crash fixture exceeded its 30-second time budget")
+        self.assertEqual(93, process.exitcode)
+
+        restarted = EvidenceCapture(
+            self.path, evidence_ledger=CanonicalEvidenceLedger(evidence_path)
+        )
+        self.assertIsNotNone(restarted.evidence_ledger.resolve(
+            "external:receipt-crash-recovery:1",
+            repository="sourabhJainR/AUREN",
+            head_sha=expected_head,
+        ))
+        self.assertEqual(1, len(restarted.signed_receipts()))
+        self.assertEqual((), restarted.events())
+        result = restarted.ingest_signed_external_evidence(
+            envelope,
+            verifier=lambda _signer, _signature, _message: True,
+            expected_repository="sourabhJainR/AUREN",
+            expected_head=expected_head,
+        )
+        self.assertEqual("external:receipt-crash-recovery:1", result["evidence_id"])
         self.assertEqual(1, len(restarted.signed_receipts()))
         self.assertEqual(1, len(restarted.events()))
         self.assertTrue(restarted.verify_chain())
