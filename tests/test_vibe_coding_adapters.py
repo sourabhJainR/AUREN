@@ -105,6 +105,35 @@ class VibeCodingAdapterTests(unittest.TestCase):
             ))
         return registry
 
+    def test_host_factory_wires_lookup_ports_to_side_effect_stages(self):
+        capabilities = {
+            capability
+            for stage_caps in default_stage_capabilities().values()
+            for capability in stage_caps
+            if capability != "agent"
+        }
+        tools = {capability: (lambda _request: {}) for capability in capabilities}
+        lookup = lambda operation_id, operation_key: {
+            "status": "not_found", "operation_id": operation_id, "operation_key": operation_key,
+        }
+        without_lookup = build_host_adapter_registry(
+            lambda _request: {}, tools, max_risk="critical",
+        )
+        with_lookup = build_host_adapter_registry(
+            lambda _request: {}, tools, max_risk="critical",
+            lookup_operations={"preview_deployment": lookup},
+        )
+        adapter = with_lookup._adapters["host-integrated:preview_deployment"]
+        self.assertIs(adapter.lookup_operation, lookup)
+        self.assertIsNone(with_lookup._adapters["host-integrated:production_deploy"].lookup_operation)
+        self.assertNotEqual(without_lookup.configuration_digest, with_lookup.configuration_digest)
+
+        with self.assertRaisesRegex(ValueError, "only configurable for side-effect stages"):
+            build_host_adapter_registry(
+                lambda _request: {}, tools, max_risk="critical",
+                lookup_operations={"testing": lookup},
+            )
+
     def test_integrated_graph_binds_all_18_real_adapters(self):
         registry = self.populated_registry()
         graph = build_integrated_vibe_coding_graph(registry)
