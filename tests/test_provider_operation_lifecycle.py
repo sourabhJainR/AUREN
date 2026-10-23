@@ -291,7 +291,7 @@ class ProviderOperationLifecycleTests(unittest.TestCase):
         self.assertEqual(remote_id, receipt["provider_operation_id"])
         self.assertEqual(operation_id, receipt["operation_id"])
         self.assertEqual(1, len(verifier_calls))
-        self.assertEqual("completed", self.ledger().get(operation_key)["state")
+        self.assertEqual("completed", self.ledger().get(operation_key)["state"])
 
     def test_non_completed_dispatch_receipt_never_becomes_success(self):
         lifecycle = ProviderOperationLifecycle(self.ledger(), record_event=self.events.append)
