@@ -7,6 +7,7 @@ import tempfile
 import time
 import threading
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -57,7 +58,7 @@ class SubprocessProviderInvokerTests(unittest.TestCase):
     def test_parent_environment_deadline_is_inherited(self):
         inherited = time.time() + 1.5
         provider = self.invoker("import os; print(os.environ['AUREN_DEADLINE_EPOCH'])")
-        with unittest.mock.patch.dict(os.environ, {"AUREN_DEADLINE_EPOCH": str(inherited)}, clear=False):
+        with patch.dict(os.environ, {"AUREN_DEADLINE_EPOCH": str(inherited)}, clear=False):
             result = provider("request", 5)
         self.assertAlmostEqual(inherited, float(result.strip()), delta=0.02)
 
