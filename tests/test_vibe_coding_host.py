@@ -387,7 +387,7 @@ print(json.dumps({"type": "item.completed", "item": {"type": "agent_message", "t
             self.assertIn("operations", tables)
             self.assertIn("durable_side_effects", tables)
             self.assertIn("provider_operation_events", tables)
-            with sqlite3.connect(base / "auren-state" / "operations.sqlite3") as db:
+            with closing(sqlite3.connect(base / "auren-state" / "operations.sqlite3")) as db, db:
                 event_count = db.execute("SELECT COUNT(*) FROM provider_operation_events").fetchone()[0]
             self.assertGreater(event_count, 0)
             source_status = subprocess.run(
