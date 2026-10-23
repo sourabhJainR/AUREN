@@ -276,6 +276,22 @@ class VibeAdapterRegistry:
                 raise AdapterUnavailable(
                     f"stage {stage.value} requires a stable workflow_id before external side effects"
                 )
+            operation_key = (
+                f"vibe-stage:{workflow_id}:{stage.value}:"
+                f"{selected.adapter_id}:{selected.version}"
+            )
+            existing_effect = self.side_effect_lifecycle.ledger.get(operation_key)
+            # Completed receipts are safe to replay without a remote lookup.
+            # A new write or authorized retry needs a provider-native lookup port
+            # so an ambiguous remote outcome can be resolved without redispatch.
+            if (
+                stage in {VibeStage.PREVIEW_DEPLOYMENT, VibeStage.PRODUCTION_DEPLOY}
+                and selected.lookup_operation is None
+                and (existing_effect is None or existing_effect["state"] == "retry_authorized")
+            ):
+                raise AdapterUnavailable(
+                    f"stage {stage.value} requires provider-native operation lookup before deployment dispatch"
+                )
         stats = self._stats[selected.adapter_id]
         stats.attempts += 1
         stats.workflows.add(workflow_id)

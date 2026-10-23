@@ -48,6 +48,9 @@ def _crash_after_vibe_stage_receipt(database: str, call_log: str) -> None:
         invoke,
         risk=next(spec.risk for spec in STAGE_SPECS if spec.stage == stage),
         external_side_effects=True,
+        lookup_operation=lambda operation_id, operation_key: {
+            "status": "unknown", "operation_id": operation_id, "operation_key": operation_key,
+        },
     ))
     registry.invoke(stage, {
         "vibe_coding_workflow_id": "crash-replay-workflow",
@@ -212,8 +215,16 @@ class VibeCodingAdapterTests(unittest.TestCase):
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
         side_effect_ledger = DurableSideEffectLedger(Path(directory.name) / "side-effects.sqlite3")
+        lookup = lambda operation_id, operation_key: {
+            "status": "unknown", "operation_id": operation_id, "operation_key": operation_key,
+        }
         registry = build_host_adapter_registry(
             active_agent, tools, max_risk="critical", side_effect_ledger=side_effect_ledger,
+            lookup_operations={
+                "development": lookup,
+                "preview_deployment": lookup,
+                "production_deploy": lookup,
+            },
         )
         graph = build_integrated_vibe_coding_graph(registry)
         context = {
@@ -291,6 +302,33 @@ class VibeCodingAdapterTests(unittest.TestCase):
                 ]
             self.assertEqual(["dispatching", "completed"], event_states)
 
+
+    def test_external_side_effect_requires_lookup_before_first_dispatch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ledger = DurableSideEffectLedger(Path(directory) / "side-effects.sqlite3")
+            registry = VibeAdapterRegistry(max_risk="critical", side_effect_ledger=ledger)
+            stage = VibeStage.PREVIEW_DEPLOYMENT
+            calls = []
+            registry.register(AdapterRegistration(
+                "deployment-without-lookup", "1", (stage,),
+                frozenset(default_stage_capabilities()[stage.value]),
+                lambda request: calls.append(request) or output_for(stage, request["state"]),
+                risk=next(spec.risk for spec in STAGE_SPECS if spec.stage == stage),
+                external_side_effects=True,
+            ))
+            operation_key = (
+                "vibe-stage:workflow-no-lookup:preview_deployment:"
+                "deployment-without-lookup:1"
+            )
+            with self.assertRaisesRegex(AdapterUnavailable, "provider-native operation lookup"):
+                registry.invoke(stage, {
+                    "vibe_coding_workflow_id": "workflow-no-lookup",
+                    "intent": "deploy preview",
+                    "risk": "high",
+                })
+            self.assertEqual([], calls)
+            self.assertIsNone(ledger.get(operation_key))
+
     def test_external_side_effect_adapter_fails_closed_without_durable_ledger(self):
         registry = VibeAdapterRegistry(max_risk="critical")
         stage = VibeStage.PREVIEW_DEPLOYMENT
@@ -348,6 +386,9 @@ class VibeCodingAdapterTests(unittest.TestCase):
                 uncertain_dispatch,
                 risk=next(spec.risk for spec in STAGE_SPECS if spec.stage == stage),
                 external_side_effects=True,
+                lookup_operation=lambda operation_id, operation_key: {
+            "status": "unknown", "operation_id": operation_id, "operation_key": operation_key,
+        },
             ))
             with self.assertRaises(ProviderOutcomeBlocked):
                 first.invoke(stage, state)
@@ -401,6 +442,9 @@ class VibeCodingAdapterTests(unittest.TestCase):
                 lambda request: calls.append(request) or output_for(stage, request["state"]),
                 risk=next(spec.risk for spec in STAGE_SPECS if spec.stage == stage),
                 external_side_effects=True,
+                lookup_operation=lambda operation_id, operation_key: {
+            "status": "unknown", "operation_id": operation_id, "operation_key": operation_key,
+        },
             ))
             state = {
                 "vibe_coding_workflow_id": "workflow-missing-provider-id",
@@ -434,6 +478,9 @@ class VibeCodingAdapterTests(unittest.TestCase):
                 invoke,
                 risk=next(spec.risk for spec in STAGE_SPECS if spec.stage == stage),
                 external_side_effects=True,
+                lookup_operation=lambda operation_id, operation_key: {
+            "status": "unknown", "operation_id": operation_id, "operation_key": operation_key,
+        },
             ))
             state = {
                 "vibe_coding_workflow_id": "workflow-preview-42",
