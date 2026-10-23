@@ -1,6 +1,8 @@
 """Privacy and integrity regressions for automatic engineering evidence capture."""
+import json
 import tempfile
 import unittest
+from unittest.mock import MagicMock, patch
 from pathlib import Path
 
 from portable.engineering_evidence_capture import EvidenceCapture, HttpsEvidenceSink
@@ -73,6 +75,32 @@ class EngineeringEvidenceCaptureTests(unittest.TestCase):
         result = capture.flush_pending()
         self.assertEqual(result, {"sent": 1, "pending": 0})
         self.assertTrue(capture.verify_chain())
+
+
+    def test_https_sink_sends_stable_event_id_as_idempotency_key(self):
+        sink = HttpsEvidenceSink("https://collector.invalid/events", "token")
+        response = MagicMock()
+        response.status = 202
+        response.__enter__.return_value = response
+        captured = []
+
+        def fake_urlopen(request, timeout):
+            captured.append((request, timeout))
+            return response
+
+        event = {"event_id": "event-123", "event_type": "task_completed", "status": "completed"}
+        with patch("portable.engineering_evidence_capture.urlopen", side_effect=fake_urlopen):
+            sink(event)
+
+        request, timeout = captured[0]
+        self.assertEqual("event-123", request.get_header("Idempotency-key"))
+        self.assertEqual("event-123", json.loads(request.data.decode("utf-8"))["event_id"])
+        self.assertGreater(timeout, 0)
+
+    def test_https_sink_rejects_events_without_stable_id(self):
+        sink = HttpsEvidenceSink("https://collector.invalid/events", "token")
+        with self.assertRaisesRegex(ValueError, "stable event_id"):
+            sink({"event_type": "task_completed"})
 
     def test_https_sink_rejects_plain_http_and_missing_token(self):
         with self.assertRaisesRegex(ValueError, "HTTPS"):
