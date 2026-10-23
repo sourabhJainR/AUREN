@@ -5,6 +5,7 @@ import os
 import sqlite3
 import tempfile
 import threading
+from contextlib import closing
 from datetime import datetime, timedelta, timezone
 import unittest
 from unittest.mock import MagicMock, patch
@@ -92,7 +93,7 @@ def _crash_after_sink_accept(database, accepted_log):
 
 def _expire_outbox_claim(database):
     expired = (datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat()
-    with sqlite3.connect(database) as db:
+    with closing(sqlite3.connect(database)) as db, db:
         db.execute(
             "UPDATE engineering_event_outbox SET lease_expires_at=? WHERE delivery_state='sending'",
             (expired,),
@@ -451,7 +452,7 @@ class EngineeringEvidenceCaptureTests(unittest.TestCase):
         initial = EvidenceCapture(self.path, sink=failing_sink)
         event = self.record(initial)
         expired = (datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat()
-        with sqlite3.connect(self.path) as db:
+        with closing(sqlite3.connect(self.path)) as db, db:
             db.execute(
                 """UPDATE engineering_event_outbox
                    SET delivery_state='sending',claim_token='dead-worker',
@@ -512,7 +513,7 @@ class EngineeringEvidenceCaptureTests(unittest.TestCase):
     def test_unknown_outbox_state_keeps_promotion_gate_blocked(self):
         capture = EvidenceCapture(self.path, sink=failing_sink)
         event = self.record(capture)
-        with sqlite3.connect(self.path) as db:
+        with closing(sqlite3.connect(self.path)) as db, db:
             db.execute(
                 "UPDATE engineering_event_outbox SET delivery_state='needs_operator' WHERE event_id=?",
                 (event["event_id"],),
@@ -524,7 +525,7 @@ class EngineeringEvidenceCaptureTests(unittest.TestCase):
 
     def test_existing_outbox_schema_migrates_without_losing_pending_rows(self):
         legacy_path = self.path.parent / "legacy-events.sqlite3"
-        with sqlite3.connect(legacy_path) as db:
+        with closing(sqlite3.connect(legacy_path)) as db, db:
             db.execute(
                 """CREATE TABLE engineering_event_outbox(
                     event_id TEXT PRIMARY KEY,
@@ -543,7 +544,7 @@ class EngineeringEvidenceCaptureTests(unittest.TestCase):
             )
 
         EvidenceCapture(legacy_path)
-        with sqlite3.connect(legacy_path) as db:
+        with closing(sqlite3.connect(legacy_path)) as db, db:
             columns = {row[1] for row in db.execute("PRAGMA table_info(engineering_event_outbox)")}
             row = db.execute(
                 "SELECT event_json,delivery_state,attempts,claim_token,claimed_at,lease_expires_at FROM engineering_event_outbox WHERE event_id=?",
