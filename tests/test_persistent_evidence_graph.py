@@ -24,6 +24,16 @@ def test_content_addressed_lineage(tmp_path):
     assert e.edge_digest==g.edge_digest(a.node_id,"produced",b.node_id)
     assert g.lineage(a.node_id,direction="out")[0].target_id==b.node_id
 
+
+def test_content_addressed_node_rejects_conflicting_metadata_without_mutation(tmp_path):
+    g=graph(tmp_path)
+    original=g.add_node("run","digest-123",{"source":"trusted","revision":"abc"})
+    duplicate=g.add_node("run","digest-123",{"revision":"abc","source":"trusted"})
+    assert duplicate == original
+    with raises(ValueError,match="metadata conflict"):
+        g.add_node("run","digest-123",{"source":"untrusted","revision":"abc"})
+    assert g.get_node(original.node_id) == original
+
 def test_rejects_unregistered_node(tmp_path):
     g=graph(tmp_path)
     a=g.add_node("campaign","abc")
