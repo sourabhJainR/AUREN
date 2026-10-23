@@ -11,6 +11,7 @@ import os
 import sqlite3
 import tempfile
 import unittest
+from contextlib import closing
 from pathlib import Path
 
 from portable.execution_controller import ExecutionController
@@ -120,7 +121,7 @@ class ConsequentialOuterReceiptCrashTests(unittest.TestCase):
 
             # A crashed process leaves a running task lease. Expire that lease explicitly
             # so the restarted controller can claim it and exercise the durable outer gate.
-            with sqlite3.connect(controller.db_path) as db:
+            with closing(sqlite3.connect(controller.db_path)) as db, db:
                 db.execute(
                     "UPDATE tasks SET lease_until=?, heartbeat_at=? WHERE id=?",
                     ("2000-01-01T00:00:00+00:00", "2000-01-01T00:00:00+00:00", task.id),
@@ -131,7 +132,7 @@ class ConsequentialOuterReceiptCrashTests(unittest.TestCase):
             _register(restarted)
             assert restarted.run_once(task.id) is None
             assert restarted.task(task.id).state == "blocked_reconciliation"
-            with sqlite3.connect(restarted.evidence_capture.path) as db:
+            with closing(sqlite3.connect(restarted.evidence_capture.path)) as db, db:
                 terminal_rows = db.execute(
                     "SELECT event_type FROM engineering_events WHERE task_id=? "
                     "AND event_type IN ('task_completed', 'task_failed')",
