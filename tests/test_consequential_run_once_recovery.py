@@ -132,6 +132,7 @@ class ConsequentialRunOnceRecoveryTests(unittest.TestCase):
     def test_restart_uses_durable_provider_receipt_if_outer_commit_was_interrupted(self):
         import hashlib
         import json
+        import sqlite3
         from portable.provider_operation_lifecycle import (
             ProviderOperationLifecycle, ProviderOutcomeBlocked, stable_provider_operation_id,
         )
@@ -143,14 +144,29 @@ class ConsequentialRunOnceRecoveryTests(unittest.TestCase):
 
         task = self.controller.task(first.id)
         safe_payload = dict(task.payload)
-        idempotency = safe_payload.pop("auren_idempotency")
-        stable_key = idempotency["key"]
-        outer_key = "consequential-idempotency:" + stable_key
+        safe_payload.pop("auren_dispatch", None)
+        idempotency = safe_payload.pop("auren_idempotency", None)
+        with sqlite3.connect(self.controller.db_path) as db:
+            rows = db.execute(
+                "SELECT idempotency_key,state FROM durable_side_effects"
+            ).fetchall()
+        outer_rows = [str(key) for key, _state in rows if not str(key).startswith("provider-operation:")]
+        self.assertEqual(1, len(outer_rows))
+        outer_key = outer_rows[0]
+        if outer_key.startswith("consequential-idempotency:"):
+            stable_key = outer_key.removeprefix("consequential-idempotency:")
+            identity = {"kind": "consequential_idempotency", "key": stable_key}
+        elif outer_key.startswith("engineering-plan:"):
+            stable_key = outer_key.removeprefix("engineering-plan:")
+            identity = {"kind": "engineering_dispatch", "key": stable_key}
+        else:
+            stable_key = task.id
+            identity = {"kind": "execution_task", "task_id": task.id}
         payload_digest = hashlib.sha256(
             json.dumps(safe_payload, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
         ).hexdigest()
         binding = {
-            "identity": {"kind": "consequential_idempotency", "key": stable_key},
+            "identity": identity,
             "handler": task.handler,
             "payload_digest": payload_digest,
         }
@@ -160,6 +176,7 @@ class ConsequentialRunOnceRecoveryTests(unittest.TestCase):
         operation_id = stable_provider_operation_id(provider_key, provider_name, provider_intent)
         evidence_ref = "https://provider.example/operations/remote-99"
         ledger = DurableSideEffectLedger(self.controller.db_path, reconciliation_verifier=lambda *_: True)
+        ledger.require_reconciliation(outer_key, "fault-injected outer receipt interruption")
         lifecycle = ProviderOperationLifecycle(ledger)
         with self.assertRaises(ProviderOutcomeBlocked):
             lifecycle.execute(
