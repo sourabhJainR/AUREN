@@ -57,13 +57,13 @@ class SubprocessProviderInvokerTests(unittest.TestCase):
     def test_expired_or_invalid_supervisor_deadline_prevents_launch(self):
         with tempfile.TemporaryDirectory() as directory:
             marker = Path(directory) / "provider-launched.txt"
-            command = "import pathlib,sys; pathlib.Path(sys.argv[1]).write_text('launched')"
-            expired = self.invoker(command + " " + repr(str(marker)), env={"AUREN_DEADLINE_EPOCH": str(time.time() - 1)})
+            command = f"import pathlib; pathlib.Path({str(marker)!r}).write_text('launched')"
+            expired = self.invoker(command, env={"AUREN_DEADLINE_EPOCH": str(time.time() - 1)})
             with self.assertRaisesRegex(TimeoutError, "expired before provider launch"):
                 expired("request", 5)
             self.assertFalse(marker.exists())
 
-            invalid = self.invoker(command + " " + repr(str(marker)), env={"AUREN_DEADLINE_EPOCH": "not-a-timestamp"})
+            invalid = self.invoker(command, env={"AUREN_DEADLINE_EPOCH": "not-a-timestamp"})
             with self.assertRaisesRegex(ValueError, "finite Unix timestamp"):
                 invalid("request", 5)
             self.assertFalse(marker.exists())
