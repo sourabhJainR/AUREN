@@ -118,12 +118,19 @@ class PortableAurenTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "source"
             self.make_source(root)
+            state = root / ".ai-harness" / "learning"
+            state.mkdir(parents=True, exist_ok=True)
+            for name in ("task-memory.sqlite3", "task-memory.sqlite3-shm", "task-memory.sqlite3-wal", "execution.db", "execution.db-journal"):
+                (state / name).write_bytes(b"mutable runtime state")
             bundle = Path(tmp) / "auren.zip"
             build(root, bundle, source_commit="test-commit")
             manifest = verify_bundle(bundle)
             self.assertEqual(manifest["version"], "20.1.0")
             self.assertEqual(manifest["source_commit"], "test-commit")
             self.assertFalse(any(item["path"].endswith("telemetry.jsonl") for item in manifest["files"]))
+            included = {item["path"] for item in manifest["files"]}
+            for mutable in ("task-memory.sqlite3", "task-memory.sqlite3-shm", "task-memory.sqlite3-wal", "execution.db", "execution.db-journal"):
+                self.assertNotIn(f".ai-harness/learning/{mutable}", included)
             self.assertTrue(any(item["path"] == "auren_cli.py" for item in manifest["files"]))
             self.assertFalse(manifest["target_repository_mutation"])
             with zipfile.ZipFile(bundle) as archive:
