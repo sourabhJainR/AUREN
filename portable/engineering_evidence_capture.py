@@ -593,12 +593,20 @@ class HttpsEvidenceSink:
         if not url.startswith("https://"):
             raise ValueError("evidence sink must use HTTPS")
         parsed_url = urlparse(url)
-        if parsed_url.username or parsed_url.password or parsed_url.query:
-            raise ValueError("evidence sink URL must not embed credentials or query-string secrets")
-        if not bearer_token:
+        if not parsed_url.hostname or not parsed_url.netloc:
+            raise ValueError("evidence sink URL must include a valid HTTPS host")
+        if parsed_url.username or parsed_url.password or parsed_url.query or parsed_url.fragment:
+            raise ValueError("evidence sink URL must not embed credentials, query-string secrets, or fragments")
+        if not isinstance(bearer_token, str) or not bearer_token.strip():
             raise ValueError("evidence sink bearer token is required")
-        if timeout_seconds <= 0 or timeout_seconds > 30:
-            raise ValueError("timeout_seconds must be between 0 and 30")
+        if (
+            isinstance(timeout_seconds, bool)
+            or not isinstance(timeout_seconds, (int, float))
+            or not math.isfinite(timeout_seconds)
+            or timeout_seconds <= 0
+            or timeout_seconds > 30
+        ):
+            raise ValueError("timeout_seconds must be a finite number greater than 0 and at most 30")
         self.url = url
         self._token = bearer_token
         self.timeout_seconds = timeout_seconds
