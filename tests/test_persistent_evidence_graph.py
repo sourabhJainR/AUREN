@@ -1,4 +1,3 @@
-import json
 from pathlib import Path
 from contextlib import contextmanager
 
@@ -13,6 +12,7 @@ def raises(exc, match=None):
         raise AssertionError(f"expected {exc.__name__} to be raised")
 from portable.persistent_memory import PersistentMemory
 from portable.persistent_evidence_graph import PersistentEvidenceGraph
+
 
 def graph(tmp_path):
     return PersistentEvidenceGraph(PersistentMemory(Path(tmp_path)/"m.db",require_approval=False),"hws")
@@ -42,6 +42,7 @@ def test_content_addressed_node_rejects_conflicting_metadata_without_mutation(tm
     with raises(ValueError,match="metadata conflict"):
         g.add_node("run","digest-123",{"source":"untrusted","revision":"abc"})
     assert g.get_node(original.node_id) == original
+
 
 def test_rejects_unregistered_node(tmp_path):
     g=graph(tmp_path)
