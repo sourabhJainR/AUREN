@@ -95,3 +95,14 @@ return path from turning an unconfirmed side effect into a false success.
 ## Provider operation ID enforcement
 
 For external-side-effect Vibe stages, the adapter must return a non-empty top-level `provider_operation_id` from the provider response. AUREN's local stable operation ID is not accepted as a substitute. If the provider-side ID is missing or malformed, the lifecycle remains `reconcile_required`; it does not mark the stage complete or redispatch on a later invocation. The provider ID is removed from the stage output before normal output validation and delivery.
+
+## Crash after the controller's outer receipt commits
+
+The controller maintains a task-level side-effect ledger entry as well as the provider-operation lifecycle entry. The provider operation can be completed durably before the outer task receipt is committed. A process may also die immediately after the outer receipt commits but before the handler returns to the supervisor. In that case, the outer ledger's completed receipt is authoritative for replay: a repeat call with the same task identity and unchanged intent returns the stored result and must not invoke the provider again.
+
+Regression coverage: `test_controller_outer_receipt_commit_survives_process_death_without_redispatch` injects `os._exit` after the outer receipt transaction commits, then reconstructs the controller and retries with a handler that fails if called. It verifies both ledger rows remain completed and the provider call log has exactly one entry.
+
+This test uses a local deterministic provider stub. It proves the crash/replay contract only; it does not prove any real provider's idempotency or lookup semantics. Keep provider-specific conformance and production isolation as separate gates.
+
+**Recovery/rollback:** preserve both ledger rows and the operation evidence. Do not delete the outer receipt to force a new attempt. If the receipt or intent digest conflicts, leave the task blocked and reconcile against trusted provider evidence. A rollback must preserve the no-redispatch rule for any operation whose remote outcome may already exist.
+

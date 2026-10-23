@@ -9,6 +9,7 @@ from portable.provider_operation_lifecycle import (
     ProviderOperationLifecycle, ProviderOutcomeBlocked, stable_provider_operation_id,
 )
 from portable.side_effect_ledger import DurableSideEffectLedger
+from portable.execution_controller import ExecutionController
 
 
 _CRASH_OPERATION_KEY = "deploy:provider-crash:staging"
@@ -56,6 +57,54 @@ def _crash_after_provider_receipt_before_event_projection(
         {"target": "staging", "revision": "receipt-crash"}, dispatch,
     )
     os._exit(85)
+
+
+
+
+
+def _crash_after_controller_outer_receipt(root: str, task_id: str, provider_log: str) -> None:
+    from types import SimpleNamespace
+
+    controller = ExecutionController(root)
+    task = SimpleNamespace(
+        id=task_id,
+        handler="tests.deploy",
+        payload={
+            "target": "staging",
+            "revision": "outer-receipt-crash",
+            "provider_log": provider_log,
+        },
+        work_unit_id="work-controller-outer-receipt",
+        attempts=1,
+    )
+    controller._invoke_with_lease_heartbeat = lambda _task, handler: handler(_task.payload)
+    original_complete = DurableSideEffectLedger.complete
+    outer_key = f"execution-task:{task_id}"
+
+    def complete_then_crash(self, key, receipt):
+        result = original_complete(self, key, receipt)
+        if key == outer_key:
+            # The outer task receipt is durable. Simulate death before the
+            # controller returns to its caller or finalizes the task.
+            os._exit(91)
+        return result
+
+    DurableSideEffectLedger.complete = complete_then_crash
+
+    def provider(payload):
+        operation = payload.get("auren_provider_operation", {})
+        with Path(provider_log).open("a", encoding="utf-8") as stream:
+            stream.write(str(operation.get("idempotency_key", "")) + "\\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        return {
+            "success": True,
+            "detail": "accepted",
+            "provider_operation_id": "remote-controller-42",
+        }
+
+    controller._invoke_consequential_with_ledger(task, provider)
+    os._exit(92)
 
 
 class ProviderOperationLifecycleTests(unittest.TestCase):
@@ -527,6 +576,57 @@ class ProviderOperationLifecycleTests(unittest.TestCase):
         lifecycle.execute("deploy-4", "provider-a", {"target": "staging"}, lambda *_: {"status": "completed", "provider_operation_id": "remote-4"})
         with self.assertRaises(ValueError):
             lifecycle.execute("deploy-4", "provider-a", {"target": "production"}, lambda *_: {"status": "completed"})
+
+    def test_controller_outer_receipt_commit_survives_process_death_without_redispatch(self):
+        root = str(self.path.parent / "controller-root")
+        provider_log = str(self.path.parent / "controller-provider.log")
+        task_id = "controller-outer-receipt-crash"
+        process = multiprocessing.get_context("spawn").Process(
+            target=_crash_after_controller_outer_receipt,
+            args=(root, task_id, provider_log),
+        )
+        process.start()
+        process.join(15)
+        if process.is_alive():
+            process.terminate()
+            process.join(3)
+            self.fail("controller outer-receipt crash fixture exceeded its time budget")
+        self.assertEqual(91, process.exitcode)
+
+        provider_calls = Path(provider_log).read_text(encoding="utf-8").splitlines()
+        self.assertEqual(1, len(provider_calls))
+        outer_key = f"execution-task:{task_id}"
+        inner_key = f"provider-operation:{outer_key}"
+
+        restarted = ExecutionController(root)
+        from types import SimpleNamespace
+        task = SimpleNamespace(
+            id=task_id,
+            handler="tests.deploy",
+            payload={
+                "target": "staging",
+                "revision": "outer-receipt-crash",
+                "provider_log": provider_log,
+            },
+            work_unit_id="work-controller-outer-receipt",
+            attempts=1,
+        )
+        restarted._invoke_with_lease_heartbeat = lambda _task, handler: handler(_task.payload)
+
+        def forbidden_dispatch(_payload):
+            self.fail("durable outer receipt must replay without provider redispatch")
+
+        replay = restarted._invoke_consequential_with_ledger(task, forbidden_dispatch)
+        self.assertTrue(replay["success"])
+        self.assertEqual(
+            provider_calls,
+            Path(provider_log).read_text(encoding="utf-8").splitlines(),
+        )
+        ledger = DurableSideEffectLedger(restarted.db_path)
+        self.assertEqual("completed", ledger.get(outer_key)["state"])
+        self.assertEqual("completed", ledger.get(inner_key)["state"])
+        self.assertEqual("remote-controller-42", replay["provider_operation_id"])
+
 
     def test_journal_events_have_operation_identity_and_bounded_receipt_reference(self):
         lifecycle = ProviderOperationLifecycle(self.ledger(), record_event=self.events.append)
