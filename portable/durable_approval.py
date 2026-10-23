@@ -565,12 +565,12 @@ class DurableApprovalStore:
         if self.approver_authorizer is None:
             raise PermissionError("trusted approver authorization is not configured")
         try:
-            authorized = bool(self.approver_authorizer(
+            authorized = self.approver_authorizer(
                 approver_id, first["required_role"], first["scope"], normalized_roles
-            ))
+            )
         except Exception as exc:
             raise PermissionError("trusted approver authorization failed closed") from exc
-        if not authorized:
+        if authorized is not True:
             raise PermissionError("trusted approver authorization rejected the decision")
         current = _parse_time(now or self._now(), "now")
         wake = False
