@@ -249,7 +249,7 @@ class SubprocessProviderInvoker:
         timeout = float(timeout_seconds)
         wall_now = time.time()
         deadline_epoch = wall_now + timeout
-        inherited_deadline = self.env.get("AUREN_DEADLINE_EPOCH")
+        inherited_deadline = self.env.get("AUREN_DEADLINE_EPOCH", os.environ.get("AUREN_DEADLINE_EPOCH"))
         if inherited_deadline is not None:
             try:
                 inherited_value = float(inherited_deadline)
