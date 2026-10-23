@@ -46,7 +46,7 @@ class SubprocessProviderInvokerTests(unittest.TestCase):
         result = provider("request", 5)
         propagated = float(result.strip())
         self.assertGreater(propagated, now)
-        self.assertLessEqual(propagated, inherited)
+        self.assertLessEqual(propagated - inherited, 0.01)  # allow decimal serialization rounding
         self.assertAlmostEqual(inherited, propagated, delta=0.01)
 
         provider = self.invoker("import os; print(os.environ['AUREN_DEADLINE_EPOCH'])")
