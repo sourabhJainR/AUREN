@@ -22,6 +22,52 @@ class SubprocessProviderError(RuntimeError):
 
 
 
+
+def _resume_suspended_windows_process(process: subprocess.Popen[bytes], kernel32) -> None:
+    """Resume the suspended initial thread without relying on private Popen fields."""
+    import ctypes
+    from ctypes import wintypes
+
+    class ThreadEntry32(ctypes.Structure):
+        _fields_ = [
+            ("dwSize", wintypes.DWORD),
+            ("cntUsage", wintypes.DWORD),
+            ("th32ThreadID", wintypes.DWORD),
+            ("th32OwnerProcessID", wintypes.DWORD),
+            ("tpBasePri", ctypes.c_long),
+            ("tpDeltaPri", ctypes.c_long),
+            ("dwFlags", wintypes.DWORD),
+        ]
+
+    kernel32.CreateToolhelp32Snapshot.argtypes = (wintypes.DWORD, wintypes.DWORD)
+    kernel32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+    kernel32.Thread32First.argtypes = (wintypes.HANDLE, ctypes.POINTER(ThreadEntry32))
+    kernel32.Thread32Next.argtypes = (wintypes.HANDLE, ctypes.POINTER(ThreadEntry32))
+    kernel32.OpenThread.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+    kernel32.OpenThread.restype = wintypes.HANDLE
+    snapshot = kernel32.CreateToolhelp32Snapshot(0x00000004, 0)  # TH32CS_SNAPTHREAD
+    if not snapshot or snapshot == wintypes.HANDLE(-1).value:
+        raise OSError(ctypes.get_last_error(), "could not enumerate provider process threads")
+    try:
+        entry = ThreadEntry32()
+        entry.dwSize = ctypes.sizeof(entry)
+        found = kernel32.Thread32First(snapshot, ctypes.byref(entry))
+        while found:
+            if entry.th32OwnerProcessID == process.pid:
+                thread_handle = kernel32.OpenThread(0x0002, False, entry.th32ThreadID)
+                if thread_handle:
+                    try:
+                        if kernel32.ResumeThread(thread_handle) == 0xFFFFFFFF:
+                            raise OSError(ctypes.get_last_error(), "could not resume provider process")
+                        return
+                    finally:
+                        kernel32.CloseHandle(thread_handle)
+            found = kernel32.Thread32Next(snapshot, ctypes.byref(entry))
+    finally:
+        kernel32.CloseHandle(snapshot)
+    raise OSError("provider initial thread could not be found for resume")
+
+
 def _windows_job(process: subprocess.Popen[bytes]):
     """Assign a suspended Windows child to a kill-on-close Job Object."""
     if os.name != "nt":
@@ -89,8 +135,7 @@ def _windows_job(process: subprocess.Popen[bytes]):
             raise OSError(ctypes.get_last_error(), "could not configure provider Job Object")
         if not kernel32.AssignProcessToJobObject(handle, process._handle):
             raise OSError(ctypes.get_last_error(), "could not assign provider to Job Object")
-        if kernel32.ResumeThread(process._thread) == 0xFFFFFFFF:
-            raise OSError(ctypes.get_last_error(), "could not resume provider process")
+        _resume_suspended_windows_process(process, kernel32)
         setattr(process, "_auren_job_handle", handle)
         setattr(process, "_auren_kernel32", kernel32)
         return handle
