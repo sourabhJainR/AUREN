@@ -54,6 +54,16 @@ class SubprocessProviderInvokerTests(unittest.TestCase):
         self.assertGreaterEqual(propagated, started + 1.8)
         self.assertLessEqual(propagated, started + 2.1)
 
+    def test_inherited_deadline_caps_outer_wait(self):
+        provider = self.invoker(
+            "import time; time.sleep(10)",
+            env={"AUREN_DEADLINE_EPOCH": str(time.time() + 0.3)},
+        )
+        started = time.monotonic()
+        with self.assertRaisesRegex(TimeoutError, "exceeded its deadline"):
+            provider("request", 5)
+        self.assertLess(time.monotonic() - started, 2.0)
+
     def test_expired_or_invalid_supervisor_deadline_prevents_launch(self):
         with tempfile.TemporaryDirectory() as directory:
             marker = Path(directory) / "provider-launched.txt"
