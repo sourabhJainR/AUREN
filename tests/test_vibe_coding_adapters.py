@@ -41,7 +41,7 @@ def _crash_after_vibe_stage_receipt(database: str, call_log: str) -> None:
     def invoke(request):
         with open(call_log, "a", encoding="utf-8") as handle:
             handle.write("dispatched\n")
-        return output_for(stage, request["state"])
+        return {**output_for(stage, request["state"]), "provider_operation_id": "remote-preview-acceptance-1"}
     registry.register(AdapterRegistration(
         "crash-deployment-adapter", "1", (stage,),
         frozenset(default_stage_capabilities()[stage.value]),
@@ -375,6 +375,37 @@ class VibeCodingAdapterTests(unittest.TestCase):
             self.assertEqual([], second_calls)
             self.assertEqual("completed", ledger.get(operation_key)["state"])
 
+
+    def test_external_side_effect_requires_provider_native_operation_id(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ledger = DurableSideEffectLedger(Path(directory) / "side-effects.sqlite3")
+            registry = VibeAdapterRegistry(max_risk="critical", side_effect_ledger=ledger)
+            stage = VibeStage.PREVIEW_DEPLOYMENT
+            calls = []
+            registry.register(AdapterRegistration(
+                "deployment-without-remote-id", "1", (stage,),
+                frozenset(default_stage_capabilities()[stage.value]),
+                lambda request: calls.append(request) or output_for(stage, request["state"]),
+                risk=next(spec.risk for spec in STAGE_SPECS if spec.stage == stage),
+                external_side_effects=True,
+            ))
+            state = {
+                "vibe_coding_workflow_id": "workflow-missing-provider-id",
+                "intent": "deploy preview",
+                "risk": "high",
+            }
+            with self.assertRaises(ProviderOutcomeBlocked):
+                registry.invoke(stage, state)
+            self.assertEqual(1, len(calls))
+            operation_key = (
+                "vibe-stage:workflow-missing-provider-id:preview_deployment:"
+                "deployment-without-remote-id:1"
+            )
+            self.assertEqual("reconcile_required", ledger.get(operation_key)["state"])
+            with self.assertRaises(ProviderOutcomeBlocked):
+                registry.invoke(stage, state)
+            self.assertEqual(1, len(calls))
+
     def test_external_side_effect_adapter_replays_durable_receipt_without_second_call(self):
         with tempfile.TemporaryDirectory() as directory:
             ledger = DurableSideEffectLedger(Path(directory) / "side-effects.sqlite3")
@@ -383,7 +414,7 @@ class VibeCodingAdapterTests(unittest.TestCase):
             calls = []
             def invoke(request):
                 calls.append(request)
-                return output_for(stage, request["state"])
+                return {**output_for(stage, request["state"]), "provider_operation_id": "remote-preview-acceptance-2"}
             registry.register(AdapterRegistration(
                 "deployment-adapter", "1", (stage,),
                 frozenset(default_stage_capabilities()[stage.value]),
