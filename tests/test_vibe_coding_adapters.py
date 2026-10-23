@@ -51,6 +51,8 @@ def _crash_after_vibe_stage_receipt(database: str, call_log: str) -> None:
         lookup_operation=lambda operation_id, operation_key: {
             "status": "unknown", "operation_id": operation_id, "operation_key": operation_key,
         },
+        supports_provider_idempotency=True,
+        lookup_not_found_is_authoritative=True,
     ))
     registry.invoke(stage, {
         "vibe_coding_workflow_id": "crash-replay-workflow",
@@ -125,6 +127,10 @@ class VibeCodingAdapterTests(unittest.TestCase):
         with_lookup = build_host_adapter_registry(
             lambda _request: {}, tools, max_risk="critical",
             lookup_operations={"preview_deployment": lookup},
+            provider_capabilities={"preview_deployment": {
+                "supports_provider_idempotency": True,
+                "lookup_not_found_is_authoritative": True,
+            }},
         )
         adapter = with_lookup._adapters["host-integrated:preview_deployment"]
         self.assertIs(adapter.lookup_operation, lookup)
@@ -225,6 +231,16 @@ class VibeCodingAdapterTests(unittest.TestCase):
                 "preview_deployment": lookup,
                 "production_deploy": lookup,
             },
+            provider_capabilities={
+                "preview_deployment": {
+                    "supports_provider_idempotency": True,
+                    "lookup_not_found_is_authoritative": True,
+                },
+                "production_deploy": {
+                    "supports_provider_idempotency": True,
+                    "lookup_not_found_is_authoritative": True,
+                },
+            },
         )
         graph = build_integrated_vibe_coding_graph(registry)
         context = {
@@ -302,6 +318,32 @@ class VibeCodingAdapterTests(unittest.TestCase):
                 ]
             self.assertEqual(["dispatching", "completed"], event_states)
 
+
+    def test_deployment_lookup_port_without_declared_native_capabilities_fails_closed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ledger = DurableSideEffectLedger(Path(directory) / "side-effects.sqlite3")
+            registry = VibeAdapterRegistry(max_risk="critical", side_effect_ledger=ledger)
+            stage = VibeStage.PREVIEW_DEPLOYMENT
+            calls = []
+            registry.register(AdapterRegistration(
+                "deployment-with-unproven-lookup", "1", (stage,),
+                frozenset(default_stage_capabilities()[stage.value]),
+                lambda request: calls.append(request) or output_for(stage, request["state"]),
+                risk=next(spec.risk for spec in STAGE_SPECS if spec.stage == stage),
+                external_side_effects=True,
+                lookup_operation=lambda operation_id, operation_key: {
+                    "status": "not_found", "operation_id": operation_id, "operation_key": operation_key,
+                },
+            ))
+            with self.assertRaisesRegex(AdapterUnavailable, "idempotency and authoritative operation lookup"):
+                registry.invoke(stage, {
+                    "vibe_coding_workflow_id": "unproven-capability-workflow",
+                    "intent": "deploy preview",
+                    "risk": "high",
+                })
+            self.assertEqual([], calls)
+            key = "vibe-stage:unproven-capability-workflow:preview_deployment:deployment-with-unproven-lookup:1"
+            self.assertIsNone(ledger.get(key))
 
     def test_external_side_effect_requires_lookup_before_first_dispatch(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -389,6 +431,8 @@ class VibeCodingAdapterTests(unittest.TestCase):
                 lookup_operation=lambda operation_id, operation_key: {
             "status": "unknown", "operation_id": operation_id, "operation_key": operation_key,
         },
+                supports_provider_idempotency=True,
+                lookup_not_found_is_authoritative=True,
             ))
             with self.assertRaises(ProviderOutcomeBlocked):
                 first.invoke(stage, state)
@@ -423,6 +467,8 @@ class VibeCodingAdapterTests(unittest.TestCase):
                 risk=next(spec.risk for spec in STAGE_SPECS if spec.stage == stage),
                 external_side_effects=True,
                 lookup_operation=lookup,
+                supports_provider_idempotency=True,
+                lookup_not_found_is_authoritative=True,
             ))
             result = second.invoke(stage, state)
             self.assertEqual("preview-receipt", result["deployment_receipt"])
