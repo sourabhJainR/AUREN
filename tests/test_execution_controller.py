@@ -1,4 +1,8 @@
 from concurrent.futures import ThreadPoolExecutor
+import io
+import tempfile
+import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 import json
 import os
@@ -1849,3 +1853,63 @@ def test_provider_adapter_reconciles_ambiguous_outcome_before_any_redispatch(tmp
     assert row["state"] == "completed"
     assert row["receipt"]["result"]["success"] is True
 
+
+
+class WorkerTaskStateProjectionTests(unittest.TestCase):
+    def test_worker_json_reports_durable_state_counts_and_preserves_blocked_work(self):
+        from portable.auren_runtime import main
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            controller = ExecutionController(root)
+            controller.register_handler(
+                "tests.durable_handler", durable_handler, execution_class="read_only"
+            )
+            completed = controller.submit(
+                "tests.durable_handler",
+                {"id": "state-count-completed"},
+                goal="prepare completed task for worker state report",
+                work_key="test:worker-state-counts:completed",
+            )
+            self.assertIsNotNone(controller.run_once(completed.id))
+
+            blocked = controller.submit(
+                "tests.durable_handler",
+                {"id": "state-count-blocked"},
+                goal="prepare blocked task for worker state report",
+                work_key="test:worker-state-counts:blocked",
+            )
+            # This test covers the read-only projection of a durable state that
+            # the worker must preserve, not the transition that creates it.
+            with sqlite3.connect(controller.db_path) as db:
+                db.execute(
+                    "UPDATE tasks SET state='blocked_reconciliation', heartbeat_at=NULL, "
+                    "lease_until=NULL, lease_token=NULL WHERE id=?",
+                    (blocked.id,),
+                )
+
+            output = io.StringIO()
+            with redirect_stdout(output):
+                code = main([
+                    "worker",
+                    "--project-root", str(root),
+                    "--work-key", "AUREN:issue-696:continuous-engineering",
+                    "--goal", "Resume bounded AUREN continuous engineering",
+                    "--idle-sleep-seconds", "0",
+                    "--max-cycles", "1",
+                    "--max-idle-cycles", "1",
+                    "--json",
+                ])
+
+            payload = json.loads(output.getvalue())
+            self.assertEqual(2, code)
+            self.assertEqual("idle_budget_exhausted", payload["stop_reason"])
+            self.assertEqual(
+                {"blocked_reconciliation": 1, "completed": 1},
+                payload["task_state_counts"],
+            )
+            self.assertEqual(1, payload["remaining_nonterminal_tasks"])
+            self.assertEqual(
+                "AUREN:issue-696:continuous-engineering",
+                payload["stable_work_key"],
+            )
