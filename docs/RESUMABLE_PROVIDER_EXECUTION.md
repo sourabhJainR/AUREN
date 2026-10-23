@@ -49,3 +49,20 @@ The registration API wires the journal's allowlisted callback to every specialis
 ## Startup reconciliation after a process interruption
 
 PR [#777](https://github.com/sourabhJainR/AUREN/pull/777) reconciles progress projections on `ExecutionController` startup using both the durable task row and executive work-unit state. A task is projected as `completed`, `failed`, or `cancelled` only when both stores agree on that terminal state. If the task row is terminal but its receipt is still running/missing—or if a non-terminal task conflicts with a terminal receipt—the journal projects `blocked` and health findings require reconciliation. Running tasks with fresh lease and heartbeat remain running; missing or expired lease metadata projects `recovering`. The journal appends a `startup_reconciliation` event rather than deleting history, and this explicit correction path is the only one allowed to supersede a terminal projection. Reconciliation uses an expected-sequence check under the journal write lock; if another worker appended progress after the scan, the correction is rejected and a health finding remains for retry. Reconciliation never reruns a handler or assumes an external side effect did not happen. The task scan is bounded; if it is incomplete, rerun `controller.reconcile_progress_journal(limit=..., time_budget_seconds=...)` with a larger bound before trusting unscanned projections.
+
+## Hard bounds for the security-gated harness bridge
+
+The `.ai-harness/safe_provider.py` bridge applies a process-level bound around `provider.py`, in addition to the provider invoker's own timeout and response limit.
+
+- `HARNESS_PROVIDER_TIMEOUT_SECONDS` defaults to 1800 seconds and must be within 1–3600 seconds.
+- `HARNESS_PROVIDER_MAX_OUTPUT_BYTES` defaults to 1,000,000 bytes and must be within 1,024–16,000,000 bytes.
+- Output is read as fixed-size byte chunks through a bounded queue. The bridge does not use line-based reads, so a provider cannot force a single unbounded line allocation.
+- Timeout terminates the contained process group/job and returns exit code `124`. Output overflow or invalid bound configuration terminates or rejects the invocation and returns exit code `125`. Neither condition is treated as successful provider output or automatically retried by this bridge.
+- A normal parent exit also triggers descendant cleanup before the bridge returns. Windows uses the existing kill-on-close Job Object helpers; POSIX uses the isolated process group. Regression tests cover bounded output, overflow, hard deadlines, descendant cleanup, and invalid configuration.
+
+These controls bound output retained by the bridge. They do not prove that a remote provider did not accept an external operation before interruption. Consequential operations still require the durable side-effect ledger, provider-native idempotency/lookup, and trusted receipt reconciliation described in `PROVIDER_OPERATION_LIFECYCLE.md`.
+
+### Rollback and recovery
+
+If a supported provider needs a compatibility fix, keep the process deadline, output cap, and process-tree cleanup enabled. Adjust only the documented finite limits within their accepted ranges, then rerun the cross-platform regression matrix. Do not roll back to unbounded line collection or an unbounded `wait()`. If this bridge integration must be reverted, first provide an equivalent bounded process boundary in the replacement path; otherwise disable consequential provider dispatch and leave the operation blocked for reconciliation. Rerun the output-overflow, timeout, descendant-cleanup, invalid-configuration, provider-lifecycle, and exact-head CI suites before restoring writes.
+

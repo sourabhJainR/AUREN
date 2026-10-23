@@ -6,11 +6,12 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / ".ai-harness"))
 
-from safe_provider import _bounded_process_output
+from safe_provider import _bounded_process_output, _run_resilient
 
 
 class SafeProviderBoundTests(unittest.TestCase):
@@ -67,3 +68,36 @@ class SafeProviderBoundTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+    def test_invalid_process_limits_return_125_without_launching_provider(self):
+        class RecordingFeedback:
+            def __init__(self):
+                self.events = []
+
+            def observe(self, **event):
+                self.events.append(event)
+
+        cases = (
+            ("HARNESS_PROVIDER_TIMEOUT_SECONDS", "not-a-number"),
+            ("HARNESS_PROVIDER_MAX_OUTPUT_BYTES", "not-a-number"),
+        )
+        for name, value in cases:
+            with self.subTest(setting=name), tempfile.TemporaryDirectory() as directory:
+                feedback = RecordingFeedback()
+
+                def configured_value(key, default=None):
+                    return value if key == name else default
+
+                with patch("safe_provider.get_auren_env", side_effect=configured_value), \
+                     patch("safe_provider._bounded_process_output") as invoke:
+                    code = _run_resilient(
+                        [sys.executable, "-c", "print('must-not-run')"],
+                        "bounded provider configuration regression",
+                        Path(directory),
+                        feedback,
+                    )
+
+                self.assertEqual(125, code)
+                invoke.assert_not_called()
+                self.assertEqual("output_limit_or_invalid_config", feedback.events[-1]["outcome"])
+
