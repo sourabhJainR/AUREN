@@ -124,7 +124,7 @@ def _provider_total_budget_seconds(*, now_epoch: float | None = None) -> float:
         raise ValueError("HARNESS_PROVIDER_TOTAL_TIMEOUT_SECONDS must be numeric") from exc
     if not 1 <= total <= 7200:
         raise ValueError("HARNESS_PROVIDER_TOTAL_TIMEOUT_SECONDS must be between 1 and 7200")
-    inherited = os.environ.get("AUREN_DEADLINE_EPOCH", os.environ.get("AER_DEADLINE_EPOCH", "")).strip()
+    inherited = os.environ.get("AUREN_DEADLINE_EPOCH", "").strip()
     if not inherited:
         return total
     try:
