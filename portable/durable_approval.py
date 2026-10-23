@@ -847,7 +847,7 @@ class DurableApprovalStore:
             authorized = self.cancellation_authorizer(actor, record)
         except Exception as exc:
             raise PermissionError("cancellation authorization failed closed") from exc
-        if not authorized:
+        if authorized is not True:
             raise PermissionError("actor is not authorized to cancel this approval")
 
         with self._connect() as db:
