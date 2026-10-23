@@ -53,6 +53,27 @@ def _crash_after_signed_receipt_retention(evidence_db, event_db, envelope, expec
     )
     os._exit(94)
 
+
+def _crash_after_signed_evidence_sink_accept(evidence_db, event_db, envelope, expected_head, accepted_log):
+    def sink(event):
+        with Path(accepted_log).open("a", encoding="utf-8") as stream:
+            stream.write(event["event_id"] + "\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        # Remote acceptance happened; the local outbox is still pending.
+        os._exit(95)
+
+    capture = EvidenceCapture(
+        event_db, sink=sink, evidence_ledger=CanonicalEvidenceLedger(evidence_db)
+    )
+    capture.ingest_signed_external_evidence(
+        envelope,
+        verifier=lambda _signer, _signature, _message: True,
+        expected_repository="sourabhJainR/AUREN",
+        expected_head=expected_head,
+    )
+    os._exit(96)
+
 def _crash_after_sink_accept(database, accepted_log):
     def sink(event):
         with Path(accepted_log).open("a", encoding="utf-8") as stream:
@@ -280,6 +301,70 @@ class EngineeringEvidenceCaptureTests(unittest.TestCase):
         self.assertEqual(1, len(restarted.signed_receipts()))
         self.assertEqual(1, len(restarted.events()))
         self.assertTrue(restarted.verify_chain())
+
+
+    def test_signed_evidence_export_crash_replays_one_stable_event_and_outbox(self):
+        evidence_path = self.path.parent / "canonical-evidence.sqlite3"
+        expected_head = "a" * 40
+        envelope = {
+            "payload": {
+                "evidence_id": "external:export-crash-recovery:1",
+                "repository": "sourabhJainR/AUREN",
+                "head_sha": expected_head,
+                "evidence_type": "evaluation",
+                "status": "passed",
+                "source_uri": "https://evaluator.invalid/runs/44/receipt",
+                "payload_digest": "d" * 64,
+                "source_type": "external_evaluator",
+                "issued_at": datetime.now(timezone.utc).isoformat(),
+                "run_id": "run-44",
+                "evaluator_id": "evaluator-independent-1",
+                "external_system": "test-evaluator",
+            },
+            "signer_id": "trusted-test-key-1",
+            "signature": "detached-test-signature",
+        }
+        accepted_log = self.path.parent / "accepted-signed-event-ids.log"
+        process = multiprocessing.get_context("spawn").Process(
+            target=_crash_after_signed_evidence_sink_accept,
+            args=(str(evidence_path), str(self.path), envelope, expected_head, str(accepted_log)),
+        )
+        process.start()
+        process.join(30)
+        if process.is_alive():
+            process.terminate()
+            process.join(5)
+            self.fail("signed evidence export crash fixture exceeded its 30-second time budget")
+        self.assertEqual(95, process.exitcode)
+        first_delivery = accepted_log.read_text(encoding="utf-8").splitlines()
+        self.assertEqual(1, len(first_delivery))
+
+        def successful_sink(event):
+            with accepted_log.open("a", encoding="utf-8") as stream:
+                stream.write(event["event_id"] + "\n")
+
+        reopened = EvidenceCapture(
+            self.path,
+            sink=successful_sink,
+            evidence_ledger=CanonicalEvidenceLedger(evidence_path),
+        )
+        self.assertEqual(1, len(reopened.events()))
+        self.assertEqual(1, len(reopened.signed_receipts()))
+        self.assertEqual(1, reopened.pending_exports())
+        result = reopened.ingest_signed_external_evidence(
+            envelope,
+            verifier=lambda _signer, _signature, _message: True,
+            expected_repository="sourabhJainR/AUREN",
+            expected_head=expected_head,
+        )
+        self.assertEqual("external:export-crash-recovery:1", result["evidence_id"])
+        self.assertEqual(1, len(reopened.events()))
+        self.assertEqual(1, len(reopened.signed_receipts()))
+        self.assertEqual(0, reopened.pending_exports())
+        deliveries = accepted_log.read_text(encoding="utf-8").splitlines()
+        self.assertEqual(2, len(deliveries))
+        self.assertEqual(deliveries[0], deliveries[1])
+        self.assertTrue(reopened.verify_chain())
 
     def test_process_death_after_sink_accept_replays_same_stable_event_id(self):
         # Configure a failing sink first so the local outbox has a pending row.

@@ -218,6 +218,7 @@ class EvidenceCapture:
             parsed_uri = urlparse(evidence_uri)
             if parsed_uri.username or parsed_uri.password or parsed_uri.query:
                 raise ValueError("evidence_uri must not embed credentials or query-string secrets")
+        stable_event_id = event_id is not None
         base = {
             "event_id": _text(event_id or uuid4().hex, "event_id"),
             "event_type": event_type,
@@ -233,47 +234,87 @@ class EvidenceCapture:
             "evidence_uri": evidence_uri,
             "metadata": safe_metadata,
         }
+        event: dict[str, Any]
         with closing(sqlite3.connect(self.path, timeout=10)) as db, db:
             db.execute("BEGIN IMMEDIATE")
-            previous = db.execute(
-                "SELECT event_digest FROM engineering_events ORDER BY sequence DESC LIMIT 1"
-            ).fetchone()
-            previous_digest = previous[0] if previous else "0" * 64
-            unsigned = {**base, "previous_digest": previous_digest}
-            event_digest = sha256_bytes(_canonical(unsigned))
-            signer_id, signature = "", ""
-            if self.signer:
-                signed = self.signer(bytes.fromhex(event_digest))
-                if not isinstance(signed, Mapping):
-                    raise ValueError("signer must return signer_id and signature")
-                signer_id = _text(signed.get("signer_id"), "signer_id")
-                signature = _text(signed.get("signature"), "signature", 4096)
-            db.execute(
-                """INSERT INTO engineering_events(
-                    event_id,event_type,source_type,occurred_at,work_unit_id,task_id,
-                    iteration,status,repository,head_sha,artifact_digest,evidence_uri,
-                    metadata_json,previous_digest,event_digest,signer_id,signature
-                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                (
-                    base["event_id"], event_type, source_type, base["occurred_at"],
-                    base["work_unit_id"], base["task_id"], iteration, base["status"],
-                    repository, head_sha, artifact_digest, evidence_uri,
-                    json.dumps(safe_metadata, sort_keys=True), previous_digest,
-                    event_digest, signer_id, signature,
-                ),
-            )
-        event = {**unsigned, "event_digest": event_digest, "signer_id": signer_id, "signature": signature}
-        if self.sink:
-            with closing(sqlite3.connect(self.path, timeout=10)) as db, db:
+            existing = None
+            if stable_event_id:
+                existing = db.execute(
+                    "SELECT event_id,event_type,source_type,occurred_at,work_unit_id,task_id,iteration,status,"
+                    "repository,head_sha,artifact_digest,evidence_uri,metadata_json,previous_digest,event_digest,signer_id,signature "
+                    "FROM engineering_events WHERE event_id=?",
+                    (base["event_id"],),
+                ).fetchone()
+            if existing is not None:
+                names = (
+                    "event_id", "event_type", "source_type", "occurred_at", "work_unit_id", "task_id",
+                    "iteration", "status", "repository", "head_sha", "artifact_digest", "evidence_uri",
+                    "metadata_json", "previous_digest", "event_digest", "signer_id", "signature",
+                )
+                stored = dict(zip(names, existing))
+                try:
+                    stored_metadata = json.loads(stored.pop("metadata_json"))
+                except (TypeError, json.JSONDecodeError) as exc:
+                    raise ValueError("stored event metadata is corrupt") from exc
+                immutable_fields = (
+                    "event_id", "event_type", "source_type", "work_unit_id", "task_id", "iteration",
+                    "status", "repository", "head_sha", "artifact_digest", "evidence_uri",
+                )
+                if any(stored[field] != base[field] for field in immutable_fields) or stored_metadata != safe_metadata:
+                    raise ValueError("event_id already exists with different immutable content")
+                stored_unsigned = {
+                    "event_id": stored["event_id"], "event_type": stored["event_type"],
+                    "source_type": stored["source_type"], "occurred_at": stored["occurred_at"],
+                    "work_unit_id": stored["work_unit_id"], "task_id": stored["task_id"],
+                    "iteration": stored["iteration"], "status": stored["status"],
+                    "repository": stored["repository"], "head_sha": stored["head_sha"],
+                    "artifact_digest": stored["artifact_digest"], "evidence_uri": stored["evidence_uri"],
+                    "metadata": stored_metadata, "previous_digest": stored["previous_digest"],
+                }
+                if sha256_bytes(_canonical(stored_unsigned)) != stored["event_digest"]:
+                    raise ValueError("stored event digest is corrupt")
+                event = {
+                    **stored_unsigned, "event_digest": stored["event_digest"],
+                    "signer_id": stored["signer_id"], "signature": stored["signature"],
+                }
+            else:
+                previous = db.execute(
+                    "SELECT event_digest FROM engineering_events ORDER BY sequence DESC LIMIT 1"
+                ).fetchone()
+                previous_digest = previous[0] if previous else "0" * 64
+                unsigned = {**base, "previous_digest": previous_digest}
+                event_digest = sha256_bytes(_canonical(unsigned))
+                signer_id, signature = "", ""
+                if self.signer:
+                    signed = self.signer(bytes.fromhex(event_digest))
+                    if not isinstance(signed, Mapping):
+                        raise ValueError("signer must return signer_id and signature")
+                    signer_id = _text(signed.get("signer_id"), "signer_id")
+                    signature = _text(signed.get("signature"), "signature", 4096)
+                db.execute(
+                    """INSERT INTO engineering_events(
+                        event_id,event_type,source_type,occurred_at,work_unit_id,task_id,
+                        iteration,status,repository,head_sha,artifact_digest,evidence_uri,
+                        metadata_json,previous_digest,event_digest,signer_id,signature
+                    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (
+                        base["event_id"], event_type, source_type, base["occurred_at"],
+                        base["work_unit_id"], base["task_id"], iteration, base["status"],
+                        repository, head_sha, artifact_digest, evidence_uri,
+                        json.dumps(safe_metadata, sort_keys=True), previous_digest,
+                        event_digest, signer_id, signature,
+                    ),
+                )
+                event = {**unsigned, "event_digest": event_digest, "signer_id": signer_id, "signature": signature}
+            if self.sink:
+                # Keep the local event and its delivery obligation in one commit.
                 db.execute(
                     "INSERT OR IGNORE INTO engineering_event_outbox(event_id,event_json,delivery_state,attempts,last_error,updated_at) VALUES(?,?,'pending',0,'',?)",
                     (base["event_id"], json.dumps(event, sort_keys=True), datetime.now(timezone.utc).isoformat()),
                 )
-            # Delivery is retriable and does not change the execution result. A
-            # deployment that requires remote durability must gate promotion on
-            # pending_exports() == 0 and configure external retention/WORM storage.
-            if not _defer_export:
-                self.flush_pending(limit=10)
+        if self.sink and not _defer_export:
+            # Remote delivery is retriable; promotion must gate on pending_exports().
+            self.flush_pending(limit=10)
         return event
 
     def ingest_signed_external_evidence(
@@ -434,6 +475,7 @@ class EvidenceCapture:
             evidence_uri=source_uri,
             source_type=str(payload["source_type"]),
             metadata=metadata,
+            event_id="external-evidence-" + sha256_bytes(evidence_id.encode("utf-8")),
             _defer_export=True,
         )
         if self.sink is not None:
