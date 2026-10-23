@@ -1998,14 +1998,46 @@ class ExecutionController:
                     evidence_ref=None,
                 )
 
+            provider_ledger = DurableSideEffectLedger(
+                self.db_path, reconciliation_verifier=verify_fn,
+            )
             lifecycle = ProviderOperationLifecycle(
-                DurableSideEffectLedger(self.db_path, reconciliation_verifier=verify_fn),
-                record_event=record_provider_event,
+                provider_ledger, record_event=record_provider_event,
             )
-            provider_receipt = lifecycle.reconcile(
-                operation_key, provider_name, provider_intent,
-                lambda _operation_id, _idempotency_key: lookup_result,
-            )
+            existing_provider_record = provider_ledger.get(operation_key)
+            if existing_provider_record is not None and existing_provider_record.get("state") == "completed":
+                # The provider receipt was committed before a prior worker died.
+                # Reuse the digest-bound durable receipt; remote lookup is unnecessary.
+                provider_receipt = lifecycle.reconcile(
+                    operation_key, provider_name, provider_intent, None,
+                )
+                evidence_ref = provider_receipt.get("evidence_ref")
+                if not isinstance(evidence_ref, str) or not evidence_ref.strip():
+                    raise ProviderOutcomeBlocked(
+                        "durable provider receipt lacks its evidence reference; task remains blocked"
+                    )
+            else:
+                try:
+                    lookup_result = lookup_fn(operation_id, operation_key)
+                except Exception as exc:
+                    raise ProviderOutcomeBlocked(
+                        f"provider operation {operation_id} lookup failed; explicit resolution required"
+                    ) from exc
+                if (
+                    not isinstance(lookup_result, Mapping)
+                    or lookup_result.get("status") != "completed"
+                    or not isinstance(lookup_result.get("evidence_ref"), str)
+                    or not lookup_result.get("evidence_ref", "").strip()
+                    or not isinstance(lookup_result.get("receipt"), Mapping)
+                ):
+                    raise ProviderOutcomeBlocked(
+                        f"provider operation {operation_id} outcome is not established; task remains blocked"
+                    )
+                evidence_ref = lookup_result["evidence_ref"]
+                provider_receipt = lifecycle.reconcile(
+                    operation_key, provider_name, provider_intent,
+                    lambda _operation_id, _idempotency_key: lookup_result,
+                )
             result = provider_receipt.get("result")
             if not isinstance(result, Mapping):
                 raise ProviderOutcomeBlocked("reconciled provider receipt is malformed; task remains blocked")
