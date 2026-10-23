@@ -131,6 +131,13 @@ class ConsequentialOuterReceiptCrashTests(unittest.TestCase):
             _register(restarted)
             assert restarted.run_once(task.id) is None
             assert restarted.task(task.id).state == "blocked_reconciliation"
+            with sqlite3.connect(restarted.evidence_capture.path) as db:
+                terminal_rows = db.execute(
+                    "SELECT event_type FROM engineering_events WHERE task_id=? "
+                    "AND event_type IN ('task_completed', 'task_failed')",
+                    (task.id,),
+                ).fetchall()
+            assert terminal_rows == []
             assert ledger.get(provider_key)["state"] == "completed"
             assert ledger.get(outer_key)["state"] == "reconcile_required"
             assert marker.read_text(encoding="utf-8").splitlines() == ["dispatched"]
