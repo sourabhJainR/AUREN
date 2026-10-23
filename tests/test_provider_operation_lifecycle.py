@@ -250,6 +250,42 @@ class ProviderOperationLifecycleTests(unittest.TestCase):
             self.assertEqual("reconcile_required", self.ledger().get(key)["state"])
 
 
+
+    def test_reconciliation_rejects_receipts_bound_to_other_provider_or_intent(self):
+        operation_key = "deploy:reconcile-binding"
+        provider = "provider-a"
+        intent = {"target": "staging", "revision": "reconcile-binding"}
+        operation_id = stable_provider_operation_id(operation_key, provider, intent)
+        lifecycle = ProviderOperationLifecycle(self.ledger(verify=lambda *_: True), record_event=self.events.append)
+        with self.assertRaises(ProviderOutcomeBlocked):
+            lifecycle.execute(
+                operation_key, provider, intent,
+                lambda *_: (_ for _ in ()).throw(TimeoutError("response lost")),
+            )
+
+        bad_receipts = (
+            {"provider": "provider-b"},
+            {"intent_digest": "d" * 64},
+        )
+        for extra in bad_receipts:
+            receipt = {
+                "status": "completed",
+                "provider_operation_id": "remote-reconcile-binding",
+                "operation_id": operation_id,
+                "idempotency_key": operation_key,
+                **extra,
+            }
+            with self.assertRaisesRegex(ProviderOutcomeBlocked, "bound to the requested operation"):
+                lifecycle.reconcile(
+                    operation_key, provider, intent,
+                    lambda _op_id, _key, value=receipt: {
+                        "status": "completed",
+                        "evidence_ref": "provider://operations/remote-reconcile-binding",
+                        "receipt": value,
+                    },
+                )
+            self.assertEqual("reconcile_required", self.ledger().get(operation_key)["state"])
+
     def test_reconciliation_accepts_distinct_provider_remote_id_when_trusted_binding_matches(self):
         operation_key = "deploy:remote-id-differs"
         provider = "provider-a"
