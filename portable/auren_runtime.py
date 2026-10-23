@@ -115,11 +115,22 @@ def _print_progress(args) -> int:
     return 2 if degraded else 0
 
 
+MUTABLE_DATABASE_SUFFIXES = (
+    ".sqlite", ".sqlite3", ".db",
+    ".sqlite-wal", ".sqlite-shm", ".sqlite-journal",
+    ".sqlite3-wal", ".sqlite3-shm", ".sqlite3-journal",
+    ".db-wal", ".db-shm", ".db-journal",
+)
+
+
 def should_include(path: Path, root: Path) -> bool:
     rel = path.relative_to(root)
     if any(part in EXCLUDED_PARTS for part in rel.parts):
         return False
-    return not (path.is_file() and path.name in MUTABLE_FILE_NAMES)
+    name = path.name.lower()
+    if name in MUTABLE_FILE_NAMES or name.endswith(MUTABLE_DATABASE_SUFFIXES):
+        return False
+    return True
 
 def iter_source_files(root: Path) -> list[Path]:
     files: list[Path] = []
