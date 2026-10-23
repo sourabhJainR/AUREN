@@ -112,8 +112,8 @@ def _bounded_process_output(command: list[str], *, cwd: Path, env: dict[str, str
     are bounded; a single giant line cannot force an unbounded readline allocation.
     The provider tree is terminated on timeout, overflow, and normal parent exit.
     """
-    if not 1 <= timeout_seconds <= 3600:
-        raise ValueError("timeout_seconds must be between 1 and 3600")
+    if not 0.05 <= timeout_seconds <= 3600:
+        raise ValueError("timeout_seconds must be between 0.05 and 3600")
     if type(max_output_bytes) is not int or not 1024 <= max_output_bytes <= 16000000:
         raise ValueError("max_output_bytes must be between 1024 and 16000000")
     if output_sink is not None and not callable(output_sink):
@@ -235,11 +235,20 @@ def _run_resilient(command: list[str], prompt: str, run_dir: Path, feedback: Fee
                 "AER_COMPACTION_DIGEST": compaction_meta["digest"],  # legacy provider contract
             })
             timeout_seconds, max_output_bytes = _bounded_process_limits()
-            code, output = _bounded_process_output(
-                [sys.executable, str(Path(__file__).resolve().with_name("provider.py")), "--prompt-file", str(effective_path), "--", *command],
-                cwd=Path(os.environ.get("HARNESS_WORKSPACE", Path(__file__).resolve().parent.parent)),
-                env=env, timeout_seconds=timeout_seconds, max_output_bytes=max_output_bytes,
-            )
+            try:
+                code, output = _bounded_process_output(
+                    [sys.executable, str(Path(__file__).resolve().with_name("provider.py")), "--prompt-file", str(effective_path), "--", *command],
+                    cwd=Path(os.environ.get("HARNESS_WORKSPACE", Path(__file__).resolve().parent.parent)),
+                    env=env, timeout_seconds=timeout_seconds, max_output_bytes=max_output_bytes,
+                )
+            except TimeoutError as exc:
+                feedback.observe(task_id=task_id, outcome="timeout", verified=False, strategy=strategy, evidence=[compaction_meta["digest"]])
+                print(f"AUREN provider hard deadline exceeded: {exc}", file=sys.stderr)
+                return 124
+            except ValueError as exc:
+                feedback.observe(task_id=task_id, outcome="output_limit_or_invalid_config", verified=False, strategy=strategy, evidence=[compaction_meta["digest"]])
+                print(f"AUREN provider output/configuration rejected: {exc}", file=sys.stderr)
+                return 125
             transcript = (transcript + output)[-24000:]
             if code == 0:
                 feedback.observe(task_id=task_id, outcome="success", verified=False, strategy=strategy, evidence=[compaction_meta["digest"]])
