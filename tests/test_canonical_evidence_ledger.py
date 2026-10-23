@@ -127,7 +127,7 @@ class CanonicalEvidenceLedgerTests(unittest.TestCase):
             )
 
     def test_promotion_lookup_rejects_tampered_status(self):
-        created = self.record(evidence_id="tampered-status")
+        created = self.record(evidence_id="tampered-status", status="failed")
         with closing(sqlite3.connect(self.database)) as db, db:
             db.execute(
                 "UPDATE canonical_evidence SET status='passed' WHERE evidence_id=?",
