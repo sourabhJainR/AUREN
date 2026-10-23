@@ -65,10 +65,6 @@ class SafeProviderBoundTests(unittest.TestCase):
             time.sleep(0.9)
             self.assertFalse(marker.exists(), "provider descendants must not outlive a completed invocation")
 
-
-if __name__ == "__main__":
-    unittest.main()
-
     def test_invalid_process_limits_return_125_without_launching_provider(self):
         class RecordingFeedback:
             def __init__(self):
@@ -101,3 +97,6 @@ if __name__ == "__main__":
                 invoke.assert_not_called()
                 self.assertEqual("output_limit_or_invalid_config", feedback.events[-1]["outcome"])
 
+
+if __name__ == "__main__":
+    unittest.main()
