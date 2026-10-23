@@ -16,7 +16,7 @@ create a second task store.
   must not supply self-asserted roles as authority. High-risk requests can require
   multiple distinct approvers and separation of duties.
 - Cancellation requires a separate trusted `cancellation_authorizer(actor, record)`.
-  Missing, rejected, or failing authorization blocks cancellation. Only pending and
+  Missing, rejected, non-boolean, or failing authorization blocks cancellation. Only pending and
   approved requests can be cancelled. An executing or outcome-unknown operation cannot
   be cancelled to hide an uncertain side effect; reconcile the canonical side-effect
   ledger and provider evidence first. The actor value must come from authenticated host
