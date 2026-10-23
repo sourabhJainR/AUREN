@@ -10,7 +10,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from portable.vibe_coding import VibeCodingCheckpoint
+from portable.vibe_coding import VibeCodingCheckpoint, VibeStage
 from portable.vibe_coding_host import (
     DurableVibeCheckpointStore,
     IsolatedGitWorktree,
@@ -23,6 +23,7 @@ from portable.vibe_coding_host import (
     VerifiedResearchTool,
     fingerprint_worktree,
     load_host_config,
+    _build_provider_operation_lookups,
 )
 
 
@@ -59,6 +60,28 @@ for line in sys.stdin:
     elif method == "tools/call":
         print(json.dumps({"jsonrpc":"2.0","id":msg["id"],"result":result}), flush=True)
 """ % json.dumps(result)
+    path.write_text(source, encoding="utf-8")
+
+
+def fake_operation_lookup_server(path: Path) -> None:
+    source = """import json, sys
+for line in sys.stdin:
+    try:
+        msg = json.loads(line)
+    except Exception:
+        continue
+    method = msg.get("method")
+    if method == "initialize":
+        print(json.dumps({"jsonrpc":"2.0","id":msg["id"],"result":{"protocolVersion":"2024-11-05","capabilities":{},"serverInfo":{"name":"fake-operation-lookup","version":"1"}}}), flush=True)
+    elif method == "tools/call":
+        args = msg.get("params", {}).get("arguments", {})
+        result = {"structuredContent": {
+            "status": "not_found",
+            "operation_id": args.get("operation_id"),
+            "operation_key": args.get("idempotency_key"),
+        }}
+        print(json.dumps({"jsonrpc":"2.0","id":msg["id"],"result":result}), flush=True)
+"""
     path.write_text(source, encoding="utf-8")
 
 
@@ -420,6 +443,37 @@ print(json.dumps({"type": "item.completed", "item": {"type": "agent_message", "t
             self.assertEqual(source_status.strip(), "")
 
     @unittest.skipIf(os.name == "nt", "POSIX file permission contract")
+
+    def test_provider_operation_lookup_mcp_port_receives_exact_operation_binding(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            server = root / "lookup_mcp.py"
+            fake_operation_lookup_server(server)
+            operations = _build_provider_operation_lookups(
+                {
+                    "deployment": {
+                        "operation_lookup": {
+                            "argv": [sys.executable, str(server)],
+                            "tool_name": "lookup_operation",
+                            "argument_map": {
+                                "operation_id": "$operation_id",
+                                "idempotency_key": "$idempotency_key",
+                            },
+                            "timeout_seconds": 5,
+                        },
+                    },
+                },
+                workspace_root=root,
+            )
+            self.assertIn(VibeStage.PREVIEW_DEPLOYMENT, operations)
+            self.assertNotIn(VibeStage.PRODUCTION_DEPLOY, operations)
+            result = operations[VibeStage.PREVIEW_DEPLOYMENT](
+                "auren-op-bound-42", "workflow:preview:deployment",
+            )
+            self.assertEqual("not_found", result["status"])
+            self.assertEqual("auren-op-bound-42", result["operation_id"])
+            self.assertEqual("workflow:preview:deployment", result["operation_key"])
+
     def test_host_config_requires_private_file_and_explicit_security_adapter(self):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "host.json"
