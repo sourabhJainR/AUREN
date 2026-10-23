@@ -86,11 +86,11 @@ class SubprocessProviderInvokerTests(unittest.TestCase):
                 "import subprocess,sys; "
                 "subprocess.Popen([sys.executable, '-c', "
                 + repr(child_code)
-                + ", sys.argv[1]], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, "
+                + ", " + repr(str(marker)) + "], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, "
                 "stderr=subprocess.DEVNULL); print('parent-complete')"
             )
             provider = self.invoker(parent_code)
-            result = provider(str(marker), 3)
+            result = provider("request", 3)
             self.assertIn("parent-complete", result)
             time.sleep(1.3)
             self.assertFalse(
