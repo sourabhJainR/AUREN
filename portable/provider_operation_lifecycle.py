@@ -197,10 +197,31 @@ class ProviderOperationLifecycle:
             # The provider operation ID is part of the evidence binding checked
             # by the trusted reconciliation verifier.
             provider_operation_id = receipt.get("provider_operation_id")
+            # The provider's remote operation ID is not AUREN's stable operation
+            # ID. Bind the request through explicit AUREN operation/idempotency
+            # fields when supplied, and rely on the trusted reconciliation
+            # verifier to validate the remote ID against the evidence reference.
+            request_binding_fields = (
+                ("operation_id", op_id),
+                ("auren_operation_id", op_id),
+                ("idempotency_key", operation_key),
+            )
+            mismatched_binding = next(
+                (
+                    field for field, expected_value in request_binding_fields
+                    if field in receipt
+                    and (
+                        not isinstance(receipt.get(field), str)
+                        or receipt.get(field) != expected_value
+                    )
+                ),
+                None,
+            )
             if (
                 receipt.get("status") != "completed"
                 or not isinstance(provider_operation_id, str)
-                or provider_operation_id != op_id
+                or not provider_operation_id.strip()
+                or mismatched_binding is not None
             ):
                 self._event(
                     operation_key, "blocked", op_id, record["payload_digest"],
