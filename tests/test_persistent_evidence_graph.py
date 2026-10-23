@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 from contextlib import contextmanager
 
@@ -56,3 +57,29 @@ def test_lineage_direction_and_budget(tmp_path):
     a=g.add_node("a","1"); b=g.add_node("b","2"); g.add_edge(a,"next",b)
     assert len(g.lineage(b.node_id,direction="in"))==1
     with raises(ValueError): g.lineage(a.node_id,max_edges=0)
+
+def test_lineage_fails_closed_on_corrupt_edge_digest(tmp_path):
+    g=graph(tmp_path)
+    a=g.add_node("source","1"); b=g.add_node("result","2")
+    edge=g.add_edge(a,"produced",b)
+    with g.memory._lock, g.memory._connection() as db:
+        db.execute(
+            "UPDATE evidence_edges SET edge_digest=? WHERE project=? AND source_id=? AND relation=? AND target_id=?",
+            ("not-the-canonical-digest", g.project, edge.source_id, edge.relation, edge.target_id),
+        )
+    with raises(ValueError,match="edge digest is corrupt"):
+        g.lineage(a.node_id,direction="out")
+
+
+def test_lineage_fails_closed_when_edge_endpoint_is_missing(tmp_path):
+    g=graph(tmp_path)
+    a=g.add_node("source","1"); b=g.add_node("result","2")
+    edge=g.add_edge(a,"produced",b)
+    with g.memory._lock, g.memory._connection() as db:
+        db.execute(
+            "DELETE FROM evidence_nodes WHERE project=? AND node_id=?",
+            (g.project, b.node_id),
+        )
+    with raises(ValueError,match="missing node"):
+        g.lineage(a.node_id,direction="out")
+
