@@ -346,30 +346,68 @@ class VibeCodingAdapterTests(unittest.TestCase):
             self.assertIsNone(ledger.get(key))
 
     def test_external_side_effect_requires_lookup_before_first_dispatch(self):
-        with tempfile.TemporaryDirectory() as directory:
-            ledger = DurableSideEffectLedger(Path(directory) / "side-effects.sqlite3")
-            registry = VibeAdapterRegistry(max_risk="critical", side_effect_ledger=ledger)
-            stage = VibeStage.PREVIEW_DEPLOYMENT
-            calls = []
-            registry.register(AdapterRegistration(
-                "deployment-without-lookup", "1", (stage,),
-                frozenset(default_stage_capabilities()[stage.value]),
-                lambda request: calls.append(request) or output_for(stage, request["state"]),
-                risk=next(spec.risk for spec in STAGE_SPECS if spec.stage == stage),
-                external_side_effects=True,
-            ))
-            operation_key = (
-                "vibe-stage:workflow-no-lookup:preview_deployment:"
-                "deployment-without-lookup:1"
-            )
-            with self.assertRaisesRegex(AdapterUnavailable, "provider-native idempotency and authoritative operation lookup"):
-                registry.invoke(stage, {
-                    "vibe_coding_workflow_id": "workflow-no-lookup",
-                    "intent": "deploy preview",
-                    "risk": "high",
-                })
-            self.assertEqual([], calls)
-            self.assertIsNone(ledger.get(operation_key))
+        for stage in (VibeStage.PREVIEW_DEPLOYMENT, VibeStage.PRODUCTION_DEPLOY):
+            with self.subTest(stage=stage.value), tempfile.TemporaryDirectory() as directory:
+                ledger = DurableSideEffectLedger(Path(directory) / "side-effects.sqlite3")
+                registry = VibeAdapterRegistry(max_risk="critical", side_effect_ledger=ledger)
+                calls = []
+                registry.register(AdapterRegistration(
+                    "deployment-without-lookup", "1", (stage,),
+                    frozenset(default_stage_capabilities()[stage.value]),
+                    lambda request: calls.append(request) or output_for(stage, request["state"]),
+                    risk=next(spec.risk for spec in STAGE_SPECS if spec.stage == stage),
+                    external_side_effects=True,
+                ))
+                operation_key = (
+                    f"vibe-stage:workflow-no-lookup:{stage.value}:"
+                    "deployment-without-lookup:1"
+                )
+                with self.assertRaisesRegex(AdapterUnavailable, "idempotency and authoritative operation lookup"):
+                    registry.invoke(stage, {
+                        "vibe_coding_workflow_id": "workflow-no-lookup",
+                        "intent": f"deploy {stage.value}",
+                        "risk": "critical",
+                    })
+                self.assertEqual([], calls)
+                self.assertIsNone(ledger.get(operation_key))
+
+    def test_missing_lookup_does_not_consume_authorized_deployment_retry(self):
+        for stage in (VibeStage.PREVIEW_DEPLOYMENT, VibeStage.PRODUCTION_DEPLOY):
+            with self.subTest(stage=stage.value), tempfile.TemporaryDirectory() as directory:
+                operation_key = (
+                    f"vibe-stage:workflow-retry:{stage.value}:"
+                    "deployment-without-lookup:1"
+                )
+                ledger = DurableSideEffectLedger(
+                    Path(directory) / "side-effects.sqlite3",
+                    retry_authorizer=lambda *_: True,
+                )
+                ledger.begin(operation_key, {"seed": stage.value})
+                ledger.require_reconciliation(operation_key, "simulated ambiguous remote outcome")
+                ledger.authorize_retry(
+                    operation_key,
+                    operator_reason="provider confirmed no remote effect",
+                    operator_id="release-operator",
+                    evidence_ref="provider://operations/no-effect",
+                    confirmed_no_effect=True,
+                )
+                registry = VibeAdapterRegistry(max_risk="critical", side_effect_ledger=ledger)
+                calls = []
+                registry.register(AdapterRegistration(
+                    "deployment-without-lookup", "1", (stage,),
+                    frozenset(default_stage_capabilities()[stage.value]),
+                    lambda request: calls.append(request) or output_for(stage, request["state"]),
+                    risk=next(spec.risk for spec in STAGE_SPECS if spec.stage == stage),
+                    external_side_effects=True,
+                ))
+                with self.assertRaisesRegex(AdapterUnavailable, "idempotency and authoritative operation lookup"):
+                    registry.invoke(stage, {
+                        "vibe_coding_workflow_id": "workflow-retry",
+                        "intent": f"retry {stage.value}",
+                        "risk": "critical",
+                    })
+                self.assertEqual([], calls)
+                self.assertEqual("retry_authorized", ledger.get(operation_key)["state"])
 
     def test_external_side_effect_adapter_fails_closed_without_durable_ledger(self):
         registry = VibeAdapterRegistry(max_risk="critical")
