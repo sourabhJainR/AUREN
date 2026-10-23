@@ -56,7 +56,8 @@ class ProviderOperationLifecycle:
             })
 
     def execute(self, operation_key: str, provider: str, intent: Mapping[str, Any],
-                dispatch: Callable[[Mapping[str, Any], str, str], Mapping[str, Any]]) -> Mapping[str, Any]:
+                dispatch: Callable[[Mapping[str, Any], str, str], Mapping[str, Any]],
+                *, lookup: Callable[[str, str], Mapping[str, Any]] | None = None) -> Mapping[str, Any]:
         if not isinstance(intent, Mapping) or not callable(dispatch):
             raise TypeError("intent mapping and dispatch callable are required")
         op_id = stable_provider_operation_id(operation_key, provider, intent)
@@ -65,6 +66,8 @@ class ProviderOperationLifecycle:
         if decision.action == "replay":
             self._event(operation_key, "completed", op_id, decision.payload_digest, replay=True)
             return dict(decision.receipt or {})
+        if decision.action == "reconcile":
+            return self.reconcile(operation_key, provider, intent, lookup)
         if decision.action != "execute":
             self._event(operation_key, "blocked", op_id, decision.payload_digest, reason="reconciliation_required")
             raise ProviderOutcomeBlocked(
