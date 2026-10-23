@@ -595,6 +595,12 @@ class HttpsEvidenceSink:
         parsed_url = urlparse(url)
         if not parsed_url.hostname or not parsed_url.netloc:
             raise ValueError("evidence sink URL must include a valid HTTPS host")
+        if any(character.isspace() for character in parsed_url.hostname):
+            raise ValueError("evidence sink URL must include a valid HTTPS host")
+        try:
+            parsed_url.port
+        except ValueError as exc:
+            raise ValueError("evidence sink URL must include a valid HTTPS port") from exc
         if parsed_url.username or parsed_url.password or parsed_url.query or parsed_url.fragment:
             raise ValueError("evidence sink URL must not embed credentials, query-string secrets, or fragments")
         if not isinstance(bearer_token, str) or not bearer_token.strip():
