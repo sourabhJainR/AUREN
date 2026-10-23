@@ -1,5 +1,7 @@
 """Privacy and integrity regressions for automatic engineering evidence capture."""
 import json
+import multiprocessing
+import os
 import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
@@ -14,6 +16,21 @@ def failing_sink(_event):
 
 def succeeding_sink(_event):
     return None
+
+
+
+def _crash_after_sink_accept(database, accepted_log):
+    def sink(event):
+        with Path(accepted_log).open("a", encoding="utf-8") as stream:
+            stream.write(event["event_id"] + "\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        # Remote accepted the event, but the local outbox has not marked it sent.
+        os._exit(89)
+
+    capture = EvidenceCapture(database, sink=sink)
+    capture.flush_pending()
+    os._exit(90)
 
 
 class EngineeringEvidenceCaptureTests(unittest.TestCase):
@@ -76,6 +93,34 @@ class EngineeringEvidenceCaptureTests(unittest.TestCase):
         self.assertEqual(result, {"sent": 1, "pending": 0})
         self.assertTrue(capture.verify_chain())
 
+
+
+    def test_process_death_after_sink_accept_replays_same_stable_event_id(self):
+        capture = EvidenceCapture(self.path)
+        event = self.record(capture)
+        accepted_log = self.path.parent / "accepted-event-ids.log"
+        process = multiprocessing.get_context("spawn").Process(
+            target=_crash_after_sink_accept,
+            args=(str(self.path), str(accepted_log)),
+        )
+        process.start()
+        process.join(15)
+        if process.is_alive():
+            process.terminate()
+            process.join(3)
+            self.fail("evidence sink crash fixture exceeded its time budget")
+        self.assertEqual(89, process.exitcode)
+        self.assertEqual(1, capture.pending_exports())
+        first_delivery = accepted_log.read_text(encoding="utf-8").splitlines()
+        self.assertEqual([event["event_id"]], first_delivery)
+
+        retried_ids = []
+        restarted = EvidenceCapture(self.path, sink=lambda item: retried_ids.append(item["event_id"]))
+        result = restarted.flush_pending()
+        self.assertEqual([event["event_id"]], retried_ids)
+        self.assertEqual({"sent": 1, "pending": 0}, result)
+        self.assertEqual(0, restarted.pending_exports())
+        self.assertTrue(restarted.verify_chain())
 
     def test_https_sink_sends_stable_event_id_as_idempotency_key(self):
         sink = HttpsEvidenceSink("https://collector.invalid/events", "token")
