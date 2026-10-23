@@ -225,7 +225,11 @@ class ProviderOperationLifecycleTests(unittest.TestCase):
             {"status": "pending", "provider_operation_id": "remote-1"},
             {"status": "completed"},
             {"provider_operation_id": "remote-1"},
-            {"status": "completed", "provider_operation_id": "auren-op-unrelated"},
+            {
+                "status": "completed",
+                "provider_operation_id": "remote-1",
+                "operation_id": "auren-op-unrelated",
+            },
         )
         for index, receipt in enumerate(invalid_receipts, start=20):
             key = f"reconcile-receipt-{index}"
@@ -244,6 +248,50 @@ class ProviderOperationLifecycleTests(unittest.TestCase):
                     },
                 )
             self.assertEqual("reconcile_required", self.ledger().get(key)["state"])
+
+
+    def test_reconciliation_accepts_distinct_provider_remote_id_when_trusted_binding_matches(self):
+        operation_key = "deploy:remote-id-differs"
+        provider = "provider-a"
+        intent = {"target": "staging", "revision": "remote-id"}
+        operation_id = stable_provider_operation_id(operation_key, provider, intent)
+        remote_id = "remote-provider-9081"
+        verifier_calls = []
+
+        def verify(key, evidence_ref, receipt):
+            verifier_calls.append((key, evidence_ref, dict(receipt)))
+            return (
+                key == operation_key
+                and evidence_ref == f"provider://operations/{remote_id}"
+                and receipt.get("provider_operation_id") == remote_id
+                and receipt.get("operation_id") == operation_id
+                and receipt.get("idempotency_key") == operation_key
+            )
+
+        lifecycle = ProviderOperationLifecycle(self.ledger(verify=verify), record_event=self.events.append)
+        with self.assertRaises(ProviderOutcomeBlocked):
+            lifecycle.execute(
+                operation_key, provider, intent,
+                lambda *_: (_ for _ in ()).throw(TimeoutError("response lost after provider acceptance")),
+            )
+
+        receipt = lifecycle.reconcile(
+            operation_key, provider, intent,
+            lambda requested_id, requested_key: {
+                "status": "completed",
+                "evidence_ref": f"provider://operations/{remote_id}",
+                "receipt": {
+                    "status": "completed",
+                    "provider_operation_id": remote_id,
+                    "operation_id": requested_id,
+                    "idempotency_key": requested_key,
+                },
+            },
+        )
+        self.assertEqual(remote_id, receipt["provider_operation_id"])
+        self.assertEqual(operation_id, receipt["operation_id"])
+        self.assertEqual(1, len(verifier_calls))
+        self.assertEqual("completed", self.ledger().get(operation_key)["state"])
 
     def test_non_completed_dispatch_receipt_never_becomes_success(self):
         lifecycle = ProviderOperationLifecycle(self.ledger(), record_event=self.events.append)
