@@ -1960,24 +1960,6 @@ class ExecutionController:
             provider_intent = {"binding": binding, "payload": safe_payload}
             operation_key = "provider-operation:" + key
             operation_id = stable_provider_operation_id(operation_key, provider_name, provider_intent)
-            try:
-                lookup_result = lookup_fn(operation_id, operation_key)
-            except Exception as exc:
-                raise ProviderOutcomeBlocked(
-                    f"provider operation {operation_id} lookup failed; explicit resolution required"
-                ) from exc
-            if (
-                not isinstance(lookup_result, Mapping)
-                or lookup_result.get("status") != "completed"
-                or not isinstance(lookup_result.get("evidence_ref"), str)
-                or not lookup_result.get("evidence_ref", "").strip()
-                or not isinstance(lookup_result.get("receipt"), Mapping)
-            ):
-                raise ProviderOutcomeBlocked(
-                    f"provider operation {operation_id} outcome is not established; task remains blocked"
-                )
-            evidence_ref = lookup_result["evidence_ref"]
-
             def record_provider_event(event: Mapping[str, Any]) -> None:
                 operation_state = str(event.get("state", "unknown"))
                 safe_metadata = {
