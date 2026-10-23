@@ -243,6 +243,12 @@ class ProviderOperationLifecycle:
                 raise ProviderOutcomeBlocked(
                     "provider lookup did not return a completed receipt bound to the requested operation ID"
                 )
+            existing_evidence_ref = receipt.get("evidence_ref")
+            if existing_evidence_ref is not None and existing_evidence_ref != evidence_ref:
+                raise ProviderOutcomeBlocked("provider receipt evidence reference conflicts with lookup evidence")
+            # Persist the evidence locator with the immutable receipt. Recovery must
+            # not need another remote lookup after this durable commit.
+            receipt["evidence_ref"] = evidence_ref
             result = self.ledger.record_reconciled_effect(
                 operation_key, evidence_ref=evidence_ref, receipt=receipt
             )
