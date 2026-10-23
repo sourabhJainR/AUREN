@@ -340,6 +340,12 @@ class SubprocessProviderInvoker:
             self._kill(process)
         else:
             _close_windows_job(process)
+        for stream in (process.stdin, process.stdout):
+            if stream is not None:
+                try:
+                    stream.close()
+                except OSError:
+                    pass
         if process.returncode != 0:
             raise SubprocessProviderError(f"provider subprocess exited with code {process.returncode}")
         try:
