@@ -428,6 +428,9 @@ class EngineeringEvidenceCaptureTests(unittest.TestCase):
     def test_https_sink_rejects_malformed_host_and_url_fragments(self):
         for url in (
             "https:///events",
+            "https://bad host/events",
+            "https://collector.invalid:bad/events",
+            "https://collector.invalid:70000/events",
             "https://collector.invalid/events#fragment",
             "https://user:password@collector.invalid/events",
             "https://collector.invalid/events?token=secret",
