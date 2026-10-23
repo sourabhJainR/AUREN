@@ -6,6 +6,7 @@ import os
 import sqlite3
 import tempfile
 import unittest
+from contextlib import closing
 from pathlib import Path
 
 from portable.persistent_evidence_graph import PersistentEvidenceGraph
@@ -41,11 +42,12 @@ class PersistentEvidenceGraphCrashTests(unittest.TestCase):
     def test_explicit_metadata_conflict_fails_closed_and_legacy_format_is_compatible(self):
         original = self.graph.add_node("run", "digest-123", {"source": "trusted", "revision": "abc"})
         # Existing versions wrote JSON with default separators (spaces).
-        with sqlite3.connect(self.database) as db:
-            db.execute(
-                "UPDATE evidence_nodes SET metadata_json=? WHERE project=? AND node_id=?",
-                (json.dumps(dict(original.metadata), sort_keys=True), self.graph.project, original.node_id),
-            )
+        with closing(sqlite3.connect(self.database)) as db:
+            with db:
+                db.execute(
+                    "UPDATE evidence_nodes SET metadata_json=? WHERE project=? AND node_id=?",
+                    (json.dumps(dict(original.metadata), sort_keys=True), self.graph.project, original.node_id),
+                )
         self.assertEqual(original, self.graph.add_node("run", "digest-123"))
         self.assertEqual(
             original,
