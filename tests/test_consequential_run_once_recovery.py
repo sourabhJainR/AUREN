@@ -229,7 +229,17 @@ class ConsequentialRunOnceRecoveryTests(unittest.TestCase):
             operator_reason="Resume from the durable provider receipt after worker interruption.",
         ))
         score = self.controller.run_once(first.id)
-        self.assertIsNotNone(score)
+        progress = [
+            row for row in self.controller.progress_journal._events()
+            if row.get("task_id") == first.id
+        ]
+        diagnostic = json.dumps({
+            "task_state": self.controller.task(first.id).state,
+            "progress": progress[-8:],
+            "outer_record": ledger.get(outer_key),
+            "provider_record": ledger.get(provider_key),
+        }, sort_keys=True, default=str)
+        self.assertIsNotNone(score, diagnostic)
         self.assertEqual("completed", self.controller.task(first.id).state)
         self.assertEqual(["abc123"], _PROVIDER_CALLS)
         self.assertEqual("completed", ledger.get(outer_key)["state"])
