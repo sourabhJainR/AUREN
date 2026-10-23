@@ -50,6 +50,34 @@ class PortableAurenTests(unittest.TestCase):
                 self.assertIn("payload/portable/auren_runtime.py", archive.namelist())
                 self.assertIn("payload/auren_env_compat.py", archive.namelist())
 
+    def test_build_excludes_sqlite_state_and_transient_sidecars(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "source"
+            self.make_source(root)
+            state = root / ".ai-harness" / "learning"
+            state.mkdir(parents=True, exist_ok=True)
+            names = (
+                "task-memory.sqlite3",
+                "task-memory.sqlite3-shm",
+                "task-memory.sqlite3-wal",
+                "task-memory.sqlite3-journal",
+                "cache.db",
+                "cache.db3",
+            )
+            for name in names:
+                (state / name).write_bytes(b"mutable runtime state")
+
+            bundle = Path(tmp) / "auren.zip"
+            build(root, bundle, source_commit="test-commit")
+            manifest = verify_bundle(bundle)
+            included = {item["path"] for item in manifest["files"]}
+            with zipfile.ZipFile(bundle) as archive:
+                archived = set(archive.namelist())
+            for name in names:
+                relative = f".ai-harness/learning/{name}"
+                self.assertNotIn(relative, included)
+                self.assertNotIn(f"payload/{relative}", archived)
+
     def test_verify_and_install_accept_github_artifact_wrapper(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "source"
