@@ -323,6 +323,10 @@ class VibeCodingAdapterTests(unittest.TestCase):
                     and observed["operation_id"] is not None
                     and receipt.get("status") == "completed"
                     and receipt.get("provider_operation_id") == observed["operation_id"]
+                    and receipt.get("operation_id") == observed["operation_id"]
+                    and receipt.get("idempotency_key") == operation_key
+                    and receipt.get("provider") == "lookup-adapter"
+                    and receipt.get("intent_digest") == ledger.get(operation_key)["payload_digest"]
                 )
 
             ledger = DurableSideEffectLedger(database, reconciliation_verifier=verify)
@@ -359,6 +363,10 @@ class VibeCodingAdapterTests(unittest.TestCase):
                     "receipt": {
                         "status": "completed",
                         "provider_operation_id": operation_id,
+                        "operation_id": operation_id,
+                        "idempotency_key": key,
+                        "provider": "lookup-adapter",
+                        "intent_digest": ledger.get(operation_key)["payload_digest"],
                         "result": output_for(stage, {}),
                     },
                 }
