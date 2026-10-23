@@ -18,6 +18,7 @@ from portable.vibe_coding_adapters import (
     default_stage_capabilities,
 )
 from portable.orchestration import Orchestrator, RunStatus
+from portable.provider_operation_lifecycle import ProviderOutcomeBlocked
 from portable.side_effect_ledger import DurableSideEffectLedger
 from portable.vibe_coding_host import SideEffectJournal
 
