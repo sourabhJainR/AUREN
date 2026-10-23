@@ -167,6 +167,27 @@ class VibeCodingHostTests(unittest.TestCase):
                 rows,
             )
 
+
+    def test_provider_operation_reconcile_required_state_is_projected(self):
+        with tempfile.TemporaryDirectory() as temp:
+            journal = SideEffectJournal(Path(temp) / "operations.sqlite3")
+            event = {
+                "event_type": "provider_operation",
+                "operation_key": "workflow:development:deployment",
+                "operation_id": "auren-op-reconcile",
+                "intent_digest": "b" * 64,
+                "state": "reconcile_required",
+                "reason": "provider operation ID missing",
+            }
+            journal.record_provider_event(event)
+            with closing(sqlite3.connect(Path(temp) / "operations.sqlite3")) as db, db:
+                row = db.execute(
+                    "SELECT state,details_json FROM provider_operation_events WHERE operation_key=?",
+                    ("workflow:development:deployment",),
+                ).fetchone()
+            self.assertEqual("reconcile_required", row[0])
+            self.assertIn("provider operation ID missing", row[1])
+
     def test_side_effect_journal_reuses_completed_receipt_without_replaying(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp) / "project"
@@ -296,6 +317,8 @@ if stage == "development":
     Path("src/feature.py").write_text("def add(a, b): return a + b" + chr(10), encoding="utf-8")
 output = dict(outputs.get(stage, {}))
 output["status"] = "passed"
+if stage == "development":
+    output["provider_operation_id"] = "codex-host-test-development-42"
 output["evidence"] = [{"source": "codex-host-test", "locator": "agent://" + stage}]
 print(json.dumps({"type": "item.completed", "item": {"type": "agent_message", "text": json.dumps(output)}}))
 """
