@@ -203,24 +203,33 @@ class ProviderOperationLifecycle:
             # ID. Bind the request through explicit AUREN operation/idempotency
             # fields when supplied, and rely on the trusted reconciliation
             # verifier to validate the remote ID against the evidence reference.
-            request_binding_fields = (
-                ("operation_id", op_id),
-                ("auren_operation_id", op_id),
-                ("idempotency_key", operation_key),
-                ("provider", provider),
-                ("intent_digest", record["payload_digest"]),
-            )
+            operation_binding_fields = ("operation_id", "auren_operation_id")
+            present_operation_bindings = [
+                field for field in operation_binding_fields if field in receipt
+            ]
             mismatched_binding = next(
                 (
-                    field for field, expected_value in request_binding_fields
-                    if field in receipt
-                    and (
-                        not isinstance(receipt.get(field), str)
-                        or receipt.get(field) != expected_value
-                    )
+                    field for field in present_operation_bindings
+                    if not isinstance(receipt.get(field), str) or receipt.get(field) != op_id
                 ),
                 None,
             )
+            if mismatched_binding is None and not present_operation_bindings:
+                mismatched_binding = "operation_id"
+            if mismatched_binding is None:
+                required_bindings = (
+                    ("idempotency_key", operation_key),
+                    ("provider", provider),
+                    ("intent_digest", record["payload_digest"]),
+                )
+                mismatched_binding = next(
+                    (
+                        field for field, expected_value in required_bindings
+                        if not isinstance(receipt.get(field), str)
+                        or receipt.get(field) != expected_value
+                    ),
+                    None,
+                )
             if (
                 receipt.get("status") != "completed"
                 or not isinstance(provider_operation_id, str)
