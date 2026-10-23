@@ -91,10 +91,23 @@ def _prepare_prompt(prompt: str, run_dir: Path) -> tuple[str, dict]:
     return compose(result.text), metadata
 
 
+def _provider_env(name: str, default: str) -> str:
+    """Read canonical, documented unprefixed, then legacy provider settings."""
+    canonical = f"AUREN_{name}"
+    legacy = f"AER_{name}"
+    if canonical in os.environ:
+        return os.environ[canonical]
+    if name in os.environ:
+        return os.environ[name]
+    if legacy in os.environ:
+        return os.environ[legacy]
+    return default
+
+
 def _bounded_process_limits() -> tuple[float, int]:
     try:
-        timeout = float(get_auren_env("HARNESS_PROVIDER_TIMEOUT_SECONDS", "1800"))
-        max_bytes = int(get_auren_env("HARNESS_PROVIDER_MAX_OUTPUT_BYTES", "1000000"))
+        timeout = float(_provider_env("HARNESS_PROVIDER_TIMEOUT_SECONDS", "1800"))
+        max_bytes = int(_provider_env("HARNESS_PROVIDER_MAX_OUTPUT_BYTES", "1000000"))
     except (TypeError, ValueError) as exc:
         raise ValueError("provider timeout/output limits must be numeric") from exc
     if not 1 <= timeout <= 3600:
@@ -106,12 +119,12 @@ def _bounded_process_limits() -> tuple[float, int]:
 def _provider_total_budget_seconds(*, now_epoch: float | None = None) -> float:
     """Return one shared retry budget, capped by an inherited supervisor deadline."""
     try:
-        total = float(get_auren_env("HARNESS_PROVIDER_TOTAL_TIMEOUT_SECONDS", "3600"))
+        total = float(_provider_env("HARNESS_PROVIDER_TOTAL_TIMEOUT_SECONDS", "3600"))
     except (TypeError, ValueError) as exc:
         raise ValueError("HARNESS_PROVIDER_TOTAL_TIMEOUT_SECONDS must be numeric") from exc
     if not 1 <= total <= 7200:
         raise ValueError("HARNESS_PROVIDER_TOTAL_TIMEOUT_SECONDS must be between 1 and 7200")
-    inherited = get_auren_env("AUREN_DEADLINE_EPOCH", "").strip()
+    inherited = os.environ.get("AUREN_DEADLINE_EPOCH", os.environ.get("AER_DEADLINE_EPOCH", "")).strip()
     if not inherited:
         return total
     try:
