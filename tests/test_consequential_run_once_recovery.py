@@ -73,8 +73,16 @@ class ConsequentialRunOnceRecoveryTests(unittest.TestCase):
         self.assertEqual("blocked_reconciliation", self.controller.task(first.id).state)
         clarification = self.controller.company.open_clarifications(first.work_unit_id)[0]
 
+        self_outer = self
         class Adapter:
+            observed_operation_id = None
+
             def lookup_operation(self, operation_id, idempotency_key):
+                from portable.side_effect_ledger import DurableSideEffectLedger
+                self.observed_operation_id = operation_id
+                digest = DurableSideEffectLedger(self_outer.controller.db_path).get(
+                    idempotency_key
+                )["payload_digest"]
                 return {
                     "status": "completed",
                     "evidence_ref": "https://provider.example/operations/remote-99",
@@ -82,15 +90,25 @@ class ConsequentialRunOnceRecoveryTests(unittest.TestCase):
                         "status": "completed",
                         "result": {"success": True, "detail": "remote outcome verified",
                                    "evidence": ["https://provider.example/operations/remote-99"]},
-                        "provider_operation_id": operation_id,
+                        "provider_operation_id": "remote-99",
+                        "operation_id": operation_id,
+                        "idempotency_key": idempotency_key,
+                        "provider": "consequential-recovery-action",
+                        "intent_digest": digest,
                     },
                 }
 
             def verify_reconciliation(self, key, evidence_ref, receipt):
+                from portable.side_effect_ledger import DurableSideEffectLedger
+                record = DurableSideEffectLedger(self_outer.controller.db_path).get(key)
                 return (
                     key.startswith("provider-operation:")
                     and evidence_ref == "https://provider.example/operations/remote-99"
-                    and receipt.get("provider_operation_id", "").startswith("auren-op-")
+                    and receipt.get("provider_operation_id") == "remote-99"
+                    and receipt.get("operation_id") == self.observed_operation_id
+                    and receipt.get("idempotency_key") == key
+                    and receipt.get("provider") == "consequential-recovery-action"
+                    and receipt.get("intent_digest") == record["payload_digest"]
                     and receipt.get("result", {}).get("success") is True
                 )
 
