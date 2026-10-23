@@ -1,9 +1,9 @@
 """Killable subprocess boundary for command-backed providers.
 
 No shell is used. The child does not inherit the host environment. Output is
-read incrementally with a strict byte cap. POSIX timeouts kill the whole process
-group. On Windows, the direct child is terminated; deployments that permit
-provider-created descendants must use a Job Object or equivalent supervisor.
+read incrementally with a strict byte cap. POSIX invocations use a process group;
+Windows invocations use a kill-on-close Job Object. Descendants are terminated
+on cancellation, timeout, output failure, and normal provider exit.
 """
 from __future__ import annotations
 
@@ -18,6 +18,104 @@ from typing import Mapping, Sequence
 
 class SubprocessProviderError(RuntimeError):
     """Raised when a command-backed provider exits unsuccessfully."""
+
+
+
+
+def _windows_job(process: subprocess.Popen[bytes]):
+    """Assign a suspended Windows child to a kill-on-close Job Object."""
+    if os.name != "nt":
+        return None
+    import ctypes
+    from ctypes import wintypes
+
+    class IoCounters(ctypes.Structure):
+        _fields_ = [
+            ("ReadOperationCount", ctypes.c_ulonglong),
+            ("WriteOperationCount", ctypes.c_ulonglong),
+            ("OtherOperationCount", ctypes.c_ulonglong),
+            ("ReadTransferCount", ctypes.c_ulonglong),
+            ("WriteTransferCount", ctypes.c_ulonglong),
+            ("OtherTransferCount", ctypes.c_ulonglong),
+        ]
+
+    class BasicLimitInformation(ctypes.Structure):
+        _fields_ = [
+            ("PerProcessUserTimeLimit", ctypes.c_longlong),
+            ("PerJobUserTimeLimit", ctypes.c_longlong),
+            ("LimitFlags", wintypes.DWORD),
+            ("MinimumWorkingSetSize", ctypes.c_size_t),
+            ("MaximumWorkingSetSize", ctypes.c_size_t),
+            ("ActiveProcessLimit", wintypes.DWORD),
+            ("Affinity", ctypes.c_size_t),
+            ("PriorityClass", wintypes.DWORD),
+            ("SchedulingClass", wintypes.DWORD),
+        ]
+
+    class ExtendedLimitInformation(ctypes.Structure):
+        _fields_ = [
+            ("BasicLimitInformation", BasicLimitInformation),
+            ("IoInfo", IoCounters),
+            ("ProcessMemoryLimit", ctypes.c_size_t),
+            ("JobMemoryLimit", ctypes.c_size_t),
+            ("PeakProcessMemoryUsed", ctypes.c_size_t),
+            ("PeakJobMemoryUsed", ctypes.c_size_t),
+        ]
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateJobObjectW.restype = wintypes.HANDLE
+    kernel32.CreateJobObjectW.argtypes = (ctypes.c_void_p, wintypes.LPCWSTR)
+    kernel32.SetInformationJobObject.argtypes = (
+        wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD,
+    )
+    kernel32.AssignProcessToJobObject.argtypes = (wintypes.HANDLE, wintypes.HANDLE)
+    kernel32.ResumeThread.argtypes = (wintypes.HANDLE,)
+    kernel32.ResumeThread.restype = wintypes.DWORD
+    kernel32.TerminateJobObject.argtypes = (wintypes.HANDLE, wintypes.UINT)
+    kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
+
+    handle = kernel32.CreateJobObjectW(None, None)
+    if not handle:
+        error = ctypes.get_last_error()
+        process.kill()
+        process.wait()
+        raise OSError(error, "could not create provider process Job Object")
+    limits = ExtendedLimitInformation()
+    limits.BasicLimitInformation.LimitFlags = 0x00002000  # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+    try:
+        if not kernel32.SetInformationJobObject(
+            handle, 9, ctypes.byref(limits), ctypes.sizeof(limits),
+        ):
+            raise OSError(ctypes.get_last_error(), "could not configure provider Job Object")
+        if not kernel32.AssignProcessToJobObject(handle, process._handle):
+            raise OSError(ctypes.get_last_error(), "could not assign provider to Job Object")
+        if kernel32.ResumeThread(process._thread) == 0xFFFFFFFF:
+            raise OSError(ctypes.get_last_error(), "could not resume provider process")
+        setattr(process, "_auren_job_handle", handle)
+        setattr(process, "_auren_kernel32", kernel32)
+        return handle
+    except BaseException:
+        try:
+            kernel32.TerminateJobObject(handle, 1)
+        except Exception:
+            pass
+        kernel32.CloseHandle(handle)
+        try:
+            process.kill()
+            process.wait(timeout=1)
+        except Exception:
+            pass
+        raise
+
+
+def _close_windows_job(process: subprocess.Popen[bytes]) -> None:
+    handle = getattr(process, "_auren_job_handle", None)
+    kernel32 = getattr(process, "_auren_kernel32", None)
+    if handle and kernel32:
+        # KILL_ON_JOB_CLOSE prevents descendants from surviving a successful
+        # provider response even when the original process has already exited.
+        kernel32.CloseHandle(handle)
+        setattr(process, "_auren_job_handle", None)
 
 
 class SubprocessProviderInvoker:
@@ -58,10 +156,20 @@ class SubprocessProviderInvoker:
 
     @staticmethod
     def _kill(process: subprocess.Popen[bytes]) -> None:
-        # On POSIX, the group can outlive its leader while descendants keep
-        # stdout open. Kill the group even when the direct child has exited.
-        if os.name != "posix" and process.poll() is not None:
-            return
+        # The leader can exit while descendants remain. Kill the entire POSIX
+        # group, or the Windows Job Object, even after process.poll() is non-None.
+        if os.name == "nt":
+            handle = getattr(process, "_auren_job_handle", None)
+            kernel32 = getattr(process, "_auren_kernel32", None)
+            if handle and kernel32:
+                try:
+                    kernel32.TerminateJobObject(handle, 1)
+                except OSError:
+                    pass
+                _close_windows_job(process)
+                return
+            if process.poll() is not None:
+                return
         try:
             if os.name == "posix":
                 os.killpg(process.pid, signal.SIGKILL)
@@ -93,12 +201,15 @@ class SubprocessProviderInvoker:
         if os.name == "posix":
             kwargs["start_new_session"] = True
         elif os.name == "nt":
-            kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+            # Keep the child suspended until it belongs to a kill-on-close Job
+            # Object, so it cannot spawn an uncontained descendant before assignment.
+            kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP | 0x00000004
         process = subprocess.Popen(
             self.command, cwd=str(self.cwd), env=dict(self.env),
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
             shell=False, bufsize=0, **kwargs,
         )
+        _windows_job(process)
         output = bytearray()
         overflow = threading.Event()
         read_error: list[BaseException] = []
@@ -177,6 +288,13 @@ class SubprocessProviderInvoker:
         if reader.is_alive():
             self._kill(process)
             raise TimeoutError("provider output stream did not close before its deadline")
+        # A provider may return successfully while a child process remains alive.
+        # Kill the process group (POSIX) or close the Job Object (Windows) before
+        # returning control to a consequential caller.
+        if os.name == "posix":
+            self._kill(process)
+        else:
+            _close_windows_job(process)
         if process.returncode != 0:
             raise SubprocessProviderError(f"provider subprocess exited with code {process.returncode}")
         try:
