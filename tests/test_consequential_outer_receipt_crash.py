@@ -36,6 +36,16 @@ def _crash_boundary_handler(payload):
 
 def _register(controller: ExecutionController) -> None:
     controller.register_handler(
+        "outer-receipt-crash-context",
+        _crash_boundary_context_provider,
+        execution_class="context_provider",
+    )
+    controller.register_handler(
+        "outer-receipt-crash-ci",
+        _crash_boundary_ci_provider,
+        execution_class="context_provider",
+    )
+    controller.register_handler(
         "outer-receipt-crash-action",
         _crash_boundary_handler,
         promotion_gate_policy={"context_handler": "outer-receipt-crash-context"},
@@ -45,16 +55,6 @@ def _register(controller: ExecutionController) -> None:
             "evidence_handler": "outer-receipt-crash-ci",
         },
         execution_class="consequential",
-    )
-    controller.register_handler(
-        "outer-receipt-crash-context",
-        _crash_boundary_context_provider,
-        execution_class="context_provider",
-    )
-    controller.register_handler(
-        "outer-receipt-crash-ci",
-        _crash_boundary_ci_provider,
-        execution_class="context_provider",
     )
     # Keep this test focused on the durable cross-ledger boundary. Gate behavior
     # is covered by the controller's dedicated policy and exact-head suites.
