@@ -34,7 +34,13 @@ LAUNCHER_PATH = "auren_cli.py"
 REQUIRED_PATHS = (".ai-harness", "skills/ai-coding-orchestrator", "portable", "dashboard")
 EXCLUDED_PARTS = {"__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".git", "worktrees"}
 MUTABLE_FILE_NAMES = {"execution.journal.jsonl", "telemetry.jsonl", "task-memory.jsonl", "regression-events.jsonl"}
-MUTABLE_STATE_SUFFIXES = (".sqlite", ".sqlite3", ".db", ".db3", "-wal", "-shm", "-journal")
+MUTABLE_STATE_SUFFIXES = (
+    ".sqlite", ".sqlite3", ".db", ".db3",
+    ".sqlite-wal", ".sqlite-shm", ".sqlite-journal",
+    ".sqlite3-wal", ".sqlite3-shm", ".sqlite3-journal",
+    ".db-wal", ".db-shm", ".db-journal",
+    ".db3-wal", ".db3-shm", ".db3-journal",
+)
 
 @dataclass(frozen=True)
 class FileRecord:
