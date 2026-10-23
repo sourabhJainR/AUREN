@@ -2,7 +2,7 @@ from concurrent.futures import ThreadPoolExecutor
 import io
 import tempfile
 import unittest
-from contextlib import redirect_stdout
+from contextlib import closing, redirect_stdout
 from pathlib import Path
 import json
 import os
@@ -1880,7 +1880,7 @@ class WorkerTaskStateProjectionTests(unittest.TestCase):
             )
             # This test covers the read-only projection of a durable state that
             # the worker must preserve, not the transition that creates it.
-            with sqlite3.connect(controller.db_path) as db:
+            with closing(sqlite3.connect(controller.db_path)) as db, db:
                 db.execute(
                     "UPDATE tasks SET state='blocked_reconciliation', heartbeat_at=NULL, "
                     "lease_until=NULL, lease_token=NULL WHERE id=?",
