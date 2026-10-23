@@ -116,6 +116,45 @@ class EngineeringEvidenceCaptureTests(unittest.TestCase):
 
 
 
+
+    def test_signed_evidence_rejects_secret_query_before_canonical_ledger_write(self):
+        evidence_path = self.path.parent / "canonical-evidence.sqlite3"
+        ledger = CanonicalEvidenceLedger(evidence_path)
+        capture = EvidenceCapture(self.path, evidence_ledger=ledger)
+        expected_head = "a" * 40
+        envelope = {
+            "payload": {
+                "evidence_id": "external:invalid-uri:1",
+                "repository": "sourabhJainR/AUREN",
+                "head_sha": expected_head,
+                "evidence_type": "evaluation",
+                "status": "passed",
+                "source_uri": "https://evaluator.invalid/receipt?token=must-not-persist",
+                "payload_digest": "b" * 64,
+                "source_type": "external_evaluator",
+                "issued_at": datetime.now(timezone.utc).isoformat(),
+                "run_id": "run-invalid-uri",
+                "evaluator_id": "evaluator-independent-1",
+                "external_system": "test-evaluator",
+            },
+            "signer_id": "trusted-test-key-1",
+            "signature": "detached-test-signature",
+        }
+        with self.assertRaisesRegex(ValueError, "query-string secrets"):
+            capture.ingest_signed_external_evidence(
+                envelope,
+                verifier=lambda _signer, _signature, _message: True,
+                expected_repository="sourabhJainR/AUREN",
+                expected_head=expected_head,
+            )
+        self.assertIsNone(ledger.resolve(
+            "external:invalid-uri:1",
+            repository="sourabhJainR/AUREN",
+            head_sha=expected_head,
+        ))
+        self.assertEqual((), capture.signed_receipts())
+        self.assertEqual((), capture.events())
+
     def test_process_death_after_canonical_evidence_commit_finishes_ingestion_on_restart(self):
         evidence_path = self.path.parent / "canonical-evidence.sqlite3"
         ledger = CanonicalEvidenceLedger(evidence_path)
