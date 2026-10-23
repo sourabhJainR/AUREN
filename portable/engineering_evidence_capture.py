@@ -602,9 +602,9 @@ class HttpsEvidenceSink:
         if (
             isinstance(timeout_seconds, bool)
             or not isinstance(timeout_seconds, (int, float))
-            or not math.isfinite(timeout_seconds)
             or timeout_seconds <= 0
             or timeout_seconds > 30
+            or not math.isfinite(timeout_seconds)
         ):
             raise ValueError("timeout_seconds must be a finite number greater than 0 and at most 30")
         self.url = url
