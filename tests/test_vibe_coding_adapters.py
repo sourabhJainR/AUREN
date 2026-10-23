@@ -186,8 +186,11 @@ class VibeCodingAdapterTests(unittest.TestCase):
                 extra["environment"] = "preview"
             if stage == VibeStage.PREVIEW_DEPLOYMENT and capability == "preview":
                 extra.update({"preview_url": "http://127.0.0.1:8123", "health_status": "passed"})
+            if stage == VibeStage.PREVIEW_DEPLOYMENT and capability == "deployment":
+                extra["provider_operation_id"] = "remote-preview-deployment-42"
             if stage == VibeStage.PRODUCTION_DEPLOY and capability == "release":
                 extra["environment"] = "production"
+                extra["provider_operation_id"] = "remote-production-release-42"
             return {
                 **{field: stage_output[field] for field in fields if field in stage_output},
                 **extra,
