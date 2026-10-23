@@ -1,6 +1,8 @@
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+import json
 import os
+import multiprocessing
 import sqlite3
 import subprocess
 from threading import Event
@@ -13,6 +15,23 @@ def durable_handler(payload):
     return {"success": True, "detail": "done", "evidence": [payload["id"]]}
 
 
+
+
+def _crash_after_terminal_receipt_before_evidence(root: str, task_id: str) -> None:
+    controller = ExecutionController(root)
+    controller.register_handler("tests.durable_handler", durable_handler, execution_class="read_only")
+    original_capture = controller._capture_event
+
+    def crash_before_terminal_projection(event_type, *args, **kwargs):
+        if event_type == "task_completed":
+            os._exit(87)
+        return original_capture(event_type, *args, **kwargs)
+
+    controller._capture_event = crash_before_terminal_projection
+    controller.run_once(task_id)
+    os._exit(88)
+
+
 def test_handler_registration_submit_and_resume(tmp_path: Path):
     controller = ExecutionController(tmp_path)
     controller.register_handler("tests.durable_handler", durable_handler, execution_class="read_only")
@@ -21,6 +40,79 @@ def test_handler_registration_submit_and_resume(tmp_path: Path):
     assert score is not None
     assert controller.task(task.id).state == "completed"
 
+
+
+
+def test_startup_repairs_missing_terminal_evidence_after_receipt_commit(tmp_path: Path):
+    controller = ExecutionController(tmp_path)
+    controller.register_handler("tests.durable_handler", durable_handler, execution_class="read_only")
+    task = controller.submit("tests.durable_handler", {"id": "terminal-repair"})
+    process = multiprocessing.get_context("spawn").Process(
+        target=_crash_after_terminal_receipt_before_evidence,
+        args=(str(tmp_path), task.id),
+    )
+    process.start()
+    process.join(20)
+    if process.is_alive():
+        process.terminate()
+        process.join(3)
+        raise AssertionError("terminal-evidence crash fixture exceeded its time budget")
+    assert process.exitcode == 87
+
+    with sqlite3.connect(controller.db_path) as db:
+        state = db.execute("SELECT state FROM tasks WHERE id=?", (task.id,)).fetchone()[0]
+    assert state == "completed"
+    assert controller.company._state(task.work_unit_id)[0] == "completed"
+    with sqlite3.connect(controller.evidence_capture.path) as db:
+        assert db.execute(
+            "SELECT COUNT(*) FROM engineering_events WHERE task_id=? AND event_type='task_completed'",
+            (task.id,),
+        ).fetchone()[0] == 0
+
+    restarted = ExecutionController(tmp_path)
+    assert restarted.task(task.id).state == "completed"
+    with sqlite3.connect(restarted.evidence_capture.path) as db:
+        events = db.execute(
+            "SELECT event_id,work_unit_id,iteration,status,metadata_json FROM engineering_events "
+            "WHERE task_id=? AND event_type='task_completed'",
+            (task.id,),
+        ).fetchall()
+    assert len(events) == 1
+    assert events[0][0] == f"task-terminal:{task.id}:completed"
+    assert events[0][1] == task.work_unit_id
+    assert events[0][2] == 1
+    assert events[0][3] == "completed"
+    assert json.loads(events[0][4])["result_category"] == "success"
+    assert restarted.reconcile_terminal_events()["repaired"] == 0
+    assert not any(
+        "terminal_evidence_reconciliation_required" in finding
+        for finding in restarted.health_findings()
+    )
+
+
+def test_terminal_evidence_reconciliation_blocks_conflicting_records(tmp_path: Path):
+    controller = ExecutionController(tmp_path)
+    controller.register_handler("tests.durable_handler", durable_handler, execution_class="read_only")
+    task = controller.submit("tests.durable_handler", {"id": "terminal-conflict"})
+    controller.run_once(task.id)
+    controller.evidence_capture.record(
+        "task_completed",
+        work_unit_id="wrong-work-unit",
+        task_id=task.id,
+        iteration=task.attempts + 1,
+        status="completed",
+        metadata={"handler": task.handler, "result_category": "success"},
+        event_id=f"conflicting-terminal:{task.id}",
+    )
+
+    result = controller.reconcile_terminal_events()
+    assert result["blocked"] == 1
+    assert task.id in controller._terminal_reconciliation_findings
+    with sqlite3.connect(controller.evidence_capture.path) as db:
+        assert db.execute(
+            "SELECT COUNT(*) FROM engineering_events WHERE task_id=? AND event_type='task_completed'",
+            (task.id,),
+        ).fetchone()[0] == 2
 
 
 def test_submit_repairs_missing_submission_evidence_after_commit(tmp_path: Path):
