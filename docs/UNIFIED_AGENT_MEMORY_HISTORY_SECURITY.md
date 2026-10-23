@@ -82,6 +82,10 @@ Minimize user burden and context cost without removing essential safeguards.
 - When required context cannot fit, split work into independently verifiable slices and preserve a durable checkpoint. Do not silently omit a safety-critical input.
 - Report only meaningful decisions, blockers, verification, and next action; retain detailed evidence in canonical records.
 
+### Approval checkpoint secret handling
+
+Approval checkpoints contain metadata only. Reject sensitive field names and scan every nested string value for common credential formats, including bearer tokens, provider/API tokens, private-key headers, credential-bearing URLs, and secret-bearing query parameters. Keep only stable identifiers, immutable digests, and non-sensitive evidence references. Pattern checks are defense in depth; they cannot prove arbitrary text is secret-free, so callers must never place raw prompts, drafts, provider responses, credentials, or private payloads in checkpoints. If safe extraction cannot be established, fail closed before persisting or handing off the checkpoint.
+
 ## 7. Acceptance criteria
 
 This contract is implemented only when tests and runtime evidence demonstrate:
