@@ -14,6 +14,8 @@ class ImpactPolicyTests(unittest.TestCase):
             "portable/action_governance.py": {"tests.test_durable_approval"},
             "portable/durable_approval.py": {"tests.test_durable_approval", "tests.test_side_effect_ledger", "tests.test_execution_controller"},
             "portable/provider_operation_lifecycle.py": {"tests.test_provider_operation_lifecycle", "tests.test_side_effect_ledger"},
+            "portable/subprocess_provider.py": {"tests.test_subprocess_provider", "tests.test_bounded_subprocess_fault_injection"},
+            "tests/test_subprocess_provider.py": {"tests.test_subprocess_provider"},
             "portable/ci_repair_watchdog.py": {"tests.test_ci_repair_watchdog", "tests.test_engineering_recovery"},
             "portable/continuous_execution.py": {"tests.test_continuous_execution", "tests.test_ci_repair_watchdog", "tests.test_engineering_recovery"},
             "portable/execution_controller.py": {"tests.test_execution_controller", "tests.test_execution_controller_restart", "tests.test_execution_controller_promotion_rollback_contract", "tests.test_provider_operation_lifecycle", "tests.test_durable_approval"},
@@ -58,6 +60,8 @@ class ImpactPolicyTests(unittest.TestCase):
         required_paths = (
             "portable/provider_operation_lifecycle.py",
             "tests/test_provider_operation_lifecycle.py",
+            "portable/subprocess_provider.py",
+            "tests/test_subprocess_provider.py",
             "portable/side_effect_ledger.py",
             "tests/test_side_effect_ledger.py",
             "portable/ci_repair_watchdog.py",

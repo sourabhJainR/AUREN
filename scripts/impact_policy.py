@@ -47,6 +47,8 @@ _RULES: tuple[tuple[str, tuple[str, ...], bool], ...] = (
     ("state/*security*", ("tests.test_security_gate",), True),
     (".ai-harness/authority*", ("tests.test_security_gate",), True),
     ("portable/*rollback*", ("tests.test_state_root_rollback_rehearsal", "tests.test_execution_controller_promotion_rollback_contract", "tests.test_execution_controls"), True),
+    ("portable/subprocess_provider.py", ("tests.test_subprocess_provider", "tests.test_bounded_subprocess_fault_injection"), True),
+    ("tests/test_subprocess_provider.py", ("tests.test_subprocess_provider",), True),
     ("portable/*provider*", ("tests.test_provider_operation_lifecycle", "tests.test_side_effect_ledger"), True),
     ("tests/test_execution_controller*.py", ("tests.test_execution_controller", "tests.test_execution_controller_restart", "tests.test_execution_controller_promotion_rollback_contract"), True),
     ("tests/test_consequential_run_once_recovery.py", ("tests.test_consequential_run_once_recovery", "tests.test_execution_controller"), True),

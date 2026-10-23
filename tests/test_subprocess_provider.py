@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import sys
+import tempfile
 import time
 import threading
 import unittest
@@ -29,7 +30,7 @@ class SubprocessProviderInvokerTests(unittest.TestCase):
                 os.environ.pop(name, None)
             else:
                 os.environ[name] = previous
-        self.assertTrue(result.startswith("absent\n"))
+        self.assertEqual("absent", result.splitlines()[0])
         self.assertIn('{"task":"safe"}', result)
 
     def test_timeout_terminates_non_cooperative_child(self):
@@ -71,6 +72,31 @@ class SubprocessProviderInvokerTests(unittest.TestCase):
         with self.assertRaisesRegex(SubprocessProviderError, "code 7") as caught:
             provider("request", 2)
         self.assertNotIn("private diagnostic", str(caught.exception))
+
+
+    @unittest.skipUnless(os.name in {"nt", "posix"}, "process-group containment is platform-specific")
+    def test_successful_parent_exit_does_not_leave_provider_descendant(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            marker = Path(tmp) / "descendant-survived.txt"
+            child_code = (
+                "import pathlib,sys,time; time.sleep(1.0); "
+                "pathlib.Path(sys.argv[1]).write_text('survived', encoding='utf-8')"
+            )
+            parent_code = (
+                "import subprocess,sys; "
+                "subprocess.Popen([sys.executable, '-c', "
+                + repr(child_code)
+                + ", " + repr(str(marker)) + "], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, "
+                "stderr=subprocess.DEVNULL); print('parent-complete')"
+            )
+            provider = self.invoker(parent_code)
+            result = provider("request", 3)
+            self.assertIn("parent-complete", result)
+            time.sleep(1.3)
+            self.assertFalse(
+                marker.exists(),
+                "provider descendants must not outlive a completed invocation",
+            )
 
     def test_rejects_relative_executable_and_invalid_environment(self):
         with self.assertRaisesRegex(ValueError, "absolute"):
