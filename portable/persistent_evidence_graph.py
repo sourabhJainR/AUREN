@@ -109,6 +109,22 @@ class PersistentEvidenceGraph:
                 ).fetchall()
         return tuple(EvidenceNode(r[0], r[1], r[2], tuple(sorted(json.loads(r[3]).items()))) for r in rows)
 
+    def _validated_edge(self, db, row) -> EvidenceEdge:
+        edge = EvidenceEdge(*row)
+        expected = self.edge_digest(edge.source_id, edge.relation, edge.target_id)
+        if edge.edge_digest != expected:
+            raise ValueError("stored evidence edge digest is corrupt")
+        for node_id in (edge.source_id, edge.target_id):
+            stored = db.execute(
+                "SELECT kind,digest FROM evidence_nodes WHERE project=? AND node_id=?",
+                (self.project, node_id),
+            ).fetchone()
+            if stored is None:
+                raise ValueError("stored evidence edge references a missing node")
+            if self.node_id(stored[0], stored[1]) != node_id:
+                raise ValueError("stored evidence node identity is corrupt")
+        return edge
+
     def lineage(self, node_id: str, *, direction: str = "both", max_edges: int = 100) -> tuple[EvidenceEdge,...]:
         if direction not in {"in","out","both"}: raise ValueError("unsupported lineage direction")
         if max_edges < 1: raise ValueError("max_edges must be positive")
@@ -119,6 +135,7 @@ class PersistentEvidenceGraph:
         where=" AND ".join(["project=?"]+clauses)
         with self.memory._lock, self.memory._connection() as db:
             rows=db.execute(f"SELECT source_id,relation,target_id,edge_digest FROM evidence_edges WHERE {where} ORDER BY edge_digest LIMIT ?",(*params,max_edges)).fetchall()
-        return tuple(EvidenceEdge(*row) for row in rows)
+            edges = tuple(self._validated_edge(db, row) for row in rows)
+        return edges
 
 __all__=["EvidenceNode","EvidenceEdge","PersistentEvidenceGraph"]
