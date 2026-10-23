@@ -41,7 +41,7 @@ Terminal receipts are immutable. State transitions must be compare-and-set or tr
 Provider adapters declare capabilities explicitly:
 - idempotency-key support and key scope/retention semantics;
 - operation-status lookup support and whether “not found” is authoritative;
-- provider operation ID extraction;
+- extraction of the provider's own operation ID (never substitute AUREN's local operation ID);
 - mapping of provider statuses to pending, succeeded, or terminal failed;
 - lookup consistency delay and bounded polling policy.
 
@@ -90,3 +90,8 @@ cannot be replayed or redispatched automatically.
 The trusted lookup/reconciliation path must establish the remote outcome before
 the operation can leave that state. This guard prevents an adapter's ordinary
 return path from turning an unconfirmed side effect into a false success.
+
+
+## Provider operation ID enforcement
+
+For external-side-effect Vibe stages, the adapter must return a non-empty top-level `provider_operation_id` from the provider response. AUREN's local stable operation ID is not accepted as a substitute. If the provider-side ID is missing or malformed, the lifecycle remains `reconcile_required`; it does not mark the stage complete or redispatch on a later invocation. The provider ID is removed from the stage output before normal output validation and delivery.

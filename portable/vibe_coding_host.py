@@ -420,7 +420,7 @@ class SideEffectJournal:
         values = {key: payload.get(key) for key in required}
         if any(not isinstance(value, str) or not value.strip() for value in values.values()):
             raise ValueError("provider event identity fields must be non-empty strings")
-        if payload["state"] not in {"dispatching", "completed", "blocked"}:
+        if payload["state"] not in {"dispatching", "completed", "reconcile_required", "blocked"}:
             raise ValueError("provider event state is not supported")
         details: dict[str, Any] = {}
         provider = payload.get("provider")

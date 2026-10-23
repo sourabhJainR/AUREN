@@ -324,17 +324,25 @@ class VibeAdapterRegistry:
                     raw = selected.invoke(dispatch_request)
                     if not isinstance(raw, Mapping):
                         raise TypeError("adapter must return a structured mapping")
-                    valid, _reason = validate_stage_output(stage, raw)
+                    # AUREN's operation ID is not proof of a provider-side operation.
+                    # The adapter must return the provider's own durable operation ID.
+                    remote_operation_id = raw.get("provider_operation_id")
+                    stage_result = {key: value for key, value in raw.items() if key != "provider_operation_id"}
+                    valid, _reason = validate_stage_output(stage, stage_result)
                     if not valid:
-                        return dict(raw)
-                    # A stage may validly report "passed" or omit status when its
-                    # stage contract defines success. Normalize only after that
-                    # contract has passed; never bless malformed output as a receipt.
-                    return {
-                        "status": "completed",
-                        "provider_operation_id": operation_id,
-                        "result": dict(raw),
-                    }
+                        invalid_receipt: dict[str, Any] = {
+                            "status": "invalid", "result": dict(stage_result),
+                        }
+                        if remote_operation_id is not None:
+                            invalid_receipt["provider_operation_id"] = remote_operation_id
+                        return invalid_receipt
+                    # Normalize stage success only after its output contract passes.
+                    # Missing remote IDs are intentionally left missing so the
+                    # lifecycle blocks completion and requires reconciliation.
+                    receipt = {"status": "completed", "result": dict(stage_result)}
+                    if remote_operation_id is not None:
+                        receipt["provider_operation_id"] = remote_operation_id
+                    return receipt
 
                 durable_receipt = self.side_effect_lifecycle.execute(
                     operation_key, selected.adapter_id, request, dispatch_stage,
