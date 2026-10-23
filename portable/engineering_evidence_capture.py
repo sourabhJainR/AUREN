@@ -377,7 +377,15 @@ class EvidenceCapture:
             raise ValueError("external evidence status is invalid")
         evidence_id = _text(payload["evidence_id"], "evidence_id")
         source_uri = _text(payload["source_uri"], "source_uri", 2048)
+        parsed_source_uri = urlparse(source_uri)
+        if source_uri.startswith("https://"):
+            if not parsed_source_uri.netloc or parsed_source_uri.username or parsed_source_uri.password or parsed_source_uri.query:
+                raise ValueError("source_uri must not embed credentials or query-string secrets")
+        elif not source_uri.startswith(("file:", "urn:")):
+            raise ValueError("source_uri must use an explicit https, file, or urn URI")
         digest = _text(payload["payload_digest"], "payload_digest", 64)
+        if not _SHA_RE.fullmatch(digest):
+            raise ValueError("payload_digest must be a lowercase SHA-256 digest")
         evidence_type = _text(payload["evidence_type"], "evidence_type")
         receipt_digest = sha256_bytes(_canonical(envelope))
         metadata: dict[str, Any] = {
