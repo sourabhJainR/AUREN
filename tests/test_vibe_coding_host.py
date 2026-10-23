@@ -474,6 +474,47 @@ print(json.dumps({"type": "item.completed", "item": {"type": "agent_message", "t
             self.assertEqual("auren-op-bound-42", result["operation_id"])
             self.assertEqual("workflow:preview:deployment", result["operation_key"])
 
+
+    @unittest.skipIf(os.name == "nt", "POSIX file permission contract")
+    def test_preview_deployment_config_requires_valid_provider_operation_lookup(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "host.json"
+            config = {
+                "schema_version": "auren-vibe-host-config-v1",
+                "provider": "codex",
+                "allow_workspace_writes": True,
+                "test_commands": [[sys.executable, "-c", "pass"]],
+                "mcp_tools": {
+                    "security": {"argv": [sys.executable, "-c", "pass"], "tool_name": "scan"},
+                    "deployment": {"argv": [sys.executable, "-c", "pass"], "tool_name": "deploy"},
+                    "preview": {"argv": [sys.executable, "-c", "pass"], "tool_name": "preview"},
+                },
+                "browser_qa_required": False,
+                "browser_qa_rationale": "No browser surface in this test",
+                "preview_deployment_required": True,
+                "preview_deployment_rationale": "Preview deployment is explicitly configured",
+            }
+            path.write_text(json.dumps(config), encoding="utf-8")
+            os.chmod(path, 0o600)
+            with self.assertRaisesRegex(ValueError, "provider-native operation_lookup"):
+                load_host_config(path)
+
+            config["mcp_tools"]["deployment"]["operation_lookup"] = {
+                "argv": [sys.executable, "-c", "pass"],
+                "tool_name": "lookup",
+                "argument_map": {
+                    "operation_id": "$operation_id",
+                    "idempotency_key": "$idempotency_key",
+                },
+                "timeout_seconds": 5,
+            }
+            path.write_text(json.dumps(config), encoding="utf-8")
+            loaded = load_host_config(path)
+            lookup = loaded.mcp_tools["deployment"]["operation_lookup"]
+            self.assertEqual("lookup", lookup["tool_name"])
+            self.assertEqual(5, lookup["timeout_seconds"])
+            self.assertEqual("$operation_id", lookup["argument_map"]["operation_id"])
+
     def test_host_config_requires_private_file_and_explicit_security_adapter(self):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "host.json"
