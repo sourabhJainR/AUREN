@@ -393,6 +393,24 @@ class DurableApprovalTests(unittest.TestCase):
         self.assertEqual(self.store.get(record.approval_id).status, "pending")
         self.assertTrue(self.store.verify_audit_chain())
 
+    def test_cancel_rejects_non_boolean_authorizer_results(self):
+        record = self.create()
+        for result in ("false", 1, None):
+            with self.subTest(result=result):
+                store = DurableApprovalStore(
+                    self.controller,
+                    cancellation_authorizer=lambda _actor, _record, value=result: value,
+                    clock=lambda: self.now,
+                )
+                with self.assertRaisesRegex(PermissionError, "not authorized"):
+                    store.cancel(
+                        record.approval_id,
+                        actor="operator-1",
+                        reason="invalid authorizer result",
+                    )
+                self.assertEqual(self.store.get(record.approval_id).status, "pending")
+        self.assertTrue(self.store.verify_audit_chain())
+
     def test_cancel_after_approval_before_scheduler_wake_never_dispatches(self):
         self.controller.register_handler(
             "approval-flow", durable_approval_flow_handler,
