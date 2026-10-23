@@ -4,6 +4,8 @@ import unittest
 import tempfile
 import os
 import multiprocessing
+import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 from portable.vibe_coding import STAGE_ORDER, STAGE_SPECS, VibeStage
@@ -17,15 +19,18 @@ from portable.vibe_coding_adapters import (
 )
 from portable.orchestration import Orchestrator, RunStatus
 from portable.side_effect_ledger import DurableSideEffectLedger
+from portable.vibe_coding_host import SideEffectJournal
 
 
 def _crash_after_vibe_stage_receipt(database: str, call_log: str) -> None:
     ledger = DurableSideEffectLedger(database)
+    journal = SideEffectJournal(database)
     def record_event(event):
         if event.get("state") == "completed":
             # Provider receipt is already committed; kill the caller before
-            # the graph receives the stage result/checkpoint.
+            # completion-event projection and before the graph receives its result.
             os._exit(87)
+        journal.record_provider_event(event)
     registry = VibeAdapterRegistry(
         max_risk="critical",
         side_effect_ledger=ledger,
@@ -212,7 +217,12 @@ class VibeCodingAdapterTests(unittest.TestCase):
             self.assertEqual(["dispatched"], call_log.read_text(encoding="utf-8").splitlines())
 
             ledger = DurableSideEffectLedger(database)
-            replay_registry = VibeAdapterRegistry(max_risk="critical", side_effect_ledger=ledger)
+            journal = SideEffectJournal(database)
+            replay_registry = VibeAdapterRegistry(
+                max_risk="critical",
+                side_effect_ledger=ledger,
+                side_effect_event_recorder=journal.record_provider_event,
+            )
             stage = VibeStage.PREVIEW_DEPLOYMENT
             def must_not_dispatch(_request):
                 self.fail("committed Vibe receipt must replay without another provider call")
@@ -234,6 +244,14 @@ class VibeCodingAdapterTests(unittest.TestCase):
                 "completed",
                 ledger.get("vibe-stage:crash-replay-workflow:preview_deployment:crash-deployment-adapter:1")["state"],
             )
+            with closing(sqlite3.connect(database)) as db, db:
+                event_states = [
+                    row[0] for row in db.execute(
+                        "SELECT state FROM provider_operation_events WHERE operation_key=? ORDER BY rowid",
+                        ("vibe-stage:crash-replay-workflow:preview_deployment:crash-deployment-adapter:1",),
+                    )
+                ]
+            self.assertEqual(["dispatching", "completed"], event_states)
 
     def test_external_side_effect_adapter_fails_closed_without_durable_ledger(self):
         registry = VibeAdapterRegistry(max_risk="critical")
