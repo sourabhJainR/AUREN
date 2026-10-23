@@ -64,6 +64,9 @@ From the repository root, run a bounded worker slice with:
 python -m portable.auren_runtime worker --project-root . --batch-size 20 --max-cycles 100 --max-idle-cycles 5 --json
 ```
 
+The module entrypoint must run without a `RuntimeWarning` that the target module was
+preloaded through package initialization; keep `portable.auren_runtime` imported lazily.
+
 The worker reconstructs registered importable handlers from the durable controller
 database, resumes eligible tasks, and exits on cancellation, its cycle cap, or the
 idle cap. JSON reports distinguish newly completed and failed tasks from remaining
