@@ -119,6 +119,7 @@ class ContinuousRunReport:
     idle_cycles: int
     stop_reason: str
     trust_scores: tuple[TrustScore, ...]
+    task_state_counts: tuple[tuple[str, int], ...] = ()
 
 
 class WorkKeyConflict(ValueError):
@@ -2770,9 +2771,13 @@ class ExecutionController:
                 str(task_id): str(state)
                 for task_id, state in db.execute("SELECT id,state FROM tasks").fetchall()
             }
-            remaining_nonterminal = int(db.execute(
-                "SELECT COUNT(*) FROM tasks WHERE state NOT IN ('completed','failed','cancelled')"
-            ).fetchone()[0])
+        remaining_nonterminal = sum(
+            state not in {"completed", "failed", "cancelled"}
+            for state in after_states.values()
+        )
+        state_counts: dict[str, int] = {}
+        for state in after_states.values():
+            state_counts[state] = state_counts.get(state, 0) + 1
         completed = sum(
             state == "completed" and before_states.get(task_id) != "completed"
             for task_id, state in after_states.items()
@@ -2786,6 +2791,7 @@ class ExecutionController:
             completed_tasks=completed, failed_tasks=failed,
             remaining_nonterminal_tasks=remaining_nonterminal,
             idle_cycles=idle_cycles, stop_reason=stop_reason, trust_scores=tuple(scores),
+            task_state_counts=tuple(sorted(state_counts.items())),
         )
 
     def heartbeat(self, task: DurableTask, *, lease_seconds: int = 300) -> None:
