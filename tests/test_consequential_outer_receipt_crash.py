@@ -26,7 +26,7 @@ def _crash_boundary_ci_provider(_request):
 def _crash_boundary_handler(payload):
     marker = Path(payload["marker_path"])
     with marker.open("a", encoding="utf-8") as stream:
-        stream.write("dispatched\\n")
+        stream.write("dispatched\n")
     return {
         "success": True,
         "detail": "provider operation completed",
