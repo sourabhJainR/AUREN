@@ -11,7 +11,7 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / ".ai-harness"))
 
-from safe_provider import _bounded_process_output, _run_resilient
+from safe_provider import _bounded_process_output, _provider_total_budget_seconds, _run_resilient
 
 
 class SafeProviderBoundTests(unittest.TestCase):
@@ -64,6 +64,55 @@ class SafeProviderBoundTests(unittest.TestCase):
             self.assertIn("parent-complete", output)
             time.sleep(0.9)
             self.assertFalse(marker.exists(), "provider descendants must not outlive a completed invocation")
+
+
+
+    def test_inherited_supervisor_deadline_caps_provider_budget(self):
+        with patch.dict(os.environ, {
+            "HARNESS_PROVIDER_TOTAL_TIMEOUT_SECONDS": "30",
+            "AUREN_DEADLINE_EPOCH": "103.5",
+        }, clear=False):
+            self.assertAlmostEqual(3.5, _provider_total_budget_seconds(now_epoch=100.0))
+        with patch.dict(os.environ, {
+            "HARNESS_PROVIDER_TOTAL_TIMEOUT_SECONDS": "30",
+            "AUREN_DEADLINE_EPOCH": "99",
+        }, clear=False):
+            with self.assertRaisesRegex(TimeoutError, "already expired"):
+                _provider_total_budget_seconds(now_epoch=100.0)
+
+    def test_retry_attempts_share_one_total_deadline(self):
+        class Feedback:
+            def __init__(self):
+                self.outcomes = []
+
+            def observe(self, **values):
+                self.outcomes.append(values["outcome"])
+
+        feedback = Feedback()
+        calls = []
+
+        def transient_attempt(*args, **kwargs):
+            calls.append(kwargs["timeout_seconds"])
+            time.sleep(0.8)
+            return 1, "connection reset"
+
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {
+            "HARNESS_PROVIDER_MAX_RETRIES": "3",
+            "HARNESS_PROVIDER_RETRY_DELAY": "0.5",
+            "HARNESS_PROVIDER_TIMEOUT_SECONDS": "5",
+            "HARNESS_PROVIDER_TOTAL_TIMEOUT_SECONDS": "1",
+            "HARNESS_PROVIDER_MAX_OUTPUT_BYTES": "1024",
+            "HARNESS_WORKSPACE": directory,
+            "AUREN_DEADLINE_EPOCH": "",
+        }, clear=False), patch("safe_provider._prepare_prompt", return_value=("bounded prompt", {"digest": "a" * 64})), patch(
+            "safe_provider._bounded_process_output", side_effect=transient_attempt
+        ):
+            result = _run_resilient(["provider-cli"], "prompt", Path(directory), feedback)
+
+        self.assertEqual(124, result)
+        self.assertEqual(1, len(calls), "no second provider attempt may start after the shared budget expires")
+        self.assertLessEqual(calls[0], 1.0)
+        self.assertIn("timeout", feedback.outcomes)
 
     def test_invalid_process_limits_return_125_without_launching_provider(self):
         class RecordingFeedback:
