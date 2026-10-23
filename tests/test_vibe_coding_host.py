@@ -475,7 +475,6 @@ print(json.dumps({"type": "item.completed", "item": {"type": "agent_message", "t
             self.assertEqual("workflow:preview:deployment", result["operation_key"])
 
 
-    @unittest.skipIf(os.name == "nt", "POSIX file permission contract")
     def test_preview_deployment_config_requires_valid_provider_operation_lookup(self):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "host.json"
@@ -515,6 +514,7 @@ print(json.dumps({"type": "item.completed", "item": {"type": "agent_message", "t
             self.assertEqual(5, lookup["timeout_seconds"])
             self.assertEqual("$operation_id", lookup["argument_map"]["operation_id"])
 
+    @unittest.skipIf(os.name == "nt", "POSIX file permission contract")
     def test_host_config_requires_private_file_and_explicit_security_adapter(self):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "host.json"
