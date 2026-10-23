@@ -546,6 +546,7 @@ def build_host_adapter_registry(
     max_risk: str = "critical",
     risk_by_stage: Mapping[VibeStage | str, str] | None = None,
     side_effect_ledger: DurableSideEffectLedger | None = None,
+    side_effect_event_recorder: Callable[[Mapping[str, Any]], None] | None = None,
 ) -> VibeAdapterRegistry:
     """Wire one active-agent dispatcher plus concrete capability tools into all stages.
 
@@ -586,7 +587,11 @@ def build_host_adapter_registry(
     if missing:
         raise AdapterUnavailable("host integration missing capability tools: " + ", ".join(missing))
 
-    registry = VibeAdapterRegistry(max_risk=max_risk, side_effect_ledger=side_effect_ledger)
+    registry = VibeAdapterRegistry(
+        max_risk=max_risk,
+        side_effect_ledger=side_effect_ledger,
+        side_effect_event_recorder=side_effect_event_recorder,
+    )
     for stage in STAGE_ORDER:
         capabilities = tuple(_STAGE_CAPABILITIES[stage])
         def composite(request: Mapping[str, Any], *, _stage: VibeStage = stage,
