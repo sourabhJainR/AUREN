@@ -93,6 +93,21 @@ class CanonicalEvidenceLedger:
             raise ValueError("source_uri must use an explicit https, file, or urn URI")
         return values
 
+    @staticmethod
+    def _validated_record(row: tuple[Any, ...]) -> dict[str, str]:
+        keys = (
+            "evidence_id", "repository", "head_sha", "evidence_type", "status",
+            "source_uri", "payload_digest", "signer_id", "recorded_at", "record_digest",
+        )
+        record = dict(zip(keys, row))
+        body = {key: record[key] for key in keys if key != "record_digest"}
+        expected = hashlib.sha256(
+            json.dumps(body, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+        if record["record_digest"] != expected:
+            raise ValueError("canonical evidence record digest is corrupt")
+        return record
+
     def record(
         self,
         *,
@@ -118,19 +133,15 @@ class CanonicalEvidenceLedger:
         with closing(sqlite3.connect(self.database_path, timeout=10)) as db, db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute(
-                "SELECT repository,head_sha,evidence_type,status,source_uri,payload_digest,signer_id,recorded_at,record_digest "
+                "SELECT evidence_id,repository,head_sha,evidence_type,status,source_uri,payload_digest,signer_id,recorded_at,record_digest "
                 "FROM canonical_evidence WHERE evidence_id=?",
                 (values["evidence_id"],),
             ).fetchone()
             if row:
-                prior = dict(zip(
-                    ("repository", "head_sha", "evidence_type", "status", "source_uri",
-                     "payload_digest", "signer_id", "recorded_at", "record_digest"),
-                    row,
-                ))
-                if any(prior[key] != values[key] for key in values if key != "evidence_id"):
+                prior = self._validated_record(row)
+                if any(prior[key] != values[key] for key in values):
                     raise EvidenceConflict("evidence_id already exists with different immutable content")
-                return {"evidence_id": values["evidence_id"], **prior}
+                return prior
             db.execute(
                 "INSERT INTO canonical_evidence VALUES(?,?,?,?,?,?,?,?,?,?)",
                 (
@@ -149,10 +160,12 @@ class CanonicalEvidenceLedger:
             raise ValueError("head_sha must be a full lowercase 40-character commit SHA")
         with closing(sqlite3.connect(self.database_path, timeout=10)) as db, db:
             rows = db.execute(
-                "SELECT evidence_id FROM canonical_evidence WHERE repository=? AND head_sha=? AND status IN ('passed','verified') ORDER BY evidence_id",
+                "SELECT evidence_id,repository,head_sha,evidence_type,status,source_uri,payload_digest,signer_id,recorded_at,record_digest "
+                "FROM canonical_evidence WHERE repository=? AND head_sha=? AND status IN ('passed','verified') ORDER BY evidence_id",
                 (repository, head_sha),
             ).fetchall()
-        return tuple(row[0] for row in rows)
+        records = tuple(self._validated_record(row) for row in rows)
+        return tuple(record["evidence_id"] for record in records)
 
     def resolve(self, evidence_id: str, *, repository: str, head_sha: str) -> dict[str, str] | None:
         """Resolve evidence only when its repository and candidate SHA match."""
@@ -167,11 +180,7 @@ class CanonicalEvidenceLedger:
             ).fetchone()
         if not row:
             return None
-        return dict(zip(
-            ("evidence_id", "repository", "head_sha", "evidence_type", "status",
-             "source_uri", "payload_digest", "signer_id", "recorded_at", "record_digest"),
-            row,
-        ))
+        return self._validated_record(row)
 
 
 __all__ = ["CanonicalEvidenceLedger", "EvidenceConflict"]

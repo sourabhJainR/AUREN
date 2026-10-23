@@ -103,6 +103,50 @@ class CanonicalEvidenceLedgerTests(unittest.TestCase):
             reopened.resolve("ci:crash-after-commit", repository="sourabhJainR/AUREN", head_sha=HEAD)["record_digest"],
         )
 
+
+    def test_resolve_rejects_mutated_persisted_record(self):
+        created = self.record()
+        with closing(sqlite3.connect(self.database)) as db, db:
+            db.execute(
+                "UPDATE canonical_evidence SET status='failed' WHERE evidence_id=?",
+                (created["evidence_id"],),
+            )
+        reopened = CanonicalEvidenceLedger(self.database)
+        with self.assertRaisesRegex(ValueError, "record digest is corrupt"):
+            reopened.resolve(created["evidence_id"], repository="sourabhJainR/AUREN", head_sha=HEAD)
+        with self.assertRaisesRegex(ValueError, "record digest is corrupt"):
+            reopened.record(
+                evidence_id=created["evidence_id"],
+                repository="sourabhJainR/AUREN",
+                head_sha=HEAD,
+                evidence_type="ci_check",
+                status="passed",
+                source_uri="https://github.com/sourabhJainR/AUREN/actions/runs/1",
+                payload_digest=PAYLOAD_DIGEST,
+                signer_id="operator-ci",
+            )
+
+    def test_promotion_lookup_rejects_tampered_status(self):
+        created = self.record(evidence_id="tampered-status", status="failed")
+        with closing(sqlite3.connect(self.database)) as db, db:
+            db.execute(
+                "UPDATE canonical_evidence SET status='passed' WHERE evidence_id=?",
+                (created["evidence_id"],),
+            )
+        with self.assertRaisesRegex(ValueError, "record digest is corrupt"):
+            self.ledger.known_evidence_ids(repository="sourabhJainR/AUREN", head_sha=HEAD)
+
+
+    def test_promotion_lookup_rejects_rebound_head(self):
+        created = self.record(evidence_id="tampered-head", head_sha=OTHER_HEAD)
+        with closing(sqlite3.connect(self.database)) as db, db:
+            db.execute(
+                "UPDATE canonical_evidence SET head_sha=? WHERE evidence_id=?",
+                (HEAD, created["evidence_id"]),
+            )
+        with self.assertRaisesRegex(ValueError, "record digest is corrupt"):
+            self.ledger.known_evidence_ids(repository="sourabhJainR/AUREN", head_sha=HEAD)
+
     def test_same_evidence_id_cannot_be_rebound_to_different_content(self):
         first = self.record()
         repeated = self.record()
