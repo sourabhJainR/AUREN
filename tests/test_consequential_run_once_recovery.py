@@ -128,6 +128,95 @@ class ConsequentialRunOnceRecoveryTests(unittest.TestCase):
         )
         self.assertEqual("completed", record["state"])
 
+
+    def test_restart_uses_durable_provider_receipt_if_outer_commit_was_interrupted(self):
+        import hashlib
+        import json
+        from portable.provider_operation_lifecycle import (
+            ProviderOperationLifecycle, stable_provider_operation_id,
+        )
+        from portable.side_effect_ledger import DurableSideEffectLedger
+
+        first = self.controller.submit("consequential-recovery-action", self._payload())
+        self.assertIsNone(self.controller.run_once(first.id))
+        self.assertEqual("blocked_reconciliation", self.controller.task(first.id).state)
+
+        task = self.controller.task(first.id)
+        safe_payload = dict(task.payload)
+        idempotency = safe_payload.pop("auren_idempotency")
+        stable_key = idempotency["key"]
+        outer_key = "consequential-idempotency:" + stable_key
+        payload_digest = hashlib.sha256(
+            json.dumps(safe_payload, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
+        ).hexdigest()
+        binding = {
+            "identity": {"kind": "consequential_idempotency", "key": stable_key},
+            "handler": task.handler,
+            "payload_digest": payload_digest,
+        }
+        provider_name = task.handler
+        provider_intent = {"binding": binding, "payload": safe_payload}
+        provider_key = "provider-operation:" + outer_key
+        operation_id = stable_provider_operation_id(provider_key, provider_name, provider_intent)
+        evidence_ref = "https://provider.example/operations/remote-99"
+        ledger = DurableSideEffectLedger(self.controller.db_path, reconciliation_verifier=lambda *_: True)
+        lifecycle = ProviderOperationLifecycle(ledger)
+        with self.assertRaises(ProviderOutcomeBlocked):
+            lifecycle.execute(
+                provider_key, provider_name, provider_intent,
+                lambda *_: (_ for _ in ()).throw(TimeoutError("provider accepted; worker died before outer commit")),
+            )
+        provider_digest = ledger.get(provider_key)["payload_digest"]
+        receipt = {
+            "status": "completed",
+            "provider_operation_id": "remote-99",
+            "operation_id": operation_id,
+            "idempotency_key": provider_key,
+            "provider": provider_name,
+            "intent_digest": provider_digest,
+            "result": {
+                "success": True,
+                "detail": "remote outcome verified",
+                "evidence": [evidence_ref],
+            },
+        }
+        lifecycle.reconcile(
+            provider_key, provider_name, provider_intent,
+            lambda *_: {
+                "status": "completed", "evidence_ref": evidence_ref, "receipt": receipt,
+            },
+        )
+        self.assertEqual("completed", ledger.get(provider_key)["state"])
+        self.assertEqual("reconcile_required", ledger.get(outer_key)["state"])
+
+        class Adapter:
+            def lookup_operation(self, *_args):
+                raise AssertionError("durable completed provider receipt must bypass another lookup")
+
+            def verify_reconciliation(self, key, ref, candidate):
+                return (
+                    key == provider_key
+                    and ref == evidence_ref
+                    and candidate.get("provider_operation_id") == "remote-99"
+                    and candidate.get("operation_id") == operation_id
+                    and candidate.get("idempotency_key") == provider_key
+                    and candidate.get("provider") == provider_name
+                    and candidate.get("intent_digest") == provider_digest
+                    and candidate.get("result", {}).get("success") is True
+                )
+
+        self.controller.register_provider_operation_adapter(task.handler, Adapter())
+        clarification = self.controller.company.open_clarifications(first.work_unit_id)[0]
+        self.assertTrue(self.controller.resume_blocked_provider_task(
+            first.id, clarification_id=clarification["id"], operator_id="operator-8",
+            operator_reason="Resume from the durable provider receipt after worker interruption.",
+        ))
+        score = self.controller.run_once(first.id)
+        self.assertIsNotNone(score)
+        self.assertEqual("completed", self.controller.task(first.id).state)
+        self.assertEqual(["abc123"], _PROVIDER_CALLS)
+        self.assertEqual("completed", ledger.get(outer_key)["state"])
+
     def test_unknown_provider_outcome_after_restart_never_redispatches(self):
         first = self.controller.submit(
             "consequential-recovery-action", self._payload()
