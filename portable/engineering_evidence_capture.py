@@ -44,6 +44,8 @@ _ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:/@+-]{0,255}$")
 _SHA_RE = re.compile(r"^[0-9a-f]{64}$")
 _COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 
+_OUTBOX_CLAIM_LEASE_SECONDS = 120
+
 
 def sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
@@ -115,8 +117,18 @@ class EvidenceCapture:
                 delivery_state TEXT NOT NULL DEFAULT 'pending',
                 attempts INTEGER NOT NULL DEFAULT 0,
                 last_error TEXT NOT NULL DEFAULT '',
-                updated_at TEXT NOT NULL
+                updated_at TEXT NOT NULL,
+                claim_token TEXT NOT NULL DEFAULT '',
+                claimed_at TEXT NOT NULL DEFAULT '',
+                lease_expires_at TEXT NOT NULL DEFAULT ''
             )""")
+            # Additive migration keeps existing pending rows and signed evidence intact.
+            columns = {row[1] for row in db.execute("PRAGMA table_info(engineering_event_outbox)")}
+            for column in ("claim_token", "claimed_at", "lease_expires_at"):
+                if column not in columns:
+                    db.execute(
+                        f"ALTER TABLE engineering_event_outbox ADD COLUMN {column} TEXT NOT NULL DEFAULT ''"
+                    )
 
     @classmethod
     def from_environment(
@@ -513,37 +525,97 @@ class EvidenceCapture:
 
     def pending_exports(self) -> int:
         with closing(sqlite3.connect(self.path, timeout=10)) as db, db:
+            # In-flight and unfamiliar states must keep promotion gates blocked.
             return int(db.execute(
-                "SELECT COUNT(*) FROM engineering_event_outbox WHERE delivery_state='pending'"
+                "SELECT COUNT(*) FROM engineering_event_outbox WHERE delivery_state!='sent'"
             ).fetchone()[0])
 
     def flush_pending(self, *, limit: int = 100) -> dict[str, int]:
+        """Deliver a bounded batch using durable, leased SQLite claims.
+
+        Delivery remains at-least-once: a remote sink can accept an event just before
+        this process dies. The stable event ID must be enforced as an idempotency key
+        by the remote service.
+        """
         if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
             raise ValueError("limit must be a positive integer")
         if self.sink is None:
             return {"sent": 0, "pending": self.pending_exports()}
-        with closing(sqlite3.connect(self.path, timeout=10)) as db, db:
+
+        claimed_at = datetime.now(timezone.utc)
+        claimed_at_text = claimed_at.isoformat()
+        lease_expires_at = (
+            claimed_at + timedelta(seconds=_OUTBOX_CLAIM_LEASE_SECONDS)
+        ).isoformat()
+        claim_token = uuid4().hex
+        claimed_rows: list[tuple[str, str, str]] = []
+
+        # Serialize selection and claim so two local flushers cannot both claim an
+        # unexpired row. A process death leaves a lease that a later flush can reclaim.
+        with closing(sqlite3.connect(self.path, timeout=10)) as db:
+            db.execute("BEGIN IMMEDIATE")
+            db.execute(
+                """UPDATE engineering_event_outbox
+                   SET delivery_state='pending',claim_token='',claimed_at='',
+                       lease_expires_at='',updated_at=?
+                   WHERE delivery_state='sending'
+                     AND (lease_expires_at='' OR lease_expires_at<=?)""",
+                (claimed_at_text, claimed_at_text),
+            )
             rows = db.execute(
-                "SELECT event_id,event_json FROM engineering_event_outbox WHERE delivery_state='pending' ORDER BY updated_at LIMIT ?",
+                """SELECT event_id,event_json FROM engineering_event_outbox
+                   WHERE delivery_state='pending'
+                   ORDER BY updated_at,event_id LIMIT ?""",
                 (limit,),
             ).fetchall()
+            for event_id, event_json in rows:
+                cursor = db.execute(
+                    """UPDATE engineering_event_outbox
+                       SET delivery_state='sending',claim_token=?,claimed_at=?,
+                           lease_expires_at=?,updated_at=?
+                       WHERE event_id=? AND delivery_state='pending'""",
+                    (
+                        claim_token, claimed_at_text, lease_expires_at,
+                        claimed_at_text, event_id,
+                    ),
+                )
+                if cursor.rowcount == 1:
+                    claimed_rows.append((event_id, event_json, claim_token))
+            db.commit()
+
         sent = 0
-        for event_id, event_json in rows:
+        for event_id, event_json, row_claim_token in claimed_rows:
             try:
                 self.sink(json.loads(event_json))
             except Exception as exc:
                 with closing(sqlite3.connect(self.path, timeout=10)) as db, db:
+                    # A stale claimant must not overwrite a newer owner's state.
                     db.execute(
-                        "UPDATE engineering_event_outbox SET attempts=attempts+1,last_error=?,updated_at=? WHERE event_id=?",
-                        (type(exc).__name__, datetime.now(timezone.utc).isoformat(), event_id),
+                        """UPDATE engineering_event_outbox
+                           SET delivery_state='pending',attempts=attempts+1,
+                               last_error=?,updated_at=?,claim_token='',claimed_at='',
+                               lease_expires_at=''
+                           WHERE event_id=? AND delivery_state='sending' AND claim_token=?""",
+                        (
+                            type(exc).__name__, datetime.now(timezone.utc).isoformat(),
+                            event_id, row_claim_token,
+                        ),
                     )
             else:
                 with closing(sqlite3.connect(self.path, timeout=10)) as db, db:
-                    db.execute(
-                        "UPDATE engineering_event_outbox SET delivery_state='sent',attempts=attempts+1,last_error='',updated_at=? WHERE event_id=?",
-                        (datetime.now(timezone.utc).isoformat(), event_id),
+                    cursor = db.execute(
+                        """UPDATE engineering_event_outbox
+                           SET delivery_state='sent',attempts=attempts+1,last_error='',
+                               updated_at=?,claim_token='',claimed_at='',lease_expires_at=''
+                           WHERE event_id=? AND delivery_state='sending' AND claim_token=?""",
+                        (
+                            datetime.now(timezone.utc).isoformat(),
+                            event_id, row_claim_token,
+                        ),
                     )
-                sent += 1
+                    # Count only a finalization owned by this exact claim.
+                    if cursor.rowcount == 1:
+                        sent += 1
         return {"sent": sent, "pending": self.pending_exports()}
 
     def events(self, *, task_id: str | None = None) -> tuple[dict[str, Any], ...]:
