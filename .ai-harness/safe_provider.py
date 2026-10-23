@@ -102,6 +102,29 @@ def _bounded_process_limits() -> tuple[float, int]:
         raise ValueError("HARNESS_PROVIDER_MAX_OUTPUT_BYTES must be between 1024 and 16000000")
     return timeout, max_bytes
 
+def _provider_total_budget_seconds(*, now_epoch: float | None = None) -> float:
+    """Return one shared retry budget, capped by an inherited supervisor deadline."""
+    try:
+        total = float(get_auren_env("HARNESS_PROVIDER_TOTAL_TIMEOUT_SECONDS", "3600"))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("HARNESS_PROVIDER_TOTAL_TIMEOUT_SECONDS must be numeric") from exc
+    if not 1 <= total <= 7200:
+        raise ValueError("HARNESS_PROVIDER_TOTAL_TIMEOUT_SECONDS must be between 1 and 7200")
+    inherited = get_auren_env("AUREN_DEADLINE_EPOCH", "").strip()
+    if not inherited:
+        return total
+    try:
+        deadline_epoch = float(inherited)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("AUREN_DEADLINE_EPOCH must be a Unix timestamp") from exc
+    if not math.isfinite(deadline_epoch):
+        raise ValueError("AUREN_DEADLINE_EPOCH must be finite")
+    remaining = deadline_epoch - (time.time() if now_epoch is None else now_epoch)
+    if remaining <= 0:
+        raise TimeoutError("inherited supervisor deadline has already expired")
+    return min(total, remaining)
+
+
 
 def _bounded_process_output(command: list[str], *, cwd: Path, env: dict[str, str],
                             timeout_seconds: float, max_output_bytes: int,
@@ -216,8 +239,26 @@ def _run_resilient(command: list[str], prompt: str, run_dir: Path, feedback: Fee
     transcript = ""
     strategy = get_auren_env("STRATEGY", "provider-default")
     task_id = get_auren_env("TASK_ID", f"provider-{int(time.time())}")
+    try:
+        per_attempt_timeout, max_output_bytes = _bounded_process_limits()
+        total_budget = _provider_total_budget_seconds()
+    except TimeoutError as exc:
+        feedback.observe(task_id=task_id, outcome="timeout", verified=False, strategy=strategy, evidence=[])
+        print(f"AUREN provider hard deadline exceeded: {exc}", file=sys.stderr)
+        return 124
+    except ValueError as exc:
+        feedback.observe(task_id=task_id, outcome="output_limit_or_invalid_config", verified=False, strategy=strategy, evidence=[])
+        print(f"AUREN provider output/configuration rejected: {exc}", file=sys.stderr)
+        return 125
+    total_deadline = time.monotonic() + total_budget
+    last_digest = ""
 
     for attempt in range(max_retries + 1):
+        remaining = total_deadline - time.monotonic()
+        if remaining <= 0:
+            feedback.observe(task_id=task_id, outcome="timeout", verified=False, strategy=strategy, evidence=[last_digest] if last_digest else [])
+            print("AUREN provider total retry budget exhausted", file=sys.stderr)
+            return 124
         effective = prompt if attempt == 0 else _continuation_prompt(prompt, transcript, attempt)
         effective_prompt, compaction_meta = _prepare_prompt(effective, run_dir)
         fd, effective_name = tempfile.mkstemp(prefix="effective-prompt-", suffix=".md", dir=run_dir)
@@ -237,12 +278,17 @@ def _run_resilient(command: list[str], prompt: str, run_dir: Path, feedback: Fee
                 "AER_SANDBOX": "enforced-for-local-execution",  # legacy provider contract
                 "AER_COMPACTION_DIGEST": compaction_meta["digest"],  # legacy provider contract
             })
-            timeout_seconds, max_output_bytes = _bounded_process_limits()
+            last_digest = compaction_meta["digest"]
+            remaining = total_deadline - time.monotonic()
+            if remaining <= 0:
+                feedback.observe(task_id=task_id, outcome="timeout", verified=False, strategy=strategy, evidence=[last_digest])
+                print("AUREN provider total retry budget exhausted before dispatch", file=sys.stderr)
+                return 124
             try:
                 code, output = _bounded_process_output(
                     [sys.executable, str(Path(__file__).resolve().with_name("provider.py")), "--prompt-file", str(effective_path), "--", *command],
                     cwd=Path(os.environ.get("HARNESS_WORKSPACE", Path(__file__).resolve().parent.parent)),
-                    env=env, timeout_seconds=timeout_seconds, max_output_bytes=max_output_bytes,
+                    env=env, timeout_seconds=min(per_attempt_timeout, remaining), max_output_bytes=max_output_bytes,
                 )
             except TimeoutError as exc:
                 feedback.observe(task_id=task_id, outcome="timeout", verified=False, strategy=strategy, evidence=[compaction_meta["digest"]])
@@ -265,8 +311,13 @@ def _run_resilient(command: list[str], prompt: str, run_dir: Path, feedback: Fee
                 return code
             feedback.observe(task_id=task_id, outcome="transient_failure", verified=False, strategy=strategy, evidence=[compaction_meta["digest"]])
             print(f"AUREN provider response interrupted; continuing attempt {attempt + 2}/{max_retries + 1}", file=sys.stderr)
+            remaining = total_deadline - time.monotonic()
+            if remaining <= 0:
+                feedback.observe(task_id=task_id, outcome="timeout", verified=False, strategy=strategy, evidence=[last_digest])
+                print("AUREN provider total retry budget exhausted before retry", file=sys.stderr)
+                return 124
             if delay:
-                time.sleep(min(30.0, delay * (2 ** attempt)))
+                time.sleep(min(30.0, delay * (2 ** attempt), remaining))
         finally:
             try:
                 effective_path.unlink(missing_ok=True)
