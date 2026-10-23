@@ -21,6 +21,13 @@ Submission evidence is a projection of the canonical task row. The controller as
 
 Terminal lifecycle evidence is written only after the task row and executive work-unit receipt agree on a terminal outcome. On startup, reconcile_terminal_events() repairs a missing terminal evidence event only when both durable states agree. Duplicate, malformed, or mismatched terminal events remain a health finding and are not overwritten. A missing audit projection does not authorize handler replay; a split task/receipt state remains blocked by progress reconciliation.
 
+### Crash between task-row finalization and the executive receipt
+
+A process can stop after the SQLite task row changes to a terminal state but before the AutonomousCompany work-unit receipt commits. Startup reconciliation must treat that split as an unknown outcome: change the canonical task row to `blocked`, append a `startup_reconciliation` progress event, and expose a health finding. It must not synthesize terminal evidence, report success, or rerun the handler. The regression test `test_startup_blocks_task_terminal_commit_before_work_unit_receipt_without_replay` injects process death at this boundary and verifies that the handler is not invoked again.
+
+**Recovery/rollback:** preserve the SQLite database, executive work-unit receipt, progress journal, and evidence ledger. Do not delete the partial receipt or reset the task to `pending`. An operator must inspect the exact task/work-unit IDs and any consequential side-effect ledger record, reconcile the remote outcome with trusted evidence, and use a reviewed recovery or code revert. Keep the task blocked until the stores agree; a code rollback must never turn this split state into success.
+
+
 Each task claim now advances a durable lease generation and receives a fresh fencing token. Heartbeats and terminal-state commits must match both values, so an expired/reclaimed worker cannot overwrite the newer owner's outcome. This does not undo a side effect already performed by a handler that outlives its lease; consequential handlers must use task-scoped idempotency keys at their external effect boundary. The supervisor now renews the lease in a separate heartbeat thread while a handler runs and verifies ownership again before finalization. If renewal fails, the handler result is rejected. This still cannot cancel an external side effect already in progress; such effects must use task-scoped idempotency keys.
 
 The existing maintenance service calls resume_tasks() before its maintenance cycle. Its native service definitions already use restart-on-failure behavior, so host/process restart feeds back into the same durable queue.
