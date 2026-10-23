@@ -83,3 +83,31 @@ def test_lineage_fails_closed_when_edge_endpoint_is_missing(tmp_path):
     with raises(ValueError,match="missing node"):
         g.lineage(a.node_id,direction="out")
 
+
+def test_node_reads_fail_closed_on_corrupt_content_addressed_identity(tmp_path):
+    g=graph(tmp_path)
+    original=g.add_node("run", "trusted-digest", {"source": "trusted"})
+    with g.memory._lock, g.memory._connection() as db:
+        db.execute(
+            "UPDATE evidence_nodes SET digest=? WHERE project=? AND node_id=?",
+            ("tampered-digest", g.project, original.node_id),
+        )
+    with raises(ValueError, match="identity is corrupt"):
+        g.get_node(original.node_id)
+    with raises(ValueError, match="identity is corrupt"):
+        g.nodes()
+
+
+def test_node_reads_fail_closed_on_corrupt_metadata(tmp_path):
+    g=graph(tmp_path)
+    original=g.add_node("run", "trusted-digest", {"source": "trusted"})
+    with g.memory._lock, g.memory._connection() as db:
+        db.execute(
+            "UPDATE evidence_nodes SET metadata_json=? WHERE project=? AND node_id=?",
+            ("{invalid-json", g.project, original.node_id),
+        )
+    with raises(ValueError, match="metadata"):
+        g.get_node(original.node_id)
+    with raises(ValueError, match="metadata"):
+        g.nodes()
+
