@@ -491,6 +491,8 @@ class VibeCodingAdapterTests(unittest.TestCase):
                 lookup_operation=lambda operation_id, operation_key: {
             "status": "unknown", "operation_id": operation_id, "operation_key": operation_key,
         },
+                supports_provider_idempotency=True,
+                lookup_not_found_is_authoritative=True,
             ))
             state = {
                 "vibe_coding_workflow_id": "workflow-missing-provider-id",
@@ -527,6 +529,8 @@ class VibeCodingAdapterTests(unittest.TestCase):
                 lookup_operation=lambda operation_id, operation_key: {
             "status": "unknown", "operation_id": operation_id, "operation_key": operation_key,
         },
+                supports_provider_idempotency=True,
+                lookup_not_found_is_authoritative=True,
             ))
             state = {
                 "vibe_coding_workflow_id": "workflow-preview-42",
