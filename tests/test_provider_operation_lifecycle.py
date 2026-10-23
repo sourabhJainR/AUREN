@@ -345,6 +345,31 @@ class ProviderOperationLifecycleTests(unittest.TestCase):
             )
         self.assertNotEqual("completed", self.ledger().get("deploy:binding-check")["state"])
 
+
+    def test_dispatch_receipt_provider_and_intent_bindings_must_match(self):
+        cases = (
+            ("wrong-provider", {"provider": "provider-b"}),
+            ("wrong-intent", {"intent_digest": "c" * 64}),
+        )
+        for key, extra in cases:
+            lifecycle = ProviderOperationLifecycle(self.ledger(), record_event=self.events.append)
+            receipt = {
+                "status": "completed",
+                "provider_operation_id": f"remote-{key}",
+                **extra,
+            }
+            with self.assertRaisesRegex(ProviderOutcomeBlocked, "different operation"):
+                lifecycle.execute(
+                    key, "provider-a", {"target": "staging", "operation": key},
+                    lambda *_args, value=receipt: value,
+                )
+            self.assertEqual("reconcile_required", self.ledger().get(key)["state"])
+            self.assertTrue(any(
+                event.get("reason") == "provider_operation_binding_mismatch"
+                and event.get("binding_field") in {"provider", "intent_digest"}
+                for event in self.events
+            ))
+
     def test_explicit_legacy_success_is_accepted_but_conflicting_status_is_not(self):
         lifecycle = ProviderOperationLifecycle(self.ledger())
         receipt = {"success": True, "detail": "operation completed", "provider_operation_id": "legacy-remote-1"}
