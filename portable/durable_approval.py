@@ -844,7 +844,7 @@ class DurableApprovalStore:
         if self.cancellation_authorizer is None:
             raise PermissionError("trusted cancellation authorizer is required")
         try:
-            authorized = bool(self.cancellation_authorizer(actor, record))
+            authorized = self.cancellation_authorizer(actor, record)
         except Exception as exc:
             raise PermissionError("cancellation authorization failed closed") from exc
         if not authorized:
