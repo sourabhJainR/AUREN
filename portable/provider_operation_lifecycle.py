@@ -122,6 +122,8 @@ class ProviderOperationLifecycle:
             ("operation_id", op_id),
             ("auren_operation_id", op_id),
             ("idempotency_key", operation_key),
+            ("provider", provider),
+            ("intent_digest", decision.payload_digest),
         )
         mismatched_binding = next(
             (
