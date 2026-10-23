@@ -2771,9 +2771,10 @@ class ExecutionController:
                 str(task_id): str(state)
                 for task_id, state in db.execute("SELECT id,state FROM tasks").fetchall()
             }
-            remaining_nonterminal = int(db.execute(
-                "SELECT COUNT(*) FROM tasks WHERE state NOT IN ('completed','failed','cancelled')"
-            ).fetchone()[0])
+        remaining_nonterminal = sum(
+            state not in {"completed", "failed", "cancelled"}
+            for state in after_states.values()
+        )
         state_counts: dict[str, int] = {}
         for state in after_states.values():
             state_counts[state] = state_counts.get(state, 0) + 1
