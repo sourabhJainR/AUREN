@@ -554,12 +554,16 @@ class HttpsEvidenceSink:
         self.timeout_seconds = timeout_seconds
 
     def __call__(self, event: Mapping[str, Any]) -> None:
+        event_id = event.get("event_id") if isinstance(event, Mapping) else None
+        if not isinstance(event_id, str) or not event_id.strip():
+            raise ValueError("evidence sink event requires a stable event_id for idempotent delivery")
         request = Request(
             self.url,
             data=_canonical(event),
             headers={
                 "Authorization": f"Bearer {self._token}",
                 "Content-Type": "application/json",
+                "Idempotency-Key": event_id.strip(),
                 "User-Agent": "AUREN-Engineering-Evidence/1",
             },
             method="POST",
