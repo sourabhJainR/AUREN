@@ -3,10 +3,12 @@ import json
 import multiprocessing
 import os
 import tempfile
+from datetime import datetime, timezone
 import unittest
 from unittest.mock import MagicMock, patch
 from pathlib import Path
 
+from portable.canonical_evidence_ledger import CanonicalEvidenceLedger
 from portable.engineering_evidence_capture import EvidenceCapture, HttpsEvidenceSink
 
 
@@ -16,6 +18,26 @@ def failing_sink(_event):
 
 def succeeding_sink(_event):
     return None
+
+
+
+def _crash_after_canonical_evidence_commit(evidence_db, event_db, envelope, expected_head):
+    ledger = CanonicalEvidenceLedger(evidence_db)
+    capture = EvidenceCapture(event_db, evidence_ledger=ledger)
+    original_record = ledger.record
+
+    def commit_then_die(**values):
+        original_record(**values)
+        os._exit(91)
+
+    ledger.record = commit_then_die
+    capture.ingest_signed_external_evidence(
+        envelope,
+        verifier=lambda _signer, _signature, _message: True,
+        expected_repository="sourabhJainR/AUREN",
+        expected_head=expected_head,
+    )
+    os._exit(92)
 
 
 def _crash_after_sink_accept(database, accepted_log):
@@ -92,6 +114,63 @@ class EngineeringEvidenceCaptureTests(unittest.TestCase):
         self.assertEqual(result, {"sent": 1, "pending": 0})
         self.assertTrue(capture.verify_chain())
 
+
+
+    def test_process_death_after_canonical_evidence_commit_finishes_ingestion_on_restart(self):
+        evidence_path = self.path.parent / "canonical-evidence.sqlite3"
+        ledger = CanonicalEvidenceLedger(evidence_path)
+        capture = EvidenceCapture(self.path, evidence_ledger=ledger)
+        expected_head = "a" * 40
+        envelope = {
+            "payload": {
+                "evidence_id": "external:crash-recovery:1",
+                "repository": "sourabhJainR/AUREN",
+                "head_sha": expected_head,
+                "evidence_type": "evaluation",
+                "status": "passed",
+                "source_uri": "https://evaluator.invalid/runs/42/receipt",
+                "payload_digest": "b" * 64,
+                "source_type": "external_evaluator",
+                "issued_at": datetime.now(timezone.utc).isoformat(),
+                "run_id": "run-42",
+                "evaluator_id": "evaluator-independent-1",
+                "external_system": "test-evaluator",
+            },
+            "signer_id": "trusted-test-key-1",
+            "signature": "detached-test-signature",
+        }
+        process = multiprocessing.get_context("spawn").Process(
+            target=_crash_after_canonical_evidence_commit,
+            args=(str(evidence_path), str(self.path), envelope, expected_head),
+        )
+        process.start()
+        process.join(15)
+        if process.is_alive():
+            process.terminate()
+            process.join(3)
+            self.fail("signed evidence ingestion crash fixture exceeded its time budget")
+        self.assertEqual(91, process.exitcode)
+
+        reopened_ledger = CanonicalEvidenceLedger(evidence_path)
+        self.assertIsNotNone(reopened_ledger.resolve(
+            "external:crash-recovery:1",
+            repository="sourabhJainR/AUREN",
+            head_sha=expected_head,
+        ))
+        restarted = EvidenceCapture(self.path, evidence_ledger=reopened_ledger)
+        self.assertEqual((), restarted.signed_receipts())
+        self.assertEqual((), restarted.events())
+
+        result = restarted.ingest_signed_external_evidence(
+            envelope,
+            verifier=lambda _signer, _signature, _message: True,
+            expected_repository="sourabhJainR/AUREN",
+            expected_head=expected_head,
+        )
+        self.assertEqual("external:crash-recovery:1", result["evidence_id"])
+        self.assertEqual(1, len(restarted.signed_receipts()))
+        self.assertEqual(1, len(restarted.events()))
+        self.assertTrue(restarted.verify_chain())
 
     def test_process_death_after_sink_accept_replays_same_stable_event_id(self):
         # Configure a failing sink first so the local outbox has a pending row.
