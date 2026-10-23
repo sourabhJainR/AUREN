@@ -4,7 +4,6 @@ from .adaptive_runtime import AdaptiveRuntime
 from .adaptive_learning import AdaptiveLearningStore, DeferredLearningJob, WorkStyleProfile
 from .adaptive_tuning import AdaptivePolicy, AdaptiveTuner, ExperienceRecord, MaintenanceReceipt, TuningDecision
 from .empirical_improvement import EmpiricalImprovement, ImprovementObservation, ImprovementReport
-from .auren_runtime import main
 from .auren_domains import AurenDomain, DOMAINS, DOMAIN_BY_KEY, canonical_domain_keys, domain_for
 from .impact_analysis import ImpactRecord, ImpactReport, analyze
 from .lifecycle_hooks import HookBus, HookDecision, HookEvent, HookPhase, HookedExecution
@@ -284,3 +283,9 @@ __all__ += ["ExperimentLearningCycle", "ExperimentLearningCycleResult"]
 from .evidence_gate import EvidenceCheck, CheckResult, EvidenceReceipt, run_evidence_gate
 from .evidence_gate_integration import IntegratedEvidenceReceipt, EvidenceGateIntegration
 __all__ += ["EvidenceCheck", "CheckResult", "EvidenceReceipt", "run_evidence_gate", "IntegratedEvidenceReceipt", "EvidenceGateIntegration"]
+
+def main(argv=None):
+    """Load the CLI lazily so `python -m portable.auren_runtime` is warning-free."""
+    from .auren_runtime import main as runtime_main
+    return runtime_main(argv)
+
