@@ -81,6 +81,23 @@ class PersistentEvidenceGraph:
                        (self.project,edge.source_id,edge.relation,edge.target_id,edge.edge_digest))
         return edge
 
+    def _validated_node(self, row) -> EvidenceNode:
+        node_id, kind, digest, metadata_json = row
+        if not isinstance(kind, str) or not isinstance(digest, str):
+            raise ValueError("stored evidence node identity is corrupt")
+        try:
+            if self.node_id(kind, digest) != node_id:
+                raise ValueError("stored evidence node identity is corrupt")
+            metadata = json.loads(metadata_json)
+        except (AttributeError, TypeError, json.JSONDecodeError) as exc:
+            raise ValueError("stored evidence node metadata or identity is corrupt") from exc
+        if not isinstance(metadata, dict) or any(
+            not isinstance(key, str) or not isinstance(value, str)
+            for key, value in metadata.items()
+        ):
+            raise ValueError("stored evidence node metadata is corrupt")
+        return EvidenceNode(node_id, kind, digest, tuple(sorted(metadata.items())))
+
     def get_node(self, node_id: str) -> EvidenceNode | None:
         with self.memory._lock, self.memory._connection() as db:
             row = db.execute(
@@ -89,7 +106,7 @@ class PersistentEvidenceGraph:
             ).fetchone()
         if row is None:
             return None
-        return EvidenceNode(row[0], row[1], row[2], tuple(sorted(json.loads(row[3]).items())))
+        return self._validated_node(row)
 
     def nodes(self, *, kind: str | None = None, max_nodes: int = 1000) -> tuple[EvidenceNode, ...]:
         if max_nodes < 1:
@@ -107,7 +124,7 @@ class PersistentEvidenceGraph:
                     "WHERE project=? AND kind=? ORDER BY node_id LIMIT ?",
                     (self.project, kind, max_nodes),
                 ).fetchall()
-        return tuple(EvidenceNode(r[0], r[1], r[2], tuple(sorted(json.loads(r[3]).items()))) for r in rows)
+        return tuple(self._validated_node(row) for row in rows)
 
     def _validated_edge(self, db, row) -> EvidenceEdge:
         edge = EvidenceEdge(*row)
