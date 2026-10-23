@@ -425,6 +425,25 @@ class EngineeringEvidenceCaptureTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "bearer token"):
             HttpsEvidenceSink("https://collector.invalid/events", "")
 
+    def test_https_sink_rejects_malformed_host_and_url_fragments(self):
+        for url in (
+            "https:///events",
+            "https://collector.invalid/events#fragment",
+            "https://user:password@collector.invalid/events",
+            "https://collector.invalid/events?token=secret",
+        ):
+            with self.subTest(url=url), self.assertRaises(ValueError):
+                HttpsEvidenceSink(url, "token")
+
+    def test_https_sink_timeout_must_be_finite_positive_number(self):
+        for timeout in (True, False, 0, -1, float("nan"), float("inf"), float("-inf"), "5"):
+            with self.subTest(timeout=timeout), self.assertRaisesRegex(ValueError, "finite number"):
+                HttpsEvidenceSink("https://collector.invalid/events", "token", timeout_seconds=timeout)
+        self.assertEqual(
+            5,
+            HttpsEvidenceSink("https://collector.invalid/events", "token", timeout_seconds=5).timeout_seconds,
+        )
+
     def test_provider_operation_lifecycle_events_are_allowlisted_and_hash_chained(self):
         capture = EvidenceCapture(self.path)
         operation_id = "auren-op-" + "b" * 64
