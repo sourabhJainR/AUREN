@@ -260,6 +260,9 @@ class SubprocessProviderInvoker:
             if inherited_value <= wall_now:
                 raise TimeoutError("inherited supervisor deadline expired before provider launch")
             deadline_epoch = min(deadline_epoch, inherited_value)
+        timeout = deadline_epoch - wall_now
+        if timeout <= 0:
+            raise TimeoutError("inherited supervisor deadline expired before provider launch")
         child_env = dict(self.env)
         child_env["AUREN_DEADLINE_EPOCH"] = f"{deadline_epoch:.6f}"
         started = time.monotonic()
