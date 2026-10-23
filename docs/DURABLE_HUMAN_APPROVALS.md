@@ -13,7 +13,8 @@ create a second task store.
   a pending/approved request. An executing, unknown or completed operation cannot be
   silently replaced; use a new operation ID for a new logical action.
 - Approval decisions require a trusted host identity/role/scope authorizer. The caller
-  must not supply self-asserted roles as authority. High-risk requests can require
+  must not supply self-asserted roles as authority.
+- Trusted approver and cancellation adapters must return literal boolean `True`; truthy strings, integers, missing adapters, and exceptions fail closed. High-risk requests can require
   multiple distinct approvers and separation of duties.
 - Cancellation requires a separate trusted `cancellation_authorizer(actor, record)`.
   Missing, rejected, non-boolean, or failing authorization blocks cancellation. Only pending and
