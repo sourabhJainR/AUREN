@@ -6,6 +6,7 @@ without dispatching the handler a second time.
 """
 from __future__ import annotations
 
+import gc
 import multiprocessing
 import os
 import sqlite3
@@ -147,3 +148,10 @@ class ConsequentialOuterReceiptCrashTests(unittest.TestCase):
                 and event.get("task_id") == task.id
                 for event in restarted.progress_journal._events()
             )
+
+            # Windows can keep SQLite files locked while live controller/process
+            # objects still own resources. Release the process handle and all
+            # controller graphs before TemporaryDirectory removes the database.
+            process.close()
+            del restarted, ledger, controller
+            gc.collect()
