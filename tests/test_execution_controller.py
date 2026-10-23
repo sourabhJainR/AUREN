@@ -14,6 +14,13 @@ from portable.execution_controller import ExecutionController, WorkKeyConflict
 def durable_handler(payload):
     return {"success": True, "detail": "done", "evidence": [payload["id"]]}
 
+def durable_marker_handler(payload):
+    marker = Path(payload["marker_path"])
+    with marker.open("a", encoding="utf-8") as stream:
+        stream.write("called\n")
+    return {"success": True, "detail": "done", "evidence": [payload["id"]]}
+
+
 
 
 
@@ -30,6 +37,23 @@ def _crash_after_terminal_receipt_before_evidence(root: str, task_id: str) -> No
     controller._capture_event = crash_before_terminal_projection
     controller.run_once(task_id)
     os._exit(88)
+
+
+def _crash_after_task_terminal_before_work_unit_receipt(root: str, task_id: str) -> None:
+    controller = ExecutionController(root)
+    controller.register_handler(
+        "tests.durable_marker_handler", durable_marker_handler, execution_class="read_only"
+    )
+    original_record = controller.company.record
+
+    def crash_before_receipt(work_unit_id, stage, status, *args, **kwargs):
+        if stage == "execution" and status == "completed":
+            os._exit(89)
+        return original_record(work_unit_id, stage, status, *args, **kwargs)
+
+    controller.company.record = crash_before_receipt
+    controller.run_once(task_id)
+    os._exit(90)
 
 
 def test_handler_registration_submit_and_resume(tmp_path: Path):
@@ -88,6 +112,55 @@ def test_startup_repairs_missing_terminal_evidence_after_receipt_commit(tmp_path
         "terminal_evidence_reconciliation_required" in finding
         for finding in restarted.health_findings()
     )
+
+
+def test_startup_blocks_task_terminal_commit_before_work_unit_receipt_without_replay(tmp_path: Path):
+    marker = tmp_path / "handler-calls.log"
+    controller = ExecutionController(tmp_path)
+    controller.register_handler(
+        "tests.durable_marker_handler", durable_marker_handler, execution_class="read_only"
+    )
+    task = controller.submit(
+        "tests.durable_marker_handler",
+        {"id": "split-terminal", "marker_path": str(marker)},
+        goal="verify split terminal receipt recovery",
+        work_key="test:issue-696:terminal-receipt-crash",
+    )
+    process = multiprocessing.get_context("spawn").Process(
+        target=_crash_after_task_terminal_before_work_unit_receipt,
+        args=(str(tmp_path), task.id),
+    )
+    process.start()
+    process.join(20)
+    if process.is_alive():
+        process.terminate()
+        process.join(3)
+        raise AssertionError("task/receipt crash fixture exceeded its time budget")
+    assert process.exitcode == 89
+    assert marker.read_text(encoding="utf-8").splitlines() == ["called"]
+
+    with sqlite3.connect(controller.db_path) as db:
+        assert db.execute(
+            "SELECT state FROM tasks WHERE id=?", (task.id,)
+        ).fetchone()[0] == "completed"
+    assert controller.company._state(task.work_unit_id)[0] == "running"
+
+    restarted = ExecutionController(tmp_path)
+    assert restarted.task(task.id).state == "blocked"
+    snapshots = restarted.progress_journal.list_snapshots(stale_after_seconds=3600)
+    assert any(row.get("task_id") == task.id and row.get("state") == "blocked" for row in snapshots)
+    assert any(
+        "progress_reconciliation_required" in finding
+        for finding in restarted.health_findings()
+    )
+    assert restarted.run_once(task.id) is None
+    assert marker.read_text(encoding="utf-8").splitlines() == ["called"]
+    with sqlite3.connect(restarted.evidence_capture.path) as db:
+        assert db.execute(
+            "SELECT COUNT(*) FROM engineering_events WHERE task_id=? "
+            "AND event_type IN ('task_completed','task_failed')",
+            (task.id,),
+        ).fetchone()[0] == 0
 
 
 def test_terminal_evidence_reconciliation_blocks_conflicting_records(tmp_path: Path):
