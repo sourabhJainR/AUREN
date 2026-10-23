@@ -93,6 +93,10 @@ class ProviderOperationLifecycleTests(unittest.TestCase):
             and evidence == f"provider://operation/{operation_id}"
             and receipt.get("status") == "completed"
             and receipt.get("provider_operation_id") == operation_id
+            and receipt.get("operation_id") == operation_id
+            and receipt.get("idempotency_key") == _CRASH_OPERATION_KEY
+            and receipt.get("provider") == _CRASH_PROVIDER
+            and receipt.get("intent_digest") == self.ledger().get(_CRASH_OPERATION_KEY)["payload_digest"]
         )
         lifecycle = ProviderOperationLifecycle(self.ledger(verify=verified), record_event=self.events.append)
         with self.assertRaises(ProviderOutcomeBlocked):
@@ -107,7 +111,14 @@ class ProviderOperationLifecycleTests(unittest.TestCase):
             lambda requested_id, key: {
                 "status": "completed",
                 "evidence_ref": f"provider://operation/{requested_id}",
-                "receipt": {"status": "completed", "provider_operation_id": requested_id},
+                "receipt": {
+                    "status": "completed",
+                    "provider_operation_id": requested_id,
+                    "operation_id": requested_id,
+                    "idempotency_key": key,
+                    "provider": _CRASH_PROVIDER,
+                    "intent_digest": self.ledger().get(_CRASH_OPERATION_KEY)["payload_digest"],
+                },
             },
         )
         self.assertEqual(operation_id, receipt["provider_operation_id"])
@@ -251,6 +262,43 @@ class ProviderOperationLifecycleTests(unittest.TestCase):
 
 
 
+
+    def test_reconciliation_requires_explicit_request_binding_fields(self):
+        operation_key = "deploy:reconcile-missing-binding"
+        provider = "provider-a"
+        intent = {"target": "staging", "revision": "missing-binding"}
+        operation_id = stable_provider_operation_id(operation_key, provider, intent)
+        lifecycle = ProviderOperationLifecycle(self.ledger(verify=lambda *_: True), record_event=self.events.append)
+        with self.assertRaises(ProviderOutcomeBlocked):
+            lifecycle.execute(
+                operation_key, provider, intent,
+                lambda *_: (_ for _ in ()).throw(TimeoutError("response lost")),
+            )
+        digest = self.ledger().get(operation_key)["payload_digest"]
+        incomplete_receipts = (
+            {"status": "completed", "provider_operation_id": "remote-1"},
+            {
+                "status": "completed", "provider_operation_id": "remote-1",
+                "operation_id": operation_id, "idempotency_key": operation_key,
+                "provider": provider,
+            },
+            {
+                "status": "completed", "provider_operation_id": "remote-1",
+                "operation_id": operation_id, "idempotency_key": operation_key,
+                "intent_digest": digest,
+            },
+        )
+        for receipt in incomplete_receipts:
+            with self.assertRaises(ProviderOutcomeBlocked):
+                lifecycle.reconcile(
+                    operation_key, provider, intent,
+                    lambda _op_id, _key, value=receipt: {
+                        "status": "completed", "evidence_ref": "provider://operations/remote-1",
+                        "receipt": value,
+                    },
+                )
+            self.assertEqual("reconcile_required", self.ledger().get(operation_key)["state"])
+
     def test_reconciliation_rejects_receipts_bound_to_other_provider_or_intent(self):
         operation_key = "deploy:reconcile-binding"
         provider = "provider-a"
@@ -302,6 +350,8 @@ class ProviderOperationLifecycleTests(unittest.TestCase):
                 and receipt.get("provider_operation_id") == remote_id
                 and receipt.get("operation_id") == operation_id
                 and receipt.get("idempotency_key") == operation_key
+                and receipt.get("provider") == provider
+                and receipt.get("intent_digest") == self.ledger().get(operation_key)["payload_digest"]
             )
 
         lifecycle = ProviderOperationLifecycle(self.ledger(verify=verify), record_event=self.events.append)
@@ -321,6 +371,8 @@ class ProviderOperationLifecycleTests(unittest.TestCase):
                     "provider_operation_id": remote_id,
                     "operation_id": requested_id,
                     "idempotency_key": requested_key,
+                    "provider": provider,
+                    "intent_digest": self.ledger().get(operation_key)["payload_digest"],
                 },
             },
         )
