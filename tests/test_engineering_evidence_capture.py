@@ -436,7 +436,7 @@ class EngineeringEvidenceCaptureTests(unittest.TestCase):
                 HttpsEvidenceSink(url, "token")
 
     def test_https_sink_timeout_must_be_finite_positive_number(self):
-        for timeout in (True, False, 0, -1, float("nan"), float("inf"), float("-inf"), "5"):
+        for timeout in (True, False, 0, -1, 10**1000, float("nan"), float("inf"), float("-inf"), "5"):
             with self.subTest(timeout=timeout), self.assertRaisesRegex(ValueError, "finite number"):
                 HttpsEvidenceSink("https://collector.invalid/events", "token", timeout_seconds=timeout)
         self.assertEqual(
