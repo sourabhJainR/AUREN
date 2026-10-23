@@ -85,6 +85,50 @@ def test_submit_repairs_missing_submission_evidence_after_commit(tmp_path: Path)
         ).fetchone()[0] == 1
 
 
+def test_startup_repairs_missing_submission_evidence_from_task_row(tmp_path: Path):
+    controller = ExecutionController(tmp_path)
+    controller.register_handler("tests.durable_handler", durable_handler, execution_class="read_only")
+    key = "AUREN:issue-696:continuous-engineering"
+    original_capture = controller._capture_event
+
+    def fail_before_evidence(*args, **kwargs):
+        raise OSError("injected crash before submission evidence")
+
+    controller._capture_event = fail_before_evidence
+    try:
+        controller.submit(
+            "tests.durable_handler", {"id": "startup-evidence-repair"},
+            goal="continue issue 696", work_key=key,
+        )
+    except RuntimeError as exc:
+        assert "submission evidence could not be verified" in str(exc)
+    else:
+        raise AssertionError("submission must not hide a missing evidence projection")
+    finally:
+        controller._capture_event = original_capture
+
+    with sqlite3.connect(controller.db_path) as db:
+        task_id = db.execute("SELECT id FROM tasks WHERE work_key=?", (key,)).fetchone()[0]
+    restarted = ExecutionController(tmp_path)
+
+    with sqlite3.connect(restarted.evidence_capture.path) as db:
+        events = db.execute(
+            "SELECT event_id,work_unit_id,iteration,status FROM engineering_events "
+            "WHERE task_id=? AND event_type='task_submitted'",
+            (task_id,),
+        ).fetchall()
+    assert len(events) == 1
+    assert events[0][0] == f"task-submitted:{task_id}"
+    assert events[0][2] == 0
+    assert events[0][3] == "pending"
+    assert restarted.progress_journal.snapshot(task_id)["reported_state"] == "queued"
+    assert restarted.reconcile_submission_events()["repaired"] == 0
+    assert not any(
+        "submission_evidence_reconciliation_required" in finding
+        for finding in restarted.health_findings()
+    )
+
+
 def test_startup_repairs_progress_after_submission_event_commits(tmp_path: Path):
     controller = ExecutionController(tmp_path)
     controller.register_handler("tests.durable_handler", durable_handler, execution_class="read_only")
