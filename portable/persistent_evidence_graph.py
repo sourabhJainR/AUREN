@@ -59,7 +59,14 @@ class PersistentEvidenceGraph:
             except (TypeError, json.JSONDecodeError) as exc:
                 raise ValueError("stored evidence node metadata is corrupt") from exc
             if stored_metadata != dict(node.metadata):
-                raise ValueError("content-addressed evidence node metadata conflict")
+                if metadata is not None:
+                    raise ValueError("content-addressed evidence node metadata conflict")
+                # A lookup without metadata must return the canonical persisted node,
+                # not a synthetic metadata-empty object for an existing identity.
+                node = EvidenceNode(
+                    node.node_id, stored[0], stored[1],
+                    tuple(sorted(stored_metadata.items())),
+                )
         return node
 
     def add_edge(self, source: EvidenceNode, relation: str, target: EvidenceNode) -> EvidenceEdge:
