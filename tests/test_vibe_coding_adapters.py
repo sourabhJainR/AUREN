@@ -399,6 +399,11 @@ class VibeCodingAdapterTests(unittest.TestCase):
             self.assertEqual("preview-receipt", first["deployment_receipt"])
             self.assertEqual(first["deployment_receipt"], second["deployment_receipt"])
             operation_key = "vibe-stage:workflow-preview-42:preview_deployment:deployment-adapter:1"
+            provider_operation = calls[0]["provider_operation"]
+            self.assertEqual(operation_key, provider_operation["idempotency_key"])
+            self.assertEqual("deployment-adapter", provider_operation["provider"])
+            self.assertEqual("1", provider_operation["adapter_version"])
+            self.assertTrue(provider_operation["operation_id"].startswith("auren-op-"))
             self.assertEqual("completed", ledger.get(operation_key)["state"])
 
     def test_missing_capability_adapter_fails_closed_before_graph_creation(self):
