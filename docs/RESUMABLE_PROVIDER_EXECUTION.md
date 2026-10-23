@@ -57,6 +57,7 @@ The `.ai-harness/safe_provider.py` bridge applies a process-level bound around `
 - `HARNESS_PROVIDER_TIMEOUT_SECONDS` defaults to 1800 seconds and must be within 1–3600 seconds.
 - `HARNESS_PROVIDER_TOTAL_TIMEOUT_SECONDS` defaults to 3600 seconds and must be within 1–7200 seconds. All attempts and retry backoff share this one total budget; a retry never resets it.
 - If `AUREN_DEADLINE_EPOCH` is set to an absolute Unix timestamp, the bridge caps its total budget at that inherited supervisor deadline. An expired deadline prevents launch and returns exit code `124`.
+- `SubprocessProviderInvoker` propagates an absolute `AUREN_DEADLINE_EPOCH` to its child. It uses the earlier of its own timeout and any inherited deadline, rejects invalid/expired deadlines before launch, and rejects non-finite or greater-than-24-hour timeout values.
 - Canonical `AUREN_` settings take precedence. The documented unprefixed `HARNESS_` settings are supported, with legacy `AER_` values as fallback.
 - `HARNESS_PROVIDER_MAX_OUTPUT_BYTES` defaults to 1,000,000 bytes and must be within 1,024–16,000,000 bytes.
 - Output is read as fixed-size byte chunks through a bounded queue. The bridge does not use line-based reads, so a provider cannot force a single unbounded line allocation.
