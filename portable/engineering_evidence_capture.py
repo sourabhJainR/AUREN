@@ -547,7 +547,6 @@ class EvidenceCapture:
         lease_expires_at = (
             claimed_at + timedelta(seconds=_OUTBOX_CLAIM_LEASE_SECONDS)
         ).isoformat()
-        claim_token = uuid4().hex
         claimed_rows: list[tuple[str, str, str]] = []
 
         # Serialize selection and claim so two local flushers cannot both claim an
@@ -569,18 +568,19 @@ class EvidenceCapture:
                 (limit,),
             ).fetchall()
             for event_id, event_json in rows:
+                row_claim_token = uuid4().hex
                 cursor = db.execute(
                     """UPDATE engineering_event_outbox
                        SET delivery_state='sending',claim_token=?,claimed_at=?,
                            lease_expires_at=?,updated_at=?
                        WHERE event_id=? AND delivery_state='pending'""",
                     (
-                        claim_token, claimed_at_text, lease_expires_at,
+                        row_claim_token, claimed_at_text, lease_expires_at,
                         claimed_at_text, event_id,
                     ),
                 )
                 if cursor.rowcount == 1:
-                    claimed_rows.append((event_id, event_json, claim_token))
+                    claimed_rows.append((event_id, event_json, row_claim_token))
             db.commit()
 
         sent = 0
