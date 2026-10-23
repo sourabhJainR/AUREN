@@ -22,6 +22,134 @@ def test_handler_registration_submit_and_resume(tmp_path: Path):
     assert controller.task(task.id).state == "completed"
 
 
+
+def test_submit_repairs_missing_submission_evidence_after_commit(tmp_path: Path):
+    controller = ExecutionController(tmp_path)
+    controller.register_handler("tests.durable_handler", durable_handler, execution_class="read_only")
+    key = "AUREN:issue-696:continuous-engineering"
+    payload = {"id": "submission-repair"}
+    original_capture = controller._capture_event
+
+    def fail_before_evidence(*args, **kwargs):
+        raise OSError("injected crash before submission evidence")
+
+    controller._capture_event = fail_before_evidence
+    try:
+        controller.submit(
+            "tests.durable_handler", payload, goal="continue issue 696", work_key=key,
+        )
+    except RuntimeError as exc:
+        assert "submission evidence could not be verified" in str(exc)
+    else:
+        raise AssertionError("submission must report an unresolved evidence projection")
+    finally:
+        controller._capture_event = original_capture
+
+    with sqlite3.connect(controller.db_path) as db:
+        rows = db.execute("SELECT id FROM tasks WHERE work_key=?", (key,)).fetchall()
+    assert len(rows) == 1
+    task_id = rows[0][0]
+    with sqlite3.connect(controller.evidence_capture.path) as db:
+        assert db.execute(
+            "SELECT COUNT(*) FROM engineering_events WHERE task_id=? AND event_type='task_submitted'",
+            (task_id,),
+        ).fetchone()[0] == 0
+
+    resumed = controller.submit(
+        "tests.durable_handler", payload, goal="continue issue 696", work_key=key,
+    )
+    assert resumed.id == task_id
+    with sqlite3.connect(controller.db_path) as db:
+        assert db.execute("SELECT COUNT(*) FROM tasks WHERE work_key=?", (key,)).fetchone()[0] == 1
+    with sqlite3.connect(controller.evidence_capture.path) as db:
+        events = db.execute(
+            "SELECT event_id,work_unit_id,iteration,status,metadata_json FROM engineering_events "
+            "WHERE task_id=? AND event_type='task_submitted'",
+            (task_id,),
+        ).fetchall()
+    assert len(events) == 1
+    assert events[0][0] == f"task-submitted:{task_id}"
+    assert events[0][2] == 0
+    assert events[0][3] == "pending"
+    progress = controller.progress_journal.snapshot(task_id)
+    assert progress["reported_state"] == "queued"
+
+    first = controller.reconcile_submission_events()
+    second = controller.reconcile_submission_events()
+    assert first["repaired"] == 0
+    assert second["repaired"] == 0
+    with sqlite3.connect(controller.evidence_capture.path) as db:
+        assert db.execute(
+            "SELECT COUNT(*) FROM engineering_events WHERE task_id=? AND event_type='task_submitted'",
+            (task_id,),
+        ).fetchone()[0] == 1
+
+
+def test_startup_repairs_progress_after_submission_event_commits(tmp_path: Path):
+    controller = ExecutionController(tmp_path)
+    controller.register_handler("tests.durable_handler", durable_handler, execution_class="read_only")
+    key = "AUREN:issue-696:continuous-engineering"
+    original_progress = controller._record_progress
+
+    def fail_before_progress(*args, **kwargs):
+        raise OSError("injected crash before progress projection")
+
+    controller._record_progress = fail_before_progress
+    try:
+        controller.submit(
+            "tests.durable_handler", {"id": "progress-repair"},
+            goal="continue issue 696", work_key=key,
+        )
+    except OSError as exc:
+        assert "progress projection" in str(exc)
+    else:
+        raise AssertionError("fault injection must interrupt after submission evidence")
+    finally:
+        controller._record_progress = original_progress
+
+    with sqlite3.connect(controller.db_path) as db:
+        task_id = db.execute("SELECT id FROM tasks WHERE work_key=?", (key,)).fetchone()[0]
+    with sqlite3.connect(controller.evidence_capture.path) as db:
+        assert db.execute(
+            "SELECT COUNT(*) FROM engineering_events WHERE task_id=? AND event_type='task_submitted'",
+            (task_id,),
+        ).fetchone()[0] == 1
+
+    restarted = ExecutionController(tmp_path)
+    snapshot = restarted.progress_journal.snapshot(task_id)
+    assert snapshot["reported_state"] == "queued"
+    assert snapshot["stage"] == "startup-reconciliation"
+    assert restarted.reconcile_submission_events()["repaired"] == 0
+    with sqlite3.connect(restarted.evidence_capture.path) as db:
+        assert db.execute(
+            "SELECT COUNT(*) FROM engineering_events WHERE task_id=? AND event_type='task_submitted'",
+            (task_id,),
+        ).fetchone()[0] == 1
+
+
+def test_submission_reconciliation_blocks_duplicate_or_mismatched_events(tmp_path: Path):
+    controller = ExecutionController(tmp_path)
+    controller.register_handler("tests.durable_handler", durable_handler, execution_class="read_only")
+    task = controller.submit("tests.durable_handler", {"id": "duplicate-evidence"})
+    controller.evidence_capture.record(
+        "task_submitted",
+        work_unit_id="wrong-work-unit",
+        task_id=task.id,
+        iteration=0,
+        status="pending",
+        metadata={"handler": task.handler},
+        event_id="injected-conflicting-submission",
+    )
+
+    result = controller.reconcile_submission_events()
+    assert result["blocked"] == 1
+    assert task.id in controller._submission_reconciliation_findings
+    with sqlite3.connect(controller.evidence_capture.path) as db:
+        assert db.execute(
+            "SELECT COUNT(*) FROM engineering_events WHERE task_id=? AND event_type='task_submitted'",
+            (task.id,),
+        ).fetchone()[0] == 2
+
 def test_submit_reuses_one_task_and_work_unit_for_stable_work_key(tmp_path: Path):
     controller = ExecutionController(tmp_path)
     controller.register_handler("tests.durable_handler", durable_handler, execution_class="read_only")

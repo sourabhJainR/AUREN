@@ -226,7 +226,10 @@ class ExecutionController:
         self._provider_operation_adapters: dict[str, Any] = {}
         self._progress_reconciliation_findings: list[str] = []
         self._progress_reconciliation_incomplete = False
+        self._submission_reconciliation_findings: list[str] = []
+        self._submission_reconciliation_incomplete = False
         self.reconcile_progress_journal()
+        self.reconcile_submission_events()
         self.reconcile_approval_waits()
 
     def register_handler(
@@ -981,6 +984,7 @@ class ExecutionController:
     def _capture_event(
         self, event_type: str, task: DurableTask, *, status: str,
         metadata: Mapping[str, Any] | None = None,
+        event_id: str | None = None,
     ) -> None:
         """Record safe lifecycle metadata without serializing task payload or output."""
         import subprocess
@@ -1002,7 +1006,153 @@ class ExecutionController:
             repository=repository,
             head_sha=head_sha,
             metadata=dict(metadata or {}),
+            event_id=event_id,
         )
+
+    def _submission_event_status(self, task: DurableTask) -> tuple[str, str]:
+        """Validate the immutable submission event for one durable task."""
+        with closing(sqlite3.connect(self.evidence_capture.path, timeout=5)) as db, db:
+            rows = db.execute(
+                "SELECT event_type,work_unit_id,task_id,iteration,status,metadata_json "
+                "FROM engineering_events WHERE task_id=? AND event_type='task_submitted' ORDER BY sequence",
+                (task.id,),
+            ).fetchall()
+        if not rows:
+            return "missing", ""
+        if len(rows) != 1:
+            return "blocked", "multiple task_submitted evidence records exist for one task"
+        event_type, work_unit_id, task_id, iteration, status, metadata_json = rows[0]
+        try:
+            metadata = json.loads(metadata_json)
+        except (TypeError, json.JSONDecodeError):
+            return "blocked", "submission evidence metadata is corrupt"
+        if (
+            event_type != "task_submitted"
+            or work_unit_id != task.work_unit_id
+            or task_id != task.id
+            or isinstance(iteration, bool)
+            or not isinstance(iteration, int)
+            or iteration != 0
+            or status != "pending"
+            or not isinstance(metadata, Mapping)
+            or metadata.get("handler") != task.handler
+            or metadata.get("phase") not in {None, "task_submission"}
+        ):
+            return "blocked", "submission evidence does not match the immutable task identity"
+        return "present", ""
+
+    def _ensure_submission_event(self, task: DurableTask) -> bool:
+        """Create or verify one stable submission event without duplicating history."""
+        status, _reason = self._submission_event_status(task)
+        if status == "present":
+            return True
+        if status == "blocked":
+            self._submission_reconciliation_findings = list(dict.fromkeys(
+                [*self._submission_reconciliation_findings, task.id]
+            ))
+            return False
+        # Submission evidence always describes the initial queued transition,
+        # even if this task is being recovered after later attempts.
+        initial = DurableTask(task.id, task.handler, task.payload, "pending", 0, task.work_unit_id)
+        try:
+            self._capture_event(
+                "task_submitted",
+                initial,
+                status="pending",
+                metadata={"handler": task.handler, "phase": "task_submission"},
+                event_id=f"task-submitted:{task.id}",
+            )
+        except Exception:
+            # The evidence transaction may have committed before an export or
+            # transport failure. Re-read the canonical event store before retrying.
+            pass
+        status, _reason = self._submission_event_status(task)
+        if status == "present":
+            self._submission_reconciliation_findings = [
+                item for item in self._submission_reconciliation_findings if item != task.id
+            ]
+            return True
+        self._submission_reconciliation_findings = list(dict.fromkeys(
+            [*self._submission_reconciliation_findings, task.id]
+        ))
+        return False
+
+    def reconcile_submission_events(
+        self, *, limit: int = 1000, time_budget_seconds: float = 2.0
+    ) -> dict[str, Any]:
+        """Repair missing task-submission evidence from the canonical task rows.
+
+        This is a bounded, idempotent projection repair. It never runs handlers
+        or replays side effects. Multiple or mismatched evidence records remain
+        blocked for inspection instead of being overwritten.
+        """
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 10000:
+            raise ValueError("submission reconciliation limit must be an integer from 1 to 10000")
+        if (
+            isinstance(time_budget_seconds, bool)
+            or not isinstance(time_budget_seconds, (int, float))
+            or not math.isfinite(time_budget_seconds)
+            or not 0.05 <= time_budget_seconds <= 30.0
+        ):
+            raise ValueError("submission reconciliation time budget must be between 0.05 and 30 seconds")
+        deadline = time.monotonic() + float(time_budget_seconds)
+        findings: list[str] = []
+        repaired = 0
+        scanned = 0
+        incomplete = False
+        with closing(sqlite3.connect(self.db_path, timeout=5)) as db, db:
+            total = int(db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0])
+            rows = db.execute(
+                "SELECT id,handler,payload,work_unit_id FROM tasks ORDER BY created_at,id LIMIT ?",
+                (limit,),
+            ).fetchall()
+        for task_id, handler, payload_json, work_unit_id in rows:
+            if time.monotonic() >= deadline:
+                incomplete = True
+                break
+            scanned += 1
+            try:
+                payload = json.loads(payload_json)
+                if not isinstance(payload, Mapping):
+                    raise ValueError("task payload is not a mapping")
+                task = DurableTask(str(task_id), str(handler), dict(payload), "pending", 0, str(work_unit_id))
+                status, _reason = self._submission_event_status(task)
+                if status == "present":
+                    continue
+                if status == "blocked":
+                    findings.append(str(task_id))
+                    continue
+                try:
+                    self._capture_event(
+                        "task_submitted",
+                        task,
+                        status="pending",
+                        metadata={"handler": task.handler, "phase": "task_submission"},
+                        event_id=f"task-submitted:{task.id}",
+                    )
+                except Exception:
+                    pass
+                status, _reason = self._submission_event_status(task)
+                if status == "present":
+                    repaired += 1
+                else:
+                    findings.append(str(task_id))
+            except Exception:
+                findings.append(str(task_id))
+        if total > len(rows) or scanned < len(rows):
+            incomplete = True
+        self._submission_reconciliation_findings = list(dict.fromkeys(findings))
+        self._submission_reconciliation_incomplete = incomplete
+        return {
+            "scanned": scanned,
+            "repaired": repaired,
+            "blocked": len(self._submission_reconciliation_findings),
+            "incomplete": incomplete,
+            "next_action": (
+                "rerun reconcile_submission_events with a larger limit or time budget; "
+                "do not assume unscanned submission evidence exists"
+            ) if incomplete else None,
+        }
 
     def work_unit_for_session(
         self, session_id: str, goal: str, *, work_key: str | None = None
@@ -1498,49 +1648,82 @@ class ExecutionController:
         intent_digest = hashlib.sha256(intent_json.encode("utf-8")).hexdigest()
 
         # Hold a SQLite write reservation across lookup, work-unit creation, and task
-        # insertion. If the process dies after company.start(), its own work_key
-        # makes the next submission recover that same work unit without duplication.
-        with closing(sqlite3.connect(self.db_path)) as db:
+        # insertion. A committed task is then repaired/verified in the projection stores.
+        task: DurableTask
+        created = False
+        with closing(sqlite3.connect(self.db_path, timeout=10)) as db:
             db.execute("BEGIN IMMEDIATE")
             try:
+                existing = None
                 if stable_work_key is not None:
                     existing = db.execute(
                         "SELECT id,handler,payload,state,attempts,work_unit_id,lease_generation,lease_token,intent_digest "
                         "FROM tasks WHERE work_key=?",
                         (stable_work_key,),
                     ).fetchone()
-                    if existing is not None:
-                        if existing[8] != intent_digest:
-                            raise WorkKeyConflict(
-                                "work_key already belongs to a different handler, payload, or goal"
-                            )
-                        db.commit()
-                        return DurableTask(
-                            existing[0], existing[1], json.loads(existing[2]), existing[3],
-                            int(existing[4]), existing[5], int(existing[6] or 0), existing[7],
+                if existing is not None:
+                    if existing[8] != intent_digest:
+                        raise WorkKeyConflict(
+                            "work_key already belongs to a different handler, payload, or goal"
                         )
-                work = self.company.start(goal_text, work_key=stable_work_key)
-                task = DurableTask(uuid4().hex, handler, payload_copy, "pending", 0, work.id)
-                now = _now()
-                db.execute(
-                    "INSERT INTO tasks(id,handler,payload,state,attempts,work_unit_id,created_at,updated_at,"
-                    "heartbeat_at,lease_until,work_key,intent_digest) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
-                    (
-                        task.id, task.handler, payload_json, task.state, task.attempts, task.work_unit_id,
-                        now, now, now, now, stable_work_key, intent_digest,
-                    ),
-                )
-                db.commit()
+                    task = DurableTask(
+                        existing[0], existing[1], json.loads(existing[2]), existing[3],
+                        int(existing[4]), existing[5], int(existing[6] or 0), existing[7],
+                    )
+                    db.commit()
+                else:
+                    work = self.company.start(goal_text, work_key=stable_work_key)
+                    task = DurableTask(uuid4().hex, handler, payload_copy, "pending", 0, work.id)
+                    now = _now()
+                    db.execute(
+                        "INSERT INTO tasks(id,handler,payload,state,attempts,work_unit_id,created_at,updated_at,"
+                        "heartbeat_at,lease_until,work_key,intent_digest) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                        (
+                            task.id, task.handler, payload_json, task.state, task.attempts, task.work_unit_id,
+                            now, now, now, now, stable_work_key, intent_digest,
+                        ),
+                    )
+                    db.commit()
+                    created = True
             except BaseException:
                 if db.in_transaction:
                     db.rollback()
                 raise
-        self._capture_event("task_submitted", task, status="pending", metadata={"handler": task.handler})
-        self._record_progress(
-            task.id, "task_submitted", state="queued", stage="queued",
-            message="Task durably queued; execution has not started.",
-        )
+
+        if not self._ensure_submission_event(task):
+            raise RuntimeError(
+                "durable task exists but submission evidence could not be verified; "
+                "retry with the same work_key and inspect controller health findings"
+            )
+        if created:
+            self._record_progress(
+                task.id, "task_submitted", state="queued", stage="queued",
+                message="Task durably queued; execution has not started.",
+            )
+        try:
+            has_progress = any(
+                event.get("task_id") == task.id for event in self.progress_journal._events()
+            )
+        except Exception as exc:
+            self._progress_journal_error = type(exc).__name__
+            has_progress = False
+        if not has_progress:
+            self.reconcile_progress_journal(limit=1000, time_budget_seconds=2.0)
+            try:
+                has_progress = any(
+                    event.get("task_id") == task.id for event in self.progress_journal._events()
+                )
+            except Exception as exc:
+                self._progress_journal_error = type(exc).__name__
+                has_progress = False
+        if not has_progress:
+            self._progress_journal_error = self._progress_journal_error or "submission_projection"
+            raise RuntimeError(
+                "durable task exists but progress projection could not be verified; "
+                "retry with the same work_key and inspect controller health findings"
+            )
         return task
+
     def _claim(self, task_id: str) -> DurableTask | None:
         # Claim under a write lock so two controllers cannot both observe
         # "pending" and execute the same side-effecting handler. Each claim
@@ -2596,6 +2779,15 @@ class ExecutionController:
             )
         if self._progress_reconciliation_incomplete:
             findings.append("progress_reconciliation_incomplete; rerun reconciliation with a larger limit or time budget before trusting unscanned progress")
+        if self._submission_reconciliation_findings:
+            findings.append(
+                f"submission_evidence_reconciliation_required={len(self._submission_reconciliation_findings)}; "
+                "task submission evidence is missing or mismatched; inspect before treating the audit projection as complete"
+            )
+        if self._submission_reconciliation_incomplete:
+            findings.append(
+                "submission_evidence_reconciliation_incomplete; rerun bounded submission evidence repair before trusting unscanned tasks"
+            )
         if self.evidence_capture.sink is not None:
             delivery = self.evidence_capture.flush_pending(limit=100)
             if delivery["pending"]:
