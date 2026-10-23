@@ -30,7 +30,7 @@ class SubprocessProviderInvokerTests(unittest.TestCase):
                 os.environ.pop(name, None)
             else:
                 os.environ[name] = previous
-        self.assertTrue(result.startswith("absent\n"))
+        self.assertEqual("absent", result.splitlines()[0])
         self.assertIn('{"task":"safe"}', result)
 
     def test_timeout_terminates_non_cooperative_child(self):
