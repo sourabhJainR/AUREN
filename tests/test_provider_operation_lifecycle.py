@@ -213,9 +213,24 @@ class ProviderOperationLifecycleTests(unittest.TestCase):
         with self.assertRaises(ProviderOutcomeBlocked):
             lifecycle.execute("deploy-2", "provider-a", {"target": "prod"}, lost_response)
         self.assertEqual(1, len(calls))
-        result = lifecycle.reconcile("deploy-2", "provider-a", {"target": "prod"},
-            lambda op_id, key: {"status": "completed", "evidence_ref": "provider://op/42",
-                                "receipt": {"status": "completed", "provider_operation_id": op_id}})
+        intent = {"target": "prod"}
+        operation_id = stable_provider_operation_id("deploy-2", "provider-a", intent)
+        intent_digest = self.ledger().get("deploy-2")["payload_digest"]
+        result = lifecycle.reconcile(
+            "deploy-2", "provider-a", intent,
+            lambda op_id, key: {
+                "status": "completed",
+                "evidence_ref": "provider://op/42",
+                "receipt": {
+                    "status": "completed",
+                    "provider_operation_id": op_id,
+                    "operation_id": operation_id,
+                    "idempotency_key": key,
+                    "provider": "provider-a",
+                    "intent_digest": intent_digest,
+                },
+            },
+        )
         self.assertEqual("completed", result["status"])
         self.assertEqual("completed", self.ledger().get("deploy-2")["state"])
 
