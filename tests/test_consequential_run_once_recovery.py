@@ -133,7 +133,7 @@ class ConsequentialRunOnceRecoveryTests(unittest.TestCase):
         import hashlib
         import json
         from portable.provider_operation_lifecycle import (
-            ProviderOperationLifecycle, stable_provider_operation_id,
+            ProviderOperationLifecycle, ProviderOutcomeBlocked, stable_provider_operation_id,
         )
         from portable.side_effect_ledger import DurableSideEffectLedger
 
