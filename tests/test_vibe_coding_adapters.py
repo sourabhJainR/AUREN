@@ -362,7 +362,7 @@ class VibeCodingAdapterTests(unittest.TestCase):
                 "vibe-stage:workflow-no-lookup:preview_deployment:"
                 "deployment-without-lookup:1"
             )
-            with self.assertRaisesRegex(AdapterUnavailable, "provider-native operation lookup"):
+            with self.assertRaisesRegex(AdapterUnavailable, "provider-native idempotency and authoritative operation lookup"):
                 registry.invoke(stage, {
                     "vibe_coding_workflow_id": "workflow-no-lookup",
                     "intent": "deploy preview",
