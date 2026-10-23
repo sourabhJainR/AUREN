@@ -209,3 +209,23 @@ custody, access-control, and operator audit evidence.
 This infrastructure does not replace branch protection, independent evaluation,
 complete promotion-bypass testing, or a real operator rollback rehearsal. Those
 remain mandatory P0 acceptance gates.
+
+## Outbox claim and crash recovery
+
+The SQLite outbox claims each batch inside a write-locked transaction. A claimed
+row enters `sending` with a unique claim token and a 120-second lease. Concurrent
+local flushes skip an unexpired claim. A later flush returns expired claims to
+`pending` and retries them with the same event ID. The schema migration is
+additive and preserves existing outbox rows.
+
+`pending_exports()` counts every state other than `sent`, including in-flight and
+unfamiliar states, so a promotion gate remains blocked while delivery is unresolved.
+A stale worker may not finalize a row after a newer claim takes ownership.
+
+Delivery is at-least-once, not exactly-once. A process can die after the remote
+service accepts an event but before local finalization, and a slow request may
+outlive its lease. The sink must deduplicate on the stable event ID; the HTTPS
+adapter sends it as `Idempotency-Key`. Unknown remote outcomes must not be treated
+as proof of delivery. If reverting this code, preserve the evidence journal,
+canonical ledger, signed receipts, and outbox rows; the added columns are safe to
+leave in place.
