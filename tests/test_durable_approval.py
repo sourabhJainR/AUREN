@@ -215,6 +215,7 @@ class DurableApprovalTests(unittest.TestCase):
                 approver in {"reviewer-1", "reviewer-2"}
                 and role in roles and scope == "repo:publish"
             ),
+            cancellation_authorizer=lambda actor, _record: actor == "operator-1",
             context_provider=lambda request: {
                 "artifact_digest": self.artifact,
                 "evidence_digest": self.evidence,
@@ -365,6 +366,92 @@ class DurableApprovalTests(unittest.TestCase):
             )
         self.assertEqual(self.store.get(record.approval_id).status, "superseded")
 
+    def test_cancel_requires_trusted_authorizer_and_rejects_unauthorized_actor(self):
+        record = self.create()
+        untrusted_store = DurableApprovalStore(self.controller, clock=lambda: self.now)
+        with self.assertRaisesRegex(PermissionError, "trusted cancellation authorizer"):
+            untrusted_store.cancel(
+                record.approval_id, actor="operator-1", reason="cancel request",
+            )
+        with self.assertRaisesRegex(PermissionError, "not authorized"):
+            self.store.cancel(
+                record.approval_id, actor="reviewer-1", reason="not an operator",
+            )
+
+        def unavailable_authorizer(_actor, _record):
+            raise RuntimeError("identity service unavailable")
+
+        unavailable_store = DurableApprovalStore(
+            self.controller,
+            cancellation_authorizer=unavailable_authorizer,
+            clock=lambda: self.now,
+        )
+        with self.assertRaisesRegex(PermissionError, "authorization failed closed"):
+            unavailable_store.cancel(
+                record.approval_id, actor="operator-1", reason="cancel request",
+            )
+        self.assertEqual(self.store.get(record.approval_id).status, "pending")
+        self.assertTrue(self.store.verify_audit_chain())
+
+    def test_cancel_after_approval_before_scheduler_wake_never_dispatches(self):
+        self.controller.register_handler(
+            "approval-flow", durable_approval_flow_handler,
+            execution_class="approval_gated",
+            approval_gate_policy={
+                "approval_store": "DurableApprovalStore",
+                "gateway": "ActionGovernanceGateway",
+                "durable_side_effect_ledger": True,
+            },
+        )
+        APPROVAL_FLOW["gateway"] = ActionGovernanceGateway(
+            ActionPolicy(
+                allowed_capabilities=frozenset({"publish"}),
+                approval_required_actions=frozenset({"publish"}),
+                external_effect_actions=frozenset({"publish"}),
+                require_durable_ledger_for_external_effects=True,
+            ),
+            approval_verifier=self.store.verify_receipt,
+            side_effect_ledger=DurableSideEffectLedger(self.controller.db_path),
+        )
+        task = self.controller.submit(
+            "approval-flow",
+            {"auren_approval_aware": True, "work_key": "approval-cancel-before-wake"},
+            goal="cancel an approved external action before scheduler dispatch",
+        )
+        self.assertIsNone(self.controller.run_once(task.id))
+        self.assertEqual(self.controller.task(task.id).state, "waiting_approval")
+        approval_id = APPROVAL_FLOW["approval_id"]
+
+        self.store.decide(
+            approval_id, "approve", approver_id="reviewer-1",
+            roles=("release-approver",), scope="repo:publish",
+        )
+        self.assertEqual(self.store.get(approval_id).status, "approved")
+        self.assertEqual(self.controller.task(task.id).state, "waiting_approval")
+        self.wakeups.clear()  # Simulate a delayed/lost wake notification.
+
+        cancelled = self.store.cancel(
+            approval_id, actor="operator-1", reason="operator cancelled before dispatch",
+        )
+        self.assertEqual(cancelled.status, "cancelled")
+        self.assertEqual(self.store.wake_approved(), 0)
+        self.assertEqual(self.wakeups, [])
+        with self.assertRaises(PermissionError):
+            self.controller.resume_approved_task(
+                task.id, approval_id, approval_store=self.store,
+            )
+
+        self.controller.reconcile_approval_waits()
+        self.assertEqual(self.controller.task(task.id).state, "blocked_approval")
+        self.assertEqual(APPROVAL_FLOW["retrieval_count"], 1)
+        self.assertEqual(APPROVAL_FLOW["publish_calls"], [])
+        self.assertEqual(self.store.events(approval_id)[-1]["event_type"], "approval_cancelled")
+        self.assertTrue(self.store.verify_audit_chain())
+        with self.assertRaises(InvalidApprovalTransition):
+            self.store.cancel(
+                approval_id, actor="operator-1", reason="duplicate cancellation",
+            )
+
     def test_expired_approval_cannot_be_decided_or_executed(self):
         record = self.create()
         self.now += timedelta(hours=3)
@@ -429,6 +516,12 @@ class DurableApprovalTests(unittest.TestCase):
             )
         self.assertEqual(self.store.get(record.approval_id).status, "outcome_unknown")
         self.assertEqual(calls, ["remote accepted"])
+        with self.assertRaises(InvalidApprovalTransition):
+            self.store.cancel(
+                record.approval_id, actor="operator-1",
+                reason="ambiguous provider outcome cannot be cancelled away",
+            )
+        self.assertEqual(self.store.get(record.approval_id).status, "outcome_unknown")
         with self.assertRaises(InvalidApprovalTransition):
             self.store.claim_execution(
                 record.approval_id, self.request(), artifact_digest=self.artifact,

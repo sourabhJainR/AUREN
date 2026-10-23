@@ -15,6 +15,12 @@ create a second task store.
 - Approval decisions require a trusted host identity/role/scope authorizer. The caller
   must not supply self-asserted roles as authority. High-risk requests can require
   multiple distinct approvers and separation of duties.
+- Cancellation requires a separate trusted `cancellation_authorizer(actor, record)`.
+  Missing, rejected, or failing authorization blocks cancellation. Only pending and
+  approved requests can be cancelled. An executing or outcome-unknown operation cannot
+  be cancelled to hide an uncertain side effect; reconcile the canonical side-effect
+  ledger and provider evidence first. The actor value must come from authenticated host
+  context, not a model-generated or user-supplied identity.
 - Approval events are append-only and hash-chained. Progress is projected into the
   canonical ProgressJournal. reconcile_progress() repairs a missing latest projection.
 - An approved operation is claimed atomically before dispatch. Only the winner receives
@@ -34,8 +40,9 @@ create a second task store.
 ## Minimal integration
 
 Create DurableApprovalStore with the live controller, a trusted identity adapter,
-a callback that recomputes current artifact/evidence/policy digests, a scheduler wake
-callback, and a trusted provider-reconciliation verifier.
+a separate cancellation_authorizer backed by authenticated operator context, a callback
+that recomputes current artifact/evidence/policy digests, a scheduler wake callback, and
+a trusted provider-reconciliation verifier.
 
 Call create_request() with the ActionRequest, stable operation ID, content digests,
 trusted requester ID, required approver role, exact scope and deadline. Persist the full
@@ -52,7 +59,8 @@ is not claimed unless the provider supports idempotency or authoritative operati
 Run tests.test_durable_approval, tests.test_side_effect_ledger,
 tests.test_side_effect_ledger_crash_fault_injection and tests.test_execution_boundary.
 
-Coverage includes restart persistence, duplicate decisions, role/scope enforcement,
+Coverage includes restart persistence, duplicate decisions, cancellation authorization and
+cancel-before-dispatch safety, role/scope enforcement,
 separation of duties, multi-approver thresholds, expiry, content invalidation, concurrent
 claims, unknown remote outcomes, trusted reconciliation, progress recovery and audit-chain
 tamper detection.
@@ -60,6 +68,7 @@ tamper detection.
 ## Rollback
 
 Disable the new approval adapter for new requests and keep existing approval records for
-audit. Do not delete approval rows, replay an unknown side effect, or bypass the existing
-action gateway and side-effect ledger. Rollback must preserve pending decisions and the
+audit. If cancellation authorization is unavailable, leave cancellation fail-closed and
+route the request through a trusted operator. Do not delete approval rows, replay an
+unknown side effect, or bypass the existing action gateway and side-effect ledger. Rollback must preserve pending decisions and the
 next safe action for operator recovery.
