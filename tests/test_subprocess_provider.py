@@ -98,6 +98,54 @@ class SubprocessProviderInvokerTests(unittest.TestCase):
                 "provider descendants must not outlive a completed invocation",
             )
 
+
+
+    def test_provider_descendants_are_killed_on_timeout_cancel_and_output_overflow(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            marker = Path(tmp) / "descendant-survived.txt"
+            child_code = (
+                "import pathlib,sys,time; time.sleep(1.0); "
+                "pathlib.Path(sys.argv[1]).write_text('survived', encoding='utf-8')"
+            )
+            parent_prefix = (
+                "import subprocess,sys,time; "
+                "subprocess.Popen([sys.executable, '-c', "
+                + repr(child_code) + ", " + repr(str(marker))
+                + "], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL); "
+            )
+            scenarios = (
+                ("timeout", parent_prefix + "time.sleep(10)", {}, 0.25, TimeoutError),
+                ("cancel", parent_prefix + "time.sleep(10)", {}, 3, InterruptedError),
+                (
+                    "overflow",
+                    parent_prefix + "sys.stdout.write('x' * 1000000); sys.stdout.flush(); time.sleep(10)",
+                    {"max_response_bytes": 100},
+                    3,
+                    ValueError,
+                ),
+            )
+            for name, code, options, timeout, expected in scenarios:
+                with self.subTest(exit_path=name):
+                    marker.unlink(missing_ok=True)
+                    provider = self.invoker(code, **options)
+                    cancelled = threading.Event()
+                    trigger = None
+                    if name == "cancel":
+                        trigger = threading.Thread(
+                            target=lambda: (time.sleep(0.15), cancelled.set()),
+                            daemon=True,
+                        )
+                        trigger.start()
+                    with self.assertRaises(expected):
+                        provider("request", timeout, cancel_event=cancelled if name == "cancel" else None)
+                    if trigger is not None:
+                        trigger.join(timeout=1)
+                    time.sleep(1.2)
+                    self.assertFalse(
+                        marker.exists(),
+                        f"provider descendant survived the {name} exit path",
+                    )
+
     def test_rejects_relative_executable_and_invalid_environment(self):
         with self.assertRaisesRegex(ValueError, "absolute"):
             SubprocessProviderInvoker(["python", "-c", "pass"], cwd=ROOT)
