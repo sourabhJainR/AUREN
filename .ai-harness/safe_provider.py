@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import math
 import os
 import queue
 import subprocess
@@ -255,7 +256,7 @@ def _run_resilient(command: list[str], prompt: str, run_dir: Path, feedback: Fee
 
     for attempt in range(max_retries + 1):
         remaining = total_deadline - time.monotonic()
-        if remaining <= 0:
+        if remaining <= 0.05:
             feedback.observe(task_id=task_id, outcome="timeout", verified=False, strategy=strategy, evidence=[last_digest] if last_digest else [])
             print("AUREN provider total retry budget exhausted", file=sys.stderr)
             return 124
@@ -280,7 +281,7 @@ def _run_resilient(command: list[str], prompt: str, run_dir: Path, feedback: Fee
             })
             last_digest = compaction_meta["digest"]
             remaining = total_deadline - time.monotonic()
-            if remaining <= 0:
+            if remaining <= 0.05:
                 feedback.observe(task_id=task_id, outcome="timeout", verified=False, strategy=strategy, evidence=[last_digest])
                 print("AUREN provider total retry budget exhausted before dispatch", file=sys.stderr)
                 return 124
