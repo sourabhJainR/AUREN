@@ -429,6 +429,11 @@ class EngineeringEvidenceCaptureTests(unittest.TestCase):
             target=lambda: first_results.append(first.flush_pending()),
             daemon=True,
         )
+        def release_worker():
+            release.set()
+            worker.join(5)
+
+        self.addCleanup(release_worker)
         worker.start()
         self.assertTrue(entered.wait(5), "first flush did not claim the outbox row")
         self.assertEqual(1, first.pending_exports())
@@ -481,6 +486,11 @@ class EngineeringEvidenceCaptureTests(unittest.TestCase):
             target=lambda: first_results.append(first.flush_pending()),
             daemon=True,
         )
+        def release_worker():
+            release.set()
+            worker.join(5)
+
+        self.addCleanup(release_worker)
         worker.start()
         self.assertTrue(entered.wait(5), "first flush did not claim the outbox row")
 
@@ -498,6 +508,19 @@ class EngineeringEvidenceCaptureTests(unittest.TestCase):
         self.assertEqual({"sent": 1, "pending": 0}, second_result)
         self.assertEqual([{"sent": 0, "pending": 0}], first_results)
         self.assertEqual(0, second.pending_exports())
+
+    def test_unknown_outbox_state_keeps_promotion_gate_blocked(self):
+        capture = EvidenceCapture(self.path, sink=failing_sink)
+        event = self.record(capture)
+        with sqlite3.connect(self.path) as db:
+            db.execute(
+                "UPDATE engineering_event_outbox SET delivery_state='needs_operator' WHERE event_id=?",
+                (event["event_id"],),
+            )
+
+        self.assertEqual(1, capture.pending_exports())
+        self.assertEqual({"sent": 0, "pending": 1}, capture.flush_pending())
+        self.assertEqual(1, capture.pending_exports())
 
     def test_existing_outbox_schema_migrates_without_losing_pending_rows(self):
         legacy_path = self.path.parent / "legacy-events.sqlite3"
