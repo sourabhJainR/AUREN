@@ -57,7 +57,7 @@ def _crash_after_signed_receipt_retention(evidence_db, event_db, envelope, expec
 def _crash_after_signed_evidence_sink_accept(evidence_db, event_db, envelope, expected_head, accepted_log):
     def sink(event):
         with Path(accepted_log).open("a", encoding="utf-8") as stream:
-            stream.write(event["event_id"] + "\\n")
+            stream.write(event["event_id"] + "\n")
             stream.flush()
             os.fsync(stream.fileno())
         # Remote acceptance happened; the local outbox is still pending.
@@ -341,7 +341,7 @@ class EngineeringEvidenceCaptureTests(unittest.TestCase):
 
         def successful_sink(event):
             with accepted_log.open("a", encoding="utf-8") as stream:
-                stream.write(event["event_id"] + "\\n")
+                stream.write(event["event_id"] + "\n")
 
         reopened = EvidenceCapture(
             self.path,
