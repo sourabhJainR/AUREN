@@ -190,6 +190,36 @@ def transcript_text(row: dict[str, Any]) -> str:
     return ""
 
 
+def _terminate_provider_tree(process: subprocess.Popen[str]) -> None:
+    """Stop the provider process group before releasing bounded stream resources."""
+    try:
+        if os.name == "nt":
+            process.terminate()
+        else:
+            os.killpg(process.pid, signal.SIGTERM)
+    except (ProcessLookupError, OSError):
+        try:
+            process.terminate()
+        except OSError:
+            pass
+    try:
+        process.wait(timeout=2)
+    except subprocess.TimeoutExpired:
+        try:
+            if os.name == "nt":
+                process.kill()
+            else:
+                os.killpg(process.pid, signal.SIGKILL)
+        except (ProcessLookupError, OSError):
+            try:
+                process.kill()
+            except OSError:
+                pass
+        try:
+            process.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            pass
+
 def interrupt_provider(process: subprocess.Popen[str], turn: AgentTurnStateMachine, decision: dict[str, Any], run_dir: Path, phase: str) -> int:
     """Terminate the provider after the current observable event; no later tool/model step is allowed."""
     action = decision.get("action")
@@ -258,7 +288,11 @@ def main() -> int:
     sequence = 0
     started = time.monotonic()
     interrupt_code: int | None = None
+    process: subprocess.Popen[str] | None = None
     try:
+        max_output_bytes = int(os.environ.get("HARNESS_PROVIDER_MAX_OUTPUT_BYTES", "1000000"))
+        if not 1024 <= max_output_bytes <= 16000000:
+            raise ValueError("HARNESS_PROVIDER_MAX_OUTPUT_BYTES must be between 1024 and 16000000")
         workspace = run_dir.parents[2] if len(run_dir.parents) >= 3 else run_dir.parent
         kwargs: dict[str, Any] = {
             "cwd": workspace, "env": safe_environment(), "text": True,
@@ -267,16 +301,35 @@ def main() -> int:
         if os.name != "nt":
             kwargs["start_new_session"] = True
         process = subprocess.Popen(command + [prompt], **kwargs)
+        raw_bytes = 0
+        transcript_bytes = 0
         with raw_path.open("w", encoding="utf-8") as raw_handle:
             assert process.stdout is not None
-            for line in process.stdout:
-                line = line.rstrip("\n")
-                raw_handle.write(line + "\n")
+            while True:
+                # Bound each read so a provider that emits one giant line cannot
+                # allocate unbounded memory before the total-output guard runs.
+                line = process.stdout.readline(max_output_bytes - raw_bytes + 1)
+                if not line:
+                    break
+                line_bytes = len(line.encode("utf-8"))
+                stored_line = line.rstrip("\n") + "\n"
+                stored_bytes = len(stored_line.encode("utf-8"))
+                next_raw_bytes = raw_bytes + max(line_bytes, stored_bytes)
+                if next_raw_bytes > max_output_bytes:
+                    _terminate_provider_tree(process)
+                    raise ValueError(f"provider stream exceeded {max_output_bytes}-byte limit")
+                raw_bytes = next_raw_bytes
+                raw_handle.write(stored_line)
                 raw_handle.flush()
+                line = line.rstrip("\n")
                 try:
                     row = json.loads(line)
                 except json.JSONDecodeError:
                     if line.strip():
+                        transcript_bytes += line_bytes
+                        if transcript_bytes > max_output_bytes:
+                            _terminate_provider_tree(process)
+                            raise ValueError(f"provider transcript exceeded {max_output_bytes}-byte limit")
                         transcript.append(line)
                     continue
                 if not isinstance(row, dict):
@@ -320,8 +373,20 @@ def main() -> int:
                     turn.observe_cache(CACHE_PREFIX + json.dumps(cache), context_digest)
                 text = transcript_text(row)
                 if text:
+                    transcript_bytes += len(text.encode("utf-8"))
+                    if transcript_bytes > max_output_bytes:
+                        _terminate_provider_tree(process)
+                        raise ValueError(f"provider transcript exceeded {max_output_bytes}-byte limit")
                     transcript.append(text)
         code = interrupt_code if interrupt_code is not None else process.wait()
+    except ValueError as exc:
+        if process is not None:
+            _terminate_provider_tree(process)
+        if turn.turn.state not in {"failed", "completed", "stopped"}:
+            turn.transition("failed")
+        turn.finish("failed")
+        print(f"Provider output limit/configuration rejected: {exc}", file=sys.stderr)
+        return 78
     except OSError as exc:
         if turn.turn.state not in {"failed", "completed", "stopped"}:
             turn.transition("failed")
