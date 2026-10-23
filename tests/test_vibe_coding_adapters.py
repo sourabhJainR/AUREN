@@ -238,11 +238,14 @@ class VibeCodingAdapterTests(unittest.TestCase):
                 args=(str(database), str(call_log)),
             )
             process.start()
-            process.join(15)
+            # Windows spawn can be slow while this large resilience suite runs
+            # alongside other jobs. Keep a bounded wait, but avoid mistaking
+            # runner contention for a broken crash-recovery fixture.
+            process.join(60)
             if process.is_alive():
                 process.terminate()
-                process.join(3)
-                self.fail("Vibe receipt crash fixture exceeded its time budget")
+                process.join(5)
+                self.fail("Vibe receipt crash fixture exceeded its 60-second time budget")
             self.assertEqual(87, process.exitcode)
             self.assertEqual(["dispatched"], call_log.read_text(encoding="utf-8").splitlines())
 
