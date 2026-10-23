@@ -330,10 +330,12 @@ class VibeAdapterRegistry:
                     stage_result = {key: value for key, value in raw.items() if key != "provider_operation_id"}
                     valid, _reason = validate_stage_output(stage, stage_result)
                     if not valid:
-                        return {**stage_result, **(
-                            {"provider_operation_id": remote_operation_id}
-                            if remote_operation_id is not None else {}
-                        )}
+                        invalid_receipt: dict[str, Any] = {
+                            "status": "invalid", "result": dict(stage_result),
+                        }
+                        if remote_operation_id is not None:
+                            invalid_receipt["provider_operation_id"] = remote_operation_id
+                        return invalid_receipt
                     # Normalize stage success only after its output contract passes.
                     # Missing remote IDs are intentionally left missing so the
                     # lifecycle blocks completion and requires reconciliation.
