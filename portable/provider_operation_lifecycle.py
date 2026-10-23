@@ -118,6 +118,18 @@ class ProviderOperationLifecycle:
             raise ProviderOutcomeBlocked(
                 f"provider operation {op_id} did not confirm completion; reconciliation required"
             )
+        if "provider_operation_id" in receipt:
+            reported_operation_id = receipt.get("provider_operation_id")
+            if not isinstance(reported_operation_id, str) or reported_operation_id != op_id:
+                reason = "provider receipt operation ID does not match requested operation"
+                self.ledger.require_reconciliation(operation_key, reason)
+                self._event(
+                    operation_key, "reconcile_required", op_id, decision.payload_digest,
+                    reason="provider_operation_id_mismatch",
+                )
+                raise ProviderOutcomeBlocked(
+                    f"provider operation {op_id} returned a receipt bound to a different operation"
+                )
         completed = self.ledger.complete(operation_key, dict(receipt))
         self._event(operation_key, "completed", op_id, completed.payload_digest,
                     receipt_digest=hashlib.sha256(_canonical(receipt).encode("utf-8")).hexdigest())
