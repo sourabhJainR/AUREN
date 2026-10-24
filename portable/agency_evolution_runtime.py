@@ -185,24 +185,28 @@ class AgencyEvolutionRuntime:
             if prior:
                 if prior[1] != digest:
                     raise EvolutionConflict("experiment ID already binds different immutable manifest")
-                return self._operation(db, prior[0])
-            cycle_count = db.execute("SELECT COUNT(*) FROM evolution_cycles").fetchone()[0]
-            if cycle_count >= self.max_cycles:
-                raise ValueError("self-improvement cycle budget exhausted")
-            if parent_operation_id:
-                parent = self._operation(db, parent_operation_id)
-                if parent["state"] != "completed" or parent["outcome"] != "pass":
-                    raise ValueError("a follow-on cycle requires verified successful evidence from its parent")
-                evidence_refs = tuple(dict.fromkeys((*evidence_refs, f"operation:{parent_operation_id}")))
-            db.execute(
-                "INSERT INTO evolution_operations(operation_id,experiment_id,manifest_digest,manifest_json,parent_operation_id,state,evidence_json,next_action,created_at,updated_at) VALUES(?,?,?,?,?,'queued',?,?,?,?)",
-                (operation_id, manifest.experiment_id, digest, encoded, parent_operation_id, _canonical(list(evidence_refs)), "claim operation before dispatch", now, now),
-            )
-            cycle = db.execute("SELECT COALESCE(MAX(cycle_number),0)+1 FROM evolution_cycles").fetchone()[0]
-            db.execute("INSERT INTO evolution_cycles(cycle_number,operation_id,parent_operation_id,evidence_digest,created_at) VALUES(?,?,?,?,?)",
-                       (cycle, operation_id, parent_operation_id, _digest(list(evidence_refs)), now))
-            self._event(db, operation_id, "experiment_queued", {"manifest_digest": digest, "evidence_refs": list(evidence_refs), "parent_operation_id": parent_operation_id})
-            result = self._operation(db, operation_id)
+                result = self._operation(db, prior[0])
+                evidence_refs = tuple(result["evidence_refs"])
+            else:
+                cycle_count = db.execute("SELECT COUNT(*) FROM evolution_cycles").fetchone()[0]
+                if cycle_count >= self.max_cycles:
+                    raise ValueError("self-improvement cycle budget exhausted")
+                if parent_operation_id:
+                    parent = self._operation(db, parent_operation_id)
+                    if parent["state"] != "completed" or parent["outcome"] != "pass":
+                        raise ValueError("a follow-on cycle requires verified successful evidence from its parent")
+                    evidence_refs = tuple(dict.fromkeys((*evidence_refs, f"operation:{parent_operation_id}")))
+                db.execute(
+                    "INSERT INTO evolution_operations(operation_id,experiment_id,manifest_digest,manifest_json,parent_operation_id,state,evidence_json,next_action,created_at,updated_at) VALUES(?,?,?,?,?,'queued',?,?,?,?)",
+                    (operation_id, manifest.experiment_id, digest, encoded, parent_operation_id, _canonical(list(evidence_refs)), "claim operation before dispatch", now, now),
+                )
+                cycle = db.execute("SELECT COALESCE(MAX(cycle_number),0)+1 FROM evolution_cycles").fetchone()[0]
+                db.execute("INSERT INTO evolution_cycles(cycle_number,operation_id,parent_operation_id,evidence_digest,created_at) VALUES(?,?,?,?,?)",
+                           (cycle, operation_id, parent_operation_id, _digest(list(evidence_refs)), now))
+                self._event(db, operation_id, "experiment_queued", {"manifest_digest": digest, "evidence_refs": list(evidence_refs), "parent_operation_id": parent_operation_id})
+                result = self._operation(db, operation_id)
+        # Retrying this projection is safe because the journal uses a stable event ID.
+        # The SQLite event is canonical if the secondary journal is temporarily unavailable.
         if self.journal:
             self.journal.append(event_id=f"evolution:{operation_id}:queued", work_id=operation_id, state="queued",
                                 payload={"manifest_digest": digest, "evidence_refs": list(evidence_refs)})
@@ -224,12 +228,15 @@ class AgencyEvolutionRuntime:
             self._event(db, operation_id, "operation_claimed", {"attempt": attempts})
             return self._operation(db, operation_id)
 
-    def recover_interrupted(self) -> list[str]:
-        """Convert process-interrupted running work to blocked/unknown, never auto-retry."""
+    def recover_interrupted(self, *, older_than_seconds: float = 60.0) -> list[str]:
+        """Block stale running work after startup/lease recovery; never auto-retry live work."""
+        if isinstance(older_than_seconds, bool) or not isinstance(older_than_seconds, (int, float)) or not math.isfinite(older_than_seconds) or older_than_seconds < 0:
+            raise ValueError("older_than_seconds must be finite and non-negative")
+        cutoff = time.time() - float(older_than_seconds)
         blocked: list[str] = []
         with closing(sqlite3.connect(self.path, timeout=10)) as db, db:
             db.execute("BEGIN IMMEDIATE")
-            rows = db.execute("SELECT operation_id FROM evolution_operations WHERE state='running'").fetchall()
+            rows = db.execute("SELECT operation_id FROM evolution_operations WHERE state='running' AND updated_at<=?", (cutoff,)).fetchall()
             for (operation_id,) in rows:
                 db.execute("UPDATE evolution_operations SET state='blocked',outcome='unknown',next_action='reconcile stable operation ID with trusted controller/provider before any retry',updated_at=? WHERE operation_id=?", (time.time(), operation_id))
                 self._event(db, operation_id, "interrupted_outcome_unknown", {"next_action": "reconcile before retry"})
