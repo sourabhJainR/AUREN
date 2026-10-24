@@ -243,6 +243,8 @@ def execute(
         raise ValueError("regression_plan and regression_result are mutually exclusive")
     if release_artifact and not release_store:
         raise ValueError("release_store is required when release_artifact is supplied")
+    if release_store is not None and regression_plan is None:
+        raise ValueError("release_store requires a pinned regression_plan")
     tracer = tracer or Tracer()
     trace = tracer.start("auren.coding_task", {
         "task_id": task.task_id,
@@ -474,7 +476,20 @@ def execute(
                     if not release_artifact:
                         raise ValueError("release_artifact is required for shadow/canary/promote decisions")
                     artifact_ref = release_store.stage(release_artifact, release_artifact_id or task.task_id)
+                release_phase = "rollback" if decision.action == "rollback" else "release"
+                release_span = trace.span(
+                    "release_transition", "release_controller",
+                    {"decision": decision.action, "reason": decision.reason,
+                     "artifact_ref": artifact_ref.artifact_id if artifact_ref else None},
+                    parent_id=regression_span.span_id, phase=release_phase,
+                    actor_id="auren.release_controller",
+                    source_revision=approved_plan.source_revision if approved_plan else (task.source_revision or None),
+                )
                 result.release_state = apply_promotion_decision(release_store, decision, artifact_ref)
+                release_span.finish({
+                    "action": result.release_state.action,
+                    "artifact_id": result.release_state.artifact_id,
+                }, "ok", None)
                 trace.metadata["release"] = result.release_state.as_dict()
                 trace.score("release_applied", 1.0, "release state transition completed", "auren")
                 result.ledger.append(LedgerEntry("release", f"{result.release_state.action}: {result.release_state.artifact_id or 'previous'}"))
