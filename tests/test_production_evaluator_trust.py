@@ -55,8 +55,11 @@ class _ReplayCursor:
             if key in self.connection.store:
                 self.result = None
             else:
-                self.connection.store.add(key)
+                self.connection.store[key] = (params[1], params[9])
                 self.result = (key,)
+            return
+        if sql.startswith("SELECT binding_digest, claim_operation_id FROM"):
+            self.result = self.connection.store.get(params[0])
             return
         if sql.startswith("SELECT attestation_id FROM"):
             self.result = (params[0],) if params[0] in self.connection.store else None
@@ -205,7 +208,7 @@ class ProductionEvaluatorTrustTests(unittest.TestCase):
     def test_production_freshness_rejects_replay_after_registry_restart(self):
         _, production_attestor = self.verifier()
         with tempfile.TemporaryDirectory() as directory:
-            replay_store = set()
+            replay_store = {}
             signed = self.attestation()
             fresh = FreshEvaluationAttestation(signed, issued_at=int(self.now - 1))
             first = FreshnessAwareAttestor(
