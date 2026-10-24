@@ -35,8 +35,8 @@ class FreshEvaluationAttestation:
         if type(self.issued_at) is not int or self.issued_at < 0:
             raise ValueError("issued_at must be a non-negative integer")
         signed_issued_at = self.attestation.issued_at_epoch
-        if signed_issued_at > 0 and signed_issued_at != self.issued_at:
-            raise ValueError("issued_at must match the attestation's signed issuance time")
+        if signed_issued_at > 0 and int(signed_issued_at) != self.issued_at:
+            raise ValueError("issued_at must match the attestation's signed issuance time to the second")
 
     @property
     def attestation_id(self) -> str:
@@ -60,9 +60,11 @@ class AttestationFreshnessPolicy:
     def validate(self, attestation: FreshEvaluationAttestation, *, now: int) -> tuple[bool, tuple[str, ...]]:
         if type(now) is not int or now < 0:
             raise ValueError("now must be a non-negative integer")
-        if attestation.issued_at > now + self.max_future_skew_seconds:
+        signed_issued_at = attestation.attestation.issued_at_epoch
+        effective_issued_at = signed_issued_at if signed_issued_at > 0 else attestation.issued_at
+        if effective_issued_at > now + self.max_future_skew_seconds:
             return False, ("attestation issuance time is too far in the future",)
-        if now - attestation.issued_at > self.max_age_seconds:
+        if now - effective_issued_at > self.max_age_seconds:
             return False, ("attestation has expired",)
         signed_expiry = attestation.attestation.expires_at_epoch
         effective_expiry = signed_expiry if signed_expiry > 0 else attestation.issued_at + self.max_age_seconds
