@@ -75,6 +75,10 @@ jobs:
         run: python -m unittest tests.test_progress_journal tests.test_progress_journal_integration tests.test_autonomous_company tests.test_engineering_evidence_capture -v
       - name: Verify durable approval state, binding, and restart safety
         run: python -m unittest tests.test_durable_approval tests.test_execution_boundary tests.test_impact_policy -v
+      - name: Verify supervisor cancellation, durable deadlines, and late-result rejection
+        run: |
+          python -m pip install pytest
+          python -m pytest -q tests/test_execution_controller_cancellation.py tests/test_execution_controller_restart.py
       - name: Verify canonical evidence durability and exact-head binding
         run: python -m unittest tests.test_canonical_evidence_ledger -v
       - name: Verify Gates C, D and E evidence, calibration and journal invariants
