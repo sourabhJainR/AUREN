@@ -8,6 +8,7 @@ import time
 import sys
 
 from portable.execution_controller import ExecutionController, LeaseLostError
+from portable.provider_operation_lifecycle import ProviderOutcomeBlocked
 
 def test_process_death_running_task_recovers_in_fresh_process(tmp_path: Path):
     repo_root = Path(__file__).resolve().parents[1]
@@ -255,3 +256,34 @@ def test_active_task_cancellation_reaches_handler_and_rejects_success(tmp_path: 
     with sqlite3.connect(controller.db_path) as db:
         requested = db.execute("SELECT cancel_requested FROM tasks WHERE id=?", (task.id,)).fetchone()
     assert requested == (1,)
+
+
+
+def test_consequential_cancellation_after_dispatch_is_ambiguous_not_cancelled(tmp_path: Path):
+    controller = ExecutionController(tmp_path)
+    started = Event()
+    def consequential_handler(payload):
+        started.set()
+        payload["auren_cancel_event"].wait(timeout=3)
+        return {"success": True, "detail": "remote action may have completed"}
+    handler_name = "tests.test_execution_controller_restart.consequential_cancel_handler"
+    controller.register_handler(handler_name, consequential_handler, execution_class="consequential")
+    submitted = controller.submit(handler_name, {})
+    claimed = controller._claim(submitted.id)
+    assert claimed is not None
+    errors = []
+    def invoke():
+        try:
+            controller._invoke_with_lease_heartbeat(claimed, consequential_handler)
+        except BaseException as exc:
+            errors.append(exc)
+    worker = Thread(target=invoke, daemon=True)
+    worker.start()
+    assert started.wait(timeout=3), "consequential handler did not start"
+    assert controller.request_cancellation(submitted.id, reason="cancel consequential operation")
+    worker.join(timeout=5)
+    assert not worker.is_alive(), "consequential handler did not stop cooperatively"
+    assert len(errors) == 1 and isinstance(errors[0], ProviderOutcomeBlocked)
+    # The low-level invocation must not claim a safe terminal outcome. The
+    # supervisor/provider lifecycle owns the subsequent reconciliation state.
+    assert controller.task(submitted.id).state == "running"
