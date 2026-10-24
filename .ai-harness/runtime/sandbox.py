@@ -103,6 +103,7 @@ def run(command: list[str], *, workspace: Path, policy: SandboxPolicy | None = N
         env=_limited_env(policy),
         timeout_seconds=max(1, int(policy.timeout_seconds)),
         max_memory_bytes=policy.max_memory_mb * 1024 * 1024,
+        max_processes=policy.max_processes,
         max_output_bytes=policy.max_output_chars,
     )
     if result.status != "completed":
