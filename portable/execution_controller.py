@@ -105,6 +105,7 @@ class DurableTask:
     work_unit_id: str
     lease_generation: int = 0
     lease_token: str | None = None
+    deadline_at: str | None = None
 
 
 @dataclass(frozen=True)
@@ -132,6 +133,10 @@ class LeaseLostError(RuntimeError):
 
 class TaskCancellationRequested(InterruptedError):
     """Raised when the supervisor requests cancellation of an active task."""
+
+
+class TaskDeadlineExceeded(TimeoutError):
+    """Raised when a durable task exceeds its supervisor-owned deadline."""
 
 
 class ExecutionController:
@@ -204,7 +209,7 @@ class ExecutionController:
                 ("next_retry_at", "TEXT"), ("quota_blocked", "INTEGER NOT NULL DEFAULT 0"),
                 ("work_key", "TEXT"), ("intent_digest", "TEXT"),
                 ("cancel_requested", "INTEGER NOT NULL DEFAULT 0"),
-                ("cancel_reason_digest", "TEXT"),
+                ("cancel_reason_digest", "TEXT"), ("deadline_at", "TEXT"),
             ):
                 if column not in columns:
                     db.execute(f"ALTER TABLE tasks ADD COLUMN {column} {declaration}")
