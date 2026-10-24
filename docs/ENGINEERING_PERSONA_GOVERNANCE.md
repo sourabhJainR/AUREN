@@ -44,3 +44,7 @@ E. Project durable run/evidence state into the Engineering Console and test rest
 - Unknown, missing, stale, corrupt, or unscored evidence never becomes a pass or numeric zero.
 - Repository CI does not prove production isolation, independent evaluator custody, sealed holdout custody, or operator rollback readiness.
 - Changes require regression evaluation, exact-head CI, independent review, and a documented rollback path.
+
+## Persistent evaluation evidence
+
+Reviewed regression datasets, calibration reports, explicit guardrail approvals, and drift alerts use the local SQLite observability store under the canonical AUREN runtime home. Dataset name/version pairs are immutable. Calibration is recorded separately from approval; a calibrated threshold cannot become a blocking guardrail without a distinct reviewer identity and evidence reference. Drift alerts are append-only and are exposed to the console through a read-only projection. The console does not create the store or fabricate missing alert data.
