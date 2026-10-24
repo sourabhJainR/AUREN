@@ -316,6 +316,7 @@ if __name__ == "__main__":
             snapshots = [
                 r for values in traces.values() for r in values
                 if r.get("schema_version") == 1 and "spans" in r
+                and r.get("metadata", {}).get("canonical_run_status") is not None
             ]
             self.assertEqual(len(snapshots), 2)
             resumed = [
