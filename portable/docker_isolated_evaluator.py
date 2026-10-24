@@ -28,6 +28,7 @@ class DockerEvaluatorPolicy:
     pids_limit: int = 128
     tmpfs_size: str = "64m"
     max_input_bytes: int = 1_048_576
+    allowed_environment_keys: tuple[str, ...] = ("LANG", "LC_ALL", "TZ")
 
     def __post_init__(self) -> None:
         if not isinstance(self.image, str) or not _DIGEST_IMAGE.fullmatch(self.image):
@@ -48,6 +49,13 @@ class DockerEvaluatorPolicy:
             raise ValueError("tmpfs_size must be a positive Docker size")
         if isinstance(self.max_input_bytes, bool) or not isinstance(self.max_input_bytes, int) or self.max_input_bytes <= 0:
             raise ValueError("max_input_bytes must be a positive integer")
+        if not isinstance(self.allowed_environment_keys, tuple) or any(
+            not isinstance(key, str) or not re.fullmatch(r"[A-Z_][A-Z0-9_]*", key)
+            or key == "PATH" for key in self.allowed_environment_keys
+        ):
+            raise ValueError("allowed_environment_keys must be an immutable tuple of safe environment names")
+        if len(set(self.allowed_environment_keys)) != len(self.allowed_environment_keys):
+            raise ValueError("allowed_environment_keys must be unique")
 
 
 class _DockerAttachedProcess:
@@ -182,6 +190,8 @@ class DockerIsolatedEvaluatorExecutor:
                 continue
             if not isinstance(key, str) or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key):
                 raise ValueError("invalid evaluator environment variable name")
+            if key not in self.policy.allowed_environment_keys:
+                raise ValueError(f"evaluator environment variable is not allowlisted: {key}")
             if not isinstance(value, str) or "\x00" in value:
                 raise ValueError("invalid evaluator environment value")
             safe_environment[key] = value
