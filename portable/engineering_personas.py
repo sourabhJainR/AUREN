@@ -158,8 +158,23 @@ class PersonaWorkflow:
             raise ValueError("planning and review callbacks must be independently configured")
 
 
-def require_approved_review(review: PersonaReview, *, reviewer: AgentPersona, target: AgentPersona) -> None:
+class ReviewRejectedError(ValueError):
+    """A review gate rejected an artifact; callers must not promote or replay it implicitly."""
+
+    def __init__(self, stage: str, review: PersonaReview) -> None:
+        self.stage = stage
+        self.review = review
+        detail = "; ".join(review.findings) or "review did not approve the artifact"
+        super().__init__(f"{stage} review rejected: {detail}")
+
+
+def require_approved_review(
+    review: PersonaReview,
+    *,
+    reviewer: AgentPersona,
+    target: AgentPersona,
+    stage: str = "engineering",
+) -> None:
     review.validate(reviewer=reviewer, target=target)
     if not review.approved:
-        detail = "; ".join(review.findings) or "review did not approve the artifact"
-        raise ValueError(detail)
+        raise ReviewRejectedError(stage, review)
