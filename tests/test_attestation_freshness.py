@@ -57,11 +57,19 @@ class AttestationFreshnessTests(unittest.TestCase):
     def test_production_freshness_requires_durable_replay_registry(self):
         from portable.evaluator_trust import ProductionSeparationAwareAttestor
         production_attestor = object.__new__(ProductionSeparationAwareAttestor)
-        with self.assertRaisesRegex(ValueError, "durable SQLiteAttestationReplayRegistry"):
+        with self.assertRaisesRegex(ValueError, "verified shared PostgreSQL replay registry"):
             FreshnessAwareAttestor(
                 None, None, AttestationFreshnessPolicy(),
                 production_attestor=production_attestor,
             )
+        with tempfile.TemporaryDirectory() as directory:
+            sqlite_registry = SQLiteAttestationReplayRegistry(Path(directory) / "single-host.sqlite3")
+            with self.assertRaisesRegex(ValueError, "SQLite replay storage is single-host only"):
+                FreshnessAwareAttestor(
+                    None, None, AttestationFreshnessPolicy(),
+                    replay_registry=sqlite_registry,
+                    production_attestor=production_attestor,
+                )
 
     def test_fresh_attestation_is_trustworthy_once(self):
         result = make_verifier().verify(make_attestation(), **self.kwargs())
