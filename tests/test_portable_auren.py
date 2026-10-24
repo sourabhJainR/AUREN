@@ -37,6 +37,21 @@ class PortableAurenTests(unittest.TestCase):
             "def get_auren_env(suffix, default=None):\n    return default\n", encoding="utf-8"
         )
 
+    def test_build_rejects_symlinked_source_payload(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "source"
+            self.make_source(root)
+            secret = Path(tmp) / "outside-secret.txt"
+            secret.write_text("must not be packaged", encoding="utf-8")
+            link = root / ".ai-harness" / "runtime" / "linked-secret.txt"
+            link.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                link.symlink_to(secret)
+            except (OSError, NotImplementedError) as exc:
+                self.skipTest(f"symlinks unavailable on this runner: {exc}")
+            with self.assertRaisesRegex(SystemExit, "source contains a symlink"):
+                build(root, Path(tmp) / "auren.zip", source_commit="test-commit")
+
     def test_build_verify_and_exclude_mutable_state(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "source"
