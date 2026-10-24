@@ -209,6 +209,10 @@ class CalibrationResult:
     validation_false_pass_rate: float | None
     validation_pass_recall: float | None
     reason: str
+    max_false_pass_rate: float = 0.02
+    min_pass_recall: float = 0.70
+    min_training_required: int = 30
+    min_validation_required: int = 20
 
     @property
     def eligible_for_guardrail(self) -> bool:
@@ -269,7 +273,14 @@ def calibrate_evaluator(
     valid_false, valid_recall = _rates(valid, chosen)
     if valid_false > max_false_pass_rate or valid_recall < min_pass_recall:
         return CalibrationResult("unscored", None, len(train), len(valid), train_false, valid_false, valid_recall, "independent validation did not meet calibration targets")
-    return CalibrationResult("calibrated", chosen, len(train), len(valid), train_false, valid_false, valid_recall, "validated; separate guardrail approval still required")
+    return CalibrationResult(
+        "calibrated", chosen, len(train), len(valid), train_false, valid_false, valid_recall,
+        "validated; separate guardrail approval still required",
+        max_false_pass_rate=max_false_pass_rate,
+        min_pass_recall=min_pass_recall,
+        min_training_required=min_training,
+        min_validation_required=min_validation,
+    )
 
 
 def authorize_calibrated_guardrail(
@@ -281,6 +292,17 @@ def authorize_calibrated_guardrail(
 ) -> GuardrailAuthorization:
     if result.status != "calibrated" or result.threshold is None:
         raise ValueError("only independently validated calibration can be considered for guardrail approval")
+    if (
+        result.training_count < result.min_training_required
+        or result.validation_count < result.min_validation_required
+        or result.training_false_pass_rate is None
+        or result.validation_false_pass_rate is None
+        or result.validation_pass_recall is None
+        or result.training_false_pass_rate > result.max_false_pass_rate
+        or result.validation_false_pass_rate > result.max_false_pass_rate
+        or result.validation_pass_recall < result.min_pass_recall
+    ):
+        raise ValueError("calibration evidence does not meet its recorded acceptance thresholds")
     if not metric.strip() or not reviewer_id.strip() or not evidence_ref.strip():
         raise ValueError("metric, reviewer identity and approval evidence are required")
     return GuardrailAuthorization(metric, result.threshold, reviewer_id, evidence_ref, result.status)
