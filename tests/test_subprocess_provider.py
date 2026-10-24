@@ -216,6 +216,14 @@ class SubprocessProviderInvokerTests(unittest.TestCase):
         result = provider("request", 3)
         self.assertEqual([str(memory), "24"], result.splitlines())
 
+    def test_resource_budgets_allow_simple_child_on_all_platforms(self):
+        provider = self.invoker(
+            "print('resource-budget-ok')",
+            max_memory_bytes=512 * 1024 * 1024,
+            max_processes=24,
+        )
+        self.assertEqual("resource-budget-ok\n", provider("request", 3))
+
     def test_invalid_resource_budgets_are_rejected_at_construction(self):
         for kwargs in (
             {"max_memory_bytes": 0},
