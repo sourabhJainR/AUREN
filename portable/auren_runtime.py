@@ -485,6 +485,18 @@ def _atomic_json(path: Path, value: object) -> None:
     temp.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     temp.replace(path)
 
+
+def _append_jsonl_atomic(path: Path, value: dict) -> None:
+    """Append one durable JSONL event by replacing a fully written sibling file."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp = path.with_name(path.name + ".tmp")
+    previous = path.read_bytes() if path.is_file() else b""
+    with temp.open("wb") as handle:
+        handle.write(previous)
+        handle.write((json.dumps(value, sort_keys=True) + "\n").encode("utf-8"))
+        handle.flush()
+    temp.replace(path)
+
 def _remove_path(path: Path) -> None:
     if path.is_symlink() or (path.exists() and not path.is_dir()):
         path.unlink()
@@ -524,9 +536,13 @@ def _set_current(root: Path, version_root: Path) -> None:
             current.replace(backup)
         temp_dir.replace(current)
     except OSError:
-        _remove_path(current)
-        if had_current and (backup.exists() or backup.is_symlink()):
+        backup_exists = backup.exists() or backup.is_symlink()
+        if backup_exists:
+            _remove_path(current)
             backup.replace(current)
+        elif not had_current:
+            _remove_path(current)
+        # If the old selection was never moved to backup, leave it untouched.
         raise
     else:
         _remove_path(backup)
@@ -568,9 +584,13 @@ def _install_skill(source: Path, destination: Path) -> None:
             destination.replace(backup)
         staged.replace(destination)
     except OSError:
-        _remove_path(destination)
-        if had_destination and (backup.exists() or backup.is_symlink()):
+        backup_exists = backup.exists() or backup.is_symlink()
+        if backup_exists:
+            _remove_path(destination)
             backup.replace(destination)
+        elif not had_destination:
+            _remove_path(destination)
+        # A copy failure before the rename must not remove the original skill.
         raise
     else:
         _remove_path(backup)
@@ -645,13 +665,15 @@ def install(bundle: Path, install_skill: str = "agents", auren_home: Path | None
                 if isinstance(previous_name, str) and Path(previous_name).name == previous_name:
                     previous_current_target = versions_root / previous_name
 
+            active_written = False
+            skills_sync_attempted = False
             try:
                 _set_current(root, version_root)
                 _atomic_json(previous_active_path, record)
+                active_written = True
+                skills_sync_attempted = install_skill != "none"
                 _sync_skills(temp / PAYLOAD_ROOT / "skills" / "ai-coding-orchestrator", install_skill)
-                with (root / "history.jsonl").open("a", encoding="utf-8") as handle:
-                    handle.write(json.dumps({"event": "activate", **record}) + "\n")
-                    handle.flush()
+                _append_jsonl_atomic(root / "history.jsonl", {"event": "activate", **record})
             except Exception:
                 # Restore the last known active build, metadata and selected skill
                 # if any activation step fails. Preserve the original exception.
@@ -659,10 +681,12 @@ def install(bundle: Path, install_skill: str = "agents", auren_home: Path | None
                     _set_current(root, previous_current_target)
                 elif current.exists() or current.is_symlink():
                     _remove_path(current)
-                if previous_active is None:
-                    _remove_path(previous_active_path)
-                else:
-                    _atomic_json(previous_active_path, previous_active)
+                if active_written:
+                    if previous_active is None:
+                        _remove_path(previous_active_path)
+                    else:
+                        _atomic_json(previous_active_path, previous_active)
+                if skills_sync_attempted and previous_active is not None:
                     previous_name = previous_active.get("install_root")
                     if isinstance(previous_name, str) and Path(previous_name).name == previous_name:
                         previous_skill = versions_root / previous_name / "skills" / "ai-coding-orchestrator"
