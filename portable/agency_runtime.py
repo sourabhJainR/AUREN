@@ -359,6 +359,21 @@ def execute(
                 stage="plan",
             )
             worker_task = replace(task, approved_plan=asdict(approved_plan))
+            if task.context is not None:
+                context_metadata = {
+                    "context_type": type(task.context).__name__,
+                    "context_digest": getattr(task.context, "snapshot_digest", None),
+                    "token_estimate": getattr(task.context, "token_estimate", None),
+                    "chunk_count": len(getattr(task.context, "chunks", ())) if isinstance(getattr(task.context, "chunks", ()), (list, tuple)) else None,
+                }
+                context_span = trace.span(
+                    "context_assembly", "context_builder", metadata=context_metadata,
+                    parent_id=plan_span.span_id, phase="context",
+                    actor_id="auren.context_builder", source_revision=approved_plan.source_revision,
+                )
+                context_span.finish({"context_available": True})
+            else:
+                trace.metadata.setdefault("phase_coverage_gaps", []).append("context_assembly")
             result.ledger.append(LedgerEntry("plan_review_approved", digest, tuple(plan_review.evidence_refs)))
         else:
             plan_span.finish({"assignments": [a.__dict__ for a in assignments]})
