@@ -31,7 +31,7 @@ AUREN_BRANCH = "main"
 MANIFEST_NAME = "auren-bundle.json"
 PAYLOAD_ROOT = "payload"
 LAUNCHER_PATH = "auren_cli.py"
-REQUIRED_PATHS = (".ai-harness", "skills/ai-coding-orchestrator", "portable", "dashboard")
+REQUIRED_PATHS = (".ai-harness", ".claude-plugin", "skills/ai-coding-orchestrator", "portable", "dashboard")
 EXCLUDED_PARTS = {"__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".git", "worktrees"}
 MUTABLE_FILE_NAMES = {"execution.journal.jsonl", "telemetry.jsonl", "task-memory.jsonl", "regression-events.jsonl"}
 MUTABLE_STATE_SUFFIXES = (
@@ -325,6 +325,8 @@ def _verify_native_bundle(bundle: Path) -> dict:
                 ):
                     raise SystemExit("invalid bundle file record")
                 record_path = record["path"]
+                if record_path != PurePosixPath(record_path).as_posix() or "//" in record_path or record_path.endswith("/"):
+                    raise SystemExit(f"non-canonical manifest path: {record_path}")
                 if record_path in seen:
                     raise SystemExit(f"duplicate bundle file record: {record_path}")
                 seen.add(record_path)
@@ -387,7 +389,7 @@ def _copy_tree_without_mutable_state(source: Path, destination: Path) -> None:
 
 def _copy_payload(payload: Path, version_root: Path) -> None:
     version_root.mkdir(parents=True, exist_ok=True)
-    for name in (".ai-harness", "portable", "dashboard"):
+    for name in (".ai-harness", ".claude-plugin", "portable", "dashboard"):
         source = payload / name
         if source.is_dir():
             _copy_tree_without_mutable_state(source, version_root / name)
