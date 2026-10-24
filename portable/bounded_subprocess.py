@@ -61,6 +61,7 @@ def _kill_tree(process: subprocess.Popen, grace: float) -> None:
 def run_bounded_command(
     argv: Sequence[str], *, timeout_seconds: float,
     max_memory_bytes: int | None = None,
+    max_processes: int | None = None,
     deadline_monotonic: float | None = None,
     cancellation_event: threading.Event | None = None,
     cwd: str | os.PathLike[str] | None = None,
@@ -81,6 +82,8 @@ def run_bounded_command(
         raise ValueError("max_output_bytes must be a positive integer")
     if max_memory_bytes is not None and (type(max_memory_bytes) is not int or max_memory_bytes < 16 * 1024 * 1024):
         raise ValueError("max_memory_bytes must be an integer of at least 16 MiB")
+    if max_processes is not None and (type(max_processes) is not int or max_processes < 1):
+        raise ValueError("max_processes must be a positive integer")
     if deadline_monotonic is not None and (isinstance(deadline_monotonic, bool) or not isinstance(deadline_monotonic, (int, float)) or not math.isfinite(deadline_monotonic)):
         raise ValueError("deadline_monotonic must be finite")
     started = time.monotonic()
@@ -98,9 +101,20 @@ def run_bounded_command(
         import resource
         if not hasattr(resource, "RLIMIT_AS"):
             raise RuntimeError("memory_limit_unavailable: RLIMIT_AS is not supported")
-        def apply_memory_limit():
+        def apply_resource_limits():
             resource.setrlimit(resource.RLIMIT_AS, (max_memory_bytes, max_memory_bytes))
-        options["preexec_fn"] = apply_memory_limit
+            if max_processes is not None:
+                if not hasattr(resource, "RLIMIT_NPROC"):
+                    raise RuntimeError("process_limit_unavailable: RLIMIT_NPROC is not supported")
+                resource.setrlimit(resource.RLIMIT_NPROC, (max_processes, max_processes))
+        options["preexec_fn"] = apply_resource_limits
+    if max_processes is not None and os.name != "nt" and max_memory_bytes is None:
+        import resource
+        if not hasattr(resource, "RLIMIT_NPROC"):
+            raise RuntimeError("process_limit_unavailable: RLIMIT_NPROC is not supported")
+        def apply_process_limit():
+            resource.setrlimit(resource.RLIMIT_NPROC, (max_processes, max_processes))
+        options["preexec_fn"] = apply_process_limit
     job = None
     if os.name == "nt":
         from .windows_kill_job import CREATE_SUSPENDED, WindowsKillJob
@@ -110,7 +124,7 @@ def run_bounded_command(
     process = subprocess.Popen(list(argv), **options)
     if os.name == "nt":
         try:
-            job = WindowsKillJob(process, max_memory_bytes=max_memory_bytes)
+            job = WindowsKillJob(process, max_memory_bytes=max_memory_bytes, max_processes=max_processes)
         except BaseException:
             _kill_tree(process, grace)
             raise

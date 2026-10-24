@@ -15,10 +15,13 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-try:
-    import resource
-except ImportError:  # pragma: no cover - Windows
-    resource = None  # type: ignore[assignment]
+# The harness can be launched directly from .ai-harness/runtime, where the
+# repository root is not guaranteed to be on sys.path.
+_REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+if str(_REPOSITORY_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPOSITORY_ROOT))
+
+from portable.bounded_subprocess import run_bounded_command
 
 
 @dataclass(frozen=True)
@@ -78,43 +81,36 @@ def _limited_env(policy: SandboxPolicy) -> dict[str, str]:
     return env
 
 
-def _resource_limits(policy: SandboxPolicy):
-    if resource is None:
-        return None
-
-    def apply() -> None:
-        try:
-            cpu = max(1, int(policy.timeout_seconds))
-            resource.setrlimit(resource.RLIMIT_CPU, (cpu, cpu + 2))
-            memory = max(128, int(policy.max_memory_mb)) * 1024 * 1024
-            if hasattr(resource, "RLIMIT_AS"):
-                resource.setrlimit(resource.RLIMIT_AS, (memory, memory))
-            if hasattr(resource, "RLIMIT_NPROC"):
-                resource.setrlimit(resource.RLIMIT_NPROC, (max(1, int(policy.max_processes)), max(1, int(policy.max_processes))))
-        except (OSError, ValueError):
-            pass
-
-    return apply
-
+def _validate_resource_policy(policy: SandboxPolicy) -> None:
+    if isinstance(policy.timeout_seconds, bool) or not isinstance(policy.timeout_seconds, int) or policy.timeout_seconds < 1:
+        raise SandboxViolation("timeout_seconds must be a positive integer")
+    if type(policy.max_output_chars) is not int or policy.max_output_chars < 1:
+        raise SandboxViolation("max_output_chars must be a positive integer")
+    if type(policy.max_memory_mb) is not int or policy.max_memory_mb < 16:
+        raise SandboxViolation("max_memory_mb must be an integer of at least 16 MiB")
+    if type(policy.max_processes) is not int or policy.max_processes < 1:
+        raise SandboxViolation("max_processes must be a positive integer")
 
 def run(command: list[str], *, workspace: Path, policy: SandboxPolicy | None = None) -> subprocess.CompletedProcess[str]:
     policy = policy or SandboxPolicy()
+    _validate_resource_policy(policy)
     workspace = Path(workspace).expanduser().resolve()
     workspace.mkdir(parents=True, exist_ok=True)
     validate_command(command, workspace=workspace, policy=policy)
-    try:
-        completed = subprocess.run(
-            command,
-            cwd=workspace,
-            env=_limited_env(policy),
-            shell=False,
-            text=True,
-            capture_output=True,
-            timeout=max(1, int(policy.timeout_seconds)),
-            preexec_fn=_resource_limits(policy) if sys.platform != "win32" else None,
-            check=False,
-        )
-    except subprocess.TimeoutExpired as exc:
-        raise SandboxViolation(f"command timed out after {policy.timeout_seconds}s") from exc
-    output = ((completed.stdout or "") + (completed.stderr or ""))[-policy.max_output_chars :]
-    return subprocess.CompletedProcess(completed.args, completed.returncode, completed.stdout, output)
+    result = run_bounded_command(
+        command,
+        cwd=workspace,
+        env=_limited_env(policy),
+        timeout_seconds=max(1, int(policy.timeout_seconds)),
+        max_memory_bytes=policy.max_memory_mb * 1024 * 1024,
+        max_processes=policy.max_processes,
+        max_output_bytes=policy.max_output_chars,
+    )
+    if result.status != "completed":
+        if result.status == "timed_out":
+            raise SandboxViolation(f"command timed out: {result.reason or 'deadline_exceeded'}")
+        if result.status == "cancelled":
+            raise SandboxViolation("command cancelled")
+        raise SandboxViolation(f"command execution failed: {result.reason or result.status}")
+    output = result.stdout + result.stderr
+    return subprocess.CompletedProcess(list(command), int(result.returncode or 0), result.stdout, output)

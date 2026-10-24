@@ -3,6 +3,7 @@ from __future__ import annotations
 import ctypes
 from ctypes import wintypes
 
+JOB_OBJECT_LIMIT_ACTIVE_PROCESS = 0x8
 JOB_OBJECT_LIMIT_JOB_MEMORY = 0x200
 JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x2000
 JobObjectBasicAccountingInformation = 1
@@ -41,7 +42,7 @@ class _BASIC_ACCOUNTING(ctypes.Structure):
 
 class WindowsKillJob:
     """Assign a suspended process to a kill-on-close Job Object before resuming it."""
-    def __init__(self, process, max_memory_bytes=None):
+    def __init__(self, process, max_memory_bytes=None, max_processes=None):
         self._kernel = ctypes.WinDLL("kernel32", use_last_error=True)
         self._ntdll = ctypes.WinDLL("ntdll")
         self._kernel.CreateJobObjectW.restype = wintypes.HANDLE
@@ -59,6 +60,11 @@ class WindowsKillJob:
         try:
             limits = _EXTENDED_LIMIT()
             limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+            if max_processes is not None:
+                if type(max_processes) is not int or max_processes < 1:
+                    raise ValueError("max_processes must be a positive integer")
+                limits.BasicLimitInformation.LimitFlags |= JOB_OBJECT_LIMIT_ACTIVE_PROCESS
+                limits.BasicLimitInformation.ActiveProcessLimit = max_processes
             if max_memory_bytes is not None:
                 if type(max_memory_bytes) is not int or max_memory_bytes < 16 * 1024 * 1024:
                     raise ValueError("max_memory_bytes must be an integer of at least 16 MiB")
