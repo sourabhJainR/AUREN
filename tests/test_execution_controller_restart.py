@@ -6,6 +6,7 @@ import os
 import subprocess
 import time
 import sys
+from threading import Event, Thread
 
 from portable.execution_controller import ExecutionController, LeaseLostError
 from portable.provider_operation_lifecycle import ProviderOutcomeBlocked
@@ -203,102 +204,103 @@ def durable_handler(payload):
     return {"success": True, "evidence": [payload["id"]]}
 
 
+_RESTART_HANDLER_STARTED = Event()
+
+
+def pending_cancel_handler(_payload):
+    raise AssertionError("cancelled task must not dispatch its handler")
+
+
 def cancellation_aware_handler(payload):
-    started = payload.get("started_event")
-    if started is not None:
-        started.set()
-    cancel = payload["auren_cancel_event"]
-    cancel.wait(timeout=3)
+    _RESTART_HANDLER_STARTED.set()
+    payload["auren_cancel_event"].wait(timeout=4)
     return {"success": True, "detail": "handler observed cancellation", "evidence": ["cancel-aware"]}
+
+
+def consequential_cancel_handler(payload):
+    _RESTART_HANDLER_STARTED.set()
+    payload["auren_cancel_event"].wait(timeout=4)
+    return {"success": True, "detail": "remote action may have completed"}
+
+
+def deadline_aware_handler(payload):
+    _RESTART_HANDLER_STARTED.set()
+    payload["auren_cancel_event"].wait(timeout=4)
+    return {"success": True, "detail": "late result"}
+
+
+def deadline_validation_handler(_payload):
+    return {"success": True}
+
+
+def interrupted_cancel_handler(payload):
+    _RESTART_HANDLER_STARTED.set()
+    payload["auren_cancel_event"].wait(timeout=4)
+    raise InterruptedError("subprocess provider cancelled")
 
 
 def test_pending_task_cancellation_is_durable_and_never_dispatches(tmp_path: Path):
     controller = ExecutionController(tmp_path)
-    calls = []
-    def handler(payload):
-        calls.append(True)
-        return {"success": True}
-    controller.register_handler(
-        "tests.test_execution_controller_restart.pending_cancel_handler",
-        handler, execution_class="read_only",
-    )
-    task = controller.submit("tests.test_execution_controller_restart.pending_cancel_handler", {})
+    name = "tests.test_execution_controller_restart.pending_cancel_handler"
+    controller.register_handler(name, pending_cancel_handler, execution_class="read_only")
+    task = controller.submit(name, {})
     assert controller.request_cancellation(task.id, reason="operator stop")
     assert controller.request_cancellation(task.id, reason="duplicate request")
     assert controller.run_once(task.id) is None
     assert controller.task(task.id).state == "cancelled"
-    assert calls == []
 
 
 def test_active_task_cancellation_reaches_handler_and_rejects_success(tmp_path: Path):
     controller = ExecutionController(tmp_path)
-    started = Event()
-    def handler(payload):
-        started.set()
-        payload["auren_cancel_event"].wait(timeout=3)
-        return {"success": True, "detail": "handler observed cancellation", "evidence": ["cancel-aware"]}
-    controller.register_handler(
-        "tests.test_execution_controller_restart.cancellation_aware_handler",
-        handler, execution_class="read_only",
-    )
-    task = controller.submit(
-        "tests.test_execution_controller_restart.cancellation_aware_handler", {},
-    )
+    _RESTART_HANDLER_STARTED.clear()
+    name = "tests.test_execution_controller_restart.cancellation_aware_handler"
+    controller.register_handler(name, cancellation_aware_handler, execution_class="read_only")
+    task = controller.submit(name, {})
     outcomes = []
     worker = Thread(target=lambda: outcomes.append(controller.run_once(task.id)), daemon=True)
     worker.start()
-    assert started.wait(timeout=3), "handler did not start"
+    assert _RESTART_HANDLER_STARTED.wait(timeout=3), "handler did not start"
     assert controller.request_cancellation(task.id, reason="test cancellation")
     worker.join(timeout=5)
     assert not worker.is_alive(), "cancellation-aware handler did not exit"
     assert outcomes == [None]
     assert controller.task(task.id).state == "cancelled"
     with sqlite3.connect(controller.db_path) as db:
-        requested = db.execute("SELECT cancel_requested, cancel_reason_digest FROM tasks WHERE id=?", (task.id,)).fetchone()
+        requested = db.execute(
+            "SELECT cancel_requested, cancel_reason_digest FROM tasks WHERE id=?", (task.id,),
+        ).fetchone()
     assert requested[0] == 1
     assert isinstance(requested[1], str) and len(requested[1]) == 64
     assert "test cancellation" not in requested[1]
 
 
-
 def test_consequential_cancellation_after_dispatch_is_ambiguous_not_cancelled(tmp_path: Path):
     controller = ExecutionController(tmp_path)
-    started = Event()
-    def consequential_handler(payload):
-        started.set()
-        payload["auren_cancel_event"].wait(timeout=3)
-        return {"success": True, "detail": "remote action may have completed"}
-    handler_name = "tests.test_execution_controller_restart.consequential_cancel_handler"
-    controller.register_handler(handler_name, consequential_handler, execution_class="consequential")
-    submitted = controller.submit(handler_name, {})
+    _RESTART_HANDLER_STARTED.clear()
+    name = "tests.test_execution_controller_restart.consequential_cancel_handler"
+    controller.register_handler(name, consequential_cancel_handler, execution_class="consequential")
+    submitted = controller.submit(name, {})
     claimed = controller._claim(submitted.id)
     assert claimed is not None
     errors = []
     def invoke():
         try:
-            controller._invoke_with_lease_heartbeat(claimed, consequential_handler)
+            controller._invoke_with_lease_heartbeat(claimed, consequential_cancel_handler)
         except BaseException as exc:
             errors.append(exc)
     worker = Thread(target=invoke, daemon=True)
     worker.start()
-    assert started.wait(timeout=3), "consequential handler did not start"
+    assert _RESTART_HANDLER_STARTED.wait(timeout=3), "consequential handler did not start"
     assert controller.request_cancellation(submitted.id, reason="cancel consequential operation")
     worker.join(timeout=5)
     assert not worker.is_alive(), "consequential handler did not stop cooperatively"
     assert len(errors) == 1 and isinstance(errors[0], ProviderOutcomeBlocked)
-    # The low-level invocation must not claim a safe terminal outcome. The
-    # supervisor/provider lifecycle owns the subsequent reconciliation state.
     assert controller.task(submitted.id).state == "running"
-
 
 
 def test_active_task_deadline_is_durable_and_rejects_late_success(tmp_path: Path):
     controller = ExecutionController(tmp_path)
-    started = Event()
-    def deadline_aware_handler(payload):
-        started.set()
-        payload["auren_cancel_event"].wait(timeout=4)
-        return {"success": True, "detail": "late result"}
+    _RESTART_HANDLER_STARTED.clear()
     name = "tests.test_execution_controller_restart.deadline_aware_handler"
     controller.register_handler(name, deadline_aware_handler, execution_class="read_only")
     task = controller.submit(name, {}, deadline_seconds=0.5)
@@ -306,7 +308,7 @@ def test_active_task_deadline_is_durable_and_rejects_late_success(tmp_path: Path
     outcomes = []
     worker = Thread(target=lambda: outcomes.append(controller.run_once(task.id)), daemon=True)
     worker.start()
-    assert started.wait(timeout=3), "deadline-aware handler did not start"
+    assert _RESTART_HANDLER_STARTED.wait(timeout=3), "deadline-aware handler did not start"
     worker.join(timeout=5)
     assert not worker.is_alive(), "deadline-aware handler did not observe the deadline signal"
     assert outcomes == [None]
@@ -316,7 +318,7 @@ def test_active_task_deadline_is_durable_and_rejects_late_success(tmp_path: Path
 def test_deadline_validation_and_stable_work_key_deadline_replay(tmp_path: Path):
     controller = ExecutionController(tmp_path)
     name = "tests.test_execution_controller_restart.deadline_validation_handler"
-    controller.register_handler(name, lambda _payload: {"success": True}, execution_class="read_only")
+    controller.register_handler(name, deadline_validation_handler, execution_class="read_only")
     for value in (0, -1, float("nan"), float("inf"), True, 86401):
         try:
             controller.submit(name, {"id": "invalid-deadline"}, deadline_seconds=value)
@@ -324,27 +326,26 @@ def test_deadline_validation_and_stable_work_key_deadline_replay(tmp_path: Path)
             pass
         else:
             raise AssertionError(f"invalid deadline accepted: {value!r}")
-    first = controller.submit(name, {"id": "deadline-idempotency"}, work_key="test:deadline-idempotency", deadline_seconds=30)
-    replay = controller.submit(name, {"id": "deadline-idempotency"}, work_key="test:deadline-idempotency", deadline_seconds=60)
+    first = controller.submit(
+        name, {"id": "deadline-idempotency"}, work_key="test:deadline-idempotency", deadline_seconds=30,
+    )
+    replay = controller.submit(
+        name, {"id": "deadline-idempotency"}, work_key="test:deadline-idempotency", deadline_seconds=60,
+    )
     assert replay.id == first.id
     assert replay.deadline_at == first.deadline_at
 
 
-
 def test_handler_interruption_after_cancellation_commits_cancelled_state(tmp_path: Path):
     controller = ExecutionController(tmp_path)
-    started = Event()
-    def handler(payload):
-        started.set()
-        payload["auren_cancel_event"].wait(timeout=3)
-        raise InterruptedError("subprocess provider cancelled")
+    _RESTART_HANDLER_STARTED.clear()
     name = "tests.test_execution_controller_restart.interrupted_cancel_handler"
-    controller.register_handler(name, handler, execution_class="read_only")
+    controller.register_handler(name, interrupted_cancel_handler, execution_class="read_only")
     task = controller.submit(name, {})
     outcomes = []
     worker = Thread(target=lambda: outcomes.append(controller.run_once(task.id)), daemon=True)
     worker.start()
-    assert started.wait(timeout=3)
+    assert _RESTART_HANDLER_STARTED.wait(timeout=3)
     assert controller.request_cancellation(task.id, reason="stop subprocess")
     worker.join(timeout=5)
     assert not worker.is_alive()
