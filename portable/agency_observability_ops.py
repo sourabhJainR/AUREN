@@ -440,14 +440,60 @@ def observability_snapshot(path: Path, *, limit: int = 500) -> dict[str, Any]:
                 except UnicodeDecodeError:
                     corrupt_lines += 1
     latest_by_trace: dict[str, dict[str, Any]] = {}
+    span_maps: dict[str, dict[str, dict[str, Any]]] = {}
     for line in lines:
         try:
             item = json.loads(line)
             if not isinstance(item, dict) or not item.get("trace_id"):
                 corrupt_lines += 1
                 continue
-            latest_by_trace[str(item["trace_id"])] = item
-        except (json.JSONDecodeError, UnicodeDecodeError):
+            trace_id = str(item["trace_id"])
+            if item.get("event_record_version") == 1:
+                state = latest_by_trace.get(trace_id)
+                if state is None:
+                    state = {
+                        "schema_version": item.get("schema_version", 1),
+                        "trace_id": trace_id,
+                        "spans": [],
+                        "scores": [],
+                        "metadata": {},
+                    }
+                if trace_id not in span_maps:
+                    existing_spans = state.get("spans", ())
+                    span_maps[trace_id] = {
+                        str(span["span_id"]): span for span in existing_spans
+                        if isinstance(span, dict) and span.get("span_id")
+                    } if isinstance(existing_spans, (list, tuple)) else {}
+                for field_name in (
+                    "run_id", "session_id", "task_id", "name", "start", "end",
+                    "status", "source_revision", "config_digest",
+                ):
+                    if field_name in item:
+                        state[field_name] = item[field_name]
+                if isinstance(item.get("metadata"), dict):
+                    state["metadata"] = item["metadata"]
+                if isinstance(item.get("scores"), list):
+                    state["scores"] = item["scores"]
+                span = item.get("span")
+                if isinstance(span, dict) and span.get("span_id"):
+                    span_maps[trace_id][str(span["span_id"])] = span
+                state["spans"] = list(span_maps[trace_id].values())
+                state["event_sequence"] = item.get("event_sequence", state.get("event_sequence", 0))
+                state["event_digest"] = item.get("event_digest", state.get("event_digest"))
+                state["duration_ms"] = (
+                    round((state["end"] - state["start"]) * 1000, 2)
+                    if isinstance(state.get("end"), (int, float))
+                    and isinstance(state.get("start"), (int, float)) else None
+                )
+                latest_by_trace[trace_id] = state
+            else:
+                latest_by_trace[trace_id] = item
+                span_records = item.get("spans", ())
+                span_maps[trace_id] = {
+                    str(span["span_id"]): span for span in span_records
+                    if isinstance(span, dict) and span.get("span_id")
+                } if isinstance(span_records, (list, tuple)) else {}
+        except (json.JSONDecodeError, UnicodeDecodeError, TypeError, KeyError):
             corrupt_lines += 1
     traces = list(latest_by_trace.values())
     phase_counts: Counter[str] = Counter()
