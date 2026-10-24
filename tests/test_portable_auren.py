@@ -27,6 +27,10 @@ class PortableAurenTests(unittest.TestCase):
         (root / ".ai-harness" / "config.toml").write_text('[harness]\nversion = 20\n', encoding="utf-8")
         (root / ".claude-plugin" / "plugin.json").write_text(json.dumps({"version": version}), encoding="utf-8")
         (root / ".ai-harness" / "runtime" / "engine.py").write_text("print('ok')\n", encoding="utf-8")
+        (root / ".ai-harness" / "learning").mkdir(parents=True, exist_ok=True)
+        (root / ".ai-harness" / "learning" / "compiler_bootstrap_priors.jsonl").write_text(
+            '{"id":"prior-test","kind":"advisory-prior"}\\n', encoding="utf-8"
+        )
         (root / ".ai-harness" / "telemetry.jsonl").write_text("machine-state\n", encoding="utf-8")
         (root / "skills" / "ai-coding-orchestrator" / "SKILL.md").write_text("---\nname: ai-coding-orchestrator\ndescription: Repository-aware AI engineering control plane.\n---\n", encoding="utf-8")
         (root / "portable" / "auren_runtime.py").write_text("print('portable')\n", encoding="utf-8")
@@ -89,6 +93,7 @@ class PortableAurenTests(unittest.TestCase):
             ):
                 self.assertNotIn(private_path, included)
             self.assertTrue(any(item["path"] == "auren_cli.py" for item in manifest["files"]))
+            self.assertIn(".ai-harness/learning/compiler_bootstrap_priors.jsonl", included)
             self.assertFalse(manifest["target_repository_mutation"])
             with zipfile.ZipFile(bundle) as archive:
                 self.assertIn("auren_cli.py", archive.namelist())
@@ -238,6 +243,7 @@ class PortableAurenTests(unittest.TestCase):
             harness = source / ".ai-harness"
             (harness / "learning").mkdir(parents=True)
             (harness / "learning" / "private.json").write_text("private", encoding="utf-8")
+            (harness / "learning" / "compiler_bootstrap_priors.jsonl").write_text("canonical prior", encoding="utf-8")
             (harness / "evidence").mkdir(parents=True)
             (harness / "evidence" / "ledger.jsonl").write_text("private", encoding="utf-8")
             _copy_tree_without_mutable_state(source, destination)
@@ -245,7 +251,8 @@ class PortableAurenTests(unittest.TestCase):
                 ["settings.json"],
                 sorted(path.name for path in (destination / "runtime" / "deep").iterdir()),
             )
-            self.assertFalse((destination / ".ai-harness" / "learning").exists())
+            self.assertFalse((destination / ".ai-harness" / "learning" / "private.json").exists())
+            self.assertTrue((destination / ".ai-harness" / "learning" / "compiler_bootstrap_priors.jsonl").is_file())
             self.assertFalse((destination / ".ai-harness" / "evidence").exists())
 
     def test_verify_rejects_unsafe_manifest_path(self) -> None:
