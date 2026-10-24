@@ -99,6 +99,7 @@ class ExternalEvaluatorGateway:
         replay_ledger: SealedArenaReplayLedger,
         *,
         allow_test_verifier: bool = False,
+        isolated_executor=None,
     ) -> None:
         if not isinstance(boundary, SealedArenaBoundary):
             raise TypeError("a SealedArenaBoundary is required")
@@ -116,8 +117,16 @@ class ExternalEvaluatorGateway:
             != Path(replay_ledger.database_path).resolve()
         ):
             raise ValueError("gateway and boundary must share the same replay ledger database")
+        if isolated_executor is not None and getattr(isolated_executor, "production_ready", False) is not True:
+            raise ValueError("isolated_executor must be an explicitly production-ready OS isolation adapter")
+        if not allow_test_verifier and isolated_executor is None:
+            raise ValueError(
+                "production external evaluator requires a production-ready OS isolation adapter; "
+                "the host subprocess fallback is not an isolation boundary"
+            )
         self.boundary = boundary
         self.replay_ledger = replay_ledger
+        self.isolated_executor = isolated_executor
 
     def evaluate(self, request: SealedCampaignRequest, command: ExternalEvaluatorCommand) -> SealedArenaEvidence:
         if not request.run_nonce.strip():
@@ -127,15 +136,23 @@ class ExternalEvaluatorGateway:
             campaign_digest=request.campaign_digest,
             corpus_digest=request.corpus_digest,
         )
-        process = subprocess.Popen(
-            list(command.argv),
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            shell=False,
-            env={"PATH": os.environ.get("PATH", ""), **dict(command.environment)},
-            start_new_session=(os.name == "posix"),
-        )
+        environment = {"PATH": os.environ.get("PATH", ""), **dict(command.environment)}
+        if self.isolated_executor is not None:
+            # The adapter owns OS-level isolation and must preserve the bounded
+            # Popen-like stream/termination contract used below.
+            process = self.isolated_executor.launch(command, environment)
+        else:
+            # Available only in explicit test-verifier mode. A normal host
+            # subprocess is not a security sandbox.
+            process = subprocess.Popen(
+                list(command.argv),
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                shell=False,
+                env=environment,
+                start_new_session=(os.name == "posix"),
+            )
         assert process.stdin is not None
         assert process.stdout is not None
 
