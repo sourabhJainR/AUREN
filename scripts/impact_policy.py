@@ -51,6 +51,8 @@ _RULES: tuple[tuple[str, tuple[str, ...], bool], ...] = (
     ("portable/engineering_plan_recovery.py", ("tests.test_engineering_plan_recovery",), True),
     ("portable/progress_journal.py", ("tests.test_progress_journal", "tests.test_progress_journal_integration"), True),
     ("portable/canonical_evidence_ledger.py", ("tests.test_canonical_evidence_ledger", "tests.test_provider_operation_lifecycle"), True),
+    ("portable/agency_evolution_gates.py", ("tests.test_agency_evolution_gates", "tests.test_promotion_evidence_chain", "tests.test_evidence_freshness"), True),
+    ("tests/test_agency_evolution_gates.py", ("tests.test_agency_evolution_gates",), True),
     ("portable/vibe_coding_adapters.py", ("tests.test_vibe_coding_adapters", "tests.test_provider_operation_lifecycle", "tests.test_side_effect_ledger"), True),
     ("portable/vibe_coding_host.py", ("tests.test_vibe_coding_host", "tests.test_vibe_coding_adapters"), True),
     ("tests/test_vibe_coding_host.py", ("tests.test_vibe_coding_host",), True),
@@ -97,7 +99,7 @@ _SENSITIVE_PREFIXES = (
     ".ai-harness/security", ".ai-harness/runtime/rollback",
 )
 _SENSITIVE_NAMES = ("authority", "security", "guard", "approval", "rollback", "recovery", "side_effect", "execution_controller",
-                    "progress_journal", "canonical_evidence", "engineering_evidence", "provider_operation", "action_governance", "arena", "sealed", "evaluator", "sandbox", "corpus", "external_evaluation", "independent_evaluation", "attestation")
+                    "progress_journal", "canonical_evidence", "engineering_evidence", "provider_operation", "action_governance", "arena", "sealed", "evaluator", "sandbox", "corpus", "external_evaluation", "independent_evaluation", "attestation", "evolution_gates", "improvement_journal")
 
 
 def is_sensitive_path(path: str) -> bool:
