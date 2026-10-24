@@ -214,8 +214,13 @@ class ExternalEvaluatorGateway:
             process.wait()
 
         writer.join(timeout=1.0)
-        reader.join(timeout=1.0)
+        reader.join(timeout=35.0)
         _close_evaluator_streams(process)
+        if reader.is_alive():
+            raise RuntimeError("external evaluator termination or output drain remains unresolved")
+        termination_error = getattr(process, "termination_error", None)
+        if termination_error:
+            raise RuntimeError(f"external evaluator isolation cleanup failed closed: {termination_error}")
         if output_limit_exceeded.is_set():
             raise ValueError("external evaluator receipt exceeds output budget")
         if timed_out:
