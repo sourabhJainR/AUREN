@@ -130,6 +130,10 @@ class LeaseLostError(RuntimeError):
     """Raised when a stale worker attempts to renew or finalize a task lease."""
 
 
+class TaskCancellationRequested(InterruptedError):
+    """Raised when the supervisor requests cancellation of an active task."""
+
+
 class ExecutionController:
     """Durable supervisor used as the default owner of graph/team execution."""
 
@@ -199,6 +203,7 @@ class ExecutionController:
                 ("quota_attempts", "INTEGER NOT NULL DEFAULT 0"),
                 ("next_retry_at", "TEXT"), ("quota_blocked", "INTEGER NOT NULL DEFAULT 0"),
                 ("work_key", "TEXT"), ("intent_digest", "TEXT"),
+                ("cancel_requested", "INTEGER NOT NULL DEFAULT 0"),
             ):
                 if column not in columns:
                     db.execute(f"ALTER TABLE tasks ADD COLUMN {column} {declaration}")
@@ -229,6 +234,8 @@ class ExecutionController:
         # Provider adapters are restored by the host on worker startup. Missing
         # adapters never authorize a retry; ambiguous effects remain blocked.
         self._provider_operation_adapters: dict[str, Any] = {}
+        self._cancellation_events: dict[str, Event] = {}
+        self._cancellation_events_lock = __import__("threading").RLock()
         self._progress_reconciliation_findings: list[str] = []
         self._progress_reconciliation_incomplete = False
         self._submission_reconciliation_findings: list[str] = []
@@ -1888,6 +1895,42 @@ class ExecutionController:
             )
         return task
 
+    def request_cancellation(self, task_id: str, *, reason: str = "operator requested cancellation") -> bool:
+        """Durably request cancellation; active handlers observe a live Event.
+
+        Returns False for an already terminal or missing task. The request does
+        not claim the task is cancelled: the owning worker must stop and commit
+        the terminal state, or consequential work must remain blocked for
+        reconciliation if the remote outcome is ambiguous.
+        """
+        if not isinstance(task_id, str) or not task_id.strip():
+            raise ValueError("task_id is required")
+        if not isinstance(reason, str) or not reason.strip() or len(reason) > 1000:
+            raise ValueError("cancellation reason must be non-empty text of at most 1000 characters")
+        with closing(sqlite3.connect(self.db_path, timeout=10)) as db, db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("SELECT state FROM tasks WHERE id=?", (task_id,)).fetchone()
+            if row is None or row[0] in {"completed", "failed", "cancelled", "blocked_reconciliation"}:
+                return False
+            db.execute(
+                "UPDATE tasks SET cancel_requested=1, updated_at=? WHERE id=? AND state IN ('pending','running')",
+                (_now(), task_id),
+            )
+        with self._cancellation_events_lock:
+            event = self._cancellation_events.get(task_id)
+            if event is not None:
+                event.set()
+        self._record_progress(
+            task_id, "cancellation_requested", state="running", stage="cancellation",
+            message="Cancellation requested; task outcome remains nonterminal until the owning worker confirms it.",
+        )
+        return True
+
+    def _cancellation_requested(self, task_id: str) -> bool:
+        with closing(sqlite3.connect(self.db_path, timeout=5)) as db:
+            row = db.execute("SELECT cancel_requested FROM tasks WHERE id=?", (task_id,)).fetchone()
+        return bool(row and row[0])
+
     def _claim(self, task_id: str) -> DurableTask | None:
         # Claim under a write lock so two controllers cannot both observe
         # "pending" and execute the same side-effecting handler. Each claim
@@ -1961,9 +2004,12 @@ class ExecutionController:
         return False
 
     def _invoke_with_lease_heartbeat(self, task: DurableTask, handler: Handler) -> Any:
-        """Renew the current lease while a handler runs; reject results after lease loss."""
+        """Renew leases and propagate durable cancellation while a handler runs."""
         stop = Event()
+        cancel = Event()
         lease_errors: list[BaseException] = []
+        with self._cancellation_events_lock:
+            self._cancellation_events[task.id] = cancel
 
         def renew() -> None:
             while not stop.wait(self._LEASE_HEARTBEAT_INTERVAL_SECONDS):
@@ -1974,23 +2020,48 @@ class ExecutionController:
                     stop.set()
                     return
 
-        thread = Thread(target=renew, name=f"auren-lease-{task.id[:8]}", daemon=True)
-        thread.start()
+        def watch_cancellation() -> None:
+            while not stop.wait(0.05):
+                try:
+                    if self._cancellation_requested(task.id):
+                        cancel.set()
+                        return
+                except Exception:
+                    # Failure to observe durable cancellation cannot be treated
+                    # as proof that no cancellation was requested.
+                    cancel.set()
+                    return
+
+        lease_thread = Thread(target=renew, name=f"auren-lease-{task.id[:8]}", daemon=True)
+        cancel_thread = Thread(target=watch_cancellation, name=f"auren-cancel-{task.id[:8]}", daemon=True)
+        lease_thread.start()
+        cancel_thread.start()
         result: Any = None
         handler_error: BaseException | None = None
         try:
-            result = handler(self._handler_payload(task))
+            if self._cancellation_requested(task.id):
+                cancel.set()
+            if cancel.is_set():
+                raise TaskCancellationRequested("task cancellation requested before handler dispatch")
+            payload = self._handler_payload(task)
+            payload["auren_cancel_event"] = cancel
+            result = handler(payload)
         except BaseException as exc:
             handler_error = exc
         finally:
             stop.set()
-            thread.join(timeout=2)
+            lease_thread.join(timeout=2)
+            cancel_thread.join(timeout=2)
+            with self._cancellation_events_lock:
+                self._cancellation_events.pop(task.id, None)
         if lease_errors:
             raise LeaseLostError(
                 "task lease was lost while handler was running; result cannot be committed"
             ) from (handler_error or lease_errors[0])
         if handler_error is not None:
             raise handler_error
+        if cancel.is_set() or self._cancellation_requested(task.id):
+            raise TaskCancellationRequested("task cancellation requested; handler result cannot be committed")
         # Verify ownership once more before the caller can finalize the result.
         self.heartbeat(task)
         return result
@@ -2503,7 +2574,7 @@ class ExecutionController:
                     json.dumps(dict(intent), sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
                 ).hexdigest(),
             }
-            value = self._invoke_with_lease_heartbeat(task, lambda _payload: handler(self._handler_payload(task, provider_payload)))
+            value = self._invoke_with_lease_heartbeat(task, lambda runtime_payload: handler(self._handler_payload(task, {**provider_payload, "auren_cancel_event": runtime_payload["auren_cancel_event"]})))
             if not isinstance(value, Mapping):
                 raise RuntimeError("consequential handlers must return a mapping receipt/result")
             return {"result": dict(value), "provider_operation_id": operation_id}
@@ -2530,6 +2601,8 @@ class ExecutionController:
             message="Checking dispatch policy, revision binding, and required evidence.",
         )
         try:
+            if self._cancellation_requested(task.id):
+                raise TaskCancellationRequested("task cancellation requested before preflight")
             self.heartbeat(task)
             self._verify_engineering_plan_dispatch_checkpoint(task)
             gates_passed, gate_detail, gate_evidence = self._preflight_gates(task)
@@ -2564,6 +2637,26 @@ class ExecutionController:
             raise
         except ApprovalPending as exc:
             self._pause_for_approval(task, exc)
+            return None
+        except TaskCancellationRequested as exc:
+            if not self._finalize_claim(task, "cancelled"):
+                raise LeaseLostError(
+                    "task lease was lost; stale worker cannot finalize cancellation"
+                ) from exc
+            detail = "Task cancelled by supervisor request; handler result was not accepted."
+            self.company.record(
+                task.work_unit_id, "execution", "failed", detail,
+                (f"handler:{task.handler}", f"task:{task.id}", "cancellation_requested"),
+            )
+            self.company.finish(task.work_unit_id, success=False, reason=detail)
+            self._capture_terminal_event("task_cancelled", task, status="cancelled", metadata={
+                "handler": task.handler, "phase": "cancellation",
+                "failure_class": "TaskCancellationRequested",
+            })
+            self._record_progress(
+                task.id, "task_terminal", state="cancelled", stage="terminal",
+                message=detail,
+            )
             return None
         except ProviderOutcomeBlocked as exc:
             if not self._finalize_claim(task, "blocked_reconciliation"):
