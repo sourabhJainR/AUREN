@@ -120,6 +120,7 @@ class Trace:
     task_id: str | None = None
     source_revision: str | None = None
     config_digest: str | None = None
+    on_change: Callable[["Trace"], None] | None = field(default=None, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         if self.run_id is None:
@@ -152,6 +153,8 @@ class Trace:
                 source_revision=source_revision or self.source_revision,
             )
             self.spans.append(item)
+            if self.on_change is not None:
+                self.on_change(self)
             return item
 
     def score(self, name: str, value: float, reason: str = "", source: str = "system") -> None:
@@ -230,7 +233,7 @@ class Tracer:
         config_digest: str | None = None,
     ) -> Trace:
         details = dict(metadata or {})
-        return Trace(
+        trace = Trace(
             name,
             metadata=details,
             run_id=run_id or details.get("run_id"),
@@ -239,9 +242,11 @@ class Tracer:
             source_revision=source_revision or details.get("source_revision"),
             config_digest=config_digest or details.get("config_digest"),
         )
+        trace.on_change = self._export_safely
+        self._export_safely(trace)
+        return trace
 
-    def end(self, trace: Trace, status: str = "ok") -> Trace:
-        trace.finish(status)
+    def _export_safely(self, trace: Trace) -> None:
         try:
             self.exporter.export(trace)
         except Exception as exc:
@@ -249,6 +254,13 @@ class Tracer:
             # overwrite the canonical task outcome or trigger side-effect replay.
             trace.metadata["observability_export_status"] = "failed"
             trace.metadata["observability_export_error"] = type(exc).__name__
+        else:
+            trace.metadata.pop("observability_export_status", None)
+            trace.metadata.pop("observability_export_error", None)
+
+    def end(self, trace: Trace, status: str = "ok") -> Trace:
+        trace.finish(status)
+        self._export_safely(trace)
         return trace
 
 
