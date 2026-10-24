@@ -67,6 +67,19 @@ class DockerEvaluatorPolicyTests(unittest.TestCase):
         self.assertTrue(any(call.args[0][1] == "kill" for call in run.call_args_list if call.args))
 
 
+
+    @patch("portable.docker_isolated_evaluator.subprocess.Popen")
+    @patch("portable.docker_isolated_evaluator.subprocess.run")
+    def test_launch_rejects_unallowlisted_environment_secrets(self, run, popen):
+        run.side_effect = [
+            Mock(returncode=0, stdout="linux\\n"),
+            Mock(returncode=0, stdout=IMAGE + "\\n"),
+        ]
+        executor = DockerIsolatedEvaluatorExecutor(DockerEvaluatorPolicy(IMAGE))
+        with self.assertRaisesRegex(ValueError, "not allowlisted"):
+            executor.launch(Mock(argv=("python", "/opt/evaluator.py")), {"AWS_SECRET_ACCESS_KEY": "secret"})
+        popen.assert_not_called()
+
     @patch("portable.docker_isolated_evaluator.os.killpg")
     @patch("portable.docker_isolated_evaluator.subprocess.run")
     def test_cleanup_failure_is_recorded_and_container_evidence_is_preserved(self, run, killpg):
