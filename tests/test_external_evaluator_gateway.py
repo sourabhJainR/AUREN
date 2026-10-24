@@ -29,6 +29,29 @@ class ExternalEvaluatorGatewayTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.tempdir.cleanup()
 
+    def test_production_gateway_requires_os_isolation_adapter(self) -> None:
+        class TrustedBoundary(SealedArenaBoundary):
+            @property
+            def has_trusted_custody_verifier(self):
+                return True
+
+        boundary = TrustedBoundary(lambda _value: True, replay_ledger=self.ledger)
+        with self.assertRaisesRegex(ValueError, "requires a production-ready OS isolation adapter"):
+            ExternalEvaluatorGateway(boundary, self.ledger)
+
+    def test_production_gateway_rejects_unverified_isolation_adapter(self) -> None:
+        class TrustedBoundary(SealedArenaBoundary):
+            @property
+            def has_trusted_custody_verifier(self):
+                return True
+
+        class UnverifiedAdapter:
+            production_ready = False
+
+        boundary = TrustedBoundary(lambda _value: True, replay_ledger=self.ledger)
+        with self.assertRaisesRegex(ValueError, "explicitly production-ready OS isolation adapter"):
+            ExternalEvaluatorGateway(boundary, self.ledger, isolated_executor=UnverifiedAdapter())
+
     def test_gateway_rejects_protocol_only_boundary_by_default(self) -> None:
         with self.assertRaisesRegex(ValueError, "trusted Ed25519 keyring.*signed holdout custody"):
             ExternalEvaluatorGateway(SealedArenaBoundary(lambda _value: True), self.ledger)
