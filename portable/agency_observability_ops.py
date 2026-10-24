@@ -345,23 +345,29 @@ def observability_snapshot(path: Path, *, limit: int = 500) -> dict[str, Any]:
         for line in handle:
             if line.strip():
                 lines.append(line)
-    traces = []
+    latest_by_trace: dict[str, dict[str, Any]] = {}
     for line in lines:
         try:
             item = json.loads(line)
             if not isinstance(item, dict) or not item.get("trace_id"):
                 corrupt_lines += 1
                 continue
-            traces.append(item)
+            latest_by_trace[str(item["trace_id"])] = item
         except (json.JSONDecodeError, UnicodeDecodeError):
             corrupt_lines += 1
+    traces = list(latest_by_trace.values())
     phase_counts: Counter[str] = Counter()
     status_counts: Counter[str] = Counter()
     provider_counts: Counter[str] = Counter()
     recent = []
     durations = []
+    now = time.time()
     for trace in traces:
-        status = str(trace.get("status", "unknown"))
+        recorded_status = str(trace.get("status", "unknown"))
+        status = recorded_status
+        started = trace.get("start")
+        if recorded_status == "running" and isinstance(started, (int, float)) and math.isfinite(started) and now - started > 300:
+            status = "stale"
         status_counts[status] += 1
         duration = trace.get("duration_ms")
         if isinstance(duration, (int, float)) and math.isfinite(duration):
@@ -382,6 +388,7 @@ def observability_snapshot(path: Path, *, limit: int = 500) -> dict[str, Any]:
             "run_id": str(trace.get("run_id", "")),
             "task_id": str(trace.get("task_id", "")),
             "status": status,
+            "recorded_status": recorded_status,
             "duration_ms": duration if isinstance(duration, (int, float)) and math.isfinite(duration) else None,
             "source_revision": trace.get("source_revision"),
             "phases": phases,
