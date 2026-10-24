@@ -10,6 +10,7 @@ from .agency_multi_specialist import SpecialistResourceProfile, build_specialist
 from .agency_provenance import ProvenanceLedger
 from .agency_release import ReleaseDecision, decide_release
 from .agency_runtime import Assignment, ExecutionResult, TaskProfile, execute
+from .engineering_personas import PersonaWorkflow
 from .agency_quality import ReviewFinding
 from .action_governance import ActionGovernanceGateway, ActionRequest, ApprovalReceipt
 from .execution_boundary import ExecutionAuthorityBinding, execute_bound_action
@@ -80,14 +81,22 @@ def _build_codebase_context(task:CodingTask)->CodebaseContext|None:
     if not task.workspace_root: return None
     return retrieve_from_path(task.workspace_root,task.context_query or task.goal,token_budget=task.context_token_budget,max_files=task.context_max_files,graph_hops=task.context_graph_hops)
 
-def run_coding_task(task:CodingTask,worker:Callable[[TaskProfile,list[Assignment]],Mapping[str,object]],*,baseline_artifacts:Iterable[ArtifactSnapshot]=(),current_artifacts:Iterable[ArtifactSnapshot]=(),resource_profiles:Mapping[str,SpecialistResourceProfile]|None=None,benchmark_history:BenchmarkHistory|Iterable=(),registry:Mapping[str,object]|None=None,rubric:Mapping[str,object]|None=None,governance_gateway:ActionGovernanceGateway|None=None,approval_provider:Callable[[ActionRequest],ApprovalReceipt|None]|None=None,run_id:str|None=None,execution_authority:ExecutionAuthorityBinding|None=None,repository_revision:str|None=None,repository_digest:str|None=None,budget_id:str|None=None,execution_guard:RuntimeExecutionGuard|None=None)->OrchestratorRun:
+def run_coding_task(task:CodingTask,worker:Callable[[TaskProfile,list[Assignment]],Mapping[str,object]],*,baseline_artifacts:Iterable[ArtifactSnapshot]=(),current_artifacts:Iterable[ArtifactSnapshot]=(),resource_profiles:Mapping[str,SpecialistResourceProfile]|None=None,benchmark_history:BenchmarkHistory|Iterable=(),registry:Mapping[str,object]|None=None,rubric:Mapping[str,object]|None=None,governance_gateway:ActionGovernanceGateway|None=None,approval_provider:Callable[[ActionRequest],ApprovalReceipt|None]|None=None,run_id:str|None=None,execution_authority:ExecutionAuthorityBinding|None=None,repository_revision:str|None=None,repository_digest:str|None=None,budget_id:str|None=None,execution_guard:RuntimeExecutionGuard|None=None,persona_workflow:PersonaWorkflow|None=None)->OrchestratorRun:
     """Run profile -> adaptive plan -> graph context -> specialists -> verify -> regression -> release -> benchmark."""
     history=benchmark_history if isinstance(benchmark_history,BenchmarkHistory) else BenchmarkHistory(list(benchmark_history))
     recommendation=recommend_plan(history,requested_mutation_mode=task.mutation_mode,requested_support_limit=task.support_limit)
     mutation_mode,support_limit=apply_recommendation(task.mutation_mode,task.support_limit,recommendation)
     effective_task=replace(task,mutation_mode=mutation_mode,support_limit=support_limit)
     codebase_context=_build_codebase_context(effective_task)
-    profile=TaskProfile(task_id=effective_task.task_id,request=effective_task.goal,artifact_type="code",risk=effective_task.risk,mutation_mode=effective_task.mutation_mode,acceptance=effective_task.acceptance,technologies=effective_task.technologies,context=codebase_context)
+    if persona_workflow is not None and not (repository_revision or (codebase_context and codebase_context.snapshot_digest)):
+        raise ValueError("independent persona workflow requires a pinned repository revision or codebase snapshot digest")
+    profile=TaskProfile(
+        task_id=effective_task.task_id, request=effective_task.goal, artifact_type="code",
+        risk=effective_task.risk, mutation_mode=effective_task.mutation_mode,
+        acceptance=effective_task.acceptance, technologies=effective_task.technologies,
+        context=codebase_context, source_revision=repository_revision or (codebase_context.snapshot_digest if codebase_context else ""),
+        config_digest=repository_digest or "", session_id=run_id, run_id=run_id,
+    )
     effective_worker = worker
     if execution_authority is not None:
         if governance_gateway is None:
@@ -260,7 +269,10 @@ def run_coding_task(task:CodingTask,worker:Callable[[TaskProfile,list[Assignment
                 }
             return captured[0]
 
-    execution=execute(profile,effective_worker,registry=registry,rubric=rubric,support_limit=effective_task.support_limit)
+    execution=execute(
+        profile, effective_worker, registry=registry, rubric=rubric,
+        support_limit=effective_task.support_limit, persona_workflow=persona_workflow,
+    )
     execution_plan=build_specialist_plan(execution.assignments,resource_profiles)
     provenance=ProvenanceLedger(); provenance.append(task.task_id,"task-profiled",task.goal); provenance.append(task.task_id,"adaptive-recommendation",str(recommendation.as_dict()))
     if codebase_context:
