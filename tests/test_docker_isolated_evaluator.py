@@ -43,6 +43,8 @@ class DockerEvaluatorPolicyTests(unittest.TestCase):
         run.side_effect = [
             Mock(returncode=0, stdout="linux\n"),
             Mock(returncode=0, stdout=IMAGE + "\n"),
+            Mock(returncode=0),
+            Mock(returncode=0),
         ]
         process = Mock()
         process.stdin = Mock()
