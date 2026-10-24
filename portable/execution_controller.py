@@ -1777,7 +1777,19 @@ class ExecutionController:
         *,
         goal: str | None = None,
         work_key: str | None = None,
+        deadline_seconds: float | None = None,
     ) -> DurableTask:
+        if deadline_seconds is not None and (
+            isinstance(deadline_seconds, bool)
+            or not isinstance(deadline_seconds, (int, float))
+            or not math.isfinite(deadline_seconds)
+            or not 0 < deadline_seconds <= 86400
+        ):
+            raise ValueError("deadline_seconds must be finite, greater than 0, and at most 86400")
+        requested_deadline_at = (
+            (datetime.now(timezone.utc) + timedelta(seconds=float(deadline_seconds))).isoformat()
+            if deadline_seconds is not None else None
+        )
         execution_class = self._handler_execution_class(handler)
         if not isinstance(payload, Mapping):
             raise TypeError("durable task payload must be a mapping")
@@ -1834,7 +1846,7 @@ class ExecutionController:
                 existing = None
                 if stable_work_key is not None:
                     existing = db.execute(
-                        "SELECT id,handler,payload,state,attempts,work_unit_id,lease_generation,lease_token,intent_digest "
+                        "SELECT id,handler,payload,state,attempts,work_unit_id,lease_generation,lease_token,intent_digest,deadline_at "
                         "FROM tasks WHERE work_key=?",
                         (stable_work_key,),
                     ).fetchone()
@@ -1845,19 +1857,19 @@ class ExecutionController:
                         )
                     task = DurableTask(
                         existing[0], existing[1], json.loads(existing[2]), existing[3],
-                        int(existing[4]), existing[5], int(existing[6] or 0), existing[7],
+                        int(existing[4]), existing[5], int(existing[6] or 0), existing[7], existing[9],
                     )
                     db.commit()
                 else:
                     work = self.company.start(goal_text, work_key=stable_work_key)
-                    task = DurableTask(uuid4().hex, handler, payload_copy, "pending", 0, work.id)
+                    task = DurableTask(uuid4().hex, handler, payload_copy, "pending", 0, work.id, deadline_at=requested_deadline_at)
                     now = _now()
                     db.execute(
                         "INSERT INTO tasks(id,handler,payload,state,attempts,work_unit_id,created_at,updated_at,"
-                        "heartbeat_at,lease_until,work_key,intent_digest) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                        "heartbeat_at,lease_until,work_key,intent_digest,deadline_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
                         (
                             task.id, task.handler, payload_json, task.state, task.attempts, task.work_unit_id,
-                            now, now, now, now, stable_work_key, intent_digest,
+                            now, now, now, now, stable_work_key, intent_digest, requested_deadline_at,
                         ),
                     )
                     db.commit()
