@@ -249,3 +249,39 @@ class TestEngineeringPersonas(unittest.TestCase):
         assert latest["status"] == "blocked"
         assert latest["metadata"]["implementation_review"]["findings"] == ["authorization bypass remains"]
         assert "corrective task" in latest["metadata"]["next_action"]
+
+
+
+    def test_implementation_review_blocks_when_artifact_references_are_missing(self):
+        calls = []
+        workflow = PersonaWorkflow(
+            roster=roster(),
+            plan=lambda task, assignments: (calls.append("plan") or plan(task, assignments)),
+            review_plan=lambda task, reviewed: (calls.append("plan_review") or approved_plan_review(task, reviewed)),
+            review_implementation=lambda task, reviewed, artifact: (
+                calls.append("implementation_review") or approved_implementation_review(task, reviewed, artifact)
+            ),
+        )
+        trace_path = self.tmp_path / "missing-artifact-trace.jsonl"
+        tracer = Tracer(LocalExporter(trace_path, enabled=True))
+        task = TaskProfile("missing-artifacts", "implement safe behavior", source_revision="test-revision")
+
+        def worker(task, assignments):
+            calls.append("implement")
+            return {
+                "deliverables": ["description-only"],
+                "verification": ["unit tests passed"],
+                "dimensions": {
+                    "correctness": 25, "completeness": 15, "evidence": 15, "verification": 15,
+                    "scope_discipline": 10, "security_and_safety": 10, "clarity": 5, "maintainability": 5,
+                },
+                "hard_gates": {"tests": True},
+                "evidence": [EvidenceItem("test-run", "unit tests passed", "tests:run")],
+            }
+
+        with self.assertRaisesRegex(RuntimeError, "artifact references"):
+            execute(task, worker, tracer=tracer, persona_workflow=workflow)
+        assert calls == ["plan", "plan_review", "implement"]
+        latest = json.loads(trace_path.read_text().splitlines()[-1])
+        assert latest["status"] == "blocked"
+        assert latest["metadata"]["review_rejected_stage"] == "implementation_evidence"
