@@ -129,6 +129,77 @@ def evidence_id(item: EvidenceItem) -> str:
     return sha256(f"{item.source}|{item.claim}|{item.locator}".encode()).hexdigest()[:16]
 
 
+def _record_worker_observations(trace, worker_span, raw: Mapping[str, object], source_revision: str | None) -> None:
+    """Record bounded adapter telemetry without treating it as trusted evaluation evidence."""
+    route = raw.get("provider_route")
+    if isinstance(route, Mapping):
+        provider = route.get("provider")
+        model = route.get("model")
+        if isinstance(provider, str) and provider.strip():
+            worker_span.provider = provider[:120]
+        if isinstance(model, str) and model.strip():
+            worker_span.model = model[:160]
+        worker_span.metadata["provider_route_source"] = "worker_reported"
+        worker_span.metadata["route_reason"] = route.get("reason", "")
+    else:
+        provider, model = raw.get("provider"), raw.get("model")
+        if isinstance(provider, str) and provider.strip():
+            worker_span.provider = provider[:120]
+        if isinstance(model, str) and model.strip():
+            worker_span.model = model[:160]
+    usage = raw.get("usage")
+    if isinstance(usage, Mapping):
+        worker_span.metadata["usage"] = {
+            str(key): value for key, value in usage.items()
+            if str(key) in {"input_tokens", "output_tokens", "total_tokens", "cost_usd", "latency_ms"}
+            and isinstance(value, (int, float)) and not isinstance(value, bool)
+            and 0 <= float(value) < float("inf")
+        }
+
+    events = raw.get("observability_events", ())
+    if not isinstance(events, (list, tuple)):
+        trace.metadata["worker_observation_errors"] = int(trace.metadata.get("worker_observation_errors", 0)) + 1
+        return
+    allowed_statuses = {"ok", "error", "blocked", "failed", "cancelled", "timed_out", "unknown", "unscored", "stale"}
+    allowed_phases = {"ideation", "research", "planning", "context", "routing", "tool", "implementation", "verification", "learning", "release", "rollback"}
+    for event in events[:100]:
+        if not isinstance(event, Mapping):
+            trace.metadata["worker_observation_errors"] = int(trace.metadata.get("worker_observation_errors", 0)) + 1
+            continue
+        name = event.get("name")
+        phase = event.get("phase")
+        if not isinstance(name, str) or not name.strip() or not isinstance(phase, str):
+            trace.metadata["worker_observation_errors"] = int(trace.metadata.get("worker_observation_errors", 0)) + 1
+            continue
+        normalized_phase = phase.lower()
+        if normalized_phase not in allowed_phases:
+            normalized_phase = "unknown"
+            trace.metadata["phase_coverage_gaps"] = list(trace.metadata.get("phase_coverage_gaps", ())) + ["unknown_worker_phase"]
+        status = event.get("status", "unknown")
+        if status not in allowed_statuses:
+            status = "unknown"
+        metadata = {
+            "observation_source": "worker_reported_not_authoritative",
+            "input_digest": event.get("input_digest"),
+            "output_ref": event.get("output_ref"),
+            "evidence_refs": event.get("evidence_refs", ()),
+            "observed_duration_ms": event.get("duration_ms"),
+        }
+        span = trace.span(
+            name[:160], str(event.get("kind", "observation"))[:80],
+            metadata=metadata, parent_id=worker_span.span_id, phase=normalized_phase,
+            actor_id=str(event.get("actor_id", ""))[:120] or None,
+            provider=str(event.get("provider", ""))[:120] or None,
+            model=str(event.get("model", ""))[:160] or None,
+            source_revision=source_revision,
+        )
+        span.finish(
+            {"summary": event.get("summary", ""), "output_ref": event.get("output_ref")},
+            str(status),
+            str(event.get("terminal_reason", ""))[:500] or None,
+        )
+
+
 def _receipt_score(receipt: QualityReceipt | None) -> float:
     if receipt is None:
         return 0.0
@@ -290,9 +361,15 @@ def execute(
            source_revision=approved_plan.source_revision if approved_plan else (task.source_revision or None))
         try:
             raw = dict(worker(worker_task, assignments))
+            _record_worker_observations(
+                trace, worker_span, raw,
+                approved_plan.source_revision if approved_plan else (task.source_revision or None),
+            )
             worker_span.finish({
                 "deliverable_count": len(raw.get("deliverables", ())),
                 "verification_count": len(raw.get("verification", ())),
+                "observation_count": min(100, len(raw.get("observability_events", ())))
+                    if isinstance(raw.get("observability_events", ()), (list, tuple)) else 0,
             })
         except Exception as exc:
             worker_span.finish({"error": type(exc).__name__}, "error")
