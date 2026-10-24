@@ -121,6 +121,27 @@ class PortableAurenTests(unittest.TestCase):
             self.assertTrue((auren_home / "current" / "auren_env_compat.py").is_file())
             self.assertTrue((auren_home / "current" / ".claude-plugin" / "plugin.json").is_file())
 
+
+    def test_verify_rejects_archive_exceeding_member_limit(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "source"
+            self.make_source(root)
+            bundle = Path(tmp) / "auren.zip"
+            build(root, bundle, source_commit="test-commit")
+            with patch("portable.auren_runtime.MAX_ARCHIVE_MEMBERS", 2):
+                with self.assertRaisesRegex(SystemExit, "archive exceeds member limit"):
+                    verify_bundle(bundle)
+
+    def test_verify_rejects_archive_exceeding_member_size_limit(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "source"
+            self.make_source(root)
+            bundle = Path(tmp) / "auren.zip"
+            build(root, bundle, source_commit="test-commit")
+            with patch("portable.auren_runtime.MAX_MEMBER_UNCOMPRESSED_BYTES", 1):
+                with self.assertRaisesRegex(SystemExit, "archive member exceeds uncompressed size limit"):
+                    verify_bundle(bundle)
+
     def test_verify_rejects_artifact_wrapper_with_extra_files(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "source"
