@@ -80,11 +80,18 @@ class Span:
     output: Any = None
     metadata: dict[str, Any] = field(default_factory=dict)
     scores: list[Score] = field(default_factory=list)
+    phase: str = "unknown"
+    actor_id: str | None = None
+    provider: str | None = None
+    model: str | None = None
+    source_revision: str | None = None
+    terminal_reason: str | None = None
 
-    def finish(self, output: Any = None, status: str = "ok") -> "Span":
+    def finish(self, output: Any = None, status: str = "ok", terminal_reason: str | None = None) -> "Span":
         self.output = _safe(output)
         self.end = time.time()
         self.status = status
+        self.terminal_reason = terminal_reason
         return self
 
     @property
@@ -107,6 +114,16 @@ class Trace:
     metadata: dict[str, Any] = field(default_factory=dict)
     spans: list[Span] = field(default_factory=list)
     scores: list[Score] = field(default_factory=list)
+    schema_version: int = 1
+    run_id: str | None = None
+    session_id: str | None = None
+    task_id: str | None = None
+    source_revision: str | None = None
+    config_digest: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.run_id is None:
+            self.run_id = self.trace_id
 
     def span(
         self,
@@ -115,6 +132,11 @@ class Trace:
         input: Any = None,
         metadata: Mapping[str, Any] | None = None,
         parent_id: str | None = None,
+        phase: str = "unknown",
+        actor_id: str | None = None,
+        provider: str | None = None,
+        model: str | None = None,
+        source_revision: str | None = None,
     ) -> Span:
         """Create a span with explicit parentage; never infer parent from append order."""
         if not name.strip():
@@ -123,7 +145,12 @@ class Trace:
             known_ids = {span.span_id for span in self.spans}
             if parent_id is not None and parent_id not in known_ids:
                 raise ValueError("parent_id must reference a span in this trace")
-            item = Span(name, kind, parent_id=parent_id, input=_safe(input), metadata=_safe(dict(metadata or {})))
+            item = Span(
+                name, kind, parent_id=parent_id, input=_safe(input),
+                metadata=_safe(dict(metadata or {})), phase=phase,
+                actor_id=actor_id, provider=provider, model=model,
+                source_revision=source_revision or self.source_revision,
+            )
             self.spans.append(item)
             return item
 
@@ -138,17 +165,27 @@ class Trace:
         return self
 
     def as_dict(self) -> dict[str, Any]:
-        return {
-            "trace_id": self.trace_id,
-            "name": self.name,
-            "start": self.start,
-            "end": self.end,
-            "duration_ms": None if self.end is None else round((self.end - self.start) * 1000, 2),
-            "status": self.status,
-            "metadata": _safe(self.metadata),
-            "spans": [_safe({**asdict(s), "duration_ms": s.duration_ms}) for s in self.spans],
-            "scores": [_safe(asdict(s)) for s in self.scores],
-        }
+        with _TRACE_LOCK:
+            data = {
+                "schema_version": self.schema_version,
+                "trace_id": self.trace_id,
+                "run_id": self.run_id,
+                "session_id": self.session_id,
+                "task_id": self.task_id,
+                "source_revision": self.source_revision,
+                "config_digest": self.config_digest,
+                "name": self.name,
+                "start": self.start,
+                "end": self.end,
+                "duration_ms": None if self.end is None else round((self.end - self.start) * 1000, 2),
+                "status": self.status,
+                "metadata": _safe(self.metadata),
+                "spans": [_safe({**asdict(s), "duration_ms": s.duration_ms}) for s in self.spans],
+                "scores": [_safe(asdict(s)) for s in self.scores],
+            }
+        canonical = json.dumps(_safe(data), sort_keys=True, separators=(",", ":"), allow_nan=False)
+        data["event_digest"] = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+        return data
 
 
 class LocalExporter:
@@ -181,8 +218,27 @@ class Tracer:
     def __init__(self, exporter: LocalExporter | None = None) -> None:
         self.exporter = exporter or LocalExporter()
 
-    def start(self, name: str, metadata: Mapping[str, Any] | None = None) -> Trace:
-        return Trace(name, metadata=dict(metadata or {}))
+    def start(
+        self,
+        name: str,
+        metadata: Mapping[str, Any] | None = None,
+        *,
+        run_id: str | None = None,
+        session_id: str | None = None,
+        task_id: str | None = None,
+        source_revision: str | None = None,
+        config_digest: str | None = None,
+    ) -> Trace:
+        details = dict(metadata or {})
+        return Trace(
+            name,
+            metadata=details,
+            run_id=run_id or details.get("run_id"),
+            session_id=session_id or details.get("session_id"),
+            task_id=task_id or details.get("task_id"),
+            source_revision=source_revision or details.get("source_revision"),
+            config_digest=config_digest or details.get("config_digest"),
+        )
 
     def end(self, trace: Trace, status: str = "ok") -> Trace:
         trace.finish(status)
