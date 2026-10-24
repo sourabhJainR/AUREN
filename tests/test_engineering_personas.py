@@ -102,6 +102,18 @@ def test_persona_workflow_reviews_plan_before_implementation_and_reviews_result(
             },
             "hard_gates": {"tests": True},
             "evidence": [EvidenceItem("test-run", "targeted tests passed", "tests:test-run")],
+            "provider_route": {"provider": "test-provider", "model": "test-model", "reason": "fixture route"},
+            "usage": {"input_tokens": 12, "output_tokens": 8, "cost_usd": 0.01, "latency_ms": 4.2},
+            "observability_events": [{
+                "name": "unit-test-tool",
+                "phase": "tool",
+                "status": "ok",
+                "input": "PRIVATE PROMPT MUST NOT BE COPIED",
+                "input_digest": "sha256:fixture",
+                "output_ref": "tests:unit-test",
+                "duration_ms": 4.2,
+                "evidence_refs": ["tests:unit-test"],
+            }],
         }
 
     result = execute(task, worker, tracer=tracer, persona_workflow=workflow)
@@ -115,6 +127,9 @@ def test_persona_workflow_reviews_plan_before_implementation_and_reviews_result(
     assert '"phase":"ideation"' in trace_text
     assert '"phase":"research"' in trace_text
     assert '"phase":"verification"' in trace_text
+    assert '"phase":"tool"' in trace_text
+    assert '"provider":"test-provider"' in trace_text
+    assert "PRIVATE PROMPT MUST NOT BE COPIED" not in trace_text
 
 
 def test_plan_rejection_blocks_implementation():
