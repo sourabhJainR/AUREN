@@ -19,6 +19,7 @@ from types import MappingProxyType
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from portable.identity_compat import canonical_runtime_home, get_auren_env
+from portable.progress_journal import _journal_file_lock
 from typing import Any, Callable, Iterable, Mapping
 
 _SECRET = re.compile(r"(?i)(api[_-]?key|token|password|secret|authorization)")
@@ -251,13 +252,20 @@ class LocalExporter:
             raise ValueError("trace exceeds the configured observability event size limit")
         self.path.parent.mkdir(parents=True, exist_ok=True)
         line = (payload + "\n").encode("utf-8")
-        # One append write prevents interleaved records between threads in this process.
-        with _TRACE_LOCK:
+        # Serialize across processes as well as threads. fsync makes a successful
+        # export durable before the caller treats the observation as recorded.
+        # Do not take _TRACE_LOCK here: export_event can call this while already
+        # holding it, and file-lock acquisition must not invert lock ordering.
+        with _journal_file_lock(self.path, timeout_seconds=2.0):
             descriptor = os.open(str(self.path), os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
             try:
-                written = os.write(descriptor, line)
-                if written != len(line):
-                    raise OSError("incomplete observability append")
+                offset = 0
+                while offset < len(line):
+                    written = os.write(descriptor, line[offset:])
+                    if written <= 0:
+                        raise OSError("incomplete observability append")
+                    offset += written
+                os.fsync(descriptor)
             finally:
                 os.close(descriptor)
 
