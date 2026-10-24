@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
-from portable.docker_isolated_evaluator import DockerEvaluatorPolicy, DockerIsolatedEvaluatorExecutor
+from portable.docker_isolated_evaluator import DockerEvaluatorPolicy, DockerIsolatedEvaluatorExecutor, _DockerAttachedProcess
 
 
 IMAGE = "registry.example.org/auren/evaluator@sha256:" + "a" * 64
@@ -65,6 +65,30 @@ class DockerEvaluatorPolicyTests(unittest.TestCase):
         cid_path.write_text("container-id", encoding="ascii")
         attached.terminate_isolated()
         self.assertTrue(any(call.args[0][1] == "kill" for call in run.call_args_list if call.args))
+
+
+    @patch("portable.docker_isolated_evaluator.os.killpg")
+    @patch("portable.docker_isolated_evaluator.subprocess.run")
+    def test_cleanup_failure_is_recorded_and_container_evidence_is_preserved(self, run, killpg):
+        with tempfile.TemporaryDirectory() as directory:
+            cid_path = Path(directory) / "container.cid"
+            cid_path.write_text("container-id", encoding="ascii")
+            process = Mock()
+            process.stdin = Mock()
+            process.stdout = Mock()
+            process.pid = 4321
+            process.wait.return_value = -9
+            run.side_effect = [
+                Mock(returncode=1),                       # docker kill failed
+                Mock(returncode=0, stdout="true\\n"), # container still running
+                Mock(returncode=1),                       # docker rm failed
+                Mock(returncode=0),                       # container still exists
+            ]
+            attached = _DockerAttachedProcess(process, cid_path, "docker")
+            attached.terminate_isolated()
+            self.assertIn("remained running", attached.termination_error)
+            self.assertIn("still exists", attached.termination_error)
+            self.assertTrue(cid_path.exists(), "retain the container ID for reconciliation")
 
 
 if __name__ == "__main__":
