@@ -115,6 +115,30 @@ class AttestationFreshnessTests(unittest.TestCase):
         self.assertEqual(64, len(registry.binding["policy_digest"]))
         self.assertEqual("claim-context-1", registry.operation_id)
 
+    def test_wrapper_timestamp_cannot_create_a_new_replay_identity(self):
+        signed = EvaluationAttestation(
+            "campaign", "corpus", "oracle", "v1", "signer", "sig",
+            key_id="signer-key-v1",
+        )
+        first_attestation = FreshEvaluationAttestation(signed, 100)
+        changed_wrapper = FreshEvaluationAttestation(signed, 101)
+        self.assertEqual(first_attestation.attestation_id, changed_wrapper.attestation_id)
+
+        verifier = make_verifier()
+        first = verifier.verify(first_attestation, **self.kwargs())
+        replay = verifier.verify(changed_wrapper, **self.kwargs())
+        self.assertTrue(first.trustworthy)
+        self.assertFalse(replay.trustworthy)
+        self.assertIn("already been consumed", replay.reasons[-1])
+
+    def test_wrapper_timestamp_must_match_signed_issuance_time(self):
+        signed = EvaluationAttestation(
+            "campaign", "corpus", "oracle", "v1", "signer", "sig",
+            key_id="signer-key-v1", issued_at_epoch=100,
+        )
+        with self.assertRaisesRegex(ValueError, "match the attestation's signed issuance time"):
+            FreshEvaluationAttestation(signed, 101)
+
     def test_signed_expiry_is_enforced_even_when_age_window_passes(self):
         signed = EvaluationAttestation(
             "campaign", "corpus", "oracle", "v1", "signer", "sig",
