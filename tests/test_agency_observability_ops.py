@@ -219,3 +219,21 @@ class TestAgencyObservabilityOps(unittest.TestCase):
         assert snapshot["corrupt_line_count"] >= 1
         assert snapshot["status"] == "partial"
         assert snapshot["raw_payloads_exposed"] is False
+
+
+
+    def test_missing_incremental_event_sequence_marks_trace_partial(self):
+        path = self.tmp_path / "sequence-gap.jsonl"
+        tracer = Tracer(LocalExporter(path, enabled=True))
+        trace = tracer.start("sequence-gap", {"task_id": "gap-task"})
+        span = trace.span("implementation", phase="implementation")
+        span.finish({"summary": "finished"}, "ok")
+        records = [json.loads(line) for line in path.read_text().splitlines()]
+        filtered = [
+            record for record in records
+            if not (record.get("event_record_version") == 1 and record.get("event_sequence") == 1)
+        ]
+        path.write_text("\n".join(json.dumps(record, sort_keys=True, separators=(",", ":")) for record in filtered) + "\n")
+        snapshot = observability_snapshot(path)
+        assert snapshot["event_sequence_gap_count"] == 1
+        assert snapshot["status"] == "partial"
