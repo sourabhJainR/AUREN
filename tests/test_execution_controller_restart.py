@@ -254,8 +254,10 @@ def test_active_task_cancellation_reaches_handler_and_rejects_success(tmp_path: 
     assert outcomes == [None]
     assert controller.task(task.id).state == "cancelled"
     with sqlite3.connect(controller.db_path) as db:
-        requested = db.execute("SELECT cancel_requested FROM tasks WHERE id=?", (task.id,)).fetchone()
-    assert requested == (1,)
+        requested = db.execute("SELECT cancel_requested, cancel_reason_digest FROM tasks WHERE id=?", (task.id,)).fetchone()
+    assert requested[0] == 1
+    assert isinstance(requested[1], str) and len(requested[1]) == 64
+    assert "test cancellation" not in requested[1]
 
 
 
