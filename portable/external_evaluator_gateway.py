@@ -141,6 +141,10 @@ class ExternalEvaluatorGateway:
             corpus_digest=request.corpus_digest,
         )
         environment = {"PATH": os.environ.get("PATH", ""), **dict(command.environment)}
+        payload = export_campaign_request(request)
+        input_limit = getattr(getattr(self.isolated_executor, "policy", None), "max_input_bytes", None)
+        if input_limit is not None and len(payload) > input_limit:
+            raise ValueError("external evaluator request exceeds isolation input budget")
         if self.isolated_executor is not None:
             # The adapter owns OS-level isolation and must preserve the bounded
             # Popen-like stream/termination contract used below.
@@ -191,10 +195,6 @@ class ExternalEvaluatorGateway:
 
         def send_request() -> None:
             try:
-                payload = export_campaign_request(request)
-                input_limit = getattr(getattr(self.isolated_executor, "policy", None), "max_input_bytes", None)
-                if input_limit is not None and len(payload) > input_limit:
-                    raise ValueError("external evaluator request exceeds isolation input budget")
                 process.stdin.write(payload)
                 process.stdin.close()
             except (BrokenPipeError, OSError, ValueError):
