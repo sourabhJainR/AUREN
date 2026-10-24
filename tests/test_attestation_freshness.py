@@ -50,6 +50,15 @@ class AttestationFreshnessTests(unittest.TestCase):
             now=105,
         )
 
+    def test_production_freshness_requires_durable_replay_registry(self):
+        from portable.evaluator_trust import ProductionSeparationAwareAttestor
+        production_attestor = object.__new__(ProductionSeparationAwareAttestor)
+        with self.assertRaisesRegex(ValueError, "durable SQLiteAttestationReplayRegistry"):
+            FreshnessAwareAttestor(
+                None, None, AttestationFreshnessPolicy(),
+                production_attestor=production_attestor,
+            )
+
     def test_fresh_attestation_is_trustworthy_once(self):
         result = make_verifier().verify(make_attestation(), **self.kwargs())
         self.assertTrue(result.trustworthy)
