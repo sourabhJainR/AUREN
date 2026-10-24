@@ -175,6 +175,9 @@ def execute(
         "source_revision": task.source_revision,
         "config_digest": task.config_digest,
         "session_id": task.session_id,
+        "phase_coverage_gaps": [] if persona_workflow is not None else [
+            "ideation", "research", "independent_plan_review", "independent_implementation_review"
+        ],
     }, task_id=task.task_id, session_id=task.session_id,
        source_revision=task.source_revision or None, config_digest=task.config_digest or None)
     try:
@@ -213,7 +216,38 @@ def execute(
                 "acceptance_criteria": approved_plan.acceptance_criteria,
                 "dependencies": approved_plan.dependencies,
                 "risks_and_mitigations": approved_plan.risks_and_mitigations,
+                "decision_rationale": approved_plan.decision_rationale,
+                "budget": approved_plan.budget,
             })
+            coverage_gaps = trace.metadata.setdefault("phase_coverage_gaps", [])
+            if approved_plan.hypotheses:
+                ideation_span = trace.span(
+                    "ideation", "reasoning", {"hypotheses": approved_plan.hypotheses,
+                    "alternatives": approved_plan.alternatives_considered},
+                    parent_id=plan_span.span_id, phase="ideation",
+                    actor_id=persona_workflow.roster.planner.agent_id,
+                    source_revision=approved_plan.source_revision,
+                )
+                ideation_span.finish({"hypothesis_count": len(approved_plan.hypotheses)})
+            else:
+                coverage_gaps.append("ideation")
+            if approved_plan.research_evidence_refs:
+                research_span = trace.span(
+                    "research_evidence", "evidence_reference",
+                    {"evidence_refs": approved_plan.research_evidence_refs,
+                     "unresolved_questions": approved_plan.unresolved_questions},
+                    parent_id=plan_span.span_id, phase="research",
+                    actor_id=persona_workflow.roster.planner.agent_id,
+                    source_revision=approved_plan.source_revision,
+                )
+                research_span.finish({
+                    "evidence_ref_count": len(approved_plan.research_evidence_refs),
+                    "unresolved_question_count": len(approved_plan.unresolved_questions),
+                })
+            else:
+                coverage_gaps.append("research")
+            if approved_plan.unresolved_questions:
+                trace.metadata["unresolved_questions"] = list(approved_plan.unresolved_questions)
             plan_review_span = trace.span("independent_plan_review", "review", {
                 "plan_digest": digest,
                 "reviewer_id": persona_workflow.roster.plan_reviewer.agent_id,
