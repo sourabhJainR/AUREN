@@ -11,6 +11,8 @@ from portable.agency_evolution_gates import (
     Signal,
     detect_drift,
     evaluate_promotion_gates,
+    evaluate_evaluator_calibration,
+    extract_signals_from_trace,
     prioritize_signals,
 )
 
@@ -105,6 +107,34 @@ class AgencyEvolutionGatesTests(unittest.TestCase):
             path.write_text(json.dumps(row) + "\n", encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "digest mismatch"):
                 journal.read()
+
+
+    def test_trace_outcomes_become_safe_source_linked_signals(self):
+        trace = {
+            "trace_id": "trace-42", "start": 100.0, "status": "failed",
+            "duration_ms": 40000,
+            "spans": [{"span_id": "verify-1", "status": "failed", "output": "do not copy this secret"}],
+            "scores": [{"name": "correctness", "value": 0.4, "reason": "private detail"}],
+            "metadata": {"regressions": [{"regression_id": "reg-1", "passed": False}]},
+        }
+        signals = extract_signals_from_trace(trace, low_score_threshold=0.6, slow_trace_ms=30000)
+        self.assertEqual(len(signals), 4)
+        self.assertTrue(all(signal.source_ref == "trace:trace-42" for signal in signals))
+        self.assertTrue(all("secret" not in signal.summary and "private detail" not in signal.summary for signal in signals))
+        self.assertEqual(len({signal.signal_id for signal in signals}), len(signals))
+
+    def test_evaluator_calibration_blocks_insufficient_samples_and_false_passes(self):
+        small = evaluate_evaluator_calibration("judge-v1", [(True, True)] * 10, minimum_samples=20)
+        self.assertFalse(small.accepted)
+        self.assertEqual(small.reason, "insufficient-independent-cases")
+        cases = [(True, True)] * 25 + [(False, False)] * 24 + [(False, True)]
+        report = evaluate_evaluator_calibration(
+            "judge-v2", cases, minimum_samples=40, minimum_accuracy=0.95,
+            maximum_false_pass_rate=0.02,
+        )
+        self.assertFalse(report.accepted)
+        self.assertEqual(report.false_pass_rate, 1 / 25)
+        self.assertEqual(report.reason, "false-pass-rate-above-threshold")
 
 
 if __name__ == "__main__":
