@@ -356,3 +356,141 @@ class ImprovementJournal:
                 # fdopen owns descriptor after successful construction.
                 raise
             return event
+
+
+
+def extract_signals_from_trace(
+    trace: Mapping[str, Any],
+    *,
+    low_score_threshold: float = 0.6,
+    slow_trace_ms: float = 30_000.0,
+) -> tuple[Signal, ...]:
+    """Convert trace outcomes into candidate signals without treating them as labels.
+
+    Only stable IDs, statuses and metric values are copied. Prompts, inputs, outputs,
+    and arbitrary metadata are deliberately excluded from signal summaries.
+    """
+    low_score = _finite(low_score_threshold, "low_score_threshold")
+    slow_ms = _finite(slow_trace_ms, "slow_trace_ms")
+    if not 0.0 <= low_score <= 1.0 or slow_ms < 0:
+        raise ValueError("low_score_threshold must be in [0, 1] and slow_trace_ms non-negative")
+    trace_id = str(trace.get("trace_id", "")).strip()
+    if not trace_id:
+        raise ValueError("trace must include a stable trace_id")
+    source_ref = f"trace:{trace_id}"
+    observed_at = _finite(trace.get("start", time.time()), "trace.start")
+    signals: list[Signal] = []
+
+    def add(kind: str, summary: str, *, severity: float, impact: float,
+            confidence: float = 0.9, recurrence: float = 0.0,
+            security_relevance: float = 0.0, cost: float = 0.2) -> None:
+        identity = _digest({"trace_id": trace_id, "kind": kind, "summary": summary})[:24]
+        signals.append(Signal(
+            signal_id=f"sig-{identity}", category=kind, summary=summary,
+            source_ref=source_ref, observed_at=observed_at, severity=severity,
+            recurrence=recurrence, confidence=confidence, expected_impact=impact,
+            estimated_cost=cost, security_relevance=security_relevance,
+        ))
+
+    status = str(trace.get("status", "unknown")).lower()
+    if status not in {"ok", "success", "completed"}:
+        add("task-outcome-failure", f"trace ended with status={status}",
+            severity=0.85, impact=0.8, security_relevance=0.25 if status in {"denied", "unauthorized"} else 0.0)
+
+    for span in trace.get("spans", ()) or ():
+        if not isinstance(span, Mapping):
+            continue
+        span_id = str(span.get("span_id", "unknown"))
+        span_status = str(span.get("status", "unknown")).lower()
+        if span_status not in {"ok", "success", "completed", "running"}:
+            add("span-outcome-failure", f"span={span_id} status={span_status}",
+                severity=0.75, impact=0.65,
+                security_relevance=0.35 if span_status in {"denied", "unauthorized", "policy_rejected"} else 0.0)
+    for score in trace.get("scores", ()) or ():
+        if not isinstance(score, Mapping):
+            continue
+        try:
+            value = _finite(score.get("value"), "trace score")
+        except (TypeError, ValueError):
+            continue
+        if not 0.0 <= value <= 1.0:
+            continue
+        if value < low_score:
+            name = str(score.get("name", "unnamed"))[:80]
+            add("low-evaluation-score", f"score={name} below configured threshold",
+                severity=min(1.0, 1.0 - value), impact=0.7, confidence=0.8)
+    duration = trace.get("duration_ms")
+    if duration is not None:
+        duration_ms = _finite(duration, "trace.duration_ms")
+        if duration_ms >= slow_ms and slow_ms > 0:
+            add("slow-trace", "trace duration exceeded configured latency threshold",
+                severity=0.45, impact=0.4, confidence=0.95, cost=0.5)
+    for regression in (trace.get("metadata", {}) or {}).get("regressions", ()) or ():
+        if isinstance(regression, Mapping) and regression.get("passed") is False:
+            regression_id = str(regression.get("regression_id", "unknown"))
+            add("regression-failure", f"regression={regression_id} failed",
+                severity=0.95, impact=0.95, confidence=1.0)
+    return tuple(signals)
+
+
+@dataclass(frozen=True)
+class EvaluatorCalibration:
+    evaluator_revision: str
+    sample_count: int
+    accuracy: float
+    false_pass_rate: float | None
+    false_fail_rate: float | None
+    accepted: bool
+    reason: str
+
+
+def evaluate_evaluator_calibration(
+    evaluator_revision: str,
+    cases: Iterable[tuple[bool, bool]],
+    *,
+    minimum_samples: int = 20,
+    minimum_accuracy: float = 0.95,
+    maximum_false_pass_rate: float = 0.02,
+) -> EvaluatorCalibration:
+    """Measure evaluator decisions against independently adjudicated binary outcomes.
+
+    Each pair is (trusted_expected_pass, evaluator_predicted_pass). The caller is
+    responsible for proving that expected outcomes were independently adjudicated.
+    """
+    if not evaluator_revision.strip():
+        raise ValueError("evaluator_revision is required")
+    if minimum_samples < 1:
+        raise ValueError("minimum_samples must be positive")
+    min_accuracy = _finite(minimum_accuracy, "minimum_accuracy")
+    max_false_pass = _finite(maximum_false_pass_rate, "maximum_false_pass_rate")
+    if not 0.0 <= min_accuracy <= 1.0 or not 0.0 <= max_false_pass <= 1.0:
+        raise ValueError("calibration thresholds must be in [0, 1]")
+    pairs = list(cases)
+    if any(type(expected) is not bool or type(predicted) is not bool for expected, predicted in pairs):
+        raise ValueError("calibration outcomes must be booleans")
+    count = len(pairs)
+    if count == 0:
+        raise ValueError("at least one independently adjudicated case is required")
+    correct = sum(expected == predicted for expected, predicted in pairs)
+    actual_failures = sum(not expected for expected, _ in pairs)
+    actual_successes = sum(expected for expected, _ in pairs)
+    false_passes = sum(not expected and predicted for expected, predicted in pairs)
+    false_fails = sum(expected and not predicted for expected, predicted in pairs)
+    accuracy = correct / count
+    false_pass_rate = false_passes / actual_failures if actual_failures else None
+    false_fail_rate = false_fails / actual_successes if actual_successes else None
+    accepted = count >= minimum_samples and accuracy >= min_accuracy and (
+        false_pass_rate is not None and false_pass_rate <= max_false_pass
+    )
+    if count < minimum_samples:
+        reason = "insufficient-independent-cases"
+    elif false_pass_rate is None:
+        reason = "no-negative-cases-to-measure-false-passes"
+    elif accuracy < min_accuracy:
+        reason = "accuracy-below-threshold"
+    elif false_pass_rate > max_false_pass:
+        reason = "false-pass-rate-above-threshold"
+    else:
+        reason = "calibration-thresholds-passed"
+    return EvaluatorCalibration(evaluator_revision, count, accuracy, false_pass_rate,
+                                false_fail_rate, accepted, reason)
