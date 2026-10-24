@@ -323,9 +323,18 @@ def authorize_calibrated_guardrail(
         or result.validation_pass_recall is None
         or not result.training_digest
         or not result.validation_digest
+        or len(result.training_digest) != 64
+        or len(result.validation_digest) != 64
+        or any(char not in "0123456789abcdef" for char in result.training_digest.lower() + result.validation_digest.lower())
         or not result.training_evidence_refs
         or not result.validation_evidence_refs
+        or len(result.training_evidence_refs) != result.training_count
+        or len(result.validation_evidence_refs) != result.validation_count
+        or len(set(result.training_evidence_refs)) != len(result.training_evidence_refs)
+        or len(set(result.validation_evidence_refs)) != len(result.validation_evidence_refs)
         or set(result.training_evidence_refs) & set(result.validation_evidence_refs)
+        or not math.isfinite(result.threshold)
+        or not 0 <= result.threshold <= 1
         or result.training_false_pass_rate > result.max_false_pass_rate
         or result.validation_false_pass_rate > result.max_false_pass_rate
         or result.validation_pass_recall < result.min_pass_recall
