@@ -376,7 +376,7 @@ def read_drift_alerts(path: Path, *, limit: int = 50) -> dict[str, Any]:
     if not path.exists():
         return {"status": "unavailable", "alerts": []}
     try:
-        uri = "file:" + path.resolve().as_posix() + "?mode=ro"
+        uri = path.resolve().as_uri() + "?mode=ro"
         connection = sqlite3.connect(uri, uri=True, timeout=1.0)
         try:
             table = connection.execute(
