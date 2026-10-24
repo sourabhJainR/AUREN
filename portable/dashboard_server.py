@@ -8,6 +8,8 @@ from urllib.parse import urlparse
 from .engineering_dashboard import EngineeringDashboard
 from .muxin_session_adapter import LocalModelDiscovery, MuxinSessionAdapter
 from .hybrid_model_router import HybridModelRouter, TaskRouteRequest
+from .agency_observability_ops import observability_snapshot
+from .identity_compat import canonical_runtime_home
 
 UI_ROOT = Path(__file__).resolve().parent.parent / "dashboard"
 CONTROL_CENTER = Path(__file__).resolve().parent.parent / "site" / "control-center.html"
@@ -95,6 +97,14 @@ class _Handler(BaseHTTPRequestHandler):
         if path == "/api/dashboard":
             body = json.dumps(self.dashboard.snapshot().as_dict(), separators=(",", ":")).encode()
             self._send(200, body, "application/json; charset=utf-8")
+            return
+        if path == "/api/observability":
+            try:
+                trace_path = canonical_runtime_home() / "observability" / "traces.jsonl"
+                body = json.dumps(observability_snapshot(trace_path), separators=(",", ":")).encode()
+                self._send(200, body, "application/json; charset=utf-8")
+            except Exception:
+                self._send(503, b'{"error":"observability snapshot unavailable"}', "application/json; charset=utf-8")
             return
         if path == "/api/control-center":
             try:
