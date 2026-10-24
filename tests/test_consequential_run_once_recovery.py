@@ -29,7 +29,12 @@ class ConsequentialRunOnceRecoveryTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         _PROVIDER_CALLS.clear()
         self.root = Path(self.temp.name)
-        self.controller = ExecutionController(self.root)
+        self.controller = ExecutionController(
+            self.root,
+            provider_resume_authorizer=lambda _task, _clarification, operator, reason: (
+                operator in {"operator-7", "operator-8"} and bool(reason.strip())
+            ),
+        )
         self._register(self.controller)
 
     @staticmethod
@@ -66,6 +71,62 @@ class ConsequentialRunOnceRecoveryTests(unittest.TestCase):
             "revision": "abc123",
             "auren_idempotency": {"key": "run-recovery-1:deploy:staging"},
         }
+
+    def test_operator_resume_requires_trusted_authorizer(self):
+        controller = ExecutionController(self.root / "without-authorizer")
+        self._register(controller)
+        task = controller.submit("consequential-recovery-action", self._payload())
+        self.assertIsNone(controller.run_once(task.id))
+        self.assertEqual("blocked_reconciliation", controller.task(task.id).state)
+        clarification = controller.company.open_clarifications(task.work_unit_id)[0]
+
+        class Adapter:
+            def lookup_operation(self, *_args):
+                raise AssertionError("authorization must be checked before provider lookup")
+
+            def verify_reconciliation(self, *_args):
+                return False
+
+        controller.register_provider_operation_adapter(task.handler, Adapter())
+        with self.assertRaisesRegex(PermissionError, "trusted provider reconciliation resume authorizer"):
+            controller.resume_blocked_provider_task(
+                task.id,
+                clarification_id=clarification["id"],
+                operator_id="operator-claimed-by-caller",
+                operator_reason="Attempted resume without authenticated host authorization.",
+            )
+        self.assertEqual("blocked_reconciliation", controller.task(task.id).state)
+        self.assertEqual("open", controller.company.open_clarifications(task.work_unit_id)[0]["state"])
+        self.assertEqual(["abc123"], _PROVIDER_CALLS)
+
+    def test_operator_resume_rejects_truthy_non_boolean_authorization(self):
+        controller = ExecutionController(
+            self.root / "truthy-authorizer",
+            provider_resume_authorizer=lambda *_args: "yes",
+        )
+        self._register(controller)
+        task = controller.submit("consequential-recovery-action", self._payload())
+        self.assertIsNone(controller.run_once(task.id))
+        clarification = controller.company.open_clarifications(task.work_unit_id)[0]
+
+        class Adapter:
+            def lookup_operation(self, *_args):
+                raise AssertionError("rejected authorization must not trigger provider lookup")
+
+            def verify_reconciliation(self, *_args):
+                return False
+
+        controller.register_provider_operation_adapter(task.handler, Adapter())
+        with self.assertRaisesRegex(PermissionError, "literal True"):
+            controller.resume_blocked_provider_task(
+                task.id,
+                clarification_id=clarification["id"],
+                operator_id="operator-7",
+                operator_reason="A truthy string must not authorize the resume.",
+            )
+        self.assertEqual("blocked_reconciliation", controller.task(task.id).state)
+        self.assertEqual("open", controller.company.open_clarifications(task.work_unit_id)[0]["state"])
+        self.assertEqual(["abc123"], _PROVIDER_CALLS)
 
     def test_operator_resume_reconciles_status_without_redispatch(self):
         first = self.controller.submit("consequential-recovery-action", self._payload())

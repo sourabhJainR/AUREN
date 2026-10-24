@@ -10,7 +10,9 @@ Every consequential provider operation has one stable operation ID and one immut
 
 Register a trusted adapter against the consequential handler with `ExecutionController.register_provider_operation_adapter(handler_name, adapter)`. The adapter must expose `lookup_operation(operation_id, idempotency_key)` and a host-trusted `verify_reconciliation(idempotency_key, evidence_ref, receipt)`. The consequential handler receives `auren_provider_operation` metadata containing the stable operation ID and idempotency key and must pass that key to the provider when supported.
 
-An unresolved consequential task is persisted as `blocked_reconciliation`, and its work unit waits for external resolution. After registering the trusted adapter, an operator can call `resume_blocked_provider_task` with the task ID, its clarification ID, operator identity, and reason. That action requeues status lookup only; it does not authorize a remote side effect.
+An unresolved consequential task is persisted as `blocked_reconciliation`, and its work unit waits for external resolution. After registering the trusted provider adapter, the host must also configure `ExecutionController(provider_resume_authorizer=...)`. The authorizer validates the task ID, clarification ID, operator identity, and reason against authenticated host context and must return the literal boolean `True`. Missing, failing, false, or truthy non-boolean results fail closed before the clarification or task state is changed. A caller-supplied operator ID is an audit field, not proof of identity.
+
+An authorized operator can then call `resume_blocked_provider_task`. That action requeues status lookup only; it does not authorize a remote side effect. If the trusted authorizer is unavailable, leave the task blocked and request authenticated operator intervention rather than recording an unverified identity.
 
 On recovery, the controller performs the adapter's read-only lookup before allowing any further dispatch. Only a completed outcome with a provider evidence reference accepted by the trusted verifier closes the ledger. Pending, absent, malformed, not-found, or failed lookup results remain blocked. Adapters must be re-registered by the trusted host after worker restart; missing adapter configuration never triggers a replay.
 
@@ -122,3 +124,8 @@ For external-side-effect Vibe stages, the adapter must return a non-empty top-le
 Command-backed providers using portable.subprocess_provider.SubprocessProviderInvoker may opt into max_memory_bytes and max_processes. POSIX applies RLIMIT_AS and RLIMIT_NPROC before execution; Windows configures Job Object memory and active-process limits before resuming the suspended child. Failure to configure requested limits fails the invocation rather than silently dropping the requested limit.
 
 POSIX RLIMIT_NPROC is per-user, not an isolated process-tree quota, and may behave differently for privileged users. These options are resource controls, not a hostile-code sandbox. Use the container-backed Arena or a separately administered VM/container for workloads requiring enforceable network, filesystem, and aggregate resource isolation.
+
+
+## Rollback
+
+If the trusted operator authorizer is not configured or fails, reconciliation resume stays blocked. Restore service by provisioning the authenticated host adapter, not by adding a permissive default or trusting caller-provided identity strings. A rollback must preserve the blocked task, open clarification, progress journal, and side-effect ledger so the next authorized run can continue status lookup without redispatch.
