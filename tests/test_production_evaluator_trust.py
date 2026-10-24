@@ -44,7 +44,7 @@ class _ReplayCursor:
         self.result = None
 
     def execute(self, sql, params=None):
-        if sql.startswith("CREATE TABLE"):
+        if sql.startswith("CREATE TABLE") or sql.startswith("ALTER TABLE"):
             return
         if "INSERT INTO" in sql and "ON CONFLICT" in sql:
             key = params[0]
