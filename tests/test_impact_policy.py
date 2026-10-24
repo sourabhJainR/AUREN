@@ -110,6 +110,7 @@ class ImpactPolicyTests(unittest.TestCase):
             classify_path("state/new_recovery_gate.json")
         for path in (
             "portable/new_sealed_oracle.py",
+            "portable/new_independent_evaluation.py",
             "tests/test_new_sealed_corpus.py",
         ):
             with self.subTest(path=path), self.assertRaisesRegex(ValueError, "no impact classification"):
