@@ -72,6 +72,7 @@ class EngineeringPlan:
     hypotheses: tuple[str, ...] = ()
     research_evidence_refs: tuple[str, ...] = ()
     unresolved_questions: tuple[str, ...] = ()
+    selected_specialists: tuple[str, ...] = ()
 
     def validate(self) -> None:
         required = {
@@ -85,6 +86,7 @@ class EngineeringPlan:
             "decision_rationale": self.decision_rationale,
             "source_revision": self.source_revision,
             "budget": self.budget,
+            "selected_specialists": self.selected_specialists,
         }
         missing = [name for name, value in required.items() if not value]
         if missing:
@@ -92,8 +94,11 @@ class EngineeringPlan:
         if any(not str(item).strip() for values in (
             self.scope, self.acceptance_criteria, self.alternatives_considered,
             self.risks_and_mitigations, self.test_strategy, self.rollback_plan,
+            self.selected_specialists,
         ) for item in values):
             raise ValueError("plan fields must not contain empty entries")
+        if len(set(self.selected_specialists)) != len(self.selected_specialists):
+            raise ValueError("selected specialists must be unique")
 
 
 def canonical_plan_digest(plan: EngineeringPlan) -> str:
