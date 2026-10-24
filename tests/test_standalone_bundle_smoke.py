@@ -83,10 +83,14 @@ class StandaloneBundleSmokeTests(unittest.TestCase):
                 "cache.db3-wal",
                 "cache.db3-shm",
                 "cache.db3-journal",
-                "notes-shm",
             )
             for name in names:
                 (state / name).write_bytes(b"mutable runtime state")
+            # A generic file ending in "-shm" is not a SQLite sidecar by itself.
+            # Keep this control outside the private learning-state directory.
+            runtime = root / ".ai-harness" / "runtime"
+            runtime.mkdir(parents=True, exist_ok=True)
+            (runtime / "notes-shm").write_bytes(b"ordinary runtime file")
 
             bundle = Path(tmp) / "auren.zip"
             build(root, bundle, source_commit="portable-state-test")
@@ -96,12 +100,10 @@ class StandaloneBundleSmokeTests(unittest.TestCase):
                 archived = set(archive.namelist())
             for name in names:
                 relative = f".ai-harness/learning/{name}"
-                if name == "notes-shm":
-                    self.assertIn(relative, included)
-                    self.assertIn(f"payload/{relative}", archived)
-                else:
-                    self.assertNotIn(relative, included)
-                    self.assertNotIn(f"payload/{relative}", archived)
+                self.assertNotIn(relative, included)
+                self.assertNotIn(f"payload/{relative}", archived)
+            self.assertIn(".ai-harness/runtime/notes-shm", included)
+            self.assertIn("payload/.ai-harness/runtime/notes-shm", archived)
 
 
 if __name__ == "__main__":
