@@ -10,9 +10,9 @@ The runtime can ingest trace metadata and prioritize source-linked signals. Sign
 
 ## Gate G — Experiments and independent evaluation
 
-Each experiment requires an `ExperimentManifest` with baseline/candidate revisions, dataset digest, evaluator revision, seed, metrics and finite budget. Sealed data can only be referenced by ID; it cannot be embedded in the manifest. The result API requires an explicit outcome and evidence references. `unknown`, `unscored`, and `inconclusive` never count as a pass. A passing outcome is marked verified only when independence and holdout isolation are explicitly asserted. The assertion values are not cryptographic attestations; the deployment must source them from trusted evaluator/custody records.
+Each experiment requires an `ExperimentManifest` with baseline/candidate revisions, dataset digest, evaluator revision, seed, metrics and finite budget. Sealed data can only be referenced by ID; it cannot be embedded in the manifest. The result API requires an explicit outcome and evidence references. `unknown`, `unscored`, and `inconclusive` never count as a pass. A passing outcome is marked verified only when independence and holdout isolation are explicitly asserted. The runtime requires accepted evaluator calibration against independently adjudicated cases before promotion, and records both false-pass rate and accuracy. Calibration assertions and references are not cryptographic attestations; the deployment must source them from trusted evaluator/custody records.
 
-Evaluation summaries are bounded and reject prompt, response, payload, secret, token, credential and holdout-data fields. Per-domain scorecards are exposed by `snapshot()`. Candidate promotion still requires the Gate D evidence contract and successful regression/risk gates.
+Evaluation summaries are bounded and reject prompt, response, payload, secret, token, credential and holdout-data fields. Per-domain scorecards are exposed by `snapshot()`. Drift assessments compare observations to both a fixed release baseline and an adaptive operational baseline; either detected drift blocks promotion. These are bounded mean/tolerance checks, not full distribution-shift detectors. Candidate promotion still requires the Gate D evidence contract and successful regression/risk gates.
 
 ## Gate H — Controlled release and rollback
 
