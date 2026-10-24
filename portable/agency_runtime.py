@@ -1,6 +1,6 @@
 """Capability-aware, deterministic execution runtime for specialist agents."""
 from __future__ import annotations
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from hashlib import sha256
 from typing import Callable, Mapping
 from .agency_registry import rank
@@ -10,6 +10,7 @@ from .agency_observability import Tracer
 from .agency_trace_export import RegressionLink, apply_regression_score, correlate_trace_with_regression
 from .agency_regression_loop import PromotionDecision, PromotionPolicy, RegressionPlan, RegressionRun, run_trace_regression_loop
 from .agency_release_lifecycle import ArtifactRef, ArtifactStore, ReleaseState, apply_promotion_decision
+from .engineering_personas import EngineeringPlan, PersonaReview, PersonaWorkflow, canonical_plan_digest, require_approved_review
 
 
 @dataclass(frozen=True)
@@ -24,6 +25,7 @@ class TaskProfile:
     technologies: tuple[str, ...] = ()
     support_limit: int = 2
     context: object | None = None
+    approved_plan: Mapping[str, object] | None = None
 
     def __post_init__(self) -> None:
         if not self.task_id.strip() or not self.request.strip():
@@ -146,6 +148,7 @@ def execute(
     release_store: ArtifactStore | None = None,
     release_artifact: str | None = None,
     release_artifact_id: str | None = None,
+    persona_workflow: PersonaWorkflow | None = None,
 ) -> ExecutionResult:
     """Execute a task and optionally close trace -> regression -> release.
 
@@ -161,23 +164,122 @@ def execute(
     if release_artifact and not release_store:
         raise ValueError("release_store is required when release_artifact is supplied")
     tracer = tracer or Tracer()
-    trace = tracer.start("auren.coding_task", {"task_id": task.task_id, "risk": task.risk, "mutation_mode": task.mutation_mode})
+    trace = tracer.start("auren.coding_task", {
+        "task_id": task.task_id,
+        "risk": task.risk,
+        "mutation_mode": task.mutation_mode,
+        "review_mode": "independent_personas" if persona_workflow is not None else "not_configured",
+    })
     try:
+        if persona_workflow is None and (task.risk.lower() in {"high", "critical"} or release_store is not None):
+            raise ValueError("high-risk execution and release transitions require independent persona review")
+        if persona_workflow is not None:
+            persona_workflow.validate()
+
         plan_span = trace.span("planning", "planner", {"request": task.request, "artifact_type": task.artifact_type})
         assignments = plan_task(task, registry=registry, support_limit=support_limit)
-        plan_span.finish({"assignments": [a.__dict__ for a in assignments]})
-
+        approved_plan: EngineeringPlan | None = None
+        worker_task = task
         result = ExecutionResult(task, assignments)
         result.trace_id = trace.trace_id
         result.ledger.append(LedgerEntry("planned", f"selected {len(assignments)} specialist(s)"))
 
-        worker_span = trace.span("agent_execution", "agent", {"task_id": task.task_id, "specialists": [a.specialist for a in assignments]})
+        if persona_workflow is not None:
+            approved_plan = persona_workflow.plan(task, assignments)
+            if not isinstance(approved_plan, EngineeringPlan):
+                raise TypeError("planning agent must return an EngineeringPlan")
+            approved_plan.validate()
+            digest = canonical_plan_digest(approved_plan)
+            if not approved_plan.plan_digest:
+                approved_plan = replace(approved_plan, plan_digest=digest)
+            plan_span.finish({
+                "assignments": [a.__dict__ for a in assignments],
+                "plan_digest": digest,
+                "acceptance_criteria": approved_plan.acceptance_criteria,
+                "dependencies": approved_plan.dependencies,
+                "risks_and_mitigations": approved_plan.risks_and_mitigations,
+            })
+            plan_review_span = trace.span("independent_plan_review", "review", {
+                "plan_digest": digest,
+                "reviewer_id": persona_workflow.roster.plan_reviewer.agent_id,
+            }, parent_id=plan_span.span_id)
+            plan_review = persona_workflow.review_plan(task, approved_plan)
+            if not isinstance(plan_review, PersonaReview):
+                plan_review_span.finish({"error": "invalid_review_contract"}, "error")
+                raise TypeError("plan reviewer must return a PersonaReview")
+            plan_review_span.finish({
+                "approved": plan_review.approved,
+                "finding_count": len(plan_review.findings),
+                "evidence_refs": plan_review.evidence_refs,
+            }, "ok" if plan_review.approved else "blocked")
+            require_approved_review(
+                plan_review,
+                reviewer=persona_workflow.roster.plan_reviewer,
+                target=persona_workflow.roster.planner,
+            )
+            trace.metadata["plan_digest"] = digest
+            trace.metadata["plan_review"] = {
+                "reviewer_id": plan_review.reviewer_id,
+                "approved": plan_review.approved,
+                "evidence_refs": list(plan_review.evidence_refs),
+            }
+            worker_task = replace(task, approved_plan=asdict(approved_plan))
+            result.ledger.append(LedgerEntry("plan_review_approved", digest, tuple(plan_review.evidence_refs)))
+        else:
+            plan_span.finish({"assignments": [a.__dict__ for a in assignments]})
+
+        worker_span = trace.span("agent_execution", "agent", {
+            "task_id": task.task_id,
+            "specialists": [a.specialist for a in assignments],
+            "implementer_id": persona_workflow.roster.implementer.agent_id if persona_workflow else None,
+        })
         try:
-            raw = dict(worker(task, assignments))
-            worker_span.finish({"deliverable_count": len(raw.get("deliverables", ())), "verification_count": len(raw.get("verification", ()))})
+            raw = dict(worker(worker_task, assignments))
+            worker_span.finish({
+                "deliverable_count": len(raw.get("deliverables", ())),
+                "verification_count": len(raw.get("verification", ())),
+            })
         except Exception as exc:
             worker_span.finish({"error": type(exc).__name__}, "error")
             raise
+
+        if persona_workflow is not None:
+            implementation_review_span = trace.span("independent_implementation_review", "review", {
+                "plan_digest": approved_plan.plan_digest if approved_plan else None,
+                "reviewer_id": persona_workflow.roster.implementation_reviewer.agent_id,
+                "deliverable_count": len(raw.get("deliverables", ())),
+                "verification_count": len(raw.get("verification", ())),
+            }, parent_id=worker_span.span_id)
+            implementation_review = persona_workflow.review_implementation(worker_task, approved_plan, raw)
+            if not isinstance(implementation_review, PersonaReview):
+                implementation_review_span.finish({"error": "invalid_review_contract"}, "error")
+                raise TypeError("implementation reviewer must return a PersonaReview")
+            implementation_review_span.finish({
+                "approved": implementation_review.approved,
+                "finding_count": len(implementation_review.findings),
+                "evidence_refs": implementation_review.evidence_refs,
+            }, "ok" if implementation_review.approved else "blocked")
+            require_approved_review(
+                implementation_review,
+                reviewer=persona_workflow.roster.implementation_reviewer,
+                target=persona_workflow.roster.implementer,
+            )
+            gates = dict(raw.get("hard_gates", {}))
+            gates["independent_implementation_review"] = True
+            raw["hard_gates"] = gates
+            raw["verification"] = list(raw.get("verification", ())) + ["independent implementation review approved"]
+            trace.metadata["implementation_review"] = {
+                "reviewer_id": implementation_review.reviewer_id,
+                "approved": implementation_review.approved,
+                "evidence_refs": list(implementation_review.evidence_refs),
+            }
+            result.ledger.append(LedgerEntry(
+                "implementation_review_approved",
+                "independent review approved",
+                tuple(implementation_review.evidence_refs),
+            ))
+        elif release_store is not None:
+            raise ValueError("release transitions cannot proceed without independent persona review")
 
         result.deliverables = [str(x) for x in raw.get("deliverables", ())]
         result.verification = [str(x) for x in raw.get("verification", ())]
