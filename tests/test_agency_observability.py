@@ -21,7 +21,7 @@ def test_trace_export_is_local_and_redacts_secrets(tmp_path: Path):
     assert "abc123" not in text
     assert "Bearer abc" not in text
     assert trace.as_dict()["spans"][0]["scores"][0]["value"] == 0.9
-    event = json.loads(text)
+    event = json.loads(text.splitlines()[-1])
     assert event["schema_version"] == 1
     assert event["task_id"] is None
     assert len(event["event_digest"]) == 64
