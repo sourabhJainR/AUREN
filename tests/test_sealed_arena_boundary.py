@@ -106,6 +106,22 @@ class SealedArenaBoundaryTests(unittest.TestCase):
             with self.subTest(key=key), self.assertRaisesRegex(ValueError, "answer material"):
                 self.request.validate_task_metadata({"task": {"parameters": [{key: "secret"}]}})
 
+    def test_rejects_answer_keys_with_camel_case_and_punctuation(self) -> None:
+        for key in (
+            "answerKey", "oracleAnswer", "groundTruth", "expectedOutput",
+            "Correct.Answer", "gold-label", "referenceAnswer",
+        ):
+            with self.subTest(key=key), self.assertRaisesRegex(ValueError, "answer material"):
+                self.request.validate_task_metadata({"task": {"metadata": {key: "secret"}}})
+
+    def test_allows_non_answer_metadata_keys(self) -> None:
+        self.request.validate_task_metadata({
+            "prompt_digest": "opaque",
+            "task_name": "benchmark-case",
+            "answer_format": "json",
+            "answer_budget": 3,
+        })
+
     def test_rejects_non_independent_principals(self) -> None:
         with self.assertRaisesRegex(ValueError, "distinct principals"):
             self.receipt(evaluator_id="same", oracle_id="same")

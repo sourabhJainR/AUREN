@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 import hashlib
 import json
 import math
+import re
 import time
 from typing import Callable, Final, Iterable, Mapping
 
@@ -128,11 +129,19 @@ class SealedCampaignRequest:
     def validate_task_metadata(self, payload: Mapping[str, object]) -> None:
         forbidden: set[str] = set()
 
+        forbidden_normalized = {
+            re.sub(r"[^a-z0-9]", "", key.casefold())
+            for key in _FORBIDDEN_PAYLOAD_KEYS
+        }
+
         def inspect(value: object, path: str) -> None:
             if isinstance(value, Mapping):
                 for key, child in value.items():
-                    normalized = str(key).strip().lower().replace("-", "_").replace(" ", "_")
-                    if normalized in _FORBIDDEN_PAYLOAD_KEYS:
+                    # Normalize separators, punctuation and camelCase alike.
+                    # This prevents trivial key spelling changes from bypassing
+                    # the fail-closed answer-material check.
+                    normalized = re.sub(r"[^a-z0-9]", "", str(key).casefold())
+                    if normalized in forbidden_normalized:
                         forbidden.add(f"{path}.{key}")
                     inspect(child, f"{path}.{key}")
             elif isinstance(value, (list, tuple)):
