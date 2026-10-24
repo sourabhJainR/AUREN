@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import time
 import unittest
-from threading import Event
+from threading import Event, Thread
 
 from portable.agency_state_graph import (
     GraphInterrupt,
@@ -223,6 +223,67 @@ class StateGraphTests(unittest.TestCase):
         )
         self.assertTrue(result.interrupted)
         self.assertTrue(any(event.status == "failed-isolated" for event in result.events))
+
+
+    def test_supervised_invocation_binds_controller_cancellation_to_nodes(self):
+        started = Event()
+        cancellation = Event()
+
+        def cooperative_node(_state):
+            active = current_cancellation_event()
+            self.assertIs(active, cancellation)
+            started.set()
+            active.wait(timeout=3)
+            return {"completed": True}
+
+        graph = StateGraph()
+        graph.add_node("cooperative", cooperative_node)
+        graph.add_edge(StateGraph.START, "cooperative").add_edge("cooperative", StateGraph.END)
+        outcomes = []
+        worker = Thread(
+            target=lambda: outcomes.append(
+                graph.compile().invoke_supervised(
+                    {}, execution_payload={"auren_cancel_event": cancellation},
+                    run_id="supervised-cancel",
+                )
+            ),
+            daemon=True,
+        )
+        worker.start()
+        self.assertTrue(started.wait(timeout=3), "graph node did not start")
+        cancellation.set()
+        worker.join(timeout=5)
+        self.assertFalse(worker.is_alive(), "cooperative graph node did not stop")
+        self.assertEqual(1, len(outcomes))
+        self.assertTrue(outcomes[0].interrupted)
+        self.assertNotIn("completed", outcomes[0].state)
+
+    def test_supervised_invocation_rejects_expired_deadline_before_dispatch(self):
+        calls = []
+        graph = StateGraph()
+        graph.add_node("must-not-run", lambda _state: (calls.append(True) or {"done": True}))
+        graph.add_edge(StateGraph.START, "must-not-run").add_edge("must-not-run", StateGraph.END)
+        with self.assertRaisesRegex(TimeoutError, "supervisor deadline expired before graph dispatch"):
+            graph.compile().invoke_supervised(
+                {}, execution_payload={"auren_deadline_epoch": time.time() - 1},
+                run_id="supervised-expired",
+            )
+        self.assertEqual([], calls)
+
+    def test_supervised_invocation_rejects_invalid_deadline_and_runtime_kwarg_overrides(self):
+        graph = StateGraph()
+        graph.add_node("work", lambda _state: {"done": True})
+        graph.add_edge(StateGraph.START, "work").add_edge("work", StateGraph.END)
+        for invalid in (True, float("nan"), "soon"):
+            with self.subTest(invalid=invalid):
+                with self.assertRaises(ValueError):
+                    graph.compile().invoke_supervised(
+                        {}, execution_payload={"auren_deadline_epoch": invalid},
+                    )
+        with self.assertRaisesRegex(TypeError, "owns cancellation and deadline_seconds"):
+            graph.compile().invoke_supervised(
+                {}, execution_payload={}, deadline_seconds=1,
+            )
 
 
 if __name__ == "__main__":
