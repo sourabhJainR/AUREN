@@ -376,6 +376,38 @@ class PortableAurenTests(unittest.TestCase):
             self.assertEqual(active["version"], "20.1.0")
             self.assertEqual(active["source_commit"], "commit-a")
 
+    def test_rollback_metadata_failure_restores_current_build(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "source"
+            auren_home = Path(tmp) / "auren-home"
+            self.make_source(root, "20.1.0")
+            first = Path(tmp) / "first.zip"
+            build(root, first, source_commit="commit-a")
+            install(first, "none", auren_home)
+            self.make_source(root, "20.2.0")
+            second = Path(tmp) / "second.zip"
+            build(root, second, source_commit="commit-b")
+            install(second, "none", auren_home)
+            active_before = json.loads((auren_home / "active.json").read_text(encoding="utf-8"))
+            import portable.auren_runtime as runtime
+            original_atomic_json = runtime._atomic_json
+            failed_once = False
+
+            def fail_active(path: Path, value: object) -> None:
+                nonlocal failed_once
+                if path == auren_home / "active.json" and not failed_once:
+                    failed_once = True
+                    raise OSError("simulated rollback metadata failure")
+                original_atomic_json(path, value)
+
+            with patch("portable.auren_runtime._atomic_json", side_effect=fail_active):
+                with self.assertRaisesRegex(OSError, "simulated rollback metadata failure"):
+                    rollback(auren_home)
+            active_after = json.loads((auren_home / "active.json").read_text(encoding="utf-8"))
+            current_after = json.loads((auren_home / "current" / "install.json").read_text(encoding="utf-8"))
+            self.assertEqual(active_before["source_commit"], active_after["source_commit"])
+            self.assertEqual(active_before["source_commit"], current_after["source_commit"])
+
     def test_install_failure_during_staging_preserves_previous_active_build(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "source"
