@@ -480,6 +480,8 @@ def observability_snapshot(path: Path, *, limit: int = 500) -> dict[str, Any]:
                     corrupt_lines += 1
     latest_by_trace: dict[str, dict[str, Any]] = {}
     span_maps: dict[str, dict[str, dict[str, Any]]] = {}
+    last_sequences: dict[str, int] = {}
+    sequence_gaps = 0
     for line in lines:
         try:
             item = json.loads(line)
