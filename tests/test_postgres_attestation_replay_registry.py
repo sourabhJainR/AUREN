@@ -24,6 +24,9 @@ class FakeCursor:
                 self.connection.store.add(key)
                 self.result = (key,)
             return
+        if sql.startswith("SELECT attestation_id FROM"):
+            self.result = (params[0],) if params[0] in self.connection.store else None
+            return
         raise AssertionError(f"unexpected SQL: {sql}")
 
     def fetchone(self):
@@ -62,7 +65,11 @@ class PostgreSQLAttestationReplayRegistryTests(unittest.TestCase):
 
     def test_unknown_commit_outcome_fails_closed(self):
         store = set()
-        connections = [FakeConnection(store), FakeConnection(store, fail_commit=True)]
+        connections = [
+            FakeConnection(store),
+            FakeConnection(store, fail_commit=True),
+            FakeConnection(store),
+        ]
         def connection_factory():
             if not connections:
                 raise AssertionError("unexpected extra connection")
