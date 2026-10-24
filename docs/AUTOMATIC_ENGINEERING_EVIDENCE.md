@@ -98,6 +98,24 @@ evidence exports block promotion.
 Do not configure a remote sink unless it is approved to receive the allowlisted
 metadata and signed attestation envelopes.
 
+## Outbox concurrency and recovery
+
+Outbox batches are claimed inside a SQLite write transaction. Each claimed event
+uses a unique claim token and a bounded lease; another process must skip that
+unexpired claim. Finalization is fenced by the claim token so an expired worker
+cannot overwrite a newer owner's result.
+
+Delivery is at-least-once, not exactly-once. If the remote sink accepts an event
+and the worker dies before local finalization, a later worker may send the same
+event again with the same stable event ID. The remote sink must enforce that ID
+as its idempotency key. The cross-process regression in
+`tests/test_engineering_evidence_capture.py` holds one worker inside the sink
+while a second process races; only one may deliver the pending event.
+
+Rollback for this regression is test-only: revert the test if the fixture proves
+unstable, but do not remove transactional claims, claim-token fencing, leases,
+or stable event IDs. Keep the outbox row and retry it after the lease expires.
+
 ## Ingest signed external evidence
 
 The external CI, evaluator, oracle-custody, sealed-corpus-custody, isolation-audit,
