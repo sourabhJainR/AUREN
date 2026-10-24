@@ -817,10 +817,12 @@ def rollback(auren_home: Path | None = None) -> Path:
             previous_current_target = versions_root / previous_name
 
     active_written = False
+    skills_sync_attempted = False
     try:
         _set_current(root, version_root)
         _atomic_json(active_path, target)
         active_written = True
+        skills_sync_attempted = True
         _sync_skills(version_root / "skills" / "ai-coding-orchestrator", "agents")
         _append_jsonl_atomic(root / "history.jsonl", {"event": "rollback", **target})
     except Exception:
@@ -830,14 +832,15 @@ def rollback(auren_home: Path | None = None) -> Path:
             _remove_path(current)
         if active_written:
             _atomic_json(active_path, active)
-        previous_name = active.get("install_root")
-        if isinstance(previous_name, str) and Path(previous_name).name == previous_name:
-            previous_skill = versions_root / previous_name / "skills" / "ai-coding-orchestrator"
-            if previous_skill.is_dir():
-                try:
-                    _sync_skills(previous_skill, "agents")
-                except Exception:
-                    pass
+        if skills_sync_attempted:
+            previous_name = active.get("install_root")
+            if isinstance(previous_name, str) and Path(previous_name).name == previous_name:
+                previous_skill = versions_root / previous_name / "skills" / "ai-coding-orchestrator"
+                if previous_skill.is_dir():
+                    try:
+                        _sync_skills(previous_skill, "agents")
+                    except Exception:
+                        pass
         raise
     print(f"Rolled back AUREN to {target['version']} ({str(target.get('source_commit', ''))[:12]})")
     return root / "current"
