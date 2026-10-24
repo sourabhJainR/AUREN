@@ -222,7 +222,7 @@ class SubprocessProviderInvokerTests(unittest.TestCase):
             max_memory_bytes=512 * 1024 * 1024,
             max_processes=24,
         )
-        self.assertEqual("resource-budget-ok\n", provider("request", 3))
+        self.assertEqual(["resource-budget-ok"], provider("request", 3).splitlines())
 
     def test_invalid_resource_budgets_are_rejected_at_construction(self):
         for kwargs in (
