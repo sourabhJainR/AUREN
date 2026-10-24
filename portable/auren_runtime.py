@@ -238,7 +238,12 @@ def _validate_archive_member_name(name: str) -> None:
     if not name or "\x00" in name or "\\" in name:
         raise SystemExit(f"unsafe archive member path: {name!r}")
     relative = PurePosixPath(name)
-    if relative.is_absolute() or any(part in ("", ".", "..") for part in relative.parts):
+    if (
+        name in (".", "./")
+        or relative.is_absolute()
+        or relative.as_posix() != name
+        or any(part in ("", ".", "..") for part in relative.parts)
+    ):
         raise SystemExit(f"unsafe archive member path: {name!r}")
     # Drive-qualified and alternate-stream paths are not portable across hosts.
     if any(":" in part for part in relative.parts):
