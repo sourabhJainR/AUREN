@@ -24,9 +24,10 @@
 - [x] Durable execution and progress-journal recovery have regression coverage for selected commit boundaries.
 - [ ] Extend fault injection to every external side-effect boundary: intent persisted, dispatch started, provider accepted, remote operation completed, receipt persisted, terminal state persisted.
 - [x] Add a command-backed provider invoker that terminates a timed-out child process and has regression tests for timeout, environment isolation, output limits, and error redaction. This is a bounded process adapter, not a full sandbox.
-- [ ] Verify hard termination and process-tree termination on all supported platforms; POSIX kills the process group, while Windows currently terminates the direct child only. Apply OS/container memory limits for untrusted provider output.
-- [ ] Prove cancellation and absolute deadlines propagate through supervisor, graph nodes, provider/model adapters, child processes, and validation commands.
-- [ ] Prove unknown remote outcomes reconcile by idempotency key or operation lookup before retry. No automatic replay when completion is uncertain.
+- [x] Verify hard termination and process-tree termination: implementation is present for the tested platforms: POSIX uses process-group termination, and Windows uses a kill-on-close Job Object. The descendant-process regression passed on main SHA `2ece3959991ac41f9b104242e25a4e1f8153e85e`.
+- [ ] Apply OS/container memory limits for untrusted provider execution. Byte-bounded output capture limits retained output, but does not enforce a process memory quota.
+- [ ] Prove cancellation and absolute deadlines propagate end-to-end through supervisor, graph nodes, provider/model adapters, child processes, and validation commands.
+- [ ] Prove unknown remote outcomes reconcile by idempotency key or authoritative operation lookup before retry. Never automatically replay an uncertain operation.
 
 **Exit evidence:** bounded wall-clock tests, platform-specific process-tree termination, durable checkpoint snapshots, duplicate-side-effect counters, restart/reconciliation tests, and no false-success assertions.
 
@@ -81,6 +82,11 @@
 - [ ] Refresh the roadmap issues against the current main SHA and attach evidence references for each claimed completed phase. This matrix is a dated snapshot; use live Actions and main history for current status.
 - [ ] Keep `site/index.html` and `docs/index.html` byte-identical; run consistency tests and verify Pages deployment on the exact merged SHA.
 - [ ] Publish a release-readiness matrix with limitations, skipped checks, open external gates, install/rollback instructions, and a source/artifact digest.
+
+## Governance verification — 2026-10-23
+
+- [x] The `mainBranchRule` ruleset is active and blocks branch deletion and non-fast-forward updates.
+- [ ] Required status checks are **not configured** in that ruleset as inspected on 2026-10-23. The current ruleset contains only `deletion` and `non_fast_forward`; green CI is therefore not enforced by this ruleset as a merge prerequisite. A repository owner/admin must add the required check names (including the final status aggregator and the relevant runtime, architecture, hardening, harness, and portable-bundle checks) and verify the saved ruleset. This connector can inspect the ruleset but cannot modify repository administration settings.
 
 ## Merge and release rules
 
