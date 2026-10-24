@@ -369,6 +369,45 @@ def evaluate_drift(observations: Iterable[MetricObservation], policy: DriftPolic
     }
 
 
+def read_drift_alerts(path: Path, *, limit: int = 50) -> dict[str, Any]:
+    """Read alert evidence without creating or mutating the SQLite store."""
+    if limit < 1 or limit > 500:
+        raise ValueError("drift alert limit must be between 1 and 500")
+    if not path.exists():
+        return {"status": "unavailable", "alerts": []}
+    try:
+        uri = "file:" + path.resolve().as_posix() + "?mode=ro"
+        connection = sqlite3.connect(uri, uri=True, timeout=1.0)
+        try:
+            table = connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='evaluator_drift_alerts'"
+            ).fetchone()
+            if table is None:
+                return {"status": "unavailable", "alerts": []}
+            rows = connection.execute(
+                "SELECT payload_json FROM evaluator_drift_alerts ORDER BY created_at DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        finally:
+            connection.close()
+        alerts = []
+        for (payload,) in rows:
+            item = json.loads(payload)
+            if isinstance(item, dict):
+                alerts.append({
+                    "metric": str(item.get("metric", ""))[:120],
+                    "domain": str(item.get("domain", ""))[:120],
+                    "alert_reasons": [reason[:120] for reason in item.get("alert_reasons", []) if isinstance(reason, str)][:20],
+                    "baseline_mean": item.get("baseline_mean"),
+                    "recent_mean": item.get("recent_mean"),
+                    "absolute_shift": item.get("absolute_shift"),
+                    "run_ids": [run_id[:120] for run_id in item.get("run_ids", []) if isinstance(run_id, str)][:50],
+                })
+        return {"status": "ok", "alerts": alerts}
+    except (sqlite3.Error, json.JSONDecodeError, OSError, ValueError):
+        return {"status": "corrupt_or_unavailable", "alerts": []}
+
+
 def observability_snapshot(path: Path, *, limit: int = 500) -> dict[str, Any]:
     """Return a safe aggregate view; never return raw prompts, span inputs or outputs."""
     if limit < 1 or limit > 5000:
@@ -447,6 +486,7 @@ def observability_snapshot(path: Path, *, limit: int = 500) -> dict[str, Any]:
             ][:50] if isinstance(metadata.get("phase_coverage_gaps", []), list) else [],
             "review_mode": metadata.get("review_mode", "unknown"),
         })
+    drift = read_drift_alerts(path.parent / "datasets.sqlite3", limit=50)
     return {
         "status": "ok" if traces else ("corrupt" if corrupt_lines else "empty"),
         "trace_count": len(traces),
@@ -456,6 +496,8 @@ def observability_snapshot(path: Path, *, limit: int = 500) -> dict[str, Any]:
         "phase_counts": dict(phase_counts),
         "provider_counts": dict(provider_counts),
         "mean_duration_ms": round(mean(durations), 3) if durations else None,
+        "drift_alert_status": drift["status"],
+        "drift_alerts": drift["alerts"],
         "recent_traces": recent[-100:],
         "raw_payloads_exposed": False,
     }
