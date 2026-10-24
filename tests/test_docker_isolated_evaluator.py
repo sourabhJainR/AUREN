@@ -72,8 +72,8 @@ class DockerEvaluatorPolicyTests(unittest.TestCase):
     @patch("portable.docker_isolated_evaluator.subprocess.run")
     def test_launch_rejects_unallowlisted_environment_secrets(self, run, popen):
         run.side_effect = [
-            Mock(returncode=0, stdout="linux\\n"),
-            Mock(returncode=0, stdout=IMAGE + "\\n"),
+            Mock(returncode=0, stdout="linux\n"),
+            Mock(returncode=0, stdout=IMAGE + "\n"),
         ]
         executor = DockerIsolatedEvaluatorExecutor(DockerEvaluatorPolicy(IMAGE))
         with self.assertRaisesRegex(ValueError, "not allowlisted"):
@@ -93,7 +93,7 @@ class DockerEvaluatorPolicyTests(unittest.TestCase):
             process.wait.return_value = -9
             run.side_effect = [
                 Mock(returncode=1),                       # docker kill failed
-                Mock(returncode=0, stdout="true\\n"), # container still running
+                Mock(returncode=0, stdout="true\n"), # container still running
                 Mock(returncode=1),                       # docker rm failed
                 Mock(returncode=0),                       # container still exists
             ]
