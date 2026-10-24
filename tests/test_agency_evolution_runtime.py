@@ -220,6 +220,16 @@ class AgencyEvolutionRuntimeTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "cycle budget exhausted"):
             bounded.create_experiment(manifest("bounded-2", "b" * 40), evidence_refs=("trace:2",))
 
+
+    def test_release_is_blocked_when_no_trusted_verifier_is_configured(self):
+        unverified_runtime = AgencyEvolutionRuntime(Path(self.tmp.name) / "no-verifier.sqlite3")
+        item = unverified_runtime.create_experiment(manifest(), evidence_refs=("trace:1",))
+        result = unverified_runtime.record_release_event(
+            item["operation_id"], event="shadow_passed", evidence_ref="shadow:1", verified=True,
+        )
+        self.assertEqual(result["state"], "blocked")
+        self.assertIn("trusted controller authorization missing", result["next_action"])
+
     def test_trace_ingestion_returns_safe_prioritized_signals(self):
         result = self.runtime.ingest_trace({
             "trace_id": "trace-1", "status": "failed",
