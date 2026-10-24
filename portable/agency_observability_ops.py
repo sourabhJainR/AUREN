@@ -445,6 +445,7 @@ def observability_snapshot(path: Path, *, limit: int = 500) -> dict[str, Any]:
     provider_counts: Counter[str] = Counter()
     recent = []
     durations = []
+    score_observations: dict[tuple[str, str], list[MetricObservation]] = {}
     now = time.time()
     for trace in traces:
         recorded_status = str(trace.get("status", "unknown"))
@@ -457,6 +458,17 @@ def observability_snapshot(path: Path, *, limit: int = 500) -> dict[str, Any]:
         if isinstance(duration, (int, float)) and math.isfinite(duration):
             durations.append(float(duration))
         phases = []
+        metadata = trace.get("metadata") if isinstance(trace.get("metadata"), dict) else {}
+        domain_value = metadata.get("domain", "general")
+        domain = domain_value[:120] if isinstance(domain_value, str) else "general"
+        risk_value = metadata.get("risk", "normal")
+        risk_tier = risk_value[:40] if isinstance(risk_value, str) else "normal"
+        timestamp = trace.get("end") or trace.get("start") or now
+        run_id_value = trace.get("run_id") or trace.get("trace_id")
+        run_id = run_id_value[:160] if isinstance(run_id_value, str) else str(trace.get("trace_id", "unknown"))
+        evidence_value = trace.get("event_digest") or trace.get("trace_id")
+        evidence_ref = evidence_value[:160] if isinstance(evidence_value, str) else run_id
+        trace_scores: dict[str, float] = {}
         span_records = trace.get("spans", ())
         if not isinstance(span_records, (list, tuple)):
             span_records = ()
@@ -464,13 +476,31 @@ def observability_snapshot(path: Path, *, limit: int = 500) -> dict[str, Any]:
         for span in span_records[:100]:
             if not isinstance(span, dict):
                 continue
-            phase = str(span.get("phase", "unknown"))
+            phase = str(span.get("phase", "unknown"))[:80]
             phase_counts[phase] += 1
-            phases.append({"phase": phase, "status": str(span.get("status", "unknown"))})
+            phases.append({"phase": phase, "status": str(span.get("status", "unknown"))[:40]})
             provider = span.get("provider")
             if isinstance(provider, str) and provider:
-                provider_counts[provider] += 1
-        metadata = trace.get("metadata") if isinstance(trace.get("metadata"), dict) else {}
+                provider_counts[provider[:120]] += 1
+            span_scores = span.get("scores", ())
+            if isinstance(span_scores, (list, tuple)):
+                for score in span_scores[:100]:
+                    if isinstance(score, dict) and isinstance(score.get("name"), str):
+                        value = score.get("value")
+                        if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) and 0 <= value <= 1:
+                            trace_scores[score["name"][:120]] = float(value)
+        top_scores = trace.get("scores", ())
+        if isinstance(top_scores, (list, tuple)):
+            for score in top_scores[:100]:
+                if isinstance(score, dict) and isinstance(score.get("name"), str):
+                    value = score.get("value")
+                    if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) and 0 <= value <= 1:
+                        trace_scores[score["name"][:120]] = float(value)
+        if isinstance(timestamp, (int, float)) and math.isfinite(timestamp):
+            for metric, value in trace_scores.items():
+                score_observations.setdefault((metric, domain), []).append(
+                    MetricObservation(metric, domain, value, run_id, evidence_ref, float(timestamp), risk_tier)
+                )
         recent.append({
             "trace_id": str(trace.get("trace_id", "")),
             "run_id": str(trace.get("run_id", "")),
@@ -486,6 +516,29 @@ def observability_snapshot(path: Path, *, limit: int = 500) -> dict[str, Any]:
             ][:50] if isinstance(metadata.get("phase_coverage_gaps", []), list) else [],
             "review_mode": metadata.get("review_mode", "unknown"),
         })
+    score_trends = []
+    live_drift_alerts = []
+    for (metric, domain), points in sorted(score_observations.items()):
+        points = sorted(points, key=lambda point: point.timestamp)
+        floor = 1.0 if metric == "regression_pass" else 0.8 if metric in {
+            "task_quality", "correctness", "security", "safety", "policy_compliance"
+        } else None
+        report = evaluate_drift(points, DriftPolicy(safety_floor=floor))
+        recent_values = [point.value for point in points[-10:]]
+        score_trends.append({
+            "metric": metric,
+            "domain": domain,
+            "count": len(points),
+            "latest": points[-1].value,
+            "recent_mean": round(mean(recent_values), 6),
+            "drift_status": report["status"],
+            "alert_reasons": report.get("alert_reasons", []),
+        })
+        if report["status"] == "alert":
+            live_drift_alerts.append({
+                **report,
+                "origin": "derived_from_traces",
+            })
     drift = read_drift_alerts(path.parent / "datasets.sqlite3", limit=50)
     return {
         "status": "ok" if traces else ("corrupt" if corrupt_lines else "empty"),
@@ -496,8 +549,10 @@ def observability_snapshot(path: Path, *, limit: int = 500) -> dict[str, Any]:
         "phase_counts": dict(phase_counts),
         "provider_counts": dict(provider_counts),
         "mean_duration_ms": round(mean(durations), 3) if durations else None,
+        "score_trends": score_trends[:100],
         "drift_alert_status": drift["status"],
         "drift_alerts": drift["alerts"],
+        "live_drift_alerts": live_drift_alerts[:50],
         "recent_traces": recent[-100:],
         "raw_payloads_exposed": False,
     }
