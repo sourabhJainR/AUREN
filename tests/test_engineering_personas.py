@@ -1,9 +1,9 @@
-from pathlib import Path
-
 import pytest
 
 from portable.agency_observability import LocalExporter, Tracer
 from portable.agency_runtime import EvidenceItem, TaskProfile, execute
+from portable.agency_regression_loop import RegressionPlan
+from portable.agency_observability import Dataset, DatasetItem
 from portable.engineering_personas import (
     AgentPersona,
     EngineeringPlan,
@@ -139,3 +139,31 @@ def test_high_risk_and_release_execution_require_independent_personas():
     task = TaskProfile("high-risk", "change authority boundary", risk="critical")
     with pytest.raises(ValueError, match="require independent persona review"):
         execute(task, lambda task, assignments: {})
+
+
+
+def test_legacy_trace_cannot_authorize_promotion_without_independent_review():
+    task = TaskProfile("legacy-promotion", "safe change")
+    regression = RegressionPlan(
+        dataset=Dataset("pinned", "1", (DatasetItem("case", "ok"),)),
+        execute_case=lambda trace, item: "ok",
+        judge=lambda trace, item, output: {"correctness": float(output == item.expected)},
+    )
+
+    def worker(task, assignments):
+        return {
+            "deliverables": ["patch-ref"],
+            "verification": ["unit tests passed"],
+            "dimensions": {
+                "correctness": 25, "completeness": 15, "evidence": 15, "verification": 15,
+                "scope_discipline": 10, "security_and_safety": 10, "clarity": 5, "maintainability": 5,
+            },
+            "hard_gates": {"tests": True},
+            "evidence": [EvidenceItem("test-run", "unit tests passed", "tests:run")],
+        }
+
+    result = execute(task, worker, regression_plan=regression)
+    assert result.regression_run is not None and result.regression_run.passed
+    assert result.promotion_decision is not None
+    assert result.promotion_decision.action == "rollback"
+    assert result.promotion_decision.reason == "hard gate failed"
