@@ -33,7 +33,7 @@ PAYLOAD_ROOT = "payload"
 LAUNCHER_PATH = "auren_cli.py"
 REQUIRED_PATHS = (".ai-harness", ".claude-plugin", "skills/ai-coding-orchestrator", "portable", "dashboard")
 EXCLUDED_PARTS = {"__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".git", "worktrees"}
-MUTABLE_FILE_NAMES = {"execution.journal.jsonl", "telemetry.jsonl", "task-memory.jsonl", "regression-events.jsonl"}
+MUTABLE_FILE_NAMES = {"execution.journal.jsonl", "telemetry.jsonl", "task-memory.jsonl", "task-memory.jsonl.lock", "learning-journal.jsonl", "evidence-ledger.jsonl", "regression-events.jsonl"}
 MUTABLE_STATE_SUFFIXES = (
     ".sqlite", ".sqlite3", ".db", ".db3",
     ".sqlite-wal", ".sqlite-shm", ".sqlite-journal",
