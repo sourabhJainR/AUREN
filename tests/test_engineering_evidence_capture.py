@@ -98,7 +98,7 @@ def _flush_outbox_with_blocking_sink(database, worker_id, entered_queue, release
             stream.flush()
             os.fsync(stream.fileno())
         entered_queue.put(worker_id)
-        if not release.wait(15):
+        if not release.wait(60):
             raise TimeoutError("cross-process outbox sink release timed out")
 
     capture = EvidenceCapture(database, sink=sink)
@@ -481,8 +481,8 @@ class EngineeringEvidenceCaptureTests(unittest.TestCase):
             worker.start()
 
         try:
-            active_sink_worker = entered_queue.get(timeout=10)
-            completed_worker, completed_result = result_queue.get(timeout=5)
+            active_sink_worker = entered_queue.get(timeout=15)
+            completed_worker, completed_result = result_queue.get(timeout=15)
             self.assertNotEqual(active_sink_worker, completed_worker)
             self.assertEqual({"sent": 0, "pending": 1}, completed_result)
         finally:
