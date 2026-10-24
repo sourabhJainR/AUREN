@@ -2,6 +2,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from portable.agency_observability import LocalExporter, Tracer
+from portable.state_graph import StateGraph
 from portable.orchestration import (
     Graph,
     Node,
@@ -244,3 +246,34 @@ class OrchestrationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+    def test_state_graph_observability_tracks_canonical_supervisor_and_node_state(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "supervisor-traces.jsonl"
+            graph = Graph([
+                Node("research_sources", NodeKind.AGENT, lambda _: {"evidence": ["source:1"]}),
+                Node("verify_evidence", NodeKind.EVALUATOR, lambda state: bool(state["research_sources"]["evidence"]), depends_on=("research_sources",)),
+            ])
+            tracer = Tracer(LocalExporter(path, enabled=True))
+            result = StateGraph(graph).run(
+                "task-observability-1", "research and verify evidence",
+                {"run_id": "stable-run-1", "session_id": "session-1", "code_revision": "rev-1"},
+                tracer=tracer,
+            )
+            self.assertEqual(result.status, RunStatus.ACCEPTED)
+            records = [json.loads(line) for line in path.read_text().splitlines()]
+            correlated = [record for record in records if record.get("task_id") == "task-observability-1"]
+            self.assertTrue(correlated)
+            self.assertEqual({record.get("run_id") for record in correlated}, {"stable-run-1"})
+            self.assertEqual({record.get("session_id") for record in correlated}, {"session-1"})
+            spans = [record["span"] for record in correlated if isinstance(record.get("span"), dict)]
+            self.assertTrue(any(span.get("name") == "supervisor" for span in spans))
+            research = [span for span in spans if span.get("name") == "supervisor_node:research_sources"]
+            verify = [span for span in spans if span.get("name") == "supervisor_node:verify_evidence"]
+            self.assertTrue(research and verify)
+            self.assertEqual(research[0]["phase"], "research")
+            self.assertEqual(verify[0]["phase"], "verification")
+            self.assertTrue(all(span.get("parent_id") for span in research + verify))
+            terminal = [record for record in records if record.get("event_type") == "trace_updated"]
+            self.assertTrue(terminal)
