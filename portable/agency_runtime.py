@@ -583,6 +583,28 @@ def execute(
             result.promotion_decision = decision
             regression_span.score("regression_pass", 1.0 if regression_run.passed else 0.0, "AUREN-owned regression outcome", "regression")
             regression_span.finish({"regression_id": regression_run.regression_id, "passed": regression_run.passed, "dataset_digest": regression_run.result.dataset_digest, "failures": regression_run.result.failures, "promotion": decision.action})
+            # Learning instrumentation is derived from the canonical regression
+            # result and promotion decision, never from worker-supplied claims.
+            learning_span = trace.span(
+                "regression_learning_feedback", "learning_feedback",
+                {"regression_id": regression_run.regression_id,
+                 "dataset_digest": regression_run.result.dataset_digest,
+                 "source_trace_id": trace.trace_id},
+                parent_id=regression_span.span_id, phase="learning",
+                actor_id="auren.regression_feedback",
+                source_revision=approved_plan.source_revision if approved_plan else (task.source_revision or None),
+            )
+            learning_span.finish({
+                "feedback_source": "canonical_regression_result",
+                "regression_passed": bool(regression_run.passed),
+                "failure_count": len(regression_run.result.failures),
+                "promotion_action": decision.action,
+                "model_or_policy_updated": False,
+            }, "ok" if regression_run.passed else "blocked",
+               None if regression_run.passed else "regression_failed_no_promotion")
+            gaps = trace.metadata.setdefault("phase_coverage_gaps", [])
+            if "learning" in gaps:
+                gaps.remove("learning")
             trace.metadata["promotion"] = decision.as_dict()
             result.ledger.append(LedgerEntry("regression", f"{regression_run.regression_id}: {'passed' if regression_run.passed else 'failed'}"))
             result.ledger.append(LedgerEntry("promotion", f"{decision.action}: {decision.reason}"))
@@ -617,6 +639,25 @@ def execute(
             apply_regression_score(trace, result.regression_link)
             regression_span.score("regression_pass", 1.0 if result.regression_link.passed else 0.0, "linked regression outcome", "regression")
             regression_span.finish({"passed": result.regression_link.passed, "dataset_digest": result.regression_link.dataset_digest, "failures": result.regression_link.failures})
+            learning_span = trace.span(
+                "regression_learning_feedback", "learning_feedback",
+                {"regression_id": regression_id,
+                 "dataset_digest": result.regression_link.dataset_digest,
+                 "source_trace_id": trace.trace_id},
+                parent_id=regression_span.span_id, phase="learning",
+                actor_id="auren.regression_feedback",
+                source_revision=task.source_revision or None,
+            )
+            learning_span.finish({
+                "feedback_source": "linked_regression_result",
+                "regression_passed": bool(result.regression_link.passed),
+                "failure_count": len(result.regression_link.failures),
+                "model_or_policy_updated": False,
+            }, "ok" if result.regression_link.passed else "blocked",
+               None if result.regression_link.passed else "regression_failed_no_promotion")
+            gaps = trace.metadata.setdefault("phase_coverage_gaps", [])
+            if "learning" in gaps:
+                gaps.remove("learning")
             result.ledger.append(LedgerEntry("regression", f"{regression_id}: {'passed' if result.regression_link.passed else 'failed'}"))
 
         tracer.end(trace)
