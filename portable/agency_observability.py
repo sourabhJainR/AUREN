@@ -86,13 +86,17 @@ class Span:
     model: str | None = None
     source_revision: str | None = None
     terminal_reason: str | None = None
+    on_change: Callable[[], None] | None = field(default=None, repr=False, compare=False)
 
     def finish(self, output: Any = None, status: str = "ok", terminal_reason: str | None = None) -> "Span":
-        self.output = _safe(output)
-        self.end = time.time()
-        self.status = status
-        self.terminal_reason = terminal_reason
-        return self
+        with _TRACE_LOCK:
+            self.output = _safe(output)
+            self.end = time.time()
+            self.status = status
+            self.terminal_reason = terminal_reason
+            if self.on_change is not None:
+                self.on_change()
+            return self
 
     @property
     def duration_ms(self) -> float | None:
@@ -101,7 +105,32 @@ class Span:
     def score(self, name: str, value: float, reason: str = "", source: str = "system") -> None:
         if not 0 <= float(value) <= 1:
             raise ValueError("score value must be between 0 and 1")
-        self.scores.append(Score(name, float(value), reason, source))
+        with _TRACE_LOCK:
+            self.scores.append(Score(name, float(value), reason, source))
+            if self.on_change is not None:
+                self.on_change()
+
+    def as_dict(self) -> dict[str, Any]:
+        return _safe({
+            "name": self.name,
+            "kind": self.kind,
+            "span_id": self.span_id,
+            "parent_id": self.parent_id,
+            "start": self.start,
+            "end": self.end,
+            "duration_ms": self.duration_ms,
+            "status": self.status,
+            "input": self.input,
+            "output": self.output,
+            "metadata": self.metadata,
+            "scores": [asdict(score) for score in self.scores],
+            "phase": self.phase,
+            "actor_id": self.actor_id,
+            "provider": self.provider,
+            "model": self.model,
+            "source_revision": self.source_revision,
+            "terminal_reason": self.terminal_reason,
+        })
 
 
 @dataclass
@@ -151,6 +180,7 @@ class Trace:
                 metadata=_safe(dict(metadata or {})), phase=phase,
                 actor_id=actor_id, provider=provider, model=model,
                 source_revision=source_revision or self.source_revision,
+                on_change=(lambda: self.on_change(self)) if self.on_change is not None else None,
             )
             self.spans.append(item)
             if self.on_change is not None:
@@ -160,11 +190,15 @@ class Trace:
     def score(self, name: str, value: float, reason: str = "", source: str = "system") -> None:
         if not 0 <= float(value) <= 1:
             raise ValueError("score value must be between 0 and 1")
-        self.scores.append(Score(name, float(value), reason, source))
+        with _TRACE_LOCK:
+            self.scores.append(Score(name, float(value), reason, source))
+            if self.on_change is not None:
+                self.on_change(self)
 
     def finish(self, status: str = "ok") -> "Trace":
-        self.end = time.time()
-        self.status = status
+        with _TRACE_LOCK:
+            self.end = time.time()
+            self.status = status
         return self
 
     def as_dict(self) -> dict[str, Any]:
@@ -183,7 +217,7 @@ class Trace:
                 "duration_ms": None if self.end is None else round((self.end - self.start) * 1000, 2),
                 "status": self.status,
                 "metadata": _safe(self.metadata),
-                "spans": [_safe({**asdict(s), "duration_ms": s.duration_ms}) for s in self.spans],
+                "spans": [s.as_dict() for s in self.spans],
                 "scores": [_safe(asdict(s)) for s in self.scores],
             }
         canonical = json.dumps(_safe(data), sort_keys=True, separators=(",", ":"), allow_nan=False)
