@@ -80,6 +80,24 @@ class BoundedSubprocessFaultInjectionTests(unittest.TestCase):
             time.sleep(1.2)
             self.assertFalse(marker.exists(), "Windows child escaped its kill-on-close Job Object")
 
+    @unittest.skipIf(os.name == "nt", "POSIX RLIMIT_AS semantics")
+    def test_configured_memory_budget_is_applied_before_child_exec(self):
+        budget = 512 * 1024 * 1024
+        result = run_bounded_command(
+            [sys.executable, "-c", "import resource; print(resource.getrlimit(resource.RLIMIT_AS)[0])"],
+            timeout_seconds=3, max_memory_bytes=budget,
+        )
+        self.assertTrue(result.succeeded, result.stderr)
+        self.assertEqual(str(budget), result.stdout.strip())
+
+    def test_memory_budget_rejects_invalid_values_before_spawn(self):
+        for value in (0, -1, True, 1024, 1.5):
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, "max_memory_bytes"):
+                run_bounded_command(
+                    [sys.executable, "-c", "raise SystemExit(99)"],
+                    timeout_seconds=1, max_memory_bytes=value,
+                )
+
     def test_shell_strings_and_invalid_budgets_are_rejected(self):
         with self.assertRaisesRegex(ValueError,"argv"): run_bounded_command("sleep 10",timeout_seconds=1)
         for value in (0,-1,True,float("nan"),float("inf")):

@@ -60,6 +60,7 @@ def _kill_tree(process: subprocess.Popen, grace: float) -> None:
 
 def run_bounded_command(
     argv: Sequence[str], *, timeout_seconds: float,
+    max_memory_bytes: int | None = None,
     deadline_monotonic: float | None = None,
     cancellation_event: threading.Event | None = None,
     cwd: str | os.PathLike[str] | None = None,
@@ -78,6 +79,8 @@ def run_bounded_command(
     poll = _positive("poll_interval_seconds", poll_interval_seconds)
     if type(max_output_bytes) is not int or max_output_bytes < 1:
         raise ValueError("max_output_bytes must be a positive integer")
+    if max_memory_bytes is not None and (type(max_memory_bytes) is not int or max_memory_bytes < 16 * 1024 * 1024):
+        raise ValueError("max_memory_bytes must be an integer of at least 16 MiB")
     if deadline_monotonic is not None and (isinstance(deadline_monotonic, bool) or not isinstance(deadline_monotonic, (int, float)) or not math.isfinite(deadline_monotonic)):
         raise ValueError("deadline_monotonic must be finite")
     started = time.monotonic()
@@ -90,6 +93,14 @@ def run_bounded_command(
     reason_on_timeout = "parent_deadline_exceeded" if deadline_monotonic is not None and deadline_monotonic <= local_deadline else "command_timeout"
     options = dict(stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=str(cwd) if cwd is not None else None,
                    env=dict(env) if env is not None else None, shell=False, close_fds=True)
+    if max_memory_bytes is not None and os.name != "nt":
+        # RLIMIT_AS is per-process, inherited by descendants; not aggregate container isolation.
+        import resource
+        if not hasattr(resource, "RLIMIT_AS"):
+            raise RuntimeError("memory_limit_unavailable: RLIMIT_AS is not supported")
+        def apply_memory_limit():
+            resource.setrlimit(resource.RLIMIT_AS, (max_memory_bytes, max_memory_bytes))
+        options["preexec_fn"] = apply_memory_limit
     job = None
     if os.name == "nt":
         from .windows_kill_job import CREATE_SUSPENDED, WindowsKillJob
@@ -99,7 +110,7 @@ def run_bounded_command(
     process = subprocess.Popen(list(argv), **options)
     if os.name == "nt":
         try:
-            job = WindowsKillJob(process)
+            job = WindowsKillJob(process, max_memory_bytes=max_memory_bytes)
         except BaseException:
             _kill_tree(process, grace)
             raise
