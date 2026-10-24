@@ -34,16 +34,16 @@ class FreshEvaluationAttestation:
             raise TypeError("EvaluationAttestation is required")
         if type(self.issued_at) is not int or self.issued_at < 0:
             raise ValueError("issued_at must be a non-negative integer")
+        signed_issued_at = self.attestation.issued_at_epoch
+        if signed_issued_at > 0 and signed_issued_at != self.issued_at:
+            raise ValueError("issued_at must match the attestation's signed issuance time")
 
     @property
     def attestation_id(self) -> str:
-        payload = {
-            "attestation_digest": self.attestation.attestation_digest,
-            "issued_at": self.issued_at,
-        }
-        return hashlib.sha256(
-            json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
-        ).hexdigest()
+        # The signed payload digest is the replay key. Do not mix in the
+        # caller-controlled wrapper timestamp, which could otherwise create a
+        # fresh replay slot for the same signed attestation.
+        return self.attestation.attestation_digest
 
 
 @dataclass(frozen=True, slots=True)
