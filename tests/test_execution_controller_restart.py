@@ -223,6 +223,14 @@ def consequential_cancel_handler(payload):
     return {"success": True, "detail": "remote action may have completed"}
 
 
+def cancellation_context_provider(_payload):
+    return {"trusted": True}
+
+
+def cancellation_ci_provider(_payload):
+    return {"status": "completed", "conclusion": "success"}
+
+
 def deadline_aware_handler(payload):
     _RESTART_HANDLER_STARTED.set()
     payload["auren_cancel_event"].wait(timeout=4)
@@ -277,8 +285,17 @@ def test_active_task_cancellation_reaches_handler_and_rejects_success(tmp_path: 
 def test_consequential_cancellation_after_dispatch_is_ambiguous_not_cancelled(tmp_path: Path):
     controller = ExecutionController(tmp_path)
     _RESTART_HANDLER_STARTED.clear()
+    context_name = "tests.test_execution_controller_restart.cancellation_context_provider"
+    ci_name = "tests.test_execution_controller_restart.cancellation_ci_provider"
     name = "tests.test_execution_controller_restart.consequential_cancel_handler"
-    controller.register_handler(name, consequential_cancel_handler, execution_class="consequential")
+    controller.register_handler(context_name, cancellation_context_provider, execution_class="context_provider")
+    controller.register_handler(ci_name, cancellation_ci_provider, execution_class="context_provider")
+    controller.register_handler(
+        name, consequential_cancel_handler,
+        promotion_gate_policy={"context_handler": context_name},
+        ci_gate_policy={"expected_head_sha": "b" * 40, "required_checks": ["required-ci"], "evidence_handler": ci_name},
+        execution_class="consequential",
+    )
     submitted = controller.submit(name, {})
     claimed = controller._claim(submitted.id)
     assert claimed is not None
