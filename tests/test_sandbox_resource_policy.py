@@ -47,6 +47,17 @@ class SandboxResourcePolicyTests(unittest.TestCase):
             self.assertEqual(0, result.returncode)
             self.assertEqual(str(512 * 1024 * 1024) + "\n", result.stdout)
 
+    @unittest.skipIf(os.name == "nt", "POSIX RLIMIT_NPROC semantics")
+    def test_process_budget_is_passed_to_child(self):
+        with tempfile.TemporaryDirectory() as temp:
+            result = sandbox.run(
+                [os.sys.executable, "-c", "import resource; print(resource.getrlimit(resource.RLIMIT_NPROC)[0])"],
+                workspace=Path(temp),
+                policy=sandbox.SandboxPolicy(max_processes=24, timeout_seconds=5),
+            )
+            self.assertEqual(0, result.returncode)
+            self.assertEqual("24\n", result.stdout)
+
     def test_output_capture_is_bounded(self):
         with tempfile.TemporaryDirectory() as temp:
             result = sandbox.run(
