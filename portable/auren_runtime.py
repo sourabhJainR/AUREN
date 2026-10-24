@@ -34,6 +34,13 @@ LAUNCHER_PATH = "auren_cli.py"
 REQUIRED_PATHS = (".ai-harness", "skills/ai-coding-orchestrator", "portable", "dashboard")
 EXCLUDED_PARTS = {"__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".git", "worktrees"}
 MUTABLE_FILE_NAMES = {"execution.journal.jsonl", "telemetry.jsonl", "task-memory.jsonl", "regression-events.jsonl"}
+MUTABLE_STATE_SUFFIXES = (
+    ".sqlite", ".sqlite3", ".db", ".db3",
+    ".sqlite-wal", ".sqlite-shm", ".sqlite-journal",
+    ".sqlite3-wal", ".sqlite3-shm", ".sqlite3-journal",
+    ".db-wal", ".db-shm", ".db-journal",
+    ".db3-wal", ".db3-shm", ".db3-journal",
+)
 
 @dataclass(frozen=True)
 class FileRecord:
@@ -119,7 +126,14 @@ def should_include(path: Path, root: Path) -> bool:
     rel = path.relative_to(root)
     if any(part in EXCLUDED_PARTS for part in rel.parts):
         return False
-    return not (path.is_file() and path.name in MUTABLE_FILE_NAMES)
+    if not path.is_file():
+        return False
+    name = path.name.lower()
+    if name in MUTABLE_FILE_NAMES:
+        return False
+    # SQLite stores and their WAL/SHM/journal sidecars are mutable runtime state.
+    # Sidecars may appear or disappear while the bundle file list is being hashed.
+    return not name.endswith(MUTABLE_STATE_SUFFIXES)
 
 def iter_source_files(root: Path) -> list[Path]:
     files: list[Path] = []

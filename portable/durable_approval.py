@@ -172,6 +172,7 @@ class DurableApprovalStore:
         controller_or_path: Any,
         *,
         approver_authorizer: Callable[[str, str, str, tuple[str, ...]], bool] | None = None,
+        cancellation_authorizer: Callable[[str, ApprovalRecord], bool] | None = None,
         context_provider: Callable[[ActionRequest], Mapping[str, str]] | None = None,
         reconciliation_verifier: Callable[[ApprovalRecord, str, str], bool] | None = None,
         wake_callback: Callable[[str, str], None] | None = None,
@@ -181,6 +182,7 @@ class DurableApprovalStore:
         self.database_path = Path(controller_or_path.db_path if self.controller else controller_or_path)
         self.progress_journal = getattr(self.controller, "progress_journal", None)
         self.approver_authorizer = approver_authorizer
+        self.cancellation_authorizer = cancellation_authorizer
         self.context_provider = context_provider
         self.reconciliation_verifier = reconciliation_verifier
         self.wake_callback = wake_callback
@@ -563,12 +565,12 @@ class DurableApprovalStore:
         if self.approver_authorizer is None:
             raise PermissionError("trusted approver authorization is not configured")
         try:
-            authorized = bool(self.approver_authorizer(
+            authorized = self.approver_authorizer(
                 approver_id, first["required_role"], first["scope"], normalized_roles
-            ))
+            )
         except Exception as exc:
             raise PermissionError("trusted approver authorization failed closed") from exc
-        if not authorized:
+        if authorized is not True:
             raise PermissionError("trusted approver authorization rejected the decision")
         current = _parse_time(now or self._now(), "now")
         wake = False
@@ -835,11 +837,24 @@ class DurableApprovalStore:
         return result
 
     def cancel(self, approval_id: str, *, actor: str, reason: str) -> ApprovalRecord:
+        """Cancel a pending/approved request only after trusted host authorization."""
         actor = _required(actor, "actor")
         reason = _required(reason, "reason")
+        record = self.get(approval_id)
+        if self.cancellation_authorizer is None:
+            raise PermissionError("trusted cancellation authorizer is required")
+        try:
+            authorized = self.cancellation_authorizer(actor, record)
+        except Exception as exc:
+            raise PermissionError("cancellation authorization failed closed") from exc
+        if authorized is not True:
+            raise PermissionError("actor is not authorized to cancel this approval")
+
         with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
-            row = db.execute("SELECT * FROM durable_approvals WHERE approval_id=?", (approval_id,)).fetchone()
+            row = db.execute(
+                "SELECT * FROM durable_approvals WHERE approval_id=?", (approval_id,),
+            ).fetchone()
             if row is None:
                 db.rollback()
                 raise KeyError("unknown approval_id")
@@ -847,14 +862,16 @@ class DurableApprovalStore:
             if row["status"] == "expired":
                 db.commit()
                 result = _record(row)
-                self._project_progress(result, "approval_expired")
-                return result
-            row = self._transition(
-                db, row, "cancelled", event_type="approval_cancelled", actor=actor, reason=reason,
-            )
-            db.commit()
-            result = _record(row)
-        self._project_progress(result, "approval_cancelled")
+                event_type = "approval_expired"
+            else:
+                row = self._transition(
+                    db, row, "cancelled", event_type="approval_cancelled",
+                    actor=actor, reason=reason,
+                )
+                db.commit()
+                result = _record(row)
+                event_type = "approval_cancelled"
+        self._project_progress(result, event_type)
         return result
 
     def expire_due(self, *, limit: int = 100) -> int:
