@@ -216,6 +216,8 @@ class CalibrationResult:
     min_validation_required: int = 20
     training_digest: str = ""
     validation_digest: str = ""
+    training_evidence_refs: tuple[str, ...] = ()
+    validation_evidence_refs: tuple[str, ...] = ()
 
     @property
     def eligible_for_guardrail(self) -> bool:
@@ -233,7 +235,7 @@ class GuardrailAuthorization:
 
 
 def _calibration_digest(samples: tuple[CalibrationSample, ...]) -> str:
-    payload = json.dumps([asdict(sample) for sample in samples], sort_keys=True, separators=(",", ":"), allow_nan=False)
+    payload = json.dumps(_safe([asdict(sample) for sample in samples]), sort_keys=True, separators=(",", ":"), allow_nan=False)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
@@ -263,8 +265,10 @@ def calibrate_evaluator(
         for sample in collection:
             if type(sample.expected_pass) is not bool:
                 raise ValueError("calibration labels must be booleans")
-            if not sample.evidence_ref.strip() or not math.isfinite(sample.score) or not 0 <= sample.score <= 1:
-                raise ValueError("calibration samples require evidence and finite scores in [0, 1]")
+            if not isinstance(sample.evidence_ref, str) or not sample.evidence_ref.strip():
+                raise ValueError("calibration samples require evidence references")
+            if not math.isfinite(sample.score) or not 0 <= sample.score <= 1:
+                raise ValueError("calibration samples require finite scores in [0, 1]")
         references = [sample.evidence_ref for sample in collection]
         if len(references) != len(set(references)):
             raise ValueError("duplicate evidence references cannot inflate calibration sample counts")
@@ -297,6 +301,8 @@ def calibrate_evaluator(
         min_validation_required=min_validation,
         training_digest=_calibration_digest(train),
         validation_digest=_calibration_digest(valid),
+        training_evidence_refs=tuple(_safe(sample.evidence_ref) for sample in train),
+        validation_evidence_refs=tuple(_safe(sample.evidence_ref) for sample in valid),
     )
 
 
@@ -317,6 +323,9 @@ def authorize_calibrated_guardrail(
         or result.validation_pass_recall is None
         or not result.training_digest
         or not result.validation_digest
+        or not result.training_evidence_refs
+        or not result.validation_evidence_refs
+        or set(result.training_evidence_refs) & set(result.validation_evidence_refs)
         or result.training_false_pass_rate > result.max_false_pass_rate
         or result.validation_false_pass_rate > result.max_false_pass_rate
         or result.validation_pass_recall < result.min_pass_recall
