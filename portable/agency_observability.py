@@ -10,8 +10,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import re
+import threading
 import time
 import uuid
 from dataclasses import asdict, dataclass, field
@@ -23,21 +25,39 @@ _SECRET = re.compile(r"(?i)(api[_-]?key|token|password|secret|authorization)")
 _SECRET_VALUE = re.compile(r"(?i)(api[_-]?key|token|password|secret|authorization)\s*[:=]\s*[^,\s]+")
 
 
-def _safe(value: Any, limit: int = 4000) -> Any:
+_TRACE_LOCK = threading.RLock()
+_MAX_TRACE_BYTES = 1_000_000
+_BEARER_VALUE = re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._~+/-]+=*")
+
+
+def _safe(value: Any, limit: int = 4000, _depth: int = 0) -> Any:
+    """Return bounded JSON-safe data without invoking user-defined repr methods."""
+    if _depth > 12:
+        return "[MAX_DEPTH]"
     if isinstance(value, str):
         value = _SECRET_VALUE.sub(r"\1=[REDACTED]", value)
+        value = _BEARER_VALUE.sub("Bearer [REDACTED]", value)
         return value if len(value) <= limit else value[:limit] + "…"
     if isinstance(value, Mapping):
-        return {
-            str(k): "[REDACTED]" if _SECRET.search(str(k)) else _safe(v, limit)
-            for k, v in value.items()
-        }
-    if isinstance(value, (list, tuple)):
-        return [_safe(v, limit) for v in value[:100]]
-    if isinstance(value, (str, int, float, bool)) or value is None:
+        result = {}
+        for index, (key, item) in enumerate(value.items()):
+            if index >= 100:
+                result["[TRUNCATED]"] = True
+                break
+            safe_key = _safe(str(key), 256, _depth + 1)
+            result[safe_key] = "[REDACTED]" if _SECRET.search(str(key)) else _safe(item, limit, _depth + 1)
+        return result
+    if isinstance(value, (list, tuple, set, frozenset)):
+        items = list(value)
+        result = [_safe(item, limit, _depth + 1) for item in items[:100]]
+        if len(items) > 100:
+            result.append("[TRUNCATED]")
+        return result
+    if isinstance(value, float):
+        return value if math.isfinite(value) else "[NON_FINITE_NUMBER]"
+    if isinstance(value, (int, bool)) or value is None:
         return value
-    return repr(value)[:limit]
-
+    return f"[UNSUPPORTED_TYPE:{type(value).__name__}]"
 
 @dataclass
 class Score:
