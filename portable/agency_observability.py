@@ -149,7 +149,8 @@ class Trace:
     task_id: str | None = None
     source_revision: str | None = None
     config_digest: str | None = None
-    on_change: Callable[["Trace"], None] | None = field(default=None, repr=False, compare=False)
+    event_sequence: int = 0
+    on_change: Callable[["Trace", str, Span | None], None] | None = field(default=None, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         if self.run_id is None:
@@ -180,11 +181,11 @@ class Trace:
                 metadata=_safe(dict(metadata or {})), phase=phase,
                 actor_id=actor_id, provider=provider, model=model,
                 source_revision=source_revision or self.source_revision,
-                on_change=(lambda: self.on_change(self)) if self.on_change is not None else None,
+                on_change=(lambda: self.on_change(self, "span_updated", item)) if self.on_change is not None else None,
             )
             self.spans.append(item)
             if self.on_change is not None:
-                self.on_change(self)
+                self.on_change(self, "span_started", item)
             return item
 
     def score(self, name: str, value: float, reason: str = "", source: str = "system") -> None:
@@ -193,7 +194,7 @@ class Trace:
         with _TRACE_LOCK:
             self.scores.append(Score(name, float(value), reason, source))
             if self.on_change is not None:
-                self.on_change(self)
+                self.on_change(self, "trace_score", None)
 
     def finish(self, status: str = "ok") -> "Trace":
         with _TRACE_LOCK:
@@ -276,7 +277,7 @@ class Tracer:
             source_revision=source_revision or details.get("source_revision"),
             config_digest=config_digest or details.get("config_digest"),
         )
-        trace.on_change = self._export_safely
+        trace.on_change = self._record_change
         self._export_safely(trace)
         return trace
 
@@ -291,6 +292,17 @@ class Tracer:
         else:
             trace.metadata.pop("observability_export_status", None)
             trace.metadata.pop("observability_export_error", None)
+
+    def _record_change(self, trace: Trace, event_type: str, span: Span | None) -> None:
+        try:
+            export_event = getattr(self.exporter, "export_event", None)
+            if callable(export_event):
+                export_event(trace, event_type, span)
+            else:
+                self.exporter.export(trace)
+        except Exception as exc:
+            trace.metadata["observability_export_status"] = "failed"
+            trace.metadata["observability_export_error"] = type(exc).__name__
 
     def end(self, trace: Trace, status: str = "ok") -> Trace:
         trace.finish(status)
