@@ -316,27 +316,37 @@ def execute(
             phase="planning", actor_id=persona_workflow.roster.planner.agent_id if persona_workflow else "auren.planner",
             source_revision=task.source_revision or None,
         )
-        assignments = plan_task(task, registry=registry, support_limit=support_limit)
+        candidate_assignments = plan_task(task, registry=registry, support_limit=support_limit)
+        assignments = list(candidate_assignments)
         approved_plan: EngineeringPlan | None = None
         worker_task = task
         result = ExecutionResult(task, assignments)
         result.trace_id = trace.trace_id
-        result.ledger.append(LedgerEntry("planned", f"selected {len(assignments)} specialist(s)"))
 
         if persona_workflow is not None:
-            approved_plan = persona_workflow.plan(task, assignments)
+            approved_plan = persona_workflow.plan(task, candidate_assignments)
             if not isinstance(approved_plan, EngineeringPlan):
                 raise TypeError("planning agent must return an EngineeringPlan")
             approved_plan.validate()
             if task.source_revision and approved_plan.source_revision != task.source_revision:
                 raise ValueError("plan source revision does not match the task source revision")
+            candidate_by_name = {assignment.specialist: assignment for assignment in candidate_assignments}
+            unknown_specialists = [name for name in approved_plan.selected_specialists if name not in candidate_by_name]
+            if unknown_specialists:
+                raise ValueError("plan selected specialists outside the available candidate set: " + ", ".join(unknown_specialists))
+            if not approved_plan.selected_specialists:
+                raise ValueError("planner must select at least one available specialist")
+            assignments = [candidate_by_name[name] for name in approved_plan.selected_specialists]
+            result.assignments = assignments
+            result.ledger.append(LedgerEntry("planned", f"planner selected {len(assignments)} specialist(s) from {len(candidate_assignments)} candidates"))
             digest = canonical_plan_digest(approved_plan)
             if not approved_plan.plan_digest:
                 approved_plan = replace(approved_plan, plan_digest=digest)
             trace.source_revision = approved_plan.source_revision
             trace.metadata["source_revision"] = approved_plan.source_revision
             plan_span.finish({
-                "assignments": [a.__dict__ for a in assignments],
+                "candidate_assignments": [a.__dict__ for a in candidate_assignments],
+                "selected_assignments": [a.__dict__ for a in assignments],
                 "plan_digest": digest,
                 "acceptance_criteria": approved_plan.acceptance_criteria,
                 "dependencies": approved_plan.dependencies,
@@ -420,7 +430,8 @@ def execute(
                 trace.metadata.setdefault("phase_coverage_gaps", []).append("context_assembly")
             result.ledger.append(LedgerEntry("plan_review_approved", digest, tuple(plan_review.evidence_refs)))
         else:
-            plan_span.finish({"assignments": [a.__dict__ for a in assignments]})
+            plan_span.finish({"selected_assignments": [a.__dict__ for a in assignments]})
+            result.ledger.append(LedgerEntry("planned", f"selected {len(assignments)} specialist(s)"))
 
         worker_span = trace.span("agent_execution", "agent", {
             "task_id": task.task_id,
