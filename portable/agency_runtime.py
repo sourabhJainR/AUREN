@@ -29,6 +29,7 @@ class TaskProfile:
     source_revision: str = ""
     config_digest: str = ""
     session_id: str | None = None
+    run_id: str | None = None
 
     def __post_init__(self) -> None:
         if not self.task_id.strip() or not self.request.strip():
@@ -175,10 +176,11 @@ def execute(
         "source_revision": task.source_revision,
         "config_digest": task.config_digest,
         "session_id": task.session_id,
+        "run_id": task.run_id,
         "phase_coverage_gaps": [] if persona_workflow is not None else [
             "ideation", "research", "independent_plan_review", "independent_implementation_review"
         ],
-    }, task_id=task.task_id, session_id=task.session_id,
+    }, run_id=task.run_id, task_id=task.task_id, session_id=task.session_id,
        source_revision=task.source_revision or None, config_digest=task.config_digest or None)
     try:
         if persona_workflow is None and (task.risk.lower() in {"high", "critical"} or release_store is not None):
