@@ -68,6 +68,10 @@ class EngineeringPlan:
     budget: Mapping[str, Any] = field(default_factory=dict)
     source_revision: str = ""
     plan_digest: str = ""
+    decision_rationale: str = ""
+    hypotheses: tuple[str, ...] = ()
+    research_evidence_refs: tuple[str, ...] = ()
+    unresolved_questions: tuple[str, ...] = ()
 
     def validate(self) -> None:
         required = {
@@ -78,6 +82,9 @@ class EngineeringPlan:
             "risks_and_mitigations": self.risks_and_mitigations,
             "test_strategy": self.test_strategy,
             "rollback_plan": self.rollback_plan,
+            "decision_rationale": self.decision_rationale,
+            "source_revision": self.source_revision,
+            "budget": self.budget,
         }
         missing = [name for name, value in required.items() if not value]
         if missing:
@@ -126,6 +133,12 @@ class PersonaReview:
             raise ValueError("a review with unresolved findings cannot be approved")
         if self.approved and not self.evidence_refs:
             raise ValueError("an approval requires evidence references")
+        if self.approved and not self.dimensions:
+            raise ValueError("an approval requires scored review dimensions")
+        if self.approved and any(float(value) < 0.7 for value in self.dimensions.values()):
+            raise ValueError("review score below the minimum approval threshold")
+        if any(not str(reference).strip() for reference in self.evidence_refs):
+            raise ValueError("review evidence references must not be empty")
 
 
 @dataclass(frozen=True)
@@ -141,6 +154,8 @@ class PersonaWorkflow:
         self.roster.validate()
         if not callable(self.plan) or not callable(self.review_plan) or not callable(self.review_implementation):
             raise ValueError("all planning and independent review callbacks are required")
+        if self.plan is self.review_plan or self.plan is self.review_implementation or self.review_plan is self.review_implementation:
+            raise ValueError("planning and review callbacks must be independently configured")
 
 
 def require_approved_review(review: PersonaReview, *, reviewer: AgentPersona, target: AgentPersona) -> None:
