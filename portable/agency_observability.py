@@ -1,10 +1,9 @@
-"""Dependency-free tracing, scoring, datasets, prompts and experiments for AUREN.
+"""Dependency-free, evidence-linked agent observability for AUREN.
 
-The design is intentionally compatible with Opik-style concepts without making
-Opik a runtime dependency: traces contain nested spans, spans can carry scores,
-experiments run against versioned datasets, prompts are immutable by version,
-and telemetry is append-only and local by default. Secrets and large payloads
-are redacted before persistence.
+The design adopts useful tracing, evaluation and regression-loop concepts from
+Langfuse, Galileo and Braintrust without making any of them runtime dependencies.
+Trace events are versioned and append-only; prompt and dataset revisions are
+immutable; privacy filtering runs before persistence.
 """
 from __future__ import annotations
 
