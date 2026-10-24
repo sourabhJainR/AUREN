@@ -223,13 +223,13 @@ class DurableSideEffectLedger:
         if self._reconciliation_verifier is None:
             raise PermissionError("trusted reconciliation verifier is required")
         try:
-            verified = bool(self._reconciliation_verifier(
+            verified = self._reconciliation_verifier(
                 idempotency_key, evidence_ref.strip(), dict(receipt)
-            ))
+            )
         except Exception as exc:
             raise PermissionError("trusted reconciliation verification failed closed") from exc
-        if not verified:
-            raise PermissionError("provider reconciliation evidence was rejected")
+        if verified is not True:
+            raise PermissionError("provider reconciliation evidence was rejected; verifier must return literal True")
         encoded = self._encode(receipt)
         with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
@@ -265,8 +265,8 @@ class DurableSideEffectLedger:
         injected verifier must validate operator authority and the referenced
         provider/operator evidence; absent or failing verifiers deny the retry.
         """
-        if not confirmed_no_effect:
-            raise ValueError("retry requires confirmation that no external effect occurred")
+        if confirmed_no_effect is not True:
+            raise ValueError("retry requires literal True confirmation that no external effect occurred")
         for value, name in (
             (operator_reason, "operator_reason"),
             (operator_id, "operator_id"),
@@ -278,13 +278,13 @@ class DurableSideEffectLedger:
         if self._retry_authorizer is None:
             raise PermissionError("trusted retry authorizer is required")
         try:
-            authorized = bool(self._retry_authorizer(
+            authorized = self._retry_authorizer(
                 idempotency_key, operator_id.strip(), evidence_ref.strip(), operator_reason.strip()
-            ))
+            )
         except Exception as exc:
             raise PermissionError("trusted retry authorization failed closed") from exc
-        if not authorized:
-            raise PermissionError("trusted retry authorizer rejected the evidence")
+        if authorized is not True:
+            raise PermissionError("trusted retry authorizer rejected the evidence; authorizer must return literal True")
         audit_reason = json.dumps({
             "operator_reason": operator_reason.strip(),
             "operator_id": operator_id.strip(),
