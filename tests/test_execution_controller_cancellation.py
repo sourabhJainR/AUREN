@@ -7,7 +7,11 @@ from pathlib import Path
 from portable.execution_controller import ExecutionController
 
 
+_HANDLER_STARTED = threading.Event()
+
+
 def cancellation_aware_handler(payload):
+    _HANDLER_STARTED.set()
     event = payload.get("auren_cancel_event")
     if not isinstance(event, threading.Event):
         raise AssertionError("supervisor must provide a live cancellation Event")
@@ -31,6 +35,7 @@ def test_durable_cancellation_reaches_running_handler_and_rejects_late_success(t
     name = _register(controller, cancellation_aware_handler)
     task = controller.submit(name, {"test": "running-cancellation"})
     failures = []
+    _HANDLER_STARTED.clear()
 
     def run():
         try:
@@ -40,15 +45,7 @@ def test_durable_cancellation_reaches_running_handler_and_rejects_late_success(t
 
     worker = threading.Thread(target=run, daemon=True)
     worker.start()
-    deadline = time.monotonic() + 5
-    while time.monotonic() < deadline:
-        try:
-            events = controller.progress_journal._events()
-            if any(e.get("task_id") == task.id and e.get("event") == "handler_started" for e in events):
-                break
-        except Exception:
-            pass
-        time.sleep(0.01)
+    assert _HANDLER_STARTED.wait(5), "handler did not begin within the test budget"
     assert controller.request_cancellation(task.id, reason="test cancellation")
     worker.join(5)
     assert not worker.is_alive(), "handler did not observe cancellation within the bound"
