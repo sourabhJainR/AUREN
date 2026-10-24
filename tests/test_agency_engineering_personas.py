@@ -42,6 +42,7 @@ def plan(task, assignments):
         hypotheses=("The current runtime contract can support this change without a schema break.",),
         research_evidence_refs=("repo:runtime-contract",),
         unresolved_questions=(),
+        selected_specialists=("runtime-specialist",),
     )
 
 
