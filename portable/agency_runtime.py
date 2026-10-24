@@ -307,7 +307,12 @@ def execute(
                 trace,
                 regression_plan,
                 quality=score,
-                hard_gates=result.hard_gates,
+                hard_gates={
+                    **result.hard_gates,
+                    # Trace presence is not independent approval. Legacy runs remain
+                    # evaluable but cannot promote without the configured review personas.
+                    "independent_implementation_review": persona_workflow is not None,
+                },
                 policy=promotion_policy or PromotionPolicy(),
                 regression_id=regression_id,
             )
