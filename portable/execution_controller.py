@@ -204,6 +204,7 @@ class ExecutionController:
                 ("next_retry_at", "TEXT"), ("quota_blocked", "INTEGER NOT NULL DEFAULT 0"),
                 ("work_key", "TEXT"), ("intent_digest", "TEXT"),
                 ("cancel_requested", "INTEGER NOT NULL DEFAULT 0"),
+                ("cancel_reason_digest", "TEXT"),
             ):
                 if column not in columns:
                     db.execute(f"ALTER TABLE tasks ADD COLUMN {column} {declaration}")
@@ -1912,17 +1913,20 @@ class ExecutionController:
             row = db.execute("SELECT state FROM tasks WHERE id=?", (task_id,)).fetchone()
             if row is None or row[0] in {"completed", "failed", "cancelled", "blocked_reconciliation"}:
                 return False
+            reason_digest = hashlib.sha256(reason.strip().encode("utf-8")).hexdigest()
             db.execute(
-                "UPDATE tasks SET cancel_requested=1, updated_at=? WHERE id=? AND state IN ('pending','running')",
-                (_now(), task_id),
+                "UPDATE tasks SET cancel_requested=1, cancel_reason_digest=COALESCE(cancel_reason_digest, ?), "
+                "updated_at=? WHERE id=? AND state IN ('pending','running')",
+                (reason_digest, _now(), task_id),
             )
         with self._cancellation_events_lock:
             event = self._cancellation_events.get(task_id)
             if event is not None:
                 event.set()
         self._record_progress(
-            task_id, "cancellation_requested", state="running", stage="cancellation",
-            message="Cancellation requested; task outcome remains nonterminal until the owning worker confirms it.",
+            task_id, "cancellation_requested", state=str(row[0]), stage="cancellation",
+            message="Cancellation requested; reason_digest=" + reason_digest
+                    + ". Task outcome remains nonterminal until the owning worker confirms it.",
         )
         return True
 
