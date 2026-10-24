@@ -38,6 +38,28 @@ C. Use reviewed traces to create versioned regression cases; compare candidates 
 D. Calibrate per-domain evaluators and drift alerts before promoting metrics into blocking guardrails.
 E. Project durable run/evidence state into the Engineering Console and test restart, cancellation, partial traces, export failure, and rollback.
 
+## Gate A and Gate B implementation evidence
+
+### Gate A — observability correctness and privacy
+
+The PR implements recursive telemetry sanitization (including quoted multi-token secret assignments and bearer values), bounded payloads, recursively immutable registered prompt metadata, immutable dataset revisions, fail-closed empty/incomplete/non-finite evaluation handling, explicit parent validation, serialized append writes, event digests and sequence-gap detection. Corrupt or interrupted histories are reported as partial rather than complete. Exporter failures remain telemetry failures and do not authorize replay or change the canonical task result.
+
+Deterministic regressions cover redaction bypasses, prompt metadata mutation, empty/inconsistent evaluation datasets, invalid span parents, concurrent writes, unsupported objects, and partial/tampered event histories. Rollback is an isolated revert of this PR, followed by verification that the previous runtime revision and state are restored; release changes must use the existing artifact rollback path, not telemetry state.
+
+### Gate B — canonical lifecycle instrumentation
+
+StateGraph.run with an injected tracer now instruments the actual StateGraph supervisor invocation and its canonical node results. Supervisor and node spans carry stable task/run/session correlation, graph and intent digests, revision metadata, explicit parentage, node status, attempts, repair counts, and evidence counts. The trace's terminal status is derived from the returned OrchestrationRun, not from worker self-report. The coding agency additionally emits canonical evidence, verification, evaluation, regression-feedback, and release/rollback spans. Regression feedback is derived from the runtime regression result and records explicitly that it did not itself mutate a model or policy.
+
+Phase labels on supervisor nodes are derived from the node name and kind. They are useful for coverage and diagnostics, but they are not a substitute for instrumenting a real provider/tool adapter. Worker-supplied provider, research, tool, artifact, and learning observations remain diagnostic only.
+
+### Acceptance still required before claiming full production closure
+
+- Wire actual research/retrieval, provider routing, tool invocation, artifact storage, learning-candidate persistence/promotion, and release/rollback adapters to the same canonical trace context; do not promote worker-reported events into authority.
+- Exercise process interruption, restart/resume, cancellation, partial writes, and duplicate dispatch against the deployed supervisor and verify that correlated traces match durable canonical state.
+- Prove independent evaluator custody, sealed holdout custody, production isolation, and a rehearsed rollback with evidence.
+
+CI validates repository behavior only. Until the external acceptance items above have evidence, Gate B is implemented at the supervisor/runtime observation boundary but is not certified as fully closed end-to-end in production.
+
 ## Non-negotiable limits
 
 - Traces explain behavior; evaluators score behavior; the canonical runtime/policy layer authorizes side effects and promotion.
