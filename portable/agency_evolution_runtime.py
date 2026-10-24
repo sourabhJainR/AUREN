@@ -304,7 +304,8 @@ class AgencyEvolutionRuntime:
 
     def record_evaluation(self, operation_id: str, *, outcome: str, evidence_refs: tuple[str, ...],
                           evaluator_revision: str, independent: bool, holdout_isolated: bool,
-                          metrics: Mapping[str, Any], domain: str) -> dict[str, Any]:
+                          metrics: Mapping[str, Any], domain: str,
+                          lease_token: str | None = None) -> dict[str, Any]:
         outcome = _text(outcome, "outcome").lower()
         evaluator_revision = _text(evaluator_revision, "evaluator_revision")
         domain = _text(domain, "domain")
@@ -318,7 +319,13 @@ class AgencyEvolutionRuntime:
         with closing(sqlite3.connect(self.path, timeout=10)) as db, db:
             db.execute("BEGIN IMMEDIATE")
             item = self._operation(db, operation_id)
-            if item["state"] not in {"running", "evaluated"}:
+            if item["state"] == "running":
+                if not isinstance(lease_token, str) or not lease_token or item["lease_token"] != lease_token or not item["lease_until"] or item["lease_until"] <= time.time():
+                    raise ValueError("evaluation rejected: worker lease is stale, expired or no longer owned")
+            elif item["state"] == "evaluated" and item["outcome"] == "unknown":
+                # A provider-reconciled remote completion may be independently evaluated after recovery.
+                pass
+            else:
                 raise ValueError(f"cannot evaluate operation in state={item['state']}")
             success = outcome == "pass" and independent and holdout_isolated
             state = "evaluated" if success else ("failed" if outcome == "fail" else "inconclusive" if outcome in NON_SUCCESS else "blocked")
