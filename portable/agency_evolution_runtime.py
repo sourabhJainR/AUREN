@@ -275,7 +275,7 @@ class AgencyEvolutionRuntime:
             else:
                 state, outcome, next_action = "failed", "fail", "inspect failure evidence; do not auto-retry"
             refs = list(dict.fromkeys([*item["evidence_refs"], evidence_ref]))
-            db.execute("UPDATE evolution_operations SET state=?,outcome=?,evidence_json=?,next_action=?,updated_at=? WHERE operation_id=?",
+            db.execute("UPDATE evolution_operations SET state=?,outcome=?,evidence_json=?,lease_token=NULL,lease_until=NULL,next_action=?,updated_at=? WHERE operation_id=?",
                        (state, outcome, _canonical(refs), next_action, time.time(), operation_id))
             self._event(db, operation_id, "operation_reconciled", {"remote_state": remote_state, "evidence_ref": evidence_ref, "state": state})
             return self._operation(db, operation_id)
@@ -305,7 +305,7 @@ class AgencyEvolutionRuntime:
                       "holdout_isolated": holdout_isolated, "metrics": safe_metrics, "domain": domain,
                       "evidence_refs": list(evidence_refs), "verified_pass": success}
             refs = list(dict.fromkeys([*item["evidence_refs"], *evidence_refs]))
-            db.execute("UPDATE evolution_operations SET state=?,outcome=?,evidence_json=?,result_json=?,next_action=?,updated_at=? WHERE operation_id=?",
+            db.execute("UPDATE evolution_operations SET state=?,outcome=?,evidence_json=?,result_json=?,lease_token=NULL,lease_until=NULL,next_action=?,updated_at=? WHERE operation_id=?",
                        (state, outcome, _canonical(refs), _canonical(result), next_action, time.time(), operation_id))
             self._event(db, operation_id, "evaluation_recorded", result)
             return self._operation(db, operation_id)
@@ -411,7 +411,7 @@ class AgencyEvolutionRuntime:
             else:
                 state, outcome, next_action = "cancelled", item["outcome"], "cancelled; preserve evidence and verify no external work remains"
             refs = list(dict.fromkeys([*item["evidence_refs"], evidence_ref]))
-            db.execute("UPDATE evolution_operations SET state=?,outcome=?,evidence_json=?,next_action=?,updated_at=? WHERE operation_id=?",
+            db.execute("UPDATE evolution_operations SET state=?,outcome=?,evidence_json=?,lease_token=NULL,lease_until=NULL,next_action=?,updated_at=? WHERE operation_id=?",
                        (state, outcome, _canonical(refs), next_action, time.time(), operation_id))
             self._event(db, operation_id, "cancellation_requested", {"state": state, "evidence_ref": evidence_ref})
             return self._operation(db, operation_id)
