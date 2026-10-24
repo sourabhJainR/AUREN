@@ -94,6 +94,68 @@ class DurableSideEffectLedgerTests(unittest.TestCase):
                 )
             self.assertEqual("reconcile_required", ledger.get("effect-1")["state"])
 
+    def test_retry_confirmation_requires_literal_true(self):
+        for confirmation in (False, "true", 1, None):
+            with self.subTest(confirmation=repr(confirmation)):
+                with tempfile.TemporaryDirectory() as tmp:
+                    ledger = DurableSideEffectLedger(
+                        Path(tmp) / "effects.sqlite3",
+                        retry_authorizer=lambda *_args: True,
+                    )
+                    ledger.begin("effect-1", {"resource": "staging"})
+                    ledger.require_reconciliation("effect-1", "ambiguous")
+                    with self.assertRaisesRegex(ValueError, "literal True"):
+                        ledger.authorize_retry(
+                            "effect-1",
+                            operator_reason="provider confirms no operation",
+                            operator_id="operator-1",
+                            evidence_ref="provider:lookup:123",
+                            confirmed_no_effect=confirmation,
+                        )
+                    self.assertEqual("reconcile_required", ledger.get("effect-1")["state"])
+                    self.assertEqual((), ledger.retry_authorizations("effect-1"))
+
+    def test_retry_authorizer_requires_literal_true(self):
+        for decision in ("yes", 1, object(), None, False):
+            with self.subTest(decision_type=type(decision).__name__, decision=repr(decision)):
+                with tempfile.TemporaryDirectory() as tmp:
+                    ledger = DurableSideEffectLedger(
+                        Path(tmp) / "effects.sqlite3",
+                        retry_authorizer=lambda *_args, result=decision: result,
+                    )
+                    ledger.begin("effect-1", {"resource": "staging"})
+                    ledger.require_reconciliation("effect-1", "ambiguous")
+                    with self.assertRaisesRegex(PermissionError, "literal True"):
+                        ledger.authorize_retry(
+                            "effect-1",
+                            operator_reason="provider confirms no operation",
+                            operator_id="operator-1",
+                            evidence_ref="provider:lookup:123",
+                            confirmed_no_effect=True,
+                        )
+                    self.assertEqual("reconcile_required", ledger.get("effect-1")["state"])
+                    self.assertEqual((), ledger.retry_authorizations("effect-1"))
+
+    def test_reconciliation_verifier_requires_literal_true(self):
+        for decision in ("yes", 1, object(), None, False):
+            with self.subTest(decision_type=type(decision).__name__, decision=repr(decision)):
+                with tempfile.TemporaryDirectory() as tmp:
+                    path = Path(tmp) / "effects.sqlite3"
+                    initial = DurableSideEffectLedger(path)
+                    initial.begin("effect-1", {"resource": "production"})
+                    initial.require_reconciliation("effect-1", "provider outcome unknown")
+                    ledger = DurableSideEffectLedger(
+                        path,
+                        reconciliation_verifier=lambda *_args, result=decision: result,
+                    )
+                    with self.assertRaisesRegex(PermissionError, "literal True"):
+                        ledger.record_reconciled_effect(
+                            "effect-1",
+                            evidence_ref="provider:lookup:123",
+                            receipt={"provider_operation_id": "op-123"},
+                        )
+                    self.assertEqual("reconcile_required", ledger.get("effect-1")["state"])
+
     def test_completed_receipt_cannot_be_rewritten(self):
         with tempfile.TemporaryDirectory() as tmp:
             ledger = DurableSideEffectLedger(Path(tmp) / "effects.sqlite3")
