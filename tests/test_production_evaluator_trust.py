@@ -92,7 +92,8 @@ def production_replay_registry(store):
         "independent_host_count": 2,
         "failover_policy_id": "test-failover-v1",
         "retention_policy_id": "test-retention-v1",
-        "schema_version": "1",
+        "schema_version": "2",
+        "binding_schema_version": "1",
     }
     return PostgreSQLAttestationReplayRegistry(
         lambda: _ReplayConnection(store),
@@ -220,7 +221,7 @@ class ProductionEvaluatorTrustTests(unittest.TestCase):
             restarted = FreshnessAwareAttestor(
                 None, None,
                 AttestationFreshnessPolicy(max_age_seconds=900, max_future_skew_seconds=30),
-                replay_registry=SQLiteAttestationReplayRegistry(replay_db),
+                replay_registry=production_replay_registry(replay_store),
                 production_attestor=production_attestor,
             )
             replay = restarted.verify(
