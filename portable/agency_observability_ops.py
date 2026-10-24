@@ -354,10 +354,19 @@ def observability_snapshot(path: Path, *, limit: int = 500) -> dict[str, Any]:
         return {"status": "unavailable", "reason": "trace_store_missing", "trace_count": 0}
     lines: deque[str] = deque(maxlen=limit)
     corrupt_lines = 0
-    with path.open("r", encoding="utf-8") as handle:
-        for line in handle:
-            if line.strip():
-                lines.append(line)
+    max_scan_bytes = 10_000_000
+    with path.open("rb") as handle:
+        size = path.stat().st_size
+        scan_truncated = size > max_scan_bytes
+        if scan_truncated:
+            handle.seek(size - max_scan_bytes)
+            handle.readline()  # discard a possibly partial first line
+        for raw_line in handle:
+            if raw_line.strip():
+                try:
+                    lines.append(raw_line.decode("utf-8"))
+                except UnicodeDecodeError:
+                    corrupt_lines += 1
     latest_by_trace: dict[str, dict[str, Any]] = {}
     for line in lines:
         try:
@@ -386,7 +395,11 @@ def observability_snapshot(path: Path, *, limit: int = 500) -> dict[str, Any]:
         if isinstance(duration, (int, float)) and math.isfinite(duration):
             durations.append(float(duration))
         phases = []
-        for span in trace.get("spans", ()):
+        span_records = trace.get("spans", ())
+        if not isinstance(span_records, (list, tuple)):
+            span_records = ()
+            corrupt_lines += 1
+        for span in span_records[:100]:
             if not isinstance(span, dict):
                 continue
             phase = str(span.get("phase", "unknown"))
@@ -403,15 +416,19 @@ def observability_snapshot(path: Path, *, limit: int = 500) -> dict[str, Any]:
             "status": status,
             "recorded_status": recorded_status,
             "duration_ms": duration if isinstance(duration, (int, float)) and math.isfinite(duration) else None,
-            "source_revision": trace.get("source_revision"),
+            "source_revision": trace.get("source_revision")[:128] if isinstance(trace.get("source_revision"), str) else None,
             "phases": phases,
-            "phase_coverage_gaps": metadata.get("phase_coverage_gaps", []),
+            "phase_coverage_gaps": [
+                gap[:120] for gap in metadata.get("phase_coverage_gaps", [])
+                if isinstance(gap, str)
+            ][:50] if isinstance(metadata.get("phase_coverage_gaps", []), list) else [],
             "review_mode": metadata.get("review_mode", "unknown"),
         })
     return {
         "status": "ok" if traces else ("corrupt" if corrupt_lines else "empty"),
         "trace_count": len(traces),
         "corrupt_line_count": corrupt_lines,
+        "scan_truncated": scan_truncated,
         "status_counts": dict(status_counts),
         "phase_counts": dict(phase_counts),
         "provider_counts": dict(provider_counts),
