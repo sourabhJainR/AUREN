@@ -23,6 +23,8 @@ from .agency_evolution_gates import (
     evaluate_promotion_gates,
     extract_signals_from_trace,
     prioritize_signals,
+    detect_drift,
+    evaluate_evaluator_calibration,
 )
 
 TERMINAL = frozenset({"completed", "failed", "cancelled", "rolled_back"})
@@ -421,6 +423,76 @@ class AgencyEvolutionRuntime:
                 return False
             previous = supplied
         return True
+
+    def calibrate_evaluator(self, operation_id: str, *, evaluator_revision: str,
+                            adjudicated_cases: tuple[tuple[bool, bool], ...],
+                            adjudication_evidence_refs: tuple[str, ...],
+                            independent_adjudication: bool,
+                            minimum_samples: int = 20, minimum_accuracy: float = 0.95,
+                            maximum_false_pass_rate: float = 0.02) -> dict[str, Any]:
+        """Record calibration only when independent adjudication is explicitly attested."""
+        if type(independent_adjudication) is not bool:
+            raise ValueError("independent_adjudication must be an explicit boolean")
+        if not independent_adjudication:
+            raise ValueError("evaluator calibration requires independent adjudication")
+        if not adjudication_evidence_refs or any(not isinstance(ref, str) or not ref.strip() for ref in adjudication_evidence_refs):
+            raise ValueError("adjudication evidence references are required")
+        result = evaluate_evaluator_calibration(
+            evaluator_revision, adjudicated_cases, minimum_samples=minimum_samples,
+            minimum_accuracy=minimum_accuracy, maximum_false_pass_rate=maximum_false_pass_rate,
+        )
+        payload = {
+            "evaluator_revision": result.evaluator_revision, "sample_count": result.sample_count,
+            "accuracy": result.accuracy, "false_pass_rate": result.false_pass_rate,
+            "false_fail_rate": result.false_fail_rate, "accepted": result.accepted,
+            "reason": result.reason, "independent_adjudication": True,
+            "adjudication_evidence_refs": list(adjudication_evidence_refs),
+        }
+        with closing(sqlite3.connect(self.path, timeout=10)) as db, db:
+            db.execute("BEGIN IMMEDIATE")
+            item = self._operation(db, operation_id)
+            refs = list(dict.fromkeys([*item["evidence_refs"], *adjudication_evidence_refs]))
+            result_json = dict(item["result"])
+            calibrations = list(result_json.get("evaluator_calibrations", []))
+            calibrations.append(payload)
+            result_json["evaluator_calibrations"] = calibrations
+            next_action = "evaluator calibration accepted; retain with promotion evidence" if result.accepted else "block promotion; improve evaluator or collect more independent adjudications"
+            db.execute("UPDATE evolution_operations SET evidence_json=?,result_json=?,next_action=?,updated_at=? WHERE operation_id=?",
+                       (_canonical(refs), _canonical(result_json), next_action, time.time(), operation_id))
+            self._event(db, operation_id, "evaluator_calibrated", payload)
+        return payload
+
+    def assess_drift(self, operation_id: str, *, metric: str, observations: tuple[float, ...],
+                     fixed_release_baseline: float, adaptive_baseline: float,
+                     absolute_tolerance: float, adaptive_tolerance: float,
+                     evidence_ref: str) -> dict[str, Any]:
+        """Compare operational drift against fixed release and adaptive workload baselines."""
+        evidence_ref = _text(evidence_ref, "evidence_ref")
+        result = detect_drift(
+            metric, observations, fixed_baseline=fixed_release_baseline,
+            adaptive_baseline=adaptive_baseline, absolute_tolerance=absolute_tolerance,
+            adaptive_tolerance=adaptive_tolerance,
+        )
+        payload = {
+            "metric": result.metric, "sample_count": result.sample_count,
+            "observed_mean": result.observed_mean, "fixed_baseline": result.fixed_baseline,
+            "adaptive_baseline": result.adaptive_baseline, "absolute_delta": result.absolute_delta,
+            "adaptive_delta": result.adaptive_delta, "drift_detected": result.drift_detected,
+            "reason": result.reason, "evidence_ref": evidence_ref,
+        }
+        with closing(sqlite3.connect(self.path, timeout=10)) as db, db:
+            db.execute("BEGIN IMMEDIATE")
+            item = self._operation(db, operation_id)
+            refs = list(dict.fromkeys([*item["evidence_refs"], evidence_ref]))
+            result_json = dict(item["result"])
+            drift_results = list(result_json.get("drift_assessments", []))
+            drift_results.append(payload)
+            result_json["drift_assessments"] = drift_results
+            next_action = "drift detected; block promotion and investigate" if result.drift_detected else item["next_action"]
+            db.execute("UPDATE evolution_operations SET evidence_json=?,result_json=?,next_action=?,updated_at=? WHERE operation_id=?",
+                       (_canonical(refs), _canonical(result_json), next_action, time.time(), operation_id))
+            self._event(db, operation_id, "drift_assessed", payload)
+        return payload
 
     def ingest_trace(self, trace: Mapping[str, Any]) -> dict[str, Any]:
         """Convert observed trace metadata into prioritized signals, not ground truth."""
