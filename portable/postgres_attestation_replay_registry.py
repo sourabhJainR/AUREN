@@ -189,78 +189,68 @@ class PostgreSQLAttestationReplayRegistry:
         connection = self._connection_factory()
         cursor = None
         try:
-            cursor = connection.cursor()
-            cursor.execute(
-                f"INSERT INTO {self._table}("
-                "attestation_id,binding_digest,attestation_digest,issuer_key_id,audience,purpose,"
-                "expires_at_epoch,policy_version,policy_digest,claim_operation_id,claimed_at_epoch"
-                ") VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,EXTRACT(EPOCH FROM CURRENT_TIMESTAMP)::BIGINT) "
-                "ON CONFLICT (attestation_id) DO NOTHING RETURNING attestation_id",
-                (
-                    identifier, binding_digest, normalized["attestation_digest"],
-                    normalized["issuer_key_id"], normalized["audience"], normalized["purpose"],
-                    normalized["expires_at_epoch"], normalized["policy_version"],
-                    normalized["policy_digest"], operation,
-                ),
-            )
-            inserted = cursor.fetchone()
-            if inserted is not None:
-                claimed = True
-            else:
+            try:
+                cursor = connection.cursor()
                 cursor.execute(
-                    f"SELECT binding_digest, claim_operation_id FROM {self._table} "
-                    "WHERE attestation_id = %s",
-                    (identifier,),
+                    f"INSERT INTO {self._table}("
+                    "attestation_id,binding_digest,attestation_digest,issuer_key_id,audience,purpose,"
+                    "expires_at_epoch,policy_version,policy_digest,claim_operation_id,claimed_at_epoch"
+                    ") VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,EXTRACT(EPOCH FROM CURRENT_TIMESTAMP)::BIGINT) "
+                    "ON CONFLICT (attestation_id) DO NOTHING RETURNING attestation_id",
+                    (
+                        identifier, binding_digest, normalized["attestation_digest"],
+                        normalized["issuer_key_id"], normalized["audience"], normalized["purpose"],
+                        normalized["expires_at_epoch"], normalized["policy_version"],
+                        normalized["policy_digest"], operation,
+                    ),
                 )
-                existing = cursor.fetchone()
-                if existing is None:
-                    raise ReplayClaimOutcomeUnknown(identifier, operation, binding_digest)
-                stored_digest, stored_operation = existing
-                if not stored_digest or not stored_operation:
-                    raise ReplayClaimConflict("legacy replay claim lacks binding metadata; operator migration is required")
-                if stored_digest != binding_digest:
-                    raise ReplayClaimConflict("attestation ID is already bound to a different trust context")
-                claimed = stored_operation == operation
-        except ReplayClaimConflict:
-            try:
-                connection.rollback()
-            except Exception:
-                pass
-            raise
-        except Exception as exc:
-            try:
-                connection.rollback()
-            except Exception:
-                pass
-            # A unique operation ID cannot be rebound to another attestation.
-            try:
-                with self._connection_factory() as lookup_connection:
-                    with lookup_connection.cursor() as lookup_cursor:
-                        lookup_cursor.execute(
-                            f"SELECT attestation_id FROM {self._table} WHERE claim_operation_id = %s",
-                            (operation,),
+                inserted = cursor.fetchone()
+                if inserted is not None:
+                    claimed = True
+                else:
+                    cursor.execute(
+                        f"SELECT binding_digest, claim_operation_id FROM {self._table} "
+                        "WHERE attestation_id = %s",
+                        (identifier,),
+                    )
+                    existing = cursor.fetchone()
+                    if existing is None:
+                        raise ReplayClaimOutcomeUnknown(identifier, operation, binding_digest)
+                    stored_digest, stored_operation = existing
+                    if not stored_digest or not stored_operation:
+                        raise ReplayClaimConflict(
+                            "legacy replay claim lacks binding metadata; operator migration is required"
                         )
-                        operation_row = lookup_cursor.fetchone()
-                if operation_row is not None and operation_row[0] != identifier:
-                    raise ReplayClaimConflict("claim operation ID is already bound to another attestation") from exc
+                    if stored_digest != binding_digest:
+                        raise ReplayClaimConflict(
+                            "attestation ID is already bound to a different trust context"
+                        )
+                    claimed = stored_operation == operation
             except ReplayClaimConflict:
-                raise
-            except Exception:
-                pass
-            raise
-        finally:
-            if cursor is not None:
                 try:
-                    cursor.close()
+                    connection.rollback()
                 except Exception:
                     pass
-        try:
-            connection.commit()
-        except Exception as exc:
-            raise ReplayClaimOutcomeUnknown(identifier, operation, binding_digest) from exc
+                raise
+            except Exception:
+                try:
+                    connection.rollback()
+                except Exception:
+                    pass
+                raise
+            finally:
+                if cursor is not None:
+                    try:
+                        cursor.close()
+                    except Exception:
+                        pass
+            try:
+                connection.commit()
+            except Exception as exc:
+                raise ReplayClaimOutcomeUnknown(identifier, operation, binding_digest) from exc
+            return claimed
         finally:
             connection.close()
-        return claimed
 
     def lookup_claim(
         self,
