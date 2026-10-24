@@ -43,6 +43,11 @@ class PortableAurenTests(unittest.TestCase):
             self.make_source(root)
             state = root / ".ai-harness" / "learning"
             state.mkdir(parents=True, exist_ok=True)
+            (state / "learning-journal.jsonl").write_text("private learning state\\n", encoding="utf-8")
+            (state / "private-context.json").write_text('{"private": true}\\n', encoding="utf-8")
+            evidence = root / ".ai-harness" / "evidence"
+            evidence.mkdir(parents=True, exist_ok=True)
+            (evidence / "evidence-ledger.jsonl").write_text("private evidence state\\n", encoding="utf-8")
             for name in ("task-memory.sqlite3", "task-memory.sqlite3-shm", "task-memory.sqlite3-wal", "execution.db", "execution.db-journal"):
                 (state / name).write_bytes(b"mutable runtime state")
             bundle = Path(tmp) / "auren.zip"
@@ -54,6 +59,12 @@ class PortableAurenTests(unittest.TestCase):
             included = {item["path"] for item in manifest["files"]}
             for mutable in ("task-memory.sqlite3", "task-memory.sqlite3-shm", "task-memory.sqlite3-wal", "execution.db", "execution.db-journal"):
                 self.assertNotIn(f".ai-harness/learning/{mutable}", included)
+            for private_path in (
+                ".ai-harness/learning/learning-journal.jsonl",
+                ".ai-harness/learning/private-context.json",
+                ".ai-harness/evidence/evidence-ledger.jsonl",
+            ):
+                self.assertNotIn(private_path, included)
             self.assertTrue(any(item["path"] == "auren_cli.py" for item in manifest["files"]))
             self.assertFalse(manifest["target_repository_mutation"])
             with zipfile.ZipFile(bundle) as archive:
@@ -201,11 +212,18 @@ class PortableAurenTests(unittest.TestCase):
             (nested / "settings.json").write_text("safe", encoding="utf-8")
             for suffix in suffixes:
                 (nested / f"state{suffix}").write_bytes(b"mutable state")
+            harness = source / ".ai-harness"
+            (harness / "learning").mkdir(parents=True)
+            (harness / "learning" / "private.json").write_text("private", encoding="utf-8")
+            (harness / "evidence").mkdir(parents=True)
+            (harness / "evidence" / "ledger.jsonl").write_text("private", encoding="utf-8")
             _copy_tree_without_mutable_state(source, destination)
             self.assertEqual(
                 ["settings.json"],
                 sorted(path.name for path in (destination / "runtime" / "deep").iterdir()),
             )
+            self.assertFalse((destination / ".ai-harness" / "learning").exists())
+            self.assertFalse((destination / ".ai-harness" / "evidence").exists())
 
     def test_verify_rejects_unsafe_manifest_path(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
