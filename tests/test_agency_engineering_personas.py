@@ -107,6 +107,7 @@ class TestEngineeringPersonas(unittest.TestCase):
             assert task.approved_plan["plan_digest"]
             return {
                 "deliverables": ["patch-ref"],
+                "artifact_refs": ["sha256:patch-artifact"],
                 "verification": ["targeted tests passed"],
                 "dimensions": {
                     "correctness": 25, "completeness": 15, "evidence": 15, "verification": 15,
@@ -232,6 +233,7 @@ class TestEngineeringPersonas(unittest.TestCase):
         def worker(task, assignments):
             return {
                 "deliverables": ["patch-ref"],
+                "artifact_refs": ["sha256:patch-artifact"],
                 "verification": ["unit tests passed"],
                 "dimensions": {
                     "correctness": 25, "completeness": 15, "evidence": 15, "verification": 15,
