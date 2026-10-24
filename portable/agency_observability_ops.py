@@ -597,7 +597,7 @@ def observability_snapshot(path: Path, *, limit: int = 500) -> dict[str, Any]:
             })
     drift = read_drift_alerts(path.parent / "datasets.sqlite3", limit=50)
     return {
-        "status": "ok" if traces else ("corrupt" if corrupt_lines else "empty"),
+        "status": ("partial" if scan_truncated or corrupt_lines else "ok") if traces else ("corrupt" if corrupt_lines else "empty"),
         "trace_count": len(traces),
         "corrupt_line_count": corrupt_lines,
         "scan_truncated": scan_truncated,
