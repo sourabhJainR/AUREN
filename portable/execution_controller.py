@@ -138,7 +138,11 @@ class ExecutionController:
     def __init__(
         self, root: str | Path, *, company: AutonomousCompany | None = None,
         evidence_signer: Callable[[bytes], Mapping[str, str]] | None = None,
+        provider_resume_authorizer: Callable[[str, str, str, str], bool] | None = None,
     ) -> None:
+        if provider_resume_authorizer is not None and not callable(provider_resume_authorizer):
+            raise TypeError("provider_resume_authorizer must be callable")
+        self._provider_resume_authorizer = provider_resume_authorizer
         self.root = Path(root).expanduser().resolve()
         self.company = company or AutonomousCompany(self.root)
         self.db_path = self.root / ".auren" / "execution.sqlite3"
@@ -1430,6 +1434,18 @@ class ExecutionController:
             ).fetchone()
         if clarification is None:
             raise KeyError("clarification does not belong to the blocked task")
+        if self._provider_resume_authorizer is None:
+            raise PermissionError("trusted provider reconciliation resume authorizer is required")
+        try:
+            authorized = self._provider_resume_authorizer(
+                task_id.strip(), clarification_id.strip(), operator_id.strip(), operator_reason.strip()
+            )
+        except Exception as exc:
+            raise PermissionError("provider reconciliation resume authorization failed closed") from exc
+        if authorized is not True:
+            raise PermissionError(
+                "provider reconciliation resume authorizer rejected the request; it must return literal True"
+            )
         if clarification[0] == "open":
             self.company.resolve_clarification(
                 clarification_id,
