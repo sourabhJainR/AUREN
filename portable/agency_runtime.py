@@ -10,7 +10,7 @@ from .agency_observability import Tracer
 from .agency_trace_export import RegressionLink, apply_regression_score, correlate_trace_with_regression
 from .agency_regression_loop import PromotionDecision, PromotionPolicy, RegressionPlan, RegressionRun, run_trace_regression_loop
 from .agency_release_lifecycle import ArtifactRef, ArtifactStore, ReleaseState, apply_promotion_decision
-from .engineering_personas import EngineeringPlan, PersonaReview, PersonaWorkflow, canonical_plan_digest, require_approved_review
+from .engineering_personas import EngineeringPlan, PersonaReview, PersonaWorkflow, ReviewRejectedError, canonical_plan_digest, require_approved_review
 
 
 @dataclass(frozen=True)
@@ -343,17 +343,20 @@ def execute(
                 "finding_count": len(plan_review.findings),
                 "evidence_refs": plan_review.evidence_refs,
             }, "ok" if plan_review.approved else "blocked")
-            require_approved_review(
-                plan_review,
-                reviewer=persona_workflow.roster.plan_reviewer,
-                target=persona_workflow.roster.planner,
-            )
             trace.metadata["plan_digest"] = digest
             trace.metadata["plan_review"] = {
                 "reviewer_id": plan_review.reviewer_id,
                 "approved": plan_review.approved,
+                "findings": list(plan_review.findings),
                 "evidence_refs": list(plan_review.evidence_refs),
+                "dimensions": dict(plan_review.dimensions),
             }
+            require_approved_review(
+                plan_review,
+                reviewer=persona_workflow.roster.plan_reviewer,
+                target=persona_workflow.roster.planner,
+                stage="plan",
+            )
             worker_task = replace(task, approved_plan=asdict(approved_plan))
             result.ledger.append(LedgerEntry("plan_review_approved", digest, tuple(plan_review.evidence_refs)))
         else:
@@ -400,20 +403,25 @@ def execute(
                 "finding_count": len(implementation_review.findings),
                 "evidence_refs": implementation_review.evidence_refs,
             }, "ok" if implementation_review.approved else "blocked")
+            trace.metadata["implementation_review"] = {
+                "reviewer_id": implementation_review.reviewer_id,
+                "approved": implementation_review.approved,
+                "findings": list(implementation_review.findings),
+                "evidence_refs": list(implementation_review.evidence_refs),
+                "dimensions": dict(implementation_review.dimensions),
+            }
+            if not implementation_review.approved:
+                trace.metadata["next_action"] = "reconcile artifact changes, create a bounded corrective task, and obtain a fresh independent review"
             require_approved_review(
                 implementation_review,
                 reviewer=persona_workflow.roster.implementation_reviewer,
                 target=persona_workflow.roster.implementer,
+                stage="implementation",
             )
             gates = dict(raw.get("hard_gates", {}))
             gates["independent_implementation_review"] = True
             raw["hard_gates"] = gates
             raw["verification"] = list(raw.get("verification", ())) + ["independent implementation review approved"]
-            trace.metadata["implementation_review"] = {
-                "reviewer_id": implementation_review.reviewer_id,
-                "approved": implementation_review.approved,
-                "evidence_refs": list(implementation_review.evidence_refs),
-            }
             result.ledger.append(LedgerEntry(
                 "implementation_review_approved",
                 "independent review approved",
@@ -504,6 +512,12 @@ def execute(
 
         tracer.end(trace)
         return result
-    except Exception:
+    except ReviewRejectedError as exc:
+        trace.metadata["terminal_reason"] = str(exc)[:1000]
+        trace.metadata["review_rejected_stage"] = exc.stage
+        tracer.end(trace, "blocked")
+        raise
+    except Exception as exc:
+        trace.metadata["terminal_reason"] = type(exc).__name__
         tracer.end(trace, "error")
         raise
