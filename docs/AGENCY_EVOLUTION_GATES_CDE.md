@@ -26,10 +26,10 @@ The journal is not a distributed lock, provider-side idempotency system, or auth
 
 ## Tests
 
-Run the focused suite:
+The repository's Agency quality workflow uses unittest discovery. Run the focused tests with:
 
 ```bash
-python -m pytest tests/test_agency_evolution_gates.py tests/test_agency_evaluation_science.py tests/test_agency_regression_loop.py
+python -m unittest tests.test_agency_evolution_gates tests.test_agency_evaluation_science tests.test_agency_regression_loop
 ```
 
 Then run the repository's required checks on the exact pull-request head, including supported Windows checks. No Gate C/D/E rollout should be considered production-enabled until evaluator/holdout isolation, supervisor recovery, required-check enforcement and rollback are demonstrated in the trusted deployment environment.
