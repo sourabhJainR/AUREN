@@ -200,3 +200,55 @@ def test_recover_stale_respects_live_lease_and_only_resets_stale_task(tmp_path: 
 
 def durable_handler(payload):
     return {"success": True, "evidence": [payload["id"]]}
+
+
+def cancellation_aware_handler(payload):
+    started = payload.get("started_event")
+    if started is not None:
+        started.set()
+    cancel = payload["auren_cancel_event"]
+    cancel.wait(timeout=3)
+    return {"success": True, "detail": "handler observed cancellation", "evidence": ["cancel-aware"]}
+
+
+def test_pending_task_cancellation_is_durable_and_never_dispatches(tmp_path: Path):
+    controller = ExecutionController(tmp_path)
+    calls = []
+    def handler(payload):
+        calls.append(True)
+        return {"success": True}
+    controller.register_handler(
+        "tests.test_execution_controller_restart.pending_cancel_handler",
+        handler, execution_class="read_only",
+    )
+    task = controller.submit("tests.test_execution_controller_restart.pending_cancel_handler", {})
+    assert controller.request_cancellation(task.id, reason="operator stop")
+    assert controller.request_cancellation(task.id, reason="duplicate request")
+    assert controller.run_once(task.id) is None
+    assert controller.task(task.id).state == "cancelled"
+    assert calls == []
+
+
+def test_active_task_cancellation_reaches_handler_and_rejects_success(tmp_path: Path):
+    controller = ExecutionController(tmp_path)
+    started = Event()
+    controller.register_handler(
+        "tests.test_execution_controller_restart.cancellation_aware_handler",
+        cancellation_aware_handler, execution_class="read_only",
+    )
+    task = controller.submit(
+        "tests.test_execution_controller_restart.cancellation_aware_handler",
+        {"started_event": started},
+    )
+    outcomes = []
+    worker = Thread(target=lambda: outcomes.append(controller.run_once(task.id)), daemon=True)
+    worker.start()
+    assert started.wait(timeout=3), "handler did not start"
+    assert controller.request_cancellation(task.id, reason="test cancellation")
+    worker.join(timeout=5)
+    assert not worker.is_alive(), "cancellation-aware handler did not exit"
+    assert outcomes == [None]
+    assert controller.task(task.id).state == "cancelled"
+    with sqlite3.connect(controller.db_path) as db:
+        requested = db.execute("SELECT cancel_requested FROM tasks WHERE id=?", (task.id,)).fetchone()
+    assert requested == (1,)
