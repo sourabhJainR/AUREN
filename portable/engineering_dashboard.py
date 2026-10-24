@@ -4,14 +4,16 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 import time
 import json
+import math
+import os
 from pathlib import Path
 import re
 import sqlite3
 from contextlib import closing
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 from .repository_intelligence import RepositoryIntelligence
 from .engineering_plan import EngineeringPlan, EngineeringPlanRun
-from .progress_journal import ProgressJournal
+from .progress_journal import ProgressJournal, _journal_file_lock, _safe
 from .identity_compat import canonical_auren_home
 
 def _utc() -> str:
@@ -27,6 +29,43 @@ def _json(value: Any) -> Any:
     if isinstance(value, (list, tuple)):
         return [_json(v) for v in value]
     return str(value)
+
+
+_EVENT_MAX_BYTES = 64 * 1024
+_SENSITIVE_EVENT_KEY = re.compile(
+    r"(?i)(?:secret|token|password|api[_-]?key|authorization|credential|private[_-]?key)"
+)
+
+
+def _safe_event_value(value: Any, *, depth: int = 0, key: str = "") -> Any:
+    """Redact and bound event data without serializing arbitrary object reprs."""
+    if key and _SENSITIVE_EVENT_KEY.search(key):
+        return "[REDACTED]"
+    if depth > 8:
+        return "[DEPTH_LIMIT]"
+    if value is None or isinstance(value, (bool, int)):
+        return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else "[NON_FINITE]"
+    if isinstance(value, str):
+        return _safe(value, limit=2000)
+    if isinstance(value, Path):
+        return _safe(str(value), limit=2000)
+    if isinstance(value, Mapping):
+        result = {}
+        for index, (raw_key, item) in enumerate(value.items()):
+            if index >= 100:
+                result["[TRUNCATED]"] = True
+                break
+            safe_key = _safe(str(raw_key), limit=128)
+            result[safe_key] = _safe_event_value(item, depth=depth + 1, key=safe_key)
+        return result
+    if isinstance(value, (list, tuple)):
+        return [
+            _safe_event_value(item, depth=depth + 1)
+            for item in value[:100]
+        ] + (["[TRUNCATED]"] if len(value) > 100 else [])
+    return f"[unsupported:{type(value).__name__}]"
 
 @dataclass(frozen=True)
 class DashboardSnapshot:
@@ -61,17 +100,39 @@ class EngineeringDashboard:
                      task_id: str = "", detail: str = "", started_at: str = "",
                      finished_at: str = "", duration_ms: int | None = None,
                      metadata: dict[str, Any] | None = None) -> None:
+        for name, value in (("run_id", run_id), ("event", event), ("status", status),
+                            ("task_id", task_id), ("detail", detail),
+                            ("started_at", started_at), ("finished_at", finished_at)):
+            if not isinstance(value, str):
+                raise TypeError(f"{name} must be a string")
         if not run_id.strip() or not event.strip():
             raise ValueError("run_id and event are required")
+        if duration_ms is not None and (type(duration_ms) is not int or duration_ms < 0):
+            raise ValueError("duration_ms must be a non-negative integer or None")
+        if metadata is not None and not isinstance(metadata, Mapping):
+            raise TypeError("metadata must be a mapping or None")
         self.state_dir.mkdir(parents=True, exist_ok=True)
         payload = {
-            "timestamp": _utc(), "run_id": run_id.strip(), "event": event.strip(),
-            "status": status.strip() or "running", "task_id": task_id.strip(),
-            "detail": detail, "started_at": started_at, "finished_at": finished_at,
-            "duration_ms": duration_ms, "metadata": _json(metadata or {}),
+            "timestamp": _utc(), "run_id": _safe(run_id.strip(), limit=256),
+            "event": _safe(event.strip(), limit=256),
+            "status": _safe(status.strip() or "running", limit=80),
+            "task_id": _safe(task_id.strip(), limit=256),
+            "detail": _safe(detail, limit=2000),
+            "started_at": _safe(started_at, limit=128),
+            "finished_at": _safe(finished_at, limit=128),
+            "duration_ms": duration_ms,
+            "metadata": _safe_event_value(metadata or {}),
         }
-        with self.event_path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(payload, sort_keys=True) + "\n")
+        encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False)
+        if len(encoded.encode("utf-8")) > _EVENT_MAX_BYTES:
+            raise ValueError("dashboard event exceeds the 64 KiB encoded size limit")
+        # One cross-process lock covers append, flush and fsync. A dashboard
+        # projection is not canonical state, but its event lines must not interleave.
+        with _journal_file_lock(self.event_path, timeout_seconds=2.0):
+            with self.event_path.open("a", encoding="utf-8") as handle:
+                handle.write(encoded + "\n")
+                handle.flush()
+                os.fsync(handle.fileno())
 
     def snapshot(self) -> DashboardSnapshot:
         repo = self._repository()
