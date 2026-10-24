@@ -2669,6 +2669,13 @@ class ExecutionController:
         try:
             if self._cancellation_requested(task.id):
                 raise TaskCancellationRequested("task cancellation requested before preflight")
+            if task.deadline_at is not None:
+                try:
+                    deadline = datetime.fromisoformat(task.deadline_at)
+                except (TypeError, ValueError) as exc:
+                    raise TaskDeadlineExceeded("task deadline record is invalid") from exc
+                if deadline.tzinfo is None or datetime.now(timezone.utc) >= deadline.astimezone(timezone.utc):
+                    raise TaskDeadlineExceeded("task deadline expired before preflight")
             self.heartbeat(task)
             self._verify_engineering_plan_dispatch_checkpoint(task)
             gates_passed, gate_detail, gate_evidence = self._preflight_gates(task)
@@ -2703,6 +2710,19 @@ class ExecutionController:
             raise
         except ApprovalPending as exc:
             self._pause_for_approval(task, exc)
+            return None
+        except TaskDeadlineExceeded as exc:
+            if not self._finalize_claim(task, "failed"):
+                raise LeaseLostError("task lease was lost; stale worker cannot finalize deadline failure") from exc
+            detail = "Task deadline exceeded; handler result was not accepted."
+            self.company.record(task.work_unit_id, "execution", "failed", detail,
+                                (f"handler:{task.handler}", f"task:{task.id}", "deadline_exceeded"))
+            self.company.finish(task.work_unit_id, success=False, reason=detail)
+            self._capture_terminal_event("task_failed", task, status="failed", metadata={
+                "handler": task.handler, "phase": "deadline",
+                "failure_class": "TaskDeadlineExceeded",
+            })
+            self._record_progress(task.id, "task_terminal", state="failed", stage="terminal", message=detail)
             return None
         except TaskCancellationRequested as exc:
             if not self._finalize_claim(task, "cancelled"):
@@ -3370,4 +3390,4 @@ class ExecutionController:
         return Orchestrator(graph).run(task_id, intent, context)
 
 
-__all__ = ["ExecutionController", "DurableTask", "ContinuousRunReport", "Handler", "ProviderQuotaError", "LeaseLostError", "TaskCancellationRequested"]
+__all__ = ["ExecutionController", "DurableTask", "ContinuousRunReport", "Handler", "ProviderQuotaError", "LeaseLostError", "TaskCancellationRequested", "TaskDeadlineExceeded"]
