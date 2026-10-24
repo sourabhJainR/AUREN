@@ -34,6 +34,11 @@ LAUNCHER_PATH = "auren_cli.py"
 REQUIRED_PATHS = (".ai-harness", ".claude-plugin", "skills/ai-coding-orchestrator", "portable", "dashboard")
 EXCLUDED_PARTS = {"__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".git", "worktrees"}
 MUTABLE_FILE_NAMES = {"execution.journal.jsonl", "telemetry.jsonl", "task-memory.jsonl", "task-memory.jsonl.lock", "learning-journal.jsonl", "evidence-ledger.jsonl", "regression-events.jsonl"}
+MAX_ARCHIVE_MEMBERS = 20000
+MAX_MEMBER_UNCOMPRESSED_BYTES = 128 * 1024 * 1024
+MAX_TOTAL_UNCOMPRESSED_BYTES = 512 * 1024 * 1024
+MAX_COMPRESSION_RATIO = 1000
+
 MUTABLE_STATE_SUFFIXES = (
     ".sqlite", ".sqlite3", ".db", ".db3",
     ".sqlite-wal", ".sqlite-shm", ".sqlite-journal",
@@ -272,7 +277,28 @@ def _validate_archive_member_name(name: str) -> None:
         raise SystemExit(f"non-portable archive member path: {name!r}")
 
 
+def _validate_archive_limits(archive: zipfile.ZipFile) -> None:
+    """Bound archive expansion before reading or extracting untrusted ZIP data."""
+    members = archive.infolist()
+    if len(members) > MAX_ARCHIVE_MEMBERS:
+        raise SystemExit(f"archive exceeds member limit ({len(members)} > {MAX_ARCHIVE_MEMBERS})")
+    total_uncompressed = 0
+    for member in members:
+        if member.file_size < 0 or member.compress_size < 0:
+            raise SystemExit(f"archive has invalid size metadata: {member.filename!r}")
+        if member.file_size > MAX_MEMBER_UNCOMPRESSED_BYTES:
+            raise SystemExit(f"archive member exceeds uncompressed size limit: {member.filename!r}")
+        total_uncompressed += member.file_size
+        if total_uncompressed > MAX_TOTAL_UNCOMPRESSED_BYTES:
+            raise SystemExit("archive exceeds total uncompressed size limit")
+        if member.file_size and member.compress_size == 0:
+            raise SystemExit(f"archive member has invalid compression metadata: {member.filename!r}")
+        if member.compress_size and member.file_size / member.compress_size > MAX_COMPRESSION_RATIO:
+            raise SystemExit(f"archive member exceeds compression ratio limit: {member.filename!r}")
+
+
 def safe_extract(archive: zipfile.ZipFile, destination: Path) -> None:
+    _validate_archive_limits(archive)
     destination = destination.resolve()
     names = [member.filename for member in archive.infolist()]
     if len(names) != len(set(names)):
@@ -308,6 +334,7 @@ def _native_bundle(bundle: Path) -> tuple[Path, Path | None]:
         raise SystemExit(f"AUREN bundle does not exist: {bundle}")
     try:
         with zipfile.ZipFile(bundle) as archive:
+            _validate_archive_limits(archive)
             all_names = [member.filename for member in archive.infolist()]
             if len(all_names) != len(set(all_names)):
                 raise SystemExit("invalid artifact wrapper: duplicate archive members")
@@ -321,6 +348,7 @@ def _native_bundle(bundle: Path) -> tuple[Path, Path | None]:
                 inner.write_bytes(archive.read(zip_members[0]))
                 try:
                     with zipfile.ZipFile(inner) as nested:
+                        _validate_archive_limits(nested)
                         if MANIFEST_NAME not in [name for name in nested.namelist() if not name.endswith("/")]:
                             raise SystemExit("artifact contains auren-portable.zip, but it is not a valid AUREN bundle")
                 except zipfile.BadZipFile as exc:
@@ -336,6 +364,7 @@ def _native_bundle(bundle: Path) -> tuple[Path, Path | None]:
 def _verify_native_bundle(bundle: Path) -> dict:
     try:
         with zipfile.ZipFile(bundle) as archive:
+            _validate_archive_limits(archive)
             members = archive.infolist()
             member_names = [member.filename for member in members]
             if len(member_names) != len(set(member_names)):
