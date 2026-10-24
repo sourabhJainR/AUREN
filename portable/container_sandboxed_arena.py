@@ -76,6 +76,17 @@ def _force_remove_container(container_runtime: str, container_name: str) -> None
         pass
 
 
+def _close_process_streams(process: subprocess.Popen[bytes]) -> None:
+    """Close parent-side pipes after the reader/writer threads have stopped."""
+    for stream in (process.stdin, process.stdout):
+        if stream is None:
+            continue
+        try:
+            stream.close()
+        except (OSError, ValueError):
+            pass
+
+
 def _run_one_case(
     task: Mapping[str, str],
     *,
@@ -160,6 +171,7 @@ def _run_one_case(
             pass
         process.wait()
         reader.join(timeout=1.0)
+        _close_process_streams(process)
         _force_remove_container(container_runtime, container_name)
         raise ArenaError("sandboxed policy exceeded its wall-clock timeout") from exc
     except (BrokenPipeError, OSError) as exc:
@@ -187,6 +199,7 @@ def _run_one_case(
         raise
 
     reader.join(timeout=1.0)
+    _close_process_streams(process)
     if output_exceeded.is_set():
         _force_remove_container(container_runtime, container_name)
         raise ArenaError("sandboxed policy output exceeds configured byte limit")
