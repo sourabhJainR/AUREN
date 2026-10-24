@@ -32,6 +32,8 @@ class SandboxPolicy:
     max_memory_mb: int = 2048
     max_processes: int = 32
     allow_network: bool = False
+    require_network_isolation: bool = False
+    require_filesystem_isolation: bool = False
     env_allowlist: tuple[str, ...] = (
         "PATH", "HOME", "USER", "LANG", "LC_ALL", "TEMP", "TMP", "TMPDIR",
         "PYTHONPATH", "VIRTUAL_ENV", "CI", "TERM", "SystemRoot", "ComSpec",
@@ -74,14 +76,16 @@ def _limited_env(policy: SandboxPolicy) -> dict[str, str]:
     env = {key: value for key, value in os.environ.items() if key in policy.env_allowlist}
     env.update(policy.extra_env)
     if not policy.allow_network:
-        env["AUREN_SANDBOX_NETWORK"] = "disabled"
-        env["AER_SANDBOX_NETWORK"] = "disabled"  # legacy policy marker
-    env["AUREN_SANDBOX"] = "enforced"
-    env["AER_SANDBOX"] = "enforced"  # legacy policy marker
+        env["AUREN_SANDBOX_NETWORK"] = "requested_not_enforced_by_local_backend"
+        env["AER_SANDBOX_NETWORK"] = "requested_not_enforced_by_local_backend"  # legacy marker
+    env["AUREN_SANDBOX"] = "resource_limited_not_os_isolated"
+    env["AER_SANDBOX"] = "resource_limited_not_os_isolated"  # legacy marker
     return env
 
 
 def _validate_resource_policy(policy: SandboxPolicy) -> None:
+    if type(policy.require_network_isolation) is not bool or type(policy.require_filesystem_isolation) is not bool:
+        raise SandboxViolation("isolation requirements must be booleans")
     if isinstance(policy.timeout_seconds, bool) or not isinstance(policy.timeout_seconds, int) or policy.timeout_seconds < 1:
         raise SandboxViolation("timeout_seconds must be a positive integer")
     if type(policy.max_output_chars) is not int or policy.max_output_chars < 1:
@@ -94,6 +98,16 @@ def _validate_resource_policy(policy: SandboxPolicy) -> None:
 def run(command: list[str], *, workspace: Path, policy: SandboxPolicy | None = None) -> subprocess.CompletedProcess[str]:
     policy = policy or SandboxPolicy()
     _validate_resource_policy(policy)
+    if policy.require_network_isolation or policy.require_filesystem_isolation:
+        requested = []
+        if policy.require_network_isolation:
+            requested.append("network")
+        if policy.require_filesystem_isolation:
+            requested.append("filesystem")
+        raise SandboxViolation(
+            "local subprocess backend cannot enforce required " + "/".join(requested) +
+            " isolation; use the container/VM sandbox backend"
+        )
     workspace = Path(workspace).expanduser().resolve()
     workspace.mkdir(parents=True, exist_ok=True)
     validate_command(command, workspace=workspace, policy=policy)

@@ -112,3 +112,10 @@ The .ai-harness/runtime/sandbox.py command boundary now delegates timeout, outpu
 Platform boundary: POSIX RLIMIT_NPROC is a per-user limit, not a dedicated process-tree quota, and behavior can differ for privileged users. It must not be presented as hard per-task process isolation. Windows Job Object active-process limits apply to the contained job. A dedicated container/cgroup/VM with enforced quotas remains the preferred boundary for hostile workloads. Network denial via environment markers is not network isolation.
 
 Rollback: revert the sandbox delegation and its test file together if platform checks regress; callers return to the prior runner, but do not describe the old swallowed resource-limit errors as successful enforcement.
+
+
+## Local subprocess sandbox versus OS isolation
+
+`.ai-harness/runtime/sandbox.py` applies time, output, address-space and process-limit controls, but a local subprocess cannot reliably disable networking or confine filesystem access on every supported host. Its environment markers therefore report `resource_limited_not_os_isolated`; the network marker reports `requested_not_enforced_by_local_backend` when network access is disallowed in policy. These are declarations, not kernel enforcement.
+
+Callers that require network or filesystem isolation must set `SandboxPolicy(require_network_isolation=True)` and/or `require_filesystem_isolation=True`. The local backend rejects such requests before starting the command. Route hostile or isolation-sensitive work to a separately configured container or VM; do not treat the local subprocess policy as an isolation boundary. The container-backed Arena is a stronger boundary for Arena policy execution, but still trusts the host kernel, runtime, image and operator.

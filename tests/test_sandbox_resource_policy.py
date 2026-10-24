@@ -58,6 +58,27 @@ class SandboxResourcePolicyTests(unittest.TestCase):
             self.assertEqual(0, result.returncode)
             self.assertEqual("24\n", result.stdout)
 
+    def test_required_network_or_filesystem_isolation_fails_before_launch(self):
+        with tempfile.TemporaryDirectory() as temp:
+            for kwargs in (
+                {"require_network_isolation": True},
+                {"require_filesystem_isolation": True},
+                {"require_network_isolation": True, "require_filesystem_isolation": True},
+            ):
+                with self.subTest(kwargs=kwargs), self.assertRaisesRegex(
+                    sandbox.SandboxViolation, "cannot enforce required"
+                ):
+                    sandbox.run(
+                        [os.sys.executable, "-c", "raise SystemExit(99)"],
+                        workspace=Path(temp),
+                        policy=sandbox.SandboxPolicy(**kwargs),
+                    )
+
+    def test_local_environment_markers_do_not_claim_os_isolation(self):
+        env = sandbox._limited_env(sandbox.SandboxPolicy())
+        self.assertEqual("resource_limited_not_os_isolated", env["AUREN_SANDBOX"])
+        self.assertEqual("requested_not_enforced_by_local_backend", env["AUREN_SANDBOX_NETWORK"])
+
     def test_output_capture_is_bounded(self):
         with tempfile.TemporaryDirectory() as temp:
             result = sandbox.run(
