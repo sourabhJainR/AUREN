@@ -61,6 +61,19 @@ with a stable key derived from the canonical run/task/action identity.
   verifier, recovery remains blocked.
 - Production rollout still needs failure-injection evidence against each consequential adapter.
 
+## Trust callback return contract
+
+The reconciliation verifier and retry authorizer must return the literal boolean
+`True` to approve an operation. Values such as `1`, non-empty strings, custom
+objects, `None`, or other truthy results are rejected. The no-effect confirmation
+must also be the literal boolean `True`; it is an additional assertion and never
+replaces trusted authorization. Rejection leaves the operation in
+`reconcile_required` and does not add a retry authorization or completed receipt.
+
+This is a fail-closed trust-boundary check. If an existing adapter returns a
+non-boolean value, fix the adapter to return an explicit boolean only after its
+trusted evidence/identity checks succeed. Do not weaken the ledger to coerce values.
+
 ## Validation
 
 `tests/test_side_effect_ledger.py` covers replay after restart, payload-binding
@@ -91,6 +104,9 @@ These tests demonstrate the local ledger's restart behavior. They do not prove e
 
 ## Rollback
 
-This change only adds regression coverage and does not change runtime behavior. If the
-test is invalid or unstable, revert the test-only commit/PR; do not disable the ledger
-or relax reconciliation behavior. Keep the existing fail-closed ledger tests enabled.
+This change tightens callback result validation and adds regression coverage; it does not
+change the SQLite schema. If a trusted adapter is incompatible, update it to return a
+literal boolean rather than restoring truth-value coercion. If a rollback is unavoidable,
+revert only this validation slice after reviewing the affected adapter boundary, and keep
+unknown outcomes blocked. Never bypass the ledger, replay an ambiguous effect, or remove
+existing side-effect and retry-audit records.
