@@ -502,6 +502,17 @@ def observability_snapshot(path: Path, *, limit: int = 500) -> dict[str, Any]:
                 ):
                     corrupt_lines += 1
                     continue
+                sequence = item.get("event_sequence")
+                if not isinstance(sequence, int) or isinstance(sequence, bool) or sequence < 1:
+                    corrupt_lines += 1
+                    continue
+                previous_sequence = last_sequences.get(trace_id, 0)
+                if sequence <= previous_sequence:
+                    corrupt_lines += 1
+                    continue
+                if sequence > previous_sequence + 1:
+                    sequence_gaps += sequence - previous_sequence - 1
+                last_sequences[trace_id] = sequence
                 state = latest_by_trace.get(trace_id)
                 if state is None:
                     state = {
