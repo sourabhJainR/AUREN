@@ -78,6 +78,10 @@ def _close_evaluator_streams(process: subprocess.Popen[bytes]) -> None:
 
 def _kill_evaluator_process_tree(process: subprocess.Popen[bytes]) -> None:
     """Kill the evaluator and descendants in its dedicated process group."""
+    isolated_terminator = getattr(process, "terminate_isolated", None)
+    if callable(isolated_terminator):
+        isolated_terminator()
+        return
     try:
         if os.name == "posix":
             os.killpg(process.pid, signal.SIGKILL)
@@ -137,6 +141,10 @@ class ExternalEvaluatorGateway:
             corpus_digest=request.corpus_digest,
         )
         environment = {"PATH": os.environ.get("PATH", ""), **dict(command.environment)}
+        payload = export_campaign_request(request)
+        input_limit = getattr(getattr(self.isolated_executor, "policy", None), "max_input_bytes", None)
+        if input_limit is not None and len(payload) > input_limit:
+            raise ValueError("external evaluator request exceeds isolation input budget")
         if self.isolated_executor is not None:
             # The adapter owns OS-level isolation and must preserve the bounded
             # Popen-like stream/termination contract used below.
@@ -187,7 +195,7 @@ class ExternalEvaluatorGateway:
 
         def send_request() -> None:
             try:
-                process.stdin.write(export_campaign_request(request))
+                process.stdin.write(payload)
                 process.stdin.close()
             except (BrokenPipeError, OSError, ValueError):
                 # The evaluator may exit early; its exit status is checked below.
@@ -206,8 +214,13 @@ class ExternalEvaluatorGateway:
             process.wait()
 
         writer.join(timeout=1.0)
-        reader.join(timeout=1.0)
+        reader.join(timeout=35.0)
         _close_evaluator_streams(process)
+        if reader.is_alive():
+            raise RuntimeError("external evaluator termination or output drain remains unresolved")
+        termination_error = getattr(process, "termination_error", None)
+        if termination_error:
+            raise RuntimeError(f"external evaluator isolation cleanup failed closed: {termination_error}")
         if output_limit_exceeded.is_set():
             raise ValueError("external evaluator receipt exceeds output budget")
         if timed_out:
