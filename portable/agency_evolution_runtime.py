@@ -339,6 +339,17 @@ class AgencyEvolutionRuntime:
                 raise ValueError(f"release event {event} is invalid from state={item['state']}")
             if event in {"shadow_passed", "approval_verified", "canary_passed", "promoted", "rollback_verified"} and not verified:
                 raise ValueError(f"{event} requires independently verified controller evidence")
+            flags = dict(item["result"].get("release_flags", {}))
+            prerequisites = {
+                "approval_verified": "shadow_passed",
+                "canary_started": "approval_verified",
+                "canary_passed": "canary_started",
+                "promoted": "canary_passed",
+                "rollback_verified": "rollback_started",
+            }
+            required_flag = prerequisites.get(event)
+            if required_flag and flags.get(required_flag) is not True:
+                raise ValueError(f"{event} requires prior verified event: {required_flag}")
             if event == "canary_started":
                 state, next_action = "canary", "observe canary against pinned metrics and bounded window"
             elif event == "promoted":
@@ -347,9 +358,12 @@ class AgencyEvolutionRuntime:
                 state, next_action = "rolled_back", "confirm restored revision and runtime health"
             else:
                 state, next_action = item["state"], "continue only with trusted controller evidence and bounded observation"
+            flags[event] = True
+            result = dict(item["result"])
+            result["release_flags"] = flags
             refs = list(dict.fromkeys([*item["evidence_refs"], evidence_ref]))
-            db.execute("UPDATE evolution_operations SET state=?,evidence_json=?,next_action=?,updated_at=? WHERE operation_id=?",
-                       (state, _canonical(refs), next_action, time.time(), operation_id))
+            db.execute("UPDATE evolution_operations SET state=?,evidence_json=?,result_json=?,next_action=?,updated_at=? WHERE operation_id=?",
+                       (state, _canonical(refs), _canonical(result), next_action, time.time(), operation_id))
             self._event(db, operation_id, "release_lifecycle_event", {"event": event, "evidence_ref": evidence_ref, "verified": verified})
             return self._operation(db, operation_id)
 
