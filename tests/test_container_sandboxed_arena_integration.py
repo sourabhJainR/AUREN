@@ -17,29 +17,34 @@ class ContainerSandboxedArenaIntegrationTests(unittest.TestCase):
         if not image.startswith("sha256:"):
             self.fail("integration image must be an immutable local sha256 image ID")
 
+        cases = [
+            ("math-001", "What is 7 + 8?", 15),
+            ("isolation-uid", "__probe__:unprivileged", True),
+            ("isolation-readonly", "__probe__:root-read-only", True),
+            ("isolation-tmpfs", "__probe__:tmpfs-hardening", True),
+            ("isolation-network", "__probe__:network-disabled", True),
+        ]
         sealed = seal_manifest({
-            "benchmark_id": "arena-container-smoke-v1",
+            "benchmark_id": "arena-container-isolation-v1",
             "evaluator_id": "evaluator-parent",
             "runtime_id": "container-policy",
-            "cases": [{
-                "case_id": "math-001",
-                "domain": "arithmetic",
-                "split": "sealed_holdout",
-                "prompt": "What is 7 + 8?",
-                "oracle": 15,
-            }],
+            "cases": [
+                {"case_id": case_id, "domain": "container-isolation",
+                 "split": "sealed_holdout", "prompt": prompt, "oracle": oracle}
+                for case_id, prompt, oracle in cases
+            ],
         })
         with tempfile.TemporaryDirectory() as directory:
             receipt = run_campaign_container_sandboxed(
                 sealed,
                 container_image=image,
                 policy_digest=image,
-                run_nonce="docker-smoke-run-001",
+                run_nonce="docker-isolation-probe-run-001",
                 nonce_ledger=NonceLedger(Path(directory) / "replay.sqlite3"),
                 container_runtime=shutil.which("docker") or "docker",
                 timeout_seconds=20,
             )
-        self.assertEqual(receipt["counts"], {"pass": 1, "fail": 0, "error": 0})
+        self.assertEqual(receipt["counts"], {"pass": len(cases), "fail": 0, "error": 0})
         self.assertTrue(verify_receipt(receipt, sealed))
 
 
