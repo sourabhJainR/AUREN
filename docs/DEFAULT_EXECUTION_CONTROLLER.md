@@ -18,7 +18,7 @@ For direct task submission, pass a stable `work_key` to `ExecutionController.sub
 
 ## Task deadlines and cancellation
 
-`ExecutionController.submit(..., deadline_seconds=N)` accepts an optional finite duration greater than zero and no more than 24 hours. The controller persists the resulting absolute deadline in the task row and restores it on restart. Re-submitting the same stable work key returns the original task and original deadline; it does not extend the deadline. Expired tasks fail without accepting a late handler result.
+`ExecutionController.submit(..., deadline_seconds=N)` accepts an optional finite duration greater than zero and no more than 24 hours. The controller persists the resulting absolute deadline in the task row and restores it on restart. Re-submitting the same stable work key returns the original task and original deadline; it does not extend the deadline. Expired tasks fail without accepting a late handler result. The timestamp is timezone-aware UTC; malformed or timezone-naive persisted deadlines fail closed.
 
 `ExecutionController.request_cancellation(task_id, reason=...)` persists a cancellation request and returns whether the task was eligible for a request. It does not immediately claim that work has stopped. The durable record stores only a SHA-256 digest of the supplied reason. Active handlers receive `auren_cancel_event`; handlers should check it during long-running work. The controller rejects a result returned after cancellation.
 
