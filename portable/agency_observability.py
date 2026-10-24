@@ -206,6 +206,7 @@ class Trace:
         with _TRACE_LOCK:
             data = {
                 "schema_version": self.schema_version,
+                "event_sequence": self.event_sequence,
                 "trace_id": self.trace_id,
                 "run_id": self.run_id,
                 "session_id": self.session_id,
@@ -233,10 +234,8 @@ class LocalExporter:
         self.enabled = (get_auren_env("OBSERVABILITY", "0") == "1") if enabled is None else enabled
         self.path = (path or canonical_runtime_home() / "observability" / "traces.jsonl").expanduser()
 
-    def export(self, trace: Trace) -> None:
-        if not self.enabled:
-            return
-        payload = json.dumps(_safe(trace.as_dict()), sort_keys=True, separators=(",", ":"), allow_nan=False)
+    def _append_jsonl(self, record: Mapping[str, Any]) -> None:
+        payload = json.dumps(_safe(record), sort_keys=True, separators=(",", ":"), allow_nan=False)
         if len(payload.encode("utf-8")) > _MAX_TRACE_BYTES:
             raise ValueError("trace exceeds the configured observability event size limit")
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -250,6 +249,39 @@ class LocalExporter:
                     raise OSError("incomplete observability append")
             finally:
                 os.close(descriptor)
+
+    def export(self, trace: Trace) -> None:
+        if self.enabled:
+            self._append_jsonl(trace.as_dict())
+
+    def export_event(self, trace: Trace, event_type: str, span: Span | None = None) -> None:
+        if not self.enabled:
+            return
+        with _TRACE_LOCK:
+            trace.event_sequence += 1
+            record = {
+                "event_record_version": 1,
+                "event_type": event_type,
+                "event_sequence": trace.event_sequence,
+                "schema_version": trace.schema_version,
+                "trace_id": trace.trace_id,
+                "run_id": trace.run_id,
+                "session_id": trace.session_id,
+                "task_id": trace.task_id,
+                "name": trace.name,
+                "start": trace.start,
+                "end": trace.end,
+                "status": trace.status,
+                "source_revision": trace.source_revision,
+                "config_digest": trace.config_digest,
+                "metadata": _safe(trace.metadata),
+                "span": span.as_dict() if span is not None else None,
+                "scores": [_safe(asdict(score)) for score in trace.scores],
+                "timestamp": time.time(),
+            }
+            canonical = json.dumps(_safe(record), sort_keys=True, separators=(",", ":"), allow_nan=False)
+            record["event_digest"] = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+            self._append_jsonl(record)
 
 
 class Tracer:
