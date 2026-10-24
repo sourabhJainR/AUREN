@@ -244,10 +244,19 @@ class EngineeringDashboard:
 
     def _executions(self, events: tuple[dict[str, Any], ...], dbs: Iterable[Path],
                     plan_runs: Iterable[dict[str, Any]] = ()) -> tuple[dict[str, Any], ...]:
+        # Durable plan/run records are authoritative for matching run IDs.
+        # A stale event projection must not resurrect a run that the canonical
+        # store has already marked completed, failed, blocked, cancelled, or unknown.
+        canonical_plan_runs = {
+            str(row["run_id"]): row
+            for row in plan_runs
+            if row.get("run_id")
+        }
         latest = {}
         for row in events:
-            if row.get("run_id"):
-                latest[str(row["run_id"])] = row
+            run_id = str(row.get("run_id") or "")
+            if run_id and run_id not in canonical_plan_runs:
+                latest[run_id] = row
         active = [r for r in latest.values() if r.get("status") in {"running", "executing", "started"}]
         active.extend(self._active_episode_rows(dbs))
         active.extend(row for row in plan_runs if row.get("status") == "running")
