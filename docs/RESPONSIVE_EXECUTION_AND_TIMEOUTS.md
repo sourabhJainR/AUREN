@@ -103,3 +103,12 @@ AUREN already has deadline budgets, shared execution guards, cooperative cancell
 `portable.bounded_subprocess.run_bounded_command` accepts `max_memory_bytes` when a caller needs an explicit memory ceiling. The value must be an integer of at least 16 MiB. POSIX uses `RLIMIT_AS`, which limits each process's virtual address space and is inherited by descendants; it is **not** an aggregate process-tree or container memory quota. Windows configures a Job Object memory limit across the contained process tree. A requested limit that cannot be established is an error, not a successful unbounded launch. The option is opt-in to avoid silently changing existing workload limits.
 
 This is a resource-control primitive, not a complete hostile-code sandbox. POSIX per-process address-space ceilings do not provide aggregate memory accounting; CPU, process-count, filesystem, network, and kernel isolation remain separate controls. Keep OS/container isolation and adversarial evaluation as independent release gates. Rollback is to revert the memory-budget parameter and its Job Object configuration; existing timeout, cancellation, and output-capture behavior remains unchanged.
+
+
+## Harness sandbox resource-policy integration
+
+The .ai-harness/runtime/sandbox.py command boundary now delegates timeout, output-byte capture, process-tree termination, and optional memory/process budgets to portable.bounded_subprocess. Invalid policy values fail before launch, and failures to establish requested POSIX limits are errors rather than silently ignored settings. Windows uses Job Objects for process-tree termination and configured memory/active-process limits.
+
+Platform boundary: POSIX RLIMIT_NPROC is a per-user limit, not a dedicated process-tree quota, and behavior can differ for privileged users. It must not be presented as hard per-task process isolation. Windows Job Object active-process limits apply to the contained job. A dedicated container/cgroup/VM with enforced quotas remains the preferred boundary for hostile workloads. Network denial via environment markers is not network isolation.
+
+Rollback: revert the sandbox delegation and its test file together if platform checks regress; callers return to the prior runner, but do not describe the old swallowed resource-limit errors as successful enforcement.
