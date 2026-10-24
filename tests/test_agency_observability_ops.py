@@ -9,6 +9,7 @@ from portable.agency_observability_ops import (
     DriftPolicy,
     MetricObservation,
     ReviewedTraceExample,
+    SQLiteDatasetRegistry,
     authorize_calibrated_guardrail,
     calibrate_evaluator,
     evaluate_drift,
@@ -119,3 +120,15 @@ def test_dashboard_snapshot_never_exposes_raw_span_payloads(tmp_path):
     assert snapshot["raw_payloads_exposed"] is False
     assert "do not expose" not in serialized
     assert "private" not in serialized
+
+
+
+def test_sqlite_dataset_revisions_survive_reopen_and_are_immutable(tmp_path):
+    path = tmp_path / "datasets.sqlite3"
+    original = Dataset("reviewed", "1", (DatasetItem({"input": "minimal"}, {"expected": "reject"}, {"reviewed": True}),))
+    first = SQLiteDatasetRegistry(path)
+    first.register(original)
+    reopened = SQLiteDatasetRegistry(path)
+    assert reopened.get("reviewed", "1").digest == original.digest
+    with pytest.raises(ValueError, match="immutable"):
+        reopened.register(Dataset("reviewed", "1", (DatasetItem({"input": "changed"}, {"expected": "allow"}),)))
