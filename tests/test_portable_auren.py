@@ -29,7 +29,7 @@ class PortableAurenTests(unittest.TestCase):
         (root / ".ai-harness" / "runtime" / "engine.py").write_text("print('ok')\n", encoding="utf-8")
         (root / ".ai-harness" / "learning").mkdir(parents=True, exist_ok=True)
         (root / ".ai-harness" / "learning" / "compiler_bootstrap_priors.jsonl").write_text(
-            '{"id":"prior-test","kind":"advisory-prior"}\\n', encoding="utf-8"
+            '{"id":"prior-test","kind":"advisory-prior"}' + chr(10), encoding="utf-8"
         )
         (root / ".ai-harness" / "telemetry.jsonl").write_text("machine-state\n", encoding="utf-8")
         (root / "skills" / "ai-coding-orchestrator" / "SKILL.md").write_text("---\nname: ai-coding-orchestrator\ndescription: Repository-aware AI engineering control plane.\n---\n", encoding="utf-8")
