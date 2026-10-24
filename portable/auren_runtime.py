@@ -31,7 +31,7 @@ AUREN_BRANCH = "main"
 MANIFEST_NAME = "auren-bundle.json"
 PAYLOAD_ROOT = "payload"
 LAUNCHER_PATH = "auren_cli.py"
-REQUIRED_PATHS = (".ai-harness", "skills/ai-coding-orchestrator", "portable", "dashboard")
+REQUIRED_PATHS = (".ai-harness", ".claude-plugin", "skills/ai-coding-orchestrator", "portable", "dashboard")
 EXCLUDED_PARTS = {"__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".git", "worktrees"}
 MUTABLE_FILE_NAMES = {"execution.journal.jsonl", "telemetry.jsonl", "task-memory.jsonl", "regression-events.jsonl"}
 MUTABLE_STATE_SUFFIXES = (
@@ -122,18 +122,19 @@ def _print_progress(args) -> int:
     return 2 if degraded else 0
 
 
+def _is_mutable_state_path(path: str | Path) -> bool:
+    """Use one mutable-state policy for bundle creation, verification and installation."""
+    name = Path(path).name.lower()
+    return name in MUTABLE_FILE_NAMES or name.endswith(MUTABLE_STATE_SUFFIXES)
+
+
 def should_include(path: Path, root: Path) -> bool:
     rel = path.relative_to(root)
     if any(part in EXCLUDED_PARTS for part in rel.parts):
         return False
-    if not path.is_file():
+    if not path.is_file() or _is_mutable_state_path(path):
         return False
-    name = path.name.lower()
-    if name in MUTABLE_FILE_NAMES:
-        return False
-    # SQLite stores and their WAL/SHM/journal sidecars are mutable runtime state.
-    # Sidecars may appear or disappear while the bundle file list is being hashed.
-    return not name.endswith(MUTABLE_STATE_SUFFIXES)
+    return True
 
 def iter_source_files(root: Path) -> list[Path]:
     files: list[Path] = []
@@ -290,8 +291,18 @@ def _native_bundle(bundle: Path) -> tuple[Path, Path | None]:
 def _verify_native_bundle(bundle: Path) -> dict:
     try:
         with zipfile.ZipFile(bundle) as archive:
-            if MANIFEST_NAME not in archive.namelist():
+            members = archive.infolist()
+            member_names = [member.filename for member in members]
+            if len(member_names) != len(set(member_names)):
+                raise SystemExit("bundle contains duplicate archive members")
+            if any(name.endswith("/") for name in member_names):
+                raise SystemExit("bundle contains unexpected directory entries")
+            if MANIFEST_NAME not in member_names:
                 raise SystemExit("bundle manifest is missing")
+            for name in member_names:
+                member_path = PurePosixPath(name)
+                if member_path.is_absolute() or ".." in member_path.parts or "\\" in name:
+                    raise SystemExit(f"unsafe archive member path: {name}")
             manifest = json.loads(archive.read(MANIFEST_NAME).decode("utf-8"))
             if manifest.get("format") != BUNDLE_FORMAT_VERSION:
                 raise SystemExit("unsupported bundle format")
@@ -302,24 +313,51 @@ def _verify_native_bundle(bundle: Path) -> dict:
             records = manifest.get("files")
             if not isinstance(records, list) or not records:
                 raise SystemExit("bundle manifest file inventory is missing")
+            expected_members = {MANIFEST_NAME, LAUNCHER_PATH, f"{PAYLOAD_ROOT}/PORTABLE_BUNDLE.txt"}
+            seen: set[str] = set()
+            for record in records:
+                if (
+                    not isinstance(record, dict)
+                    or not isinstance(record.get("path"), str)
+                    or not isinstance(record.get("sha256"), str)
+                    or len(record["sha256"]) != 64
+                    or any(ch not in "0123456789abcdef" for ch in record["sha256"].lower())
+                ):
+                    raise SystemExit("invalid bundle file record")
+                record_path = record["path"]
+                if record_path != PurePosixPath(record_path).as_posix() or "//" in record_path or record_path.endswith("/"):
+                    raise SystemExit(f"non-canonical manifest path: {record_path}")
+                if record_path in seen:
+                    raise SystemExit(f"duplicate bundle file record: {record_path}")
+                seen.add(record_path)
+                if _is_mutable_state_path(record_path):
+                    raise SystemExit(f"mutable runtime state is forbidden in bundle: {record_path}")
+                if "size" in record and (type(record["size"]) is not int or record["size"] < 0):
+                    raise SystemExit(f"invalid bundle file size: {record_path}")
+                # Validate the logical path before using it to derive the archive inventory.
+                _manifest_record_path(Path("."), record_path)
+                if record_path != LAUNCHER_PATH:
+                    expected_members.add(f"{PAYLOAD_ROOT}/{record_path}")
+            if LAUNCHER_PATH not in seen:
+                raise SystemExit(f"bundle launcher is not covered by manifest: {LAUNCHER_PATH}")
+            actual_members = set(member_names)
+            missing = sorted(expected_members - actual_members)
+            unexpected = sorted(actual_members - expected_members)
+            if missing or unexpected:
+                raise SystemExit(
+                    "bundle archive inventory does not match manifest "
+                    f"(missing={missing}, unexpected={unexpected})"
+                )
             root = Path(tempfile.mkdtemp(prefix="auren-verify-"))
             try:
                 safe_extract(archive, root)
-                seen: set[str] = set()
                 for record in records:
-                    if not isinstance(record, dict) or not isinstance(record.get("path"), str) or not isinstance(record.get("sha256"), str):
-                        raise SystemExit("invalid bundle file record")
                     record_path = record["path"]
-                    if record_path in seen:
-                        raise SystemExit(f"duplicate bundle file record: {record_path}")
-                    seen.add(record_path)
                     path = _manifest_record_path(root, record_path)
                     if not path.is_file() or sha256_file(path) != record["sha256"]:
                         raise SystemExit(f"bundle integrity failure: {record_path}")
                     if "size" in record and record["size"] != path.stat().st_size:
                         raise SystemExit(f"bundle size mismatch: {record_path}")
-                if LAUNCHER_PATH not in seen:
-                    raise SystemExit(f"bundle launcher is not covered by manifest: {LAUNCHER_PATH}")
                 if not (root / LAUNCHER_PATH).is_file():
                     raise SystemExit("bundle launcher is missing: auren_cli.py")
                 return manifest
@@ -340,7 +378,7 @@ def _copy_tree_without_mutable_state(source: Path, destination: Path) -> None:
     destination.mkdir(parents=True, exist_ok=True)
     for item in source.rglob("*"):
         rel = item.relative_to(source)
-        if any(part in EXCLUDED_PARTS for part in rel.parts) or (item.is_file() and item.name in MUTABLE_FILE_NAMES):
+        if any(part in EXCLUDED_PARTS for part in rel.parts) or (item.is_file() and _is_mutable_state_path(item)):
             continue
         target = destination / rel
         if item.is_dir():
@@ -351,7 +389,7 @@ def _copy_tree_without_mutable_state(source: Path, destination: Path) -> None:
 
 def _copy_payload(payload: Path, version_root: Path) -> None:
     version_root.mkdir(parents=True, exist_ok=True)
-    for name in (".ai-harness", "portable", "dashboard"):
+    for name in (".ai-harness", ".claude-plugin", "portable", "dashboard"):
         source = payload / name
         if source.is_dir():
             _copy_tree_without_mutable_state(source, version_root / name)

@@ -82,12 +82,13 @@ jobs:
           test -n "$VERSION"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
       - name: Build canonical portable bundle
-        run: python auren_cli.py build --output auren-portable.zip
+        run: python auren_cli.py build --output auren-portable.zip --source-commit "$GITHUB_SHA" --source-ref "$GITHUB_REF"
       - name: Verify canonical portable bundle
         run: python auren_cli.py verify auren-portable.zip
       - name: Verify canonical payload and version
         env:
           EXPECTED_VERSION: ${{ steps.version.outputs.version }}
+          EXPECTED_SOURCE_COMMIT: ${{ github.sha }}
         run: |
           python - <<'PY'
           import json, os, zipfile
@@ -104,6 +105,9 @@ jobs:
               marketplace_version = marketplace['plugins'][0]['version']
               if plugin.get('version') != expected or marketplace_version != expected or manifest.get('version') != expected:
                   raise SystemExit(f'version mismatch: plugin={plugin.get("version")} manifest={manifest.get("version")} expected={expected}')
+              expected_commit = os.environ['EXPECTED_SOURCE_COMMIT']
+              if manifest.get('source_commit') != expected_commit:
+                  raise SystemExit(f'source commit mismatch: manifest={manifest.get("source_commit")} expected={expected_commit}')
               recorded = {item['path'] for item in manifest['files']}
               for path in ('auren_cli.py','.claude-plugin/plugin.json','.ai-harness/ARTIFACT_UPGRADE_CONTRACT.json'):
                   if path not in recorded:
@@ -113,6 +117,21 @@ jobs:
                   raise SystemExit('artifact downgrade policy changed unexpectedly')
           print(f'Canonical AUREN portable bundle verified: {expected}')
           PY
+      - name: Create and verify bundle checksum and exact source pin
+        env:
+          EXPECTED_SOURCE_COMMIT: ${{ github.sha }}
+        run: |
+          sha256sum auren-portable.zip > auren-portable.sha256
+          sha256sum --check auren-portable.sha256
+          python - <<'PY'
+          import json, os, zipfile
+          with zipfile.ZipFile('auren-portable.zip') as bundle:
+              manifest = json.loads(bundle.read('auren-bundle.json'))
+          expected = os.environ['EXPECTED_SOURCE_COMMIT']
+          if manifest.get('source_commit') != expected:
+              raise SystemExit(f'portable artifact is not pinned to this run: {manifest.get("source_commit")} != {expected}')
+          print(f'Portable artifact source commit verified: {expected}')
+          PY
       - name: Publish reusable AUREN distribution artifact
         uses: actions/upload-artifact@v7
         with:
@@ -120,8 +139,6 @@ jobs:
           path: auren-portable.zip
           if-no-files-found: error
           retention-days: '30'
-      - name: Create bundle checksum
-        run: sha256sum auren-portable.zip > auren-portable.sha256
       - name: Publish reusable AUREN checksum artifact
         uses: actions/upload-artifact@v7
         with:

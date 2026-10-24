@@ -14,7 +14,7 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
-from portable.auren_runtime import build, check_update, install, rollback, verify_bundle
+from portable.auren_runtime import build, check_update, install, rollback, verify_bundle, _copy_tree_without_mutable_state
 
 
 class PortableAurenTests(unittest.TestCase):
@@ -80,6 +80,7 @@ class PortableAurenTests(unittest.TestCase):
             self.assertEqual(record["source_commit"], "artifact-commit")
             self.assertTrue((auren_home / "current" / "auren_cli.py").is_file())
             self.assertTrue((auren_home / "current" / "auren_env_compat.py").is_file())
+            self.assertTrue((auren_home / "current" / ".claude-plugin" / "plugin.json").is_file())
 
     def test_verify_rejects_artifact_with_multiple_zip_payloads(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -109,6 +110,56 @@ class PortableAurenTests(unittest.TestCase):
                     target.writestr(item, data)
             with self.assertRaises(SystemExit):
                 verify_bundle(tampered)
+
+    def test_verify_rejects_unmanifested_archive_payload(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "source"
+            self.make_source(root)
+            bundle = Path(tmp) / "auren.zip"
+            build(root, bundle, source_commit="test-commit")
+            tampered = Path(tmp) / "extra-file.zip"
+            with zipfile.ZipFile(bundle) as source, zipfile.ZipFile(tampered, "w", zipfile.ZIP_DEFLATED) as target:
+                for item in source.infolist():
+                    target.writestr(item, source.read(item.filename))
+                target.writestr("payload/portable/unmanifested.py", b"not covered by the manifest")
+            with self.assertRaisesRegex(SystemExit, "inventory"):
+                verify_bundle(tampered)
+
+    def test_verify_rejects_duplicate_archive_members(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "source"
+            self.make_source(root)
+            bundle = Path(tmp) / "auren.zip"
+            build(root, bundle, source_commit="test-commit")
+            duplicate = Path(tmp) / "duplicate-member.zip"
+            with zipfile.ZipFile(bundle) as source, zipfile.ZipFile(duplicate, "w", zipfile.ZIP_DEFLATED) as target:
+                for item in source.infolist():
+                    target.writestr(item, source.read(item.filename))
+                target.writestr("payload/portable/auren_runtime.py", b"shadow copy")
+            with self.assertRaisesRegex(SystemExit, "duplicate archive members"):
+                verify_bundle(duplicate)
+
+    def test_install_copy_filters_all_mutable_database_suffixes_recursively(self) -> None:
+        suffixes = (
+            ".sqlite", ".sqlite3", ".db", ".db3",
+            ".sqlite-wal", ".sqlite-shm", ".sqlite-journal",
+            ".sqlite3-wal", ".sqlite3-shm", ".sqlite3-journal",
+            ".db-wal", ".db-shm", ".db-journal",
+            ".db3-wal", ".db3-shm", ".db3-journal",
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "source"
+            destination = Path(tmp) / "destination"
+            nested = source / "runtime" / "deep"
+            nested.mkdir(parents=True)
+            (nested / "settings.json").write_text("safe", encoding="utf-8")
+            for suffix in suffixes:
+                (nested / f"state{suffix}").write_bytes(b"mutable state")
+            _copy_tree_without_mutable_state(source, destination)
+            self.assertEqual(
+                ["settings.json"],
+                sorted(path.name for path in (destination / "runtime" / "deep").iterdir()),
+            )
 
     def test_verify_rejects_unsafe_manifest_path(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
