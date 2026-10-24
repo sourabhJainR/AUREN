@@ -5,11 +5,14 @@ from collections import Counter, deque
 from dataclasses import dataclass
 import json
 import math
+import sqlite3
+import time
 from pathlib import Path
 from statistics import mean
 from typing import Any, Iterable, Mapping
 
 from .agency_observability import Dataset, DatasetItem, _safe
+from .identity_compat import canonical_runtime_home
 
 
 @dataclass(frozen=True)
@@ -89,6 +92,91 @@ class DatasetRegistry:
             existing_items = self.get(name, base_version).items
         new_item = reviewed_trace_to_dataset_item(trace, review)
         return self.register(Dataset(name, version, existing_items + (new_item,)))
+
+
+class SQLiteDatasetRegistry:
+    """Durable immutable dataset revisions in AUREN's local runtime state."""
+
+    def __init__(self, path: Path | None = None) -> None:
+        self.path = (path or canonical_runtime_home() / "observability" / "datasets.sqlite3").expanduser()
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        with self._connect() as connection:
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS observability_dataset_revisions (
+                    name TEXT NOT NULL,
+                    version TEXT NOT NULL,
+                    digest TEXT NOT NULL,
+                    items_json TEXT NOT NULL,
+                    created_at REAL NOT NULL,
+                    PRIMARY KEY (name, version)
+                )"""
+            )
+
+    def _connect(self):
+        connection = sqlite3.connect(str(self.path), timeout=5.0)
+        connection.execute("PRAGMA busy_timeout=5000")
+        connection.execute("PRAGMA foreign_keys=ON")
+        return connection
+
+    def register(self, dataset: Dataset) -> Dataset:
+        if not dataset.name.strip() or not dataset.version.strip():
+            raise ValueError("dataset name and version are required")
+        items_json = json.dumps(
+            _safe([{"input": item.input, "expected": item.expected, "metadata": item.metadata} for item in dataset.items]),
+            sort_keys=True, separators=(",", ":"), allow_nan=False,
+        )
+        digest = dataset.digest
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            existing = connection.execute(
+                "SELECT digest FROM observability_dataset_revisions WHERE name=? AND version=?",
+                (dataset.name, dataset.version),
+            ).fetchone()
+            if existing is not None:
+                if existing[0] != digest:
+                    raise ValueError(f"dataset version is immutable: {dataset.name}:{dataset.version}")
+                return dataset
+            connection.execute(
+                "INSERT INTO observability_dataset_revisions(name, version, digest, items_json, created_at) VALUES(?,?,?,?,?)",
+                (dataset.name, dataset.version, digest, items_json, time.time()),
+            )
+        return dataset
+
+    def get(self, name: str, version: str) -> Dataset:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT digest, items_json FROM observability_dataset_revisions WHERE name=? AND version=?",
+                (name, version),
+            ).fetchone()
+        if row is None:
+            raise KeyError(f"dataset version not found: {name}:{version}")
+        try:
+            records = json.loads(row[1])
+            if not isinstance(records, list):
+                raise ValueError("dataset items must be a list")
+            items = tuple(
+                DatasetItem(input=item["input"], expected=item.get("expected"), metadata=item.get("metadata", {}))
+                for item in records if isinstance(item, dict) and "input" in item
+            )
+            dataset = Dataset(name, version, items)
+        except (json.JSONDecodeError, TypeError, KeyError) as exc:
+            raise ValueError("persisted dataset revision is corrupt") from exc
+        if dataset.digest != row[0]:
+            raise ValueError("persisted dataset digest mismatch")
+        return dataset
+
+    def append_reviewed(
+        self,
+        *,
+        name: str,
+        version: str,
+        base_version: str | None,
+        trace: Any,
+        review: ReviewedTraceExample,
+    ) -> Dataset:
+        existing_items = self.get(name, base_version).items if base_version is not None else ()
+        item = reviewed_trace_to_dataset_item(trace, review)
+        return self.register(Dataset(name, version, existing_items + (item,)))
 
 
 @dataclass(frozen=True)
