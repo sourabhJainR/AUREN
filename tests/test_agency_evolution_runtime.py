@@ -91,7 +91,7 @@ class AgencyEvolutionRuntimeTests(unittest.TestCase):
         item = self.queued()
         running = self.runtime.claim(item["operation_id"])
         self.assertEqual(running["state"], "running")
-        self.assertEqual(self.runtime.recover_interrupted(older_than_seconds=0), [item["operation_id"]])
+        self.assertEqual(self.runtime.recover_interrupted(now=running["lease_until"] + 1), [item["operation_id"]])
         blocked = self.runtime.snapshot(item["operation_id"])
         self.assertEqual(blocked["state"], "blocked")
         self.assertEqual(blocked["outcome"], "unknown")
