@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from portable.agency_observability import Dataset, DatasetItem, Tracer
+from portable.agency_observability import Dataset, DatasetItem, LocalExporter, Tracer
 from portable.agency_observability_ops import (
     CalibrationSample,
     DatasetRegistry,
@@ -132,3 +132,19 @@ def test_sqlite_dataset_revisions_survive_reopen_and_are_immutable(tmp_path):
     assert reopened.get("reviewed", "1").digest == original.digest
     with pytest.raises(ValueError, match="immutable"):
         reopened.register(Dataset("reviewed", "1", (DatasetItem({"input": "changed"}, {"expected": "allow"}),)))
+
+
+
+def test_partial_trace_is_persisted_and_latest_snapshot_wins(tmp_path):
+    path = tmp_path / "traces.jsonl"
+    tracer = Tracer(LocalExporter(path, enabled=True))
+    trace = tracer.start("resumable", {"task_id": "task-2"}, run_id="durable-run-2")
+    trace.span("implementation", phase="implementation")
+    partial = observability_snapshot(path)
+    assert partial["trace_count"] == 1
+    assert partial["recent_traces"][0]["status"] == "running"
+    assert partial["recent_traces"][0]["run_id"] == "durable-run-2"
+    tracer.end(trace, "ok")
+    completed = observability_snapshot(path)
+    assert completed["trace_count"] == 1
+    assert completed["recent_traces"][0]["status"] == "ok"
