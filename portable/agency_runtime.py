@@ -176,8 +176,13 @@ def _record_worker_observations(trace, worker_span, raw: Mapping[str, object], s
             normalized_phase = "unknown"
             trace.metadata["phase_coverage_gaps"] = list(trace.metadata.get("phase_coverage_gaps", ())) + ["unknown_worker_phase"]
         status = event.get("status", "unknown")
-        if status not in allowed_statuses:
+        if not isinstance(status, str) or status not in allowed_statuses:
             status = "unknown"
+        kind = event.get("kind")
+        actor_id = event.get("actor_id")
+        provider = event.get("provider")
+        model = event.get("model")
+        terminal_reason = event.get("terminal_reason")
         metadata = {
             "observation_source": "worker_reported_not_authoritative",
             "input_digest": event.get("input_digest"),
@@ -186,17 +191,17 @@ def _record_worker_observations(trace, worker_span, raw: Mapping[str, object], s
             "observed_duration_ms": event.get("duration_ms"),
         }
         span = trace.span(
-            name[:160], str(event.get("kind", "observation"))[:80],
+            name[:160], kind[:80] if isinstance(kind, str) else "observation",
             metadata=metadata, parent_id=worker_span.span_id, phase=normalized_phase,
-            actor_id=str(event.get("actor_id", ""))[:120] or None,
-            provider=str(event.get("provider", ""))[:120] or None,
-            model=str(event.get("model", ""))[:160] or None,
+            actor_id=actor_id[:120] if isinstance(actor_id, str) else None,
+            provider=provider[:120] if isinstance(provider, str) else None,
+            model=model[:160] if isinstance(model, str) else None,
             source_revision=source_revision,
         )
         span.finish(
             {"summary": event.get("summary", ""), "output_ref": event.get("output_ref")},
-            str(status),
-            str(event.get("terminal_reason", ""))[:500] or None,
+            status,
+            terminal_reason[:500] if isinstance(terminal_reason, str) else None,
         )
 
 
