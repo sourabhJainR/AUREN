@@ -129,6 +129,69 @@ class ConsequentialRunOnceRecoveryTests(unittest.TestCase):
         self.assertEqual("completed", record["state"])
 
 
+    def test_outer_reconciliation_rejects_truthy_non_boolean_provider_verifier(self):
+        from portable.side_effect_ledger import DurableSideEffectLedger
+
+        first = self.controller.submit("consequential-recovery-action", self._payload())
+        self.assertIsNone(self.controller.run_once(first.id))
+        self.assertEqual("blocked_reconciliation", self.controller.task(first.id).state)
+
+        task = self.controller.task(first.id)
+        outer_key = "consequential-idempotency:run-recovery-1:deploy:staging"
+        provider_key = "provider-operation:" + outer_key
+        evidence_ref = "https://provider.example/operations/remote-100"
+        verification_calls = []
+
+        class Adapter:
+            def lookup_operation(self, operation_id, idempotency_key):
+                record = DurableSideEffectLedger(self_outer.controller.db_path).get(idempotency_key)
+                return {
+                    "status": "completed",
+                    "evidence_ref": evidence_ref,
+                    "receipt": {
+                        "status": "completed",
+                        "result": {
+                            "success": True,
+                            "detail": "provider completion verified",
+                            "evidence": [evidence_ref],
+                        },
+                        "provider_operation_id": "remote-100",
+                        "operation_id": operation_id,
+                        "idempotency_key": idempotency_key,
+                        "provider": "consequential-recovery-action",
+                        "intent_digest": record["payload_digest"],
+                    },
+                }
+
+            def verify_reconciliation(self, key, ref, receipt):
+                verification_calls.append((key, ref))
+                if len(verification_calls) == 1:
+                    return (
+                        key == provider_key
+                        and ref == evidence_ref
+                        and receipt.get("provider_operation_id") == "remote-100"
+                    )
+                # The inner provider receipt has passed verification. The same
+                # callback is invoked again for the supervisor's outer receipt;
+                # a truthy non-boolean result must not authorize that transition.
+                return "yes"
+
+        self_outer = self
+        self.controller.register_provider_operation_adapter(
+            "consequential-recovery-action", Adapter(),
+        )
+        with self.assertRaisesRegex(PermissionError, "provider reconciliation evidence was rejected"):
+            self.controller._invoke_consequential_with_ledger(
+                task, self.controller._load_handler(task.handler),
+            )
+
+        ledger = DurableSideEffectLedger(self.controller.db_path)
+        self.assertEqual(2, len(verification_calls))
+        self.assertEqual("completed", ledger.get(provider_key)["state"])
+        self.assertEqual("reconcile_required", ledger.get(outer_key)["state"])
+        self.assertEqual("blocked_reconciliation", self.controller.task(first.id).state)
+        self.assertEqual(["abc123"], _PROVIDER_CALLS)
+
     def test_restart_uses_durable_provider_receipt_if_outer_commit_was_interrupted(self):
         import hashlib
         import json

@@ -2444,7 +2444,7 @@ class ExecutionController:
                 nested = receipt.get("provider_receipt")
                 if not isinstance(nested, Mapping) or ref != evidence_ref:
                     return False
-                return bool(verify_fn(operation_key, ref, nested))
+                return verify_fn(operation_key, ref, nested) is True
 
             DurableSideEffectLedger(
                 self.db_path, reconciliation_verifier=verify_outer,

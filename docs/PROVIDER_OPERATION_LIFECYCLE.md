@@ -47,6 +47,26 @@ Provider adapters declare capabilities explicitly:
 
 Capability claims must be backed by adapter-specific tests or provider documentation. Unknown capability defaults to unsupported. Provider failover is not a safe recovery strategy for an ambiguous write unless the original provider outcome is resolved first.
 
+## Strict trust callback results
+
+The provider reconciliation verifier must return the literal boolean `True` for
+each authorization decision. Do not coerce a callback with `bool(...)`: the
+supervisor verifies the nested provider receipt again before closing its outer
+side-effect record, and a truthy string, integer, or custom object is not trusted
+evidence. If either verification fails, keep the outer record in
+`reconcile_required`; the task must remain blocked and the provider handler must
+not be redispatched.
+
+Regression coverage:
+`tests.test_consequential_run_once_recovery.test_outer_reconciliation_rejects_truthy_non_boolean_provider_verifier`
+proves the inner receipt can be verified while a later truthy non-boolean
+decision still fails closed at the supervisor boundary.
+
+Rollback: do not restore truth-value coercion. Fix the adapter to return a literal
+boolean only after verifying the bound evidence. If this code must be reverted,
+preserve both ledger records and keep the outer operation blocked until the
+trusted verifier is corrected; never reset it to pending or replay the handler.
+
 ## Required failure-injection tests
 
 - crash after intent persistence but before dispatch;
