@@ -551,9 +551,9 @@ def _install_skill(source: Path, destination: Path) -> None:
     backup = destination.with_name(destination.name + ".backup")
     _remove_path(staged)
     _remove_path(backup)
-    shutil.copytree(source, staged)
     had_destination = destination.exists() or destination.is_symlink()
     try:
+        shutil.copytree(source, staged)
         if had_destination:
             destination.replace(backup)
         staged.replace(destination)
@@ -643,7 +643,8 @@ def install(bundle: Path, install_skill: str = "agents", auren_home: Path | None
                     handle.write(json.dumps({"event": "activate", **record}) + "\n")
                     handle.flush()
             except Exception:
-                # Restore the last known active build and metadata if activation fails.
+                # Restore the last known active build, metadata and selected skill
+                # if any activation step fails. Preserve the original exception.
                 if previous_current_target is not None and previous_current_target.is_dir():
                     _set_current(root, previous_current_target)
                 elif current.exists() or current.is_symlink():
@@ -652,6 +653,14 @@ def install(bundle: Path, install_skill: str = "agents", auren_home: Path | None
                     _remove_path(previous_active_path)
                 else:
                     _atomic_json(previous_active_path, previous_active)
+                    previous_name = previous_active.get("install_root")
+                    if isinstance(previous_name, str) and Path(previous_name).name == previous_name:
+                        previous_skill = versions_root / previous_name / "skills" / "ai-coding-orchestrator"
+                        if previous_skill.is_dir():
+                            try:
+                                _sync_skills(previous_skill, install_skill)
+                            except Exception:
+                                pass
                 raise
 
             print(f"Installed and pinned AUREN {version} ({manifest['source_commit'][:12]})")
