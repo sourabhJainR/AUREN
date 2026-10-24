@@ -105,7 +105,19 @@ class TestAgencyObservability(unittest.TestCase):
         assert result.regression_link.trace_id == result.trace_id
         assert result.regression_link.regression_id == "reg-t13"
         assert result.regression_link.passed
-        assert "regression_pass" in (self.tmp_path / "traces.jsonl").read_text()
+        exported = (self.tmp_path / "traces.jsonl").read_text()
+        assert "regression_pass" in exported
+        assert "regression_learning_feedback" in exported
+        records = [json.loads(line) for line in exported.splitlines()]
+        correlated = [record for record in records if record.get("trace_id") == result.trace_id]
+        assert correlated
+        assert all(record.get("task_id") == task.task_id for record in correlated)
+        learning_records = [
+            record for record in correlated
+            if isinstance(record.get("span"), dict)
+            and record["span"].get("name") == "regression_learning_feedback"
+        ]
+        assert learning_records
 
 
 
@@ -190,3 +202,46 @@ class TestAgencyObservability(unittest.TestCase):
         trace = Tracer().start("safe-serialization")
         span = trace.span("unsupported", input=UnsafeRepresentation())
         assert span.input == "[UNSUPPORTED_TYPE:UnsafeRepresentation]"
+
+
+    def test_prompt_metadata_is_recursively_immutable(self):
+        registry = PromptRegistry()
+        prompt = registry.register("planner", "immutable-1", "plan safely", {"labels": {"team": "runtime"}})
+        with self.assertRaises(TypeError):
+            prompt.metadata["labels"]["team"] = "untrusted"
+        with self.assertRaises(TypeError):
+            prompt.metadata["new"] = "value"
+        assert registry.get("planner", "immutable-1").metadata["labels"]["team"] == "runtime"
+
+    def test_redaction_covers_quoted_multitoken_and_basic_authorization_values(self):
+        exporter = LocalExporter(self.tmp_path / "redaction.jsonl", enabled=True)
+        tracer = Tracer(exporter)
+        trace = tracer.start("redaction-bypass")
+        span = trace.span("secrets", input={
+            "note": 'api_key="secret phrase with spaces", keep=this',
+            "authorization": "Basic abc123",
+        })
+        span.finish({"message": 'password="my private phrase", next=visible'})
+        tracer.end(trace)
+        text = (self.tmp_path / "redaction.jsonl").read_text()
+        for secret in ("secret phrase", "abc123", "my private phrase"):
+            assert secret not in text
+        assert "keep=this" in text or "next=visible" in text
+
+    def test_concurrent_exporters_preserve_complete_jsonl_records(self):
+        path = self.tmp_path / "concurrent.jsonl"
+
+        def write_one(index):
+            tracer = Tracer(LocalExporter(path, enabled=True))
+            trace = tracer.start("concurrent", {"task_id": f"task-{index}"}, task_id=f"task-{index}")
+            span = trace.span(f"span-{index}", phase="implementation")
+            span.finish({"index": index})
+            tracer.end(trace)
+
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            list(pool.map(write_one, range(40)))
+        lines = path.read_text().splitlines()
+        records = [json.loads(line) for line in lines]
+        assert len(records) >= 40
+        assert all(record.get("trace_id") for record in records)
+        assert len({record["trace_id"] for record in records}) == 40
