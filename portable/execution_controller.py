@@ -2028,6 +2028,7 @@ class ExecutionController:
         """Renew leases and propagate durable cancellation while a handler runs."""
         stop = Event()
         cancel = Event()
+        deadline = Event()
         lease_errors: list[BaseException] = []
         cancellation_observation_errors: list[BaseException] = []
         handler_started = False
@@ -2046,6 +2047,16 @@ class ExecutionController:
         def watch_cancellation() -> None:
             while not stop.wait(0.05):
                 try:
+                    if task.deadline_at is not None:
+                        due = datetime.fromisoformat(task.deadline_at)
+                        if due.tzinfo is None:
+                            deadline.set()
+                            cancel.set()
+                            return
+                        if datetime.now(timezone.utc) >= due.astimezone(timezone.utc):
+                            deadline.set()
+                            cancel.set()
+                            return
                     if self._cancellation_requested(task.id):
                         cancel.set()
                         return
@@ -2062,12 +2073,27 @@ class ExecutionController:
         result: Any = None
         handler_error: BaseException | None = None
         try:
+            if task.deadline_at is not None:
+                try:
+                    due = datetime.fromisoformat(task.deadline_at)
+                    if due.tzinfo is None:
+                        raise ValueError("task deadline must be timezone-aware")
+                except (TypeError, ValueError) as exc:
+                    deadline.set()
+                    raise TaskDeadlineExceeded("task deadline record is invalid") from exc
+                if datetime.now(timezone.utc) >= due.astimezone(timezone.utc):
+                    deadline.set()
+                    raise TaskDeadlineExceeded("task deadline expired before handler dispatch")
             if self._cancellation_requested(task.id):
                 cancel.set()
             if cancel.is_set():
+                if deadline.is_set():
+                    raise TaskDeadlineExceeded("task deadline expired before handler dispatch")
                 raise TaskCancellationRequested("task cancellation requested before handler dispatch")
             payload = self._handler_payload(task)
             payload["auren_cancel_event"] = cancel
+            if task.deadline_at is not None:
+                payload["auren_deadline_epoch"] = datetime.fromisoformat(task.deadline_at).timestamp()
             handler_started = True
             result = handler(payload)
         except BaseException as exc:
@@ -2083,6 +2109,10 @@ class ExecutionController:
                 "task lease was lost while handler was running; result cannot be committed"
             ) from (handler_error or lease_errors[0])
         if handler_error is not None:
+            if deadline.is_set():
+                if handler_started and self._handler_execution_class(task.handler) == "consequential":
+                    raise ProviderOutcomeBlocked("deadline expired after consequential dispatch; remote outcome requires reconciliation") from handler_error
+                raise TaskDeadlineExceeded("task deadline expired during handler execution") from handler_error
             if handler_started and self._handler_execution_class(task.handler) == "consequential":
                 raise ProviderOutcomeBlocked("consequential handler exited with an exception after dispatch; remote outcome requires reconciliation") from handler_error
             raise handler_error
@@ -2090,6 +2120,10 @@ class ExecutionController:
             if handler_started and self._handler_execution_class(task.handler) == "consequential":
                 raise ProviderOutcomeBlocked("cancellation state could not be verified after consequential dispatch; remote outcome requires reconciliation") from cancellation_observation_errors[0]
             raise RuntimeError("cancellation state could not be verified; handler result cannot be committed") from cancellation_observation_errors[0]
+        if deadline.is_set():
+            if handler_started and self._handler_execution_class(task.handler) == "consequential":
+                raise ProviderOutcomeBlocked("deadline expired after consequential dispatch; remote outcome requires reconciliation")
+            raise TaskDeadlineExceeded("task deadline expired; handler result cannot be committed")
         if cancel.is_set() or self._cancellation_requested(task.id):
             if handler_started and self._handler_execution_class(task.handler) == "consequential":
                 raise ProviderOutcomeBlocked("cancellation arrived after consequential dispatch; remote outcome requires reconciliation")
