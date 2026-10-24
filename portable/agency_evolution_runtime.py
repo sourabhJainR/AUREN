@@ -116,6 +116,8 @@ class AgencyEvolutionRuntime:
                     evidence_json TEXT NOT NULL DEFAULT '[]',
                     result_json TEXT NOT NULL DEFAULT '{}',
                     next_action TEXT NOT NULL,
+                    lease_token TEXT,
+                    lease_until REAL,
                     created_at REAL NOT NULL,
                     updated_at REAL NOT NULL
                 );
@@ -137,6 +139,10 @@ class AgencyEvolutionRuntime:
                     created_at REAL NOT NULL
                 );
             """)
+            operation_columns = {row[1] for row in db.execute("PRAGMA table_info(evolution_operations)").fetchall()}
+            for column, declaration in (("lease_token", "TEXT"), ("lease_until", "REAL")):
+                if column not in operation_columns:
+                    db.execute(f"ALTER TABLE evolution_operations ADD COLUMN {column} {declaration}")
 
     def _event(self, db: sqlite3.Connection, operation_id: str, event_type: str,
                payload: Mapping[str, Any], event_id: str | None = None) -> None:
@@ -164,10 +170,10 @@ class AgencyEvolutionRuntime:
         )
 
     def _operation(self, db: sqlite3.Connection, operation_id: str) -> dict[str, Any]:
-        row = db.execute("SELECT operation_id,experiment_id,manifest_digest,manifest_json,parent_operation_id,state,attempts,outcome,evidence_json,result_json,next_action,created_at,updated_at FROM evolution_operations WHERE operation_id=?", (operation_id,)).fetchone()
+        row = db.execute("SELECT operation_id,experiment_id,manifest_digest,manifest_json,parent_operation_id,state,attempts,outcome,evidence_json,result_json,next_action,lease_token,lease_until,created_at,updated_at FROM evolution_operations WHERE operation_id=?", (operation_id,)).fetchone()
         if row is None:
             raise KeyError(operation_id)
-        keys = ("operation_id","experiment_id","manifest_digest","manifest_json","parent_operation_id","state","attempts","outcome","evidence_json","result_json","next_action","created_at","updated_at")
+        keys = ("operation_id","experiment_id","manifest_digest","manifest_json","parent_operation_id","state","attempts","outcome","evidence_json","result_json","next_action","lease_token","lease_until","created_at","updated_at")
         item = dict(zip(keys, row))
         for key, target in (("manifest_json", "manifest"), ("evidence_json", "evidence_refs"), ("result_json", "result")):
             item[target] = json.loads(item.pop(key))
