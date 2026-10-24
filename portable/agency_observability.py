@@ -22,7 +22,7 @@ from portable.identity_compat import canonical_runtime_home, get_auren_env
 from typing import Any, Callable, Iterable, Mapping
 
 _SECRET = re.compile(r"(?i)(api[_-]?key|token|password|secret|authorization)")
-_SECRET_VALUE = re.compile(r"(?i)(api[_-]?key|token|password|secret|authorization)\s*[:=]\s*[^,\s]+")
+_SECRET_VALUE = re.compile(r"(?i)(api[_-]?key|token|password|secret|authorization)\s*[:=]\s*(?:Bearer\s+)?[^,\s]+")
 
 
 _TRACE_LOCK = threading.RLock()
