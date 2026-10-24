@@ -26,6 +26,9 @@ class TaskProfile:
     support_limit: int = 2
     context: object | None = None
     approved_plan: Mapping[str, object] | None = None
+    source_revision: str = ""
+    config_digest: str = ""
+    session_id: str | None = None
 
     def __post_init__(self) -> None:
         if not self.task_id.strip() or not self.request.strip():
@@ -169,14 +172,22 @@ def execute(
         "risk": task.risk,
         "mutation_mode": task.mutation_mode,
         "review_mode": "independent_personas" if persona_workflow is not None else "not_configured",
-    })
+        "source_revision": task.source_revision,
+        "config_digest": task.config_digest,
+        "session_id": task.session_id,
+    }, task_id=task.task_id, session_id=task.session_id,
+       source_revision=task.source_revision or None, config_digest=task.config_digest or None)
     try:
         if persona_workflow is None and (task.risk.lower() in {"high", "critical"} or release_store is not None):
             raise ValueError("high-risk execution and release transitions require independent persona review")
         if persona_workflow is not None:
             persona_workflow.validate()
 
-        plan_span = trace.span("planning", "planner", {"request": task.request, "artifact_type": task.artifact_type})
+        plan_span = trace.span(
+            "planning", "planner", {"request": task.request, "artifact_type": task.artifact_type},
+            phase="planning", actor_id=persona_workflow.roster.planner.agent_id if persona_workflow else "auren.planner",
+            source_revision=task.source_revision or None,
+        )
         assignments = plan_task(task, registry=registry, support_limit=support_limit)
         approved_plan: EngineeringPlan | None = None
         worker_task = task
@@ -189,9 +200,13 @@ def execute(
             if not isinstance(approved_plan, EngineeringPlan):
                 raise TypeError("planning agent must return an EngineeringPlan")
             approved_plan.validate()
+            if task.source_revision and approved_plan.source_revision != task.source_revision:
+                raise ValueError("plan source revision does not match the task source revision")
             digest = canonical_plan_digest(approved_plan)
             if not approved_plan.plan_digest:
                 approved_plan = replace(approved_plan, plan_digest=digest)
+            trace.source_revision = approved_plan.source_revision
+            trace.metadata["source_revision"] = approved_plan.source_revision
             plan_span.finish({
                 "assignments": [a.__dict__ for a in assignments],
                 "plan_digest": digest,
@@ -202,7 +217,9 @@ def execute(
             plan_review_span = trace.span("independent_plan_review", "review", {
                 "plan_digest": digest,
                 "reviewer_id": persona_workflow.roster.plan_reviewer.agent_id,
-            }, parent_id=plan_span.span_id)
+            }, parent_id=plan_span.span_id, phase="planning",
+               actor_id=persona_workflow.roster.plan_reviewer.agent_id,
+               source_revision=approved_plan.source_revision)
             plan_review = persona_workflow.review_plan(task, approved_plan)
             if not isinstance(plan_review, PersonaReview):
                 plan_review_span.finish({"error": "invalid_review_contract"}, "error")
@@ -232,7 +249,9 @@ def execute(
             "task_id": task.task_id,
             "specialists": [a.specialist for a in assignments],
             "implementer_id": persona_workflow.roster.implementer.agent_id if persona_workflow else None,
-        })
+        }, phase="implementation",
+           actor_id=persona_workflow.roster.implementer.agent_id if persona_workflow else "auren.implementation",
+           source_revision=approved_plan.source_revision if approved_plan else (task.source_revision or None))
         try:
             raw = dict(worker(worker_task, assignments))
             worker_span.finish({
@@ -249,7 +268,9 @@ def execute(
                 "reviewer_id": persona_workflow.roster.implementation_reviewer.agent_id,
                 "deliverable_count": len(raw.get("deliverables", ())),
                 "verification_count": len(raw.get("verification", ())),
-            }, parent_id=worker_span.span_id)
+            }, parent_id=worker_span.span_id, phase="verification",
+               actor_id=persona_workflow.roster.implementation_reviewer.agent_id,
+               source_revision=approved_plan.source_revision if approved_plan else None)
             implementation_review = persona_workflow.review_implementation(worker_task, approved_plan, raw)
             if not isinstance(implementation_review, PersonaReview):
                 implementation_review_span.finish({"error": "invalid_review_contract"}, "error")
@@ -286,14 +307,16 @@ def execute(
         result.dimensions = {str(k): int(v) for k, v in dict(raw.get("dimensions", {})).items()}
         result.hard_gates = {str(k): bool(v) for k, v in dict(raw.get("hard_gates", {})).items()}
         result.findings = list(raw.get("findings", ()))
-        evidence_span = trace.span("evidence", "retrieval", {"count": len(raw.get("evidence", ()))})
+        evidence_span = trace.span("evidence", "retrieval", {"count": len(raw.get("evidence", ()))},
+                                   phase="research", source_revision=task.source_revision or None)
         for item in raw.get("evidence", ()):
             evidence = item if isinstance(item, EvidenceItem) else EvidenceItem(**item)
             result.evidence.append(evidence)
             result.ledger.append(LedgerEntry("evidence", evidence.claim, (evidence_id(evidence),)))
         evidence_span.finish({"evidence_count": len(result.evidence)})
 
-        verify_span = trace.span("verification", "verifier", {"checks": result.verification})
+        verify_span = trace.span("verification", "verifier", {"checks": result.verification},
+                                 phase="verification", source_revision=task.source_revision or None)
         result.ledger.append(LedgerEntry("verified", "; ".join(result.verification)))
         result.receipt = evaluate(result.dimensions, result.hard_gates, result.findings, [e.claim for e in result.evidence], rubric=rubric)
         score = _receipt_score(result.receipt)
@@ -302,7 +325,8 @@ def execute(
         trace.score("task_quality", score, "quality receipt", "auren")
 
         if regression_plan is not None:
-            regression_span = trace.span("regression", "evaluation", {"dataset": regression_plan.dataset.name, "dataset_version": regression_plan.dataset.version})
+            regression_span = trace.span("regression", "evaluation", {"dataset": regression_plan.dataset.name, "dataset_version": regression_plan.dataset.version},
+                                         phase="evaluation", source_revision=task.source_revision or None)
             regression_run, decision = run_trace_regression_loop(
                 trace,
                 regression_plan,
@@ -337,7 +361,8 @@ def execute(
                 trace.score("release_applied", 1.0, "release state transition completed", "auren")
                 result.ledger.append(LedgerEntry("release", f"{result.release_state.action}: {result.release_state.artifact_id or 'previous'}"))
         elif regression_result is not None and regression_id:
-            regression_span = trace.span("regression", "evaluation", {"regression_id": regression_id})
+            regression_span = trace.span("regression", "evaluation", {"regression_id": regression_id},
+                                         phase="evaluation", source_revision=task.source_revision or None)
             result.regression_link = correlate_trace_with_regression(trace, regression_id, regression_result)
             apply_regression_score(trace, result.regression_link)
             regression_span.score("regression_pass", 1.0 if result.regression_link.passed else 0.0, "linked regression outcome", "regression")
