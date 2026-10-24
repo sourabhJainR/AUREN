@@ -286,7 +286,7 @@ def test_consequential_cancellation_after_dispatch_is_ambiguous_not_cancelled(tm
     controller = ExecutionController(tmp_path)
     _RESTART_HANDLER_STARTED.clear()
     context_name = "tests.test_execution_controller_restart.cancellation_context_provider"
-    ci_name = "tests.test_execution_controller_restart.cancellation_ci_provider"
+    ci_name = "tests.test_execution_controller_restart.cancellation_ci_context_provider"
     name = "tests.test_execution_controller_restart.consequential_cancel_handler"
     controller.register_handler(context_name, cancellation_context_provider, execution_class="context_provider")
     controller.register_handler(ci_name, cancellation_ci_provider, execution_class="context_provider")
