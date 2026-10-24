@@ -230,6 +230,13 @@ class FreshnessAwareAttestor:
         for name, value in (("audience", audience), ("purpose", purpose), ("policy_version", policy_version)):
             if not isinstance(value, str) or not value.strip():
                 raise ValueError(f"{name} must be a non-empty string")
+        audience = audience.strip()
+        purpose = purpose.strip()
+        policy_version = policy_version.strip()
+        if claim_operation_id is not None and (
+            not isinstance(claim_operation_id, str) or not claim_operation_id.strip()
+        ):
+            raise ValueError("claim_operation_id must be a non-empty string")
         # Invalid signatures/lineage must not consume the one-time replay slot:
         # otherwise an unauthenticated request could preempt a valid attestation.
         operation_id = claim_operation_id
@@ -238,8 +245,8 @@ class FreshnessAwareAttestor:
         if fresh and base.trustworthy:
             if operation_id is None:
                 operation_id = uuid4().hex
-            elif not isinstance(operation_id, str) or not operation_id.strip():
-                raise ValueError("claim_operation_id must be a non-empty string")
+            else:
+                operation_id = operation_id.strip()
             signed_expiry = attestation.attestation.expires_at_epoch
             effective_expiry = signed_expiry if signed_expiry > 0 else attestation.issued_at + self.freshness_policy.max_age_seconds
             expires_at_epoch = int(effective_expiry)
