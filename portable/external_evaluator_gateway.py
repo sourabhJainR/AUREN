@@ -78,6 +78,10 @@ def _close_evaluator_streams(process: subprocess.Popen[bytes]) -> None:
 
 def _kill_evaluator_process_tree(process: subprocess.Popen[bytes]) -> None:
     """Kill the evaluator and descendants in its dedicated process group."""
+    isolated_terminator = getattr(process, "terminate_isolated", None)
+    if callable(isolated_terminator):
+        isolated_terminator()
+        return
     try:
         if os.name == "posix":
             os.killpg(process.pid, signal.SIGKILL)
@@ -187,7 +191,11 @@ class ExternalEvaluatorGateway:
 
         def send_request() -> None:
             try:
-                process.stdin.write(export_campaign_request(request))
+                payload = export_campaign_request(request)
+                input_limit = getattr(getattr(self.isolated_executor, "policy", None), "max_input_bytes", None)
+                if input_limit is not None and len(payload) > input_limit:
+                    raise ValueError("external evaluator request exceeds isolation input budget")
+                process.stdin.write(payload)
                 process.stdin.close()
             except (BrokenPipeError, OSError, ValueError):
                 # The evaluator may exit early; its exit status is checked below.
