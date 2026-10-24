@@ -59,6 +59,8 @@ class DockerEvaluatorPolicyTests(unittest.TestCase):
         self.assertIn(IMAGE, args)
         self.assertNotIn("/host/path", args)
         self.assertEqual(attached.pid, 1234)
+        cid_path = Path(args[args.index("--cidfile") + 1])
+        cid_path.write_text("container-id", encoding="ascii")
         attached.terminate_isolated()
         self.assertTrue(any(call.args[0][1] == "kill" for call in run.call_args_list if call.args))
 
