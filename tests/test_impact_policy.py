@@ -10,6 +10,20 @@ from scripts.impact_policy import classify_changes, classify_path, final_status
 class ImpactPolicyTests(unittest.TestCase):
     def test_every_recovery_sensitive_source_has_mandatory_test_suites(self):
         expected = {
+            ".ai-harness/runtime/canary_evaluator.py": {"tests.test_canary_evaluator", "tests.test_production_evaluator_trust"},
+            "portable/external_evaluation_campaign.py": {"tests.test_external_evaluation_campaign", "tests.test_external_evaluator_gateway"},
+            "portable/independent_evaluation_attestation.py": {"tests.test_independent_evaluation_attestation", "tests.test_sealed_arena_boundary"},
+            "tests/test_canary_evaluator.py": {"tests.test_canary_evaluator"},
+            "tests/test_production_evaluator_trust.py": {"tests.test_production_evaluator_trust"},
+            "tests/test_external_evaluation_campaign.py": {"tests.test_external_evaluation_campaign"},
+            "tests/test_independent_evaluation_attestation.py": {"tests.test_independent_evaluation_attestation"},
+            "portable/container_sandboxed_arena.py": {"tests.test_container_sandboxed_arena", "tests.test_container_sandboxed_arena_integration"},
+            "portable/isolated_arena_runner.py": {"tests.test_isolated_arena_runner", "tests.test_independent_arena"},
+            "portable/external_evaluator_gateway.py": {"tests.test_external_evaluator_gateway", "tests.test_external_evaluator_gateway_budget"},
+            "portable/sealed_arena_boundary.py": {"tests.test_sealed_arena_boundary", "tests.test_sealed_arena_custody", "tests.test_sealed_arena_signature"},
+            "portable/sealed_arena_exchange.py": {"tests.test_sealed_arena_exchange", "tests.test_external_evaluator_gateway"},
+            "portable/sealed_arena_signature.py": {"tests.test_sealed_arena_signature", "tests.test_sealed_arena_custody"},
+            "portable/sealed_corpus_provenance.py": {"tests.test_sealed_corpus_provenance", "tests.test_sealed_arena_boundary"},
             "portable/side_effect_ledger.py": {"tests.test_side_effect_ledger", "tests.test_provider_operation_lifecycle"},
             "portable/action_governance.py": {"tests.test_durable_approval"},
             "portable/durable_approval.py": {"tests.test_durable_approval", "tests.test_side_effect_ledger", "tests.test_execution_controller"},
@@ -94,6 +108,13 @@ class ImpactPolicyTests(unittest.TestCase):
             classify_path("portable/new_recovery_queue.py")
         with self.assertRaisesRegex(ValueError, "no impact classification"):
             classify_path("state/new_recovery_gate.json")
+        for path in (
+            "portable/new_sealed_oracle.py",
+            "portable/new_independent_evaluation.py",
+            "tests/test_new_sealed_corpus.py",
+        ):
+            with self.subTest(path=path), self.assertRaisesRegex(ValueError, "no impact classification"):
+                classify_path(path)
 
     def test_documentation_only_change_does_not_trigger_expensive_hardening(self):
         result = classify_changes(["docs/PROVIDER_OPERATION_LIFECYCLE.md", "README.md"])

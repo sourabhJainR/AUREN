@@ -86,6 +86,35 @@ jobs:
             echo "===== RUNNING ${test_module} ====="
             python -m unittest "${test_module}" -v 2>&1 | tee "ci-artifacts/${test_module##*.}.log"
           done
+      - name: Run Arena trust-boundary regression suites
+        run: |
+          set -euo pipefail
+          python -m pip install cryptography
+          python -m unittest -v \
+            tests.test_arena_acceptance \
+            tests.test_arena_campaign_packet \
+            tests.test_arena_run_receipt \
+            tests.test_arena_trust \
+            tests.test_canary_evaluator \
+            tests.test_production_evaluator_trust \
+            tests.test_external_evaluation_campaign \
+            tests.test_independent_evaluation_attestation \
+            tests.test_container_sandboxed_arena \
+            tests.test_container_sandboxed_arena_integration \
+            tests.test_external_evaluator_gateway \
+            tests.test_external_evaluator_gateway_budget \
+            tests.test_generalization_arena \
+            tests.test_independent_arena \
+            tests.test_isolated_arena_runner \
+            tests.test_sealed_arena_boundary \
+            tests.test_sealed_arena_custody \
+            tests.test_sealed_arena_exchange \
+            tests.test_sealed_arena_policy \
+            tests.test_sealed_arena_replay_concurrency \
+            tests.test_sealed_arena_signature \
+            tests.test_sealed_corpus_provenance \
+            tests.test_sealed_cross_domain_arena
+
       - name: Validate configuration
         run: |
           cat > /tmp/validate_config.py <<'PY'

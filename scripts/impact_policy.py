@@ -19,6 +19,20 @@ class Impact:
 # Order is stable for deterministic evidence. Every sensitive source path has
 # a mandatory focused suite; recovery changes also require production hardening.
 _RULES: tuple[tuple[str, tuple[str, ...], bool], ...] = (
+    (".ai-harness/runtime/*evaluator*.py", ("tests.test_canary_evaluator", "tests.test_production_evaluator_trust"), True),
+    ("portable/external_evaluation_campaign.py", ("tests.test_external_evaluation_campaign", "tests.test_external_evaluator_gateway", "tests.test_sealed_arena_boundary"), True),
+    ("portable/independent_evaluation_attestation.py", ("tests.test_independent_evaluation_attestation", "tests.test_sealed_arena_boundary", "tests.test_sealed_arena_signature"), True),
+    ("tests/test_canary_evaluator.py", ("tests.test_canary_evaluator",), True),
+    ("tests/test_production_evaluator_trust.py", ("tests.test_production_evaluator_trust",), True),
+    ("tests/test_external_evaluation_campaign.py", ("tests.test_external_evaluation_campaign",), True),
+    ("tests/test_independent_evaluation_attestation.py", ("tests.test_independent_evaluation_attestation",), True),
+    ("portable/*arena*.py", ("tests.test_arena_acceptance", "tests.test_arena_campaign_packet", "tests.test_arena_run_receipt", "tests.test_arena_trust", "tests.test_container_sandboxed_arena", "tests.test_container_sandboxed_arena_integration", "tests.test_external_evaluator_gateway", "tests.test_external_evaluator_gateway_budget", "tests.test_generalization_arena", "tests.test_independent_arena", "tests.test_isolated_arena_runner", "tests.test_sealed_arena_boundary", "tests.test_sealed_arena_custody", "tests.test_sealed_arena_exchange", "tests.test_sealed_arena_policy", "tests.test_sealed_arena_replay_concurrency", "tests.test_sealed_arena_signature", "tests.test_sealed_corpus_provenance", "tests.test_sealed_cross_domain_arena"), True),
+    ("portable/*evaluator*.py", ("tests.test_external_evaluator_gateway", "tests.test_external_evaluator_gateway_budget", "tests.test_sealed_arena_boundary", "tests.test_sealed_arena_signature", "tests.test_sealed_arena_custody"), True),
+    ("portable/*sandbox*.py", ("tests.test_container_sandboxed_arena", "tests.test_container_sandboxed_arena_integration", "tests.test_isolated_arena_runner"), True),
+    ("portable/sealed_*.py", ("tests.test_sealed_arena_boundary", "tests.test_sealed_arena_custody", "tests.test_sealed_arena_exchange", "tests.test_sealed_arena_policy", "tests.test_sealed_arena_replay_concurrency", "tests.test_sealed_arena_signature", "tests.test_sealed_corpus_provenance", "tests.test_sealed_cross_domain_arena"), True),
+    ("tests/test_*arena*.py", ("tests.test_arena_acceptance", "tests.test_arena_campaign_packet", "tests.test_arena_run_receipt", "tests.test_arena_trust", "tests.test_container_sandboxed_arena", "tests.test_container_sandboxed_arena_integration", "tests.test_external_evaluator_gateway", "tests.test_external_evaluator_gateway_budget", "tests.test_generalization_arena", "tests.test_independent_arena", "tests.test_isolated_arena_runner", "tests.test_sealed_arena_boundary", "tests.test_sealed_arena_custody", "tests.test_sealed_arena_exchange", "tests.test_sealed_arena_policy", "tests.test_sealed_arena_replay_concurrency", "tests.test_sealed_arena_signature", "tests.test_sealed_corpus_provenance", "tests.test_sealed_cross_domain_arena"), True),
+    ("tests/test_*evaluator*.py", ("tests.test_external_evaluator_gateway", "tests.test_external_evaluator_gateway_budget", "tests.test_sealed_arena_boundary", "tests.test_sealed_arena_signature", "tests.test_sealed_arena_custody"), True),
+    ("tests/test_sealed_corpus*.py", ("tests.test_sealed_corpus_provenance", "tests.test_sealed_arena_boundary", "tests.test_sealed_arena_custody"), True),
     ("portable/side_effect_ledger.py", ("tests.test_side_effect_ledger", "tests.test_provider_operation_lifecycle"), True),
     ("portable/durable_approval.py", ("tests.test_durable_approval", "tests.test_side_effect_ledger", "tests.test_execution_controller", "tests.test_execution_boundary"), True),
     ("portable/provider_operation_lifecycle.py", ("tests.test_provider_operation_lifecycle", "tests.test_side_effect_ledger"), True),
@@ -79,7 +93,7 @@ _SENSITIVE_PREFIXES = (
     ".ai-harness/security", ".ai-harness/runtime/rollback",
 )
 _SENSITIVE_NAMES = ("authority", "security", "guard", "approval", "rollback", "recovery", "side_effect", "execution_controller",
-                    "progress_journal", "canonical_evidence", "engineering_evidence", "provider_operation", "action_governance")
+                    "progress_journal", "canonical_evidence", "engineering_evidence", "provider_operation", "action_governance", "arena", "sealed", "evaluator", "sandbox", "corpus", "external_evaluation", "independent_evaluation")
 
 
 def is_sensitive_path(path: str) -> bool:
