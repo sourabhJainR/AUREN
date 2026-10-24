@@ -16,6 +16,16 @@ If the worker exits after a work unit has started, the next invocation with the 
 
 For direct task submission, pass a stable `work_key` to `ExecutionController.submit(...)` (or include it in the payload). The controller stores the key on the task and passes it to `AutonomousCompany.start()`. Repeated submissions with the same key and identical handler, payload, and goal return the existing task and work unit. Reusing the key for different intent raises `WorkKeyConflict`; it never silently creates a second task. Keep the key stable across worker restarts and branch/session handoffs. The key is an identity, not authorization: current policy, approval, revision, and evidence gates still run before consequential actions.
 
+## Task deadlines and cancellation
+
+`ExecutionController.submit(..., deadline_seconds=N)` accepts an optional finite duration greater than zero and no more than 24 hours. The controller persists the resulting absolute deadline in the task row and restores it on restart. Re-submitting the same stable work key returns the original task and original deadline; it does not extend the deadline. Expired tasks fail without accepting a late handler result. The timestamp is timezone-aware UTC; malformed or timezone-naive persisted deadlines fail closed.
+
+`ExecutionController.request_cancellation(task_id, reason=...)` persists a cancellation request and returns whether the task was eligible for a request. It does not immediately claim that work has stopped. The durable record stores only a SHA-256 digest of the supplied reason. Active handlers receive `auren_cancel_event`; handlers should check it during long-running work. The controller rejects a result returned after cancellation.
+
+Command-backed handlers should use `SubprocessProviderInvoker.invoke_supervised(prompt, timeout_seconds, execution_payload=payload)`. This passes the controller's cancellation event into the killable subprocess boundary and caps the process timeout using `auren_deadline_epoch`. A handler that ignores the event cannot be forcibly stopped by the Python supervisor. For consequential work, cancellation or deadline expiry after dispatch leaves the task blocked for provider reconciliation if the remote outcome is uncertain; never manually reset it to pending.
+
+**Rollback:** retain the task database and progress/evidence journals. A code rollback does not clear cancellation flags or deadlines and must not replay a consequential operation whose provider outcome is unknown.
+
 
 ## Bounded worker output
 
