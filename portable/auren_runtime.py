@@ -233,18 +233,33 @@ def build(root: Path, output: Path, source_commit: str | None = None, source_ref
         archive.writestr(f"{PAYLOAD_ROOT}/PORTABLE_BUNDLE.txt", "AUREN portable bundle\nInstallation is user-scoped and repository-isolated.\nVersion and exact source commit are pinned in the manifest.\n")
     return output
 
+def _validate_archive_member_name(name: str) -> None:
+    """Reject archive paths that can escape or become ambiguous on Windows."""
+    if not name or "\x00" in name or "\\" in name:
+        raise SystemExit(f"unsafe archive member path: {name!r}")
+    relative = PurePosixPath(name)
+    if relative.is_absolute() or any(part in ("", ".", "..") for part in relative.parts):
+        raise SystemExit(f"unsafe archive member path: {name!r}")
+    # Drive-qualified and alternate-stream paths are not portable across hosts.
+    if any(":" in part for part in relative.parts):
+        raise SystemExit(f"non-portable archive member path: {name!r}")
+
+
 def safe_extract(archive: zipfile.ZipFile, destination: Path) -> None:
     destination = destination.resolve()
+    names = [member.filename for member in archive.infolist()]
+    if len(names) != len(set(names)):
+        raise SystemExit("archive contains duplicate members")
     for member in archive.infolist():
+        _validate_archive_member_name(member.filename)
         target = (destination / member.filename).resolve()
         if destination != target and destination not in target.parents:
             raise SystemExit(f"unsafe archive path: {member.filename}")
     archive.extractall(destination)
 
 def _manifest_record_path(root: Path, record_path: str) -> Path:
+    _validate_archive_member_name(record_path)
     relative = PurePosixPath(record_path)
-    if relative.is_absolute() or ".." in relative.parts or not record_path or "\\" in record_path:
-        raise SystemExit(f"unsafe manifest path: {record_path}")
     if record_path == LAUNCHER_PATH:
         return root / LAUNCHER_PATH
     if record_path == "auren_env_compat.py":
@@ -266,11 +281,14 @@ def _native_bundle(bundle: Path) -> tuple[Path, Path | None]:
         raise SystemExit(f"AUREN bundle does not exist: {bundle}")
     try:
         with zipfile.ZipFile(bundle) as archive:
-            names = [name for name in archive.namelist() if not name.endswith("/")]
+            all_names = [member.filename for member in archive.infolist()]
+            if len(all_names) != len(set(all_names)):
+                raise SystemExit("invalid artifact wrapper: duplicate archive members")
+            names = [name for name in all_names if not name.endswith("/")]
             if MANIFEST_NAME in names:
                 return bundle, None
             zip_members = [name for name in names if name.lower().endswith(".zip")]
-            if len(zip_members) == 1 and Path(zip_members[0]).name.lower() == f"{BUNDLE_NAME}.zip":
+            if len(names) == 1 and len(zip_members) == 1 and zip_members[0] == f"{BUNDLE_NAME}.zip":
                 temp_root = Path(tempfile.mkdtemp(prefix="auren-artifact-"))
                 inner = temp_root / f"{BUNDLE_NAME}.zip"
                 inner.write_bytes(archive.read(zip_members[0]))
@@ -300,9 +318,7 @@ def _verify_native_bundle(bundle: Path) -> dict:
             if MANIFEST_NAME not in member_names:
                 raise SystemExit("bundle manifest is missing")
             for name in member_names:
-                member_path = PurePosixPath(name)
-                if member_path.is_absolute() or ".." in member_path.parts or "\\" in name:
-                    raise SystemExit(f"unsafe archive member path: {name}")
+                _validate_archive_member_name(name)
             manifest = json.loads(archive.read(MANIFEST_NAME).decode("utf-8"))
             if manifest.get("format") != BUNDLE_FORMAT_VERSION:
                 raise SystemExit("unsupported bundle format")
@@ -320,6 +336,8 @@ def _verify_native_bundle(bundle: Path) -> dict:
                     not isinstance(record, dict)
                     or not isinstance(record.get("path"), str)
                     or not isinstance(record.get("sha256"), str)
+                    or type(record.get("size")) is not int
+                    or record["size"] < 0
                     or len(record["sha256"]) != 64
                     or any(ch not in "0123456789abcdef" for ch in record["sha256"].lower())
                 ):
@@ -332,7 +350,7 @@ def _verify_native_bundle(bundle: Path) -> dict:
                 seen.add(record_path)
                 if _is_mutable_state_path(record_path):
                     raise SystemExit(f"mutable runtime state is forbidden in bundle: {record_path}")
-                if "size" in record and (type(record["size"]) is not int or record["size"] < 0):
+                if record["size"] < 0:
                     raise SystemExit(f"invalid bundle file size: {record_path}")
                 # Validate the logical path before using it to derive the archive inventory.
                 _manifest_record_path(Path("."), record_path)
