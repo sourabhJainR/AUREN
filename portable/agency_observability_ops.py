@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from collections import Counter, deque
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 import json
 import math
 import sqlite3
@@ -458,3 +458,155 @@ def observability_snapshot(path: Path, *, limit: int = 500) -> dict[str, Any]:
         "recent_traces": recent[-100:],
         "raw_payloads_exposed": False,
     }
+
+
+
+class SQLiteObservabilityEvidenceStore:
+    """Append-only storage for calibration reports, guardrail approvals and drift alerts."""
+
+    def __init__(self, path: Path | None = None) -> None:
+        self.path = (path or canonical_runtime_home() / "observability" / "datasets.sqlite3").expanduser()
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        with self._connection() as connection:
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS evaluator_calibration_reports (
+                    report_id TEXT PRIMARY KEY,
+                    metric TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    report_json TEXT NOT NULL,
+                    created_at REAL NOT NULL
+                )"""
+            )
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS evaluator_guardrail_authorizations (
+                    authorization_id TEXT PRIMARY KEY,
+                    report_id TEXT NOT NULL REFERENCES evaluator_calibration_reports(report_id),
+                    metric TEXT NOT NULL,
+                    threshold REAL NOT NULL,
+                    reviewer_id TEXT NOT NULL,
+                    evidence_ref TEXT NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    created_at REAL NOT NULL
+                )"""
+            )
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS evaluator_drift_alerts (
+                    alert_id TEXT PRIMARY KEY,
+                    metric TEXT NOT NULL,
+                    domain TEXT NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    created_at REAL NOT NULL
+                )"""
+            )
+
+    def _connect(self):
+        connection = sqlite3.connect(str(self.path), timeout=5.0)
+        connection.execute("PRAGMA busy_timeout=5000")
+        connection.execute("PRAGMA foreign_keys=ON")
+        return connection
+
+    @contextmanager
+    def _connection(self):
+        connection = self._connect()
+        try:
+            yield connection
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
+    def record_calibration(self, metric: str, result: CalibrationResult) -> str:
+        if not metric.strip():
+            raise ValueError("calibration metric is required")
+        payload = json.dumps(asdict(result), sort_keys=True, separators=(",", ":"), allow_nan=False)
+        report_id = __import__("hashlib").sha256(f"{metric}|{payload}".encode("utf-8")).hexdigest()
+        with self._connection() as connection:
+            connection.execute(
+                "INSERT OR IGNORE INTO evaluator_calibration_reports(report_id, metric, status, report_json, created_at) VALUES(?,?,?,?,?)",
+                (report_id, metric, result.status, payload, time.time()),
+            )
+            existing = connection.execute(
+                "SELECT report_json FROM evaluator_calibration_reports WHERE report_id=?",
+                (report_id,),
+            ).fetchone()
+            if existing is None or existing[0] != payload:
+                raise ValueError("calibration report persistence conflict")
+        return report_id
+
+    def authorize_guardrail(
+        self,
+        metric: str,
+        result: CalibrationResult,
+        *,
+        reviewer_id: str,
+        evidence_ref: str,
+    ) -> GuardrailAuthorization:
+        authorization = authorize_calibrated_guardrail(
+            metric, result, reviewer_id=reviewer_id, evidence_ref=evidence_ref,
+        )
+        report_id = self.record_calibration(metric, result)
+        payload = {
+            "report_id": report_id,
+            "metric": authorization.metric,
+            "threshold": authorization.threshold,
+            "reviewer_id": authorization.reviewer_id,
+            "evidence_ref": authorization.evidence_ref,
+            "calibration_status": authorization.calibration_status,
+        }
+        encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False)
+        authorization_id = __import__("hashlib").sha256(encoded.encode("utf-8")).hexdigest()
+        with self._connection() as connection:
+            connection.execute(
+                """INSERT OR IGNORE INTO evaluator_guardrail_authorizations
+                   (authorization_id, report_id, metric, threshold, reviewer_id, evidence_ref, payload_json, created_at)
+                   VALUES(?,?,?,?,?,?,?,?)""",
+                (authorization_id, report_id, metric, authorization.threshold, reviewer_id, evidence_ref, encoded, time.time()),
+            )
+            existing = connection.execute(
+                "SELECT payload_json FROM evaluator_guardrail_authorizations WHERE authorization_id=?",
+                (authorization_id,),
+            ).fetchone()
+            if existing is None or existing[0] != encoded:
+                raise ValueError("guardrail authorization persistence conflict")
+        return authorization
+
+    def record_drift_alert(self, report: Mapping[str, Any]) -> str:
+        if report.get("status") != "alert":
+            raise ValueError("only evaluated drift alerts can be persisted as alerts")
+        metric, domain = report.get("metric"), report.get("domain")
+        if not isinstance(metric, str) or not metric.strip() or not isinstance(domain, str) or not domain.strip():
+            raise ValueError("drift alert requires metric and domain")
+        encoded = json.dumps(_safe(dict(report)), sort_keys=True, separators=(",", ":"), allow_nan=False)
+        alert_id = __import__("hashlib").sha256(encoded.encode("utf-8")).hexdigest()
+        with self._connection() as connection:
+            connection.execute(
+                "INSERT OR IGNORE INTO evaluator_drift_alerts(alert_id, metric, domain, payload_json, created_at) VALUES(?,?,?,?,?)",
+                (alert_id, metric, domain, encoded, time.time()),
+            )
+            existing = connection.execute(
+                "SELECT payload_json FROM evaluator_drift_alerts WHERE alert_id=?",
+                (alert_id,),
+            ).fetchone()
+            if existing is None or existing[0] != encoded:
+                raise ValueError("drift alert persistence conflict")
+        return alert_id
+
+    def list_drift_alerts(self, *, limit: int = 100) -> list[dict[str, Any]]:
+        if limit < 1 or limit > 1000:
+            raise ValueError("alert limit must be between 1 and 1000")
+        with self._connection() as connection:
+            rows = connection.execute(
+                "SELECT payload_json FROM evaluator_drift_alerts ORDER BY created_at DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        results = []
+        for (payload,) in rows:
+            try:
+                item = json.loads(payload)
+                if isinstance(item, dict):
+                    results.append(item)
+            except json.JSONDecodeError:
+                raise ValueError("persisted drift alert is corrupt")
+        return results
