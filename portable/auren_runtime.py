@@ -135,7 +135,13 @@ def _is_mutable_state_path(path: str | Path) -> bool:
     return name in MUTABLE_FILE_NAMES or name.endswith(MUTABLE_STATE_SUFFIXES)
 
 
+def _reject_source_symlink(path: Path) -> None:
+    if path.is_symlink():
+        raise SystemExit(f"portable source contains a symlink; refusing ambiguous payload: {path}")
+
+
 def should_include(path: Path, root: Path) -> bool:
+    _reject_source_symlink(path)
     rel = path.relative_to(root)
     if any(part in EXCLUDED_PARTS for part in rel.parts):
         return False
@@ -149,10 +155,15 @@ def iter_source_files(root: Path) -> list[Path]:
         base = root / top
         if not base.exists():
             raise SystemExit(f"required source path is missing: {base}")
-        files.extend(p for p in base.rglob("*") if p.is_file() and should_include(p, root))
+        _reject_source_symlink(base)
+        for path in base.rglob("*"):
+            _reject_source_symlink(path)
+            if path.is_file() and should_include(path, root):
+                files.append(path)
     # The bootstrap-safe environment resolver is a runtime dependency outside
     # the portable package tree; pin it in the bundle manifest and payload.
     resolver = root / "auren_env_compat.py"
+    _reject_source_symlink(resolver)
     if not resolver.is_file():
         raise SystemExit(f"required source file is missing: {resolver}")
     files.append(resolver)
@@ -205,6 +216,7 @@ def _git_head(root: Path) -> str | None:
 def make_manifest(root: Path, files: list[Path], source_commit: str | None = None, source_ref: str = AUREN_BRANCH) -> dict:
     records = [FileRecord(p.relative_to(root).as_posix(), sha256_file(p), p.stat().st_size).__dict__ for p in files]
     launcher = root / LAUNCHER_PATH
+    _reject_source_symlink(launcher)
     if not launcher.is_file():
         raise SystemExit(f"required launcher is missing: {launcher}")
     records.append(FileRecord(LAUNCHER_PATH, sha256_file(launcher), launcher.stat().st_size).__dict__)
