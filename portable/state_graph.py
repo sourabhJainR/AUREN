@@ -11,9 +11,10 @@ from typing import Any, Callable, Mapping
 
 from .bounded_crew_dispatch import BoundedCrewDispatcher
 
-from .orchestration import Graph, Node, NodeKind, NodeStatus, OrchestrationRun, Orchestrator
+from .orchestration import Graph, Node, NodeKind, NodeStatus, OrchestrationRun, Orchestrator, RunStatus
 from .crew_adapters import CrewHandoff, GraphHandoffController, TaskRetryBudget, rollback_readiness
 from .runtime_recovery import ExecutionBudgetExceeded, RuntimeExecutionGuard
+from .agency_observability import Tracer
 
 _FORBIDDEN_CREW_AUTHORITIES = frozenset({
     "merge", "promote", "self_approve", "approve_own_work", "bypass_review",
@@ -464,8 +465,120 @@ class StateGraph:
         return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
 
     def run(self, task_id: str, intent: str, context: Mapping[str, Any] | None = None, *,
-            max_total_attempts: int = 32) -> OrchestrationRun:
-        return Orchestrator(self.graph, max_total_attempts=max_total_attempts).run(task_id, intent, context)
+            max_total_attempts: int = 32, tracer: Tracer | None = None) -> OrchestrationRun:
+        """Run the canonical supervisor and correlate telemetry to its returned state."""
+        if tracer is None:
+            return Orchestrator(self.graph, max_total_attempts=max_total_attempts).run(task_id, intent, context)
+
+        state = dict(context or {})
+        run_id = state.get("run_id") or task_id
+        session_id = state.get("session_id")
+        source_revision = state.get("code_revision") or state.get("source_revision")
+        config_digest = state.get("config_digest")
+        trace = tracer.start(
+            "auren.supervisor_run",
+            {
+                "graph_digest": self.digest(),
+                "intent_digest": Orchestrator.intent_digest(intent),
+                "resume_checkpoint_id": state.get("resume_checkpoint_id"),
+                "runtime_guard_schema": (
+                    state.get("auren_runtime_guard", {}).get("schema_version")
+                    if isinstance(state.get("auren_runtime_guard"), Mapping) else None
+                ),
+                "phase_coverage_gaps": ["provider_tool_adapters", "external_learning_persistence"],
+            },
+            run_id=str(run_id), task_id=task_id,
+            session_id=str(session_id) if session_id else None,
+            source_revision=str(source_revision) if source_revision else None,
+            config_digest=str(config_digest) if config_digest else None,
+        )
+        root = trace.span(
+            "supervisor", "supervisor",
+            metadata={"graph_digest": self.digest(), "node_count": len(self.states)},
+            phase="supervisor", actor_id="auren.state_graph_supervisor",
+            source_revision=str(source_revision) if source_revision else None,
+        )
+        try:
+            result = Orchestrator(self.graph, max_total_attempts=max_total_attempts).run(task_id, intent, state)
+            for node in self.graph.order():
+                node_result = result.results.get(node.name)
+                if node_result is None:
+                    status = "unknown"
+                    attempts = repairs = evidence_count = 0
+                    error_type = None
+                else:
+                    status = {
+                        NodeStatus.PASSED: "ok",
+                        NodeStatus.FAILED: "error",
+                        NodeStatus.BLOCKED: "blocked",
+                        NodeStatus.SKIPPED: "skipped",
+                        NodeStatus.RUNNING: "running",
+                        NodeStatus.PENDING: "unknown",
+                    }.get(node_result.status, "unknown")
+                    attempts = node_result.attempts
+                    repairs = node_result.repair_count
+                    evidence_count = len(node_result.evidence)
+                    error_type = "node_error" if node_result.error else None
+                lowered = node.name.lower()
+                if "research" in lowered or "retriev" in lowered:
+                    phase = "research"
+                elif "plan" in lowered:
+                    phase = "planning"
+                elif "verif" in lowered or "review" in lowered:
+                    phase = "verification"
+                elif "learn" in lowered or "experiment" in lowered:
+                    phase = "learning"
+                elif "release" in lowered or "promot" in lowered:
+                    phase = "release"
+                elif "rollback" in lowered:
+                    phase = "rollback"
+                elif "tool" in lowered or "provider" in lowered:
+                    phase = "tool"
+                elif node.kind == NodeKind.ROUTER:
+                    phase = "routing"
+                elif node.kind == NodeKind.EVALUATOR:
+                    phase = "evaluation"
+                else:
+                    phase = "implementation" if node.kind == NodeKind.AGENT else "supervisor"
+                span = trace.span(
+                    "supervisor_node:" + node.name, node.kind.value,
+                    metadata={
+                        "canonical_node_status": status,
+                        "attempts": attempts,
+                        "repairs": repairs,
+                        "evidence_count": evidence_count,
+                        "error_present": error_type is not None,
+                    },
+                    parent_id=root.span_id, phase=phase,
+                    actor_id="auren.state_graph_supervisor",
+                    source_revision=str(source_revision) if source_revision else None,
+                )
+                span.finish({
+                    "canonical_node_status": status,
+                    "error_type": error_type,
+                }, status if status in {"ok", "error", "blocked", "skipped", "running", "unknown"} else "unknown")
+            root.finish({
+                "canonical_run_status": result.status.value,
+                "stop_reason": result.stop_reason,
+                "intent_digest": result.intent_digest,
+                "environment_fingerprint": result.environment_fingerprint,
+                "evidence_count": len(result.evidence),
+                "learned_candidate_count": len(result.learned_candidates),
+                "node_result_count": len(result.results),
+            }, "ok" if result.status == RunStatus.ACCEPTED else "blocked" if result.status == RunStatus.BLOCKED else "error")
+            trace.metadata["canonical_run_status"] = result.status.value
+            trace.metadata["canonical_stop_reason"] = result.stop_reason
+            trace.metadata["learning_candidate_count"] = len(result.learned_candidates)
+            # Candidate generation is a learning signal, not proof that a candidate
+            # was persisted, evaluated in isolation, or safely promoted.
+            tracer.end(trace, "ok" if result.status == RunStatus.ACCEPTED else "blocked" if result.status == RunStatus.BLOCKED else "error")
+            return result
+        except Exception as exc:
+            root.finish({"error_type": type(exc).__name__}, "error", type(exc).__name__)
+            trace.metadata["canonical_run_status"] = "error"
+            trace.metadata["terminal_reason"] = type(exc).__name__
+            tracer.end(trace, "error")
+            raise
 
 
 class GraphAgentTeam:

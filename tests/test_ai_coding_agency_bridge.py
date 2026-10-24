@@ -9,6 +9,7 @@ from portable.ai_coding_agency_bridge import CodingTask, run_coding_task, verify
 from portable.action_governance import ActionGovernanceGateway, ActionPolicy
 from portable.execution_boundary import ExecutionAuthorityBinding
 from portable.runtime_recovery import RuntimeExecutionGuard
+from portable.engineering_personas import AgentPersona, EngineeringPlan, PersonaReview, PersonaRoster, PersonaWorkflow
 
 
 class AICodingAgencyBridgeTests(unittest.TestCase):
@@ -271,9 +272,45 @@ class AICodingAgencyBridgeTests(unittest.TestCase):
             allowed_artifact_changes=("src/auth.py",),
         )
         calls = []
+        roster = PersonaRoster(
+            planner=AgentPersona("planner", "planner-5", "systems-planner"),
+            plan_reviewer=AgentPersona("plan_reviewer", "plan-reviewer-5", "adversarial-plan-reviewer"),
+            implementer=AgentPersona("implementer", "implementer-5", "focused-code-implementer"),
+            implementation_reviewer=AgentPersona("implementation_reviewer", "implementation-reviewer-5", "independent-security-reviewer"),
+        )
+        workflow = PersonaWorkflow(
+            roster=roster,
+            plan=lambda profile, assignments: EngineeringPlan(
+                goal=profile.request,
+                scope=("authentication flow",),
+                assumptions=("write authorization must be enforced",),
+                acceptance_criteria=("no worker runs without approval",),
+                dependencies=("action governance gateway",),
+                alternatives_considered=("deny without approval",),
+                risks_and_mitigations=("unauthorized mutation; fail closed",),
+                test_strategy=("governance regression test",),
+                rollback_plan=("no write is dispatched before approval",),
+                budget={"max_attempts": 1},
+                source_revision=profile.source_revision,
+                decision_rationale="Preserve the authority boundary with the smallest change.",
+                selected_specialists=tuple(assignment.specialist for assignment in assignments[:1]),
+            ),
+            review_plan=lambda profile, reviewed: PersonaReview(
+                reviewer_id="plan-reviewer-5", target_id="planner-5", approved=True,
+                evidence_refs=("plan-review:governance",), dimensions={"completeness": 0.95},
+            ),
+            review_implementation=lambda profile, reviewed, artifact: PersonaReview(
+                reviewer_id="implementation-reviewer-5", target_id="implementer-5",
+                approved=not artifact.get("deliverables") and artifact.get("hard_gates", {}).get("action_governance") is False,
+                findings=() if not artifact.get("deliverables") and artifact.get("hard_gates", {}).get("action_governance") is False else ("unexpected worker execution",),
+                evidence_refs=("governance:denial",),
+                dimensions={"authority": 1.0, "safety": 1.0},
+            ),
+        )
         result = run_coding_task(
             task, lambda profile, assignments: calls.append("worker") or self._worker(profile, assignments),
             governance_gateway=gateway, run_id="governed-bridge-5",
+            repository_revision="test-revision", persona_workflow=workflow,
         )
         self.assertFalse(result.ready)
         self.assertEqual(calls, [])

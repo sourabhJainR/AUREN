@@ -53,3 +53,12 @@ This is an observation sink only. Existing execution, verification, learning and
 The dashboard exposes local operational metadata, not source-file contents, secrets, prompts or credentials. Repository intelligence is used for counts and graph metadata. The server is loopback-only by default and has no write APIs.
 
 If an underlying store is absent or does not contain a metric, the UI displays the absence rather than fabricating a value.
+
+
+## Evidence-linked traces and independent review
+
+The tracing contract is documented in [ENGINEERING_PERSONA_GOVERNANCE.md](ENGINEERING_PERSONA_GOVERNANCE.md). Trace events use a versioned schema, explicit run/task/session correlation, source/configuration revisions where supplied, phase-tagged spans, and a content digest. Span parentage is explicit; creation order does not imply nesting.
+
+The runtime can accept an injected PersonaWorkflow with distinct planning, plan-review, implementation, and implementation-review identities. The planning review must approve a complete, digest-bound plan before the worker runs. The independent implementation review must cite evidence before the result can satisfy the promotion gate. High-risk work and release transitions fail closed if this workflow is absent.
+
+Legacy low-risk execution remains compatible, but its trace records missing phase/review coverage. A trace is not proof of successful research or independent review merely because an event exists. The console and downstream consumers must display missing, unknown, unscored, stale, and failed states explicitly.

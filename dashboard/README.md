@@ -293,6 +293,14 @@ No separate UI package or Node.js installation is required.
 
 The router prefers explicit capability metadata from the local model discovery response and falls back to deterministic model-name heuristics only when metadata is absent. Models with malformed capability declarations are excluded rather than assumed capable. Within the same capability tier, the router preserves the provider's configured discovery order so intentional local priority (and existing operator configuration) remains meaningful. Discovery failures are surfaced as route outcomes; private/restricted tasks never fall back to remote execution. These controls do not imply model quality: production routing should additionally record task-specific quality evaluations alongside latency and resource usage before treating a model as preferred.
 
+## Agent observability
+
+The console includes an **Observability** tab backed by the read-only `GET /api/observability` endpoint. It reports aggregate trace counts, phase coverage, provider counts, duration summaries, corrupt-line counts, and recent outcomes. The response deliberately excludes raw prompts, span inputs, and outputs.
+
+The endpoint reads the local runtime trace journal at the canonical AUREN runtime home. Missing storage is reported as unavailable; stale in-progress runs are labeled stale rather than complete. The journal may contain multiple append-only snapshots for one run; the projection uses the latest snapshot per trace ID.
+
+The schema and persona requirements are documented in [ENGINEERING_PERSONA_GOVERNANCE.md](../docs/ENGINEERING_PERSONA_GOVERNANCE.md).
+
 ## Durable task progress
 
 The console exposes progress-journal snapshots emitted by the execution supervisor: queueing, dispatch, preflight, handler dispatch, heartbeat, quota waits, recovery, and terminal outcomes. Stale and unknown states remain visible, with a next action where available. SQLite task state remains authoritative; the journal is a durable projection and a missing journal is not treated as success.

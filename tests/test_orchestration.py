@@ -1,7 +1,11 @@
+import json
 import tempfile
 import unittest
 from pathlib import Path
 
+from portable.agency_observability import LocalExporter, Tracer
+from portable.state_graph import StateGraph
+from portable.runtime_recovery import RuntimeExecutionGuard
 from portable.orchestration import (
     Graph,
     Node,
@@ -244,3 +248,80 @@ class OrchestrationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+    def test_state_graph_observability_tracks_canonical_supervisor_and_node_state(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "supervisor-traces.jsonl"
+            graph = Graph([
+                Node("research_sources", NodeKind.AGENT, lambda _: {"evidence": ["source:1"]}),
+                Node("verify_evidence", NodeKind.EVALUATOR, lambda state: bool(state["research_sources"]["evidence"]), depends_on=("research_sources",)),
+            ])
+            tracer = Tracer(LocalExporter(path, enabled=True))
+            result = StateGraph(graph).run(
+                "task-observability-1", "research and verify evidence",
+                {"run_id": "stable-run-1", "session_id": "session-1", "code_revision": "rev-1"},
+                tracer=tracer,
+            )
+            self.assertEqual(result.status, RunStatus.ACCEPTED)
+            records = [json.loads(line) for line in path.read_text().splitlines()]
+            correlated = [record for record in records if record.get("task_id") == "task-observability-1"]
+            self.assertTrue(correlated)
+            self.assertEqual({record.get("run_id") for record in correlated}, {"stable-run-1"})
+            self.assertEqual({record.get("session_id") for record in correlated}, {"session-1"})
+            spans = [record["span"] for record in correlated if isinstance(record.get("span"), dict)]
+            self.assertTrue(any(span.get("name") == "supervisor" for span in spans))
+            research = [span for span in spans if span.get("name") == "supervisor_node:research_sources"]
+            verify = [span for span in spans if span.get("name") == "supervisor_node:verify_evidence"]
+            self.assertTrue(research and verify)
+            self.assertEqual(research[0]["phase"], "research")
+            self.assertEqual(verify[0]["phase"], "verification")
+            self.assertTrue(all(span.get("parent_id") for span in research + verify))
+            terminal = [record for record in records if record.get("schema_version") == 1 and "spans" in record]
+            self.assertTrue(terminal)
+            self.assertEqual(terminal[-1]["status"], "ok")
+            self.assertEqual(terminal[-1]["metadata"]["canonical_run_status"], "accepted")
+
+
+    def test_supervisor_resume_correlates_trace_with_restored_execution_budget(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "resume-traces.jsonl"
+            tracer = Tracer(LocalExporter(path, enabled=True))
+            graph = Graph([Node("research_sources", NodeKind.AGENT, lambda _: {"evidence": ["source:1"]})])
+            persisted = []
+            guard = RuntimeExecutionGuard(max_steps=20, max_attempts=20)
+            common = {
+                "run_id": "stable-resumable-run",
+                "session_id": "session-resume",
+                "auren_runtime_guard": guard.snapshot(),
+                "auren_runtime_guard_persist": lambda snapshot: persisted.append(snapshot),
+            }
+            first = StateGraph(graph).run("task-resume-1", "research", common, tracer=tracer)
+            self.assertEqual(first.status, RunStatus.ACCEPTED)
+            self.assertTrue(persisted)
+            second_context = {
+                **common,
+                "auren_runtime_guard": persisted[-1],
+                "resume_checkpoint_id": "checkpoint-resume-1",
+            }
+            second = StateGraph(graph).run("task-resume-1", "research", second_context, tracer=tracer)
+            self.assertEqual(second.status, RunStatus.ACCEPTED)
+            records = [json.loads(line) for line in path.read_text().splitlines()]
+            traces = {}
+            for record in records:
+                if record.get("task_id") == "task-resume-1":
+                    traces.setdefault(record.get("trace_id"), []).append(record)
+            self.assertEqual(len(traces), 2)
+            self.assertTrue(all({r.get("run_id") for r in values} == {"stable-resumable-run"} for values in traces.values()))
+            snapshots = [
+                r for values in traces.values() for r in values
+                if r.get("schema_version") == 1 and "spans" in r
+                and r.get("metadata", {}).get("canonical_run_status") is not None
+            ]
+            self.assertEqual(len(snapshots), 2)
+            resumed = [
+                r for r in snapshots
+                if r.get("metadata", {}).get("resume_checkpoint_id") == "checkpoint-resume-1"
+            ]
+            self.assertEqual(len(resumed), 1)
+            self.assertEqual(resumed[0]["metadata"]["canonical_run_status"], "accepted")

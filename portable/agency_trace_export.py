@@ -2,9 +2,12 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Mapping, Protocol, Sequence
+
+from .agency_observability import LocalExporter, _MAX_TRACE_BYTES, _TRACE_LOCK, _safe
 
 
 class TraceExporter(Protocol):
@@ -19,18 +22,33 @@ class CompositeTraceExporter:
 
     def __init__(self, exporters: Sequence[TraceExporter] = ()) -> None:
         self.exporters = tuple(exporters)
+        self.last_errors: tuple[str, ...] = ()
 
     def export(self, trace: Any) -> None:
-        errors: list[Exception] = []
+        errors: list[str] = []
         for exporter in self.exporters:
             try:
                 exporter.export(trace)
-            except Exception as exc:  # exporters must not corrupt task execution
-                errors.append(exc)
+            except Exception as exc:  # Tracer catches this; canonical task state is unchanged.
+                errors.append(type(exc).__name__)
+        self.last_errors = tuple(errors)
         if errors:
-            # Observability is best-effort; callers can inspect exporter-specific
-            # health without turning a successful engineering task into a failure.
-            return
+            raise RuntimeError("one or more trace exporters failed")
+
+    def export_event(self, trace: Any, event_type: str, span: Any = None) -> None:
+        errors: list[str] = []
+        for exporter in self.exporters:
+            try:
+                export_event = getattr(exporter, "export_event", None)
+                if callable(export_event):
+                    export_event(trace, event_type, span)
+                else:
+                    exporter.export(trace)
+            except Exception as exc:
+                errors.append(type(exc).__name__)
+        self.last_errors = tuple(errors)
+        if errors:
+            raise RuntimeError("one or more trace event exporters failed")
 
 
 class JsonlTraceExporter:
@@ -39,14 +57,30 @@ class JsonlTraceExporter:
     def __init__(self, path: Path, enabled: bool = True) -> None:
         self.path = Path(path).expanduser()
         self.enabled = enabled
+        self._local_exporter = LocalExporter(self.path, enabled=enabled)
 
     def export(self, trace: Any) -> None:
+        if hasattr(trace, "as_dict"):
+            self._local_exporter.export(trace)
+            return
         if not self.enabled:
             return
-        payload = trace.as_dict() if hasattr(trace, "as_dict") else trace
+        encoded = json.dumps(_safe(trace), sort_keys=True, separators=(",", ":"), allow_nan=False)
+        if len(encoded.encode("utf-8")) > _MAX_TRACE_BYTES:
+            raise ValueError("trace exceeds the configured observability event size limit")
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        with self.path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(payload, sort_keys=True, default=str) + "\n")
+        line = (encoded + "\n").encode("utf-8")
+        with _TRACE_LOCK:
+            descriptor = os.open(str(self.path), os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+            try:
+                written = os.write(descriptor, line)
+                if written != len(line):
+                    raise OSError("incomplete observability append")
+            finally:
+                os.close(descriptor)
+
+    def export_event(self, trace: Any, event_type: str, span: Any = None) -> None:
+        self._local_exporter.export_event(trace, event_type, span)
 
 
 @dataclass(frozen=True)
