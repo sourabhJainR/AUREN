@@ -328,3 +328,25 @@ def test_deadline_validation_and_stable_work_key_deadline_replay(tmp_path: Path)
     replay = controller.submit(name, {"id": "deadline-idempotency"}, work_key="test:deadline-idempotency", deadline_seconds=60)
     assert replay.id == first.id
     assert replay.deadline_at == first.deadline_at
+
+
+
+def test_handler_interruption_after_cancellation_commits_cancelled_state(tmp_path: Path):
+    controller = ExecutionController(tmp_path)
+    started = Event()
+    def handler(payload):
+        started.set()
+        payload["auren_cancel_event"].wait(timeout=3)
+        raise InterruptedError("subprocess provider cancelled")
+    name = "tests.test_execution_controller_restart.interrupted_cancel_handler"
+    controller.register_handler(name, handler, execution_class="read_only")
+    task = controller.submit(name, {})
+    outcomes = []
+    worker = Thread(target=lambda: outcomes.append(controller.run_once(task.id)), daemon=True)
+    worker.start()
+    assert started.wait(timeout=3)
+    assert controller.request_cancellation(task.id, reason="stop subprocess")
+    worker.join(timeout=5)
+    assert not worker.is_alive()
+    assert outcomes == [None]
+    assert controller.task(task.id).state == "cancelled"
