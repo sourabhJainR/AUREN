@@ -65,6 +65,17 @@ class ExternalEvaluatorCommand:
             raise ValueError("environment keys must be unique ignoring case")
 
 
+def _close_evaluator_streams(process: subprocess.Popen[bytes]) -> None:
+    """Close parent-owned evaluator pipes after I/O threads have joined."""
+    for stream in (process.stdin, process.stdout):
+        if stream is None:
+            continue
+        try:
+            stream.close()
+        except (OSError, ValueError):
+            pass
+
+
 def _kill_evaluator_process_tree(process: subprocess.Popen[bytes]) -> None:
     """Kill the evaluator and descendants in its dedicated process group."""
     try:
@@ -179,6 +190,7 @@ class ExternalEvaluatorGateway:
 
         writer.join(timeout=1.0)
         reader.join(timeout=1.0)
+        _close_evaluator_streams(process)
         if output_limit_exceeded.is_set():
             raise ValueError("external evaluator receipt exceeds output budget")
         if timed_out:
