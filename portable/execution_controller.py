@@ -2008,6 +2008,8 @@ class ExecutionController:
         stop = Event()
         cancel = Event()
         lease_errors: list[BaseException] = []
+        cancellation_observation_errors: list[BaseException] = []
+        handler_started = False
         with self._cancellation_events_lock:
             self._cancellation_events[task.id] = cancel
 
@@ -2026,10 +2028,10 @@ class ExecutionController:
                     if self._cancellation_requested(task.id):
                         cancel.set()
                         return
-                except Exception:
-                    # Failure to observe durable cancellation cannot be treated
-                    # as proof that no cancellation was requested.
-                    cancel.set()
+                except Exception as exc:
+                    # A database read failure is not evidence of cancellation.
+                    # Record uncertainty and fail closed after handler return.
+                    cancellation_observation_errors.append(exc)
                     return
 
         lease_thread = Thread(target=renew, name=f"auren-lease-{task.id[:8]}", daemon=True)
@@ -2045,6 +2047,7 @@ class ExecutionController:
                 raise TaskCancellationRequested("task cancellation requested before handler dispatch")
             payload = self._handler_payload(task)
             payload["auren_cancel_event"] = cancel
+            handler_started = True
             result = handler(payload)
         except BaseException as exc:
             handler_error = exc
@@ -2059,8 +2062,16 @@ class ExecutionController:
                 "task lease was lost while handler was running; result cannot be committed"
             ) from (handler_error or lease_errors[0])
         if handler_error is not None:
+            if handler_started and self._handler_execution_class(task.handler) == "consequential":
+                raise ProviderOutcomeBlocked("consequential handler exited with an exception after dispatch; remote outcome requires reconciliation") from handler_error
             raise handler_error
+        if cancellation_observation_errors:
+            if handler_started and self._handler_execution_class(task.handler) == "consequential":
+                raise ProviderOutcomeBlocked("cancellation state could not be verified after consequential dispatch; remote outcome requires reconciliation") from cancellation_observation_errors[0]
+            raise RuntimeError("cancellation state could not be verified; handler result cannot be committed") from cancellation_observation_errors[0]
         if cancel.is_set() or self._cancellation_requested(task.id):
+            if handler_started and self._handler_execution_class(task.handler) == "consequential":
+                raise ProviderOutcomeBlocked("cancellation arrived after consequential dispatch; remote outcome requires reconciliation")
             raise TaskCancellationRequested("task cancellation requested; handler result cannot be committed")
         # Verify ownership once more before the caller can finalize the result.
         self.heartbeat(task)
