@@ -1,6 +1,8 @@
 """Tests for the observation-only AUREN engineering dashboard."""
 from pathlib import Path
+import json
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 from portable.engineering_dashboard import EngineeringDashboard
 
 def test_dashboard_snapshot_uses_repository_and_test_evidence():
@@ -131,3 +133,72 @@ def test_canonical_terminal_plan_status_suppresses_stale_running_event():
         canonical = next(row for row in snapshot["plan_runs"] if row["run_id"] == plan.run_id)
         assert canonical["status"] == "completed"
         assert all(row.get("run_id") != plan.run_id for row in snapshot["executions"])
+
+
+
+def test_dashboard_event_redacts_nested_secrets_and_avoids_object_repr():
+    class SecretObject:
+        def __repr__(self):
+            return "leaked-secret-repr"
+
+    with tempfile.TemporaryDirectory() as tmp:
+        dashboard = EngineeringDashboard(tmp)
+        dashboard.record_event(
+            run_id="privacy-run",
+            event="provider-result",
+            detail="Bearer super-secret-token",
+            metadata={
+                "api_key": "should-not-be-written",
+                "nested": {
+                    "authorization": "Bearer nested-secret",
+                    "note": "password=hunter2",
+                    "opaque": SecretObject(),
+                },
+            },
+        )
+        raw = dashboard.event_path.read_text(encoding="utf-8")
+        row = json.loads(raw)
+        assert "super-secret-token" not in raw
+        assert "should-not-be-written" not in raw
+        assert "nested-secret" not in raw
+        assert "hunter2" not in raw
+        assert "leaked-secret-repr" not in raw
+        assert row["metadata"]["api_key"] == "[REDACTED]"
+        assert row["metadata"]["nested"]["authorization"] == "[REDACTED]"
+        assert row["metadata"]["nested"]["opaque"] == "[unsupported:SecretObject]"
+
+
+def test_dashboard_event_appends_are_serialized_across_concurrent_writers():
+    with tempfile.TemporaryDirectory() as tmp:
+        dashboard = EngineeringDashboard(tmp)
+
+        def write_event(index):
+            dashboard.record_event(
+                run_id=f"concurrent-{index}",
+                event="phase-progress",
+                task_id=f"task-{index}",
+                status="running",
+                metadata={"index": index, "phase": "verify"},
+            )
+
+        with ThreadPoolExecutor(max_workers=6) as pool:
+            list(pool.map(write_event, range(80)))
+
+        lines = dashboard.event_path.read_text(encoding="utf-8").splitlines()
+        rows = [json.loads(line) for line in lines]
+        assert len(rows) == 80
+        assert {row["run_id"] for row in rows} == {f"concurrent-{i}" for i in range(80)}
+        assert all(row["event"] == "phase-progress" for row in rows)
+
+
+def test_dashboard_event_payload_has_a_hard_encoded_size_limit():
+    with tempfile.TemporaryDirectory() as tmp:
+        dashboard = EngineeringDashboard(tmp)
+        metadata = {f"field-{index}": "x" * 2000 for index in range(100)}
+        try:
+            dashboard.record_event(run_id="oversized", event="large", metadata=metadata)
+        except ValueError as exc:
+            assert "64 KiB" in str(exc)
+        else:
+            raise AssertionError("oversized event must be rejected")
+        assert not dashboard.event_path.exists()
