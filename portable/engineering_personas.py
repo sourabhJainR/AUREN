@@ -6,7 +6,9 @@ scheduler or grant execution/promotion authority.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
+import hashlib
+import json
 from typing import Any, Callable, Mapping
 
 
@@ -85,6 +87,17 @@ class EngineeringPlan:
             self.risks_and_mitigations, self.test_strategy, self.rollback_plan,
         ) for item in values):
             raise ValueError("plan fields must not contain empty entries")
+
+
+def canonical_plan_digest(plan: EngineeringPlan) -> str:
+    """Digest the reviewed plan content, excluding the digest field itself."""
+    payload = asdict(plan)
+    supplied = payload.pop("plan_digest", "")
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False)
+    digest = hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+    if supplied and supplied != digest:
+        raise ValueError("plan digest does not match its content")
+    return digest
 
 
 @dataclass(frozen=True)
