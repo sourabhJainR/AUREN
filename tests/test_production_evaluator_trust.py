@@ -133,6 +133,42 @@ class ProductionEvaluatorTrustTests(unittest.TestCase):
             self.assertTrue(result.trustworthy)
             self.assertTrue(result.production_trustworthy)
 
+    def test_production_freshness_rejects_replay_after_registry_restart(self):
+        _, production_attestor = self.verifier()
+        with tempfile.TemporaryDirectory() as directory:
+            replay_db = Path(directory) / "production-attestation-replay.sqlite3"
+            signed = self.attestation()
+            fresh = FreshEvaluationAttestation(signed, issued_at=int(self.now - 1))
+            first = FreshnessAwareAttestor(
+                None, None,
+                AttestationFreshnessPolicy(max_age_seconds=900, max_future_skew_seconds=30),
+                replay_registry=SQLiteAttestationReplayRegistry(replay_db),
+                production_attestor=production_attestor,
+            )
+            accepted = first.verify(
+                fresh, evaluator_id="evaluator-service", oracle_id="oracle-service",
+                expected_campaign_digest="campaign-digest",
+                expected_corpus_digest="sealed-corpus-digest",
+                expected_oracle_digest="oracle-digest", now=int(self.now),
+            )
+            self.assertTrue(accepted.production_trustworthy)
+
+            restarted = FreshnessAwareAttestor(
+                None, None,
+                AttestationFreshnessPolicy(max_age_seconds=900, max_future_skew_seconds=30),
+                replay_registry=SQLiteAttestationReplayRegistry(replay_db),
+                production_attestor=production_attestor,
+            )
+            replay = restarted.verify(
+                fresh, evaluator_id="evaluator-service", oracle_id="oracle-service",
+                expected_campaign_digest="campaign-digest",
+                expected_corpus_digest="sealed-corpus-digest",
+                expected_oracle_digest="oracle-digest", now=int(self.now),
+            )
+            self.assertFalse(replay.trustworthy)
+            self.assertFalse(replay.production_trustworthy)
+            self.assertTrue(any("already been consumed" in reason for reason in replay.reasons))
+
     def test_bad_signature_expired_attestation_and_wrong_signer_fail_closed(self):
         _, attestor = self.verifier()
         valid = self.attestation()
