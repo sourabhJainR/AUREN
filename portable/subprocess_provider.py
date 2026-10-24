@@ -69,7 +69,7 @@ def _resume_suspended_windows_process(process: subprocess.Popen[bytes], kernel32
     raise OSError("provider initial thread could not be found for resume")
 
 
-def _windows_job(process: subprocess.Popen[bytes]):
+def _windows_job(process: subprocess.Popen[bytes], *, max_memory_bytes: int | None = None, max_processes: int | None = None):
     """Assign a suspended Windows child to a kill-on-close Job Object."""
     if os.name != "nt":
         return None
@@ -129,6 +129,12 @@ def _windows_job(process: subprocess.Popen[bytes]):
         raise OSError(error, "could not create provider process Job Object")
     limits = ExtendedLimitInformation()
     limits.BasicLimitInformation.LimitFlags = 0x00002000  # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+    if max_processes is not None:
+        limits.BasicLimitInformation.LimitFlags |= 0x00000008  # JOB_OBJECT_LIMIT_ACTIVE_PROCESS
+        limits.BasicLimitInformation.ActiveProcessLimit = max_processes
+    if max_memory_bytes is not None:
+        limits.BasicLimitInformation.LimitFlags |= 0x00000200  # JOB_OBJECT_LIMIT_JOB_MEMORY
+        limits.JobMemoryLimit = max_memory_bytes
     try:
         if not kernel32.SetInformationJobObject(
             handle, 9, ctypes.byref(limits), ctypes.sizeof(limits),
@@ -170,7 +176,9 @@ class SubprocessProviderInvoker:
     def __init__(self, command: Sequence[str], *, cwd: str | Path,
                  env: Mapping[str, str] | None = None,
                  max_response_bytes: int = 1_000_000,
-                 max_prompt_bytes: int = 1_000_000) -> None:
+                 max_prompt_bytes: int = 1_000_000,
+                 max_memory_bytes: int | None = None,
+                 max_processes: int | None = None) -> None:
         if isinstance(command, (str, bytes)) or not isinstance(command, Sequence) or not command:
             raise ValueError("command must be a non-empty argument sequence")
         if any(not isinstance(arg, str) or not arg or "\x00" in arg for arg in command):
@@ -184,6 +192,10 @@ class SubprocessProviderInvoker:
         for name, value in (("max_response_bytes", max_response_bytes), ("max_prompt_bytes", max_prompt_bytes)):
             if type(value) is not int or not 1 <= value <= 16_000_000:
                 raise ValueError(f"{name} must be between 1 and 16000000")
+        if max_memory_bytes is not None and (type(max_memory_bytes) is not int or max_memory_bytes < 16 * 1024 * 1024):
+            raise ValueError("max_memory_bytes must be an integer of at least 16 MiB")
+        if max_processes is not None and (type(max_processes) is not int or max_processes < 1):
+            raise ValueError("max_processes must be a positive integer")
         clean_env: dict[str, str] = {"PATH": os.defpath}
         if os.name == "nt":
             for key in ("SystemRoot", "WINDIR", "TEMP", "TMP"):
@@ -199,6 +211,8 @@ class SubprocessProviderInvoker:
         self.env = clean_env
         self.max_response_bytes = max_response_bytes
         self.max_prompt_bytes = max_prompt_bytes
+        self.max_memory_bytes = max_memory_bytes
+        self.max_processes = max_processes
 
     @staticmethod
     def _kill(process: subprocess.Popen[bytes]) -> None:
@@ -269,6 +283,18 @@ class SubprocessProviderInvoker:
         kwargs: dict[str, object] = {}
         if os.name == "posix":
             kwargs["start_new_session"] = True
+            if self.max_memory_bytes is not None or self.max_processes is not None:
+                import resource
+                def apply_limits() -> None:
+                    if self.max_memory_bytes is not None:
+                        if not hasattr(resource, "RLIMIT_AS"):
+                            raise RuntimeError("memory_limit_unavailable: RLIMIT_AS is not supported")
+                        resource.setrlimit(resource.RLIMIT_AS, (self.max_memory_bytes, self.max_memory_bytes))
+                    if self.max_processes is not None:
+                        if not hasattr(resource, "RLIMIT_NPROC"):
+                            raise RuntimeError("process_limit_unavailable: RLIMIT_NPROC is not supported")
+                        resource.setrlimit(resource.RLIMIT_NPROC, (self.max_processes, self.max_processes))
+                kwargs["preexec_fn"] = apply_limits
         elif os.name == "nt":
             # Keep the child suspended until it belongs to a kill-on-close Job
             # Object, so it cannot spawn an uncontained descendant before assignment.
@@ -278,7 +304,7 @@ class SubprocessProviderInvoker:
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
             shell=False, bufsize=0, **kwargs,
         )
-        _windows_job(process)
+        _windows_job(process, max_memory_bytes=self.max_memory_bytes, max_processes=self.max_processes)
         output = bytearray()
         overflow = threading.Event()
         read_error: list[BaseException] = []
