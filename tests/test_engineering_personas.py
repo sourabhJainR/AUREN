@@ -1,0 +1,141 @@
+from pathlib import Path
+
+import pytest
+
+from portable.agency_observability import LocalExporter, Tracer
+from portable.agency_runtime import EvidenceItem, TaskProfile, execute
+from portable.engineering_personas import (
+    AgentPersona,
+    EngineeringPlan,
+    PersonaReview,
+    PersonaRoster,
+    PersonaWorkflow,
+)
+
+
+def roster():
+    return PersonaRoster(
+        planner=AgentPersona("planner", "planner-1", "systems-planner"),
+        plan_reviewer=AgentPersona("plan_reviewer", "plan-reviewer-1", "adversarial-plan-auditor"),
+        implementer=AgentPersona("implementer", "implementer-1", "focused-implementation-engineer"),
+        implementation_reviewer=AgentPersona("implementation_reviewer", "implementation-reviewer-1", "independent-security-and-quality-reviewer"),
+    )
+
+
+def plan(task, assignments):
+    return EngineeringPlan(
+        goal=task.request,
+        scope=("change requested behavior", "preserve existing public contract"),
+        assumptions=("existing APIs remain compatible",),
+        acceptance_criteria=("targeted tests pass", "regression suite passes"),
+        dependencies=("existing runtime contracts",),
+        alternatives_considered=("minimal compatible change", "broader refactor rejected as unnecessary"),
+        risks_and_mitigations=("regression risk; run focused and broad tests",),
+        test_strategy=("unit tests", "integration regression"),
+        rollback_plan=("revert the isolated commit", "verify previous revision and state"),
+        source_revision="test-revision",
+    )
+
+
+def approved_plan_review(task, reviewed_plan):
+    return PersonaReview(
+        reviewer_id="plan-reviewer-1",
+        target_id="planner-1",
+        approved=True,
+        evidence_refs=("plan-review:test-evidence",),
+        dimensions={"completeness": 1.0, "feasibility": 0.9},
+    )
+
+
+def approved_implementation_review(task, reviewed_plan, artifact):
+    assert artifact["deliverables"]
+    assert reviewed_plan.plan_digest
+    return PersonaReview(
+        reviewer_id="implementation-reviewer-1",
+        target_id="implementer-1",
+        approved=True,
+        evidence_refs=("implementation-review:test-evidence", "tests:test-run"),
+        dimensions={"correctness": 1.0, "security": 1.0, "regression": 1.0},
+    )
+
+
+def test_persona_roster_rejects_shared_planner_implementer_persona():
+    roles = roster()
+    invalid = PersonaRoster(
+        planner=roles.planner,
+        plan_reviewer=roles.plan_reviewer,
+        implementer=AgentPersona("implementer", "implementer-1", "systems-planner"),
+        implementation_reviewer=roles.implementation_reviewer,
+    )
+    with pytest.raises(ValueError, match="different personas"):
+        invalid.validate()
+
+
+def test_persona_workflow_reviews_plan_before_implementation_and_reviews_result(tmp_path: Path):
+    calls = []
+    workflow = PersonaWorkflow(
+        roster=roster(),
+        plan=lambda task, assignments: (calls.append("plan") or plan(task, assignments)),
+        review_plan=lambda task, reviewed: (calls.append("plan_review") or approved_plan_review(task, reviewed)),
+        review_implementation=lambda task, reviewed, artifact: (
+            calls.append("implementation_review") or approved_implementation_review(task, reviewed, artifact)
+        ),
+    )
+    tracer = Tracer(LocalExporter(tmp_path / "traces.jsonl", enabled=True))
+    task = TaskProfile("persona-task", "implement safe behavior", risk="normal")
+
+    def worker(task, assignments):
+        calls.append("implement")
+        assert task.approved_plan is not None
+        assert task.approved_plan["plan_digest"]
+        return {
+            "deliverables": ["patch-ref"],
+            "verification": ["targeted tests passed"],
+            "dimensions": {
+                "correctness": 25, "completeness": 15, "evidence": 15, "verification": 15,
+                "scope_discipline": 10, "security_and_safety": 10, "clarity": 5, "maintainability": 5,
+            },
+            "hard_gates": {"tests": True},
+            "evidence": [EvidenceItem("test-run", "targeted tests passed", "tests:test-run")],
+        }
+
+    result = execute(task, worker, tracer=tracer, persona_workflow=workflow)
+    assert calls == ["plan", "plan_review", "implement", "implementation_review"]
+    assert result.receipt is not None and result.receipt.passed
+    assert result.hard_gates["independent_implementation_review"] is True
+    trace_text = (tmp_path / "traces.jsonl").read_text()
+    assert "independent_plan_review" in trace_text
+    assert "independent_implementation_review" in trace_text
+    assert "plan_digest" in trace_text
+
+
+def test_plan_rejection_blocks_implementation():
+    calls = []
+    rejected = PersonaReview(
+        reviewer_id="plan-reviewer-1",
+        target_id="planner-1",
+        approved=False,
+        findings=("missing threat model",),
+        evidence_refs=("plan-review:rejection",),
+    )
+    workflow = PersonaWorkflow(
+        roster=roster(),
+        plan=lambda task, assignments: (calls.append("plan") or plan(task, assignments)),
+        review_plan=lambda task, reviewed: (calls.append("plan_review") or rejected),
+        review_implementation=approved_implementation_review,
+    )
+    task = TaskProfile("blocked-plan", "high risk change", risk="high")
+
+    def worker(task, assignments):
+        calls.append("implement")
+        raise AssertionError("implementation must not run after plan rejection")
+
+    with pytest.raises(ValueError, match="missing threat model"):
+        execute(task, worker, persona_workflow=workflow)
+    assert calls == ["plan", "plan_review"]
+
+
+def test_high_risk_and_release_execution_require_independent_personas():
+    task = TaskProfile("high-risk", "change authority boundary", risk="critical")
+    with pytest.raises(ValueError, match="require independent persona review"):
+        execute(task, lambda task, assignments: {})
