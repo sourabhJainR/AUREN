@@ -95,6 +95,8 @@ jobs:
             tests.test_arena_campaign_packet \
             tests.test_arena_run_receipt \
             tests.test_arena_trust \
+            tests.test_promotion_evidence_chain \
+            tests.test_evidence_freshness \
             tests.test_canary_evaluator \
             tests.test_production_evaluator_trust \
             tests.test_external_evaluation_campaign \
