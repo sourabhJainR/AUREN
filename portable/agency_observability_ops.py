@@ -500,6 +500,18 @@ def observability_snapshot(path: Path, *, limit: int = 500) -> dict[str, Any]:
                     continue
             trace_id = str(item["trace_id"])
             if item.get("event_record_version") == 1:
+                supplied_digest = item.get("event_digest")
+                unsigned_record = dict(item)
+                unsigned_record.pop("event_digest", None)
+                canonical_record = json.dumps(_safe(unsigned_record), sort_keys=True, separators=(",", ":"), allow_nan=False)
+                expected_digest = hashlib.sha256(canonical_record.encode("utf-8")).hexdigest()
+                if (
+                    not isinstance(supplied_digest, str)
+                    or len(supplied_digest) != 64
+                    or not hmac.compare_digest(supplied_digest, expected_digest)
+                ):
+                    corrupt_lines += 1
+                    continue
                 state = latest_by_trace.get(trace_id)
                 if state is None:
                     state = {
