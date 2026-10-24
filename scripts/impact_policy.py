@@ -72,7 +72,7 @@ _RULES: tuple[tuple[str, tuple[str, ...], bool], ...] = (
     ("portable/subprocess_provider.py", ("tests.test_subprocess_provider", "tests.test_bounded_subprocess_fault_injection"), True),
     ("tests/test_subprocess_provider.py", ("tests.test_subprocess_provider",), True),
     ("portable/*provider*", ("tests.test_provider_operation_lifecycle", "tests.test_side_effect_ledger"), True),
-    ("tests/test_execution_controller*.py", ("tests.test_execution_controller", "tests.test_execution_controller_restart", "tests.test_execution_controller_promotion_rollback_contract"), True),
+    ("tests/test_execution_controller*.py", ("tests.test_execution_controller", "tests.test_execution_controller_restart", "tests.test_execution_controller_cancellation", "tests.test_execution_controller_promotion_rollback_contract"), True),
     ("tests/test_consequential_run_once_recovery.py", ("tests.test_consequential_run_once_recovery", "tests.test_execution_controller"), True),
     ("tests/test_consequential_outer_receipt_crash.py", ("tests.test_consequential_outer_receipt_crash", "tests.test_consequential_run_once_recovery", "tests.test_execution_controller"), True),
     ("tests/test_progress_journal*.py", ("tests.test_progress_journal", "tests.test_progress_journal_integration"), True),
