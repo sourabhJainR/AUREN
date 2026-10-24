@@ -13,6 +13,7 @@ from portable.attestation_freshness import (
     FreshEvaluationAttestation,
     FreshnessAwareAttestor,
 )
+from portable.postgres_attestation_replay_registry import PostgreSQLAttestationReplayRegistry
 from portable.evaluator_trust import (
     Ed25519EvaluationAttestationVerifier,
     EvaluatorKeyWindow,
@@ -34,6 +35,77 @@ def public_bytes(private_key):
     return private_key.public_key().public_bytes(
         encoding=serialization.Encoding.Raw,
         format=serialization.PublicFormat.Raw,
+    )
+
+
+class _ReplayCursor:
+    def __init__(self, connection):
+        self.connection = connection
+        self.result = None
+
+    def execute(self, sql, params=None):
+        if (
+            sql.startswith("CREATE TABLE")
+            or sql.startswith("ALTER TABLE")
+            or sql.startswith("CREATE UNIQUE INDEX")
+        ):
+            return
+        if "INSERT INTO" in sql and "ON CONFLICT" in sql:
+            key = params[0]
+            if key in self.connection.store:
+                self.result = None
+            else:
+                self.connection.store[key] = (params[1], params[9])
+                self.result = (key,)
+            return
+        if sql.startswith("SELECT binding_digest, claim_operation_id FROM"):
+            self.result = self.connection.store.get(params[0])
+            return
+        if sql.startswith("SELECT attestation_id FROM"):
+            self.result = (params[0],) if params[0] in self.connection.store else None
+            return
+        raise AssertionError(f"unexpected SQL: {sql}")
+
+    def fetchone(self):
+        return self.result
+
+    def close(self):
+        pass
+
+
+class _ReplayConnection:
+    def __init__(self, store):
+        self.store = store
+
+    def cursor(self):
+        return _ReplayCursor(self)
+
+    def commit(self):
+        pass
+
+    def rollback(self):
+        pass
+
+    def close(self):
+        pass
+
+
+def production_replay_registry(store):
+    evidence = {
+        "deployment_id": "test-shared-postgres",
+        "backend": "postgresql",
+        "shared_primary": True,
+        "tls_enabled": True,
+        "independent_host_count": 2,
+        "failover_policy_id": "test-failover-v1",
+        "retention_policy_id": "test-retention-v1",
+        "schema_version": "2",
+        "binding_schema_version": "1",
+    }
+    return PostgreSQLAttestationReplayRegistry(
+        lambda: _ReplayConnection(store),
+        deployment_attestation=evidence,
+        verify_deployment_attestation=lambda value: value == evidence,
     )
 
 
@@ -117,7 +189,7 @@ class ProductionEvaluatorTrustTests(unittest.TestCase):
                 None,
                 None,
                 AttestationFreshnessPolicy(max_age_seconds=900, max_future_skew_seconds=30),
-                replay_registry=SQLiteAttestationReplayRegistry(Path(directory) / "attestation-replay.sqlite3"),
+                replay_registry=production_replay_registry({}),
                 production_attestor=production_attestor,
             )
             signed = self.attestation()
@@ -136,13 +208,13 @@ class ProductionEvaluatorTrustTests(unittest.TestCase):
     def test_production_freshness_rejects_replay_after_registry_restart(self):
         _, production_attestor = self.verifier()
         with tempfile.TemporaryDirectory() as directory:
-            replay_db = Path(directory) / "production-attestation-replay.sqlite3"
+            replay_store = {}
             signed = self.attestation()
             fresh = FreshEvaluationAttestation(signed, issued_at=int(self.now - 1))
             first = FreshnessAwareAttestor(
                 None, None,
                 AttestationFreshnessPolicy(max_age_seconds=900, max_future_skew_seconds=30),
-                replay_registry=SQLiteAttestationReplayRegistry(replay_db),
+                replay_registry=production_replay_registry(replay_store),
                 production_attestor=production_attestor,
             )
             accepted = first.verify(
@@ -156,7 +228,7 @@ class ProductionEvaluatorTrustTests(unittest.TestCase):
             restarted = FreshnessAwareAttestor(
                 None, None,
                 AttestationFreshnessPolicy(max_age_seconds=900, max_future_skew_seconds=30),
-                replay_registry=SQLiteAttestationReplayRegistry(replay_db),
+                replay_registry=production_replay_registry(replay_store),
                 production_attestor=production_attestor,
             )
             replay = restarted.verify(

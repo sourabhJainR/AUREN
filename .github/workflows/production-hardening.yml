@@ -99,6 +99,8 @@ jobs:
             tests.test_production_evaluator_trust \
             tests.test_external_evaluation_campaign \
             tests.test_independent_evaluation_attestation \
+            tests.test_attestation_freshness \
+            tests.test_postgres_attestation_replay_registry \
             tests.test_container_sandboxed_arena \
             tests.test_container_sandboxed_arena_integration \
             tests.test_external_evaluator_gateway \

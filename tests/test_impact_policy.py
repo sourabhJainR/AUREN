@@ -13,6 +13,10 @@ class ImpactPolicyTests(unittest.TestCase):
             ".ai-harness/runtime/canary_evaluator.py": {"tests.test_canary_evaluator", "tests.test_production_evaluator_trust"},
             "portable/external_evaluation_campaign.py": {"tests.test_external_evaluation_campaign", "tests.test_external_evaluator_gateway"},
             "portable/independent_evaluation_attestation.py": {"tests.test_independent_evaluation_attestation", "tests.test_sealed_arena_boundary"},
+            "portable/attestation_freshness.py": {"tests.test_attestation_freshness", "tests.test_postgres_attestation_replay_registry"},
+            "portable/postgres_attestation_replay_registry.py": {"tests.test_postgres_attestation_replay_registry", "tests.test_attestation_freshness"},
+            "tests/test_attestation_freshness.py": {"tests.test_attestation_freshness", "tests.test_postgres_attestation_replay_registry"},
+            "tests/test_postgres_attestation_replay_registry.py": {"tests.test_postgres_attestation_replay_registry", "tests.test_attestation_freshness"},
             "tests/test_canary_evaluator.py": {"tests.test_canary_evaluator"},
             "tests/test_production_evaluator_trust.py": {"tests.test_production_evaluator_trust"},
             "tests/test_external_evaluation_campaign.py": {"tests.test_external_evaluation_campaign"},
@@ -110,6 +114,7 @@ class ImpactPolicyTests(unittest.TestCase):
             classify_path("state/new_recovery_gate.json")
         for path in (
             "portable/new_sealed_oracle.py",
+            "portable/new_attestation_registry.py",
             "portable/new_independent_evaluation.py",
             "tests/test_new_sealed_corpus.py",
         ):

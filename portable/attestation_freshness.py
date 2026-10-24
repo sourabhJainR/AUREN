@@ -12,7 +12,8 @@ import sqlite3
 import threading
 from contextlib import closing
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Mapping
+from uuid import uuid4
 
 from .attestation_key_separation import AttestationTrustPolicy, SeparationAwareAttestor
 from .independent_evaluation_attestation import (
@@ -33,16 +34,16 @@ class FreshEvaluationAttestation:
             raise TypeError("EvaluationAttestation is required")
         if type(self.issued_at) is not int or self.issued_at < 0:
             raise ValueError("issued_at must be a non-negative integer")
+        signed_issued_at = self.attestation.issued_at_epoch
+        if signed_issued_at > 0 and int(signed_issued_at) != self.issued_at:
+            raise ValueError("issued_at must match the attestation's signed issuance time to the second")
 
     @property
     def attestation_id(self) -> str:
-        payload = {
-            "attestation_digest": self.attestation.attestation_digest,
-            "issued_at": self.issued_at,
-        }
-        return hashlib.sha256(
-            json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
-        ).hexdigest()
+        # The signed payload digest is the replay key. Do not mix in the
+        # caller-controlled wrapper timestamp, which could otherwise create a
+        # fresh replay slot for the same signed attestation.
+        return self.attestation.attestation_digest
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,9 +60,17 @@ class AttestationFreshnessPolicy:
     def validate(self, attestation: FreshEvaluationAttestation, *, now: int) -> tuple[bool, tuple[str, ...]]:
         if type(now) is not int or now < 0:
             raise ValueError("now must be a non-negative integer")
-        if attestation.issued_at > now + self.max_future_skew_seconds:
+        signed_issued_at = attestation.attestation.issued_at_epoch
+        effective_issued_at = signed_issued_at if signed_issued_at > 0 else attestation.issued_at
+        if effective_issued_at > now + self.max_future_skew_seconds:
             return False, ("attestation issuance time is too far in the future",)
-        if now - attestation.issued_at > self.max_age_seconds:
+        if now - effective_issued_at > self.max_age_seconds:
+            return False, ("attestation has expired",)
+        signed_expiry = attestation.attestation.expires_at_epoch
+        effective_expiry = signed_expiry if signed_expiry > 0 else attestation.issued_at + self.max_age_seconds
+        if effective_expiry <= 0:
+            return False, ("attestation has no valid expiry",)
+        if now > effective_expiry:
             return False, ("attestation has expired",)
         return True, ()
 
@@ -78,7 +87,10 @@ class AttestationReplayRegistry:
         self._seen = set(seen or ())
         self._lock = threading.Lock()
 
-    def claim(self, attestation_id: str) -> bool:
+    def claim(
+        self, attestation_id: str, *, binding: Mapping[str, object] | None = None,
+        operation_id: str | None = None,
+    ) -> bool:
         if not isinstance(attestation_id, str) or not attestation_id.strip():
             raise ValueError("attestation_id is required")
         with self._lock:
@@ -123,7 +135,10 @@ class SQLiteAttestationReplayRegistry:
         connection.execute("PRAGMA busy_timeout = %d" % int(self.timeout_seconds * 1000))
         return connection
 
-    def claim(self, attestation_id: str) -> bool:
+    def claim(
+        self, attestation_id: str, *, binding: Mapping[str, object] | None = None,
+        operation_id: str | None = None,
+    ) -> bool:
         if not isinstance(attestation_id, str) or not attestation_id.strip():
             raise ValueError("attestation_id is required")
         import time
@@ -164,8 +179,18 @@ class FreshnessAwareAttestor:
             from .evaluator_trust import ProductionSeparationAwareAttestor
             if type(production_attestor) is not ProductionSeparationAwareAttestor:
                 raise TypeError("production freshness requires ProductionSeparationAwareAttestor")
-            if not isinstance(replay_registry, SQLiteAttestationReplayRegistry):
-                raise ValueError("production freshness requires a durable SQLiteAttestationReplayRegistry")
+            from .postgres_attestation_replay_registry import PostgreSQLAttestationReplayRegistry
+            if not (
+                isinstance(replay_registry, PostgreSQLAttestationReplayRegistry)
+                and getattr(replay_registry, "production_ready", False) is True
+                and getattr(replay_registry, "durable", False) is True
+                and getattr(replay_registry, "multi_host", False) is True
+                and callable(getattr(replay_registry, "claim", None))
+            ):
+                raise ValueError(
+                    "production freshness requires a verified shared PostgreSQL replay registry; "
+                    "SQLite replay storage is single-host only"
+                )
             if verify_signature is not None or policy is not None or verify_principal is not None:
                 raise ValueError("do not mix production attestor with protocol verifier callbacks")
             self._attestor = production_attestor
@@ -187,6 +212,10 @@ class FreshnessAwareAttestor:
         expected_oracle_digest: str,
         now: int,
         contamination_detected: bool = False,
+        audience: str = "auren-arena",
+        purpose: str = "external-evaluation",
+        policy_version: str = "1",
+        claim_operation_id: str | None = None,
     ) -> AttestedEvaluation:
         if not isinstance(attestation, FreshEvaluationAttestation):
             raise TypeError("FreshEvaluationAttestation is required")
@@ -200,9 +229,51 @@ class FreshnessAwareAttestor:
             contamination_detected=contamination_detected,
         )
         fresh, freshness_reasons = self.freshness_policy.validate(attestation, now=now)
+        for name, value in (("audience", audience), ("purpose", purpose), ("policy_version", policy_version)):
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"{name} must be a non-empty string")
+        audience = audience.strip()
+        purpose = purpose.strip()
+        policy_version = policy_version.strip()
+        if claim_operation_id is not None and (
+            not isinstance(claim_operation_id, str) or not claim_operation_id.strip()
+        ):
+            raise ValueError("claim_operation_id must be a non-empty string")
         # Invalid signatures/lineage must not consume the one-time replay slot:
         # otherwise an unauthenticated request could preempt a valid attestation.
-        replay_ok = self.replay_registry.claim(attestation.attestation_id) if fresh and base.trustworthy else False
+        operation_id = claim_operation_id
+        replay_ok = False
+        claim_binding = None
+        if fresh and base.trustworthy:
+            if operation_id is None:
+                operation_id = uuid4().hex
+            else:
+                operation_id = operation_id.strip()
+            signed_expiry = attestation.attestation.expires_at_epoch
+            effective_expiry = signed_expiry if signed_expiry > 0 else attestation.issued_at + self.freshness_policy.max_age_seconds
+            expires_at_epoch = int(effective_expiry)
+            if expires_at_epoch <= 0:
+                raise ValueError("a fresh attestation must have a positive expiry for durable replay claims")
+            policy_payload = {
+                "version": policy_version,
+                "max_age_seconds": self.freshness_policy.max_age_seconds,
+                "max_future_skew_seconds": self.freshness_policy.max_future_skew_seconds,
+            }
+            policy_digest = hashlib.sha256(
+                json.dumps(policy_payload, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
+            ).hexdigest()
+            claim_binding = {
+                "attestation_digest": attestation.attestation.attestation_digest,
+                "issuer_key_id": attestation.attestation.key_id,
+                "audience": audience.strip(),
+                "purpose": purpose.strip(),
+                "expires_at_epoch": expires_at_epoch,
+                "policy_version": policy_version.strip(),
+                "policy_digest": policy_digest,
+            }
+            replay_ok = self.replay_registry.claim(
+                attestation.attestation_id, binding=claim_binding, operation_id=operation_id,
+            )
         reasons = list((*base.reasons, *freshness_reasons))
         if fresh and base.trustworthy and not replay_ok:
             reasons.append("attestation has already been consumed")
@@ -216,6 +287,8 @@ class FreshnessAwareAttestor:
             "max_future_skew_seconds": self.freshness_policy.max_future_skew_seconds,
             "fresh": fresh,
             "replay_accepted": replay_ok,
+            "claim_operation_id": operation_id,
+            "claim_binding": claim_binding,
             "trustworthy": trustworthy,
         }
         evidence_digest = hashlib.sha256(

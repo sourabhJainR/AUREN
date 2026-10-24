@@ -62,6 +62,20 @@ jobs:
     if: needs.impact.outputs.required == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: auren
+          POSTGRES_PASSWORD: auren_test
+          POSTGRES_DB: auren_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U auren -d auren_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -69,6 +83,8 @@ jobs:
           python-version: '3.12'
       - name: Install optional cryptographic verification test dependency
         run: python -m pip install 'cryptography>=42,<47'
+      - name: Install PostgreSQL integration test driver
+        run: python -m pip install 'psycopg[binary]>=3.2,<4'
       - name: Validate architecture constitution
         run: python scripts/validate_architecture.py
       - name: Enforce canonical AUREN naming and inventory all legacy references
@@ -118,8 +134,10 @@ jobs:
         run: python -m unittest tests.test_sealed_arena_boundary tests.test_sealed_arena_exchange tests.test_external_evaluator_gateway tests.test_external_evaluator_gateway_budget tests.test_sealed_arena_replay_concurrency -v
       - name: Run signed cross-domain provenance and transfer-metric regressions
         run: python -m unittest tests.test_sealed_cross_domain_attestation tests.test_sealed_cross_domain_lineage tests.test_sealed_cross_domain_request_binding tests.test_cross_domain_transfer_metrics -v
-      - name: Run independent attestation and key separation regressions
-        run: python -m unittest tests.test_independent_evaluation_attestation tests.test_attestation_key_separation tests.test_attested_cross_project_transfer tests.test_attestation_freshness -v
+      - name: Run independent attestation, replay registry, and key separation regressions
+        env:
+          AUREN_TEST_POSTGRES_DSN: postgresql://auren:auren_test@localhost:5432/auren_test
+        run: python -m unittest tests.test_independent_evaluation_attestation tests.test_attestation_key_separation tests.test_attested_cross_project_transfer tests.test_attestation_freshness tests.test_postgres_attestation_replay_registry -v
       - name: Run external campaign attestation regressions
         run: python -m unittest tests.test_external_evaluation_campaign tests.test_external_generalization_runner -v
       - name: Run causal promotion and evidence-chain regressions
