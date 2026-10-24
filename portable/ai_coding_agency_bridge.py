@@ -90,6 +90,8 @@ def run_coding_task(task:CodingTask,worker:Callable[[TaskProfile,list[Assignment
     codebase_context=_build_codebase_context(effective_task)
     if persona_workflow is not None and not (repository_revision or (codebase_context and codebase_context.snapshot_digest)):
         raise ValueError("independent persona workflow requires a pinned repository revision or codebase snapshot digest")
+    if persona_workflow is not None and (not isinstance(run_id, str) or not run_id.strip()):
+        raise ValueError("independent persona workflow requires a stable run_id")
     profile=TaskProfile(
         task_id=effective_task.task_id, request=effective_task.goal, artifact_type="code",
         risk=effective_task.risk, mutation_mode=effective_task.mutation_mode,
