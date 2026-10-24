@@ -14,7 +14,7 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
-from portable.auren_runtime import build, check_update, install, rollback, verify_bundle, _copy_tree_without_mutable_state
+from portable.auren_runtime import build, check_update, install, rollback, verify_bundle, _copy_tree_without_mutable_state, _install_skill, _version_install_root
 
 
 class PortableAurenTests(unittest.TestCase):
@@ -375,6 +375,72 @@ class PortableAurenTests(unittest.TestCase):
             active = json.loads((auren_home / "active.json").read_text(encoding="utf-8"))
             self.assertEqual(active["version"], "20.1.0")
             self.assertEqual(active["source_commit"], "commit-a")
+
+    def test_install_failure_during_staging_preserves_previous_active_build(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "source"
+            auren_home = Path(tmp) / "auren-home"
+            self.make_source(root, "20.1.0")
+            first = Path(tmp) / "first.zip"
+            build(root, first, source_commit="commit-a")
+            install(first, "none", auren_home)
+            before = json.loads((auren_home / "active.json").read_text(encoding="utf-8"))
+            before_current = (auren_home / "current" / "install.json").read_text(encoding="utf-8")
+
+            self.make_source(root, "20.2.0")
+            second = Path(tmp) / "second.zip"
+            build(root, second, source_commit="commit-b")
+            with patch("portable.auren_runtime._copy_payload", side_effect=OSError("simulated copy interruption")):
+                with self.assertRaisesRegex(OSError, "simulated copy interruption"):
+                    install(second, "none", auren_home)
+
+            self.assertEqual(before, json.loads((auren_home / "active.json").read_text(encoding="utf-8")))
+            self.assertEqual(before_current, (auren_home / "current" / "install.json").read_text(encoding="utf-8"))
+            version_root = _version_install_root(auren_home, "20.2.0", hashlib.sha256(second.read_bytes()).hexdigest())
+            self.assertFalse(version_root.exists())
+            self.assertFalse(any((auren_home / "versions").glob(".*.staging-*")))
+
+    def test_active_metadata_failure_restores_previous_selection(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "source"
+            auren_home = Path(tmp) / "auren-home"
+            self.make_source(root, "20.1.0")
+            first = Path(tmp) / "first.zip"
+            build(root, first, source_commit="commit-a")
+            install(first, "none", auren_home)
+            previous = json.loads((auren_home / "active.json").read_text(encoding="utf-8"))
+
+            self.make_source(root, "20.2.0")
+            second = Path(tmp) / "second.zip"
+            build(root, second, source_commit="commit-b")
+            import portable.auren_runtime as runtime
+            original_atomic_json = runtime._atomic_json
+
+            def fail_active(path: Path, value: object) -> None:
+                if path == auren_home / "active.json":
+                    raise OSError("simulated active metadata failure")
+                original_atomic_json(path, value)
+
+            with patch("portable.auren_runtime._atomic_json", side_effect=fail_active):
+                with self.assertRaisesRegex(OSError, "simulated active metadata failure"):
+                    install(second, "none", auren_home)
+
+            self.assertEqual(previous, json.loads((auren_home / "active.json").read_text(encoding="utf-8")))
+            self.assertEqual(previous["source_commit"], json.loads((auren_home / "current" / "install.json").read_text(encoding="utf-8"))["source_commit"])
+
+    def test_skill_copy_failure_keeps_existing_skill(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "new-skill"
+            destination = Path(tmp) / "home" / "skill"
+            source.mkdir(parents=True)
+            destination.mkdir(parents=True)
+            (source / "SKILL.md").write_text("new skill", encoding="utf-8")
+            (destination / "SKILL.md").write_text("previous skill", encoding="utf-8")
+            with patch("portable.auren_runtime.shutil.copytree", side_effect=OSError("simulated skill copy interruption")):
+                with self.assertRaisesRegex(OSError, "simulated skill copy interruption"):
+                    _install_skill(source, destination)
+            self.assertEqual("previous skill", (destination / "SKILL.md").read_text(encoding="utf-8"))
+            self.assertFalse((destination.with_name(destination.name + ".staging")).exists())
 
     def test_check_update_uses_exact_remote_commit_pin(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
