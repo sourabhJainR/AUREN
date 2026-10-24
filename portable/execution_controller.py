@@ -2120,6 +2120,15 @@ class ExecutionController:
             if handler_started and self._handler_execution_class(task.handler) == "consequential":
                 raise ProviderOutcomeBlocked("cancellation state could not be verified after consequential dispatch; remote outcome requires reconciliation") from cancellation_observation_errors[0]
             raise RuntimeError("cancellation state could not be verified; handler result cannot be committed") from cancellation_observation_errors[0]
+        if task.deadline_at is not None:
+            try:
+                final_deadline = datetime.fromisoformat(task.deadline_at)
+                if final_deadline.tzinfo is None:
+                    deadline.set()
+                elif datetime.now(timezone.utc) >= final_deadline.astimezone(timezone.utc):
+                    deadline.set()
+            except (TypeError, ValueError):
+                deadline.set()
         if deadline.is_set():
             if handler_started and self._handler_execution_class(task.handler) == "consequential":
                 raise ProviderOutcomeBlocked("deadline expired after consequential dispatch; remote outcome requires reconciliation")
