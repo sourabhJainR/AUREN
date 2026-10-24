@@ -108,11 +108,24 @@ class Trace:
     spans: list[Span] = field(default_factory=list)
     scores: list[Score] = field(default_factory=list)
 
-    def span(self, name: str, kind: str = "internal", input: Any = None, metadata: Mapping[str, Any] | None = None) -> Span:
-        parent = self.spans[-1].span_id if self.spans and self.spans[-1].end is None else None
-        item = Span(name, kind, parent_id=parent, input=_safe(input), metadata=dict(metadata or {}))
-        self.spans.append(item)
-        return item
+    def span(
+        self,
+        name: str,
+        kind: str = "internal",
+        input: Any = None,
+        metadata: Mapping[str, Any] | None = None,
+        parent_id: str | None = None,
+    ) -> Span:
+        """Create a span with explicit parentage; never infer parent from append order."""
+        if not name.strip():
+            raise ValueError("span name is required")
+        with _TRACE_LOCK:
+            known_ids = {span.span_id for span in self.spans}
+            if parent_id is not None and parent_id not in known_ids:
+                raise ValueError("parent_id must reference a span in this trace")
+            item = Span(name, kind, parent_id=parent_id, input=_safe(input), metadata=_safe(dict(metadata or {})))
+            self.spans.append(item)
+            return item
 
     def score(self, name: str, value: float, reason: str = "", source: str = "system") -> None:
         if not 0 <= float(value) <= 1:
@@ -133,8 +146,8 @@ class Trace:
             "duration_ms": None if self.end is None else round((self.end - self.start) * 1000, 2),
             "status": self.status,
             "metadata": _safe(self.metadata),
-            "spans": [{**asdict(s), "duration_ms": s.duration_ms} for s in self.spans],
-            "scores": [asdict(s) for s in self.scores],
+            "spans": [_safe({**asdict(s), "duration_ms": s.duration_ms}) for s in self.spans],
+            "scores": [_safe(asdict(s)) for s in self.scores],
         }
 
 
@@ -148,9 +161,20 @@ class LocalExporter:
     def export(self, trace: Trace) -> None:
         if not self.enabled:
             return
+        payload = json.dumps(_safe(trace.as_dict()), sort_keys=True, separators=(",", ":"), allow_nan=False)
+        if len(payload.encode("utf-8")) > _MAX_TRACE_BYTES:
+            raise ValueError("trace exceeds the configured observability event size limit")
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        with self.path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(trace.as_dict(), sort_keys=True) + "\n")
+        line = (payload + "\n").encode("utf-8")
+        # One append write prevents interleaved records between threads in this process.
+        with _TRACE_LOCK:
+            descriptor = os.open(str(self.path), os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+            try:
+                written = os.write(descriptor, line)
+                if written != len(line):
+                    raise OSError("incomplete observability append")
+            finally:
+                os.close(descriptor)
 
 
 class Tracer:
@@ -188,9 +212,12 @@ class PromptRegistry:
     def register(self, name: str, version: str, template: str, metadata: Mapping[str, Any] | None = None) -> PromptVersion:
         if not name.strip() or not version.strip() or not template.strip():
             raise ValueError("prompt name, version and template are required")
-        item = PromptVersion(name, version, template, dict(metadata or {}))
+        item = PromptVersion(name, version, template, _safe(dict(metadata or {})))
+        existing = self._versions.get(name, {}).get(version)
+        if existing is not None and existing != item:
+            raise ValueError(f"prompt version is immutable: {name}:{version}")
         self._versions.setdefault(name, {})[version] = item
-        return item
+        return existing or item
 
     def promote(self, name: str, version: str) -> PromptVersion:
         item = self.get(name, version)
@@ -219,7 +246,7 @@ class Dataset:
 
     @property
     def digest(self) -> str:
-        payload = json.dumps([asdict(x) for x in self.items], sort_keys=True, default=str)
+        payload = json.dumps(_safe([asdict(x) for x in self.items]), sort_keys=True, separators=(",", ":"), allow_nan=False)
         return hashlib.sha256(payload.encode()).hexdigest()
 
 
@@ -236,18 +263,35 @@ class ExperimentResult:
 def run_experiment(dataset: Dataset, fn: Callable[[Any], Any], judge: Callable[[DatasetItem, Any], Mapping[str, float]], threshold: float = 0.8) -> ExperimentResult:
     if not 0 <= threshold <= 1:
         raise ValueError("threshold must be between 0 and 1")
+    if not dataset.name.strip() or not dataset.version.strip():
+        raise ValueError("dataset name and version are required")
+    if not dataset.items:
+        raise ValueError("empty datasets are unscored and cannot pass")
     totals: dict[str, list[float]] = {}
     failures: list[str] = []
+    expected_dimensions: set[str] | None = None
     for index, item in enumerate(dataset.items):
         output = fn(item.input)
-        for name, value in judge(item, output).items():
-            value = float(value)
-            if not 0 <= value <= 1:
-                raise ValueError(f"judge score must be between 0 and 1: {name}")
-            totals.setdefault(name, []).append(value)
+        judged = judge(item, output)
+        if not isinstance(judged, Mapping) or not judged:
+            raise ValueError(f"item[{index}] has no evaluation dimensions; result is unscored")
+        dimensions = {str(name) for name in judged}
+        if any(not name.strip() for name in dimensions):
+            raise ValueError(f"item[{index}] has an empty evaluation dimension")
+        if expected_dimensions is None:
+            expected_dimensions = dimensions
+        elif dimensions != expected_dimensions:
+            raise ValueError(f"item[{index}] evaluation dimensions differ; result is unscored")
+        for name, raw_value in judged.items():
+            value = float(raw_value)
+            if not math.isfinite(value) or not 0 <= value <= 1:
+                raise ValueError(f"judge score must be finite and between 0 and 1: {name}")
+            totals.setdefault(str(name), []).append(value)
             if value < threshold:
                 failures.append(f"item[{index}].{name}={value:.3f}")
     scores = {name: round(sum(values) / len(values), 4) for name, values in totals.items() if values}
+    if not scores or any(len(values) != len(dataset.items) for values in totals.values()):
+        raise ValueError("incomplete evaluation coverage; result is unscored")
     return ExperimentResult(dataset.name, dataset.version, dataset.digest, scores, not failures, tuple(failures))
 
 
