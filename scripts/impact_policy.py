@@ -53,6 +53,8 @@ _RULES: tuple[tuple[str, tuple[str, ...], bool], ...] = (
     ("portable/canonical_evidence_ledger.py", ("tests.test_canonical_evidence_ledger", "tests.test_provider_operation_lifecycle"), True),
     ("portable/agency_evolution_gates.py", ("tests.test_agency_evolution_gates", "tests.test_promotion_evidence_chain", "tests.test_evidence_freshness"), True),
     ("tests/test_agency_evolution_gates.py", ("tests.test_agency_evolution_gates",), True),
+    ("portable/agency_evolution_runtime.py", ("tests.test_agency_evolution_runtime", "tests.test_agency_evolution_gates", "tests.test_execution_controller_restart", "tests.test_provider_operation_lifecycle"), True),
+    ("tests/test_agency_evolution_runtime.py", ("tests.test_agency_evolution_runtime",), True),
     ("portable/vibe_coding_adapters.py", ("tests.test_vibe_coding_adapters", "tests.test_provider_operation_lifecycle", "tests.test_side_effect_ledger"), True),
     ("portable/vibe_coding_host.py", ("tests.test_vibe_coding_host", "tests.test_vibe_coding_adapters"), True),
     ("tests/test_vibe_coding_host.py", ("tests.test_vibe_coding_host",), True),
