@@ -156,16 +156,42 @@ def _record_worker_observations(trace, worker_span, raw: Mapping[str, object], s
             and 0 <= float(value) < float("inf")
         }
 
-    events = raw.get("observability_events", ())
-    if not isinstance(events, (list, tuple)):
-        trace.metadata["worker_observation_errors"] = int(trace.metadata.get("worker_observation_errors", 0)) + 1
-        return
-    allowed_statuses = {"ok", "error", "blocked", "failed", "cancelled", "timed_out", "unknown", "unscored", "stale"}
-    allowed_phases = {"ideation", "research", "planning", "context", "routing", "tool", "implementation", "verification", "learning", "release", "rollback"}
-    for event in events[:100]:
-        if not isinstance(event, Mapping):
+    event_sources = (
+        ("observability_events", None),
+        ("tool_events", "tool"),
+        ("research_events", "research"),
+        ("routing_events", "routing"),
+        ("learning_events", "learning"),
+        ("artifact_events", "implementation"),
+        ("release_events", "release"),
+        ("rollback_events", "rollback"),
+        ("context_events", "context"),
+    )
+    events: list[Mapping[str, object]] = []
+    for key, default_phase in event_sources:
+        raw_events = raw.get(key, ())
+        if raw_events in (None, ()):
+            continue
+        if not isinstance(raw_events, (list, tuple)):
             trace.metadata["worker_observation_errors"] = int(trace.metadata.get("worker_observation_errors", 0)) + 1
             continue
+        for raw_event in raw_events[:100]:
+            if not isinstance(raw_event, Mapping):
+                trace.metadata["worker_observation_errors"] = int(trace.metadata.get("worker_observation_errors", 0)) + 1
+                continue
+            event = dict(raw_event)
+            if default_phase is not None:
+                event.setdefault("phase", default_phase)
+            events.append(event)
+            if len(events) >= 100:
+                break
+        if len(events) >= 100:
+            break
+
+    allowed_statuses = {"ok", "error", "blocked", "failed", "cancelled", "timed_out", "unknown", "unscored", "stale"}
+    allowed_phases = {"ideation", "research", "planning", "context", "routing", "tool", "implementation", "verification", "learning", "release", "rollback"}
+    observed_phases: set[str] = set()
+    for event in events:
         name = event.get("name")
         phase = event.get("phase")
         if not isinstance(name, str) or not name.strip() or not isinstance(phase, str):
@@ -175,6 +201,8 @@ def _record_worker_observations(trace, worker_span, raw: Mapping[str, object], s
         if normalized_phase not in allowed_phases:
             normalized_phase = "unknown"
             trace.metadata["phase_coverage_gaps"] = list(trace.metadata.get("phase_coverage_gaps", ())) + ["unknown_worker_phase"]
+        else:
+            observed_phases.add(normalized_phase)
         status = event.get("status", "unknown")
         if not isinstance(status, str) or status not in allowed_statuses:
             status = "unknown"
@@ -204,6 +232,18 @@ def _record_worker_observations(trace, worker_span, raw: Mapping[str, object], s
             terminal_reason[:500] if isinstance(terminal_reason, str) else None,
         )
 
+    coverage_gaps = trace.metadata.setdefault("phase_coverage_gaps", [])
+    for required_phase, gap_name in (
+        ("tool", "tool_execution"),
+        ("learning", "learning"),
+    ):
+        if required_phase not in observed_phases and gap_name not in coverage_gaps:
+            coverage_gaps.append(gap_name)
+    if not isinstance(route, Mapping) and not any(
+        isinstance(event.get("phase"), str) and event.get("phase", "").lower() == "routing" for event in events
+    ):
+        if "provider_routing" not in coverage_gaps:
+            coverage_gaps.append("provider_routing")
 
 def _receipt_score(receipt: QualityReceipt | None) -> float:
     if receipt is None:
@@ -391,6 +431,24 @@ def execute(
                 trace, worker_span, raw,
                 approved_plan.source_revision if approved_plan else (task.source_revision or None),
             )
+            artifact_refs = raw.get("artifact_refs", ())
+            if isinstance(artifact_refs, (list, tuple)):
+                safe_refs = [reference[:240] for reference in artifact_refs if isinstance(reference, str) and reference.strip()][:100]
+            else:
+                safe_refs = []
+            if safe_refs:
+                artifact_span = trace.span(
+                    "artifact_changes", "artifact_manifest",
+                    metadata={"artifact_refs": safe_refs, "observation_source": "worker_reported"},
+                    parent_id=worker_span.span_id, phase="implementation",
+                    actor_id=persona_workflow.roster.implementer.agent_id if persona_workflow else "auren.implementation",
+                    source_revision=approved_plan.source_revision if approved_plan else (task.source_revision or None),
+                )
+                artifact_span.finish({"artifact_count": len(safe_refs)})
+            else:
+                coverage_gaps = trace.metadata.setdefault("phase_coverage_gaps", [])
+                if "artifact_changes" not in coverage_gaps:
+                    coverage_gaps.append("artifact_changes")
             worker_span.finish({
                 "deliverable_count": len(raw.get("deliverables", ())),
                 "verification_count": len(raw.get("verification", ())),
