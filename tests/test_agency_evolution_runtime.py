@@ -32,11 +32,12 @@ class AgencyEvolutionRuntimeTests(unittest.TestCase):
                                               evidence_refs=("trace:42",), parent_operation_id=parent)
 
     def passing_evaluation(self, operation_id):
-        self.runtime.claim(operation_id)
+        running = self.runtime.claim(operation_id)
         result = self.runtime.record_evaluation(
             operation_id, outcome="pass", evidence_refs=("evaluation:independent:1",),
             evaluator_revision="evaluator-v1", independent=True, holdout_isolated=True,
             metrics={"quality": 0.98, "latency_ms": 120}, domain="python",
+            lease_token=running["lease_token"],
         )
         cases = tuple([(True, True)] * 10 + [(False, False)] * 10)
         calibration = self.runtime.calibrate_evaluator(
@@ -120,11 +121,11 @@ class AgencyEvolutionRuntimeTests(unittest.TestCase):
     def test_unknown_unscored_and_inconclusive_never_become_success(self):
         for outcome in ("unknown", "unscored", "inconclusive"):
             item = self.queued("exp-" + outcome)
-            self.runtime.claim(item["operation_id"])
+            running = self.runtime.claim(item["operation_id"])
             result = self.runtime.record_evaluation(
                 item["operation_id"], outcome=outcome, evidence_refs=("eval:1",),
                 evaluator_revision="evaluator-v1", independent=True, holdout_isolated=True,
-                metrics={}, domain="python",
+                metrics={}, domain="python", lease_token=running["lease_token"],
             )
             self.assertNotEqual(result["state"], "evaluated")
             self.assertIsNot(self.runtime.promotion_decision(
@@ -134,11 +135,11 @@ class AgencyEvolutionRuntimeTests(unittest.TestCase):
 
     def test_independence_and_holdout_flags_are_required(self):
         item = self.queued()
-        self.runtime.claim(item["operation_id"])
+        running = self.runtime.claim(item["operation_id"])
         result = self.runtime.record_evaluation(
             item["operation_id"], outcome="pass", evidence_refs=("eval:1",),
             evaluator_revision="evaluator-v1", independent=False, holdout_isolated=True,
-            metrics={}, domain="python",
+            metrics={}, domain="python", lease_token=running["lease_token"],
         )
         self.assertEqual(result["state"], "blocked")
         self.assertFalse(result["result"]["verified_pass"])
@@ -190,11 +191,11 @@ class AgencyEvolutionRuntimeTests(unittest.TestCase):
 
     def test_promotion_requires_accepted_calibration_and_clean_drift(self):
         item = self.queued()
-        self.runtime.claim(item["operation_id"])
+        running = self.runtime.claim(item["operation_id"])
         self.runtime.record_evaluation(
             item["operation_id"], outcome="pass", evidence_refs=("eval:1",),
             evaluator_revision="evaluator-v1", independent=True, holdout_isolated=True,
-            metrics={"quality": 0.98}, domain="python",
+            metrics={"quality": 0.98}, domain="python", lease_token=running["lease_token"],
         )
         blocked = self.runtime.promotion_decision(
             item["operation_id"], gates=self.gates(), regression_passed=True, risk_approved=True,
