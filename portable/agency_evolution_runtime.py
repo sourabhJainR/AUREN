@@ -86,16 +86,20 @@ class AgencyEvolutionRuntime:
     """
 
     def __init__(self, database_path: str | Path, *, max_attempts: int = 3,
-                 max_cycles: int = 2, improvement_journal: ImprovementJournal | None = None):
+                 max_cycles: int = 2, improvement_journal: ImprovementJournal | None = None,
+                 release_evidence_verifier: Callable[[str, str, str, bool], bool] | None = None):
         if isinstance(max_attempts, bool) or not isinstance(max_attempts, int) or max_attempts < 1:
             raise ValueError("max_attempts must be a positive integer")
         if isinstance(max_cycles, bool) or not isinstance(max_cycles, int) or max_cycles < 1:
             raise ValueError("max_cycles must be a positive integer")
         self.path = Path(database_path).expanduser().resolve()
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        if release_evidence_verifier is not None and not callable(release_evidence_verifier):
+            raise TypeError("release_evidence_verifier must be callable")
         self.max_attempts = max_attempts
         self.max_cycles = max_cycles
         self.journal = improvement_journal
+        self.release_evidence_verifier = release_evidence_verifier
         with closing(sqlite3.connect(self.path, timeout=10)) as db, db:
             db.execute("PRAGMA journal_mode=WAL")
             db.execute("PRAGMA synchronous=FULL")
@@ -327,18 +331,24 @@ class AgencyEvolutionRuntime:
             return {"action": action, "reason": decision.reason, "missing_gates": list(decision.missing_gates), "operation_id": operation_id}
 
     def record_release_event(self, operation_id: str, *, event: str, evidence_ref: str,
-                             controller_authorized: bool, verified: bool = False) -> dict[str, Any]:
-        """Record controller-produced release/rollback evidence; never perform release itself."""
+                             verified: bool = False) -> dict[str, Any]:
+        """Record release evidence only after a configured trusted verifier accepts it."""
         event = _text(event, "event")
         evidence_ref = _text(evidence_ref, "evidence_ref")
         if event not in {"shadow_passed", "approval_verified", "canary_started", "canary_passed", "promoted", "rollback_started", "rollback_verified"}:
             raise ValueError("unsupported release lifecycle event")
-        if type(controller_authorized) is not bool or type(verified) is not bool:
-            raise ValueError("controller_authorized and verified must be explicit booleans")
+        if type(verified) is not bool:
+            raise ValueError("verified must be an explicit boolean")
+        authorized = False
+        if self.release_evidence_verifier is not None:
+            try:
+                authorized = self.release_evidence_verifier(operation_id, event, evidence_ref, verified) is True
+            except Exception:
+                authorized = False
         with closing(sqlite3.connect(self.path, timeout=10)) as db, db:
             db.execute("BEGIN IMMEDIATE")
             item = self._operation(db, operation_id)
-            if not controller_authorized:
+            if not authorized:
                 db.execute("UPDATE evolution_operations SET state='blocked',next_action='trusted controller authorization missing; no release action permitted',updated_at=? WHERE operation_id=?", (time.time(), operation_id))
                 self._event(db, operation_id, "release_event_rejected", {"event": event, "evidence_ref": evidence_ref})
                 return self._operation(db, operation_id)
