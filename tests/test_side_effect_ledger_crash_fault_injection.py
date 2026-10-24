@@ -133,7 +133,7 @@ def _crash_after_provider_completion(database: str, provider_log: str) -> None:
     # Model a provider completing the irreversible operation while AUREN dies
     # before the local completion receipt can commit.
     with Path(provider_log).open("a", encoding="utf-8") as stream:
-        stream.write("provider-op-002:completed\\n")
+        stream.write("provider-op-002:completed\n")
         stream.flush()
         os.fsync(stream.fileno())
     os._exit(73)
