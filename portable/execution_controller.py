@@ -1959,7 +1959,7 @@ class ExecutionController:
         with closing(sqlite3.connect(self.db_path, timeout=10)) as db, db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute(
-                "SELECT id,handler,payload,state,attempts,work_unit_id,lease_until,lease_generation "
+                "SELECT id,handler,payload,state,attempts,work_unit_id,lease_until,lease_generation,deadline_at "
                 "FROM tasks WHERE id=?",
                 (task_id,),
             ).fetchone()
@@ -1993,7 +1993,7 @@ class ExecutionController:
                 return None
         task = DurableTask(
             row[0], row[1], json.loads(row[2]), "running", attempts, row[5],
-            lease_generation=generation, lease_token=token,
+            lease_generation=generation, lease_token=token, deadline_at=row[8],
         )
         self._record_progress(
             task.id, "attempt_started", state="running", stage="dispatch",
@@ -3100,10 +3100,10 @@ class ExecutionController:
     def task(self, task_id: str) -> DurableTask | None:
         with closing(sqlite3.connect(self.db_path)) as db, db:
             row = db.execute(
-                "SELECT id,handler,payload,state,attempts,work_unit_id FROM tasks WHERE id=?",
+                "SELECT id,handler,payload,state,attempts,work_unit_id,deadline_at FROM tasks WHERE id=?",
                 (task_id,),
             ).fetchone()
-        return DurableTask(row[0], row[1], json.loads(row[2]), row[3], int(row[4]), row[5]) if row else None
+        return DurableTask(row[0], row[1], json.loads(row[2]), row[3], int(row[4]), row[5], deadline_at=row[6]) if row else None
 
     @staticmethod
     def _validate_graph_checkpoint_envelope(task_id: str, envelope: Mapping[str, Any]) -> dict[str, Any]:
