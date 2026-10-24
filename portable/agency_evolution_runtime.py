@@ -163,8 +163,8 @@ class AgencyEvolutionRuntime:
             raise KeyError(operation_id)
         keys = ("operation_id","experiment_id","manifest_digest","manifest_json","parent_operation_id","state","attempts","outcome","evidence_json","result_json","next_action","created_at","updated_at")
         item = dict(zip(keys, row))
-        for key in ("manifest_json", "evidence_json", "result_json"):
-            item[key.removesuffix("_json")] = json.loads(item.pop(key))
+        for key, target in (("manifest_json", "manifest"), ("evidence_json", "evidence_refs"), ("result_json", "result")):
+            item[target] = json.loads(item.pop(key))
         return item
 
     def create_experiment(self, manifest: ExperimentManifest, *, evidence_refs: tuple[str, ...],
