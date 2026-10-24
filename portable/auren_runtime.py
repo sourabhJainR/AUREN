@@ -499,7 +499,12 @@ def _set_current(root: Path, version_root: Path) -> None:
     staged = root / ".current.tmp"
     backup = root / ".current.backup"
     _remove_path(staged)
-    _remove_path(backup)
+    # A previous process may have stopped after moving current to backup.
+    if backup.exists() or backup.is_symlink():
+        if not (current.exists() or current.is_symlink()):
+            backup.replace(current)
+        else:
+            _remove_path(backup)
     try:
         staged.symlink_to(version_root, target_is_directory=True)
         # Replacing a symlink is atomic on supported filesystems.
@@ -550,7 +555,12 @@ def _install_skill(source: Path, destination: Path) -> None:
     staged = destination.with_name(destination.name + ".staging")
     backup = destination.with_name(destination.name + ".backup")
     _remove_path(staged)
-    _remove_path(backup)
+    # Recover a prior skill if a process stopped during the replacement window.
+    if backup.exists() or backup.is_symlink():
+        if not (destination.exists() or destination.is_symlink()):
+            backup.replace(destination)
+        else:
+            _remove_path(backup)
     had_destination = destination.exists() or destination.is_symlink()
     try:
         shutil.copytree(source, staged)
