@@ -1,5 +1,6 @@
 from pathlib import Path
 import json
+import multiprocessing
 from concurrent.futures import ThreadPoolExecutor
 
 import unittest
@@ -7,6 +8,15 @@ import tempfile
 
 from portable.agency_observability import Dataset, DatasetItem, LocalExporter, PromptRegistry, Tracer, retrieval_scores, run_experiment
 from portable.agency_runtime import EvidenceItem, TaskProfile, execute
+
+
+
+def _export_trace_in_process(path: str, index: int) -> None:
+    tracer = Tracer(LocalExporter(Path(path), enabled=True))
+    trace = tracer.start("multiprocess-export", {"worker": index}, task_id=f"task-{index}")
+    span = trace.span(f"worker-{index}", phase="implementation")
+    span.finish({"worker": index})
+    tracer.end(trace)
 
 
 class TestAgencyObservability(unittest.TestCase):
@@ -245,3 +255,29 @@ class TestAgencyObservability(unittest.TestCase):
         assert len(records) >= 40
         assert all(record.get("trace_id") for record in records)
         assert len({record["trace_id"] for record in records}) == 40
+
+
+
+def test_multiprocess_exporters_preserve_complete_jsonl_records():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "multiprocess.jsonl"
+        context = multiprocessing.get_context("spawn")
+        processes = [
+            context.Process(target=_export_trace_in_process, args=(str(path), index))
+            for index in range(4)
+        ]
+        for process in processes:
+            process.start()
+        for process in processes:
+            process.join(20)
+            if process.is_alive():
+                process.terminate()
+                process.join(3)
+                raise AssertionError("observability exporter process exceeded its time budget")
+            assert process.exitcode == 0
+
+        lines = path.read_text(encoding="utf-8").splitlines()
+        records = [json.loads(line) for line in lines]
+        assert len(records) >= 16
+        assert len({record["trace_id"] for record in records}) == 4
+        assert all(record.get("trace_id") for record in records)
