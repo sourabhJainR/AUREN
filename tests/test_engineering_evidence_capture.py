@@ -94,7 +94,7 @@ def _crash_after_sink_accept(database, accepted_log):
 def _flush_outbox_with_blocking_sink(database, worker_id, entered_queue, release, result_queue, delivered_log):
     def sink(event):
         with Path(delivered_log).open("a", encoding="utf-8") as stream:
-            stream.write(f"{worker_id}:{event['event_id']}\\n")
+            stream.write(f"{worker_id}:{event['event_id']}\n")
             stream.flush()
             os.fsync(stream.fileno())
         entered_queue.put(worker_id)
