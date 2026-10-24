@@ -112,6 +112,9 @@ def test_persona_workflow_reviews_plan_before_implementation_and_reviews_result(
     assert "independent_plan_review" in trace_text
     assert "independent_implementation_review" in trace_text
     assert "plan_digest" in trace_text
+    assert '"phase":"ideation"' in trace_text
+    assert '"phase":"research"' in trace_text
+    assert '"phase":"verification"' in trace_text
 
 
 def test_plan_rejection_blocks_implementation():
