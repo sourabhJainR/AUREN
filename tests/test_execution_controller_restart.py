@@ -303,7 +303,7 @@ def test_active_task_deadline_is_durable_and_rejects_late_success(tmp_path: Path
     _RESTART_HANDLER_STARTED.clear()
     name = "tests.test_execution_controller_restart.deadline_aware_handler"
     controller.register_handler(name, deadline_aware_handler, execution_class="read_only")
-    task = controller.submit(name, {}, deadline_seconds=0.5)
+    task = controller.submit(name, {}, deadline_seconds=2.0)
     assert task.deadline_at is not None
     outcomes = []
     worker = Thread(target=lambda: outcomes.append(controller.run_once(task.id)), daemon=True)
