@@ -91,6 +91,20 @@ def _crash_after_sink_accept(database, accepted_log):
     os._exit(90)
 
 
+def _flush_outbox_with_blocking_sink(database, worker_id, entered_queue, release, result_queue, delivered_log):
+    def sink(event):
+        with Path(delivered_log).open("a", encoding="utf-8") as stream:
+            stream.write(f"{worker_id}:{event['event_id']}\\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        entered_queue.put(worker_id)
+        if not release.wait(15):
+            raise TimeoutError("cross-process outbox sink release timed out")
+
+    capture = EvidenceCapture(database, sink=sink)
+    result_queue.put((worker_id, capture.flush_pending()))
+
+
 def _expire_outbox_claim(database):
     expired = (datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat()
     with closing(sqlite3.connect(database)) as db, db:
@@ -447,6 +461,50 @@ class EngineeringEvidenceCaptureTests(unittest.TestCase):
         self.assertFalse(worker.is_alive(), "first flush did not finish")
         self.assertEqual([{"sent": 1, "pending": 0}], first_results)
         self.assertEqual(0, first.pending_exports())
+
+    def test_concurrent_processes_claim_a_pending_event_once(self):
+        initial = EvidenceCapture(self.path, sink=failing_sink)
+        event = self.record(initial)
+        delivered_log = self.path.parent / "cross-process-deliveries.log"
+        context = multiprocessing.get_context("spawn")
+        entered_queue = context.Queue()
+        result_queue = context.Queue()
+        release = context.Event()
+        workers = [
+            context.Process(
+                target=_flush_outbox_with_blocking_sink,
+                args=(str(self.path), worker_id, entered_queue, release, result_queue, str(delivered_log)),
+            )
+            for worker_id in ("worker-a", "worker-b")
+        ]
+        for worker in workers:
+            worker.start()
+
+        try:
+            active_sink_worker = entered_queue.get(timeout=10)
+            completed_worker, completed_result = result_queue.get(timeout=5)
+            self.assertNotEqual(active_sink_worker, completed_worker)
+            self.assertEqual({"sent": 0, "pending": 1}, completed_result)
+        finally:
+            release.set()
+            for worker in workers:
+                worker.join(15)
+                if worker.is_alive():
+                    worker.terminate()
+                    worker.join(3)
+
+        self.assertTrue(
+            all(worker.exitcode == 0 for worker in workers),
+            f"outbox worker process failed: {[worker.exitcode for worker in workers]}",
+        )
+        remaining_worker, remaining_result = result_queue.get(timeout=2)
+        self.assertEqual(active_sink_worker, remaining_worker)
+        self.assertEqual({"sent": 1, "pending": 0}, remaining_result)
+        self.assertEqual(
+            [f"{active_sink_worker}:{event['event_id']}"],
+            delivered_log.read_text(encoding="utf-8").splitlines(),
+        )
+        self.assertEqual(0, EvidenceCapture(self.path, sink=failing_sink).pending_exports())
 
     def test_expired_outbox_claim_is_recovered_after_crash(self):
         initial = EvidenceCapture(self.path, sink=failing_sink)
