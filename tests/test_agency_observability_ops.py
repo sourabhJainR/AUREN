@@ -105,9 +105,12 @@ def test_drift_alerts_on_quality_shift_and_safety_floor():
 
 
 def test_dashboard_snapshot_never_exposes_raw_span_payloads(tmp_path):
-    trace = failed_trace()
-    span = trace.span("sensitive", input={"prompt": "do not expose"})
-    span.finish({"output": "private"}, "ok")
+    trace = Tracer().start("failure", {"task_id": "task-1"})
+    span = trace.span("implementation", phase="implementation")
+    span.finish({"summary": "bounded failure"}, "error")
+    sensitive = trace.span("sensitive", input={"prompt": "do not expose"})
+    sensitive.finish({"output": "private"}, "ok")
+    Tracer().end(trace, "error")
     trace_path = tmp_path / "traces.jsonl"
     trace_path.write_text(json.dumps(trace.as_dict()) + "\n", encoding="utf-8")
     snapshot = observability_snapshot(trace_path)
