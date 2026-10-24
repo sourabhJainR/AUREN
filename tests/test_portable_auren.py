@@ -80,6 +80,7 @@ class PortableAurenTests(unittest.TestCase):
             self.assertEqual(record["source_commit"], "artifact-commit")
             self.assertTrue((auren_home / "current" / "auren_cli.py").is_file())
             self.assertTrue((auren_home / "current" / "auren_env_compat.py").is_file())
+            self.assertTrue((auren_home / "current" / ".claude-plugin" / "plugin.json").is_file())
 
     def test_verify_rejects_artifact_with_multiple_zip_payloads(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
