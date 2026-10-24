@@ -19,6 +19,29 @@ class BoundedSubprocessFaultInjectionTests(unittest.TestCase):
         result=run_bounded_command([sys.executable,"-c","import time; time.sleep(30)"],timeout_seconds=5,cancellation_event=cancel,terminate_grace_seconds=0.1)
         coordinator.join(timeout=1)
         self.assertEqual("cancelled",result.status); self.assertEqual("cancellation_requested",result.reason)
+    def test_cancellation_kills_descendant_before_it_can_commit_output(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            marker = Path(tmp) / "child-survived"
+            child = "import pathlib,sys,time; time.sleep(1.0); pathlib.Path(sys.argv[1]).write_text('survived')"
+            parent = "import subprocess,sys,time; subprocess.Popen([sys.executable,'-c',sys.argv[2],sys.argv[1]]); time.sleep(30)"
+            cancel = threading.Event()
+            coordinator = threading.Thread(
+                target=lambda: (time.sleep(0.25), cancel.set()), daemon=True,
+            )
+            coordinator.start()
+            result = run_bounded_command(
+                [sys.executable, "-c", parent, str(marker), child],
+                timeout_seconds=5, cancellation_event=cancel,
+                terminate_grace_seconds=0.1,
+            )
+            coordinator.join(timeout=1)
+            self.assertEqual("cancelled", result.status)
+            time.sleep(1.2)
+            self.assertFalse(
+                marker.exists(),
+                "a descendant must not survive cancellation and commit output afterward",
+            )
+
     def test_output_capture_is_bounded_and_marks_truncation(self):
         result=run_bounded_command([sys.executable,"-c","print('x'*200000); print('e'*200000,file=__import__('sys').stderr)"],timeout_seconds=3,max_output_bytes=1024)
         self.assertEqual("completed",result.status); self.assertEqual(0,result.returncode)
