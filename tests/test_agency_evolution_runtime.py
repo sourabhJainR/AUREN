@@ -21,8 +21,11 @@ class AgencyEvolutionRuntimeTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
-        self.runtime = AgencyEvolutionRuntime(Path(self.tmp.name) / "evolution.sqlite3",
-                                              max_attempts=2, max_cycles=10)
+        self.runtime = AgencyEvolutionRuntime(
+            Path(self.tmp.name) / "evolution.sqlite3", max_attempts=2, max_cycles=10,
+            release_evidence_verifier=lambda operation_id, event, evidence_ref, verified:
+                not evidence_ref.startswith("untrusted:"),
+        )
 
     def queued(self, experiment_id="exp-1", candidate="candidate-1", parent=""):
         return self.runtime.create_experiment(manifest(experiment_id, candidate),
@@ -61,21 +64,21 @@ class AgencyEvolutionRuntimeTests(unittest.TestCase):
             self.assertEqual(self.runtime.snapshot(operation_id)["state"], "awaiting_approval")
         self.runtime.record_release_event(operation_id, event="shadow_passed",
                                           evidence_ref="shadow:verified:1",
-                                          controller_authorized=True, verified=True)
+                                          verified=True)
         self.runtime.record_release_event(operation_id, event="approval_verified",
                                           evidence_ref="approval:human:1",
-                                          controller_authorized=True, verified=True)
+                                          verified=True)
 
     def complete_release(self, operation_id):
         self.authorize_for_canary(operation_id)
         self.runtime.record_release_event(operation_id, event="canary_started",
-                                          evidence_ref="canary:start:1", controller_authorized=True)
+                                          evidence_ref="canary:start:1", )
         self.runtime.record_release_event(operation_id, event="canary_passed",
                                           evidence_ref="canary:verified:1",
-                                          controller_authorized=True, verified=True)
+                                          verified=True)
         return self.runtime.record_release_event(operation_id, event="promoted",
                                                  evidence_ref="release:verified:1",
-                                                 controller_authorized=True, verified=True)
+                                                 verified=True)
 
     def test_stable_operation_id_and_conflicting_immutable_manifest(self):
         first = self.queued()
@@ -135,13 +138,13 @@ class AgencyEvolutionRuntimeTests(unittest.TestCase):
                                         regression_passed=True, risk_approved=True)
         with self.assertRaisesRegex(ValueError, "prior verified event"):
             self.runtime.record_release_event(item["operation_id"], event="canary_started",
-                                              evidence_ref="canary:start", controller_authorized=True)
+                                              evidence_ref="canary:start", )
         self.authorize_for_canary(item["operation_id"])
         self.runtime.record_release_event(item["operation_id"], event="canary_started",
-                                          evidence_ref="canary:start", controller_authorized=True)
+                                          evidence_ref="canary:start", )
         with self.assertRaisesRegex(ValueError, "prior verified event"):
             self.runtime.record_release_event(item["operation_id"], event="promoted",
-                                              evidence_ref="release:1", controller_authorized=True,
+                                              evidence_ref="release:1", 
                                               verified=True)
 
     def test_two_audited_cycles_require_verified_parent_evidence(self):
@@ -167,7 +170,7 @@ class AgencyEvolutionRuntimeTests(unittest.TestCase):
                                         regression_passed=True, risk_approved=True)
         result = self.runtime.record_release_event(
             item["operation_id"], event="shadow_passed", evidence_ref="untrusted:1",
-            controller_authorized=False, verified=True,
+            verified=True,
         )
         self.assertEqual(result["state"], "blocked")
 
