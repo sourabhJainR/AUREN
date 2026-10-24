@@ -47,6 +47,8 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
+      - name: Install cryptographic verification dependency
+        run: python -m pip install cryptography
       - name: Build pinned local Arena policy image for real isolation probes
         shell: bash
         run: |
