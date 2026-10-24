@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -10,6 +11,7 @@ MODULE = Path(__file__).resolve().parents[1] / ".ai-harness" / "runtime" / "sand
 SPEC = importlib.util.spec_from_file_location("auren_harness_sandbox_under_test", MODULE)
 assert SPEC is not None and SPEC.loader is not None
 sandbox = importlib.util.module_from_spec(SPEC)
+sys.modules[SPEC.name] = sandbox
 SPEC.loader.exec_module(sandbox)
 
 
@@ -32,6 +34,7 @@ class SandboxResourcePolicyTests(unittest.TestCase):
                         policy=sandbox.SandboxPolicy(**kwargs),
                     )
 
+    @unittest.skipIf(os.name == "nt", "POSIX RLIMIT_AS semantics")
     def test_memory_budget_is_applied_to_child(self):
         with tempfile.TemporaryDirectory() as temp:
             workspace = Path(temp)
