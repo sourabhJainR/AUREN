@@ -318,11 +318,15 @@ class Tracer:
         except Exception as exc:
             # Observability is not execution authority: exporter failure must not
             # overwrite the canonical task outcome or trigger side-effect replay.
+            trace.metadata["observability_export_failures"] = int(trace.metadata.get("observability_export_failures", 0)) + 1
             trace.metadata["observability_export_status"] = "failed"
             trace.metadata["observability_export_error"] = type(exc).__name__
         else:
-            trace.metadata.pop("observability_export_status", None)
-            trace.metadata.pop("observability_export_error", None)
+            if int(trace.metadata.get("observability_export_failures", 0)) > 0:
+                trace.metadata["observability_export_status"] = "partial"
+            else:
+                trace.metadata.pop("observability_export_status", None)
+                trace.metadata.pop("observability_export_error", None)
 
     def _record_change(self, trace: Trace, event_type: str, span: Span | None) -> None:
         try:
@@ -332,6 +336,7 @@ class Tracer:
             else:
                 self.exporter.export(trace)
         except Exception as exc:
+            trace.metadata["observability_export_failures"] = int(trace.metadata.get("observability_export_failures", 0)) + 1
             trace.metadata["observability_export_status"] = "failed"
             trace.metadata["observability_export_error"] = type(exc).__name__
 
