@@ -47,6 +47,21 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
+      - name: Install cryptographic verification dependency
+        run: python -m pip install cryptography
+      - name: Build pinned local Arena policy image for real isolation probes
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker info
+          image_tag="auren-arena-policy:${GITHUB_SHA}"
+          docker build --pull --tag "$image_tag" tests/fixtures/arena-policy
+          image_id="$(docker image inspect --format='{{.Id}}' "$image_tag")"
+          case "$image_id" in
+            sha256:????????????????????????????????????????????????????????????????) ;;
+            *) echo "Docker did not return a content-addressed image ID" >&2; exit 1 ;;
+          esac
+          echo "AUREN_ARENA_TEST_IMAGE=$image_id" >> "$GITHUB_ENV"
       - name: Run Arena protocol, custody, replay, and cross-domain regressions
         shell: bash
         run: |
