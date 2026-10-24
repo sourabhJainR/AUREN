@@ -307,6 +307,14 @@ class AgencyEvolutionRuntime:
             result = item["result"]
             if item["state"] != "evaluated" or item["outcome"] != "pass" or result.get("verified_pass") is not True:
                 return {"action": "block", "reason": "independent passing evaluation is required", "operation_id": operation_id}
+            accepted_calibrations = [
+                item for item in result.get("evaluator_calibrations", [])
+                if item.get("evaluator_revision") == result.get("evaluator_revision") and item.get("accepted") is True
+            ]
+            if not accepted_calibrations:
+                return {"action": "block", "reason": "accepted independent evaluator calibration is required", "operation_id": operation_id}
+            if any(item.get("drift_detected") is True for item in result.get("drift_assessments", [])):
+                return {"action": "block", "reason": "drift assessment exceeded tolerance", "operation_id": operation_id}
             decision = evaluate_promotion_gates(
                 gates, candidate_passed=True, regression_passed=regression_passed,
                 risk_approved=risk_approved,
