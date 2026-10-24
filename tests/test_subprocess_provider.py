@@ -205,6 +205,28 @@ class SubprocessProviderInvokerTests(unittest.TestCase):
                         f"provider descendant survived the {name} exit path",
                     )
 
+    @unittest.skipIf(os.name == "nt", "POSIX resource limit semantics")
+    def test_optional_memory_and_process_budgets_reach_provider_child(self):
+        memory = 512 * 1024 * 1024
+        provider = self.invoker(
+            "import resource; print(resource.getrlimit(resource.RLIMIT_AS)[0]); print(resource.getrlimit(resource.RLIMIT_NPROC)[0])",
+            max_memory_bytes=memory,
+            max_processes=24,
+        )
+        result = provider("request", 3)
+        self.assertEqual([str(memory), "24"], result.splitlines())
+
+    def test_invalid_resource_budgets_are_rejected_at_construction(self):
+        for kwargs in (
+            {"max_memory_bytes": 0},
+            {"max_memory_bytes": True},
+            {"max_memory_bytes": 1024},
+            {"max_processes": 0},
+            {"max_processes": False},
+        ):
+            with self.subTest(kwargs=kwargs), self.assertRaises(ValueError):
+                self.invoker("raise SystemExit('must not launch')", **kwargs)
+
     def test_rejects_relative_executable_and_invalid_environment(self):
         with self.assertRaisesRegex(ValueError, "absolute"):
             SubprocessProviderInvoker(["python", "-c", "pass"], cwd=ROOT)
