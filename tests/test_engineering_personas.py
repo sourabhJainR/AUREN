@@ -33,7 +33,12 @@ def plan(task, assignments):
         risks_and_mitigations=("regression risk; run focused and broad tests",),
         test_strategy=("unit tests", "integration regression"),
         rollback_plan=("revert the isolated commit", "verify previous revision and state"),
+        budget={"max_attempts": 3, "max_minutes": 20},
         source_revision="test-revision",
+        decision_rationale="Choose the smallest compatible change that meets acceptance criteria and retains a tested rollback path.",
+        hypotheses=("The current runtime contract can support this change without a schema break.",),
+        research_evidence_refs=("repo:runtime-contract",),
+        unresolved_questions=(),
     )
 
 
