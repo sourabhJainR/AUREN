@@ -11,7 +11,7 @@ from typing import Any, Callable, Mapping
 
 from .bounded_crew_dispatch import BoundedCrewDispatcher
 
-from .orchestration import Graph, Node, NodeKind, NodeStatus, OrchestrationRun, Orchestrator
+from .orchestration import Graph, Node, NodeKind, NodeStatus, OrchestrationRun, Orchestrator, RunStatus
 from .crew_adapters import CrewHandoff, GraphHandoffController, TaskRetryBudget, rollback_readiness
 from .runtime_recovery import ExecutionBudgetExceeded, RuntimeExecutionGuard
 from .agency_observability import Tracer
@@ -569,9 +569,8 @@ class StateGraph:
             trace.metadata["canonical_run_status"] = result.status.value
             trace.metadata["canonical_stop_reason"] = result.stop_reason
             trace.metadata["learning_candidate_count"] = len(result.learned_candidates)
-            gaps = trace.metadata.setdefault("phase_coverage_gaps", [])
-            if result.learned_candidates:
-                gaps.remove("external_learning_persistence") if "external_learning_persistence" in gaps else None
+            # Candidate generation is a learning signal, not proof that a candidate
+            # was persisted, evaluated in isolation, or safely promoted.
             tracer.end(trace, "ok" if result.status == RunStatus.ACCEPTED else "blocked" if result.status == RunStatus.BLOCKED else "error")
             return result
         except Exception as exc:
