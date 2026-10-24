@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 import unittest
 import tempfile
 
@@ -205,3 +206,43 @@ class TestEngineeringPersonas(unittest.TestCase):
         assert result.promotion_decision.action == "rollback"
         assert result.promotion_decision.reason == "hard gate failed"
 
+
+
+
+    def test_implementation_review_rejection_is_blocked_and_preserves_findings(self):
+        rejected = PersonaReview(
+            reviewer_id="implementation-reviewer-1",
+            target_id="implementer-1",
+            approved=False,
+            findings=("authorization bypass remains",),
+            evidence_refs=("review:security-finding",),
+            dimensions={"security": 0.2},
+        )
+        workflow = PersonaWorkflow(
+            roster=roster(),
+            plan=plan,
+            review_plan=approved_plan_review,
+            review_implementation=lambda task, reviewed, artifact: rejected,
+        )
+        trace_path = self.tmp_path / "trace.jsonl"
+        tracer = Tracer(LocalExporter(trace_path, enabled=True))
+        task = TaskProfile("review-block", "secure behavior", source_revision="test-revision")
+
+        def worker(task, assignments):
+            return {
+                "deliverables": ["patch-ref"],
+                "verification": ["unit tests passed"],
+                "dimensions": {
+                    "correctness": 25, "completeness": 15, "evidence": 15, "verification": 15,
+                    "scope_discipline": 10, "security_and_safety": 10, "clarity": 5, "maintainability": 5,
+                },
+                "hard_gates": {"tests": True},
+                "evidence": [EvidenceItem("test-run", "unit tests passed", "tests:run")],
+            }
+
+        with self.assertRaisesRegex(ValueError, "authorization bypass remains"):
+            execute(task, worker, tracer=tracer, persona_workflow=workflow)
+        latest = json.loads(trace_path.read_text().splitlines()[-1])
+        assert latest["status"] == "blocked"
+        assert latest["metadata"]["implementation_review"]["findings"] == ["authorization bypass remains"]
+        assert "corrective task" in latest["metadata"]["next_action"]
