@@ -27,6 +27,10 @@ class PortableAurenTests(unittest.TestCase):
         (root / ".ai-harness" / "config.toml").write_text('[harness]\nversion = 20\n', encoding="utf-8")
         (root / ".claude-plugin" / "plugin.json").write_text(json.dumps({"version": version}), encoding="utf-8")
         (root / ".ai-harness" / "runtime" / "engine.py").write_text("print('ok')\n", encoding="utf-8")
+        (root / ".ai-harness" / "learning").mkdir(parents=True, exist_ok=True)
+        (root / ".ai-harness" / "learning" / "compiler_bootstrap_priors.jsonl").write_text(
+            '{"id":"prior-test","kind":"advisory-prior"}' + chr(10), encoding="utf-8"
+        )
         (root / ".ai-harness" / "telemetry.jsonl").write_text("machine-state\n", encoding="utf-8")
         (root / "skills" / "ai-coding-orchestrator" / "SKILL.md").write_text("---\nname: ai-coding-orchestrator\ndescription: Repository-aware AI engineering control plane.\n---\n", encoding="utf-8")
         (root / "portable" / "auren_runtime.py").write_text("print('portable')\n", encoding="utf-8")
@@ -37,12 +41,37 @@ class PortableAurenTests(unittest.TestCase):
             "def get_auren_env(suffix, default=None):\n    return default\n", encoding="utf-8"
         )
 
+    def test_build_rejects_symlinked_source_payload(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "source"
+            self.make_source(root)
+            secret = Path(tmp) / "outside-secret.txt"
+            secret.write_text("must not be packaged", encoding="utf-8")
+            link = root / ".ai-harness" / "runtime" / "linked-secret.txt"
+            link.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                link.symlink_to(secret)
+            except (OSError, NotImplementedError) as exc:
+                self.skipTest(f"symlinks unavailable on this runner: {exc}")
+            with self.assertRaisesRegex(SystemExit, "source contains a symlink"):
+                build(root, Path(tmp) / "auren.zip", source_commit="test-commit")
+
     def test_build_verify_and_exclude_mutable_state(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "source"
             self.make_source(root)
             state = root / ".ai-harness" / "learning"
             state.mkdir(parents=True, exist_ok=True)
+            (state / "learning-journal.jsonl").write_text("private learning state\\n", encoding="utf-8")
+            (state / "private-context.json").write_text('{"private": true}\\n', encoding="utf-8")
+            runtime_state = root / ".ai-harness" / "runtime"
+            runtime_state.mkdir(parents=True, exist_ok=True)
+            (runtime_state / "learning-journal.jsonl").write_text("private journal outside state folder\\n", encoding="utf-8")
+            (runtime_state / "evidence-ledger.jsonl").write_text("private evidence outside state folder\\n", encoding="utf-8")
+            (runtime_state / "task-memory.jsonl.lock").write_text("private lock\\n", encoding="utf-8")
+            evidence = root / ".ai-harness" / "evidence"
+            evidence.mkdir(parents=True, exist_ok=True)
+            (evidence / "evidence-ledger.jsonl").write_text("private evidence state\\n", encoding="utf-8")
             for name in ("task-memory.sqlite3", "task-memory.sqlite3-shm", "task-memory.sqlite3-wal", "execution.db", "execution.db-journal"):
                 (state / name).write_bytes(b"mutable runtime state")
             bundle = Path(tmp) / "auren.zip"
@@ -54,7 +83,17 @@ class PortableAurenTests(unittest.TestCase):
             included = {item["path"] for item in manifest["files"]}
             for mutable in ("task-memory.sqlite3", "task-memory.sqlite3-shm", "task-memory.sqlite3-wal", "execution.db", "execution.db-journal"):
                 self.assertNotIn(f".ai-harness/learning/{mutable}", included)
+            for private_path in (
+                ".ai-harness/learning/learning-journal.jsonl",
+                ".ai-harness/learning/private-context.json",
+                ".ai-harness/evidence/evidence-ledger.jsonl",
+                ".ai-harness/runtime/learning-journal.jsonl",
+                ".ai-harness/runtime/evidence-ledger.jsonl",
+                ".ai-harness/runtime/task-memory.jsonl.lock",
+            ):
+                self.assertNotIn(private_path, included)
             self.assertTrue(any(item["path"] == "auren_cli.py" for item in manifest["files"]))
+            self.assertIn(".ai-harness/learning/compiler_bootstrap_priors.jsonl", included)
             self.assertFalse(manifest["target_repository_mutation"])
             with zipfile.ZipFile(bundle) as archive:
                 self.assertIn("auren_cli.py", archive.namelist())
@@ -81,6 +120,52 @@ class PortableAurenTests(unittest.TestCase):
             self.assertTrue((auren_home / "current" / "auren_cli.py").is_file())
             self.assertTrue((auren_home / "current" / "auren_env_compat.py").is_file())
             self.assertTrue((auren_home / "current" / ".claude-plugin" / "plugin.json").is_file())
+
+    def test_verify_rejects_artifact_wrapper_with_extra_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "source"
+            self.make_source(root)
+            bundle = Path(tmp) / "auren-portable.zip"
+            build(root, bundle, source_commit="artifact-commit")
+            artifact = Path(tmp) / "wrapper-with-extra-file.zip"
+            with zipfile.ZipFile(artifact, "w", zipfile.ZIP_DEFLATED) as wrapper:
+                wrapper.write(bundle, "auren-portable.zip")
+                wrapper.writestr("README.txt", "unexpected extra content")
+            with self.assertRaisesRegex(SystemExit, "invalid AUREN bundle"):
+                verify_bundle(artifact)
+
+    def test_verify_rejects_windows_drive_archive_member(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "source"
+            self.make_source(root)
+            bundle = Path(tmp) / "auren.zip"
+            build(root, bundle, source_commit="test-commit")
+            tampered = Path(tmp) / "windows-drive.zip"
+            with zipfile.ZipFile(bundle) as source, zipfile.ZipFile(tampered, "w", zipfile.ZIP_DEFLATED) as target:
+                for item in source.infolist():
+                    target.writestr(item, source.read(item.filename))
+                target.writestr("payload/C:/escape.txt", b"must be rejected")
+            with self.assertRaisesRegex(SystemExit, "non-portable archive member path"):
+                verify_bundle(tampered)
+
+    def test_verify_requires_manifest_file_sizes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "source"
+            self.make_source(root)
+            bundle = Path(tmp) / "auren.zip"
+            build(root, bundle, source_commit="test-commit")
+            tampered = Path(tmp) / "missing-size.zip"
+            with zipfile.ZipFile(bundle) as source:
+                manifest = json.loads(source.read("auren-bundle.json"))
+                manifest["files"][0].pop("size", None)
+                with zipfile.ZipFile(tampered, "w", zipfile.ZIP_DEFLATED) as target:
+                    for item in source.infolist():
+                        data = source.read(item.filename)
+                        if item.filename == "auren-bundle.json":
+                            data = (json.dumps(manifest, sort_keys=True) + "\n").encode("utf-8")
+                        target.writestr(item, data)
+            with self.assertRaisesRegex(SystemExit, "invalid bundle file record"):
+                verify_bundle(tampered)
 
     def test_verify_rejects_artifact_with_multiple_zip_payloads(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -155,11 +240,20 @@ class PortableAurenTests(unittest.TestCase):
             (nested / "settings.json").write_text("safe", encoding="utf-8")
             for suffix in suffixes:
                 (nested / f"state{suffix}").write_bytes(b"mutable state")
+            harness = source / ".ai-harness"
+            (harness / "learning").mkdir(parents=True)
+            (harness / "learning" / "private.json").write_text("private", encoding="utf-8")
+            (harness / "learning" / "compiler_bootstrap_priors.jsonl").write_text("canonical prior", encoding="utf-8")
+            (harness / "evidence").mkdir(parents=True)
+            (harness / "evidence" / "ledger.jsonl").write_text("private", encoding="utf-8")
             _copy_tree_without_mutable_state(source, destination)
             self.assertEqual(
                 ["settings.json"],
                 sorted(path.name for path in (destination / "runtime" / "deep").iterdir()),
             )
+            self.assertFalse((destination / ".ai-harness" / "learning" / "private.json").exists())
+            self.assertTrue((destination / ".ai-harness" / "learning" / "compiler_bootstrap_priors.jsonl").is_file())
+            self.assertFalse((destination / ".ai-harness" / "evidence").exists())
 
     def test_verify_rejects_unsafe_manifest_path(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

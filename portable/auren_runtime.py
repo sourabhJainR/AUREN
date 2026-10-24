@@ -33,7 +33,7 @@ PAYLOAD_ROOT = "payload"
 LAUNCHER_PATH = "auren_cli.py"
 REQUIRED_PATHS = (".ai-harness", ".claude-plugin", "skills/ai-coding-orchestrator", "portable", "dashboard")
 EXCLUDED_PARTS = {"__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".git", "worktrees"}
-MUTABLE_FILE_NAMES = {"execution.journal.jsonl", "telemetry.jsonl", "task-memory.jsonl", "regression-events.jsonl"}
+MUTABLE_FILE_NAMES = {"execution.journal.jsonl", "telemetry.jsonl", "task-memory.jsonl", "task-memory.jsonl.lock", "learning-journal.jsonl", "evidence-ledger.jsonl", "regression-events.jsonl"}
 MUTABLE_STATE_SUFFIXES = (
     ".sqlite", ".sqlite3", ".db", ".db3",
     ".sqlite-wal", ".sqlite-shm", ".sqlite-journal",
@@ -124,11 +124,27 @@ def _print_progress(args) -> int:
 
 def _is_mutable_state_path(path: str | Path) -> bool:
     """Use one mutable-state policy for bundle creation, verification and installation."""
-    name = Path(path).name.lower()
+    normalized = str(path).replace("\\", "/").lower()
+    parts = PurePosixPath(normalized).parts
+    for index in range(len(parts) - 1):
+        if parts[index] == ".ai-harness" and parts[index + 1] in {"learning", "evidence"}:
+            # This checked-in, immutable prior set is required by portable
+            # compiler-bootstrap workflows. Other files in learning/evidence
+            # are mutable state and remain excluded by default.
+            if parts[index:] == (".ai-harness", "learning", "compiler_bootstrap_priors.jsonl"):
+                return False
+            return True
+    name = PurePosixPath(normalized).name
     return name in MUTABLE_FILE_NAMES or name.endswith(MUTABLE_STATE_SUFFIXES)
 
 
+def _reject_source_symlink(path: Path) -> None:
+    if path.is_symlink():
+        raise SystemExit(f"portable source contains a symlink; refusing ambiguous payload: {path}")
+
+
 def should_include(path: Path, root: Path) -> bool:
+    _reject_source_symlink(path)
     rel = path.relative_to(root)
     if any(part in EXCLUDED_PARTS for part in rel.parts):
         return False
@@ -142,10 +158,15 @@ def iter_source_files(root: Path) -> list[Path]:
         base = root / top
         if not base.exists():
             raise SystemExit(f"required source path is missing: {base}")
-        files.extend(p for p in base.rglob("*") if p.is_file() and should_include(p, root))
+        _reject_source_symlink(base)
+        for path in base.rglob("*"):
+            _reject_source_symlink(path)
+            if path.is_file() and should_include(path, root):
+                files.append(path)
     # The bootstrap-safe environment resolver is a runtime dependency outside
     # the portable package tree; pin it in the bundle manifest and payload.
     resolver = root / "auren_env_compat.py"
+    _reject_source_symlink(resolver)
     if not resolver.is_file():
         raise SystemExit(f"required source file is missing: {resolver}")
     files.append(resolver)
@@ -198,6 +219,7 @@ def _git_head(root: Path) -> str | None:
 def make_manifest(root: Path, files: list[Path], source_commit: str | None = None, source_ref: str = AUREN_BRANCH) -> dict:
     records = [FileRecord(p.relative_to(root).as_posix(), sha256_file(p), p.stat().st_size).__dict__ for p in files]
     launcher = root / LAUNCHER_PATH
+    _reject_source_symlink(launcher)
     if not launcher.is_file():
         raise SystemExit(f"required launcher is missing: {launcher}")
     records.append(FileRecord(LAUNCHER_PATH, sha256_file(launcher), launcher.stat().st_size).__dict__)
@@ -233,18 +255,38 @@ def build(root: Path, output: Path, source_commit: str | None = None, source_ref
         archive.writestr(f"{PAYLOAD_ROOT}/PORTABLE_BUNDLE.txt", "AUREN portable bundle\nInstallation is user-scoped and repository-isolated.\nVersion and exact source commit are pinned in the manifest.\n")
     return output
 
+def _validate_archive_member_name(name: str) -> None:
+    """Reject archive paths that can escape or become ambiguous on Windows."""
+    if not name or "\x00" in name or "\\" in name:
+        raise SystemExit(f"unsafe archive member path: {name!r}")
+    relative = PurePosixPath(name)
+    if (
+        name in (".", "./")
+        or relative.is_absolute()
+        or relative.as_posix() != name
+        or any(part in ("", ".", "..") for part in relative.parts)
+    ):
+        raise SystemExit(f"unsafe archive member path: {name!r}")
+    # Drive-qualified and alternate-stream paths are not portable across hosts.
+    if any(":" in part for part in relative.parts):
+        raise SystemExit(f"non-portable archive member path: {name!r}")
+
+
 def safe_extract(archive: zipfile.ZipFile, destination: Path) -> None:
     destination = destination.resolve()
+    names = [member.filename for member in archive.infolist()]
+    if len(names) != len(set(names)):
+        raise SystemExit("archive contains duplicate members")
     for member in archive.infolist():
+        _validate_archive_member_name(member.filename)
         target = (destination / member.filename).resolve()
         if destination != target and destination not in target.parents:
             raise SystemExit(f"unsafe archive path: {member.filename}")
     archive.extractall(destination)
 
 def _manifest_record_path(root: Path, record_path: str) -> Path:
+    _validate_archive_member_name(record_path)
     relative = PurePosixPath(record_path)
-    if relative.is_absolute() or ".." in relative.parts or not record_path or "\\" in record_path:
-        raise SystemExit(f"unsafe manifest path: {record_path}")
     if record_path == LAUNCHER_PATH:
         return root / LAUNCHER_PATH
     if record_path == "auren_env_compat.py":
@@ -266,11 +308,14 @@ def _native_bundle(bundle: Path) -> tuple[Path, Path | None]:
         raise SystemExit(f"AUREN bundle does not exist: {bundle}")
     try:
         with zipfile.ZipFile(bundle) as archive:
-            names = [name for name in archive.namelist() if not name.endswith("/")]
+            all_names = [member.filename for member in archive.infolist()]
+            if len(all_names) != len(set(all_names)):
+                raise SystemExit("invalid artifact wrapper: duplicate archive members")
+            names = [name for name in all_names if not name.endswith("/")]
             if MANIFEST_NAME in names:
                 return bundle, None
             zip_members = [name for name in names if name.lower().endswith(".zip")]
-            if len(zip_members) == 1 and Path(zip_members[0]).name.lower() == f"{BUNDLE_NAME}.zip":
+            if len(names) == 1 and len(zip_members) == 1 and zip_members[0] == f"{BUNDLE_NAME}.zip":
                 temp_root = Path(tempfile.mkdtemp(prefix="auren-artifact-"))
                 inner = temp_root / f"{BUNDLE_NAME}.zip"
                 inner.write_bytes(archive.read(zip_members[0]))
@@ -300,9 +345,7 @@ def _verify_native_bundle(bundle: Path) -> dict:
             if MANIFEST_NAME not in member_names:
                 raise SystemExit("bundle manifest is missing")
             for name in member_names:
-                member_path = PurePosixPath(name)
-                if member_path.is_absolute() or ".." in member_path.parts or "\\" in name:
-                    raise SystemExit(f"unsafe archive member path: {name}")
+                _validate_archive_member_name(name)
             manifest = json.loads(archive.read(MANIFEST_NAME).decode("utf-8"))
             if manifest.get("format") != BUNDLE_FORMAT_VERSION:
                 raise SystemExit("unsupported bundle format")
@@ -320,6 +363,8 @@ def _verify_native_bundle(bundle: Path) -> dict:
                     not isinstance(record, dict)
                     or not isinstance(record.get("path"), str)
                     or not isinstance(record.get("sha256"), str)
+                    or type(record.get("size")) is not int
+                    or record["size"] < 0
                     or len(record["sha256"]) != 64
                     or any(ch not in "0123456789abcdef" for ch in record["sha256"].lower())
                 ):
@@ -332,7 +377,7 @@ def _verify_native_bundle(bundle: Path) -> dict:
                 seen.add(record_path)
                 if _is_mutable_state_path(record_path):
                     raise SystemExit(f"mutable runtime state is forbidden in bundle: {record_path}")
-                if "size" in record and (type(record["size"]) is not int or record["size"] < 0):
+                if record["size"] < 0:
                     raise SystemExit(f"invalid bundle file size: {record_path}")
                 # Validate the logical path before using it to derive the archive inventory.
                 _manifest_record_path(Path("."), record_path)
@@ -378,7 +423,7 @@ def _copy_tree_without_mutable_state(source: Path, destination: Path) -> None:
     destination.mkdir(parents=True, exist_ok=True)
     for item in source.rglob("*"):
         rel = item.relative_to(source)
-        if any(part in EXCLUDED_PARTS for part in rel.parts) or (item.is_file() and _is_mutable_state_path(item)):
+        if any(part in EXCLUDED_PARTS for part in rel.parts) or _is_mutable_state_path(rel):
             continue
         target = destination / rel
         if item.is_dir():
