@@ -236,22 +236,44 @@ class AgencyEvolutionRuntime:
                 self._event(db, operation_id, "retry_budget_exhausted", {"attempts": item["attempts"]})
                 return self._operation(db, operation_id)
             attempts = item["attempts"] + 1
-            db.execute("UPDATE evolution_operations SET state='running',attempts=?,next_action='await durable experiment result or reconcile external operation',updated_at=? WHERE operation_id=?", (attempts, time.time(), operation_id))
-            self._event(db, operation_id, "operation_claimed", {"attempt": attempts})
+            lease_token = uuid4().hex
+            now = time.time()
+            lease_until = now + 60.0
+            db.execute("UPDATE evolution_operations SET state='running',attempts=?,lease_token=?,lease_until=?,next_action='heartbeat lease and await durable experiment result; reconcile if lease expires',updated_at=? WHERE operation_id=?", (attempts, lease_token, lease_until, now, operation_id))
+            self._event(db, operation_id, "operation_claimed", {"attempt": attempts, "lease_until": lease_until})
             return self._operation(db, operation_id)
 
-    def recover_interrupted(self, *, older_than_seconds: float = 60.0) -> list[str]:
-        """Block stale running work after startup/lease recovery; never auto-retry live work."""
-        if isinstance(older_than_seconds, bool) or not isinstance(older_than_seconds, (int, float)) or not math.isfinite(older_than_seconds) or older_than_seconds < 0:
-            raise ValueError("older_than_seconds must be finite and non-negative")
-        cutoff = time.time() - float(older_than_seconds)
+    def heartbeat(self, operation_id: str, *, lease_token: str, lease_seconds: float = 60.0) -> dict[str, Any]:
+        """Extend only the current worker's unexpired lease."""
+        if not isinstance(lease_token, str) or not lease_token:
+            raise ValueError("lease_token is required")
+        if isinstance(lease_seconds, bool) or not isinstance(lease_seconds, (int, float)) or not math.isfinite(lease_seconds) or not 1 <= lease_seconds <= 300:
+            raise ValueError("lease_seconds must be finite and between 1 and 300")
+        now = time.time()
+        with closing(sqlite3.connect(self.path, timeout=10)) as db, db:
+            db.execute("BEGIN IMMEDIATE")
+            item = self._operation(db, operation_id)
+            if item["state"] != "running" or item["lease_token"] != lease_token or not item["lease_until"] or item["lease_until"] <= now:
+                raise ValueError("worker lease is stale, expired or no longer owned")
+            until = now + float(lease_seconds)
+            db.execute("UPDATE evolution_operations SET lease_until=?,updated_at=? WHERE operation_id=?", (until, now, operation_id))
+            self._event(db, operation_id, "worker_heartbeat", {"lease_until": until})
+            return self._operation(db, operation_id)
+
+    def recover_interrupted(self, *, now: float | None = None) -> list[str]:
+        """Block only expired worker leases; live concurrent work is left untouched."""
+        recovery_time = time.time() if now is None else now
+        if isinstance(recovery_time, bool) or not isinstance(recovery_time, (int, float)) or not math.isfinite(recovery_time):
+            raise ValueError("now must be a finite timestamp")
         blocked: list[str] = []
         with closing(sqlite3.connect(self.path, timeout=10)) as db, db:
             db.execute("BEGIN IMMEDIATE")
-            rows = db.execute("SELECT operation_id FROM evolution_operations WHERE state='running' AND updated_at<=?", (cutoff,)).fetchall()
-            for (operation_id,) in rows:
-                db.execute("UPDATE evolution_operations SET state='blocked',outcome='unknown',next_action='reconcile stable operation ID with trusted controller/provider before any retry',updated_at=? WHERE operation_id=?", (time.time(), operation_id))
-                self._event(db, operation_id, "interrupted_outcome_unknown", {"next_action": "reconcile before retry"})
+            rows = db.execute("SELECT operation_id,lease_until FROM evolution_operations WHERE state='running'").fetchall()
+            for operation_id, lease_until in rows:
+                if lease_until is not None and lease_until > recovery_time:
+                    continue
+                db.execute("UPDATE evolution_operations SET state='blocked',outcome='unknown',lease_token=NULL,lease_until=NULL,next_action='reconcile stable operation ID with trusted controller/provider before any retry',updated_at=? WHERE operation_id=?", (recovery_time, operation_id))
+                self._event(db, operation_id, "interrupted_outcome_unknown", {"next_action": "reconcile before retry", "lease_expired": True})
                 blocked.append(operation_id)
         return blocked
 
