@@ -92,6 +92,61 @@ class HarnessTaskDeadlineTests(unittest.TestCase):
             self.assertEqual("cancelled", results[0]["status"])
             self.assertEqual(130, results[0]["exit_code"])
 
+    def test_cancellation_kills_validation_descendants_and_prevents_next_dispatch(self):
+        import threading
+        import time
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            descendant_marker = root / "descendant-survived"
+            later_dispatch_marker = root / "later-command-ran"
+            child = (
+                "import pathlib,sys,time; time.sleep(1.0); "
+                "pathlib.Path(sys.argv[1]).write_text('survived')"
+            )
+            parent = (
+                "import subprocess,sys,time; "
+                "subprocess.Popen([sys.executable,'-c',sys.argv[2],sys.argv[1]]); "
+                "time.sleep(30)"
+            )
+            later = (
+                "import pathlib,sys; "
+                "pathlib.Path(sys.argv[1]).write_text('ran')"
+            )
+            cancel = threading.Event()
+            coordinator = threading.Thread(
+                target=lambda: (time.sleep(0.25), cancel.set()), daemon=True,
+            )
+            coordinator.start()
+            config = {
+                "validation": {
+                    "commands": [
+                        [sys.executable, "-c", parent, str(descendant_marker), child],
+                        [sys.executable, "-c", later, str(later_dispatch_marker)],
+                    ],
+                    "auto_discover": False,
+                },
+                "execution": {
+                    "validation_timeout_seconds": 5,
+                    "validation_max_output_bytes": 1024,
+                },
+            }
+            passed, results = engine.run_validation(
+                config, root, cancellation_event=cancel,
+            )
+            coordinator.join(timeout=1)
+            self.assertFalse(passed)
+            self.assertEqual(["cancelled"], [item["status"] for item in results])
+            time.sleep(1.2)
+            self.assertFalse(
+                descendant_marker.exists(),
+                "cancelled validation must terminate its descendant process",
+            )
+            self.assertFalse(
+                later_dispatch_marker.exists(),
+                "later validation commands must not dispatch after cancellation",
+            )
+
     def test_task_deadline_setting_is_bounded_in_config(self):
         import tomllib
 
