@@ -126,7 +126,7 @@ class ConsequentialRunOnceRecoveryTests(unittest.TestCase):
             )
         self.assertEqual("blocked_reconciliation", controller.task(task.id).state)
         self.assertEqual("open", controller.company.open_clarifications(task.work_unit_id)[0]["state"])
-        self.assertEqual(["abc123", "abc123"], _PROVIDER_CALLS)
+        self.assertEqual(["abc123"], _PROVIDER_CALLS)
 
     def test_operator_resume_reconciles_status_without_redispatch(self):
         first = self.controller.submit("consequential-recovery-action", self._payload())
