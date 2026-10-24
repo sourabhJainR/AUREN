@@ -96,3 +96,10 @@ Run: `python -m unittest tests.test_crash_recovery_fault_injection -v`.
 ## Existing capability and limitation
 
 AUREN already has deadline budgets, shared execution guards, cooperative cancellation, bounded daemon loops, graph timeouts, subprocess timeout support, and a durable dispatch-intent ledger. These controls are useful but do not guarantee hard termination for every Python thread or external provider. Host adapters must honor deadlines, and hard-stop guarantees require process isolation. Passing CI proves only the scenarios exercised by the tests; arbitrary provider calls and in-process graph nodes still need deadline/cancellation adapters, and external side effects still need reconciliation.
+
+
+## Optional subprocess memory budget
+
+`portable.bounded_subprocess.run_bounded_command` accepts `max_memory_bytes` when a caller needs an explicit memory ceiling. The value must be an integer of at least 16 MiB. POSIX uses `RLIMIT_AS`, which limits each process's virtual address space and is inherited by descendants; it is **not** an aggregate process-tree or container memory quota. Windows configures a Job Object memory limit across the contained process tree. A requested limit that cannot be established is an error, not a successful unbounded launch. The option is opt-in to avoid silently changing existing workload limits.
+
+This is a resource-control primitive, not a complete hostile-code sandbox. POSIX per-process address-space ceilings do not provide aggregate memory accounting; CPU, process-count, filesystem, network, and kernel isolation remain separate controls. Keep OS/container isolation and adversarial evaluation as independent release gates. Rollback is to revert the memory-budget parameter and its Job Object configuration; existing timeout, cancellation, and output-capture behavior remains unchanged.
