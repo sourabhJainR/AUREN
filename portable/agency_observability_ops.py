@@ -214,6 +214,8 @@ class CalibrationResult:
     min_pass_recall: float = 0.70
     min_training_required: int = 30
     min_validation_required: int = 20
+    training_digest: str = ""
+    validation_digest: str = ""
 
     @property
     def eligible_for_guardrail(self) -> bool:
@@ -228,6 +230,11 @@ class GuardrailAuthorization:
     reviewer_id: str
     evidence_ref: str
     calibration_status: str
+
+
+def _calibration_digest(samples: tuple[CalibrationSample, ...]) -> str:
+    payload = json.dumps([asdict(sample) for sample in samples], sort_keys=True, separators=(",", ":"), allow_nan=False)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def _rates(samples: tuple[CalibrationSample, ...], threshold: float) -> tuple[float, float]:
@@ -254,8 +261,15 @@ def calibrate_evaluator(
         raise ValueError("invalid calibration targets")
     for collection in (train, valid):
         for sample in collection:
+            if type(sample.expected_pass) is not bool:
+                raise ValueError("calibration labels must be booleans")
             if not sample.evidence_ref.strip() or not math.isfinite(sample.score) or not 0 <= sample.score <= 1:
                 raise ValueError("calibration samples require evidence and finite scores in [0, 1]")
+        references = [sample.evidence_ref for sample in collection]
+        if len(references) != len(set(references)):
+            raise ValueError("duplicate evidence references cannot inflate calibration sample counts")
+    if {sample.evidence_ref for sample in train} & {sample.evidence_ref for sample in valid}:
+        raise ValueError("training and validation evidence must be disjoint")
     if len(train) < min_training or len(valid) < min_validation:
         return CalibrationResult("unscored", None, len(train), len(valid), None, None, None, "insufficient labeled samples")
     if any(len({sample.expected_pass for sample in collection}) < 2 for collection in (train, valid)):
@@ -281,6 +295,8 @@ def calibrate_evaluator(
         min_pass_recall=min_pass_recall,
         min_training_required=min_training,
         min_validation_required=min_validation,
+        training_digest=_calibration_digest(train),
+        validation_digest=_calibration_digest(valid),
     )
 
 
@@ -299,6 +315,8 @@ def authorize_calibrated_guardrail(
         or result.training_false_pass_rate is None
         or result.validation_false_pass_rate is None
         or result.validation_pass_recall is None
+        or not result.training_digest
+        or not result.validation_digest
         or result.training_false_pass_rate > result.max_false_pass_rate
         or result.validation_false_pass_rate > result.max_false_pass_rate
         or result.validation_pass_recall < result.min_pass_recall
@@ -330,8 +348,10 @@ class DriftPolicy:
     def __post_init__(self) -> None:
         if self.baseline_count < 2 or self.recent_count < 2:
             raise ValueError("drift windows must contain at least two observations")
-        if self.minimum_absolute_shift < 0:
-            raise ValueError("minimum_absolute_shift must be non-negative")
+        if not math.isfinite(self.minimum_absolute_shift) or self.minimum_absolute_shift < 0:
+            raise ValueError("minimum_absolute_shift must be finite and non-negative")
+        if self.safety_floor is not None and (not math.isfinite(self.safety_floor) or not 0 <= self.safety_floor <= 1):
+            raise ValueError("safety_floor must be finite and between 0 and 1")
 
 
 def evaluate_drift(observations: Iterable[MetricObservation], policy: DriftPolicy = DriftPolicy()) -> dict[str, Any]:
