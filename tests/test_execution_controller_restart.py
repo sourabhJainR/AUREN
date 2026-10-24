@@ -254,8 +254,10 @@ def test_pending_task_cancellation_is_durable_and_never_dispatches(tmp_path: Pat
     task = controller.submit(name, {})
     assert controller.request_cancellation(task.id, reason="operator stop")
     assert controller.request_cancellation(task.id, reason="duplicate request")
-    assert controller.run_once(task.id) is None
-    assert controller.task(task.id).state == "cancelled"
+    restarted = ExecutionController(tmp_path)
+    restarted.register_handler(name, pending_cancel_handler, execution_class="read_only")
+    assert restarted.run_once(task.id) is None
+    assert restarted.task(task.id).state == "cancelled"
 
 
 def test_active_task_cancellation_reaches_handler_and_rejects_success(tmp_path: Path):
@@ -351,6 +353,9 @@ def test_deadline_validation_and_stable_work_key_deadline_replay(tmp_path: Path)
     )
     assert replay.id == first.id
     assert replay.deadline_at == first.deadline_at
+    restarted = ExecutionController(tmp_path)
+    restored = restarted.task(first.id)
+    assert restored is not None and restored.deadline_at == first.deadline_at
 
 
 def test_handler_interruption_after_cancellation_commits_cancelled_state(tmp_path: Path):
