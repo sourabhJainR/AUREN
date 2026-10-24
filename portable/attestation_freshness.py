@@ -164,6 +164,8 @@ class FreshnessAwareAttestor:
             from .evaluator_trust import ProductionSeparationAwareAttestor
             if type(production_attestor) is not ProductionSeparationAwareAttestor:
                 raise TypeError("production freshness requires ProductionSeparationAwareAttestor")
+            if not isinstance(replay_registry, SQLiteAttestationReplayRegistry):
+                raise ValueError("production freshness requires a durable SQLiteAttestationReplayRegistry")
             if verify_signature is not None or policy is not None or verify_principal is not None:
                 raise ValueError("do not mix production attestor with protocol verifier callbacks")
             self._attestor = production_attestor
