@@ -15,18 +15,30 @@ import re
 import threading
 import time
 import uuid
+from types import MappingProxyType
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from portable.identity_compat import canonical_runtime_home, get_auren_env
 from typing import Any, Callable, Iterable, Mapping
 
 _SECRET = re.compile(r"(?i)(api[_-]?key|token|password|secret|authorization)")
-_SECRET_VALUE = re.compile(r"(?i)(api[_-]?key|token|password|secret|authorization)\s*[:=]\s*(?:Bearer\s+)?[^,\s]+")
+_SECRET_VALUE = re.compile(r"""(?ix)(api[_-]?key|token|password|secret|authorization)\s*[:=]\s*(?:"[^"]*"|'[^']*'|[^,;\r\n]+)""")
 
 
 _TRACE_LOCK = threading.RLock()
 _MAX_TRACE_BYTES = 1_000_000
 _BEARER_VALUE = re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._~+/-]+=*")
+
+
+def _freeze(value: Any) -> Any:
+    """Recursively freeze prompt metadata so registered identity cannot be mutated."""
+    if isinstance(value, Mapping):
+        return MappingProxyType({str(key): _freeze(item) for key, item in value.items()})
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze(item) for item in value)
+    if isinstance(value, set):
+        return frozenset(_freeze(item) for item in value)
+    return value
 
 
 def _safe(value: Any, limit: int = 4000, _depth: int = 0) -> Any:
@@ -368,7 +380,7 @@ class PromptRegistry:
     def register(self, name: str, version: str, template: str, metadata: Mapping[str, Any] | None = None) -> PromptVersion:
         if not name.strip() or not version.strip() or not template.strip():
             raise ValueError("prompt name, version and template are required")
-        item = PromptVersion(name, version, template, _safe(dict(metadata or {})))
+        item = PromptVersion(name, version, template, _freeze(_safe(dict(metadata or {}))))
         existing = self._versions.get(name, {}).get(version)
         if existing is not None and existing != item:
             raise ValueError(f"prompt version is immutable: {name}:{version}")
