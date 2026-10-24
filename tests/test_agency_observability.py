@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
@@ -20,6 +21,10 @@ def test_trace_export_is_local_and_redacts_secrets(tmp_path: Path):
     assert "abc123" not in text
     assert "Bearer abc" not in text
     assert trace.as_dict()["spans"][0]["scores"][0]["value"] == 0.9
+    event = json.loads(text)
+    assert event["schema_version"] == 1
+    assert event["task_id"] is None
+    assert len(event["event_digest"]) == 64
 
 
 def test_prompt_registry_versions_and_promotion():
@@ -139,3 +144,17 @@ def test_concurrent_span_creation_preserves_unique_ids():
         spans = list(pool.map(lambda index: trace.span(f"span-{index}"), range(100)))
     ids = [span.span_id for span in spans]
     assert len(ids) == len(set(ids)) == 100
+
+
+
+def test_export_failure_does_not_change_canonical_trace_outcome():
+    class BrokenExporter:
+        def export(self, trace):
+            raise OSError("telemetry unavailable")
+
+    tracer = Tracer(BrokenExporter())
+    trace = tracer.start("execution", {"task_id": "task-1"})
+    ended = tracer.end(trace, "ok")
+    assert ended.status == "ok"
+    assert ended.metadata["observability_export_status"] == "failed"
+    assert ended.metadata["observability_export_error"] == "OSError"
