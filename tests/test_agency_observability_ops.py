@@ -200,3 +200,22 @@ class TestAgencyObservabilityOps(unittest.TestCase):
         assert any(trend["metric"] == "task_quality" and trend["drift_status"] == "alert" for trend in snapshot["score_trends"])
         assert any(alert["metric"] == "task_quality" for alert in snapshot["live_drift_alerts"])
         assert snapshot["raw_payloads_exposed"] is False
+
+
+
+    def test_tampered_incremental_trace_event_is_rejected(self):
+        path = self.tmp_path / "tampered-events.jsonl"
+        tracer = Tracer(LocalExporter(path, enabled=True))
+        trace = tracer.start("integrity", {"task_id": "integrity-task"})
+        span = trace.span("implementation", phase="implementation")
+        span.finish({"summary": "completed"})
+        records = path.read_text().splitlines()
+        event_index = next(i for i, line in enumerate(records) if '"event_record_version":1' in line)
+        event = json.loads(records[event_index])
+        event["status"] = "failed"
+        records[event_index] = json.dumps(event, sort_keys=True, separators=(",", ":"))
+        path.write_text("\n".join(records) + "\n")
+        snapshot = observability_snapshot(path)
+        assert snapshot["corrupt_line_count"] >= 1
+        assert snapshot["status"] == "partial"
+        assert snapshot["raw_payloads_exposed"] is False
