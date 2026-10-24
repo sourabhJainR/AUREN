@@ -600,6 +600,8 @@ def observability_snapshot(path: Path, *, limit: int = 500) -> dict[str, Any]:
                 if isinstance(gap, str)
             ][:50] if isinstance(metadata.get("phase_coverage_gaps", []), list) else [],
             "review_mode": metadata.get("review_mode", "unknown"),
+            "export_status": metadata.get("observability_export_status", "no_known_export_failure"),
+            "export_failure_count": metadata.get("observability_export_failures", 0),
         })
     score_trends = []
     live_drift_alerts = []
