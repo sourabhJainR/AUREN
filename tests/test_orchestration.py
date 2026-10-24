@@ -5,6 +5,7 @@ from pathlib import Path
 
 from portable.agency_observability import LocalExporter, Tracer
 from portable.state_graph import StateGraph
+from portable.runtime_recovery import RuntimeExecutionGuard
 from portable.orchestration import (
     Graph,
     Node,
@@ -280,3 +281,46 @@ if __name__ == "__main__":
             self.assertTrue(terminal)
             self.assertEqual(terminal[-1]["status"], "ok")
             self.assertEqual(terminal[-1]["metadata"]["canonical_run_status"], "accepted")
+
+
+    def test_supervisor_resume_correlates_trace_with_restored_execution_budget(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "resume-traces.jsonl"
+            tracer = Tracer(LocalExporter(path, enabled=True))
+            graph = Graph([Node("research_sources", NodeKind.AGENT, lambda _: {"evidence": ["source:1"]})])
+            persisted = []
+            guard = RuntimeExecutionGuard(max_steps=20, max_attempts=20)
+            common = {
+                "run_id": "stable-resumable-run",
+                "session_id": "session-resume",
+                "auren_runtime_guard": guard.snapshot(),
+                "auren_runtime_guard_persist": lambda snapshot: persisted.append(snapshot),
+            }
+            first = StateGraph(graph).run("task-resume-1", "research", common, tracer=tracer)
+            self.assertEqual(first.status, RunStatus.ACCEPTED)
+            self.assertTrue(persisted)
+            second_context = {
+                **common,
+                "auren_runtime_guard": persisted[-1],
+                "resume_checkpoint_id": "checkpoint-resume-1",
+            }
+            second = StateGraph(graph).run("task-resume-1", "research", second_context, tracer=tracer)
+            self.assertEqual(second.status, RunStatus.ACCEPTED)
+            records = [json.loads(line) for line in path.read_text().splitlines()]
+            traces = {}
+            for record in records:
+                if record.get("task_id") == "task-resume-1":
+                    traces.setdefault(record.get("trace_id"), []).append(record)
+            self.assertEqual(len(traces), 2)
+            self.assertTrue(all({r.get("run_id") for r in values} == {"stable-resumable-run"} for values in traces.values()))
+            snapshots = [
+                r for values in traces.values() for r in values
+                if r.get("schema_version") == 1 and "spans" in r
+            ]
+            self.assertEqual(len(snapshots), 2)
+            resumed = [
+                r for r in snapshots
+                if r.get("metadata", {}).get("resume_checkpoint_id") == "checkpoint-resume-1"
+            ]
+            self.assertEqual(len(resumed), 1)
+            self.assertEqual(resumed[0]["metadata"]["canonical_run_status"], "accepted")
