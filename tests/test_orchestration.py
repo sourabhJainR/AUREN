@@ -1,3 +1,4 @@
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -275,5 +276,7 @@ if __name__ == "__main__":
             self.assertEqual(research[0]["phase"], "research")
             self.assertEqual(verify[0]["phase"], "verification")
             self.assertTrue(all(span.get("parent_id") for span in research + verify))
-            terminal = [record for record in records if record.get("event_type") == "trace_updated"]
+            terminal = [record for record in records if record.get("schema_version") == 1 and "spans" in record]
             self.assertTrue(terminal)
+            self.assertEqual(terminal[-1]["status"], "ok")
+            self.assertEqual(terminal[-1]["metadata"]["canonical_run_status"], "accepted")
