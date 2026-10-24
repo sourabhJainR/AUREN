@@ -289,3 +289,42 @@ def test_consequential_cancellation_after_dispatch_is_ambiguous_not_cancelled(tm
     # The low-level invocation must not claim a safe terminal outcome. The
     # supervisor/provider lifecycle owns the subsequent reconciliation state.
     assert controller.task(submitted.id).state == "running"
+
+
+
+def test_active_task_deadline_is_durable_and_rejects_late_success(tmp_path: Path):
+    controller = ExecutionController(tmp_path)
+    started = Event()
+    def deadline_aware_handler(payload):
+        started.set()
+        payload["auren_cancel_event"].wait(timeout=4)
+        return {"success": True, "detail": "late result"}
+    name = "tests.test_execution_controller_restart.deadline_aware_handler"
+    controller.register_handler(name, deadline_aware_handler, execution_class="read_only")
+    task = controller.submit(name, {}, deadline_seconds=0.5)
+    assert task.deadline_at is not None
+    outcomes = []
+    worker = Thread(target=lambda: outcomes.append(controller.run_once(task.id)), daemon=True)
+    worker.start()
+    assert started.wait(timeout=3), "deadline-aware handler did not start"
+    worker.join(timeout=5)
+    assert not worker.is_alive(), "deadline-aware handler did not observe the deadline signal"
+    assert outcomes == [None]
+    assert controller.task(task.id).state == "failed"
+
+
+def test_deadline_validation_and_stable_work_key_deadline_replay(tmp_path: Path):
+    controller = ExecutionController(tmp_path)
+    name = "tests.test_execution_controller_restart.deadline_validation_handler"
+    controller.register_handler(name, lambda _payload: {"success": True}, execution_class="read_only")
+    for value in (0, -1, float("nan"), float("inf"), True, 86401):
+        try:
+            controller.submit(name, {"id": "invalid-deadline"}, deadline_seconds=value)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"invalid deadline accepted: {value!r}")
+    first = controller.submit(name, {"id": "deadline-idempotency"}, work_key="test:deadline-idempotency", deadline_seconds=30)
+    replay = controller.submit(name, {"id": "deadline-idempotency"}, work_key="test:deadline-idempotency", deadline_seconds=60)
+    assert replay.id == first.id
+    assert replay.deadline_at == first.deadline_at
