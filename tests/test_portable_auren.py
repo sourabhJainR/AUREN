@@ -416,8 +416,12 @@ class PortableAurenTests(unittest.TestCase):
             import portable.auren_runtime as runtime
             original_atomic_json = runtime._atomic_json
 
+            failed_once = False
+
             def fail_active(path: Path, value: object) -> None:
-                if path == auren_home / "active.json":
+                nonlocal failed_once
+                if path == auren_home / "active.json" and not failed_once:
+                    failed_once = True
                     raise OSError("simulated active metadata failure")
                 original_atomic_json(path, value)
 
