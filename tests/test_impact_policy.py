@@ -10,6 +10,13 @@ from scripts.impact_policy import classify_changes, classify_path, final_status
 class ImpactPolicyTests(unittest.TestCase):
     def test_every_recovery_sensitive_source_has_mandatory_test_suites(self):
         expected = {
+            ".ai-harness/runtime/canary_evaluator.py": {"tests.test_canary_evaluator", "tests.test_production_evaluator_trust"},
+            "portable/external_evaluation_campaign.py": {"tests.test_external_evaluation_campaign", "tests.test_external_evaluator_gateway"},
+            "portable/independent_evaluation_attestation.py": {"tests.test_independent_evaluation_attestation", "tests.test_sealed_arena_boundary"},
+            "tests/test_canary_evaluator.py": {"tests.test_canary_evaluator"},
+            "tests/test_production_evaluator_trust.py": {"tests.test_production_evaluator_trust"},
+            "tests/test_external_evaluation_campaign.py": {"tests.test_external_evaluation_campaign"},
+            "tests/test_independent_evaluation_attestation.py": {"tests.test_independent_evaluation_attestation"},
             "portable/container_sandboxed_arena.py": {"tests.test_container_sandboxed_arena", "tests.test_container_sandboxed_arena_integration"},
             "portable/isolated_arena_runner.py": {"tests.test_isolated_arena_runner", "tests.test_independent_arena"},
             "portable/external_evaluator_gateway.py": {"tests.test_external_evaluator_gateway", "tests.test_external_evaluator_gateway_budget"},
