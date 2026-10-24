@@ -293,6 +293,7 @@ class AICodingAgencyBridgeTests(unittest.TestCase):
                 budget={"max_attempts": 1},
                 source_revision=profile.source_revision,
                 decision_rationale="Preserve the authority boundary with the smallest change.",
+                selected_specialists=tuple(assignment.specialist for assignment in assignments[:1]),
             ),
             review_plan=lambda profile, reviewed: PersonaReview(
                 reviewer_id="plan-reviewer-5", target_id="planner-5", approved=True,
