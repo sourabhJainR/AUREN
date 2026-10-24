@@ -787,7 +787,8 @@ def _history_records(root: Path) -> list[dict]:
 
 def rollback(auren_home: Path | None = None) -> Path:
     root = home_auren(auren_home)
-    active = json.loads((root / "active.json").read_text(encoding="utf-8")) if (root / "active.json").is_file() else {}
+    active_path = root / "active.json"
+    active = json.loads(active_path.read_text(encoding="utf-8")) if active_path.is_file() else {}
     active_key = (active.get("source_commit"), active.get("bundle_sha256"))
     target: dict | None = None
     for record in reversed(_history_records(root)):
@@ -800,14 +801,44 @@ def rollback(auren_home: Path | None = None) -> Path:
     install_root = str(target.get("install_root") or f"v{target.get('version')}")
     if Path(install_root).name != install_root or install_root in {".", ".."}:
         raise SystemExit("rollback target contains an unsafe installation path")
-    version_root = root / "versions" / install_root
+    versions_root = root / "versions"
+    version_root = versions_root / install_root
     if not (version_root / "install.json").is_file() or not (version_root / LAUNCHER_PATH).is_file():
         raise SystemExit(f"rollback target is incomplete: {version_root}")
-    _set_current(root, version_root)
-    _atomic_json(root / "active.json", target)
-    with (root / "history.jsonl").open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps({"event": "rollback", **target}) + "\n")
-    _sync_skills(version_root / "skills" / "ai-coding-orchestrator", "agents")
+
+    current = root / "current"
+    previous_current_target: Path | None = None
+    if current.is_symlink():
+        previous_current_target = current.resolve()
+    elif current.is_dir() and (current / "install.json").is_file():
+        current_record = json.loads((current / "install.json").read_text(encoding="utf-8"))
+        previous_name = current_record.get("install_root")
+        if isinstance(previous_name, str) and Path(previous_name).name == previous_name:
+            previous_current_target = versions_root / previous_name
+
+    active_written = False
+    try:
+        _set_current(root, version_root)
+        _atomic_json(active_path, target)
+        active_written = True
+        _sync_skills(version_root / "skills" / "ai-coding-orchestrator", "agents")
+        _append_jsonl_atomic(root / "history.jsonl", {"event": "rollback", **target})
+    except Exception:
+        if previous_current_target is not None and previous_current_target.is_dir():
+            _set_current(root, previous_current_target)
+        elif current.exists() or current.is_symlink():
+            _remove_path(current)
+        if active_written:
+            _atomic_json(active_path, active)
+        previous_name = active.get("install_root")
+        if isinstance(previous_name, str) and Path(previous_name).name == previous_name:
+            previous_skill = versions_root / previous_name / "skills" / "ai-coding-orchestrator"
+            if previous_skill.is_dir():
+                try:
+                    _sync_skills(previous_skill, "agents")
+                except Exception:
+                    pass
+        raise
     print(f"Rolled back AUREN to {target['version']} ({str(target.get('source_commit', ''))[:12]})")
     return root / "current"
 
