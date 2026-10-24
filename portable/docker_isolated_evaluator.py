@@ -53,12 +53,14 @@ class DockerEvaluatorPolicy:
 class _DockerAttachedProcess:
     """Popen-compatible attached client with explicit container termination."""
 
-    def __init__(self, process: subprocess.Popen[bytes], container_id_file: Path) -> None:
+    def __init__(self, process: subprocess.Popen[bytes], container_id_file: Path, docker_binary: str) -> None:
         self._process = process
         self._container_id_file = container_id_file
+        self._docker_binary = docker_binary
         self.stdin = process.stdin
         self.stdout = process.stdout
         self.pid = process.pid
+        self.termination_error: str | None = None
 
     @property
     def returncode(self):
@@ -68,27 +70,49 @@ class _DockerAttachedProcess:
         return self._process.wait(timeout=timeout)
 
     def terminate_isolated(self) -> None:
+        """Kill the actual container; preserve the cidfile if outcome is unknown."""
+        errors: list[str] = []
         try:
             container_id = self._container_id_file.read_text(encoding="ascii").strip()
         except (OSError, UnicodeError):
             container_id = ""
-        if container_id:
-            subprocess.run(
-                ["docker", "kill", container_id],
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                timeout=10,
-                check=False,
-            )
-            subprocess.run(
-                ["docker", "rm", "-f", container_id],
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                timeout=10,
-                check=False,
-            )
+        if not container_id:
+            errors.append("container ID unavailable; remote termination outcome is unknown")
+        else:
+            try:
+                killed = subprocess.run(
+                    [self._docker_binary, "kill", container_id],
+                    stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL, timeout=10, check=False,
+                )
+                if killed.returncode != 0:
+                    state = subprocess.run(
+                        [self._docker_binary, "inspect", "--format", "{{.State.Running}}", container_id],
+                        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                        stderr=subprocess.DEVNULL, timeout=10, check=False, text=True,
+                    )
+                    if state.returncode == 0 and state.stdout.strip().lower() == "true":
+                        errors.append("container remained running after kill request")
+                    elif state.returncode == 0 and state.stdout.strip().lower() != "false":
+                        errors.append("container running state could not be verified")
+            except (OSError, subprocess.TimeoutExpired):
+                errors.append("container kill or state reconciliation failed")
+            try:
+                removed = subprocess.run(
+                    [self._docker_binary, "rm", "-f", container_id],
+                    stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL, timeout=10, check=False,
+                )
+                if removed.returncode != 0:
+                    exists = subprocess.run(
+                        [self._docker_binary, "inspect", container_id],
+                        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL, timeout=10, check=False,
+                    )
+                    if exists.returncode == 0:
+                        errors.append("container cleanup failed and container still exists")
+            except (OSError, subprocess.TimeoutExpired):
+                errors.append("container cleanup could not be verified")
         try:
             if os.name == "posix":
                 os.killpg(self._process.pid, signal.SIGKILL)
@@ -102,11 +126,14 @@ class _DockerAttachedProcess:
         try:
             self._process.wait(timeout=5)
         except (subprocess.TimeoutExpired, OSError):
-            pass
-        try:
-            self._container_id_file.unlink(missing_ok=True)
-        except OSError:
-            pass
+            errors.append("Docker client process did not stop within the bounded wait")
+        self.termination_error = "; ".join(errors) if errors else None
+        if self.termination_error is None:
+            try:
+                self._container_id_file.unlink(missing_ok=True)
+            except OSError:
+                self.termination_error = "container ID evidence could not be cleaned up"
+
 
 
 class DockerIsolatedEvaluatorExecutor:
@@ -184,7 +211,7 @@ class DockerIsolatedEvaluatorExecutor:
         except Exception:
             cid_file.unlink(missing_ok=True)
             raise
-        return _DockerAttachedProcess(process, cid_file)
+        return _DockerAttachedProcess(process, cid_file, self.docker_binary)
 
 
 __all__ = ["DockerEvaluatorPolicy", "DockerIsolatedEvaluatorExecutor"]
