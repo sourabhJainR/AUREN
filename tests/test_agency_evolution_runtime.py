@@ -22,7 +22,7 @@ class AgencyEvolutionRuntimeTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.runtime = AgencyEvolutionRuntime(Path(self.tmp.name) / "evolution.sqlite3",
-                                              max_attempts=2, max_cycles=2)
+                                              max_attempts=2, max_cycles=10)
 
     def queued(self, experiment_id="exp-1", candidate="candidate-1", parent=""):
         return self.runtime.create_experiment(manifest(experiment_id, candidate),
@@ -44,10 +44,13 @@ class AgencyEvolutionRuntimeTests(unittest.TestCase):
         }
 
     def authorize_for_canary(self, operation_id):
-        decision = self.runtime.promotion_decision(
-            operation_id, gates=self.gates(), regression_passed=True, risk_approved=True,
-        )
-        self.assertEqual(decision["action"], "awaiting_approval")
+        if self.runtime.snapshot(operation_id)["state"] == "evaluated":
+            decision = self.runtime.promotion_decision(
+                operation_id, gates=self.gates(), regression_passed=True, risk_approved=True,
+            )
+            self.assertEqual(decision["action"], "awaiting_approval")
+        else:
+            self.assertEqual(self.runtime.snapshot(operation_id)["state"], "awaiting_approval")
         self.runtime.record_release_event(operation_id, event="shadow_passed",
                                           evidence_ref="shadow:verified:1",
                                           controller_authorized=True, verified=True)
@@ -159,6 +162,13 @@ class AgencyEvolutionRuntimeTests(unittest.TestCase):
             controller_authorized=False, verified=True,
         )
         self.assertEqual(result["state"], "blocked")
+
+
+    def test_cycle_budget_is_enforced(self):
+        bounded = AgencyEvolutionRuntime(Path(self.tmp.name) / "bounded.sqlite3", max_cycles=1)
+        bounded.create_experiment(manifest("bounded-1"), evidence_refs=("trace:1",))
+        with self.assertRaisesRegex(ValueError, "cycle budget exhausted"):
+            bounded.create_experiment(manifest("bounded-2", "b" * 40), evidence_refs=("trace:2",))
 
     def test_trace_ingestion_returns_safe_prioritized_signals(self):
         result = self.runtime.ingest_trace({
