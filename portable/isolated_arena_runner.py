@@ -46,6 +46,17 @@ def _kill_windows_process_tree(process: subprocess.Popen[Any]) -> None:
         pass
 
 
+def _close_process_streams(process: subprocess.Popen[Any]) -> None:
+    """Close parent-owned subprocess pipes after worker threads stop."""
+    for stream in (process.stdin, process.stdout):
+        if stream is None:
+            continue
+        try:
+            stream.close()
+        except (OSError, ValueError):
+            pass
+
+
 def _kill_policy_process_tree(process: subprocess.Popen[Any]) -> None:
     """Best-effort tree termination; POSIX uses process groups, Windows taskkill."""
     if os.name == "posix":
@@ -190,15 +201,18 @@ def run_campaign_isolated(
                         _kill_policy_process_tree(process)
                     writer.join(timeout=1.0)
                     reader.join(timeout=1.0)
+                    _close_process_streams(process)
                     if deadline - time.monotonic() <= 0:
                         raise ArenaError("Arena campaign execution budget exhausted") from exc
                     raise ArenaError("policy subprocess exceeded its per-case timeout") from exc
                 writer.join(timeout=1.0)
                 reader.join(timeout=1.0)
+                _close_process_streams(process)
                 if output_limit_exceeded.is_set():
                     raise ArenaError("policy subprocess output exceeds configured byte limit")
                 if reader.is_alive():
                     _kill_policy_process_tree(process)
+                    _close_process_streams(process)
                     raise ArenaError("policy output stream did not close within the bounded wait")
                 if stream_error:
                     raise ArenaError("policy output stream could not be read")
