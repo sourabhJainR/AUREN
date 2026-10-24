@@ -119,3 +119,63 @@ class SideEffectProcessCrashFaultInjectionTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+_COMPLETED_KEY = "deploy:crash-matrix:completed-before-receipt"
+_COMPLETED_PAYLOAD = {"revision": "release-sha", "target": "staging"}
+
+
+def _crash_after_provider_completion(database: str, provider_log: str) -> None:
+    ledger = DurableSideEffectLedger(database)
+    decision = ledger.begin(_COMPLETED_KEY, _COMPLETED_PAYLOAD)
+    if decision.action != "execute":
+        os._exit(93)
+    # Model a provider completing the irreversible operation while AUREN dies
+    # before the local completion receipt can commit.
+    with Path(provider_log).open("a", encoding="utf-8") as stream:
+        stream.write("provider-op-002:completed\n")
+        stream.flush()
+        os.fsync(stream.fileno())
+    os._exit(73)
+
+
+class ProviderCompletionReceiptCrashTests(unittest.TestCase):
+    def test_completed_remote_effect_is_reconciled_without_redispatch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            database = str(Path(tmp) / "effects.sqlite3")
+            provider_log = str(Path(tmp) / "provider-operations.log")
+            self.assertEqual(73, _crash_process(_crash_after_provider_completion, database, provider_log))
+            self.assertEqual(
+                ["provider-op-002:completed"],
+                Path(provider_log).read_text(encoding="utf-8").splitlines(),
+            )
+
+            def trusted_reconciliation(key, evidence_ref, receipt):
+                return (
+                    key == _COMPLETED_KEY
+                    and evidence_ref == "provider-operation:provider-op-002"
+                    and receipt.get("provider_operation_id") == "provider-op-002"
+                    and receipt.get("status") == "completed"
+                    and Path(provider_log).read_text(encoding="utf-8").splitlines()
+                    == ["provider-op-002:completed"]
+                )
+
+            ledger = DurableSideEffectLedger(database, reconciliation_verifier=trusted_reconciliation)
+            recovered = ledger.begin(_COMPLETED_KEY, _COMPLETED_PAYLOAD)
+            self.assertEqual("reconcile", recovered.action)
+            self.assertEqual("reconcile_required", recovered.state)
+
+            reconciled = ledger.record_reconciled_effect(
+                _COMPLETED_KEY,
+                evidence_ref="provider-operation:provider-op-002",
+                receipt={"provider_operation_id": "provider-op-002", "status": "completed"},
+            )
+            self.assertEqual("reconciled", reconciled.action)
+            replay = ledger.begin(_COMPLETED_KEY, _COMPLETED_PAYLOAD)
+            self.assertEqual("replay", replay.action)
+            self.assertEqual("completed", replay.state)
+            self.assertEqual(
+                ["provider-op-002:completed"],
+                Path(provider_log).read_text(encoding="utf-8").splitlines(),
+                "recovery must not redispatch a remotely completed operation",
+            )
