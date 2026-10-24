@@ -191,6 +191,7 @@ class TestEngineeringPersonas(unittest.TestCase):
         def worker(task, assignments):
             return {
                 "deliverables": ["patch-ref"],
+                "artifact_refs": ["sha256:rejected-patch"],
                 "verification": ["unit tests passed"],
                 "dimensions": {
                     "correctness": 25, "completeness": 15, "evidence": 15, "verification": 15,
