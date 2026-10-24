@@ -485,24 +485,69 @@ def _atomic_json(path: Path, value: object) -> None:
     temp.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     temp.replace(path)
 
+
+def _append_jsonl_atomic(path: Path, value: dict) -> None:
+    """Append one durable JSONL event by replacing a fully written sibling file."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp = path.with_name(path.name + ".tmp")
+    previous = path.read_bytes() if path.is_file() else b""
+    with temp.open("wb") as handle:
+        handle.write(previous)
+        handle.write((json.dumps(value, sort_keys=True) + "\n").encode("utf-8"))
+        handle.flush()
+    temp.replace(path)
+
+def _remove_path(path: Path) -> None:
+    if path.is_symlink() or (path.exists() and not path.is_dir()):
+        path.unlink()
+    elif path.is_dir():
+        shutil.rmtree(path)
+
+
 def _set_current(root: Path, version_root: Path) -> None:
+    """Switch the active build without deleting the last working selection first."""
+    root.mkdir(parents=True, exist_ok=True)
     current = root / "current"
     staged = root / ".current.tmp"
-    if staged.exists() or staged.is_symlink():
-        shutil.rmtree(staged) if staged.is_dir() and not staged.is_symlink() else staged.unlink()
+    backup = root / ".current.backup"
+    _remove_path(staged)
+    # A previous process may have stopped after moving current to backup.
+    if backup.exists() or backup.is_symlink():
+        if not (current.exists() or current.is_symlink()):
+            backup.replace(current)
+        else:
+            _remove_path(backup)
     try:
         staged.symlink_to(version_root, target_is_directory=True)
-        if current.exists() or current.is_symlink():
-            shutil.rmtree(current) if current.is_dir() and not current.is_symlink() else current.unlink()
+        # Replacing a symlink is atomic on supported filesystems.
         staged.replace(current)
+        return
     except OSError:
-        temp_dir = root / ".current-copy.tmp"
-        if temp_dir.exists():
-            shutil.rmtree(temp_dir)
-        _copy_tree_without_mutable_state(version_root, temp_dir)
-        if current.exists() or current.is_symlink():
-            shutil.rmtree(current) if current.is_dir() and not current.is_symlink() else current.unlink()
+        _remove_path(staged)
+
+    # Windows and restricted filesystems may not support directory symlinks.
+    # Copy to a sibling first, then rename the previous selection out of the way.
+    temp_dir = root / ".current-copy.tmp"
+    _remove_path(temp_dir)
+    _copy_tree_without_mutable_state(version_root, temp_dir)
+    had_current = current.exists() or current.is_symlink()
+    try:
+        if had_current:
+            current.replace(backup)
         temp_dir.replace(current)
+    except OSError:
+        backup_exists = backup.exists() or backup.is_symlink()
+        if backup_exists:
+            _remove_path(current)
+            backup.replace(current)
+        elif not had_current:
+            _remove_path(current)
+        # If the old selection was never moved to backup, leave it untouched.
+        raise
+    else:
+        _remove_path(backup)
+    finally:
+        _remove_path(temp_dir)
 
 def _skill_destinations() -> dict[str, Path]:
     return {
@@ -523,9 +568,34 @@ def _install_skill(source: Path, destination: Path) -> None:
     if not source.is_dir():
         raise SystemExit("bundle does not contain the canonical Agent Skill")
     destination.parent.mkdir(parents=True, exist_ok=True)
-    if destination.exists():
-        shutil.rmtree(destination)
-    shutil.copytree(source, destination)
+    staged = destination.with_name(destination.name + ".staging")
+    backup = destination.with_name(destination.name + ".backup")
+    _remove_path(staged)
+    # Recover a prior skill if a process stopped during the replacement window.
+    if backup.exists() or backup.is_symlink():
+        if not (destination.exists() or destination.is_symlink()):
+            backup.replace(destination)
+        else:
+            _remove_path(backup)
+    had_destination = destination.exists() or destination.is_symlink()
+    try:
+        shutil.copytree(source, staged)
+        if had_destination:
+            destination.replace(backup)
+        staged.replace(destination)
+    except OSError:
+        backup_exists = backup.exists() or backup.is_symlink()
+        if backup_exists:
+            _remove_path(destination)
+            backup.replace(destination)
+        elif not had_destination:
+            _remove_path(destination)
+        # A copy failure before the rename must not remove the original skill.
+        raise
+    else:
+        _remove_path(backup)
+    finally:
+        _remove_path(staged)
 
 def _version_install_root(root: Path, version: str, bundle_hash: str) -> Path:
     """Return an immutable build-specific installation directory.
@@ -545,42 +615,96 @@ def install(bundle: Path, install_skill: str = "agents", auren_home: Path | None
         version = str(manifest["version"])
         bundle_hash = sha256_file(native_bundle)
         version_root = _version_install_root(root, version, bundle_hash)
+        versions_root = version_root.parent
+        versions_root.mkdir(parents=True, exist_ok=True)
         temp = Path(tempfile.mkdtemp(prefix="auren-install-"))
+        staged_version: Path | None = None
         try:
             with zipfile.ZipFile(native_bundle) as archive:
                 safe_extract(archive, temp)
+
             existing = version_root / "install.json"
             if existing.is_file():
                 prior = json.loads(existing.read_text(encoding="utf-8"))
                 if prior.get("source_commit") != manifest["source_commit"] or prior.get("bundle_sha256") != bundle_hash:
                     raise SystemExit(f"build directory {version_root.name} is already pinned to different content; refusing overwrite")
+                if not (version_root / LAUNCHER_PATH).is_file():
+                    raise SystemExit(f"pinned build is incomplete: {version_root}")
             elif version_root.exists():
                 raise SystemExit(f"version directory exists without a pin: {version_root}")
-            _copy_payload(temp / PAYLOAD_ROOT, version_root)
-            record = {
-                "format": BUNDLE_FORMAT_VERSION,
-                "version": version,
-                "harness_version": manifest.get("harness_version"),
-                "source_repository": manifest.get("source_repository"),
-                "source_ref": manifest.get("source_ref"),
-                "source_commit": manifest.get("source_commit"),
-                "bundle_sha256": bundle_hash,
-                "install_root": version_root.name,
-                "installed_at": datetime.now(timezone.utc).isoformat(),
-                "repository_isolated": True,
-            }
-            _atomic_json(version_root / "install.json", record)
-            _set_current(root, version_root)
-            _atomic_json(root / "active.json", record)
-            with (root / "history.jsonl").open("a", encoding="utf-8") as handle:
-                handle.write(json.dumps({"event": "activate", **record}) + "\n")
-            _sync_skills(temp / PAYLOAD_ROOT / "skills" / "ai-coding-orchestrator", install_skill)
+            else:
+                staged_version = Path(tempfile.mkdtemp(prefix=f".{version_root.name}.staging-", dir=versions_root))
+                _copy_payload(temp / PAYLOAD_ROOT, staged_version)
+                record = {
+                    "format": BUNDLE_FORMAT_VERSION,
+                    "version": version,
+                    "harness_version": manifest.get("harness_version"),
+                    "source_repository": manifest.get("source_repository"),
+                    "source_ref": manifest.get("source_ref"),
+                    "source_commit": manifest.get("source_commit"),
+                    "bundle_sha256": bundle_hash,
+                    "install_root": version_root.name,
+                    "installed_at": datetime.now(timezone.utc).isoformat(),
+                    "repository_isolated": True,
+                }
+                _atomic_json(staged_version / "install.json", record)
+                # A complete pinned build appears at its final path in one rename.
+                staged_version.replace(version_root)
+                staged_version = None
+
+            record = json.loads((version_root / "install.json").read_text(encoding="utf-8"))
+            previous_active_path = root / "active.json"
+            previous_active = json.loads(previous_active_path.read_text(encoding="utf-8")) if previous_active_path.is_file() else None
+            current = root / "current"
+            previous_current_target: Path | None = None
+            if current.is_symlink():
+                previous_current_target = current.resolve()
+            elif current.is_dir() and (current / "install.json").is_file():
+                current_record = json.loads((current / "install.json").read_text(encoding="utf-8"))
+                previous_name = current_record.get("install_root")
+                if isinstance(previous_name, str) and Path(previous_name).name == previous_name:
+                    previous_current_target = versions_root / previous_name
+
+            active_written = False
+            skills_sync_attempted = False
+            try:
+                _set_current(root, version_root)
+                _atomic_json(previous_active_path, record)
+                active_written = True
+                skills_sync_attempted = install_skill != "none"
+                _sync_skills(temp / PAYLOAD_ROOT / "skills" / "ai-coding-orchestrator", install_skill)
+                _append_jsonl_atomic(root / "history.jsonl", {"event": "activate", **record})
+            except Exception:
+                # Restore the last known active build, metadata and selected skill
+                # if any activation step fails. Preserve the original exception.
+                if previous_current_target is not None and previous_current_target.is_dir():
+                    _set_current(root, previous_current_target)
+                elif current.exists() or current.is_symlink():
+                    _remove_path(current)
+                if active_written:
+                    if previous_active is None:
+                        _remove_path(previous_active_path)
+                    else:
+                        _atomic_json(previous_active_path, previous_active)
+                if skills_sync_attempted and previous_active is not None:
+                    previous_name = previous_active.get("install_root")
+                    if isinstance(previous_name, str) and Path(previous_name).name == previous_name:
+                        previous_skill = versions_root / previous_name / "skills" / "ai-coding-orchestrator"
+                        if previous_skill.is_dir():
+                            try:
+                                _sync_skills(previous_skill, install_skill)
+                            except Exception:
+                                pass
+                raise
+
             print(f"Installed and pinned AUREN {version} ({manifest['source_commit'][:12]})")
             print(f"Build: {version_root.name}")
             print(f"Active installation: {root / 'current'}")
             print("Repository isolation: ON")
             return root / "current"
         finally:
+            if staged_version is not None:
+                shutil.rmtree(staged_version, ignore_errors=True)
             shutil.rmtree(temp, ignore_errors=True)
     finally:
         if temp_root is not None:
@@ -663,7 +787,8 @@ def _history_records(root: Path) -> list[dict]:
 
 def rollback(auren_home: Path | None = None) -> Path:
     root = home_auren(auren_home)
-    active = json.loads((root / "active.json").read_text(encoding="utf-8")) if (root / "active.json").is_file() else {}
+    active_path = root / "active.json"
+    active = json.loads(active_path.read_text(encoding="utf-8")) if active_path.is_file() else {}
     active_key = (active.get("source_commit"), active.get("bundle_sha256"))
     target: dict | None = None
     for record in reversed(_history_records(root)):
@@ -676,14 +801,47 @@ def rollback(auren_home: Path | None = None) -> Path:
     install_root = str(target.get("install_root") or f"v{target.get('version')}")
     if Path(install_root).name != install_root or install_root in {".", ".."}:
         raise SystemExit("rollback target contains an unsafe installation path")
-    version_root = root / "versions" / install_root
+    versions_root = root / "versions"
+    version_root = versions_root / install_root
     if not (version_root / "install.json").is_file() or not (version_root / LAUNCHER_PATH).is_file():
         raise SystemExit(f"rollback target is incomplete: {version_root}")
-    _set_current(root, version_root)
-    _atomic_json(root / "active.json", target)
-    with (root / "history.jsonl").open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps({"event": "rollback", **target}) + "\n")
-    _sync_skills(version_root / "skills" / "ai-coding-orchestrator", "agents")
+
+    current = root / "current"
+    previous_current_target: Path | None = None
+    if current.is_symlink():
+        previous_current_target = current.resolve()
+    elif current.is_dir() and (current / "install.json").is_file():
+        current_record = json.loads((current / "install.json").read_text(encoding="utf-8"))
+        previous_name = current_record.get("install_root")
+        if isinstance(previous_name, str) and Path(previous_name).name == previous_name:
+            previous_current_target = versions_root / previous_name
+
+    active_written = False
+    skills_sync_attempted = False
+    try:
+        _set_current(root, version_root)
+        _atomic_json(active_path, target)
+        active_written = True
+        skills_sync_attempted = True
+        _sync_skills(version_root / "skills" / "ai-coding-orchestrator", "agents")
+        _append_jsonl_atomic(root / "history.jsonl", {"event": "rollback", **target})
+    except Exception:
+        if previous_current_target is not None and previous_current_target.is_dir():
+            _set_current(root, previous_current_target)
+        elif current.exists() or current.is_symlink():
+            _remove_path(current)
+        if active_written:
+            _atomic_json(active_path, active)
+        if skills_sync_attempted:
+            previous_name = active.get("install_root")
+            if isinstance(previous_name, str) and Path(previous_name).name == previous_name:
+                previous_skill = versions_root / previous_name / "skills" / "ai-coding-orchestrator"
+                if previous_skill.is_dir():
+                    try:
+                        _sync_skills(previous_skill, "agents")
+                    except Exception:
+                        pass
+        raise
     print(f"Rolled back AUREN to {target['version']} ({str(target.get('source_commit', ''))[:12]})")
     return root / "current"
 
