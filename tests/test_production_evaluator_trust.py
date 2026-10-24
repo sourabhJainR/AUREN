@@ -189,7 +189,7 @@ class ProductionEvaluatorTrustTests(unittest.TestCase):
                 None,
                 None,
                 AttestationFreshnessPolicy(max_age_seconds=900, max_future_skew_seconds=30),
-                replay_registry=production_replay_registry(set()),
+                replay_registry=production_replay_registry({}),
                 production_attestor=production_attestor,
             )
             signed = self.attestation()
