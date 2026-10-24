@@ -30,11 +30,19 @@ class AgencyEvolutionRuntimeTests(unittest.TestCase):
 
     def passing_evaluation(self, operation_id):
         self.runtime.claim(operation_id)
-        return self.runtime.record_evaluation(
+        result = self.runtime.record_evaluation(
             operation_id, outcome="pass", evidence_refs=("evaluation:independent:1",),
             evaluator_revision="evaluator-v1", independent=True, holdout_isolated=True,
             metrics={"quality": 0.98, "latency_ms": 120}, domain="python",
         )
+        cases = tuple([(True, True)] * 10 + [(False, False)] * 10)
+        calibration = self.runtime.calibrate_evaluator(
+            operation_id, evaluator_revision="evaluator-v1", adjudicated_cases=cases,
+            adjudication_evidence_refs=("adjudication:independent:1",),
+            independent_adjudication=True,
+        )
+        self.assertTrue(calibration["accepted"])
+        return result
 
     def gates(self):
         return {
@@ -163,6 +171,45 @@ class AgencyEvolutionRuntimeTests(unittest.TestCase):
         )
         self.assertEqual(result["state"], "blocked")
 
+
+
+    def test_promotion_requires_accepted_calibration_and_clean_drift(self):
+        item = self.queued()
+        self.runtime.claim(item["operation_id"])
+        self.runtime.record_evaluation(
+            item["operation_id"], outcome="pass", evidence_refs=("eval:1",),
+            evaluator_revision="evaluator-v1", independent=True, holdout_isolated=True,
+            metrics={"quality": 0.98}, domain="python",
+        )
+        blocked = self.runtime.promotion_decision(
+            item["operation_id"], gates=self.gates(), regression_passed=True, risk_approved=True,
+        )
+        self.assertEqual(blocked["action"], "block")
+        self.assertIn("calibration", blocked["reason"])
+        cases = tuple([(True, True)] * 10 + [(False, False)] * 10)
+        self.runtime.calibrate_evaluator(
+            item["operation_id"], evaluator_revision="evaluator-v1", adjudicated_cases=cases,
+            adjudication_evidence_refs=("adjudication:1",), independent_adjudication=True,
+        )
+        self.runtime.assess_drift(
+            item["operation_id"], metric="quality", observations=(0.7, 0.71),
+            fixed_release_baseline=0.95, adaptive_baseline=0.7,
+            absolute_tolerance=0.05, adaptive_tolerance=0.1, evidence_ref="metrics:1",
+        )
+        blocked_drift = self.runtime.promotion_decision(
+            item["operation_id"], gates=self.gates(), regression_passed=True, risk_approved=True,
+        )
+        self.assertEqual(blocked_drift["action"], "block")
+        self.assertIn("drift", blocked_drift["reason"])
+
+    def test_calibration_rejects_non_independent_adjudication(self):
+        item = self.queued()
+        with self.assertRaisesRegex(ValueError, "independent adjudication"):
+            self.runtime.calibrate_evaluator(
+                item["operation_id"], evaluator_revision="evaluator-v1",
+                adjudicated_cases=((True, True),), adjudication_evidence_refs=("source:1",),
+                independent_adjudication=False,
+            )
 
     def test_cycle_budget_is_enforced(self):
         bounded = AgencyEvolutionRuntime(Path(self.tmp.name) / "bounded.sqlite3", max_cycles=1)
