@@ -124,7 +124,14 @@ def _print_progress(args) -> int:
 
 def _is_mutable_state_path(path: str | Path) -> bool:
     """Use one mutable-state policy for bundle creation, verification and installation."""
-    name = Path(path).name.lower()
+    normalized = str(path).replace("\\", "/").lower()
+    parts = PurePosixPath(normalized).parts
+    if any(
+        parts[index] == ".ai-harness" and parts[index + 1] in {"learning", "evidence"}
+        for index in range(len(parts) - 1)
+    ):
+        return True
+    name = PurePosixPath(normalized).name
     return name in MUTABLE_FILE_NAMES or name.endswith(MUTABLE_STATE_SUFFIXES)
 
 
@@ -401,7 +408,7 @@ def _copy_tree_without_mutable_state(source: Path, destination: Path) -> None:
     destination.mkdir(parents=True, exist_ok=True)
     for item in source.rglob("*"):
         rel = item.relative_to(source)
-        if any(part in EXCLUDED_PARTS for part in rel.parts) or (item.is_file() and _is_mutable_state_path(item)):
+        if any(part in EXCLUDED_PARTS for part in rel.parts) or _is_mutable_state_path(rel):
             continue
         target = destination / rel
         if item.is_dir():
