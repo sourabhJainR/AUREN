@@ -232,13 +232,16 @@ def test_pending_task_cancellation_is_durable_and_never_dispatches(tmp_path: Pat
 def test_active_task_cancellation_reaches_handler_and_rejects_success(tmp_path: Path):
     controller = ExecutionController(tmp_path)
     started = Event()
+    def handler(payload):
+        started.set()
+        payload["auren_cancel_event"].wait(timeout=3)
+        return {"success": True, "detail": "handler observed cancellation", "evidence": ["cancel-aware"]}
     controller.register_handler(
         "tests.test_execution_controller_restart.cancellation_aware_handler",
-        cancellation_aware_handler, execution_class="read_only",
+        handler, execution_class="read_only",
     )
     task = controller.submit(
-        "tests.test_execution_controller_restart.cancellation_aware_handler",
-        {"started_event": started},
+        "tests.test_execution_controller_restart.cancellation_aware_handler", {},
     )
     outcomes = []
     worker = Thread(target=lambda: outcomes.append(controller.run_once(task.id)), daemon=True)
