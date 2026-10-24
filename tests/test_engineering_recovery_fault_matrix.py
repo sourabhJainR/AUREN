@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import multiprocessing
+import os
 import tempfile
 import threading
 import unittest
@@ -17,6 +19,29 @@ from portable.execution_controller import ExecutionController
 
 def recovery_matrix_handler(_payload):
     return {"accepted": True}
+
+
+def _crash_after_plan_commit_before_checkpoint(root_path: str) -> None:
+    """Commit a plan/run revision, then die before the matching recovery checkpoint."""
+    root = Path(root_path)
+    plan = EngineeringPlan(
+        run_id="crash-matrix-process-death", goal="exercise split plan/checkpoint recovery",
+        requirements=("plan revision and recovery checkpoint must agree",),
+        source_revision="b" * 40, budget={"attempts": 2, "dispatches": 2},
+        tasks=(PlanTask("work", "Execute bounded work", ("result verified",), "revert bounded work"),),
+    )
+    store = EngineeringPlanStore(root / "plans.sqlite3")
+    ledger = EngineeringRecoveryLedger(root / "runtime" / ".auren" / "recovery.sqlite3")
+    bridge = EngineeringPlanRecoveryBridge(store=store, ledger=ledger)
+    bridge.start(plan)
+    current = bridge.transition_task(plan.run_id, "work", "ready", reason="task eligible")
+    stored_plan, current = store.load(plan.run_id)
+    changed = current.transition_task(
+        "work", "running", plan=stored_plan,
+        reason="fault injection: commit plan state without updating checkpoint",
+    )
+    store.save_run(plan.run_id, changed, expected_revision=current.revision)
+    os._exit(74)
 
 
 _CANCEL_ENTERED = None
@@ -74,7 +99,7 @@ class EngineeringRecoveryFaultMatrixTests(unittest.TestCase):
     def test_restart_refuses_plan_run_when_checkpoint_digest_is_stale(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
             root = Path(tmp)
-            plan, _run, store, bridge, _packet, _controller, _dispatcher = self._prepared_dispatch(root)
+            plan, _run, store, _bridge, _packet, _controller, _dispatcher = self._prepared_dispatch(root)
             stored_plan, current = store.load(plan.run_id)
             changed = current.transition_task(
                 "work", "running", plan=stored_plan, reason="simulated write before checkpoint update",
@@ -86,6 +111,27 @@ class EngineeringRecoveryFaultMatrixTests(unittest.TestCase):
             )
             with self.assertRaisesRegex(EngineeringPlanCheckpointMismatch, "run_digest"):
                 restarted.load_verified(plan.run_id)
+
+    def test_process_death_between_plan_commit_and_checkpoint_fails_closed(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            root = Path(tmp)
+            process = multiprocessing.get_context("spawn").Process(
+                target=_crash_after_plan_commit_before_checkpoint, args=(str(root),),
+            )
+            process.start()
+            process.join(15)
+            if process.is_alive():
+                process.terminate()
+                process.join(3)
+                self.fail("crash-injection child exceeded its time budget")
+            self.assertEqual(74, process.exitcode, "child must die at the injected split-commit boundary")
+
+            restarted = EngineeringPlanRecoveryBridge(
+                store=EngineeringPlanStore(root / "plans.sqlite3"),
+                ledger=EngineeringRecoveryLedger(root / "runtime" / ".auren" / "recovery.sqlite3"),
+            )
+            with self.assertRaisesRegex(EngineeringPlanCheckpointMismatch, "run_digest"):
+                restarted.load_verified("crash-matrix-process-death")
 
     def test_cancellation_during_active_handler_is_observed_after_safe_batch_boundary(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
