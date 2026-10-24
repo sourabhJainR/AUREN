@@ -118,7 +118,7 @@ class AgencyEvolutionGatesTests(unittest.TestCase):
             "metadata": {"regressions": [{"regression_id": "reg-1", "passed": False}]},
         }
         signals = extract_signals_from_trace(trace, low_score_threshold=0.6, slow_trace_ms=30000)
-        self.assertEqual(len(signals), 4)
+        self.assertEqual(len(signals), 5)
         self.assertTrue(all(signal.source_ref == "trace:trace-42" for signal in signals))
         self.assertTrue(all("secret" not in signal.summary and "private detail" not in signal.summary for signal in signals))
         self.assertEqual(len({signal.signal_id for signal in signals}), len(signals))
