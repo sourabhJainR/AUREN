@@ -62,11 +62,55 @@ class PostgreSQLAttestationReplayRegistryTests(unittest.TestCase):
 
     def test_unknown_commit_outcome_fails_closed(self):
         store = set()
-        registry = PostgreSQLAttestationReplayRegistry(
-            lambda: FakeConnection(store, fail_commit=True)
-        )
-        with self.assertRaises(ReplayClaimOutcomeUnknown):
+        connections = [FakeConnection(store), FakeConnection(store, fail_commit=True)]
+        def connection_factory():
+            if not connections:
+                raise AssertionError("unexpected extra connection")
+            return connections.pop(0)
+        registry = PostgreSQLAttestationReplayRegistry(connection_factory)
+        with self.assertRaises(ReplayClaimOutcomeUnknown) as caught:
             registry.claim("attestation-uncertain")
+        self.assertEqual("attestation-uncertain", caught.exception.attestation_id)
+        self.assertTrue(registry.lookup_claim("attestation-uncertain"))
+
+    def test_registry_is_not_production_ready_without_verified_deployment_evidence(self):
+        registry = PostgreSQLAttestationReplayRegistry(lambda: FakeConnection(set()))
+        self.assertIs(registry.production_ready, False)
+        self.assertTrue(registry.durable)
+        self.assertTrue(registry.multi_host)
+
+    def test_deployment_evidence_requires_literal_true_from_trusted_verifier(self):
+        evidence = {
+            "deployment_id": "staging-shared-postgres",
+            "backend": "postgresql",
+            "shared_primary": True,
+            "tls_enabled": True,
+            "independent_host_count": 2,
+            "failover_policy_id": "failover-policy-v1",
+            "retention_policy_id": "retention-policy-v1",
+            "schema_version": "1",
+        }
+        with self.assertRaisesRegex(PermissionError, "failed closed"):
+            PostgreSQLAttestationReplayRegistry(
+                lambda: FakeConnection(set()),
+                deployment_attestation=evidence,
+                verify_deployment_attestation=lambda _evidence: "true",
+            )
+        verified = PostgreSQLAttestationReplayRegistry(
+            lambda: FakeConnection(set()),
+            deployment_attestation=evidence,
+            verify_deployment_attestation=lambda value: value == evidence,
+        )
+        self.assertIs(verified.production_ready, True)
+
+    def test_lookup_claim_is_read_only_and_validates_identifier(self):
+        store = set()
+        registry = PostgreSQLAttestationReplayRegistry(lambda: FakeConnection(store))
+        self.assertFalse(registry.lookup_claim("attestation-lookup"))
+        self.assertTrue(registry.claim("attestation-lookup"))
+        self.assertTrue(registry.lookup_claim("attestation-lookup"))
+        with self.assertRaises(ValueError):
+            registry.lookup_claim("  ")
 
     def test_invalid_table_name_is_rejected(self):
         with self.assertRaises(ValueError):
