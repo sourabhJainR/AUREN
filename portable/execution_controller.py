@@ -2113,6 +2113,10 @@ class ExecutionController:
                 if handler_started and self._handler_execution_class(task.handler) == "consequential":
                     raise ProviderOutcomeBlocked("deadline expired after consequential dispatch; remote outcome requires reconciliation") from handler_error
                 raise TaskDeadlineExceeded("task deadline expired during handler execution") from handler_error
+            if cancel.is_set():
+                if handler_started and self._handler_execution_class(task.handler) == "consequential":
+                    raise ProviderOutcomeBlocked("consequential handler was interrupted after cancellation; remote outcome requires reconciliation") from handler_error
+                raise TaskCancellationRequested("handler was interrupted after supervisor cancellation") from handler_error
             if handler_started and self._handler_execution_class(task.handler) == "consequential":
                 raise ProviderOutcomeBlocked("consequential handler exited with an exception after dispatch; remote outcome requires reconciliation") from handler_error
             raise handler_error
