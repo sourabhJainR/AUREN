@@ -45,6 +45,11 @@ class PortableAurenTests(unittest.TestCase):
             state.mkdir(parents=True, exist_ok=True)
             (state / "learning-journal.jsonl").write_text("private learning state\\n", encoding="utf-8")
             (state / "private-context.json").write_text('{"private": true}\\n', encoding="utf-8")
+            runtime_state = root / ".ai-harness" / "runtime"
+            runtime_state.mkdir(parents=True, exist_ok=True)
+            (runtime_state / "learning-journal.jsonl").write_text("private journal outside state folder\\n", encoding="utf-8")
+            (runtime_state / "evidence-ledger.jsonl").write_text("private evidence outside state folder\\n", encoding="utf-8")
+            (runtime_state / "task-memory.jsonl.lock").write_text("private lock\\n", encoding="utf-8")
             evidence = root / ".ai-harness" / "evidence"
             evidence.mkdir(parents=True, exist_ok=True)
             (evidence / "evidence-ledger.jsonl").write_text("private evidence state\\n", encoding="utf-8")
@@ -63,6 +68,9 @@ class PortableAurenTests(unittest.TestCase):
                 ".ai-harness/learning/learning-journal.jsonl",
                 ".ai-harness/learning/private-context.json",
                 ".ai-harness/evidence/evidence-ledger.jsonl",
+                ".ai-harness/runtime/learning-journal.jsonl",
+                ".ai-harness/runtime/evidence-ledger.jsonl",
+                ".ai-harness/runtime/task-memory.jsonl.lock",
             ):
                 self.assertNotIn(private_path, included)
             self.assertTrue(any(item["path"] == "auren_cli.py" for item in manifest["files"]))
