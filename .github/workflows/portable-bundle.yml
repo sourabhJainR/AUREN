@@ -33,11 +33,11 @@ jobs:
           python - <<'PY'
           import fnmatch, os, subprocess
           event = os.environ['EVENT_NAME']
-          if (
-    event == 'workflow_dispatch'
-    or os.environ.get('GITHUB_REF', '').startswith('refs/tags/')
-    or (event == 'push' and os.environ.get('GITHUB_REF', '') == 'refs/heads/main')
-):
+                    if (
+              event == 'workflow_dispatch'
+              or os.environ.get('GITHUB_REF', '').startswith('refs/tags/')
+              or (event == 'push' and os.environ.get('GITHUB_REF', '') == 'refs/heads/main')
+          ):
               required = True
               changed = []
           else:
