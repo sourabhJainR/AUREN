@@ -552,6 +552,9 @@ def observability_snapshot(path: Path, *, limit: int = 500) -> dict[str, Any]:
                 latest_by_trace[trace_id] = state
             else:
                 latest_by_trace[trace_id] = item
+                snapshot_sequence = item.get("event_sequence", 0)
+                if isinstance(snapshot_sequence, int) and not isinstance(snapshot_sequence, bool) and snapshot_sequence > last_sequences.get(trace_id, 0):
+                    last_sequences[trace_id] = snapshot_sequence
                 span_records = item.get("spans", ())
                 span_maps[trace_id] = {
                     str(span["span_id"]): span for span in span_records
@@ -663,9 +666,10 @@ def observability_snapshot(path: Path, *, limit: int = 500) -> dict[str, Any]:
             })
     drift = read_drift_alerts(path.parent / "datasets.sqlite3", limit=50)
     return {
-        "status": ("partial" if scan_truncated or corrupt_lines else "ok") if traces else ("corrupt" if corrupt_lines else "empty"),
+        "status": ("partial" if scan_truncated or corrupt_lines or sequence_gaps else "ok") if traces else ("corrupt" if corrupt_lines else "empty"),
         "trace_count": len(traces),
         "corrupt_line_count": corrupt_lines,
+        "event_sequence_gap_count": sequence_gaps,
         "scan_truncated": scan_truncated,
         "status_counts": dict(status_counts),
         "phase_counts": dict(phase_counts),
