@@ -106,3 +106,28 @@ def test_dashboard_keeps_corrupt_durable_plan_visible_as_unknown_not_success():
         assert row["status"] == "unknown"
         assert "reconciliation required" in row["detail"]
         assert row["status"] != "completed"
+
+def test_canonical_terminal_plan_status_suppresses_stale_running_event():
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        plan, run, store = _create_plan_run(root, "plan-run-terminal")
+        current = run
+        for task_id in ("inspect", "implement"):
+            for status in ("ready", "running", "passed"):
+                updated = current.transition_task(
+                    task_id, status, plan=plan,
+                    reason=f"test canonical transition to {status}",
+                )
+                store.save_run(plan.run_id, updated, expected_revision=current.revision)
+                current = updated
+
+        # Simulate an event projection that missed the terminal transition.
+        dashboard = EngineeringDashboard(root)
+        dashboard.record_event(
+            run_id=plan.run_id, event="stale-heartbeat", task_id="inspect",
+            status="running", detail="old event projection",
+        )
+        snapshot = dashboard.snapshot().as_dict()
+        canonical = next(row for row in snapshot["plan_runs"] if row["run_id"] == plan.run_id)
+        assert canonical["status"] == "completed"
+        assert all(row.get("run_id") != plan.run_id for row in snapshot["executions"])
