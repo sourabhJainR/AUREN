@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from collections import Counter, deque
 from contextlib import contextmanager
+import hashlib
 from dataclasses import asdict, dataclass
 import json
 import math
@@ -521,7 +522,7 @@ class SQLiteObservabilityEvidenceStore:
         if not metric.strip():
             raise ValueError("calibration metric is required")
         payload = json.dumps(asdict(result), sort_keys=True, separators=(",", ":"), allow_nan=False)
-        report_id = __import__("hashlib").sha256(f"{metric}|{payload}".encode("utf-8")).hexdigest()
+        report_id = hashlib.sha256(f"{metric}|{payload}".encode("utf-8")).hexdigest()
         with self._connection() as connection:
             connection.execute(
                 "INSERT OR IGNORE INTO evaluator_calibration_reports(report_id, metric, status, report_json, created_at) VALUES(?,?,?,?,?)",
