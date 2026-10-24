@@ -179,3 +179,14 @@ class TestAgencyObservability(unittest.TestCase):
         assert ended.metadata["observability_export_status"] == "failed"
         assert ended.metadata["observability_export_error"] == "OSError"
 
+
+
+
+    def test_unsupported_objects_never_invoke_arbitrary_repr(self):
+        class UnsafeRepresentation:
+            def __repr__(self):
+                raise AssertionError("repr must not be invoked by telemetry sanitization")
+
+        trace = Tracer().start("safe-serialization")
+        span = trace.span("unsupported", input=UnsafeRepresentation())
+        assert span.input == "[UNSUPPORTED_TYPE:UnsafeRepresentation]"
