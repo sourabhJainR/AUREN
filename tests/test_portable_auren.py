@@ -82,6 +82,52 @@ class PortableAurenTests(unittest.TestCase):
             self.assertTrue((auren_home / "current" / "auren_env_compat.py").is_file())
             self.assertTrue((auren_home / "current" / ".claude-plugin" / "plugin.json").is_file())
 
+    def test_verify_rejects_artifact_wrapper_with_extra_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "source"
+            self.make_source(root)
+            bundle = Path(tmp) / "auren-portable.zip"
+            build(root, bundle, source_commit="artifact-commit")
+            artifact = Path(tmp) / "wrapper-with-extra-file.zip"
+            with zipfile.ZipFile(artifact, "w", zipfile.ZIP_DEFLATED) as wrapper:
+                wrapper.write(bundle, "auren-portable.zip")
+                wrapper.writestr("README.txt", "unexpected extra content")
+            with self.assertRaisesRegex(SystemExit, "invalid AUREN bundle"):
+                verify_bundle(artifact)
+
+    def test_verify_rejects_windows_drive_archive_member(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "source"
+            self.make_source(root)
+            bundle = Path(tmp) / "auren.zip"
+            build(root, bundle, source_commit="test-commit")
+            tampered = Path(tmp) / "windows-drive.zip"
+            with zipfile.ZipFile(bundle) as source, zipfile.ZipFile(tampered, "w", zipfile.ZIP_DEFLATED) as target:
+                for item in source.infolist():
+                    target.writestr(item, source.read(item.filename))
+                target.writestr("payload/C:/escape.txt", b"must be rejected")
+            with self.assertRaisesRegex(SystemExit, "non-portable archive member path"):
+                verify_bundle(tampered)
+
+    def test_verify_requires_manifest_file_sizes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "source"
+            self.make_source(root)
+            bundle = Path(tmp) / "auren.zip"
+            build(root, bundle, source_commit="test-commit")
+            tampered = Path(tmp) / "missing-size.zip"
+            with zipfile.ZipFile(bundle) as source:
+                manifest = json.loads(source.read("auren-bundle.json"))
+                manifest["files"][0].pop("size", None)
+                with zipfile.ZipFile(tampered, "w", zipfile.ZIP_DEFLATED) as target:
+                    for item in source.infolist():
+                        data = source.read(item.filename)
+                        if item.filename == "auren-bundle.json":
+                            data = (json.dumps(manifest, sort_keys=True) + "\n").encode("utf-8")
+                        target.writestr(item, data)
+            with self.assertRaisesRegex(SystemExit, "invalid bundle file record"):
+                verify_bundle(tampered)
+
     def test_verify_rejects_artifact_with_multiple_zip_payloads(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "source"
