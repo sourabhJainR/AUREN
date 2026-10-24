@@ -105,6 +105,18 @@ class AgencyEvolutionRuntimeTests(unittest.TestCase):
         self.assertEqual(queued["state"], "queued")
         self.assertTrue(self.runtime.verify_event_chain())
 
+
+    def test_live_lease_survives_recovery_and_heartbeat_rejects_stale_token(self):
+        item = self.queued()
+        running = self.runtime.claim(item["operation_id"])
+        self.assertEqual(self.runtime.recover_interrupted(now=running["lease_until"] - 1), [])
+        renewed = self.runtime.heartbeat(
+            item["operation_id"], lease_token=running["lease_token"], lease_seconds=90,
+        )
+        self.assertGreater(renewed["lease_until"], running["lease_until"])
+        with self.assertRaisesRegex(ValueError, "stale, expired or no longer owned"):
+            self.runtime.heartbeat(item["operation_id"], lease_token="wrong-token")
+
     def test_unknown_unscored_and_inconclusive_never_become_success(self):
         for outcome in ("unknown", "unscored", "inconclusive"):
             item = self.queued("exp-" + outcome)
