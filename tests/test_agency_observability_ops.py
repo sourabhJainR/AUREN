@@ -166,11 +166,13 @@ class TestAgencyObservabilityOps(unittest.TestCase):
         path = self.tmp_path / "traces.jsonl"
         tracer = Tracer(LocalExporter(path, enabled=True))
         trace = tracer.start("resumable", {"task_id": "task-2"}, run_id="durable-run-2")
-        trace.span("implementation", phase="implementation")
+        span = trace.span("implementation", phase="implementation")
+        span.finish({"summary": "completed span"}, "ok")
         partial = observability_snapshot(path)
         assert partial["trace_count"] == 1
         assert partial["recent_traces"][0]["status"] == "running"
         assert partial["recent_traces"][0]["run_id"] == "durable-run-2"
+        assert partial["recent_traces"][0]["phases"][0]["status"] == "ok"
         tracer.end(trace, "ok")
         completed = observability_snapshot(path)
         assert completed["trace_count"] == 1
