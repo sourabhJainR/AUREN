@@ -186,22 +186,21 @@ class AgencyEvolutionRuntime:
                 if prior[1] != digest:
                     raise EvolutionConflict("experiment ID already binds different immutable manifest")
                 return self._operation(db, prior[0])
+            cycle_count = db.execute("SELECT COUNT(*) FROM evolution_cycles").fetchone()[0]
+            if cycle_count >= self.max_cycles:
+                raise ValueError("self-improvement cycle budget exhausted")
             if parent_operation_id:
                 parent = self._operation(db, parent_operation_id)
                 if parent["state"] != "completed" or parent["outcome"] != "pass":
                     raise ValueError("a follow-on cycle requires verified successful evidence from its parent")
-                cycle_count = db.execute("SELECT COUNT(*) FROM evolution_cycles").fetchone()[0]
-                if cycle_count >= self.max_cycles:
-                    raise ValueError("self-improvement cycle budget exhausted")
                 evidence_refs = tuple(dict.fromkeys((*evidence_refs, f"operation:{parent_operation_id}")))
             db.execute(
                 "INSERT INTO evolution_operations(operation_id,experiment_id,manifest_digest,manifest_json,parent_operation_id,state,evidence_json,next_action,created_at,updated_at) VALUES(?,?,?,?,?,'queued',?,?,?,?)",
                 (operation_id, manifest.experiment_id, digest, encoded, parent_operation_id, _canonical(list(evidence_refs)), "claim operation before dispatch", now, now),
             )
-            if parent_operation_id:
-                cycle = db.execute("SELECT COALESCE(MAX(cycle_number),0)+1 FROM evolution_cycles").fetchone()[0]
-                db.execute("INSERT INTO evolution_cycles(cycle_number,operation_id,parent_operation_id,evidence_digest,created_at) VALUES(?,?,?,?,?)",
-                           (cycle, operation_id, parent_operation_id, _digest(list(evidence_refs)), now))
+            cycle = db.execute("SELECT COALESCE(MAX(cycle_number),0)+1 FROM evolution_cycles").fetchone()[0]
+            db.execute("INSERT INTO evolution_cycles(cycle_number,operation_id,parent_operation_id,evidence_digest,created_at) VALUES(?,?,?,?,?)",
+                       (cycle, operation_id, parent_operation_id, _digest(list(evidence_refs)), now))
             self._event(db, operation_id, "experiment_queued", {"manifest_digest": digest, "evidence_refs": list(evidence_refs), "parent_operation_id": parent_operation_id})
             result = self._operation(db, operation_id)
         if self.journal:
