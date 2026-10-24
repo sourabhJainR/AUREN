@@ -186,7 +186,13 @@ class Tracer:
 
     def end(self, trace: Trace, status: str = "ok") -> Trace:
         trace.finish(status)
-        self.exporter.export(trace)
+        try:
+            self.exporter.export(trace)
+        except Exception as exc:
+            # Observability is not execution authority: exporter failure must not
+            # overwrite the canonical task outcome or trigger side-effect replay.
+            trace.metadata["observability_export_status"] = "failed"
+            trace.metadata["observability_export_error"] = type(exc).__name__
         return trace
 
 
