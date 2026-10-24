@@ -413,7 +413,17 @@ def observability_snapshot(path: Path, *, limit: int = 500) -> dict[str, Any]:
     if limit < 1 or limit > 5000:
         raise ValueError("limit must be between 1 and 5000")
     if not path.exists():
-        return {"status": "unavailable", "reason": "trace_store_missing", "trace_count": 0}
+        drift = read_drift_alerts(path.parent / "datasets.sqlite3", limit=50)
+        return {
+            "status": "unavailable",
+            "reason": "trace_store_missing",
+            "trace_count": 0,
+            "drift_alert_status": drift["status"],
+            "drift_alerts": drift["alerts"],
+            "live_drift_alerts": [],
+            "score_trends": [],
+            "raw_payloads_exposed": False,
+        }
     lines: deque[str] = deque(maxlen=limit)
     corrupt_lines = 0
     max_scan_bytes = 10_000_000
