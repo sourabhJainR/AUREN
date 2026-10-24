@@ -1,4 +1,7 @@
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
+
+import pytest
 
 from portable.agency_observability import Dataset, DatasetItem, LocalExporter, PromptRegistry, Tracer, retrieval_scores, run_experiment
 from portable.agency_runtime import EvidenceItem, TaskProfile, execute
@@ -84,3 +87,55 @@ def test_execute_correlates_trace_with_regression(tmp_path: Path):
     assert result.regression_link.regression_id == "reg-t13"
     assert result.regression_link.passed
     assert "regression_pass" in (tmp_path / "traces.jsonl").read_text()
+
+
+
+def test_span_parentage_is_explicit_and_invalid_parents_are_rejected():
+    trace = Tracer().start("nested")
+    root = trace.span("root")
+    child = trace.span("child", parent_id=root.span_id)
+    sibling = trace.span("sibling")
+    assert child.parent_id == root.span_id
+    assert sibling.parent_id is None
+    with pytest.raises(ValueError, match="parent_id"):
+        trace.span("orphan", parent_id="missing-span")
+
+
+def test_prompt_versions_cannot_be_rewritten():
+    registry = PromptRegistry()
+    registry.register("planner", "1", "plan carefully")
+    with pytest.raises(ValueError, match="immutable"):
+        registry.register("planner", "1", "skip the checks")
+
+
+def test_empty_or_inconsistently_scored_datasets_never_pass():
+    with pytest.raises(ValueError, match="empty datasets"):
+        run_experiment(Dataset("empty", "1", ()), lambda value: value, lambda item, output: {"quality": 1.0})
+    dataset = Dataset("inconsistent", "1", (DatasetItem("a", "a"), DatasetItem("b", "b")))
+    def judge(item, output):
+        return {"quality": 1.0} if item.input == "a" else {}
+    with pytest.raises(ValueError, match="no evaluation dimensions"):
+        run_experiment(dataset, lambda value: value, judge)
+
+
+def test_score_reasons_and_bearer_tokens_are_redacted(tmp_path: Path):
+    exporter = LocalExporter(tmp_path / "traces.jsonl", enabled=True)
+    tracer = Tracer(exporter)
+    trace = tracer.start("privacy")
+    span = trace.span("provider", input={"prompt": "Authorization: Bearer secret-token"})
+    span.score("quality", 0.8, "api_key=topsecret")
+    span.finish({"note": "Bearer abcdefghijklmnop"})
+    tracer.end(trace)
+    text = (tmp_path / "traces.jsonl").read_text()
+    assert "secret-token" not in text
+    assert "topsecret" not in text
+    assert "abcdefghijklmnop" not in text
+    assert "[REDACTED]" in text
+
+
+def test_concurrent_span_creation_preserves_unique_ids():
+    trace = Tracer().start("concurrent")
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        spans = list(pool.map(lambda index: trace.span(f"span-{index}"), range(100)))
+    ids = [span.span_id for span in spans]
+    assert len(ids) == len(set(ids)) == 100
