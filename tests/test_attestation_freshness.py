@@ -57,11 +57,97 @@ class AttestationFreshnessTests(unittest.TestCase):
     def test_production_freshness_requires_durable_replay_registry(self):
         from portable.evaluator_trust import ProductionSeparationAwareAttestor
         production_attestor = object.__new__(ProductionSeparationAwareAttestor)
-        with self.assertRaisesRegex(ValueError, "durable SQLiteAttestationReplayRegistry"):
+        with self.assertRaisesRegex(ValueError, "verified shared PostgreSQL replay registry"):
             FreshnessAwareAttestor(
                 None, None, AttestationFreshnessPolicy(),
                 production_attestor=production_attestor,
             )
+        with tempfile.TemporaryDirectory() as directory:
+            sqlite_registry = SQLiteAttestationReplayRegistry(Path(directory) / "single-host.sqlite3")
+            with self.assertRaisesRegex(ValueError, "SQLite replay storage is single-host only"):
+                FreshnessAwareAttestor(
+                    None, None, AttestationFreshnessPolicy(),
+                    replay_registry=sqlite_registry,
+                    production_attestor=production_attestor,
+                )
+
+    def test_production_freshness_rejects_sqlite_single_host_registry(self):
+        from portable.evaluator_trust import ProductionSeparationAwareAttestor
+
+        production_attestor = object.__new__(ProductionSeparationAwareAttestor)
+        with tempfile.TemporaryDirectory() as directory:
+            sqlite_registry = SQLiteAttestationReplayRegistry(Path(directory) / "single-host.sqlite3")
+            with self.assertRaisesRegex(ValueError, "SQLite replay storage is single-host only"):
+                FreshnessAwareAttestor(
+                    None, None, AttestationFreshnessPolicy(),
+                    replay_registry=sqlite_registry,
+                    production_attestor=production_attestor,
+                )
+
+    def test_context_binding_is_passed_to_replay_registry(self):
+        class RecordingRegistry:
+            def __init__(self):
+                self.attestation_id = None
+                self.binding = None
+                self.operation_id = None
+
+            def claim(self, attestation_id, *, binding, operation_id):
+                self.attestation_id = attestation_id
+                self.binding = dict(binding)
+                self.operation_id = operation_id
+                return True
+
+        registry = RecordingRegistry()
+        result = make_verifier(registry).verify(
+            make_attestation(),
+            **self.kwargs(),
+            audience="team-a",
+            purpose="sealed-holdout",
+            policy_version="v7",
+            claim_operation_id="claim-context-1",
+        )
+        self.assertTrue(result.trustworthy)
+        self.assertEqual("team-a", registry.binding["audience"])
+        self.assertEqual("sealed-holdout", registry.binding["purpose"])
+        self.assertEqual("signer-key-v1", registry.binding["issuer_key_id"])
+        self.assertEqual(110, registry.binding["expires_at_epoch"])
+        self.assertEqual("v7", registry.binding["policy_version"])
+        self.assertEqual(64, len(registry.binding["policy_digest"]))
+        self.assertEqual("claim-context-1", registry.operation_id)
+
+    def test_wrapper_timestamp_cannot_create_a_new_replay_identity(self):
+        signed = EvaluationAttestation(
+            "campaign", "corpus", "oracle", "v1", "signer", "sig",
+            key_id="signer-key-v1",
+        )
+        first_attestation = FreshEvaluationAttestation(signed, 100)
+        changed_wrapper = FreshEvaluationAttestation(signed, 101)
+        self.assertEqual(first_attestation.attestation_id, changed_wrapper.attestation_id)
+
+        verifier = make_verifier()
+        first = verifier.verify(first_attestation, **self.kwargs())
+        replay = verifier.verify(changed_wrapper, **self.kwargs())
+        self.assertTrue(first.trustworthy)
+        self.assertFalse(replay.trustworthy)
+        self.assertIn("already been consumed", replay.reasons[-1])
+
+    def test_wrapper_timestamp_must_match_signed_issuance_time(self):
+        signed = EvaluationAttestation(
+            "campaign", "corpus", "oracle", "v1", "signer", "sig",
+            key_id="signer-key-v1", issued_at_epoch=100,
+        )
+        with self.assertRaisesRegex(ValueError, "match the attestation's signed issuance time"):
+            FreshEvaluationAttestation(signed, 101)
+
+    def test_signed_expiry_is_enforced_even_when_age_window_passes(self):
+        signed = EvaluationAttestation(
+            "campaign", "corpus", "oracle", "v1", "signer", "sig",
+            key_id="signer-key-v1", issued_at_epoch=100, expires_at_epoch=102,
+        )
+        attestation = FreshEvaluationAttestation(signed, 100)
+        result = make_verifier().verify(attestation, **self.kwargs())
+        self.assertFalse(result.trustworthy)
+        self.assertTrue(any("expired" in reason for reason in result.reasons))
 
     def test_fresh_attestation_is_trustworthy_once(self):
         result = make_verifier().verify(make_attestation(), **self.kwargs())

@@ -22,6 +22,10 @@ _RULES: tuple[tuple[str, tuple[str, ...], bool], ...] = (
     (".ai-harness/runtime/*evaluator*.py", ("tests.test_canary_evaluator", "tests.test_production_evaluator_trust"), True),
     ("portable/external_evaluation_campaign.py", ("tests.test_external_evaluation_campaign", "tests.test_external_evaluator_gateway", "tests.test_sealed_arena_boundary"), True),
     ("portable/independent_evaluation_attestation.py", ("tests.test_independent_evaluation_attestation", "tests.test_sealed_arena_boundary", "tests.test_sealed_arena_signature"), True),
+    ("portable/attestation_freshness.py", ("tests.test_attestation_freshness", "tests.test_postgres_attestation_replay_registry"), True),
+    ("portable/postgres_attestation_replay_registry.py", ("tests.test_postgres_attestation_replay_registry", "tests.test_attestation_freshness"), True),
+    ("tests/test_attestation_freshness.py", ("tests.test_attestation_freshness", "tests.test_postgres_attestation_replay_registry"), True),
+    ("tests/test_postgres_attestation_replay_registry.py", ("tests.test_postgres_attestation_replay_registry", "tests.test_attestation_freshness"), True),
     ("tests/test_canary_evaluator.py", ("tests.test_canary_evaluator",), True),
     ("tests/test_production_evaluator_trust.py", ("tests.test_production_evaluator_trust",), True),
     ("tests/test_external_evaluation_campaign.py", ("tests.test_external_evaluation_campaign",), True),
@@ -93,7 +97,7 @@ _SENSITIVE_PREFIXES = (
     ".ai-harness/security", ".ai-harness/runtime/rollback",
 )
 _SENSITIVE_NAMES = ("authority", "security", "guard", "approval", "rollback", "recovery", "side_effect", "execution_controller",
-                    "progress_journal", "canonical_evidence", "engineering_evidence", "provider_operation", "action_governance", "arena", "sealed", "evaluator", "sandbox", "corpus", "external_evaluation", "independent_evaluation")
+                    "progress_journal", "canonical_evidence", "engineering_evidence", "provider_operation", "action_governance", "arena", "sealed", "evaluator", "sandbox", "corpus", "external_evaluation", "independent_evaluation", "attestation")
 
 
 def is_sensitive_path(path: str) -> bool:
