@@ -45,6 +45,8 @@ class ImpactPolicyTests(unittest.TestCase):
             "tests/test_durable_approval.py": {"tests.test_durable_approval", "tests.test_side_effect_ledger_crash_fault_injection"},
             "portable/progress_journal.py": {"tests.test_progress_journal", "tests.test_progress_journal_integration"},
             "portable/canonical_evidence_ledger.py": {"tests.test_canonical_evidence_ledger", "tests.test_provider_operation_lifecycle"},
+            "portable/agency_evolution_gates.py": {"tests.test_agency_evolution_gates", "tests.test_promotion_evidence_chain", "tests.test_evidence_freshness"},
+            "tests/test_agency_evolution_gates.py": {"tests.test_agency_evolution_gates"},
             "portable/vibe_coding_adapters.py": {"tests.test_vibe_coding_adapters", "tests.test_provider_operation_lifecycle", "tests.test_side_effect_ledger"},
             "portable/vibe_coding_host.py": {"tests.test_vibe_coding_host", "tests.test_vibe_coding_adapters"},
             "tests/test_vibe_coding_host.py": {"tests.test_vibe_coding_host"},
@@ -99,6 +101,8 @@ class ImpactPolicyTests(unittest.TestCase):
             "tests/test_vibe_coding_host.py",
             "portable/canonical_evidence_ledger.py",
             "tests/test_canonical_evidence_ledger.py",
+            "portable/agency_evolution_gates.py",
+            "tests/test_agency_evolution_gates.py",
         )
         for path in required_paths:
             with self.subTest(path=path):
