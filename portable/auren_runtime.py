@@ -126,11 +126,14 @@ def _is_mutable_state_path(path: str | Path) -> bool:
     """Use one mutable-state policy for bundle creation, verification and installation."""
     normalized = str(path).replace("\\", "/").lower()
     parts = PurePosixPath(normalized).parts
-    if any(
-        parts[index] == ".ai-harness" and parts[index + 1] in {"learning", "evidence"}
-        for index in range(len(parts) - 1)
-    ):
-        return True
+    for index in range(len(parts) - 1):
+        if parts[index] == ".ai-harness" and parts[index + 1] in {"learning", "evidence"}:
+            # This checked-in, immutable prior set is required by portable
+            # compiler-bootstrap workflows. Other files in learning/evidence
+            # are mutable state and remain excluded by default.
+            if parts[index:] == (".ai-harness", "learning", "compiler_bootstrap_priors.jsonl"):
+                return False
+            return True
     name = PurePosixPath(normalized).name
     return name in MUTABLE_FILE_NAMES or name.endswith(MUTABLE_STATE_SUFFIXES)
 
