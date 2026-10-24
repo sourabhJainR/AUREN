@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import hashlib
+import io
+import os
 import json
 import subprocess
 import sys
 import tempfile
+import textwrap
 import unittest
 import zipfile
+from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
@@ -37,12 +41,19 @@ class PortableAurenTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "source"
             self.make_source(root)
+            state = root / ".ai-harness" / "learning"
+            state.mkdir(parents=True, exist_ok=True)
+            for name in ("task-memory.sqlite3", "task-memory.sqlite3-shm", "task-memory.sqlite3-wal", "execution.db", "execution.db-journal"):
+                (state / name).write_bytes(b"mutable runtime state")
             bundle = Path(tmp) / "auren.zip"
             build(root, bundle, source_commit="test-commit")
             manifest = verify_bundle(bundle)
             self.assertEqual(manifest["version"], "20.1.0")
             self.assertEqual(manifest["source_commit"], "test-commit")
             self.assertFalse(any(item["path"].endswith("telemetry.jsonl") for item in manifest["files"]))
+            included = {item["path"] for item in manifest["files"]}
+            for mutable in ("task-memory.sqlite3", "task-memory.sqlite3-shm", "task-memory.sqlite3-wal", "execution.db", "execution.db-journal"):
+                self.assertNotIn(f".ai-harness/learning/{mutable}", included)
             self.assertTrue(any(item["path"] == "auren_cli.py" for item in manifest["files"]))
             self.assertFalse(manifest["target_repository_mutation"])
             with zipfile.ZipFile(bundle) as archive:
@@ -229,6 +240,84 @@ class PortableAurenTests(unittest.TestCase):
             self.assertTrue(status["update_available"])
             self.assertEqual(status["latest_version"], "20.1.0")
             self.assertEqual(status["latest_commit"], "new")
+
+
+    def test_main_push_always_builds_portable_artifacts_and_pr_remains_filtered(self) -> None:
+        workflow = (
+            Path(__file__).resolve().parents[1]
+            / ".github"
+            / "workflows"
+            / "portable-bundle.yml"
+        ).read_text(encoding="utf-8")
+        section = workflow.split(
+            "      - name: Classify changed-file impact\n", 1
+        )[1]
+        shell = section.split("        run: |\n", 1)[1].split("\n  bundle:", 1)[0]
+        start = shell.index("python - <<'PY'\n") + len("python - <<'PY'\n")
+        end = shell.index("\n          PY", start)
+        classifier = textwrap.dedent(shell[start:end])
+
+        def evaluate(
+            event: str, ref: str, changed_files: str, *, forbid_diff: bool = False
+        ) -> str:
+            with tempfile.TemporaryDirectory() as temp:
+                output = Path(temp) / "github-output"
+                output.write_text("", encoding="utf-8")
+                environment = {
+                    "EVENT_NAME": event,
+                    "GITHUB_REF": ref,
+                    "BASE_SHA": "base-sha",
+                    "HEAD_SHA": "head-sha",
+                    "GITHUB_OUTPUT": str(output),
+                }
+                diff_patch = (
+                    patch(
+                        "subprocess.check_output",
+                        side_effect=AssertionError("main push must not depend on diff"),
+                    )
+                    if forbid_diff
+                    else patch("subprocess.check_output", return_value=changed_files)
+                )
+                with (
+                    patch.dict(os.environ, environment, clear=False),
+                    diff_patch,
+                    redirect_stdout(io.StringIO()),
+                ):
+                    exec(
+                        compile(classifier, "portable-bundle-impact", "exec"),
+                        {"__name__": "__main__"},
+                    )
+                return output.read_text(encoding="utf-8")
+
+        self.assertIn(
+            "required=true",
+            evaluate("push", "refs/heads/main", "", forbid_diff=True),
+        )
+        self.assertIn(
+            "required=false",
+            evaluate("pull_request", "refs/pull/42/merge", "README.md\n"),
+        )
+
+    def test_module_entrypoint_runs_without_preload_warning(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        completed = subprocess.run(
+            [
+                sys.executable,
+                "-Werror",
+                "-m",
+                "portable.auren_runtime",
+                "--help",
+            ],
+            cwd=root,
+            env={**os.environ, "PYTHONPATH": str(root)},
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+        self.assertEqual(0, completed.returncode, msg=completed.stderr)
+        self.assertIn("usage:", completed.stdout.lower())
+        self.assertNotIn("RuntimeWarning", completed.stderr)
 
 
 if __name__ == "__main__":

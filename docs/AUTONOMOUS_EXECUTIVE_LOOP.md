@@ -86,3 +86,5 @@ A host scheduler can invoke another bounded slice against the same durable datab
 Task handlers must still cooperate with the controller's existing lease heartbeat and
 cancellation contracts; the loop only checks its stop event between batches.
 
+The module entrypoint must run without a `RuntimeWarning` that the target module was
+preloaded through package initialization; keep `portable.auren_runtime` imported lazily.

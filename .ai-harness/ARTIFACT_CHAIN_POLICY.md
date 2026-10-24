@@ -28,3 +28,17 @@ The plan records the execution sequence and completion gate. Agents may refine s
 - Interesting but out-of-scope findings become deferred work rather than scope expansion.
 
 The artifact chain is a framework, not a rigid workflow. Workflows may skip or add phases when the task contract requires it, but must preserve traceability from intent to evidence and outcome.
+
+
+## Main-branch portable release evidence
+
+Every push to `main` must build and verify the canonical portable ZIP and publish a
+matching SHA-256 checksum artifact, even when the changed-file classifier would skip
+the bundle for a pull request. The manifest's `source_commit` must equal the exact
+main commit being verified. A path-filtered PR artifact or an artifact from a parent
+commit is not evidence for the current main SHA.
+
+Before release, download both artifacts, verify the checksum against the ZIP bytes,
+and verify the embedded bundle manifest and source commit. If the workflow policy is
+reverted, retain previous artifacts and do not label a main SHA release-ready until
+a new bundle and checksum are produced for that SHA.
