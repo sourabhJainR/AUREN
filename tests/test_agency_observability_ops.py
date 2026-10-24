@@ -176,3 +176,25 @@ class TestAgencyObservabilityOps(unittest.TestCase):
         assert completed["trace_count"] == 1
         assert completed["recent_traces"][0]["status"] == "ok"
 
+
+
+
+    def test_snapshot_derives_quality_drift_without_exposing_trace_payloads(self):
+        path = self.tmp_path / "traces.jsonl"
+        tracer = Tracer(LocalExporter(path, enabled=True))
+        values = [0.95] * 20 + [0.60] * 10
+        for index, value in enumerate(values):
+            trace = tracer.start(
+                "quality-run",
+                {"task_id": f"task-{index}", "domain": "coding", "risk": "normal"},
+                run_id=f"run-{index}",
+            )
+            span = trace.span("quality", phase="verification")
+            span.score("task_quality", value, "measured quality")
+            span.finish({"summary": "scored"}, "ok")
+            tracer.end(trace, "ok")
+        snapshot = observability_snapshot(path)
+        assert snapshot["trace_count"] == 30
+        assert any(trend["metric"] == "task_quality" and trend["drift_status"] == "alert" for trend in snapshot["score_trends"])
+        assert any(alert["metric"] == "task_quality" for alert in snapshot["live_drift_alerts"])
+        assert snapshot["raw_payloads_exposed"] is False
