@@ -12,6 +12,7 @@ from portable.agency_observability_ops import (
     MetricObservation,
     ReviewedTraceExample,
     SQLiteDatasetRegistry,
+    SQLiteObservabilityEvidenceStore,
     authorize_calibrated_guardrail,
     calibrate_evaluator,
     evaluate_drift,
@@ -102,6 +103,11 @@ class TestAgencyObservabilityOps(unittest.TestCase):
             "correctness", calibrated, reviewer_id="eval-reviewer", evidence_ref="calibration:report"
         )
         assert authorization.threshold == calibrated.threshold
+        store = SQLiteObservabilityEvidenceStore(self.tmp_path / "observability.sqlite3")
+        persisted = store.authorize_guardrail(
+            "correctness", calibrated, reviewer_id="eval-reviewer", evidence_ref="calibration:report"
+        )
+        assert persisted.threshold == calibrated.threshold
 
 
 
@@ -117,6 +123,10 @@ class TestAgencyObservabilityOps(unittest.TestCase):
         assert report["status"] == "alert"
         assert "distribution_shift" in report["alert_reasons"]
         assert "safety_floor_breached" in report["alert_reasons"]
+        store = SQLiteObservabilityEvidenceStore(self.tmp_path / "observability.sqlite3")
+        alert_id = store.record_drift_alert(report)
+        assert alert_id
+        assert store.list_drift_alerts()[0]["status"] == "alert"
 
 
 
