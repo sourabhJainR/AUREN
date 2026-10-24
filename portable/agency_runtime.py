@@ -245,6 +245,10 @@ def _record_worker_observations(trace, worker_span, raw: Mapping[str, object], s
         if "provider_routing" not in coverage_gaps:
             coverage_gaps.append("provider_routing")
 
+class ImplementationEvidenceMissingError(RuntimeError):
+    """The worker did not provide inspectable artifact references for independent review."""
+
+
 def _receipt_score(receipt: QualityReceipt | None) -> float:
     if receipt is None:
         return 0.0
@@ -460,6 +464,26 @@ def execute(
             raise
 
         if persona_workflow is not None:
+            governance_denied = (
+                isinstance(raw.get("hard_gates"), Mapping)
+                and raw.get("hard_gates", {}).get("action_governance") is False
+                and not raw.get("deliverables")
+            )
+            artifact_refs_for_review = raw.get("artifact_refs")
+            if not governance_denied and (
+                not isinstance(artifact_refs_for_review, (list, tuple))
+                or not any(isinstance(reference, str) and reference.strip() for reference in artifact_refs_for_review)
+            ):
+                trace.metadata["implementation_review"] = {
+                    "reviewer_id": persona_workflow.roster.implementation_reviewer.agent_id,
+                    "approved": False,
+                    "findings": ["implementation artifact references are missing"],
+                    "evidence_refs": [],
+                }
+                trace.metadata["review_rejected_stage"] = "implementation_evidence"
+                trace.metadata["next_action"] = "attach digest-bound artifact references and verification evidence before independent review"
+                raise ImplementationEvidenceMissingError("independent review requires inspectable artifact references")
+
             implementation_review_span = trace.span("independent_implementation_review", "review", {
                 "plan_digest": approved_plan.plan_digest if approved_plan else None,
                 "reviewer_id": persona_workflow.roster.implementation_reviewer.agent_id,
@@ -589,6 +613,10 @@ def execute(
     except ReviewRejectedError as exc:
         trace.metadata["terminal_reason"] = str(exc)[:1000]
         trace.metadata["review_rejected_stage"] = exc.stage
+        tracer.end(trace, "blocked")
+        raise
+    except ImplementationEvidenceMissingError as exc:
+        trace.metadata["terminal_reason"] = str(exc)[:1000]
         tracer.end(trace, "blocked")
         raise
     except Exception as exc:
