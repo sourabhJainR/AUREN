@@ -14,7 +14,7 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
-from portable.auren_runtime import build, check_update, install, rollback, verify_bundle, _copy_tree_without_mutable_state, _install_skill, _version_install_root
+from portable.auren_runtime import build, check_update, install, rollback, verify_bundle, _copy_tree_without_mutable_state, _install_skill, _version_install_root, _set_current
 
 
 class PortableAurenTests(unittest.TestCase):
@@ -427,6 +427,22 @@ class PortableAurenTests(unittest.TestCase):
 
             self.assertEqual(previous, json.loads((auren_home / "active.json").read_text(encoding="utf-8")))
             self.assertEqual(previous["source_commit"], json.loads((auren_home / "current" / "install.json").read_text(encoding="utf-8"))["source_commit"])
+
+    def test_current_pointer_recovers_backup_before_attempting_new_switch(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "auren-home"
+            target = Path(tmp) / "new-version"
+            backup = root / ".current.backup"
+            backup.mkdir(parents=True)
+            target.mkdir(parents=True)
+            (backup / "install.json").write_text('{"source_commit":"previous"}', encoding="utf-8")
+            with patch.object(Path, "symlink_to", side_effect=OSError("symlink unavailable")):
+                with patch("portable.auren_runtime._copy_tree_without_mutable_state", side_effect=OSError("simulated copy failure")):
+                    with self.assertRaisesRegex(OSError, "simulated copy failure"):
+                        _set_current(root, target)
+            self.assertTrue((root / "current" / "install.json").is_file())
+            self.assertEqual("previous", json.loads((root / "current" / "install.json").read_text(encoding="utf-8"))["source_commit"])
+            self.assertFalse(backup.exists())
 
     def test_skill_copy_failure_keeps_existing_skill(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
