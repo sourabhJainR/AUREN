@@ -248,6 +248,7 @@ def execute(
     tracer = tracer or Tracer()
     trace = tracer.start("auren.coding_task", {
         "task_id": task.task_id,
+        "domain": task.artifact_type,
         "risk": task.risk,
         "mutation_mode": task.mutation_mode,
         "review_mode": "independent_personas" if persona_workflow is not None else "not_configured",
