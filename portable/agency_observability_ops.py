@@ -485,6 +485,19 @@ def observability_snapshot(path: Path, *, limit: int = 500) -> dict[str, Any]:
             if not isinstance(item, dict) or not item.get("trace_id"):
                 corrupt_lines += 1
                 continue
+            if item.get("event_record_version") == 1:
+                supplied_digest = item.get("event_digest")
+                unsigned_record = dict(item)
+                unsigned_record.pop("event_digest", None)
+                canonical = json.dumps(_safe(unsigned_record), sort_keys=True, separators=(",", ":"), allow_nan=False)
+                expected_digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+                if (
+                    not isinstance(supplied_digest, str)
+                    or len(supplied_digest) != 64
+                    or supplied_digest != expected_digest
+                ):
+                    corrupt_lines += 1
+                    continue
             trace_id = str(item["trace_id"])
             if item.get("event_record_version") == 1:
                 state = latest_by_trace.get(trace_id)
