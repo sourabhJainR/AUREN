@@ -14,6 +14,10 @@ from portable.attestation_key_separation import AttestationTrustPolicy
 from portable.independent_evaluation_attestation import EvaluationAttestation
 
 
+def _claim_sqlite_replay(database_path, attestation_id):
+    return SQLiteAttestationReplayRegistry(database_path).claim(attestation_id)
+
+
 def make_attestation(issued_at=100):
     return FreshEvaluationAttestation(
         EvaluationAttestation("campaign", "corpus", "oracle", "v1", "signer", "sig", key_id="signer-key-v1"),
@@ -129,6 +133,17 @@ class AttestationFreshnessTests(unittest.TestCase):
             registries = [SQLiteAttestationReplayRegistry(path) for _ in range(12)]
             with ThreadPoolExecutor(max_workers=12) as pool:
                 results = list(pool.map(lambda registry: registry.claim("same-attestation"), registries))
+            self.assertEqual(sum(results), 1)
+
+    def test_sqlite_registry_allows_exactly_one_cross_process_claim(self):
+        from concurrent.futures import ProcessPoolExecutor
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = str(Path(directory) / "attestation-replay.sqlite3")
+            # Initialize schema before workers race to claim the same identifier.
+            SQLiteAttestationReplayRegistry(path)
+            with ProcessPoolExecutor(max_workers=8) as pool:
+                results = list(pool.map(_claim_sqlite_replay, [path] * 24, ["same-attestation"] * 24))
             self.assertEqual(sum(results), 1)
 
     def test_sqlite_registry_rejects_memory_database(self):
