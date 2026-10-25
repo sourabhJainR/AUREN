@@ -434,21 +434,24 @@ class GraphAgentTeam:
                 experience=ExperienceRouter(memory.project_root)
                 declared_capabilities=agent.capabilities or (("local_offload",) if agent.local_command else ("delegate_task",))
                 installed=self.capability_executioner.discover_installed(broker.project_root)
-                dynamic_options=installed + tuple(
+                discovered_options=installed + tuple(
                     CapabilityOption(name=name, source="core", tags=frozenset(str(token).lower() for token in name.replace("_"," ").split()))
                     for name in declared_capabilities
                     if not any(option.name == name for option in installed)
                 )
-                dynamic_options = self.capability_executioner.candidate_portfolio(
-                    dynamic_options,
-                    request=f"{agent.role} {agent.focus} {task[:160]}",
-                    max_candidates=32,
-                )
+                # Audit the full advertised inventory before token-efficient
+                # candidate pruning; otherwise unselected resources disappear
+                # from the audit trail and cannot be compared across runs.
                 capability_audit = CapabilityAuditLedger(
                     Path(memory.project_root) / ".auren" / "capability_audit.sqlite3"
                 )
                 capability_audit.record_inventory(
-                    dynamic_options, run_id=intent_digest, stage=agent.name, crew_id=agent.role,
+                    discovered_options, run_id=intent_digest, stage=agent.name, crew_id=agent.role,
+                )
+                dynamic_options = self.capability_executioner.candidate_portfolio(
+                    discovered_options,
+                    request=f"{agent.role} {agent.focus} {task[:160]}",
+                    max_candidates=32,
                 )
                 profile=execution_strategy(strategy_name)
                 evidence_quality=float(decision.historical.get("evidence_yield", agent.evidence_value))
