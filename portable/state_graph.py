@@ -5,8 +5,10 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass
 import hashlib
 import json
+import math
 import re
 import threading
+import time
 from typing import Any, Callable, Mapping
 
 from .bounded_crew_dispatch import BoundedCrewDispatcher
@@ -666,6 +668,64 @@ class GraphAgentTeam:
             if crew_id in selected:
                 personas.insert(personas.index("backend") + 1, persona)
         return tuple(dict.fromkeys(personas))
+
+    def run_supervised(
+        self,
+        task_id: str,
+        intent: str,
+        context: Mapping[str, Any] | None = None,
+        *,
+        execution_payload: Mapping[str, Any],
+        handoff_checkpoint_writer: Callable[[str, Mapping[str, Any]], None] | None = None,
+        require_durable_handoffs: bool | None = None,
+    ) -> OrchestrationRun:
+        """Bind supervisor cancellation/deadline controls to the StateGraph crew runtime."""
+        if not isinstance(execution_payload, Mapping):
+            raise TypeError("execution_payload must be a mapping")
+        cancellation = execution_payload.get("auren_cancel_event")
+        if cancellation is not None and not isinstance(cancellation, threading.Event):
+            raise TypeError("auren_cancel_event must be a threading.Event")
+        deadline_epoch = execution_payload.get("auren_deadline_epoch")
+        remaining: float | None = None
+        if deadline_epoch is not None:
+            if (
+                isinstance(deadline_epoch, bool)
+                or not isinstance(deadline_epoch, (int, float))
+                or not math.isfinite(float(deadline_epoch))
+            ):
+                raise ValueError("auren_deadline_epoch must be a finite Unix timestamp")
+            remaining = float(deadline_epoch) - time.time()
+            if remaining <= 0:
+                raise ExecutionBudgetExceeded("supervisor deadline expired before GraphAgentTeam dispatch")
+
+        state = dict(context or {})
+        supplied_guard = state.get("_auren_runtime_execution_guard")
+        runtime_snapshot = state.get("auren_runtime_guard")
+        if supplied_guard is not None and not isinstance(supplied_guard, RuntimeExecutionGuard):
+            raise TypeError("supervisor runtime execution guard has an invalid type")
+        if runtime_snapshot is not None and not isinstance(runtime_snapshot, Mapping) and supplied_guard is None:
+            raise ValueError("saved runtime guard checkpoint must be a mapping")
+        if isinstance(supplied_guard, RuntimeExecutionGuard):
+            if cancellation is not None and supplied_guard.cancellation_event is not cancellation:
+                raise ValueError("existing runtime guard cancellation event differs from supervisor event")
+            guard = supplied_guard
+        elif isinstance(runtime_snapshot, Mapping):
+            guard = RuntimeExecutionGuard.resume(runtime_snapshot, cancellation_event=cancellation)
+        else:
+            guard = RuntimeExecutionGuard(
+                max_steps=max(1, len(self.graph.states)), max_attempts=32,
+                deadline_seconds=remaining, cancellation_event=cancellation,
+            )
+        if remaining is not None:
+            guard.tighten_deadline(remaining)
+        if cancellation is not None and guard.cancellation_event is not cancellation:
+            raise ValueError("runtime guard cancellation event differs from supervisor event")
+        state["_auren_runtime_execution_guard"] = guard
+        return self.run(
+            task_id, intent, state,
+            handoff_checkpoint_writer=handoff_checkpoint_writer,
+            require_durable_handoffs=require_durable_handoffs,
+        )
 
     def run(
         self,
