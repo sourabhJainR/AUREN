@@ -169,3 +169,14 @@ Next migration gates: (1) bounded guarded download with an explicit redirect
 host chain for the updater; (2) local-LLM endpoint policy that defaults to
 loopback and requires an explicit host scope for remote endpoints; (3) an AST
 inventory that fails on new direct network APIs without a reviewed disposition.
+
+
+## Evidence export network scope
+
+The configured HTTPS evidence sink now uses the pinned transport with the exact
+operator-configured hostname as its host scope. Public endpoints must resolve
+only to public addresses. Private or loopback sinks are denied unless the
+operator explicitly configures `AUREN_EVIDENCE_SINK_ALLOWED_CIDRS` with the
+approved CIDR range(s). Redirects are not followed, and the request body and
+response size remain bounded. The bearer token is sent only to the configured
+hostname over verified TLS.
