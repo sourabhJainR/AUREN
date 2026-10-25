@@ -248,8 +248,9 @@ Do not reduce security checks or verification to save tokens.
 Rollback: disable the audit writer only if durable storage is unavailable and
 the task is non-consequential; consequential work must remain blocked if its
 required audit cannot be persisted. Existing experience records remain the
-learning source of truth; audit rows are an append-only explanation trail, not
-a second policy or learning engine.
+learning source of truth; audit rows are an append-only explanation trail at the SQLite API layer
+(triggers reject update/delete), not a second policy or learning engine. This is
+not a cryptographic tamper-proof ledger against a privileged filesystem owner.
 
 
 ## Explicit user constraints take precedence over learned ranking
