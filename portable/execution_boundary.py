@@ -76,6 +76,12 @@ EXECUTION_SURFACE_INVENTORY: tuple[ExecutionSurface, ...] = (
         "Authority binding is not yet mandatory across every consequential caller; trace is not trusted storage",
     ),
     ExecutionSurface(
+        "mcp-tool-dispatch", "Configured MCP stdio calls that can execute external tools",
+        "portable/vibe_coding_host.py:MCPStdioToolAdapter",
+        "MCPStdioToolAdapter defaults to authority-bound mode; consequential calls require host-derived context and execute_bound_action before Popen, with provider-operation identity, exact request/tool/argv/argument digests, environment allowlist, timeout, revision, worktree digest, and task budget bound to the action",
+        "The resolver must use trusted identity and repository context; this application boundary is not OS isolation and remote outcomes still require provider-native reconciliation",
+    ),
+    ExecutionSurface(
         "runtime-budget-and-cancellation", "Bounded steps, attempts, deadlines and repeated-failure stop",
         "portable/runtime_recovery.py:RuntimeExecutionGuard",
         "Thread-safe budget, cooperative cancellation, digest-checked snapshot/resume",
@@ -149,6 +155,7 @@ def execution_surface_audit() -> dict[str, Any]:
         "coverage": {
             "task_identity": "partial",
             "action_authority": "present_with_caller_enforcement",
+            "mcp_tool_dispatch": "authority_bound_by_default_with_explicit_read_only_opt_out",
             "budget_and_cancellation": "present_with_cooperative_cancellation",
             "durable_recovery": "present_with_persistence_dependency",
             "trusted_isolation": "not_proven_by_repository_inventory",

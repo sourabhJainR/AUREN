@@ -76,6 +76,13 @@ class ExecutionBoundaryTests(unittest.TestCase):
         self.assertIn("coding-agency", action_surface["existing_control"])
         self.assertIn("specialist-team", action_surface["existing_control"])
         self.assertIn("not yet mandatory", action_surface["remaining_gap"])
+        mcp_surface = next(surface for surface in first["surfaces"] if surface["name"] == "mcp-tool-dispatch")
+        self.assertIn("MCPStdioToolAdapter", mcp_surface["implementation"])
+        self.assertIn("before Popen", mcp_surface["existing_control"])
+        self.assertEqual(
+            first["coverage"]["mcp_tool_dispatch"],
+            "authority_bound_by_default_with_explicit_read_only_opt_out",
+        )
 
     def test_p0_every_direct_gateway_execute_callsite_is_explicitly_reviewed(self):
         root = Path(__file__).resolve().parents[1]
@@ -446,7 +453,7 @@ class SubprocessBoundaryInventoryTests(unittest.TestCase):
         "portable/isolated_arena_runner.py::run_campaign_isolated::policy": "policy-command runner; the supplied command is not itself proof of OS isolation",
         "portable/local_offload.py::run": "local offload; inspect argv, environment, workspace, timeout and cancellation",
         "portable/subprocess_provider.py::__call__": "command provider; clean environment, no shell, bounded timeout and process-tree controls",
-        "portable/vibe_coding_host.py::__call__": "host adapter; inspect argv, safe environment, workspace, cancellation and output bounds",
+        "portable/vibe_coding_host.py::_invoke_unchecked": "MCP subprocess launch is only reached through the authority wrapper for consequential capabilities; inspect argv, safe environment, workspace, cancellation and output bounds",
     }
     REVIEWED_POPEN_CALL_COUNTS = {key: 1 for key in REVIEWED_POPEN_DISPOSITIONS}
 

@@ -25,9 +25,12 @@ import time
 from contextlib import closing
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
 from urllib.parse import urlparse
 
+from .action_governance import ActionGovernanceGateway, ActionRequest, ApprovalReceipt
+from .execution_boundary import ExecutionAuthorityBinding, execute_bound_action
+from .runtime_recovery import RuntimeExecutionGuard
 from .provider_fabric import ProviderFabric
 from .engineering_design_guard import EngineeringDesignGuard
 from .vibe_coding import STAGE_ORDER, STAGE_SPECS, VibeCodingCheckpoint, VibeStage
@@ -50,6 +53,14 @@ _POST_MUTATION_STAGES = {
     VibeStage.CODE_REVIEW, VibeStage.PREVIEW_DEPLOYMENT, VibeStage.QA_TESTING,
     VibeStage.PRODUCTION_DEPLOY, VibeStage.MONITORING,
 }
+_MCP_READ_ONLY_CAPABILITIES = frozenset({
+    "product", "research", "web_search", "accessibility",
+    "task_planning", "independent_review", "observability",
+})
+_MCP_MANDATORY_AUTHORITY_CAPABILITIES = frozenset({
+    "repository", "environment", "design", "test_execution", "browser",
+    "deployment", "preview", "release", "rollback",
+})
 
 
 def _digest(value: Any) -> str:
@@ -603,12 +614,331 @@ class ProviderCliAgent:
         return result
 
 
+def mcp_request_digest(request: Mapping[str, Any]) -> str:
+    """Return a deterministic digest bound to the exact MCP request."""
+    if not isinstance(request, Mapping):
+        raise TypeError("MCP request must be a mapping")
+    return _digest(dict(request))
+
+
+def mcp_request_action_id(request: Mapping[str, Any], call_digest: str | None = None) -> str:
+    """Return a deterministic read action ID bound to the request and configured MCP call."""
+    request_digest = mcp_request_digest(request)
+    if call_digest is not None:
+        if not isinstance(call_digest, str) or not call_digest.strip():
+            raise ValueError("MCP call digest is required when supplied")
+        request_digest += ":" + call_digest
+    return "mcp-read-" + hashlib.sha256(request_digest.encode("utf-8")).hexdigest()[:32]
+
+
+def _mcp_action_identity(
+    prefix: str, operation_id: str, request: Mapping[str, Any], call_digest: str | None = None,
+) -> str:
+    if not isinstance(operation_id, str) or not operation_id.strip():
+        raise ValueError("provider operation ID is required")
+    material = operation_id + ":" + mcp_request_digest(request)
+    if call_digest is not None:
+        if not isinstance(call_digest, str) or not call_digest.strip():
+            raise ValueError("MCP call digest is required when supplied")
+        material += ":" + call_digest
+    return prefix + hashlib.sha256(material.encode("utf-8")).hexdigest()[:32]
+
+
+def mcp_action_id(
+    operation_id: str, request: Mapping[str, Any], call_digest: str | None = None,
+) -> str:
+    """Bind one gateway action ID to the provider operation and exact configured MCP call."""
+    return _mcp_action_identity("mcp-action-id-", operation_id, request, call_digest)
+
+
+def mcp_action_idempotency_key(
+    operation_id: str, request: Mapping[str, Any], call_digest: str | None = None,
+) -> str:
+    """Bind a gateway ledger key to the provider operation and exact configured MCP call."""
+    return _mcp_action_identity("mcp-action-key-", operation_id, request, call_digest)
+
+
+@dataclass(frozen=True)
+class MCPTrustedExecutionContext:
+    """Host-derived repository identity passed to the operator authority resolver."""
+
+    workflow_id: str
+    task_id: str
+    project_root: str
+    workspace_root: str
+    repository_revision: str
+    repository_digest: str
+    budget_id: str
+
+    def validate(self) -> None:
+        for name in (
+            "workflow_id", "task_id", "project_root", "workspace_root",
+            "repository_revision", "repository_digest", "budget_id",
+        ):
+            value = getattr(self, name)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"trusted MCP execution context {name} is required")
+        for name in ("project_root", "workspace_root"):
+            value = Path(getattr(self, name)).expanduser()
+            if not value.is_absolute() or str(value.resolve()) != getattr(self, name):
+                raise ValueError(f"trusted MCP execution context {name} must be an absolute canonical path")
+
+
+@dataclass(frozen=True)
+class MCPToolCallBinding:
+    """Digest binding for the configured MCP executable, tool, arguments, and exact request."""
+
+    tool_name: str
+    command_digest: str
+    environment_digest: str
+    arguments_digest: str
+    request_digest: str
+    timeout_seconds: int
+
+    @classmethod
+    def from_call(
+        cls, tool_name: str, argv: Sequence[str], arguments: Mapping[str, Any],
+        request: Mapping[str, Any], *, env_allowlist: Sequence[str] = (),
+        timeout_seconds: int = 30,
+    ) -> "MCPToolCallBinding":
+        if not isinstance(tool_name, str) or not tool_name.strip():
+            raise ValueError("MCP tool name is required")
+        if not argv or any(not isinstance(part, str) or not part for part in argv):
+            raise ValueError("MCP command must be a non-empty argument array")
+        if not isinstance(arguments, Mapping) or not isinstance(request, Mapping):
+            raise TypeError("MCP call binding requires argument and request mappings")
+        if type(timeout_seconds) is not int or not 1 <= timeout_seconds <= 300:
+            raise ValueError("MCP call binding timeout must be between 1 and 300 seconds")
+        if any(not isinstance(name, str) or not name for name in env_allowlist):
+            raise ValueError("MCP environment allowlist must contain non-empty names")
+        return cls(
+            tool_name=tool_name,
+            command_digest=_digest(list(argv)),
+            environment_digest=_digest(sorted(set(env_allowlist))),
+            arguments_digest=_digest(dict(arguments)),
+            request_digest=mcp_request_digest(request),
+            timeout_seconds=timeout_seconds,
+        )
+
+    @property
+    def digest(self) -> str:
+        return _digest({
+            "tool_name": self.tool_name,
+            "command_digest": self.command_digest,
+            "environment_digest": self.environment_digest,
+            "arguments_digest": self.arguments_digest,
+            "request_digest": self.request_digest,
+            "timeout_seconds": self.timeout_seconds,
+        })
+
+    def validate_for_request(self, request: Mapping[str, Any]) -> None:
+        if not isinstance(self.tool_name, str) or not self.tool_name.strip():
+            raise ValueError("MCP call binding tool name is required")
+        for name in ("command_digest", "environment_digest", "arguments_digest", "request_digest"):
+            value = getattr(self, name)
+            if not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{64}", value):
+                raise ValueError(f"MCP call binding {name} must be a SHA-256 digest")
+        if type(self.timeout_seconds) is not int or not 1 <= self.timeout_seconds <= 300:
+            raise ValueError("MCP call binding timeout is invalid")
+        if self.request_digest != mcp_request_digest(request):
+            raise ValueError("MCP call binding does not match the exact request")
+
+
+@dataclass(frozen=True)
+class MCPExecutionAuthorization:
+    """Trusted, task-owned authority required before a consequential MCP call."""
+
+    gateway: ActionGovernanceGateway
+    authority: ExecutionAuthorityBinding
+    action_request: ActionRequest
+    repository_revision: str
+    repository_digest: str
+    budget_id: str
+    trusted_context: MCPTrustedExecutionContext
+    execution_guard: RuntimeExecutionGuard
+    provider_operation_ledger: DurableSideEffectLedger | None = None
+    approval: ApprovalReceipt | None = None
+
+    def validate_for_request(
+        self, request: Mapping[str, Any], call_binding: MCPToolCallBinding,
+    ) -> None:
+        if not isinstance(self.gateway, ActionGovernanceGateway):
+            raise TypeError("MCP authorization requires the canonical ActionGovernanceGateway")
+        if not isinstance(self.authority, ExecutionAuthorityBinding):
+            raise TypeError("MCP authorization requires an immutable ExecutionAuthorityBinding")
+        if not isinstance(self.action_request, ActionRequest):
+            raise TypeError("MCP authorization requires a canonical ActionRequest")
+        if not isinstance(self.trusted_context, MCPTrustedExecutionContext):
+            raise TypeError("MCP authorization requires host-derived trusted execution context")
+        if not isinstance(self.execution_guard, RuntimeExecutionGuard):
+            raise TypeError("MCP authorization requires the task-owned RuntimeExecutionGuard")
+        self.trusted_context.validate()
+        call_binding.validate_for_request(request)
+        state = request.get("state")
+        if not isinstance(state, Mapping):
+            raise ValueError("MCP request must include task state")
+        context = self.trusted_context
+        workflow_id = state.get("vibe_coding_workflow_id") or state.get("task_id")
+        task_id = state.get("task_id")
+        if workflow_id != context.workflow_id or task_id != context.task_id:
+            raise ValueError("MCP request identity does not match host-derived workflow/task identity")
+        launch_root = state.get("workspace_root") or state.get("project_root")
+        if not isinstance(launch_root, str) or not launch_root.strip():
+            raise ValueError("MCP request must include the host-bound workspace root")
+        if Path(launch_root).expanduser().resolve() != Path(context.workspace_root).resolve():
+            raise ValueError("MCP launch workspace does not match host-derived workspace identity")
+        request_project_root = state.get("project_root")
+        if request_project_root is not None:
+            if not isinstance(request_project_root, str) or Path(request_project_root).expanduser().resolve() != Path(context.project_root).resolve():
+                raise ValueError("MCP project root does not match host-derived project identity")
+        for name in ("repository_revision", "repository_digest", "budget_id"):
+            value = getattr(self, name)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"MCP authorization {name} is required")
+            if value != getattr(context, name):
+                raise ValueError(f"MCP authorization {name} does not match host-derived context")
+        if (
+            self.action_request.run_id != context.workflow_id
+            or self.action_request.task_id != context.task_id
+            or self.authority.run_id != context.workflow_id
+            or self.authority.task_id != context.task_id
+            or self.authority.repository_revision != context.repository_revision
+            or self.authority.repository_digest != context.repository_digest
+            or self.authority.budget_id != context.budget_id
+        ):
+            raise ValueError("MCP execution authority does not match host-derived identity/revision/budget")
+        self.authority.validate()
+        self.action_request.validate()
+        operation = request.get("provider_operation")
+        if "provider_operation" in request and not isinstance(operation, Mapping):
+            raise ValueError("MCP provider operation must be a structured mapping")
+        if isinstance(operation, Mapping):
+            operation_id = operation.get("operation_id")
+            idempotency_key = operation.get("idempotency_key")
+            if not isinstance(operation_id, str) or not operation_id.strip():
+                raise ValueError("MCP provider operation ID is required")
+            if not isinstance(idempotency_key, str) or not idempotency_key.strip():
+                raise ValueError("MCP provider idempotency key is required")
+            provider = operation.get("provider")
+            if not isinstance(provider, str) or not provider.strip():
+                raise ValueError("MCP provider identity is required")
+            if not isinstance(self.provider_operation_ledger, DurableSideEffectLedger):
+                raise ValueError("MCP consequential dispatch requires the canonical provider-operation ledger")
+            if self.gateway.side_effect_ledger is not self.provider_operation_ledger:
+                raise ValueError("MCP authority and provider lifecycle must share one canonical side-effect ledger")
+            provider_intent = {
+                key: value for key, value in request.items()
+                if key not in {"provider_operation", "capability", "tool_results", "stage_output"}
+            }
+            expected_provider_payload = {
+                "provider": provider,
+                "operation_id": operation_id,
+                "intent": provider_intent,
+            }
+            provider_record = self.provider_operation_ledger.get(idempotency_key)
+            if (
+                provider_record is None
+                or provider_record.get("state") != "executing"
+                or provider_record.get("payload_digest")
+                != DurableSideEffectLedger.digest_payload(expected_provider_payload)
+            ):
+                raise ValueError("MCP dispatch requires a matching active durable provider-operation claim")
+            if self.action_request.action_id != mcp_action_id(operation_id, request, call_binding.digest):
+                raise ValueError("MCP action ID must bind the provider operation and exact configured MCP call")
+            if self.action_request.idempotency_key != mcp_action_idempotency_key(operation_id, request, call_binding.digest):
+                raise ValueError("MCP gateway ledger key must bind the provider operation and exact configured MCP call")
+            required_evidence = {
+                f"provider-operation:{operation_id}",
+                f"provider-idempotency:{idempotency_key}",
+                f"mcp-request:{mcp_request_digest(request)}",
+                f"mcp-call:{call_binding.digest}",
+            }
+            if not required_evidence.issubset(set(self.action_request.evidence_refs)):
+                raise ValueError("MCP action evidence must bind provider identity, exact request, and configured tool call")
+        else:
+            if self.action_request.risk != "read" or self.gateway.is_external_effect(self.action_request):
+                raise ValueError("MCP external effects require a durable provider-operation ID and idempotency key")
+            if self.action_request.action_id != mcp_request_action_id(request, call_binding.digest):
+                raise ValueError("MCP read action ID must bind the exact request and configured tool call")
+            required_evidence = {
+                f"mcp-request:{mcp_request_digest(request)}",
+                f"mcp-call:{call_binding.digest}",
+            }
+            if not required_evidence.issubset(set(self.action_request.evidence_refs)):
+                raise ValueError("MCP read action evidence must bind the exact request and configured tool call")
+        if self.gateway.is_external_effect(self.action_request) and not self.gateway.has_durable_side_effect_ledger:
+            raise ValueError("MCP external effects require the canonical durable side-effect ledger")
+
+
+def build_mcp_authority_dispatch(
+    resolver: Callable[[Mapping[str, Any], MCPToolCallBinding], MCPExecutionAuthorization],
+) -> Callable[[Mapping[str, Any], MCPToolCallBinding, Callable[[], Mapping[str, Any]]], Mapping[str, Any]]:
+    """Bind a host resolver and exact MCP call identity to the actual launch boundary."""
+    if not callable(resolver):
+        raise TypeError("MCP authority resolver must be callable")
+
+    def dispatch(
+        request: Mapping[str, Any],
+        call_binding: MCPToolCallBinding,
+        handler: Callable[[], Mapping[str, Any]],
+    ) -> Mapping[str, Any]:
+        if not isinstance(request, Mapping) or not isinstance(call_binding, MCPToolCallBinding) or not callable(handler):
+            raise TypeError("MCP dispatch requires request, call binding, and one-shot handler")
+        try:
+            request_snapshot = json.loads(json.dumps(dict(request), ensure_ascii=False, allow_nan=False))
+            if not isinstance(request_snapshot, dict):
+                raise TypeError("MCP request snapshot must be an object")
+            call_binding.validate_for_request(request_snapshot)
+            authorization = resolver(request_snapshot, call_binding)
+            if not isinstance(authorization, MCPExecutionAuthorization):
+                raise TypeError("resolver did not return MCPExecutionAuthorization")
+            authorization.validate_for_request(request_snapshot, call_binding)
+        except Exception as exc:
+            raise AdapterUnavailable("MCP execution authority resolution failed closed") from exc
+
+        captured: list[dict[str, Any]] = []
+
+        def governed_handler() -> Mapping[str, Any]:
+            result = handler()
+            if not isinstance(result, Mapping):
+                raise AdapterUnavailable("MCP tool result must be a mapping")
+            captured.append(dict(result))
+            return captured[-1]
+
+        try:
+            governed = execute_bound_action(
+                authorization.gateway,
+                authorization.authority,
+                authorization.action_request,
+                governed_handler,
+                repository_revision=authorization.repository_revision,
+                repository_digest=authorization.repository_digest,
+                budget_id=authorization.budget_id,
+                execution_guard=authorization.execution_guard,
+                approval=authorization.approval,
+            )
+        except Exception as exc:
+            raise AdapterUnavailable("MCP dispatch failed under bound execution authority") from exc
+        if not governed.executed:
+            raise AdapterUnavailable(f"MCP dispatch denied before process launch: {governed.verdict.reason}")
+        if len(captured) != 1:
+            raise AdapterUnavailable("MCP dispatch did not produce exactly one governed result")
+        return captured[0]
+
+    return dispatch
+
+
 class MCPStdioToolAdapter:
     """Call a configured MCP stdio tool using JSON-RPC, without shell interpolation."""
 
     def __init__(
         self, *, argv: Sequence[str], tool_name: str, argument_map: Mapping[str, Any] | None = None,
         timeout_seconds: int = 30, env_allowlist: Sequence[str] = (),
+        requires_authority_binding: bool = True,
+        authority_dispatch: Callable[
+            [Mapping[str, Any], MCPToolCallBinding, Callable[[], Mapping[str, Any]]],
+            Mapping[str, Any],
+        ] | None = None,
     ) -> None:
         if not argv or any(not isinstance(x, str) or not x for x in argv):
             raise ValueError("MCP command must be a non-empty argv array")
@@ -619,8 +949,14 @@ class MCPStdioToolAdapter:
         self.argv = tuple(argv)
         self.tool_name = tool_name
         self.argument_map = dict(argument_map or {"request": "$request"})
+        if type(requires_authority_binding) is not bool:
+            raise TypeError("requires_authority_binding must be a boolean")
+        if authority_dispatch is not None and not callable(authority_dispatch):
+            raise TypeError("authority_dispatch must be callable")
         self.timeout_seconds = timeout_seconds
         self.env_allowlist = tuple(env_allowlist)
+        self.requires_authority_binding = requires_authority_binding
+        self.authority_dispatch = authority_dispatch
 
     @staticmethod
     def _read_response(stream: Any, responses: queue.Queue[str], request_id: int, timeout: float) -> dict[str, Any]:
@@ -643,7 +979,63 @@ class MCPStdioToolAdapter:
                 return result
         raise TimeoutError("MCP server response deadline expired")
 
+    def _arguments_for_request(self, request: Mapping[str, Any]) -> dict[str, Any]:
+        args: dict[str, Any] = {}
+        for name, mapping in self.argument_map.items():
+            if mapping == "$request":
+                args[name] = dict(request)
+            elif isinstance(mapping, str) and mapping.startswith("$"):
+                value: Any = request
+                for part in mapping[1:].split("."):
+                    if isinstance(value, Mapping):
+                        value = value.get(part)
+                    else:
+                        value = None
+                        break
+                args[name] = value
+            else:
+                args[name] = mapping
+        return args
+
     def __call__(self, request: Mapping[str, Any]) -> Mapping[str, Any]:
+        if not isinstance(request, Mapping):
+            raise ValueError("MCP request must be a mapping")
+        if not self.requires_authority_binding:
+            return self._invoke_unchecked(request)
+        if self.authority_dispatch is None:
+            raise AdapterUnavailable(
+                f"MCP tool {self.tool_name} requires a trusted execution authority resolver before dispatch"
+            )
+        try:
+            request_snapshot = json.loads(json.dumps(dict(request), ensure_ascii=False, allow_nan=False))
+            if not isinstance(request_snapshot, dict):
+                raise TypeError("MCP request snapshot must be an object")
+            arguments = self._arguments_for_request(request_snapshot)
+            call_binding = MCPToolCallBinding.from_call(
+                self.tool_name, self.argv, arguments, request_snapshot,
+                env_allowlist=self.env_allowlist, timeout_seconds=self.timeout_seconds,
+            )
+        except Exception as exc:
+            raise AdapterUnavailable("MCP call binding could not be established; dispatch blocked") from exc
+        dispatched = False
+
+        def invoke_once() -> Mapping[str, Any]:
+            nonlocal dispatched
+            if dispatched:
+                raise AdapterUnavailable("MCP consequential dispatch may execute only once")
+            dispatched = True
+            return self._invoke_unchecked(request_snapshot, arguments=arguments)
+
+        result = self.authority_dispatch(request_snapshot, call_binding, invoke_once)
+        if not dispatched:
+            raise AdapterUnavailable("MCP authority returned without dispatch; action remains blocked")
+        if not isinstance(result, Mapping):
+            raise AdapterUnavailable("MCP authority dispatch must return a structured mapping")
+        return dict(result)
+
+    def _invoke_unchecked(
+        self, request: Mapping[str, Any], *, arguments: Mapping[str, Any] | None = None,
+    ) -> Mapping[str, Any]:
         cwd_value = request.get("state", {}).get("workspace_root") or request.get("state", {}).get("project_root")
         cwd = Path(str(cwd_value)).expanduser().resolve() if cwd_value else Path.cwd()
         proc = subprocess.Popen(
@@ -684,21 +1076,7 @@ class MCPStdioToolAdapter:
             self._read_response(proc.stdout, responses, 1, self.timeout_seconds)
             proc.stdin.write(json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}}) + "\n")
             proc.stdin.flush()
-            args: dict[str, Any] = {}
-            for name, mapping in self.argument_map.items():
-                if mapping == "$request":
-                    args[name] = dict(request)
-                elif isinstance(mapping, str) and mapping.startswith("$"):
-                    value: Any = request
-                    for part in mapping[1:].split("."):
-                        if isinstance(value, Mapping):
-                            value = value.get(part)
-                        else:
-                            value = None
-                            break
-                    args[name] = value
-                else:
-                    args[name] = mapping
+            args = dict(arguments) if arguments is not None else self._arguments_for_request(request)
             proc.stdin.write(json.dumps({
                 "jsonrpc": "2.0", "id": 2, "method": "tools/call",
                 "params": {"name": self.tool_name, "arguments": args},
@@ -1422,6 +1800,8 @@ def _build_provider_operation_lookups(
             ),
             timeout_seconds=int(spec.get("timeout_seconds", 30)),
             env_allowlist=tuple(spec.get("env_allowlist", env_allowlist)),
+            # Provider operation lookup is a read-only status query, not a side-effect dispatch.
+            requires_authority_binding=False,
         )
 
         def lookup(
@@ -1512,7 +1892,13 @@ def load_host_config(path: str | Path | None = None) -> VibeHostConfig:
         timeout = spec.get("timeout_seconds", 30)
         if type(timeout) is not int or not 1 <= timeout <= 300:
             raise ValueError(f"MCP tool {name} timeout_seconds must be 1..300")
+        external_effects = spec.get("external_effects", name not in _MCP_READ_ONLY_CAPABILITIES)
+        if type(external_effects) is not bool:
+            raise ValueError(f"MCP tool {name} external_effects must be a boolean")
+        if name in _MCP_MANDATORY_AUTHORITY_CAPABILITIES and not external_effects:
+            raise ValueError(f"MCP tool {name} cannot disable mandatory execution authority binding")
         normalized_spec = dict(spec)
+        normalized_spec["external_effects"] = external_effects
         lookup_spec = spec.get("operation_lookup")
         if lookup_spec is not None:
             if name not in {"repository", "deployment", "release"}:
@@ -1599,10 +1985,17 @@ class LocalVibeCodingHost:
     def __init__(
         self, project_root: str | Path, *, config: VibeHostConfig,
         state_root: str | Path | None = None,
+        mcp_authority_resolver: Callable[
+            [Mapping[str, Any], DurableSideEffectLedger, MCPTrustedExecutionContext, MCPToolCallBinding],
+            MCPExecutionAuthorization,
+        ] | None = None,
     ) -> None:
         self.project_root = Path(project_root).expanduser().resolve()
         self.config = config
         self.state_root = Path(state_root or (Path.home() / ".auren" / "vibe-coding")).expanduser().resolve()
+        if mcp_authority_resolver is not None and not callable(mcp_authority_resolver):
+            raise TypeError("MCP authority resolver must be callable")
+        self.mcp_authority_resolver = mcp_authority_resolver
         if not self.project_root.is_dir():
             raise ValueError("project_root must be an existing directory")
         if not config.allow_workspace_writes:
@@ -1644,6 +2037,58 @@ class LocalVibeCodingHost:
         test_tool = LocalTestExecutionTool(workspace, self.config.test_commands, timeout_seconds=self.config.test_timeout_seconds, env_allowlist=self.config.env_allowlist)
         agent = ProviderCliAgent(provider=self.config.provider, allow_workspace_writes=self.config.allow_workspace_writes, timeout_seconds=self.config.agent_timeout_seconds, env_allowlist=self.config.env_allowlist)
         journal = SideEffectJournal(self.state_root / "operations.sqlite3")
+        side_effect_ledger = DurableSideEffectLedger(self.state_root / "operations.sqlite3")
+        def resolve_mcp_authority(
+            request: Mapping[str, Any], call_binding: MCPToolCallBinding,
+        ) -> MCPExecutionAuthorization:
+            call_binding.validate_for_request(request)
+            state = request.get("state")
+            if not isinstance(state, Mapping):
+                raise AdapterUnavailable("MCP request lacks task state")
+            request_workflow = state.get("vibe_coding_workflow_id") or state.get("task_id")
+            request_task = state.get("task_id")
+            if request_workflow != workflow_id or request_task != workflow_id:
+                raise AdapterUnavailable("MCP request identity does not match the active host workflow")
+            current_head = _run(
+                ("git", "-C", str(workspace), "rev-parse", "HEAD"),
+                cwd=workspace, timeout=10,
+            )
+            if current_head.returncode:
+                raise AdapterUnavailable("cannot verify repository revision before MCP dispatch")
+            trusted_context = MCPTrustedExecutionContext(
+                workflow_id=workflow_id,
+                task_id=workflow_id,
+                project_root=str(self.project_root),
+                workspace_root=str(workspace),
+                repository_revision=current_head.stdout.strip(),
+                repository_digest=fingerprint_worktree(workspace),
+                budget_id=f"mcp:{workflow_id}",
+            )
+            trusted_context.validate()
+            assert self.mcp_authority_resolver is not None
+            authorization = self.mcp_authority_resolver(
+                request, side_effect_ledger, trusted_context, call_binding,
+            )
+            if not isinstance(authorization, MCPExecutionAuthorization):
+                raise AdapterUnavailable("MCP resolver returned no typed execution authorization")
+            if (
+                authorization.trusted_context != trusted_context
+                or authorization.repository_revision != trusted_context.repository_revision
+                or authorization.repository_digest != trusted_context.repository_digest
+                or authorization.budget_id != trusted_context.budget_id
+                or authorization.authority.run_id != trusted_context.workflow_id
+                or authorization.authority.task_id != trusted_context.task_id
+                or authorization.authority.repository_revision != trusted_context.repository_revision
+                or authorization.authority.repository_digest != trusted_context.repository_digest
+                or authorization.authority.budget_id != trusted_context.budget_id
+            ):
+                raise AdapterUnavailable("MCP authorization does not match host-derived repository identity and budget")
+            return authorization
+
+        mcp_authority_dispatch = (
+            build_mcp_authority_dispatch(resolve_mcp_authority)
+            if self.mcp_authority_resolver is not None else None
+        )
         active_agent = JournaledToolAdapter(agent, journal, capability="agent")
         reviewer: ProviderCliAgent | None = None
         tools: dict[str, Any] = {
@@ -1668,6 +2113,8 @@ class LocalVibeCodingHost:
                 argument_map=spec.get("argument_map", {"request": "$request"}),
                 timeout_seconds=int(spec.get("timeout_seconds", 30)),
                 env_allowlist=tuple(spec.get("env_allowlist", self.config.env_allowlist)),
+                requires_authority_binding=bool(spec.get("external_effects", capability not in _MCP_READ_ONLY_CAPABILITIES)),
+                authority_dispatch=mcp_authority_dispatch,
             )
         if "independent_review" in self.config.mcp_tools:
             tools["independent_review"] = MCPIndependentReviewTool(
@@ -1705,7 +2152,6 @@ class LocalVibeCodingHost:
         })
         learning_path = self.state_root / f"adapter-learning-{tool_config_digest[:12]}.json"
         # Reuse the host operations database; do not create a parallel ledger file.
-        side_effect_ledger = DurableSideEffectLedger(self.state_root / "operations.sqlite3")
         lookup_operations = _build_provider_operation_lookups(
             self.config.mcp_tools,
             workspace_root=workspace,
@@ -1782,7 +2228,7 @@ __all__ = [
     "DurableVibeCheckpointStore", "IndependentReviewTool", "IsolatedGitWorktree",
     "JournaledToolAdapter", "LocalAccessibilityTool", "LocalBrowserTool", "LocalDesignTool",
     "LocalProjectTool", "LocalSecurityTool", "LocalTestExecutionTool", "LocalVibeCodingHost",
-    "MCPIndependentReviewTool", "MCPStdioToolAdapter", "MemoizedToolAdapter", "ProviderCliAgent", "SideEffectJournal",
-    "VerifiedResearchTool", "VibeHostConfig", "build_engineering_design_contract",
+    "MCPExecutionAuthorization", "MCPIndependentReviewTool", "MCPStdioToolAdapter", "MCPToolCallBinding", "MCPTrustedExecutionContext", "MemoizedToolAdapter", "ProviderCliAgent", "SideEffectJournal",
+    "VerifiedResearchTool", "VibeHostConfig", "build_engineering_design_contract", "build_mcp_authority_dispatch", "mcp_action_id", "mcp_action_idempotency_key", "mcp_request_action_id", "mcp_request_digest",
     "fingerprint_worktree", "load_host_config",
 ]

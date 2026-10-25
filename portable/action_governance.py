@@ -175,6 +175,11 @@ class ActionGovernanceGateway:
         """Whether this gateway can durably fence consequential external actions."""
         return self._side_effect_ledger is not None
 
+    @property
+    def side_effect_ledger(self) -> Any | None:
+        """Expose the canonical ledger identity for integrations that must share one store."""
+        return self._side_effect_ledger
+
     def is_external_effect(self, request: Any) -> bool:
         """Classify a request using the gateway policy, not caller-supplied claims."""
         return (

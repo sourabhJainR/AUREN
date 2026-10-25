@@ -109,6 +109,13 @@ class DurableSideEffectLedger:
     def _digest(cls, payload: Mapping[str, Any]) -> str:
         return hashlib.sha256(cls._encode(payload).encode("utf-8")).hexdigest()
 
+    @classmethod
+    def digest_payload(cls, payload: Mapping[str, Any]) -> str:
+        """Return the canonical digest used to bind a durable operation intent."""
+        if not isinstance(payload, Mapping):
+            raise ValueError("payload must be a mapping")
+        return cls._digest(payload)
+
     def begin(self, idempotency_key: str, payload: Mapping[str, Any]) -> SideEffectDecision:
         key = idempotency_key.strip() if isinstance(idempotency_key, str) else ""
         if not key:
