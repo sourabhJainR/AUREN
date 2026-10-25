@@ -115,6 +115,16 @@ class GraphWorkspaceCoordinator:
             return path
 
     def prepare_proposal(self, worker_id: str) -> WorkspaceProposal:
+        try:
+            return self._prepare_proposal(worker_id)
+        except BaseException as exc:
+            with self._lock:
+                if worker_id in self._states and self._states[worker_id] not in {"adopted", "cleaned", "stopped"}:
+                    self._states[worker_id] = "failed"
+                self.cancel_siblings(f"proposal failed for {worker_id}: {type(exc).__name__}", except_worker_id=worker_id)
+            raise
+
+    def _prepare_proposal(self, worker_id: str) -> WorkspaceProposal:
         with self._lock:
             if worker_id not in self._leases:
                 raise KeyError(f"unknown worker: {worker_id}")
@@ -160,6 +170,18 @@ class GraphWorkspaceCoordinator:
             return proposal
 
     def adopt(self, proposal: WorkspaceProposal) -> tuple[str, ...]:
+        """Apply one proposal; a failed adoption cancels sibling workers."""
+        try:
+            return self._adopt_locked(proposal)
+        except BaseException as exc:
+            with self._lock:
+                worker_id = getattr(proposal, "worker_id", None)
+                if worker_id in self._states and self._states[worker_id] not in {"adopted", "cleaned", "stopped"}:
+                    self._states[worker_id] = "failed"
+                self.cancel_siblings(f"adoption failed: {type(exc).__name__}", except_worker_id=worker_id)
+            raise
+
+    def _adopt_locked(self, proposal: WorkspaceProposal) -> tuple[str, ...]:
         """Apply one proposal only after fresh base, digest, scope, and conflict checks."""
         with self._lock:
             if self._cancel_event.is_set():
@@ -229,7 +251,7 @@ class GraphWorkspaceCoordinator:
             if worker_id not in self._leases:
                 raise KeyError(f"unknown worker: {worker_id}")
             state = self._states[worker_id]
-            if state not in {"stopped", "proposal_ready", "adopted"}:
+            if state not in {"stopped", "proposal_ready", "adopted", "failed"}:
                 raise RuntimeError("refusing to clean a worker that may still be running")
             lease = self._leases[worker_id]
             status = _git(lease.path, "status", "--porcelain", "--untracked-files=all").strip()
