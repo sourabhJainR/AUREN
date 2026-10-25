@@ -130,3 +130,9 @@ def test_approval_requirement_never_substitutes_for_default_deny_allow():
     )
     assert approved_path.allowed
     assert approved_path.effect == "require_approval"
+
+
+def test_question_mark_glob_is_rejected_when_only_star_wildcards_are_supported():
+    import pytest
+    with pytest.raises(GuardPolicyError):
+        validate_policy(policy(rule("unsupported-pattern", "deny", resource="prod/?")))
