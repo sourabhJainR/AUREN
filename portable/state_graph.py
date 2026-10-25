@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 import hashlib
 import json
 import math
@@ -501,7 +501,57 @@ class StateGraph:
             source_revision=str(source_revision) if source_revision else None,
         )
         try:
-            result = Orchestrator(self.graph, max_total_attempts=max_total_attempts).run(task_id, intent, state)
+            # Wrap the actual node callables, rather than reconstructing every node
+            # span only after the run. This leaves durable start/error events when a
+            # node raises or the supervisor stops before a final OrchestrationRun.
+            traced_nodes = []
+            for node in self.graph.order():
+                lowered_name = node.name.lower()
+                if "research" in lowered_name or "retriev" in lowered_name:
+                    node_phase = "research"
+                elif "plan" in lowered_name:
+                    node_phase = "planning"
+                elif "verif" in lowered_name or "review" in lowered_name:
+                    node_phase = "verification"
+                elif "learn" in lowered_name or "experiment" in lowered_name:
+                    node_phase = "learning"
+                elif "release" in lowered_name or "promot" in lowered_name:
+                    node_phase = "release"
+                elif "rollback" in lowered_name:
+                    node_phase = "rollback"
+                elif "tool" in lowered_name or "provider" in lowered_name:
+                    node_phase = "tool"
+                elif node.kind == NodeKind.ROUTER:
+                    node_phase = "routing"
+                elif node.kind == NodeKind.EVALUATOR:
+                    node_phase = "evaluation"
+                else:
+                    node_phase = "implementation" if node.kind == NodeKind.AGENT else "supervisor"
+
+                def traced_run(node_state, *, _node=node, _phase=node_phase):
+                    execution_span = trace.span(
+                        "node_execution:" + _node.name,
+                        _node.kind.value,
+                        metadata={"execution_status": "started", "attempt_budget": _node.max_attempts},
+                        parent_id=root.span_id,
+                        phase=_phase,
+                        actor_id="auren.state_graph_supervisor",
+                        source_revision=str(source_revision) if source_revision else None,
+                    )
+                    try:
+                        output = _node.run(node_state)
+                    except BaseException as exc:
+                        execution_span.finish(
+                            {"execution_status": "error", "error_type": type(exc).__name__},
+                            "error", type(exc).__name__,
+                        )
+                        raise
+                    execution_span.finish({"execution_status": "returned"}, "ok")
+                    return output
+
+                traced_nodes.append(replace(node, run=traced_run))
+            traced_graph = Graph(traced_nodes)
+            result = Orchestrator(traced_graph, max_total_attempts=max_total_attempts).run(task_id, intent, state)
             for node in self.graph.order():
                 node_result = result.results.get(node.name)
                 if node_result is None:
