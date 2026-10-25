@@ -1,6 +1,6 @@
 # Adaptive User Workflow Policy
 
-**Status:** implementation contract; runtime integration and behavioral tests remain required.
+**Status (2026-10-25):** versioned profile schema and unit tests are implemented on the workflow-profile branch. Execution-controller, CLI/dashboard, repository-action, durable-receipt, and restart integration remain required.
 **Applies to:** task intake, planning, repository changes, verification, review, and delivery.
 
 ## Goal
