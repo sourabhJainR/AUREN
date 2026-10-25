@@ -247,8 +247,7 @@ def _emit_work_report(args: list[str], result: int, root: Path) -> None:
             findings=[f"Command: {' '.join(args) if args else '(none)'}", f"Exit code: {result}"],
             risks=["A failed report write can leave documentation incomplete; command outcome is preserved."],
             threats=["Report content must not become an authorization mechanism.", "Sensitive credentials and secrets must never be copied into reports."],
-            implementation=["Structured WorkReport is rendered to a self-contained HTML artifact.", "Mermaid source is embedded so diagrams remain inspectable and reproducible."],
-            hld=["CLI -> runtime -> work outcome -> reporting subsystem -> .ai-harness/reports/latest.html"],
+            implementation=["Structured WorkReport is rendered to a self-contained HTML artifact.", "Mermaid source is embedded so diagrams remain inspectable and reproducible."],            hld=["CLI -> runtime -> work outcome -> reporting subsystem -> .ai-harness/reports/latest.html"],
             lld=["Reporter is isolated, deterministic, dependency-free, and best-effort.", "The report records scope, assumptions, boundaries, findings, risks, threats, verification, regression areas, evidence, and diagrams."],
             references=[{"type": "repository", "path": ".ai-harness/runtime/work_report.py"}, {"type": "entry-point", "path": "auren_cli.py"}],
             evidence=[{"type": "command", "argv": args, "exit_code": result}],
@@ -373,6 +372,79 @@ def _run_continuous(args: list[str]) -> int:
         controller.company.close() if hasattr(controller.company, "close") else None
 
 
+
+def _run_workflow_profile(args: list[str]) -> int:
+    """Inspect or update the durable workflow profile without starting the runtime."""
+    import argparse
+    from portable.workflow_profile import (
+        DELIVERY_MODES, EXECUTION_MODES, APPROVAL_MODES, REVIEW_MODES,
+        COMMUNICATION_MODES, RECOVERY_MODES, WorkflowProfile,
+    )
+    from portable.workflow_profile_store import load_profile, save_profile, WorkflowProfileStoreError
+
+    parser = argparse.ArgumentParser(
+        prog="auren workflow-profile",
+        description="Inspect or configure workflow preferences; these settings never grant execution authority.",
+    )
+    parser.add_argument("--project-root", default=".", help="project root (default: current directory)")
+    sub = parser.add_subparsers(dest="action", required=True)
+    sub.add_parser("show", help="show the effective saved profile and digest")
+    set_cmd = sub.add_parser("set", help="update selected workflow preferences")
+    set_cmd.add_argument("--delivery-mode", choices=sorted(DELIVERY_MODES))
+    set_cmd.add_argument("--execution-mode", choices=sorted(EXECUTION_MODES))
+    set_cmd.add_argument("--approval-mode", choices=sorted(APPROVAL_MODES))
+    set_cmd.add_argument("--review-mode", choices=sorted(REVIEW_MODES))
+    set_cmd.add_argument("--communication-mode", choices=sorted(COMMUNICATION_MODES))
+    set_cmd.add_argument("--recovery-mode", choices=sorted(RECOVERY_MODES))
+    sub.add_parser("reset", help="remove the saved profile and return to safe defaults")
+    options = parser.parse_args(args)
+    root = Path(options.project_root).expanduser().resolve()
+    profile_path = root / ".auren" / "workflow_profile.json"
+    try:
+        saved = load_profile(profile_path)
+        if options.action == "show":
+            profile = saved or WorkflowProfile()
+            print(json.dumps({
+                "source": "saved" if saved is not None else "safe_default",
+                "profile": profile.as_dict(),
+                "profile_digest": profile.digest,
+                "authority_note": "preferences do not grant permissions or bypass repository gates",
+            }, indent=2, sort_keys=True))
+            return 0
+        if options.action == "reset":
+            if profile_path.is_symlink():
+                raise WorkflowProfileStoreError("refusing to remove a symlink workflow profile")
+            if profile_path.exists():
+                if not profile_path.is_file():
+                    raise WorkflowProfileStoreError("workflow profile path is not a regular file")
+                profile_path.unlink()
+            profile = WorkflowProfile()
+        else:
+            current = saved or WorkflowProfile()
+            changes = {
+                key: getattr(options, key)
+                for key in (
+                    "delivery_mode", "execution_mode", "approval_mode",
+                    "review_mode", "communication_mode", "recovery_mode",
+                )
+                if getattr(options, key) is not None
+            }
+            if not changes:
+                parser.error("set requires at least one workflow preference option")
+            profile = WorkflowProfile.from_mapping({**current.as_dict(), **changes})
+            save_profile(profile_path, profile)
+        print(json.dumps({
+            "source": "safe_default" if options.action == "reset" else "saved",
+            "profile": profile.as_dict(),
+            "profile_digest": profile.digest,
+            "authority_note": "preferences do not grant permissions or bypass repository gates",
+        }, indent=2, sort_keys=True))
+        return 0
+    except (WorkflowProfileStoreError, ValueError, OSError) as exc:
+        print(f"workflow profile error: {exc}", file=sys.stderr)
+        return 2
+
+
 def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     if len(args) == 1 and Path(args[0]).suffix.lower() == ".zip":
@@ -381,6 +453,8 @@ def main(argv: list[str] | None = None) -> int:
         args = [*args, "--skill", "auto"]
     if args and args[0] == "dashboard":
         return _run_dashboard(args[1:])
+    if args and args[0] == "workflow-profile":
+        return _run_workflow_profile(args[1:])
     runtime, temp_root = _load_runtime(args)
     _prepare_runtime_for_distribution(runtime)
     result = 1
