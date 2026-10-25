@@ -348,3 +348,30 @@ def test_policy_change_during_guard_receipt_persistence_blocks_handler(tmp_path:
 
     assert not marker.exists()
     assert controller.task(task.id).state == "failed"
+
+
+def test_cidr_policy_without_trusted_network_ip_blocks_supervisor_dispatch(tmp_path: Path):
+    controller = ExecutionController(tmp_path)
+    controller.register_handler(
+        "tests.guarded_marker_handler", guarded_marker_handler, execution_class="read_only",
+        guard_action="connect",
+    )
+    policy_path = tmp_path / ".auren" / "guard_policy.json"
+    policy_path.parent.mkdir(parents=True, exist_ok=True)
+    policy_path.write_text(json.dumps({
+        "schema_version": "auren-guard-v1",
+        "default_effect": "allow",
+        "rules": [{
+            "id": "deny-private-egress",
+            "effect": "deny",
+            "action": "connect",
+            "network_cidr": "10.0.0.0/8",
+        }],
+    }), encoding="utf-8")
+    marker = tmp_path / "network-handler-ran.txt"
+    task = controller.submit("tests.guarded_marker_handler", {"marker_path": str(marker)})
+
+    controller.run_once(task.id)
+
+    assert not marker.exists()
+    assert controller.task(task.id).state != "completed"
