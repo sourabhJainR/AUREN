@@ -109,17 +109,17 @@ DIRECT_GATEWAY_CALLSITE_POLICY: tuple[dict[str, str], ...] = (
     {
         "path": "portable/governed_sandbox_execution.py",
         "scope": "execute_governed_sandbox",
-        "disposition": "legacy branch requires durable ledger for external effects; bound mode uses execute_bound_action",
+        "disposition": "legacy path blocks external effects without authority binding after durable-ledger preflight; bound mode uses execute_bound_action",
     },
     {
         "path": "portable/ai_coding_agency_bridge.py",
         "scope": "run_coding_task.effective_worker",
-        "disposition": "legacy branch requires durable ledger for external effects; bound mode uses execute_bound_action",
+        "disposition": "legacy path blocks external effects without authority binding after durable-ledger preflight; bound mode uses execute_bound_action",
     },
     {
         "path": "portable/agency_team_orchestrator.py",
         "scope": "run.effective_spawn",
-        "disposition": "legacy branch requires durable ledger for external effects; bound mode uses execute_bound_action",
+        "disposition": "legacy path blocks external effects without authority binding after durable-ledger preflight; bound mode uses execute_bound_action",
     },
     {
         "path": "portable/durable_approval.py",
