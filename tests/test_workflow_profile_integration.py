@@ -130,6 +130,47 @@ class WorkflowProfileSupervisorBindingTests(unittest.TestCase):
         self.assertEqual("failed", self.controller.task(task.id).state)
         self.assertEqual([], _WORKFLOW_PROFILE_HANDLER_CALLS)
 
+    def test_read_only_handler_cannot_dispatch_typed_deploy_action(self) -> None:
+        task = self.controller.submit(
+            "workflow-profile-test",
+            {
+                "value": 8,
+                "operation": "deploy",
+                "workflow_profile": WorkflowProfile(
+                    delivery_mode="pull_request", execution_mode="autonomous",
+                ).as_dict(),
+            },
+            work_key="workflow-profile:read-only-deploy",
+        )
+        self.controller.run_once(task.id)
+        self.assertEqual("failed", self.controller.task(task.id).state)
+        self.assertEqual([], _WORKFLOW_PROFILE_HANDLER_CALLS)
+
+    def test_approval_gated_merge_still_requires_promotion_and_exact_head_ci(self) -> None:
+        task = self.controller.submit(
+            "workflow-profile-test",
+            {
+                "value": 9,
+                "operation": "merge",
+                "workflow_profile": WorkflowProfile(
+                    delivery_mode="pull_request", execution_mode="autonomous",
+                ).as_dict(),
+            },
+            work_key="workflow-profile:approval-merge-needs-ci",
+        )
+        db = sqlite3.connect(self.controller.db_path)
+        try:
+            with db:
+                db.execute(
+                    "UPDATE handlers SET execution_class='approval_gated', approval_gate_policy_json=? WHERE name=?",
+                    ('{"configured": true}', "workflow-profile-test"),
+                )
+        finally:
+            db.close()
+        self.controller.run_once(task.id)
+        self.assertEqual("failed", self.controller.task(task.id).state)
+        self.assertEqual([], _WORKFLOW_PROFILE_HANDLER_CALLS)
+
     def test_saved_profile_change_cannot_reuse_existing_work_key(self) -> None:
         save_profile(
             self.controller.workflow_profile_path,
