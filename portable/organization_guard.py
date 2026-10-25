@@ -109,8 +109,8 @@ def load_guard_policy(path: str | Path) -> dict[str, Any] | None:
     """Load organization policy. Missing is distinct from malformed or unsafe."""
     target = Path(path).expanduser()
     try:
-        if target.is_symlink():
-            raise GuardPolicyError("refusing symlink Guard policy")
+        if target.is_symlink() or target.parent.is_symlink():
+            raise GuardPolicyError("refusing symlink Guard policy path")
         with target.open("rb") as handle:
             raw = handle.read(MAX_POLICY_BYTES + 1)
     except FileNotFoundError:
