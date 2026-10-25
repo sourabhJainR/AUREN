@@ -78,3 +78,10 @@ This contract is not proof of a fully implemented preference engine. Runtime wor
 ## Relationship to readiness gates
 
 This policy does not close the independent Arena campaign (#404), production extension isolation, staging migration/rollback, or final release exit gate. Those require their own evidence and independent/external verification.
+
+
+### Persistence implementation follow-up — 2026-10-25
+
+The standalone persistence layer is implemented in `portable/workflow_profile_store.py`. It uses canonical JSON, atomic replacement, restrictive POSIX permissions, and fail-closed handling for malformed, incompatible, duplicate-key, oversized, and symlink-backed profiles. Tests are in `tests/test_workflow_profile_store.py`.
+
+This is a persistence primitive only. It is not yet connected to CLI/dashboard selection, supervisor task intent, durable receipts, or action execution. Do not treat a saved preference as authorization or as proof that the requested delivery mode was applied.
