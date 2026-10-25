@@ -140,21 +140,30 @@ def guarded_https_get(
     allowed_hosts: Sequence[str],
     allowed_cidrs: Sequence[str] = (),
     headers: dict[str, str] | None = None,
+    method: str = "GET",
+    body: bytes | None = None,
     timeout: float = 10.0,
     max_bytes: int = 2 * 1024 * 1024,
     resolver: Callable[..., list[tuple]] = socket.getaddrinfo,
     connector: Callable[..., socket.socket] = socket.create_connection,
     tls_context: ssl.SSLContext | None = None,
 ) -> tuple[int, bytes]:
-    """Perform one bounded HTTPS GET through a validated, DNS-pinned socket.
+    """Perform one bounded HTTPS request through a validated, DNS-pinned socket.
 
-    Redirects are not followed. Sensitive headers cannot be redirected to a
-    different host because every request is bound to the explicit allowlist.
+    GET and HEAD requests cannot carry bodies. POST and PUT may carry a bytes
+    body. Redirects are not followed; every destination is explicitly scoped.
     """
     if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or not math.isfinite(timeout) or timeout <= 0:
         raise NetworkPolicyDenied("timeout must be finite and positive")
     if isinstance(max_bytes, bool) or not isinstance(max_bytes, int) or not 1 <= max_bytes <= 8 * 1024 * 1024:
         raise NetworkPolicyDenied("response limit is outside the supported range")
+    method = str(method).upper()
+    if method not in {"GET", "HEAD", "POST", "PUT"}:
+        raise NetworkPolicyDenied("HTTP method is not supported by the guarded transport")
+    if body is not None and not isinstance(body, bytes):
+        raise NetworkPolicyDenied("HTTP body must be bytes")
+    if body is not None and method in {"GET", "HEAD"}:
+        raise NetworkPolicyDenied("GET and HEAD requests cannot carry a body")
     parsed = urlparse(url)
     request_target = parsed.path or "/"
     if parsed.query:
@@ -170,6 +179,8 @@ def guarded_https_get(
         ):
             raise NetworkPolicyDenied("invalid or forbidden HTTP header")
         safe_headers.append((name, value))
+    if method in {"POST", "PUT"}:
+        safe_headers.append(("Content-Length", str(len(body or b""))))
     destinations = resolve_https_destination(
         url, allowed_hosts=allowed_hosts, allowed_cidrs=allowed_cidrs, resolver=resolver,
     )
@@ -181,14 +192,14 @@ def guarded_https_get(
             raw = connector((item.address, item.port), timeout=float(timeout))
             with context.wrap_socket(raw, server_hostname=item.hostname) as secure:
                 lines = [
-                    f"GET {request_target} HTTP/1.1",
+                    f"{method} {request_target} HTTP/1.1",
                     f"Host: {item.hostname}" + (f":{item.port}" if item.port != 443 else ""),
                     "Connection: close",
                     *[f"{name}: {value}" for name, value in safe_headers],
                     "",
                     "",
                 ]
-                secure.sendall("\r\n".join(lines).encode("ascii", errors="strict"))
+                secure.sendall("\r\n".join(lines).encode("ascii", errors="strict") + (body or b""))
                 response = http.client.HTTPResponse(secure)
                 response.begin()
                 return int(response.status), response.read(max_bytes + 1)
@@ -204,10 +215,14 @@ def guarded_https_get(
 
 
 
+guarded_https_request = guarded_https_get
+
+
 __all__ = [
     "NetworkPolicyDenied",
     "PinnedHTTPSDestination",
     "connect_https_pinned",
     "guarded_https_get",
+    "guarded_https_request",
     "resolve_https_destination",
 ]
