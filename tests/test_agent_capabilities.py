@@ -698,18 +698,20 @@ class AgentCapabilityTests(unittest.TestCase):
                 selected="mcp:repo-search", alternatives=("core:search",),
                 rationale="selected for fit", outcome="passed",
                 evidence_ids=("test:capability-audit",), cost=0.1, duration_seconds=0.25,
+                inventory_snapshot_id=snapshot,
             )
             with sqlite3.connect(path) as db:
                 inventory = db.execute(
                     "SELECT name,source,risk FROM capability_inventory ORDER BY name"
                 ).fetchall()
                 decision = db.execute(
-                    "SELECT stage,crew_id,selected,outcome,request_digest FROM capability_decisions"
+                    "SELECT stage,crew_id,selected,outcome,request_digest,inventory_snapshot_id FROM capability_decisions"
                 ).fetchone()
             self.assertEqual(["mcp:repo-search", "plugin:deploy"], [row[0] for row in inventory])
             self.assertEqual(["mcp", "plugin"], [row[1] for row in inventory])
             self.assertEqual(("verification", "review", "mcp:repo-search", "passed"), decision[:4])
             self.assertEqual(64, len(decision[4]))
+            self.assertEqual(snapshot, decision[5])
             self.assertNotIn("secret=do-not-store", path.read_bytes().decode("utf-8", errors="ignore"))
 
 
