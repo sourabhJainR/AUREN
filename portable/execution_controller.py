@@ -2907,6 +2907,18 @@ class ExecutionController:
             )
             handler = self._load_handler(task.handler)
             execution_class = self._handler_execution_class(task.handler)
+            # Close the preflight-to-dispatch policy-change window for every
+            # registered handler, not only consequential provider operations.
+            try:
+                dispatch_guard = self._evaluate_guard_for_task(task)
+            except (GuardPolicyError, OSError, ValueError) as exc:
+                raise RuntimeError(
+                    "organization Guard could not be verified immediately before handler dispatch"
+                ) from exc
+            if not dispatch_guard.allowed:
+                raise RuntimeError(
+                    "organization Guard denied handler dispatch: " + dispatch_guard.reason
+                )
             if execution_class == "consequential":
                 result = self._invoke_consequential_with_ledger(task, handler)
             else:
