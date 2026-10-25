@@ -713,6 +713,11 @@ class AgentCapabilityTests(unittest.TestCase):
             self.assertEqual(64, len(decision[4]))
             self.assertEqual(snapshot, decision[5])
             self.assertNotIn("secret=do-not-store", path.read_bytes().decode("utf-8", errors="ignore"))
+            with sqlite3.connect(path) as db:
+                with self.assertRaises(sqlite3.IntegrityError):
+                    db.execute("UPDATE capability_decisions SET outcome='forged'")
+                with self.assertRaises(sqlite3.IntegrityError):
+                    db.execute("DELETE FROM capability_inventory")
 
 
 
