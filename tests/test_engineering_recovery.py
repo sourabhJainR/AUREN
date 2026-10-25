@@ -119,3 +119,6 @@ class EngineeringRecoveryTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+# Include graph checkpoint fault-injection cases in the canonical recovery suite.
+from tests.test_graph_run_recovery import GraphRunRecoveryTests
