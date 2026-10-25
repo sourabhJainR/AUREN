@@ -23,15 +23,16 @@ def _bound_completed_receipt(intent, operation_id, idempotency_key, provider, re
         "operation_id": operation_id,
         "intent": dict(intent),
     }
-    return {
+    receipt = {
         "status": "completed",
         "provider_operation_id": remote_id,
         "operation_id": operation_id,
         "idempotency_key": idempotency_key,
         "provider": provider,
         "intent_digest": DurableSideEffectLedger.digest_payload(payload),
-        **extra,
     }
+    receipt.update(extra)
+    return receipt
 
 
 def _crash_inside_provider_dispatch(database: str, provider_log: str) -> None:
@@ -666,6 +667,7 @@ class ProviderOperationLifecycleTests(unittest.TestCase):
                 "deploy:binding-check", "provider-a", intent,
                 lambda *_: {
                     "status": "completed",
+                    "provider_operation_id": "remote-from-another-request",
                     "operation_id": "provider-operation-from-another-request",
                 },
             )
