@@ -1,4 +1,5 @@
 """Tests for AUREN's evidence-driven evolution gates."""
+import hashlib
 import json
 import tempfile
 import unittest
