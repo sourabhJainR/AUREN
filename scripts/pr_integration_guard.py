@@ -28,6 +28,14 @@ def commits_behind(base_ref: str, head_ref: str) -> int:
     return int(git_output("rev-list", "--count", f"{head_ref}..{base_ref}"))
 
 
+def require_revision(ref: str, expected_sha: str, label: str) -> str:
+    """Fail closed unless a ref still resolves to the event's exact revision."""
+    actual = git_output("rev-parse", "--verify", f"{ref}^{{commit}}")
+    if actual != expected_sha:
+        raise ValueError(f"{label} ref changed: expected {expected_sha}, got {actual}")
+    return actual
+
+
 def overlapping_paths(current_paths: set[str], other_prs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Return open PRs that edit any of the same paths, excluding this PR."""
     overlaps = []
@@ -83,9 +91,8 @@ def main() -> int:
     args = parser.parse_args()
 
     try:
-        actual_head = git_output("rev-parse", args.head_ref)
-        if actual_head != args.head_sha:
-            raise ValueError(f"checked-out head changed: expected {args.head_sha}, got {actual_head}")
+        require_revision(args.base_ref, args.base_sha, "base")
+        require_revision(args.head_ref, args.head_sha, "head")
         behind = commits_behind(args.base_ref, args.head_ref)
         token = os.environ.get("GITHUB_TOKEN")
         if not token:
