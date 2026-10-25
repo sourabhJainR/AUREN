@@ -1,6 +1,6 @@
 from unittest.mock import patch
 
-from scripts.pr_integration_guard import api_list, commits_behind, overlapping_paths
+from scripts.pr_integration_guard import api_list, commits_behind, overlapping_paths, require_revision
 
 
 def test_api_list_reads_all_pages_without_silently_truncating_results():
@@ -32,3 +32,19 @@ def test_overlapping_paths_empty_when_no_shared_files():
     assert overlapping_paths({"a.py"}, [
         {"number": 12, "state": "open", "files": ["b.py"]},
     ]) == []
+
+
+
+def test_require_revision_accepts_only_the_exact_event_sha():
+    with patch("scripts.pr_integration_guard.git_output", return_value="a" * 40):
+        assert require_revision("origin/main", "a" * 40, "base") == "a" * 40
+
+
+def test_require_revision_fails_closed_when_base_or_head_moved():
+    with patch("scripts.pr_integration_guard.git_output", return_value="b" * 40):
+        try:
+            require_revision("origin/main", "a" * 40, "base")
+        except ValueError as exc:
+            assert "base ref changed" in str(exc)
+        else:
+            raise AssertionError("moved base ref must fail closed")
