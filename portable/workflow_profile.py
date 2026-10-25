@@ -84,7 +84,7 @@ def delivery_mode_allows(profile: "WorkflowProfile", action: str) -> bool:
         return action not in {"commit", "push", "create_pr", "merge"}
     if profile.delivery_mode == "commit_each_change":
         return action not in {"push", "create_pr", "merge"}
-    return action not in {"publish", "release", "deploy"}
+    return True
 
 
 class WorkflowProfileError(ValueError):
