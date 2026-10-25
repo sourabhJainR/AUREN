@@ -87,6 +87,8 @@ jobs:
             python -m unittest "${test_module}" -v 2>&1 | tee "ci-artifacts/${test_module##*.}.log"
           done
       - name: Verify persistent task-memory SQLite lifecycle
+        env:
+          PYTHONPATH: .ai-harness
         run: |
           python -m pip install pytest
           python -m pytest -q .ai-harness/tests/test_task_memory.py
