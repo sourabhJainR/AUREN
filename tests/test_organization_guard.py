@@ -46,7 +46,10 @@ def test_organization_approval_rule_blocks_before_dispatch():
     assert not decision.allowed
     assert decision.requires_approval
     assert decision.effect == "require_approval"
-    assert evaluate_guard_policy(configured, {"action": "release"}, approval_present=True).allowed
+    approved_path = evaluate_guard_policy(configured, {"action": "release"}, approval_gate_configured=True)
+    assert approved_path.allowed
+    assert approved_path.effect == "require_approval"
+    assert approved_path.requires_approval
 
 
 def test_organization_allow_never_overrides_mandatory_authority():
