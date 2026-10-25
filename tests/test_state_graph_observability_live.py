@@ -5,6 +5,7 @@ from pathlib import Path
 
 from portable.agency_observability import LocalExporter, Tracer
 from portable.orchestration import Node, NodeKind, RunStatus
+from portable.runtime_recovery import ExecutionBudgetExceeded
 from portable.state_graph import StateGraph
 
 
@@ -52,14 +53,17 @@ def test_node_exception_has_live_error_span_not_only_post_run_summary(tmp_path: 
     path = tmp_path / "failed-live-traces.jsonl"
 
     def fail(_state):
-        raise RuntimeError("synthetic node failure")
+        raise ExecutionBudgetExceeded("synthetic hard stop")
 
     graph = StateGraph.from_nodes([Node("provider_call", NodeKind.AGENT, fail)])
     tracer = Tracer(LocalExporter(path, enabled=True))
 
-    result = graph.run("task-failed", "run failing node", tracer=tracer)
-
-    assert result.status != RunStatus.ACCEPTED
+    try:
+        graph.run("task-failed", "run failing node", tracer=tracer)
+    except ExecutionBudgetExceeded:
+        pass
+    else:
+        raise AssertionError("hard budget exhaustion must stop the supervisor")
     records = _trace_records(path)
     finished = [
         record for record in records
