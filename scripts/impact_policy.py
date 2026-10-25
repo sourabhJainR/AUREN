@@ -94,8 +94,6 @@ _RULES: tuple[tuple[str, tuple[str, ...], bool], ...] = (
     ("tests/test_agency_state_graph.py", ("tests.test_agency_state_graph",), True),
     ("portable/hybrid_model_router.py", ("tests.test_hybrid_model_router",), True),
     ("tests/test_hybrid_model_router.py", ("tests.test_hybrid_model_router",), True),
-    ("portable/graph_run_recovery.py", ("tests.test_graph_run_recovery", "tests.test_engineering_recovery", "tests.test_engineering_plan_recovery"), True),
-    ("tests/test_graph_run_recovery.py", ("tests.test_graph_run_recovery",), True),
     ("portable/engineering_recovery.py", ("tests.test_engineering_recovery", "tests.test_engineering_recovery_fault_matrix"), True),
     ("portable/engineering_plan_recovery.py", ("tests.test_engineering_plan_recovery",), True),
     ("portable/progress_journal.py", ("tests.test_progress_journal", "tests.test_progress_journal_integration"), True),
