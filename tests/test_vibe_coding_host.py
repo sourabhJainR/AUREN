@@ -25,6 +25,8 @@ from portable.vibe_coding_host import (
     LocalVibeCodingHost,
     MCPExecutionAuthorization,
     MCPStdioToolAdapter,
+    MCPToolCallBinding,
+    MCPTrustedExecutionContext,
     JournaledToolAdapter,
     build_mcp_authority_dispatch,
     mcp_action_id,
@@ -180,38 +182,60 @@ class VibeCodingHostTests(unittest.TestCase):
             result = tool({"stage": "research", "intent": "test", "state": {"workspace_root": str(project)}})
             self.assertEqual(result["competitors"], ["example.com"])
 
-    def _mcp_authorization(self, request, ledger, *, authority_principal=None):
+    @staticmethod
+    def _mcp_trusted_context(
+        request, *, repository_revision="abc123", repository_digest="repo-digest",
+        budget_id="budget-mcp-1",
+    ):
         state = request["state"]
+        project_root = str(Path(state.get("project_root") or Path.cwd()).expanduser().resolve())
+        workspace_root = str(Path(state.get("workspace_root") or project_root).expanduser().resolve())
+        return MCPTrustedExecutionContext(
+            workflow_id=state["vibe_coding_workflow_id"],
+            task_id=state["task_id"],
+            project_root=project_root,
+            workspace_root=workspace_root,
+            repository_revision=repository_revision,
+            repository_digest=repository_digest,
+            budget_id=budget_id,
+        )
+
+    def _mcp_authorization(
+        self, request, ledger, trusted_context, call_binding, *, authority_principal=None,
+    ):
         operation = request["provider_operation"]
-        run_id = state["vibe_coding_workflow_id"]
-        task_id = state["task_id"]
+        run_id = trusted_context.workflow_id
+        task_id = trusted_context.task_id
         action_request = ActionRequest(
             run_id=run_id,
             task_id=task_id,
-            action_id=mcp_action_id(operation["operation_id"], request),
+            action_id=mcp_action_id(operation["operation_id"], request, call_binding.digest),
             actor="agent:publisher",
             capability="repository.write",
             action="publish",
             target="src/module.py",
             risk="external_effect",
-            idempotency_key=mcp_action_idempotency_key(operation["operation_id"], request),
+            idempotency_key=mcp_action_idempotency_key(
+                operation["operation_id"], request, call_binding.digest,
+            ),
             evidence_refs=(
                 f"provider-operation:{operation['operation_id']}",
                 f"provider-idempotency:{operation['idempotency_key']}",
                 f"mcp-request:{mcp_request_digest(request)}",
+                f"mcp-call:{call_binding.digest}",
             ),
         )
         authority = ExecutionAuthorityBinding(
             execution_id="exec-mcp-1",
             run_id=run_id,
             task_id=task_id,
-            repository_digest="repo-digest",
-            repository_revision="abc123",
+            repository_digest=trusted_context.repository_digest,
+            repository_revision=trusted_context.repository_revision,
             principal=authority_principal or "agent:publisher",
             allowed_capabilities=("repository.write",),
             allowed_actions=("publish",),
             allowed_targets=("src",),
-            budget_id="budget-mcp-1",
+            budget_id=trusted_context.budget_id,
             max_attempts=3,
         )
         gateway = ActionGovernanceGateway(
@@ -230,21 +254,24 @@ class VibeCodingHostTests(unittest.TestCase):
             gateway=gateway,
             authority=authority,
             action_request=action_request,
-            repository_revision="abc123",
-            repository_digest="repo-digest",
-            budget_id="budget-mcp-1",
+            repository_revision=trusted_context.repository_revision,
+            repository_digest=trusted_context.repository_digest,
+            budget_id=trusted_context.budget_id,
+            trusted_context=trusted_context,
             execution_guard=RuntimeExecutionGuard(max_steps=10, max_attempts=3),
             provider_operation_ledger=ledger,
         ), gateway
 
     @staticmethod
     def _mcp_external_request():
+        root = str(Path.cwd().resolve())
         return {
             "stage": "production_deploy",
             "state": {
                 "vibe_coding_workflow_id": "workflow-mcp-1",
                 "task_id": "task-mcp-1",
-                "workspace_root": ".",
+                "project_root": root,
+                "workspace_root": root,
             },
             "provider_operation": {
                 "operation_id": "auren-op-mcp-1",
@@ -274,8 +301,9 @@ class VibeCodingHostTests(unittest.TestCase):
             ledger = DurableSideEffectLedger(root / "side-effects.sqlite")
             gateways = []
 
-            def resolver(request):
-                authorization, gateway = self._mcp_authorization(request, ledger)
+            def resolver(request, call_binding):
+                context = self._mcp_trusted_context(request)
+                authorization, gateway = self._mcp_authorization(request, ledger, context, call_binding)
                 gateways.append(gateway)
                 return authorization
 
@@ -306,8 +334,13 @@ class VibeCodingHostTests(unittest.TestCase):
             self.assertEqual(len(gateways), 1)
             self.assertTrue(gateways[0].verify_trace()["passed"])
             self.assertEqual(ledger.get(provider_key)["state"], "completed")
+            call_binding = MCPToolCallBinding.from_call(
+                "publish", (sys.executable, str(server)), {"request": dict(request)}, request,
+            )
             self.assertEqual(
-                ledger.get(mcp_action_idempotency_key(provider_operation["operation_id"], request))["state"],
+                ledger.get(mcp_action_idempotency_key(
+                    provider_operation["operation_id"], request, call_binding.digest,
+                ))["state"],
                 "completed",
             )
             second_tool_request = {
@@ -335,9 +368,10 @@ class VibeCodingHostTests(unittest.TestCase):
                 "intent": {key: value for key, value in request.items() if key != "provider_operation"},
             })
 
-            def resolver(request):
+            def resolver(request, call_binding):
+                context = self._mcp_trusted_context(request)
                 authorization, _gateway = self._mcp_authorization(
-                    request, ledger, authority_principal="agent:someone-else",
+                    request, ledger, context, call_binding, authority_principal="agent:someone-else",
                 )
                 return authorization
 
@@ -358,8 +392,9 @@ class VibeCodingHostTests(unittest.TestCase):
             ledger = DurableSideEffectLedger(Path(temp) / "side-effects.sqlite")
             request = self._mcp_external_request()
 
-            def resolver(request):
-                authorization, _gateway = self._mcp_authorization(request, ledger)
+            def resolver(request, call_binding):
+                context = self._mcp_trusted_context(request)
+                authorization, _gateway = self._mcp_authorization(request, ledger, context, call_binding)
                 return authorization
 
             tool = MCPStdioToolAdapter(
@@ -381,31 +416,40 @@ class VibeCodingHostTests(unittest.TestCase):
             fake_mcp_server(server, structured={"read": True})
             gateways = []
 
-            def resolver(request):
-                state = request["state"]
-                run_id = state["vibe_coding_workflow_id"]
-                task_id = state["task_id"]
+            def resolver(request, call_binding):
+                context = self._mcp_trusted_context(
+                    request,
+                    repository_revision="read-revision",
+                    repository_digest="repo-read-digest",
+                    budget_id="budget-mcp-read",
+                )
+                run_id = context.workflow_id
+                task_id = context.task_id
                 action_request = ActionRequest(
                     run_id=run_id,
                     task_id=task_id,
-                    action_id=mcp_request_action_id(request),
+                    action_id=mcp_request_action_id(request, call_binding.digest),
                     actor="agent:reader",
                     capability="repository.read",
                     action="read",
                     target="src/module.py",
                     risk="read",
+                    evidence_refs=(
+                        f"mcp-request:{mcp_request_digest(request)}",
+                        f"mcp-call:{call_binding.digest}",
+                    ),
                 )
                 authority = ExecutionAuthorityBinding(
                     execution_id="exec-mcp-read",
                     run_id=run_id,
                     task_id=task_id,
-                    repository_digest="repo-read-digest",
-                    repository_revision="read-revision",
+                    repository_digest=context.repository_digest,
+                    repository_revision=context.repository_revision,
                     principal="agent:reader",
                     allowed_capabilities=("repository.read",),
                     allowed_actions=("read",),
                     allowed_targets=("src",),
-                    budget_id="budget-mcp-read",
+                    budget_id=context.budget_id,
                     max_attempts=2,
                 )
                 gateway = ActionGovernanceGateway(ActionPolicy(
@@ -420,16 +464,23 @@ class VibeCodingHostTests(unittest.TestCase):
                     gateway=gateway,
                     authority=authority,
                     action_request=action_request,
-                    repository_revision="read-revision",
-                    repository_digest="repo-read-digest",
-                    budget_id="budget-mcp-read",
+                    repository_revision=context.repository_revision,
+                    repository_digest=context.repository_digest,
+                    budget_id=context.budget_id,
+                    trusted_context=context,
                     execution_guard=RuntimeExecutionGuard(max_steps=5, max_attempts=2),
                 )
 
+            root_path = str(Path.cwd().resolve())
             request = {
                 "stage": "architecture",
                 "intent": "inspect repository structure",
-                "state": {"vibe_coding_workflow_id": "workflow-read-1", "task_id": "task-read-1"},
+                "state": {
+                    "vibe_coding_workflow_id": "workflow-read-1",
+                    "task_id": "task-read-1",
+                    "project_root": root_path,
+                    "workspace_root": root_path,
+                },
             }
             tool = MCPStdioToolAdapter(
                 argv=(sys.executable, str(server)),
@@ -440,6 +491,42 @@ class VibeCodingHostTests(unittest.TestCase):
             )
             self.assertEqual(tool(request), {"read": True})
             self.assertTrue(gateways[0].verify_trace()["passed"])
+
+    def test_mcp_authority_binds_configured_tool_and_command_before_launch(self):
+        with tempfile.TemporaryDirectory() as temp:
+            ledger = DurableSideEffectLedger(Path(temp) / "side-effects.sqlite")
+            request = self._mcp_external_request()
+            operation = request["provider_operation"]
+            ledger.begin(operation["idempotency_key"], {
+                "provider": operation["provider"],
+                "operation_id": operation["operation_id"],
+                "intent": {key: value for key, value in request.items() if key != "provider_operation"},
+            })
+            context = self._mcp_trusted_context(request)
+            expected_binding = MCPToolCallBinding.from_call(
+                "publish",
+                (sys.executable, "-c", "pass"),
+                {"request": dict(request)},
+                request,
+            )
+
+            def resolver(actual_request, _actual_binding):
+                authorization, _gateway = self._mcp_authorization(
+                    actual_request, ledger, context, expected_binding,
+                )
+                return authorization
+
+            tool = MCPStdioToolAdapter(
+                argv=(sys.executable, "-c", "pass"),
+                tool_name="delete",
+                timeout_seconds=5,
+                requires_authority_binding=True,
+                authority_dispatch=build_mcp_authority_dispatch(resolver),
+            )
+            with patch("portable.vibe_coding_host.subprocess.Popen") as popen:
+                with self.assertRaisesRegex(AdapterUnavailable, "authority resolution failed closed"):
+                    tool(request)
+                popen.assert_not_called()
 
     def test_mcp_config_defaults_consequential_tools_to_authority_binding(self):
         with tempfile.TemporaryDirectory() as temp:
