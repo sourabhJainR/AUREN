@@ -8,7 +8,10 @@ processes; OS egress policy remains the independent backstop.
 """
 from __future__ import annotations
 
+import http.client
 import ipaddress
+import math
+import re
 import socket
 import ssl
 from dataclasses import dataclass
@@ -131,9 +134,80 @@ def connect_https_pinned(
     raise NetworkPolicyDenied("all authorized destination addresses failed to connect") from (errors[-1] if errors else None)
 
 
+def guarded_https_get(
+    url: str,
+    *,
+    allowed_hosts: Sequence[str],
+    allowed_cidrs: Sequence[str] = (),
+    headers: dict[str, str] | None = None,
+    timeout: float = 10.0,
+    max_bytes: int = 2 * 1024 * 1024,
+    resolver: Callable[..., list[tuple]] = socket.getaddrinfo,
+    connector: Callable[..., socket.socket] = socket.create_connection,
+    tls_context: ssl.SSLContext | None = None,
+) -> tuple[int, bytes]:
+    """Perform one bounded HTTPS GET through a validated, DNS-pinned socket.
+
+    Redirects are not followed. Sensitive headers cannot be redirected to a
+    different host because every request is bound to the explicit allowlist.
+    """
+    if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or not math.isfinite(timeout) or timeout <= 0:
+        raise NetworkPolicyDenied("timeout must be finite and positive")
+    if isinstance(max_bytes, bool) or not isinstance(max_bytes, int) or not 1 <= max_bytes <= 8 * 1024 * 1024:
+        raise NetworkPolicyDenied("response limit is outside the supported range")
+    parsed = urlparse(url)
+    request_target = parsed.path or "/"
+    if parsed.query:
+        request_target += "?" + parsed.query
+    if "\\r" in request_target or "\\n" in request_target:
+        raise NetworkPolicyDenied("invalid HTTP request target")
+    safe_headers: list[tuple[str, str]] = []
+    for name, value in (headers or {}).items():
+        if (
+            not isinstance(name, str) or not re.fullmatch(r"[!#$%&'*+.^_~0-9A-Za-z-]+", name)
+            or name.lower() in {"host", "connection", "content-length", "transfer-encoding"}
+            or not isinstance(value, str) or "\\r" in value or "\\n" in value
+        ):
+            raise NetworkPolicyDenied("invalid or forbidden HTTP header")
+        safe_headers.append((name, value))
+    destinations = resolve_https_destination(
+        url, allowed_hosts=allowed_hosts, allowed_cidrs=allowed_cidrs, resolver=resolver,
+    )
+    context = tls_context or ssl.create_default_context()
+    errors: list[OSError] = []
+    for item in destinations:
+        raw = None
+        try:
+            raw = connector((item.address, item.port), timeout=float(timeout))
+            with context.wrap_socket(raw, server_hostname=item.hostname) as secure:
+                lines = [
+                    f"GET {request_target} HTTP/1.1",
+                    f"Host: {item.hostname}" + (f":{item.port}" if item.port != 443 else ""),
+                    "Connection: close",
+                    *[f"{name}: {value}" for name, value in safe_headers],
+                    "",
+                    "",
+                ]
+                secure.sendall("\\r\\n".join(lines).encode("ascii", errors="strict"))
+                response = http.client.HTTPResponse(secure)
+                response.begin()
+                return int(response.status), response.read(max_bytes + 1)
+        except (OSError, ssl.SSLError, UnicodeError, http.client.HTTPException) as exc:
+            errors.append(exc if isinstance(exc, OSError) else OSError(type(exc).__name__))
+            if raw is not None:
+                try:
+                    raw.close()
+                except OSError:
+                    pass
+    raise NetworkPolicyDenied("authorized HTTPS request failed") from (errors[-1] if errors else None)
+
+
+
+
 __all__ = [
     "NetworkPolicyDenied",
     "PinnedHTTPSDestination",
     "connect_https_pinned",
+    "guarded_https_get",
     "resolve_https_destination",
 ]
