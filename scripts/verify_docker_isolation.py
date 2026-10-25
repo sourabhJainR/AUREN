@@ -3,8 +3,8 @@
 
 Requires Linux, Docker, and an immutable digest-pinned image containing Python.
 A passing result is scoped to the recorded image digest and Docker runtime policy.
-This probe is intentionally fail-closed when the host network precondition or
-runtime inspection cannot be verified.
+This probe is intentionally fail-closed when the host network precondition,
+live container configuration, cleanup, or any isolation probe cannot be verified.
 """
 from __future__ import annotations
 
