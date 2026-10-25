@@ -702,9 +702,22 @@ class ExecutionController:
                     f"workflow profile delivery mode {profile.delivery_mode!r} forbids {delivery_action!r}; "
                     "no repository delivery side effect was dispatched"
                 ), (f"workflow-profile:{profile.delivery_mode}", f"delivery-action:{delivery_action}:blocked")
+            if delivery_action is not None and execution_class == "read_only":
+                return False, (
+                    f"repository delivery action {delivery_action!r} cannot run through a read-only handler"
+                ), ("delivery-action:blocked", "handler-class:read-only")
+            promotion_actions = {"merge", "publish", "release", "deploy"}
+            if delivery_action in promotion_actions and execution_class not in {"consequential", "approval_gated"}:
+                return False, (
+                    f"promotion action {delivery_action!r} requires a consequential or approval-gated handler"
+                ), ("delivery-action:promotion-gate-required", "handler-class:rejected")
             configured_promotion_policy = self._handler_promotion_gate_policy(task.handler)
             configured_ci_policy = self._handler_ci_gate_policy(task.handler)
             configured_approval_policy = self._handler_approval_gate_policy(task.handler)
+            if delivery_action in promotion_actions and (not configured_promotion_policy or not configured_ci_policy):
+                return False, (
+                    f"promotion action {delivery_action!r} requires operator-owned promotion policy and exact-head CI policy"
+                ), ("promotion-gate:missing", "ci-gate:missing")
             if execution_class == "approval_gated" and not configured_approval_policy:
                 return False, "approval-gated handler is missing its trusted gateway/ledger policy", ("approval-gate:missing",)
             if execution_class == "consequential" and (not configured_promotion_policy or not configured_ci_policy):
