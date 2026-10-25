@@ -115,9 +115,9 @@ class RuntimeExecutionGuardTests(unittest.TestCase):
         guard = RuntimeExecutionGuard(max_steps=4, max_attempts=4)
         first_remaining = guard.tighten_deadline(0.5)
         self.assertLessEqual(first_remaining, 0.5)
-        shortened_remaining = guard.snapshot()["deadline_remaining_seconds"]
+        shortened_remaining = guard.snapshot()["remaining_seconds"]
         guard.tighten_deadline(10)
-        self.assertLessEqual(guard.snapshot()["deadline_remaining_seconds"], shortened_remaining)
+        self.assertLessEqual(guard.snapshot()["remaining_seconds"], shortened_remaining)
         with self.assertRaises(ValueError):
             guard.tighten_deadline(float("nan"))
 
@@ -141,7 +141,7 @@ class RuntimeExecutionGuardTests(unittest.TestCase):
         )
         self.assertIs(guard, captured["guard"])
         self.assertIs(guard.cancellation_event, cancellation)
-        self.assertLessEqual(guard.snapshot()["deadline_remaining_seconds"], 0.5)
+        self.assertLessEqual(guard.snapshot()["remaining_seconds"], 0.5)
         cancellation.set()
         with self.assertRaises(ExecutionBudgetExceeded):
             guard.check()
