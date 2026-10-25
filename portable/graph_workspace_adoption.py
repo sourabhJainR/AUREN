@@ -184,11 +184,17 @@ class GraphWorkspaceCoordinator:
                 raise PermissionError("proposal exceeds declared file ownership")
             _git(self.project_root, "apply", "--check", "--", input_bytes=proposal.patch)
             _git(self.project_root, "apply", "--", input_bytes=proposal.patch)
-            adopted = tuple(sorted(
+            adopted_paths = {
                 item.decode("utf-8", errors="strict") for item in _git(
                     self.project_root, "diff", "--name-only", "-z", proposal.base_revision, "--"
-                ).split(b"\x00") if item
-            ))
+                ).split(b"\\x00") if item
+            }
+            adopted_paths.update(
+                item.decode("utf-8", errors="strict") for item in _git(
+                    self.project_root, "ls-files", "--others", "--exclude-standard", "-z"
+                ).split(b"\\x00") if item
+            )
+            adopted = tuple(sorted(adopted_paths))
             if adopted != proposal.paths:
                 raise RuntimeError("adopted path set differs from verified proposal")
             self._states[proposal.worker_id] = "adopted"
