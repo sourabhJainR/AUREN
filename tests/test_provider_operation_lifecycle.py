@@ -263,11 +263,10 @@ class ProviderOperationLifecycleTests(unittest.TestCase):
         lifecycle = ProviderOperationLifecycle(self.ledger(), record_event=self.events.append)
         result = lifecycle.execute(
             "deploy-traced", "provider-a", {"target": "staging"},
-            lambda intent, operation_id, idempotency_key: {
-                "status": "completed",
-                "provider_operation_id": operation_id,
-                "api_key": "never-export-this",
-            },
+            lambda intent, operation_id, idempotency_key: _bound_completed_receipt(
+                intent, operation_id, idempotency_key, "provider-a", operation_id,
+                api_key="never-export-this",
+            ),
             trace=trace, parent_span_id=root.span_id,
         )
         self.assertEqual("completed", result["status"])
@@ -694,11 +693,11 @@ class ProviderOperationLifecycleTests(unittest.TestCase):
         )
         for key, extra in cases:
             lifecycle = ProviderOperationLifecycle(self.ledger(), record_event=self.events.append)
-            receipt = {
-                "status": "completed",
-                "provider_operation_id": f"remote-{key}",
-                **extra,
-            }
+            operation_id = stable_provider_operation_id(key, "provider-a", {"target": "staging", "operation": key})
+            receipt = _bound_completed_receipt(
+                {"target": "staging", "operation": key}, operation_id, key,
+                "provider-a", f"remote-{key}", **extra,
+            )
             with self.assertRaisesRegex(ProviderOutcomeBlocked, "different operation"):
                 lifecycle.execute(
                     key, "provider-a", {"target": "staging", "operation": key},
