@@ -129,5 +129,24 @@ class GuardedNetworkTests(unittest.TestCase):
         connector.assert_not_called()
 
 
+    def test_agency_sync_fetch_uses_pinned_upstream_host_scope(self):
+        from scripts.sync_agency_agents import fetch
+        with unittest.mock.patch(
+            "scripts.sync_agency_agents.guarded_https_get",
+            return_value=(200, b"agent bytes"),
+        ) as request:
+            self.assertEqual(b"agent bytes", fetch("https://raw.githubusercontent.com/org/repo/main/agent.md"))
+        self.assertEqual(
+            ("api.github.com", "raw.githubusercontent.com"),
+            request.call_args.kwargs["allowed_hosts"],
+        )
+        with unittest.mock.patch(
+            "scripts.sync_agency_agents.guarded_https_get",
+            return_value=(403, b"denied"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "fetch failed"):
+                fetch("https://api.github.com/repos/org/repo/tree")
+
+
 if __name__ == "__main__":
     unittest.main()
