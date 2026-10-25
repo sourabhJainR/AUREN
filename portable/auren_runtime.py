@@ -15,6 +15,7 @@ import json
 import shutil
 import signal
 import subprocess
+import sys
 import tempfile
 import urllib.error
 import urllib.request
@@ -24,7 +25,11 @@ from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from threading import Event
 
-from .guarded_network import guarded_https_get
+if __package__:
+    from .guarded_network import guarded_https_get
+else:  # direct script entrypoint
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from portable.guarded_network import guarded_https_get
 
 BUNDLE_FORMAT_VERSION = 2
 BUNDLE_NAME = "auren-portable"
