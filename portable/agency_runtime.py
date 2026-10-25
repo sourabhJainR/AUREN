@@ -2,6 +2,7 @@
 from __future__ import annotations
 from dataclasses import asdict, dataclass, field, replace
 from hashlib import sha256
+import json
 from typing import Callable, Mapping
 from .agency_registry import rank
 from .agency_quality import ReviewFinding, QualityReceipt, evaluate
@@ -605,7 +606,10 @@ def execute(
             gaps = trace.metadata.setdefault("phase_coverage_gaps", [])
             if "learning" in gaps:
                 gaps.remove("learning")
-            trace.metadata["promotion"] = decision.as_dict()
+            trace.metadata["promotion"] = {
+                key: value for key, value in decision.as_dict().items()
+                if key != "reason"
+            }
             result.ledger.append(LedgerEntry("regression", f"{regression_run.regression_id}: {'passed' if regression_run.passed else 'failed'}"))
             result.ledger.append(LedgerEntry("promotion", f"{decision.action}: {decision.reason}"))
 
@@ -618,18 +622,44 @@ def execute(
                 release_phase = "rollback" if decision.action == "rollback" else "release"
                 release_span = trace.span(
                     "release_transition", "release_controller",
-                    {"decision": decision.action, "reason": decision.reason,
+                    {"decision": decision.action,
                      "artifact_ref": artifact_ref.artifact_id if artifact_ref else None},
                     parent_id=regression_span.span_id, phase=release_phase,
                     actor_id="auren.release_controller",
                     source_revision=approved_plan.source_revision if approved_plan else (task.source_revision or None),
                 )
-                result.release_state = apply_promotion_decision(release_store, decision, artifact_ref)
+                review_evidence = {
+                    "plan_review": trace.metadata.get("plan_review"),
+                    "implementation_review": trace.metadata.get("implementation_review"),
+                }
+                review_digest = sha256(json.dumps(
+                    review_evidence, sort_keys=True, separators=(",", ":"), allow_nan=False,
+                ).encode("utf-8")).hexdigest()
+                verification_digest = sha256(json.dumps(
+                    result.verification, sort_keys=True, separators=(",", ":"), allow_nan=False,
+                ).encode("utf-8")).hexdigest()
+                context_evidence_digest = sha256(json.dumps(
+                    sorted(evidence_id(item) for item in result.evidence),
+                    separators=(",", ":"), allow_nan=False,
+                ).encode("utf-8")).hexdigest()
+                result.release_state = apply_promotion_decision(
+                    release_store, decision, artifact_ref,
+                    context_evidence_digest=context_evidence_digest,
+                    verification_digest=verification_digest,
+                    review_digest=review_digest,
+                    trace=trace, parent_span_id=release_span.span_id,
+                )
                 release_span.finish({
                     "action": result.release_state.action,
                     "artifact_id": result.release_state.artifact_id,
                 }, "ok", None)
-                trace.metadata["release"] = result.release_state.as_dict()
+                # Release reasons can contain operator-provided free text.
+                # Keep the complete decision in canonical release history, but
+                # expose only structured state and digests in trace metadata.
+                trace.metadata["release"] = {
+                    key: value for key, value in result.release_state.as_dict().items()
+                    if key != "reason"
+                }
                 trace.score("release_applied", 1.0, "release state transition completed", "auren")
                 result.ledger.append(LedgerEntry("release", f"{result.release_state.action}: {result.release_state.artifact_id or 'previous'}"))
         elif regression_result is not None and regression_id:
