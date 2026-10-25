@@ -414,7 +414,7 @@ class EngineeringDashboard:
                         if isinstance(profile.get(key), str)
                     }
                     summary["profile_digest"] = digest
-                    found[str(task_id)] = summary
+                    found.setdefault(str(task_id), summary)
             except (OSError, sqlite3.Error):
                 # Dashboard is a projection, not authority. Preserve the journal
                 # snapshot if a task database is busy, unreadable, or incompatible.
