@@ -17,7 +17,7 @@ _CRASH_PROVIDER = "provider-a"
 _CRASH_INTENT = {"target": "staging", "revision": "crash-revision"}
 
 
-def _bound_completed_receipt(intent, operation_id, idempotency_key, provider, remote_id, **extra):
+def _bound_completed_receipt(intent, operation_id, idempotency_key, provider_name, remote_id, **extra):
     payload = {
         "provider": provider,
         "operation_id": operation_id,
@@ -28,7 +28,7 @@ def _bound_completed_receipt(intent, operation_id, idempotency_key, provider, re
         "provider_operation_id": remote_id,
         "operation_id": operation_id,
         "idempotency_key": idempotency_key,
-        "provider": provider,
+        "provider": provider_name,
         "intent_digest": DurableSideEffectLedger.digest_payload(payload),
     }
     receipt.update(extra)
