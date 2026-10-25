@@ -86,6 +86,8 @@ jobs:
       - name: Verify supervisor bindings through GraphAgentTeam and shared runtime guard
         run: python -m unittest tests.test_runtime_recovery tests.test_graph_agent_team tests.test_graph_agent_crews -v
       - name: Verify persistent task-memory SQLite lifecycle
+        env:
+          PYTHONPATH: .ai-harness
         run: python -m pytest -q .ai-harness/tests/test_task_memory.py
       - name: Verify canonical evidence durability and exact-head binding
         run: python -m unittest tests.test_canonical_evidence_ledger -v
