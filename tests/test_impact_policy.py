@@ -129,6 +129,14 @@ class ImpactPolicyTests(unittest.TestCase):
             with self.subTest(path=path), self.assertRaisesRegex(ValueError, "no impact classification"):
                 classify_path(path)
 
+    def test_pr_integration_guard_requires_its_focused_suite_without_runtime_hardening(self):
+        for path in ("scripts/pr_integration_guard.py", "tests/test_pr_integration_guard.py"):
+            with self.subTest(path=path):
+                impact = classify_path(path)
+                self.assertIsNotNone(impact)
+                self.assertIn("tests.test_pr_integration_guard", impact.required_suites)
+                self.assertFalse(impact.hardening_required)
+
     def test_documentation_only_change_does_not_trigger_expensive_hardening(self):
         result = classify_changes(["docs/PROVIDER_OPERATION_LIFECYCLE.md", "README.md"])
         self.assertFalse(result["hardening_required"])
