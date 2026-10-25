@@ -186,3 +186,42 @@ def test_evaluator_enforces_utc_time_conditions_using_trusted_clock():
     assert not inside.allowed
     assert inside.matched_rule_ids == ("deny-publish-sunday-morning",)
     assert outside.allowed
+
+
+
+def test_network_cidr_denies_matching_ipv4_and_ipv6_addresses():
+    configured = policy(
+        rule("deny-private-v4", "deny", network_cidr="10.20.0.0/16"),
+        rule("deny-private-v6", "deny", network_cidr="2001:db8:abcd::/48"),
+    )
+    v4_denied = evaluate_guard_policy(configured, {"network_ip": "10.20.4.7", "action": "connect"})
+    v4_allowed = evaluate_guard_policy(configured, {"network_ip": "10.21.4.7", "action": "connect"})
+    v6_denied = evaluate_guard_policy(configured, {"network_ip": "2001:db8:abcd::42", "action": "connect"})
+    v6_allowed = evaluate_guard_policy(configured, {"network_ip": "2001:db8:ffff::42", "action": "connect"})
+    assert not v4_denied.allowed
+    assert v4_denied.matched_rule_ids == ("deny-private-v4",)
+    assert v4_allowed.allowed
+    assert not v6_denied.allowed
+    assert v6_denied.matched_rule_ids == ("deny-private-v6",)
+    assert v6_allowed.allowed
+
+
+def test_network_cidr_requires_valid_ip_context_and_rejects_invalid_cidr():
+    import pytest
+
+    configured = policy(rule("deny-private", "deny", network_cidr="192.168.0.0/16"))
+    with pytest.raises(GuardPolicyError, match="valid network_ip context"):
+        evaluate_guard_policy(configured, {"action": "connect"})
+    with pytest.raises(GuardPolicyError, match="valid network_ip context"):
+        evaluate_guard_policy(configured, {"network_ip": "not-an-ip"})
+    with pytest.raises(GuardPolicyError, match="invalid network_cidr"):
+        validate_policy(policy(rule("bad-cidr", "deny", network_cidr="192.168.1.1/99")))
+
+
+def test_network_cidr_is_canonicalized_in_policy_digest():
+    first = policy(rule("deny-subnet", "deny", network_cidr="10.0.0.1/8"))
+    second = policy(rule("deny-subnet", "deny", network_cidr="10.0.0.0/8"))
+    assert validate_policy(first) == validate_policy(second)
+    assert evaluate_guard_policy(first, {"network_ip": "10.2.3.4"}).policy_digest == evaluate_guard_policy(
+        second, {"network_ip": "10.2.3.4"}
+    ).policy_digest
