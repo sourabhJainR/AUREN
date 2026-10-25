@@ -310,6 +310,18 @@ class GraphAgentTeamTests(unittest.TestCase):
             published_agents = {row["agent"] for row in memory.snapshot()}
             self.assertTrue({"planner", "explorer", "researcher", "builder"}.issubset(published_agents))
 
+    def test_parallel_eligibility_excludes_learning_and_local_commands(self):
+        team = GraphAgentTeam([
+            AgentSpec("reader", "reader", read_only=True),
+            AgentSpec("writer", "writer", read_only=False),
+            AgentSpec("local-reader", "reader", read_only=True, local_command=("python", "-c", "pass")),
+            AgentSpec("learning-steward", "learning", read_only=True),
+        ])
+        self.assertTrue(team._parallel_safe("reader"))
+        self.assertFalse(team._parallel_safe("writer"))
+        self.assertFalse(team._parallel_safe("local-reader"))
+        self.assertFalse(team._parallel_safe("learning-steward"))
+
     def test_checkpoint_resume_does_not_repeat_completed_agents(self):
         with tempfile.TemporaryDirectory() as tmp:
             memory = SharedTaskMemory(Path(tmp) / "memory.jsonl", "intent-a")

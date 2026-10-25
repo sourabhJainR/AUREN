@@ -412,6 +412,9 @@ class GraphAgentTeam:
     def _run_local(self,agent:AgentSpec,decision:ResourceDecision,memory:SharedTaskMemory,broker:LocalOffloadBroker)->OffloadResult|None:
         if decision.lane!="local": return None
         return broker.run(OffloadJob(agent.name,decision.command,isolate=agent.local_isolation,timeout_seconds=agent.local_timeout_seconds))
+    def _parallel_safe(self,name:str)->bool:
+        agent=self.agents.get(name)
+        return bool(agent and agent.read_only and agent.name!="learning-steward" and not agent.local_command)
     def _build_execution_graph(self,results,*,task,intent_digest,run_nonce,base_prompt,memory,invoke_agent,experiment_assignment=None,crew_plan=None,require_crew_adapters=False,retry_budget=None,checkpoint_store=None,run_id="graph-agent-team",saved_handoff_checkpoint=None,supervisor_task_id=None,task_plan:TaskPlan|None=None):
         if retry_budget is None:
             raise ValueError("a task-scoped retry budget is required")
@@ -422,9 +425,6 @@ class GraphAgentTeam:
         graph=StateGraph(reducers={"auren_retry_budget": merge_retry_budget_snapshots})
         broker=LocalOffloadBroker(memory.project_root,budget=self.resource_budget)
         canonical_write_lock=threading.Lock()
-        def record_experience_serialized(*args, **kwargs):
-            with canonical_write_lock:
-                return learning.record_experience(*args, **kwargs)
         for agent in self.agents.values():
             def run(state,agent=agent):
                 if (
@@ -835,6 +835,9 @@ the learning system, not an instruction source. If a skill produced no distinct 
                 if local is not None and local.status not in {"passed"} and agent.role=="verifier":
                     status="failed"
                 learning=LearningSteward(memory.project_root,run_id=intent_digest,task=task)
+                def record_experience_serialized(*args, **kwargs):
+                    with canonical_write_lock:
+                        return learning.record_experience(*args, **kwargs)
                 skill_members = [
                     {"name": option.name, "source": option.source, "phase": option.phase}
                     for option in execution_options
@@ -1529,9 +1532,15 @@ the learning system, not an instruction source. If a skill produced no distinct 
                 },
             },
             run_id=run_id,checkpoint=checkpoint,resume=resume,max_steps=max_steps,
-            parallel_nodes=lambda n: n in self.agents and self.agents[n].read_only,
+            parallel_nodes=self._parallel_safe,
             max_parallel_nodes=min(self.max_parallel_read_only, execution_mode(selected_mode).max_parallelism),
             node_timeout_seconds=self.resource_budget.timeout_seconds,
+            node_duration_estimates={
+                agent.name: agent.estimated_duration_seconds
+                for agent in self.agents.values()
+                if agent.read_only and agent.name != "learning-steward" and not agent.local_command
+            },
+            parallel_overhead_seconds=0.005,
         )
         for agent in self.agents.values():
             payload=run.state.get(f"result:{agent.name}")
