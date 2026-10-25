@@ -31,8 +31,8 @@ class GuardPolicyManagementTests(unittest.TestCase):
 
     def test_inheritance_accumulates_parent_denials_and_namespaces_rule_ids(self):
         registry = {
-        "base": {"policy": policy(rule("deny-prod", "deny", resource="prod/*")), "precedence": "deny_overrides"},
-        "team": {"extends": "base", "policy": policy(rule("allow-read", "allow", action="read"), default_effect="deny")},
+            "base": {"policy": policy(rule("deny-prod", "deny", resource="prod/*")), "precedence": "deny_overrides"},
+            "team": {"extends": "base", "policy": policy(rule("allow-read", "allow", action="read"), default_effect="deny")},
         }
         resolved = resolve_policy_inheritance(registry, "team")
         decision = evaluate_guard_policy(resolved, {"action": "read", "resource": "prod/db"})
@@ -42,11 +42,11 @@ class GuardPolicyManagementTests(unittest.TestCase):
 
     def test_inheritance_cycles_missing_parent_and_unsupported_precedence_fail_closed(self):
         with self.assertRaises(GuardPolicyError):
-        resolve_policy_inheritance({"a": {"extends": "b", "policy": policy()}, "b": {"extends": "a", "policy": policy()}}, "a")
+            resolve_policy_inheritance({"a": {"extends": "b", "policy": policy()}, "b": {"extends": "a", "policy": policy()}}, "a")
         with self.assertRaises(GuardPolicyError):
-        resolve_policy_inheritance({"a": {"extends": "missing", "policy": policy()}}, "a")
+            resolve_policy_inheritance({"a": {"extends": "missing", "policy": policy()}}, "a")
         with self.assertRaises(GuardPolicyError):
-        resolve_policy_inheritance({"a": {"policy": policy(), "precedence": "last_rule_wins"}}, "a")
+            resolve_policy_inheritance({"a": {"policy": policy(), "precedence": "last_rule_wins"}}, "a")
 
 
     def test_timezone_schedule_is_evaluated_in_named_zone(self):
@@ -60,7 +60,7 @@ class GuardPolicyManagementTests(unittest.TestCase):
     def test_invalid_timezone_schedule_fails_closed(self):
         configured = {**policy(rule("allow-publish", "allow", action="publish")), "timezone": "../unsafe"}
         with self.assertRaises(GuardPolicyError):
-        evaluate_managed_policy(configured, {"action": "publish"}, now=datetime.fromisoformat("2026-10-25T09:30:00+00:00"))
+            evaluate_managed_policy(configured, {"action": "publish"}, now=datetime.fromisoformat("2026-10-25T09:30:00+00:00"))
 
 
     def test_durable_rate_limit_survives_reconstruction_and_denies_over_limit(self):
@@ -80,7 +80,7 @@ class GuardPolicyManagementTests(unittest.TestCase):
         assert "not configured" in decision.reason
         limiter = DurableRateLimiter(self.tmp_path / "rate.sqlite3")
         with self.assertRaises(GuardPolicyError):
-        limiter.consume("k", limit=0, window_seconds=10)
+            limiter.consume("k", limit=0, window_seconds=10)
 
 
     def test_policy_activation_requires_compare_and_swap_and_supports_rollback(self):
@@ -89,7 +89,7 @@ class GuardPolicyManagementTests(unittest.TestCase):
         second = store.activate(policy(rule("deny-read", "deny", action="read")), expected_active=first, now=101)
         assert store.active()[0] == second
         with self.assertRaises(GuardPolicyError):
-        store.activate(policy(), expected_active=first, now=102)
+            store.activate(policy(), expected_active=first, now=102)
         assert store.rollback(first, expected_active=second) == first
         assert store.active()[0] == first
 
@@ -97,12 +97,12 @@ class GuardPolicyManagementTests(unittest.TestCase):
     def test_active_policy_integrity_or_missing_active_policy_fails_closed(self):
         store = GuardPolicyStore(self.tmp_path / "policies.sqlite3")
         with self.assertRaises(GuardPolicyError):
-        store.active()
+            store.active()
         active = store.activate(policy(rule("allow-read", "allow", action="read")), expected_active=None)
         with sqlite3.connect(store.database) as db:
-        db.execute("UPDATE guard_policy_versions SET policy_json=? WHERE version_id=?", ('{"tampered":true}', active))
+            db.execute("UPDATE guard_policy_versions SET policy_json=? WHERE version_id=?", ('{"tampered":true}', active))
         with self.assertRaises(GuardPolicyError):
-        store.active()
+            store.active()
 
 
     def test_network_scope_is_enforced_by_canonical_guard(self):
@@ -116,19 +116,19 @@ class GuardPolicyManagementTests(unittest.TestCase):
 
         ledger = GuardActionEvidenceLedger(self.tmp_path / "evidence.sqlite3")
         authorized = dict(
-        event_id="op-1:dispatch", identity="org:acme/agent:worker",
-        delegated_scope=("file.read", "file.write"), policy_version="policy-v7",
-        policy_digest="a" * 64, approval_id="approval-42",
-        provider_operation_id="provider-op-9", verified_outcome="pending",
-        event_type="dispatch_authorized", timestamp=100,
+            event_id="op-1:dispatch", identity="org:acme/agent:worker",
+            delegated_scope=("file.read", "file.write"), policy_version="policy-v7",
+            policy_digest="a" * 64, approval_id="approval-42",
+            provider_operation_id="provider-op-9", verified_outcome="pending",
+            event_type="dispatch_authorized", timestamp=100,
         )
         digest = ledger.append(**authorized)
         assert ledger.verify()
         assert ledger.append(**authorized) == digest
         assert [item["provider_operation_id"] for item in ledger.unresolved_operations()] == ["provider-op-9"]
         ledger.append(
-        **{**authorized, "event_id": "op-1:outcome", "verified_outcome": "succeeded",
-           "event_type": "provider_outcome_verified", "timestamp": 101},
+            **{**authorized, "event_id": "op-1:outcome", "verified_outcome": "succeeded",
+               "event_type": "provider_outcome_verified", "timestamp": 101},
         )
         assert ledger.verify()
         assert ledger.unresolved_operations() == []
@@ -139,14 +139,14 @@ class GuardPolicyManagementTests(unittest.TestCase):
 
         ledger = GuardActionEvidenceLedger(self.tmp_path / "evidence.sqlite3")
         event = dict(
-        event_id="op-1:dispatch", identity="org:acme/agent:worker",
-        delegated_scope=("file.read",), policy_version="policy-v7",
-        policy_digest="b" * 64, approval_id=None, provider_operation_id="remote-1",
-        verified_outcome="pending", event_type="dispatch_authorized", timestamp=10,
+            event_id="op-1:dispatch", identity="org:acme/agent:worker",
+            delegated_scope=("file.read",), policy_version="policy-v7",
+            policy_digest="b" * 64, approval_id=None, provider_operation_id="remote-1",
+            verified_outcome="pending", event_type="dispatch_authorized", timestamp=10,
         )
         ledger.append(**event)
         with self.assertRaises(GuardPolicyError):
-        ledger.append(**{**event, "delegated_scope": ("admin",)})
+            ledger.append(**{**event, "delegated_scope": ("admin",)})
         assert ledger.verify()
 
 
@@ -155,23 +155,24 @@ class GuardPolicyManagementTests(unittest.TestCase):
 
         ledger = GuardActionEvidenceLedger(self.tmp_path / "evidence.sqlite3")
         ledger.append(
-        event_id="op:dispatch", identity="worker", delegated_scope=("tool.read",),
-        policy_version="v1", policy_digest="c" * 64, approval_id=None,
-        provider_operation_id="provider-1", verified_outcome="pending",
-        event_type="dispatch_authorized", timestamp=10,
+            event_id="op:dispatch", identity="worker", delegated_scope=("tool.read",),
+            policy_version="v1", policy_digest="c" * 64, approval_id=None,
+            provider_operation_id="provider-1", verified_outcome="pending",
+            event_type="dispatch_authorized", timestamp=10,
         )
         import sqlite3
         with sqlite3.connect(ledger.database) as db:
-        db.execute("UPDATE guard_action_events SET event_json=? WHERE event_id=?", ('{"event_id":"op:dispatch"}', "op:dispatch"))
+            db.execute("UPDATE guard_action_events SET event_json=? WHERE event_id=?", ('{"event_id":"op:dispatch"}', "op:dispatch"))
         assert not ledger.verify()
         with self.assertRaises(GuardPolicyError):
-        ledger.unresolved_operations()
+            ledger.unresolved_operations()
 
 
     def test_local_schedule_without_timezone_fails_closed(self):
         configured = {**policy(rule("deny-publish", "deny", action="publish")), "hours_local": [9]}
         with self.assertRaises(GuardPolicyError):
             evaluate_managed_policy(configured, {"action": "publish"}, now=datetime.fromisoformat("2026-10-25T09:00:00+00:00"))
+
 
     def test_action_evidence_does_not_allow_dispatch_receipt_to_claim_success(self):
         from portable.guard_policy_management import GuardActionEvidenceLedger
