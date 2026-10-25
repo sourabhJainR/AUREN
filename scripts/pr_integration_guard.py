@@ -88,7 +88,7 @@ def api_json(url: str, token: str) -> Any:
         max_bytes=4 * 1024 * 1024,
     )
     if status >= 400:
-        raise RuntimeError("GitHub API request failed")
+        raise RuntimeError(f"GitHub API request failed with HTTP {status}")
     try:
         return json.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
