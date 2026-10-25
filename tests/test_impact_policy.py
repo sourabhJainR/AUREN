@@ -141,6 +141,9 @@ class ImpactPolicyTests(unittest.TestCase):
         network = classify_path("portable/guarded_network.py")
         self.assertTrue(network.hardening_required)
         self.assertIn("tests.test_guarded_network", network.required_suites)
+        agency_sync = classify_path("scripts/sync_agency_agents.py")
+        self.assertTrue(agency_sync.hardening_required)
+        self.assertIn("tests.test_guarded_network", agency_sync.required_suites)
         for path in ("tests/test_guarded_filesystem.py", "tests/test_guarded_network.py"):
             with self.subTest(path=path):
                 impact = classify_path(path)
