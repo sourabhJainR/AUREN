@@ -81,7 +81,7 @@ class ExecutionBoundaryTests(unittest.TestCase):
         self.assertIn("before Popen", mcp_surface["existing_control"])
         self.assertEqual(
             first["coverage"]["mcp_tool_dispatch"],
-            "authority_bound_when_configured_as_consequential",
+            "authority_bound_by_default_with_explicit_read_only_opt_out",
         )
 
     def test_p0_every_direct_gateway_execute_callsite_is_explicitly_reviewed(self):
