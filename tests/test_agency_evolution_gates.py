@@ -216,16 +216,7 @@ class GraphLearningEvidenceGateTests(unittest.TestCase):
             }],
         }
         self.receipt["receipt_digest"] = self.digest(self.receipt)
-        self.holdout_evidence = {
-            task_id: {
-                "baseline_ref": f"baseline://{task_id}",
-                "candidate_ref": f"candidate://{task_id}",
-                "scored": True,
-                "verifier_identity": "verifier-ci",
-                "receipt_digest": self.receipt["receipt_digest"],
-            }
-            for task_id in self.holdout_ids
-        }
+        self.holdout_evidence = self.make_holdout_evidence(self.candidate, self.receipt)
         self.gate = GraphLearningEvidenceGate(
             self.journal,
             pinned_baseline_id=self.baseline["baseline_id"],
@@ -248,13 +239,52 @@ class GraphLearningEvidenceGateTests(unittest.TestCase):
             ensure_ascii=False, allow_nan=False,
         ).encode("utf-8")).hexdigest()
 
+    def make_holdout_evidence(self, candidate, receipt, baseline=None):
+        baseline = baseline or self.baseline
+        candidate_digest = self.digest(candidate)
+        evidence = {}
+        for task_id in self.holdout_ids:
+            baseline_ref = f"baseline://{task_id}"
+            candidate_ref = f"candidate://{task_id}"
+            score_receipt = {
+                "task_id": task_id,
+                "baseline_ref": baseline_ref,
+                "candidate_ref": candidate_ref,
+                "scored": True,
+                "verifier_identity": "verifier-ci",
+                "verification_receipt_digest": receipt["receipt_digest"],
+                "source_revision": candidate["source_revision"],
+                "task_digest": candidate["task_digest"],
+                "intent_digest": candidate["intent_digest"],
+                "baseline_digest": self.baseline["baseline_digest"],
+                "candidate_digest": candidate_digest,
+                "baseline_metric_digest": self.digest(baseline["metrics"][task_id]),
+                "candidate_metric_digest": self.digest(candidate["metrics"][task_id]),
+            }
+            evidence[task_id] = {
+                "baseline_ref": baseline_ref,
+                "candidate_ref": candidate_ref,
+                "scored": True,
+                "verifier_identity": "verifier-ci",
+                "verification_receipt_digest": receipt["receipt_digest"],
+                "score_receipt": score_receipt,
+                "score_receipt_digest": self.digest(score_receipt),
+            }
+        return evidence
+
     def evaluate(self, **overrides):
+        baseline = overrides.get("baseline", self.baseline)
+        candidate = overrides.get("candidate", self.candidate)
+        receipt = overrides.get("verification_receipt", self.receipt)
+        holdout_evidence = overrides.get(
+            "holdout_evidence", self.make_holdout_evidence(candidate, receipt, baseline)
+        )
         args = {
             "run_id": "graph-learning-run-1",
-            "baseline": self.baseline,
-            "candidate": self.candidate,
-            "verification_receipt": self.receipt,
-            "holdout_evidence": self.holdout_evidence,
+            "baseline": baseline,
+            "candidate": candidate,
+            "verification_receipt": receipt,
+            "holdout_evidence": holdout_evidence,
         }
         args.update(overrides)
         return self.gate.evaluate(**args)
@@ -316,10 +346,7 @@ class GraphLearningEvidenceGateTests(unittest.TestCase):
             self.evaluate(verification_receipt=failed)
         self_attested = {**self.receipt, "worker_identity": "verifier-ci"}
         self_attested["receipt_digest"] = self.digest({k: v for k, v in self_attested.items() if k != "receipt_digest"})
-        holdouts = {
-            key: {**value, "receipt_digest": self_attested["receipt_digest"]}
-            for key, value in self.holdout_evidence.items()
-        }
+        holdouts = self.make_holdout_evidence(self.candidate, self_attested)
         with self.assertRaisesRegex(PermissionError, "trusted verifier distinct"):
             self.evaluate(verification_receipt=self_attested, holdout_evidence=holdouts)
 
