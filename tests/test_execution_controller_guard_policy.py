@@ -256,3 +256,95 @@ def test_guard_policy_change_is_rechecked_at_provider_dispatch(tmp_path: Path):
             controller._invoke_consequential_with_ledger(task, guarded_marker_handler)
 
     assert not (tmp_path / "must-not-run.txt").exists()
+
+
+def test_policy_revocation_between_preflight_and_any_handler_dispatch_blocks(tmp_path: Path):
+    import pytest
+    from unittest.mock import patch
+
+    from portable.organization_guard import evaluate_guard_policy
+
+    controller = ExecutionController(tmp_path)
+    controller.register_handler(
+        "tests.guarded_marker_handler", guarded_marker_handler, execution_class="read_only",
+        guard_action="read",
+    )
+    marker = tmp_path / "must-not-run-after-revocation.txt"
+    task = controller.submit("tests.guarded_marker_handler", {"marker_path": str(marker)})
+    allowed = evaluate_guard_policy(None, {"action": "read"})
+    revoked = evaluate_guard_policy(
+        {"schema_version": "auren-guard-v1", "default_effect": "allow",
+         "rules": [{"id": "revoke-read", "effect": "deny", "action": "read"}]},
+        {"action": "read"},
+    )
+
+    with patch.object(controller, "_evaluate_guard_for_task", side_effect=[allowed, revoked]):
+        with pytest.raises(RuntimeError, match="Guard denied handler dispatch"):
+            controller.run_once(task.id)
+
+    assert not marker.exists()
+    assert controller.task(task.id).state == "failed"
+
+
+def test_final_guard_dispatch_receipt_is_persisted_before_handler_runs(tmp_path: Path):
+    import json
+    import sqlite3
+    from unittest.mock import patch
+
+    from portable.organization_guard import evaluate_guard_policy
+
+    controller = ExecutionController(tmp_path)
+    controller.register_handler(
+        "tests.guarded_marker_handler", guarded_marker_handler, execution_class="read_only",
+        guard_action="read",
+    )
+    marker = tmp_path / "guarded-dispatch.txt"
+    task = controller.submit("tests.guarded_marker_handler", {"marker_path": str(marker)})
+    allowed = evaluate_guard_policy(None, {"action": "read"})
+
+    with patch.object(controller, "_evaluate_guard_for_task", side_effect=[allowed, allowed, allowed]):
+        controller.run_once(task.id)
+
+    assert marker.exists()
+    with sqlite3.connect(controller.evidence_capture.path) as db:
+        row = db.execute(
+            "SELECT status,metadata_json FROM engineering_events "
+            "WHERE task_id=? AND event_type='guard_dispatch_decision'",
+            (task.id,),
+        ).fetchone()
+    assert row is not None
+    assert row[0] == "allowed"
+    metadata = json.loads(row[1])
+    assert metadata["guard_action"] == "read"
+    assert metadata["guard_decision"] == "allow"
+    assert len(metadata["guard_policy_digest"]) == 64
+    assert "marker_path" not in row[1]
+
+
+
+def test_policy_change_during_guard_receipt_persistence_blocks_handler(tmp_path: Path):
+    import pytest
+    from unittest.mock import patch
+
+    from portable.organization_guard import evaluate_guard_policy
+
+    controller = ExecutionController(tmp_path)
+    controller.register_handler(
+        "tests.guarded_marker_handler", guarded_marker_handler, execution_class="read_only",
+        guard_action="read",
+    )
+    marker = tmp_path / "must-not-run-after-receipt-race.txt"
+    task = controller.submit("tests.guarded_marker_handler", {"marker_path": str(marker)})
+    allowed = evaluate_guard_policy(None, {"action": "read"})
+    revoked = evaluate_guard_policy(
+        {"schema_version": "auren-guard-v1", "default_effect": "allow",
+         "rules": [{"id": "revoke-after-receipt", "effect": "deny", "action": "read"}]},
+        {"action": "read"},
+    )
+
+    with patch.object(controller, "_evaluate_guard_for_task", side_effect=[allowed, allowed, revoked]):
+        with pytest.raises(RuntimeError, match="changed after decision receipt"):
+            controller.run_once(task.id)
+
+    assert not marker.exists()
+    assert controller.task(task.id).state == "failed"

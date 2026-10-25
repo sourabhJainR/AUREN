@@ -27,7 +27,7 @@ class ExecutionControllerEvidenceTests(unittest.TestCase):
         capture = self.controller.evidence_capture
         events = capture.events(task_id=task.id)
         self.assertEqual([event["event_type"] for event in events], [
-            "task_submitted", "task_attempt_started", "task_completed",
+            "task_submitted", "task_attempt_started", "guard_dispatch_decision", "task_completed",
         ])
         self.assertEqual(events[1]["iteration"], 1)
         serialized = repr(events)

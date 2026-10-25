@@ -35,6 +35,7 @@ _EVENT_TYPES = frozenset({
     "provider_operation_dispatching", "provider_operation_completed",
     "provider_operation_reconcile_required", "provider_operation_blocked",
     "approval_waiting", "approval_recovered_after_restart", "approval_resume_ready",
+    "guard_dispatch_decision",
 })
 _SOURCE_TYPES = frozenset({
     "auren_runtime", "ci", "external_evaluator", "oracle_custody",

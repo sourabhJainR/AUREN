@@ -2907,6 +2907,51 @@ class ExecutionController:
             )
             handler = self._load_handler(task.handler)
             execution_class = self._handler_execution_class(task.handler)
+            # Close the preflight-to-dispatch policy-change window for every
+            # registered handler, not only consequential provider operations.
+            try:
+                dispatch_guard = self._evaluate_guard_for_task(task)
+            except (GuardPolicyError, OSError, ValueError) as exc:
+                raise RuntimeError(
+                    "organization Guard could not be verified immediately before handler dispatch"
+                ) from exc
+            if not dispatch_guard.allowed:
+                raise RuntimeError(
+                    "organization Guard denied handler dispatch: " + dispatch_guard.reason
+                )
+            # Persist the exact final policy decision before the handler can act.
+            # Evidence failure raises here and therefore prevents dispatch.
+            dispatch_action = infer_delivery_action(task.handler, {}) or self._handler_guard_action(task.handler)
+            self._capture_event(
+                "guard_dispatch_decision",
+                task,
+                status="allowed",
+                metadata={
+                    "guard_action": dispatch_action or "unclassified",
+                    "guard_policy_digest": dispatch_guard.policy_digest,
+                    "guard_decision": dispatch_guard.effect,
+                    "guard_rule_ids": ",".join(dispatch_guard.matched_rule_ids) or "none",
+                },
+                event_id=f"guard-dispatch:{task.id}:{task.attempts}:{dispatch_guard.policy_digest}",
+            )
+            # Evidence capture is part of preflight, not permission to execute.
+            # Recheck after receipt persistence so a policy replacement during
+            # the write cannot turn a stale allow into a dispatch.
+            try:
+                final_guard = self._evaluate_guard_for_task(task)
+            except (GuardPolicyError, OSError, ValueError) as exc:
+                raise RuntimeError(
+                    "organization Guard could not be verified at the final handler boundary"
+                ) from exc
+            if (
+                not final_guard.allowed
+                or final_guard.policy_digest != dispatch_guard.policy_digest
+                or final_guard.effect != dispatch_guard.effect
+                or final_guard.matched_rule_ids != dispatch_guard.matched_rule_ids
+            ):
+                raise RuntimeError(
+                    "organization Guard changed after decision receipt; handler dispatch blocked"
+                )
             if execution_class == "consequential":
                 result = self._invoke_consequential_with_ledger(task, handler)
             else:
