@@ -211,6 +211,7 @@ def main() -> int:
         sentinel_unchanged = sentinel.read_bytes() == original_sentinel
         checks["host_sentinel_unchanged"] = sentinel_unchanged
         checks["host_process_not_visible"] = checks.get("host_process_not_visible") is True
+        checks["container_cleanup_verified"] = attached is not None and attached.termination_error is None
         policy_passed = bool(container_policy) and all(container_policy.values())
         probes_passed = bool(checks) and all(checks.values())
         evidence = {
