@@ -37,6 +37,22 @@ class DockerEvaluatorPolicyTests(unittest.TestCase):
         self.assertEqual(run.call_count, 2)
         self.assertIn("image", run.call_args_list[1].args[0])
 
+
+    def test_container_id_property_accepts_only_a_valid_docker_id(self):
+        with tempfile.TemporaryDirectory() as directory:
+            cid_path = Path(directory) / "container.cid"
+            process = Mock()
+            process.stdin = Mock()
+            process.stdout = Mock()
+            process.pid = 1
+            attached = _DockerAttachedProcess(process, cid_path, "docker")
+            self.assertIsNone(attached.container_id)
+            cid_path.write_text("not-a-container-id", encoding="ascii")
+            self.assertIsNone(attached.container_id)
+            expected = "a" * 64
+            cid_path.write_text(expected, encoding="ascii")
+            self.assertEqual(expected, attached.container_id)
+
     @patch("portable.docker_isolated_evaluator.subprocess.Popen")
     @patch("portable.docker_isolated_evaluator.subprocess.run")
     def test_launch_enforces_container_security_contract(self, run, popen):
