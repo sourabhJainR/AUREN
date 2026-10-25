@@ -67,6 +67,7 @@ def test_dashboard_projects_effective_workflow_profile_without_exposing_payload(
         progress = snapshot["tasks"]["progress"]
         row = next(item for item in progress if item["task_id"] == "profile-task")
         assert row["workflow_profile_status"] == "verified"
+        assert row["workflow_profile"]["profile_version"] == "auren-workflow-v1"
         assert row["workflow_profile"]["delivery_mode"] == "stage_only"
         assert row["workflow_profile"]["execution_mode"] == "autonomous"
         assert row["workflow_profile"]["approval_mode"] == "before_push_or_pr"
