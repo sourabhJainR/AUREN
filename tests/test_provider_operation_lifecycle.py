@@ -58,6 +58,30 @@ def _crash_after_provider_receipt_before_event_projection(
     os._exit(85)
 
 
+def _crash_after_intent_commit_before_dispatch(database: str, provider_log: str) -> None:
+    lifecycle = ProviderOperationLifecycle(DurableSideEffectLedger(database))
+    original_begin = lifecycle.ledger.begin
+
+    def commit_then_die(operation_key, payload):
+        decision = original_begin(operation_key, payload)
+        if decision.action == "execute":
+            # begin() has committed the durable intent. Simulate process death
+            # before execute() can emit dispatching or call the provider.
+            os._exit(86)
+        return decision
+
+    lifecycle.ledger.begin = commit_then_die
+    def dispatch(*_args):
+        with Path(provider_log).open("a", encoding="utf-8") as stream:
+            stream.write("must-not-dispatch\\n")
+        return {"status": "completed", "provider_operation_id": "unexpected"}
+    lifecycle.execute(
+        "deploy:pre-dispatch-crash:staging", "provider-a",
+        {"target": "staging", "revision": "pre-dispatch-crash"}, dispatch,
+    )
+    os._exit(87)
+
+
 class ProviderOperationLifecycleTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -129,6 +153,39 @@ class ProviderOperationLifecycleTests(unittest.TestCase):
         )
         self.assertEqual(receipt, replay)
         self.assertEqual([operation_id], Path(provider_log).read_text(encoding="utf-8").splitlines())
+
+
+    def test_process_death_after_intent_commit_before_dispatch_never_replays(self):
+        database = str(self.path)
+        provider_log = str(self.path.parent / "pre-dispatch-provider.log")
+        process = multiprocessing.get_context("spawn").Process(
+            target=_crash_after_intent_commit_before_dispatch,
+            args=(database, provider_log),
+        )
+        process.start()
+        process.join(15)
+        if process.is_alive():
+            process.terminate()
+            process.join(3)
+            self.fail("pre-dispatch crash fixture exceeded its time budget")
+        self.assertEqual(86, process.exitcode)
+        self.assertFalse(Path(provider_log).exists(), "provider must not be called before intent crash point")
+
+        key = "deploy:pre-dispatch-crash:staging"
+        ledger = self.ledger()
+        stored = ledger.get(key)
+        self.assertIsNotNone(stored)
+        self.assertEqual("executing", stored["state"])
+
+        lifecycle = ProviderOperationLifecycle(ledger, record_event=self.events.append)
+        with self.assertRaises(ProviderOutcomeBlocked):
+            lifecycle.execute(
+                key, "provider-a", {"target": "staging", "revision": "pre-dispatch-crash"},
+                lambda *_: self.fail("an interrupted intent must not be redispatched without lookup"),
+            )
+        self.assertEqual("reconcile_required", self.ledger().get(key)["state"])
+        self.assertFalse(Path(provider_log).exists())
+        process.close()
 
 
     def test_receipt_commit_before_event_projection_recovers_without_redispatch(self):
