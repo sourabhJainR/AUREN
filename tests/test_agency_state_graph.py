@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import time
 import unittest
-from threading import Event, Thread
+from threading import Event, Lock, Thread
 
 from portable.agency_state_graph import (
     GraphInterrupt,
@@ -63,6 +63,49 @@ class StateGraphTests(unittest.TestCase):
         resumed = graph.compile().invoke({}, run_id="r1", checkpoint=store, resume=True)
         self.assertTrue(resumed.state["planned"])
         self.assertTrue(resumed.state["acted"])
+
+    def test_single_parallel_candidate_runs_inline_without_executor(self):
+        from unittest.mock import patch
+
+        graph = StateGraph()
+        graph.add_node("single", lambda _state: {"done": True})
+        graph.add_edge(StateGraph.START, "single").add_edge("single", StateGraph.END)
+        with patch("portable.agency_state_graph.ThreadPoolExecutor", side_effect=AssertionError("executor overhead")):
+            result = graph.compile().invoke(
+                {}, parallel_nodes=lambda _name: True, max_parallel_nodes=4,
+            )
+        self.assertTrue(result.state["done"])
+
+    def test_low_benefit_parallel_nodes_run_serially_when_estimates_show_overhead(self):
+        active = 0
+        peak = 0
+        lock = Lock()
+
+        def work(name):
+            nonlocal active, peak
+            with lock:
+                active += 1
+                peak = max(peak, active)
+            time.sleep(0.02)
+            with lock:
+                active -= 1
+            return {name: True}
+
+        graph = StateGraph()
+        graph.add_node("a", lambda _state: work("a"))
+        graph.add_node("b", lambda _state: work("b"))
+        graph.add_edge(StateGraph.START, "a").add_edge(StateGraph.START, "b")
+        graph.add_edge("a", StateGraph.END).add_edge("b", StateGraph.END)
+        result = graph.compile().invoke(
+            {},
+            parallel_nodes=lambda _name: True,
+            max_parallel_nodes=2,
+            node_duration_estimates={"a": 0.001, "b": 0.002},
+            parallel_overhead_seconds=0.01,
+        )
+        self.assertEqual(peak, 1)
+        self.assertTrue(result.state["a"])
+        self.assertTrue(result.state["b"])
 
     def test_parallel_timeout_signals_cancellation_in_isolate_mode(self):
         started = Event()
