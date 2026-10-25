@@ -31,7 +31,8 @@ Local skills are discovered from:
 - `skills/<name>/SKILL.md`
 - paths listed in `AUREN_SKILLS_PATH`
 
-MCP and plugin hosts can advertise bounded capability metadata through
+Tool, API, MCP and plugin hosts can advertise bounded capability metadata
+through `AUREN_TOOL_CAPABILITIES`, `AUREN_API_CAPABILITIES`,
 `AUREN_MCP_CAPABILITIES` and `AUREN_PLUGIN_CAPABILITIES`. Each variable contains
 a JSON array of descriptors. The runtime ignores malformed or unavailable
 sources and continues with built-in capabilities.
@@ -249,3 +250,20 @@ the task is non-consequential; consequential work must remain blocked if its
 required audit cannot be persisted. Existing experience records remain the
 learning source of truth; audit rows are an append-only explanation trail, not
 a second policy or learning engine.
+
+
+## Explicit user constraints take precedence over learned ranking
+
+The collaborative selector recognizes exact named directives such as `must use
+mcp:repo-search`, `use only skill:repo-review`, and `do not use
+mcp:remote-write`. Explicit required options are included in the chosen bundle;
+multiple requirements are combined only within the configured bundle limit.
+An unavailable, excluded, over-limit, or policy-blocked requirement fails closed
+instead of silently substituting a different tool. Explicit exclusions are
+removed before scoring. Learned outcomes, cost and latency optimize only among
+the remaining compliant choices.
+
+This directive parser is intentionally conservative: it matches exact option
+names (and their final namespaced component) after explicit directive phrases.
+It does not infer permission from natural-language tool mentions, and no user
+directive can override authority, network, sandbox, risk or verification gates.
