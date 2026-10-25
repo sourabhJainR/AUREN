@@ -187,12 +187,12 @@ class GraphWorkspaceCoordinator:
             adopted_paths = {
                 item.decode("utf-8", errors="strict") for item in _git(
                     self.project_root, "diff", "--name-only", "-z", proposal.base_revision, "--"
-                ).split(b"\\x00") if item
+                ).split(b"\x00") if item
             }
             adopted_paths.update(
                 item.decode("utf-8", errors="strict") for item in _git(
                     self.project_root, "ls-files", "--others", "--exclude-standard", "-z"
-                ).split(b"\\x00") if item
+                ).split(b"\x00") if item
             )
             adopted = tuple(sorted(adopted_paths))
             if adopted != proposal.paths:
