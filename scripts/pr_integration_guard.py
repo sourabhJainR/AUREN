@@ -12,6 +12,7 @@ import subprocess
 import sys
 import urllib.error
 import urllib.request
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from typing import Any
 
 
@@ -53,6 +54,24 @@ def api_json(url: str, token: str) -> Any:
         return json.load(response)
 
 
+def api_list(url: str, token: str) -> list[dict[str, Any]]:
+    """Read every page of a GitHub list endpoint; truncation must not hide overlap."""
+    parts = urlsplit(url)
+    query = [(key, value) for key, value in parse_qsl(parts.query) if key not in {"page", "per_page"}]
+    items: list[dict[str, Any]] = []
+    page = 1
+    while True:
+        paged_query = urlencode(query + [("per_page", "100"), ("page", str(page))])
+        page_url = urlunsplit((parts.scheme, parts.netloc, parts.path, paged_query, parts.fragment))
+        result = api_json(page_url, token)
+        if not isinstance(result, list):
+            raise ValueError("GitHub list endpoint returned a non-list response")
+        items.extend(result)
+        if len(result) < 100:
+            return items
+        page += 1
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--repo", required=True)
@@ -72,15 +91,15 @@ def main() -> int:
         if not token:
             raise ValueError("GITHUB_TOKEN is required")
         root = f"https://api.github.com/repos/{args.repo}"
-        current_files = api_json(f"{root}/pulls/{args.pr}/files?per_page=100", token)
+        current_files = api_list(f"{root}/pulls/{args.pr}/files", token)
         current_paths = {item["filename"] for item in current_files}
-        open_prs = api_json(f"{root}/pulls?state=open&per_page=100", token)
+        open_prs = api_list(f"{root}/pulls?state=open", token)
         overlaps = []
         base_branch_name = args.base_ref.rsplit("/", 1)[-1]
         for pr in open_prs:
             if pr.get("number") == args.pr or pr.get("base", {}).get("ref") != base_branch_name:
                 continue
-            changed = api_json(f"{root}/pulls/{pr['number']}/files?per_page=100", token)
+            changed = api_list(f"{root}/pulls/{pr['number']}/files", token)
             shared = sorted(current_paths.intersection(item["filename"] for item in changed))
             if shared:
                 overlaps.append({"number": pr["number"], "title": pr["title"], "paths": shared})
