@@ -415,7 +415,7 @@ class CompiledStateGraph:
                 if sequential_estimate - parallel_estimate <= float(parallel_overhead_seconds):
                     sequential = [name for name in next_nodes if name != StateGraph.END]
                     parallel = []
-            results_by_name: dict[str, tuple[Mapping[str, Any], int]] = {
+            results_by_name: dict[str, tuple[Mapping[str, Any], int]] = {}
             isolated_failures: set[str] = set()
             if cancellation and cancellation.is_set():
                 self._checkpoint(checkpoint, run_id, step - 1, current, next_nodes, trace, guard)
