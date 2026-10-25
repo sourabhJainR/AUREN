@@ -36,7 +36,7 @@ from .provider_operation_lifecycle import ProviderOutcomeBlocked
 from .durable_approval import ApprovalPending, InvalidApprovalTransition
 from .workflow_profile import WorkflowProfile, delivery_mode_allows, infer_delivery_action, resolve_profile
 from .workflow_profile_store import load_profile
-from .organization_guard import GuardPolicyError, evaluate_guard_policy, load_guard_policy
+from .organization_guard import GuardDecision, GuardPolicyError, evaluate_guard_policy, load_guard_policy
 
 Handler = Callable[[Mapping[str, Any]], Any]
 
@@ -515,6 +515,30 @@ class ExecutionController:
         value = row[0]
         return value if isinstance(value, str) else ""
 
+    def _evaluate_guard_for_task(self, task: DurableTask) -> GuardDecision:
+        """Evaluate current organization policy using trusted handler registration context."""
+        policy = load_guard_policy(self.root / ".auren" / "guard_policy.json")
+        execution_class = self._handler_execution_class(task.handler)
+        action = infer_delivery_action(task.handler, {}) or self._handler_guard_action(task.handler)
+        resource = task.payload.get("resource", task.payload.get("resource_id", task.payload.get("path", "")))
+        if resource is not None and not isinstance(resource, str):
+            raise GuardPolicyError("Guard resource selector must be a string")
+        organization_id = __import__("os").environ.get("AUREN_ORGANIZATION_ID", "")
+        approval_policy = self._handler_approval_gate_policy(task.handler)
+        return evaluate_guard_policy(
+            policy,
+            {
+                "action": action,
+                "tool": task.handler,
+                "resource": resource if isinstance(resource, str) else "",
+                "organization_id": organization_id,
+                "agent_id": task.handler,
+                "risk": "high" if execution_class in {"consequential", "approval_gated"} else "standard",
+            },
+            mandatory_authorized=True,
+            approval_gate_configured=(execution_class == "approval_gated" and bool(approval_policy)),
+        )
+
     def _handler_execution_class(self, name: str) -> str:
         with closing(sqlite3.connect(self.db_path)) as db, db:
             row = db.execute("SELECT execution_class FROM handlers WHERE name=?", (name,)).fetchone()
@@ -719,29 +743,7 @@ class ExecutionController:
             # authority grant: existing approval, exact-head CI, and promotion
             # gates below remain independently mandatory.
             try:
-                guard_policy = load_guard_policy(self.root / ".auren" / "guard_policy.json")
-                execution_class = self._handler_execution_class(task.handler)
-                # Task payload action labels are caller-controlled and cannot be
-                # treated as proof of the operation a handler will perform.
-                guard_action = infer_delivery_action(task.handler, {}) or self._handler_guard_action(task.handler)
-                resource = task.payload.get("resource", task.payload.get("resource_id", task.payload.get("path", "")))
-                if resource is not None and not isinstance(resource, str):
-                    return False, "Guard resource selector must be a string", ("guard-policy:invalid-resource", "guard-policy:blocked")
-                organization_id = __import__("os").environ.get("AUREN_ORGANIZATION_ID", "")
-                approval_policy = self._handler_approval_gate_policy(task.handler)
-                guard_decision = evaluate_guard_policy(
-                    guard_policy,
-                    {
-                        "action": guard_action,
-                        "tool": task.handler,
-                        "resource": resource if isinstance(resource, str) else "",
-                        "organization_id": organization_id,
-                        "agent_id": task.handler,
-                        "risk": "high" if execution_class in {"consequential", "approval_gated"} else "standard",
-                    },
-                    mandatory_authorized=True,
-                    approval_gate_configured=(execution_class == "approval_gated" and bool(approval_policy)),
-                )
+                guard_decision = self._evaluate_guard_for_task(task)
             except (GuardPolicyError, OSError, ValueError) as exc:
                 return False, f"configured Guard policy could not be verified: {type(exc).__name__}", ("guard-policy:invalid", "guard-policy:blocked")
             if not guard_decision.allowed:
@@ -1142,9 +1144,10 @@ class ExecutionController:
                 raise RuntimeError("cannot record invalid workflow profile receipt") from exc
         try:
             configured_policy = load_guard_policy(self.root / ".auren" / "guard_policy.json")
-            safe_metadata["guard_policy_digest"] = evaluate_guard_policy(
-                configured_policy, {},
-            ).policy_digest
+            if "guard_policy_digest" not in safe_metadata:
+                safe_metadata["guard_policy_digest"] = evaluate_guard_policy(
+                    configured_policy, {},
+                ).policy_digest
         except (GuardPolicyError, OSError, ValueError):
             safe_metadata["guard_policy_status"] = "invalid"
         self.evidence_capture.record(
@@ -2607,6 +2610,7 @@ class ExecutionController:
             "packet_digest": metadata.get("packet_digest"),
             "handler": task.handler,
             "payload_digest": payload_digest,
+            "guard": guard_binding,
         }
         binding_digest = hashlib.sha256(
             json.dumps(binding, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
@@ -2620,14 +2624,22 @@ class ExecutionController:
             )
 
     def _invoke_consequential_with_ledger(self, task: DurableTask, handler: Handler) -> Any:
-        """Run consequential handlers behind the durable idempotency/reconciliation ledger.
+        """Run consequential handlers behind durable idempotency and Guard binding.
 
-        The ledger intent is committed before handler invocation. A completed receipt
-        is replayed without calling the handler; an interrupted/ambiguous execution
-        returns a reconciliation decision and fails closed. This is not a claim of
-        distributed exactly-once execution: provider-side lookup/idempotency remains
-        necessary for resolving uncertain outcomes.
+        The current organization policy is re-evaluated at dispatch. The decision
+        digest and trusted registered action are included in the ledger binding so
+        policy changes cannot silently replay an operation under different authority.
         """
+        guard_decision = self._evaluate_guard_for_task(task)
+        if not guard_decision.allowed:
+            raise RuntimeError("organization Guard denied consequential dispatch: " + guard_decision.reason)
+        guard_action = infer_delivery_action(task.handler, {}) or self._handler_guard_action(task.handler)
+        guard_binding = {
+            "action": guard_action,
+            "policy_digest": guard_decision.policy_digest,
+            "effect": guard_decision.effect,
+            "matched_rule_ids": list(guard_decision.matched_rule_ids),
+        }
         dispatch = task.payload.get("auren_dispatch")
         idempotency = task.payload.get("auren_idempotency")
         engineering_key = (
@@ -2806,10 +2818,22 @@ class ExecutionController:
             DurableSideEffectLedger(self.db_path), record_event=record_provider_event,
         )
         def dispatch_provider(intent: Mapping[str, Any], operation_id: str, idempotency_key: str) -> Mapping[str, Any]:
+            latest_guard = self._evaluate_guard_for_task(task)
+            if (
+                not latest_guard.allowed
+                or latest_guard.policy_digest != guard_decision.policy_digest
+                or latest_guard.effect != guard_decision.effect
+                or latest_guard.matched_rule_ids != guard_decision.matched_rule_ids
+            ):
+                raise RuntimeError("Guard policy changed or denied the action before provider dispatch")
             provider_payload = dict(task.payload)
             provider_payload["auren_provider_operation"] = {
                 "operation_id": operation_id, "idempotency_key": idempotency_key,
                 "provider": provider_name,
+                "guard_action": guard_action or "unclassified",
+                "guard_policy_digest": guard_decision.policy_digest,
+                "guard_decision": guard_decision.effect,
+                "guard_rule_ids": ",".join(guard_decision.matched_rule_ids) or "none",
                 "intent_digest": hashlib.sha256(
                     json.dumps(dict(intent), sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
                 ).hexdigest(),
