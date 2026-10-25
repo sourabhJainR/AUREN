@@ -33,10 +33,10 @@ When two instructions conflict, report the conflict and choose the safer reversi
 
 ## Required workflow behavior
 
-- **Commit mode:** create small, coherent commits only after checks selected by the profile and repository policy pass. Never include unrelated or untracked user files without consent.
-- **Stage-only mode:** stage only task-owned paths; do not commit. Report staged and unstaged changes separately.
-- **Working-tree mode:** leave changes uncommitted and identify changed paths and validation status.
-- **Patch/PR mode:** use a branch and reviewable PR; bind evidence to the exact head SHA.
+- **Commit mode:** create small, coherent commits only after checks selected by the profile and repository policy pass. Never include unrelated or untracked user files without consent. `commit_each_change` does not authorize push, PR creation, merge, release, publish, or deploy.
+- **Stage-only mode:** stage only task-owned paths; do not commit, push, create/open a PR, merge, publish, release, or deploy. A stage-only task must stop after staging and verification, even when execution cadence is autonomous. Report staged and unstaged changes separately. The supervisor must reject consequential or approval-gated handlers before dispatch in this mode.
+- **Working-tree mode:** leave changes uncommitted and identify changed paths and validation status. Do not commit, push, create/open a PR, or merge.
+- **Patch/PR mode:** use a branch and reviewable PR; bind evidence to the exact head SHA. PR mode does not itself authorize merge, release, publish, or deploy; existing operator-owned approval, exact-head CI, promotion, and rollback gates remain mandatory.
 - **Autonomous mode:** continue through bounded implementation, tests, and safe local fixes until the task is complete or a hard blocker, budget/deadline, approval boundary, or no-progress threshold is reached. Poll existing CI where supported; never claim a check passed while queued, running, skipped, or missing.
 - **Failure behavior:** preserve diagnostic evidence, state what is blocked, record the next safe action, and use a documented rollback or recovery path. Do not silently discard work.
 - **User data:** protect unrelated changes, configuration, credentials, local memory, and project data during install, upgrade, migration, rollback, and cleanup.
