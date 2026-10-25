@@ -204,6 +204,26 @@ class TestAgencyObservability(unittest.TestCase):
 
 
 
+    def test_terminal_trace_state_is_emitted_once_and_cannot_be_rewritten(self):
+        path = self.tmp_path / "terminal-events.jsonl"
+        tracer = Tracer(LocalExporter(path, enabled=True))
+        trace = tracer.start("terminal-state", task_id="task-terminal")
+
+        tracer.end(trace, status="cancelled")
+        tracer.end(trace, status="cancelled")
+        with self.assertRaisesRegex(ValueError, "already finished"):
+            trace.finish("ok")
+
+        records = [json.loads(line) for line in path.read_text().splitlines()]
+        terminal = [
+            record for record in records
+            if record.get("event_type") == "trace_finished"
+            and record.get("trace_id") == trace.trace_id
+        ]
+        assert len(terminal) == 1
+        assert terminal[0]["status"] == "cancelled"
+        assert terminal[0]["end"] is not None
+
     def test_unsupported_objects_never_invoke_arbitrary_repr(self):
         class UnsafeRepresentation:
             def __repr__(self):
