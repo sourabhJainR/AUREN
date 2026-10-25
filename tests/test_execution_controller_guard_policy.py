@@ -259,6 +259,7 @@ def test_guard_policy_change_is_rechecked_at_provider_dispatch(tmp_path: Path):
 
 
 def test_policy_revocation_between_preflight_and_any_handler_dispatch_blocks(tmp_path: Path):
+    import pytest
     from unittest.mock import patch
 
     from portable.organization_guard import evaluate_guard_policy
@@ -278,7 +279,8 @@ def test_policy_revocation_between_preflight_and_any_handler_dispatch_blocks(tmp
     )
 
     with patch.object(controller, "_evaluate_guard_for_task", side_effect=[allowed, revoked]):
-        controller.run_once(task.id)
+        with pytest.raises(RuntimeError, match="Guard denied handler dispatch"):
+            controller.run_once(task.id)
 
     assert not marker.exists()
     assert controller.task(task.id).state == "failed"
