@@ -145,3 +145,26 @@ syscalls, IPC, kernel escape resistance, or Windows/macOS isolation.
 
 Rollback: retain fail-closed sandbox launch. Do not replace runtime evidence with
 unit tests or application Guard decisions.
+
+
+## Network boundary coverage and remaining direct clients
+
+The bounded pinned HTTPS helper is now used by the GitHub Actions check poller,
+the upstream agency-sync fetcher, and the new denial-before-DNS/socket tests.
+The PR integration guard is a bootstrap dependency of the CI conflict gate; it
+validates HTTPS URLs against `api.github.com` and refuses cross-host redirects,
+but still uses the standard library transport and is **not DNS-pinned**. This
+exception is explicit so a transport failure cannot silently disable the
+merge-safety gate.
+
+The portable updater's metadata/archive download and the optional local-LLM
+endpoint still have direct network callsites. They are not considered covered
+by the new helper until they are migrated and tested at their actual boundary.
+The local-LLM client needs a separate contract because it supports local HTTP
+providers as well as optional embedded inference. OS egress policy remains the
+backstop for all subprocesses and SDKs that bypass Python-level clients.
+
+Next migration gates: (1) bounded guarded download with an explicit redirect
+host chain for the updater; (2) local-LLM endpoint policy that defaults to
+loopback and requires an explicit host scope for remote endpoints; (3) an AST
+inventory that fails on new direct network APIs without a reviewed disposition.
