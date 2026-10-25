@@ -18,8 +18,9 @@ Do not introduce a second planner, scheduler, retry ledger, evidence store, memo
 
 1. Derive graph edges and prerequisite checks from the canonical `TaskPlan`; reject cycles and missing dependencies before dispatch.
 2. Bind the run to a stable TaskPlan definition digest and the exact intent digest. Resume rejects a changed digest before dispatch; task status and execution output do not alter the plan digest.
-3. Use the existing `StateGraph` scheduler for independent, read-only supersteps. Do not add another scheduler or executor. Keep shared-resource mutations, canonical memory writes, evidence finalization, and adoption serialized.
-4. Enforce one task-wide concurrency, deadline, attempt, and resource budget across nested graph and crew boundaries.
+3. Use the existing `StateGraph` scheduler for independent, read-only supersteps. Run a single eligible node inline; when duration estimates exist, fan out only if estimated savings exceed configured overhead. Do not add another scheduler or executor.
+4. Keep local commands and the learning steward out of parallel fan-out. SharedTaskMemory file writes and persistent learning-experience writes are serialized; shared-resource mutations, evidence finalization, and adoption remain serialized.
+5. Enforce one task-wide concurrency, deadline, attempt, and resource budget across nested graph and crew boundaries.
 4. If the task is narrow or sequential, execute the chain without adding parallel coordination overhead.
 5. On a hard safety failure or exhausted task budget, stop scheduling new work, request cancellation of siblings, and record any non-preemptible worker as still running/unknown until confirmed stopped.
 

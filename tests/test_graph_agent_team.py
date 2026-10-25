@@ -307,6 +307,8 @@ class GraphAgentTeamTests(unittest.TestCase):
             result = team.execute(task="X", intent_digest="intent-a", base_prompt="base", memory=memory, invoke_agent=invoke)
             self.assertTrue(result["accepted"])
             self.assertEqual(peak, 2)
+            published_agents = {row["agent"] for row in memory.snapshot()}
+            self.assertTrue({"planner", "explorer", "researcher", "builder"}.issubset(published_agents))
 
     def test_checkpoint_resume_does_not_repeat_completed_agents(self):
         with tempfile.TemporaryDirectory() as tmp:

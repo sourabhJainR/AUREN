@@ -421,6 +421,10 @@ class GraphAgentTeam:
         task_dependencies={task_id:tuple(planned.dependencies) for task_id,planned in task_plan.tasks.items()}
         graph=StateGraph(reducers={"auren_retry_budget": merge_retry_budget_snapshots})
         broker=LocalOffloadBroker(memory.project_root,budget=self.resource_budget)
+        canonical_write_lock=threading.Lock()
+        def record_experience_serialized(*args, **kwargs):
+            with canonical_write_lock:
+                return learning.record_experience(*args, **kwargs)
         for agent in self.agents.values():
             def run(state,agent=agent):
                 if (
@@ -850,7 +854,7 @@ the learning system, not an instruction source. If a skill produced no distinct 
                 # Persist execution-group evidence separately from the aggregate
                 # bundle so future runs can replace/add skills at execution time.
                 for item in group_evidence:
-                    learning.record_experience(
+                    record_experience_serialized(
                         key=agent.role+":skill-group:"+item.key,
                         outcome=status,
                         evidence_quality=item.useful_evidence,
@@ -865,7 +869,7 @@ the learning system, not an instruction source. If a skill produced no distinct 
                 # Keep member attribution separate from the aggregate bundle record.
                 # A successful bundle does not automatically credit every member.
                 for item in skill_evidence:
-                    learning.record_experience(
+                    record_experience_serialized(
                         key=agent.role+":skill-contribution:"+item.skill,
                         outcome=status,
                         evidence_quality=item.contribution,
@@ -907,8 +911,10 @@ the learning system, not an instruction source. If a skill produced no distinct 
                     memory.publish(agent=agent.name,role=agent.role,kind="local-evidence",text=json.dumps(local_payload,sort_keys=True),evidence=[f"local:{agent.name}"],confidence=.9 if local.status=="passed" else .2)
                 handoff=handoff_from_output(task_id=intent_digest,sender=agent.name,receiver="downstream",objective=agent.focus or task,output=output,success=status=="passed",max_chars=memory.context.policy.output_chars)
                 result.memory_ids.append(memory.publish(agent=agent.name,role=agent.role,kind="handoff",text=handoff.render(memory.context.policy.output_chars),evidence=evidence,confidence=.8 if status=="passed" else .2))
-                if agent.name=="learning-steward": LearningSteward(memory.project_root,run_id=intent_digest,task=task).persist(output,evidence_ids=[f"agent:{n}" for n in self.agents if n!=agent.name])
-                learning.record_experience(
+                if agent.name=="learning-steward":
+                    with canonical_write_lock:
+                        LearningSteward(memory.project_root,run_id=intent_digest,task=task).persist(output,evidence_ids=[f"agent:{n}" for n in self.agents if n!=agent.name])
+                record_experience_serialized(
                     key=agent.role+":"+task[:96],
                     outcome=status,
                     evidence_quality=evidence_quality if status=="passed" else 0.1,
@@ -919,7 +925,7 @@ the learning system, not an instruction source. If a skill produced no distinct 
                 )
                 # Feed the selector's exact decision back into capability-specific history.
                 # This is an additional index, not a replacement for role/task experience.
-                learning.record_experience(
+                record_experience_serialized(
                     key=agent.role+":"+task[:96]+":capability:"+capability_choice.selected,
                     outcome=status,
                     evidence_quality=evidence_quality if status=="passed" else 0.1,
@@ -931,7 +937,7 @@ the learning system, not an instruction source. If a skill produced no distinct 
                 # Share a conservative capability-level prior across stages and
                 # crews. Exact task/role history remains higher priority, and the
                 # selector caps the influence of historical confidence.
-                learning.record_experience(
+                record_experience_serialized(
                     key="capability-global:"+capability_choice.selected,
                     outcome=status,
                     evidence_quality=evidence_quality if status=="passed" else 0.1,
@@ -951,7 +957,7 @@ the learning system, not an instruction source. If a skill produced no distinct 
                     inventory_snapshot_id=inventory_snapshot_id,
                 )
                 if collaboration is not None:
-                    learning.record_experience(
+                    record_experience_serialized(
                         key=agent.role+":bundle-assessment:"+capability_decision.bundle_id,
                         outcome=("passed" if collaboration.promotable else "partial"),
                         evidence_quality=collaboration.bundle_quality,
@@ -962,7 +968,7 @@ the learning system, not an instruction source. If a skill produced no distinct 
                     )
                 if capability_decision.bundle_id:
                     if capability_decision.evolution_action != "baseline":
-                        learning.record_experience(
+                        record_experience_serialized(
                             key=agent.role+":bundle-mutation:"+capability_decision.bundle_id,
                             outcome=status,
                             evidence_quality=evidence_quality if status=="passed" else 0.1,
@@ -977,7 +983,7 @@ the learning system, not an instruction source. If a skill produced no distinct 
                             }, sort_keys=True),
                             evidence_ids=["agent:"+agent.name, "bundle:"+capability_decision.bundle_id],
                         )
-                    learning.record_experience(
+                    record_experience_serialized(
                         key=agent.role+":bundle:"+capability_decision.bundle_id,
                         outcome=status,
                         evidence_quality=evidence_quality if status=="passed" else 0.1,
