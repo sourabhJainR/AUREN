@@ -194,6 +194,11 @@ class GraphRunRecoveryTests(unittest.TestCase):
         self.assertEqual(reconciled["nodes"]["root"]["status"], "working")
         self.assertEqual(restarted.load()["nodes"]["root"]["worker_id"], "worker-root")
 
+    def test_mutating_canonical_plan_after_binding_blocks_resume(self):
+        self.plan.tasks["root"].title = "mutated after checkpoint"
+        with self.assertRaisesRegex(GraphCheckpointMismatch, "TaskPlan changed"):
+            self.bridge.load()
+
     def test_checkpoint_identity_rejects_stale_plan_or_intent(self):
         stale = GraphRunRecoveryBridge(
             run_id="graph-run-1", plan=TaskPlan([Task("different", "Different")]),
