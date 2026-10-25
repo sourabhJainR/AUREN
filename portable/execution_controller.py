@@ -297,8 +297,7 @@ class ExecutionController:
         resolved_handler = self._resolve_reference(reference) if isinstance(handler, str) else handler
         if not callable(resolved_handler):
             raise TypeError(f"durable handler is not callable: {reference}")
-        implementation_digest = self._implementation_digest(resolved_handler)
-        name_tokens = _handler_tokens(name)
+        implementation_digest = self._implementation_digest(resolved_handler)        name_tokens = _handler_tokens(name)
         if isinstance(handler, str):
             handler_identity = handler.split(":", 1)[-1]
         else:
@@ -597,8 +596,7 @@ class ExecutionController:
         if not isinstance(receipt_node_id, str) or not re.fullmatch(r"[0-9a-f]{64}", receipt_node_id):
             raise RuntimeError("durable evidence receipt is missing or malformed")
         graph = self.evidence_gate_integration.graph
-        node = graph.get_node(receipt_node_id)        if node is None or node.kind != "evidence_gate_receipt":
-            raise RuntimeError("durable evidence receipt is absent from the supervisor-owned graph")
+        node = graph.get_node(receipt_node_id)        if node is None or node.kind != "evidence_gate_receipt":            raise RuntimeError("durable evidence receipt is absent from the supervisor-owned graph")
         metadata = dict(node.metadata)
         if metadata.get("project") != self.evidence_project:
             raise RuntimeError("durable evidence receipt belongs to a different project")
@@ -897,8 +895,7 @@ class ExecutionController:
                 or not 0.05 <= time_budget_seconds <= 30.0):
             raise ValueError("reconciliation time budget must be between 0.05 and 30 seconds")
         started = time.monotonic()
-        deadline = started + float(time_budget_seconds)
-        findings: list[str] = []
+        deadline = started + float(time_budget_seconds)        findings: list[str] = []
         reconciled = 0
         scanned = 0
         incomplete = False
@@ -1114,7 +1111,7 @@ class ExecutionController:
         try:
             configured_policy = load_guard_policy(self.root / ".auren" / "guard_policy.json")
             safe_metadata["guard_policy_digest"] = (
-                hashlib.sha256(json.dumps(configured_policy, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+                evaluate_guard_policy(configured_policy, {}).policy_digest
                 if configured_policy is not None else "builtin-baseline"
             )
         except (GuardPolicyError, OSError, ValueError):
@@ -1197,8 +1194,7 @@ class ExecutionController:
         invokes a handler or replays an external side effect.
         """
         if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 10000:
-            raise ValueError("terminal reconciliation limit must be an integer from 1 to 10000")
-        if (
+            raise ValueError("terminal reconciliation limit must be an integer from 1 to 10000")        if (
             isinstance(time_budget_seconds, bool)
             or not isinstance(time_budget_seconds, (int, float))
             or not math.isfinite(time_budget_seconds)
@@ -1497,8 +1493,7 @@ class ExecutionController:
             handler=handler,
             packet=packet,
             payload=payload,
-            goal=goal,
-        )
+            goal=goal,        )
 
     def register_provider_operation_adapter(self, handler_name: str, adapter: Any) -> None:
         """Register trusted lookup and evidence-verification capabilities for a handler.
@@ -1797,8 +1792,7 @@ class ExecutionController:
                 "UPDATE tasks SET state=?,payload=?,updated_at=?,heartbeat_at=NULL,lease_until=NULL,"
                 "lease_token=NULL WHERE id=? AND state='running' AND lease_token=? AND lease_generation=?",
                 (next_state, json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False),
-                 _now(), task.id, task.lease_token, task.lease_generation),
-            )
+                 _now(), task.id, task.lease_token, task.lease_generation),            )
             if cursor.rowcount != 1:
                 db.rollback()
                 raise LeaseLostError("task changed while approval wait was being persisted")
@@ -2097,8 +2091,7 @@ class ExecutionController:
             if not row or row[3] in {"completed", "failed", "cancelled"}:
                 return None
             now_dt = datetime.now(timezone.utc)
-            now = now_dt.isoformat()
-            if row[3] == "running":
+            now = now_dt.isoformat()            if row[3] == "running":
                 # A live lease belongs to another worker. Missing lease metadata
                 # is ambiguous and must be recovered explicitly, not stolen.
                 if not row[6]:
@@ -2397,8 +2390,7 @@ class ExecutionController:
 
     def due_quota_task_ids(self, *, now: datetime | None = None, limit: int = 20) -> list[str]:
         """Return only due waits; local SQLite reads do not contact providers."""
-        if type(limit) is not int or limit < 1:
-            raise ValueError("limit must be a positive integer")
+        if type(limit) is not int or limit < 1:            raise ValueError("limit must be a positive integer")
         current = now or datetime.now(timezone.utc)
         if current.tzinfo is None:
             raise ValueError("now must be timezone-aware")
@@ -2697,8 +2689,7 @@ class ExecutionController:
                 # The provider receipt was committed before a prior worker died.
                 # Reuse the digest-bound durable receipt; remote lookup is unnecessary.
                 provider_receipt = lifecycle.reconcile(
-                    operation_key, provider_name, provider_intent, None,
-                )
+                    operation_key, provider_name, provider_intent, None,                )
                 evidence_ref = provider_receipt.get("evidence_ref")
                 if not isinstance(evidence_ref, str) or not evidence_ref.strip():
                     raise ProviderOutcomeBlocked(
@@ -2997,8 +2988,7 @@ class ExecutionController:
         task_ids: list[str] = []
         for task_id, state, lease_until in rows:
             if state == "pending":
-                task_ids.append(str(task_id))
-            elif state == "running" and lease_until:
+                task_ids.append(str(task_id))            elif state == "running" and lease_until:
                 try:
                     lease_time = datetime.fromisoformat(str(lease_until))
                 except ValueError:
@@ -3297,8 +3287,7 @@ class ExecutionController:
             row = db.execute(
                 "SELECT id,handler,payload,state,attempts,work_unit_id,deadline_at FROM tasks WHERE id=?",
                 (task_id,),
-            ).fetchone()
-        return DurableTask(row[0], row[1], json.loads(row[2]), row[3], int(row[4]), row[5], deadline_at=row[6]) if row else None
+            ).fetchone()        return DurableTask(row[0], row[1], json.loads(row[2]), row[3], int(row[4]), row[5], deadline_at=row[6]) if row else None
 
     @staticmethod
     def _validate_graph_checkpoint_envelope(task_id: str, envelope: Mapping[str, Any]) -> dict[str, Any]:
