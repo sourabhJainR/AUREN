@@ -7,6 +7,7 @@ from unittest.mock import Mock
 from portable.guarded_network import (
     NetworkPolicyDenied,
     connect_https_pinned,
+    guarded_https_get,
     resolve_https_destination,
 )
 
@@ -98,6 +99,34 @@ class GuardedNetworkTests(unittest.TestCase):
                 allowed_hosts=("example.com",),
                 resolver=lambda *_args, **_kwargs: [],
             )
+
+
+    def test_guarded_http_request_rejects_untrusted_host_before_dns_or_connect(self):
+        resolver = Mock(side_effect=AssertionError("DNS must not run"))
+        connector = Mock(side_effect=AssertionError("socket must not open"))
+        with self.assertRaises(NetworkPolicyDenied):
+            guarded_https_get(
+                "https://evil.example/private",
+                allowed_hosts=("api.github.com",),
+                resolver=resolver,
+                connector=connector,
+            )
+        resolver.assert_not_called()
+        connector.assert_not_called()
+
+    def test_guarded_http_request_rejects_header_injection_before_network(self):
+        resolver = Mock(side_effect=AssertionError("DNS must not run"))
+        connector = Mock(side_effect=AssertionError("socket must not open"))
+        with self.assertRaisesRegex(NetworkPolicyDenied, "header"):
+            guarded_https_get(
+                "https://api.github.com/repos/owner/repo",
+                allowed_hosts=("api.github.com",),
+                headers={"Authorization": "Bearer safe\\r\\nHost: evil.example"},
+                resolver=resolver,
+                connector=connector,
+            )
+        resolver.assert_not_called()
+        connector.assert_not_called()
 
 
 if __name__ == "__main__":
