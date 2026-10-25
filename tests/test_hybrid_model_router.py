@@ -1,5 +1,7 @@
 """Hybrid routing policy and bounded fallback regression tests."""
+import time
 import unittest
+from threading import Event, Thread
 from portable.hybrid_model_router import HybridModelRouter, TaskRouteRequest
 from portable.runtime_recovery import RuntimeExecutionGuard
 
@@ -176,6 +178,79 @@ class HybridRouterTests(unittest.TestCase):
         result = router.route(TaskRouteRequest("public task", "general", privacy="public", max_attempts=99))
         self.assertEqual(3, result.attempts)
         self.assertEqual(3, len(calls))
+
+    def test_route_supervised_rejects_expired_deadline_before_discovery(self):
+        discovery = Discovery(["qwen2.5-coder:7b"])
+        local_calls = []
+        router = HybridModelRouter(
+            discovery=discovery,
+            local_executor=lambda request, model: local_calls.append(model) or "late",
+            resource_reader=lambda: {},
+        )
+        with self.assertRaisesRegex(ExecutionBudgetExceeded, "deadline expired before model routing"):
+            router.route_supervised(
+                TaskRouteRequest("private code", "coding"),
+                execution_payload={"auren_deadline_epoch": time.time() - 1},
+            )
+        self.assertEqual(0, discovery.calls)
+        self.assertEqual([], local_calls)
+
+    def test_route_supervised_propagates_preexisting_cancellation_before_discovery(self):
+        cancellation = Event()
+        cancellation.set()
+        discovery = Discovery([])
+        remote_calls = []
+        router = HybridModelRouter(
+            discovery=discovery,
+            remote_executor=lambda request: remote_calls.append(request) or "unsafe",
+            resource_reader=lambda: {},
+        )
+        result = router.route_supervised(
+            TaskRouteRequest("public summary", "general", privacy="public"),
+            execution_payload={"auren_cancel_event": cancellation},
+        )
+        self.assertFalse(result.success)
+        self.assertEqual(0, discovery.calls)
+        self.assertEqual([], remote_calls)
+
+    def test_route_supervised_caps_timeout_to_absolute_task_deadline(self):
+        requests = []
+        router = HybridModelRouter(
+            discovery=Discovery([]),
+            remote_executor=lambda request: requests.append(request) or "ok",
+            resource_reader=lambda: {},
+        )
+        result = router.route_supervised(
+            TaskRouteRequest("public summary", "general", privacy="public", timeout_seconds=5),
+            execution_payload={"auren_deadline_epoch": time.time() + 0.5},
+        )
+        self.assertTrue(result.success)
+        self.assertEqual(1, len(requests))
+        self.assertLessEqual(requests[0].timeout_seconds, 0.5)
+
+    def test_route_supervised_rejects_provider_result_after_cancellation(self):
+        cancellation = Event()
+        started = Event()
+        def remote_executor(request):
+            started.set()
+            cancellation.wait(timeout=4)
+            return "late provider result"
+        router = HybridModelRouter(
+            discovery=Discovery([]), remote_executor=remote_executor, resource_reader=lambda: {},
+        )
+        results = []
+        worker = Thread(target=lambda: results.append(router.route_supervised(
+            TaskRouteRequest("public summary", "general", privacy="public", timeout_seconds=5),
+            execution_payload={"auren_cancel_event": cancellation},
+        )), daemon=True)
+        worker.start()
+        self.assertTrue(started.wait(timeout=3), "provider did not start")
+        cancellation.set()
+        worker.join(timeout=5)
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(1, len(results))
+        self.assertFalse(results[0].success)
+        self.assertIn("cancel", (results[0].error or "").lower())
 
 if __name__ == "__main__":
     unittest.main()
