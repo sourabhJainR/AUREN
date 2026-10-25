@@ -3,7 +3,7 @@ import time
 import unittest
 from threading import Event, Thread
 from portable.hybrid_model_router import HybridModelRouter, TaskRouteRequest
-from portable.runtime_recovery import RuntimeExecutionGuard
+from portable.runtime_recovery import ExecutionBudgetExceeded, RuntimeExecutionGuard
 
 class Discovery:
     def __init__(self, names):
@@ -238,10 +238,12 @@ class HybridRouterTests(unittest.TestCase):
         router = HybridModelRouter(
             discovery=Discovery([]), remote_executor=remote_executor, resource_reader=lambda: {},
         )
+        guard = RuntimeExecutionGuard(max_steps=3, max_attempts=3, cancellation_event=cancellation)
         results = []
         worker = Thread(target=lambda: results.append(router.route_supervised(
             TaskRouteRequest("public summary", "general", privacy="public", timeout_seconds=5),
             execution_payload={"auren_cancel_event": cancellation},
+            execution_guard=guard,
         )), daemon=True)
         worker.start()
         self.assertTrue(started.wait(timeout=3), "provider did not start")
@@ -250,7 +252,7 @@ class HybridRouterTests(unittest.TestCase):
         self.assertFalse(worker.is_alive())
         self.assertEqual(1, len(results))
         self.assertFalse(results[0].success)
-        self.assertIn("cancel", (results[0].error or "").lower())
+        self.assertTrue(guard.cancellation_event.is_set())
 
 if __name__ == "__main__":
     unittest.main()
