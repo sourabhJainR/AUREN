@@ -22,8 +22,8 @@ class WorkflowProfileStoreError(ValueError):
 
 def _reject_symlink(path: Path) -> None:
     try:
-        if path.is_symlink():
-            raise WorkflowProfileStoreError(f"refusing symlink workflow profile: {path}")
+        if path.is_symlink() or path.parent.is_symlink():
+            raise WorkflowProfileStoreError(f"refusing symlink workflow profile path: {path}")
     except OSError as exc:
         raise WorkflowProfileStoreError(f"cannot inspect workflow profile path: {path}") from exc
 
