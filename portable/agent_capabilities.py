@@ -483,6 +483,15 @@ class CapabilityAuditLedger:
                 "requires_sandbox": bool(option.requires_sandbox),
                 "estimated_latency_ms": max(0.0, min(float(option.estimated_latency_ms), 86400000.0)),
                 "estimated_cost": max(0.0, min(float(option.estimated_cost), 1000000.0)),
+                "model_invocable": bool(option.model_invocable),
+                "provides": sorted(option.provides)[:64],
+                "requires": sorted(option.requires)[:64],
+                "fallback": str(option.fallback or "")[:160],
+                "instructions_digest": hashlib.sha256(
+                    sanitize_capability_reference(option.instructions, 4096).encode("utf-8")
+                ).hexdigest(),
+                "evidence_quality": max(0.0, min(1.0, float(option.evidence_quality))),
+                "confidence": max(0.0, min(1.0, float(option.confidence))),
             }
             rows.append((option, descriptor))
         snapshot_id = hashlib.sha256(self._canonical({
@@ -671,7 +680,9 @@ class CapabilityExecutioner:
                 ))
                 seen.add(directory.name)
         for source, payload in (
+            ("tool", get_auren_env("TOOL_CAPABILITIES", "")),
             ("mcp", get_auren_env("MCP_CAPABILITIES", "")),
+            ("api", get_auren_env("API_CAPABILITIES", "")),
             ("plugin", get_auren_env("PLUGIN_CAPABILITIES", "")),
         ):
             try:
