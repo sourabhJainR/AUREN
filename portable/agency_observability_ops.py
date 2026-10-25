@@ -482,6 +482,7 @@ def observability_snapshot(path: Path, *, limit: int = 500) -> dict[str, Any]:
     span_maps: dict[str, dict[str, dict[str, Any]]] = {}
     last_sequences: dict[str, int] = {}
     sequence_gaps = 0
+    span_parentage_errors = 0
     for line in lines:
         try:
             item = json.loads(line)
@@ -540,7 +541,13 @@ def observability_snapshot(path: Path, *, limit: int = 500) -> dict[str, Any]:
                     state["scores"] = item["scores"]
                 span = item.get("span")
                 if isinstance(span, dict) and span.get("span_id"):
-                    span_maps[trace_id][str(span["span_id"])] = span
+                    span_id = str(span["span_id"])
+                    event_type = item.get("event_type")
+                    if event_type == "span_started" and span_id in span_maps[trace_id]:
+                        span_parentage_errors += 1
+                    elif event_type == "span_updated" and span_id not in span_maps[trace_id]:
+                        span_parentage_errors += 1
+                    span_maps[trace_id][span_id] = span
                 state["spans"] = list(span_maps[trace_id].values())
                 state["event_sequence"] = item.get("event_sequence", state.get("event_sequence", 0))
                 state["event_digest"] = item.get("event_digest", state.get("event_digest"))
@@ -563,6 +570,43 @@ def observability_snapshot(path: Path, *, limit: int = 500) -> dict[str, Any]:
         except (json.JSONDecodeError, UnicodeDecodeError, TypeError, KeyError):
             corrupt_lines += 1
     traces = list(latest_by_trace.values())
+    # Validate explicit span parentage after replay. The append-only event stream
+    # may end mid-run, but it must never silently accept orphaned, self-parented,
+    # duplicate, or cyclic span identities.
+    for trace in traces:
+        raw_spans = trace.get("spans", ())
+        if not isinstance(raw_spans, (list, tuple)):
+            span_parentage_errors += 1
+            continue
+        spans_by_id: dict[str, dict[str, Any]] = {}
+        for span in raw_spans:
+            if not isinstance(span, dict) or not isinstance(span.get("span_id"), str) or not span["span_id"]:
+                span_parentage_errors += 1
+                continue
+            span_id = span["span_id"]
+            if span_id in spans_by_id:
+                span_parentage_errors += 1
+                continue
+            spans_by_id[span_id] = span
+        for span_id, span in spans_by_id.items():
+            parent_id = span.get("parent_id")
+            if parent_id is None:
+                continue
+            if not isinstance(parent_id, str) or parent_id == span_id or parent_id not in spans_by_id:
+                span_parentage_errors += 1
+        # Detect cycles without relying on span append order.
+        for span_id in spans_by_id:
+            visited: set[str] = set()
+            current = span_id
+            while current in spans_by_id:
+                if current in visited:
+                    span_parentage_errors += 1
+                    break
+                visited.add(current)
+                parent_id = spans_by_id[current].get("parent_id")
+                if not isinstance(parent_id, str):
+                    break
+                current = parent_id
     phase_counts: Counter[str] = Counter()
     status_counts: Counter[str] = Counter()
     provider_counts: Counter[str] = Counter()
@@ -624,6 +668,10 @@ def observability_snapshot(path: Path, *, limit: int = 500) -> dict[str, Any]:
                 score_observations.setdefault((metric, domain), []).append(
                     MetricObservation(metric, domain, value, run_id, evidence_ref, float(timestamp), risk_tier)
                 )
+        open_span_count = sum(
+            1 for span in span_records[:100]
+            if isinstance(span, dict) and span.get("end") is None
+        )
         recent.append({
             "trace_id": str(trace.get("trace_id", "")),
             "run_id": str(trace.get("run_id", "")),
@@ -633,6 +681,7 @@ def observability_snapshot(path: Path, *, limit: int = 500) -> dict[str, Any]:
             "duration_ms": duration if isinstance(duration, (int, float)) and math.isfinite(duration) else None,
             "source_revision": trace.get("source_revision")[:128] if isinstance(trace.get("source_revision"), str) else None,
             "phases": phases,
+            "open_span_count": open_span_count,
             "phase_coverage_gaps": [
                 gap[:120] for gap in metadata.get("phase_coverage_gaps", [])
                 if isinstance(gap, str)
@@ -666,10 +715,11 @@ def observability_snapshot(path: Path, *, limit: int = 500) -> dict[str, Any]:
             })
     drift = read_drift_alerts(path.parent / "datasets.sqlite3", limit=50)
     return {
-        "status": ("partial" if scan_truncated or corrupt_lines or sequence_gaps else "ok") if traces else ("corrupt" if corrupt_lines else "empty"),
+        "status": ("partial" if scan_truncated or corrupt_lines or sequence_gaps or span_parentage_errors else "ok") if traces else ("corrupt" if corrupt_lines else "empty"),
         "trace_count": len(traces),
         "corrupt_line_count": corrupt_lines,
         "event_sequence_gap_count": sequence_gaps,
+        "span_parentage_error_count": span_parentage_errors,
         "scan_truncated": scan_truncated,
         "status_counts": dict(status_counts),
         "phase_counts": dict(phase_counts),
