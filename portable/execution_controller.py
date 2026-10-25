@@ -712,7 +712,7 @@ class ExecutionController:
                         "risk": "high" if execution_class in {"consequential", "approval_gated"} else "standard",
                     },
                     mandatory_authorized=True,
-                    approval_present=(execution_class == "approval_gated" and bool(approval_policy)),
+                    approval_gate_configured=(execution_class == "approval_gated" and bool(approval_policy)),
                 )
             except (GuardPolicyError, OSError, ValueError) as exc:
                 return False, f"configured Guard policy could not be verified: {type(exc).__name__}", ("guard-policy:invalid", "guard-policy:blocked")
@@ -724,7 +724,7 @@ class ExecutionController:
                 )
             evidence.extend((
                 "guard-policy:" + guard_decision.policy_digest,
-                "guard-decision:allow",
+                "guard-decision:" + guard_decision.effect,
             ))
             # Stage-only is a hard delivery boundary, not just a UI preference.
             # Block every consequential/approval-gated operation even if the
