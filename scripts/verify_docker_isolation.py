@@ -105,7 +105,9 @@ def _runtime_policy(container: dict) -> dict:
         "restricted_tmpfs": "/tmp" in tmpfs and all(
             flag in tmpfs["/tmp"] for flag in ("noexec", "nosuid", "nodev")
         ),
-        "no_host_mounts": not container.get("Mounts"),
+        "no_host_mounts": not any(
+            mount.get("Type") == "bind" for mount in (container.get("Mounts") or [])
+        ),
         "private_pid_namespace": not host.get("PidMode") or host.get("PidMode") == "private",
     }
 
