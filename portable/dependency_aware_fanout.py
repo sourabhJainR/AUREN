@@ -7,6 +7,7 @@ this module never creates or resets a budget.
 from __future__ import annotations
 
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
+import hashlib
 import json
 from dataclasses import dataclass, field
 from threading import Lock
@@ -39,6 +40,10 @@ class DependencyAwareFanout:
         *,
         execution_guard: RuntimeExecutionGuard,
         max_workers: int = 4,
+        expected_plan_digest: str | None = None,
+        expected_intent_digest: str | None = None,
+        current_intent_digest: str | None = None,
+        fanout_overhead_ms: int = 5,
     ) -> None:
         if not isinstance(plan, TaskPlan):
             raise TypeError("plan must be the canonical TaskPlan")
@@ -48,16 +53,72 @@ class DependencyAwareFanout:
             raise TypeError("execution_guard must be the shared RuntimeExecutionGuard")
         if type(max_workers) is not int or not 1 <= max_workers <= 16:
             raise ValueError("max_workers must be an integer between 1 and 16")
+        if type(fanout_overhead_ms) is not int or fanout_overhead_ms < 0:
+            raise ValueError("fanout_overhead_ms must be a non-negative integer")
+        if (expected_intent_digest is None) != (current_intent_digest is None):
+            raise ValueError("expected and current intent digests must be supplied together")
         self.plan = plan
         self.execute = execute
         self.guard = execution_guard
         self.max_workers = max_workers
+        self.expected_plan_digest = expected_plan_digest
+        self.expected_intent_digest = expected_intent_digest
+        self.current_intent_digest = current_intent_digest
+        self.fanout_overhead_ms = fanout_overhead_ms
+
+    @staticmethod
+    def plan_digest(plan: TaskPlan) -> str:
+        """Hash the executable plan definition, excluding mutable run state."""
+        if not isinstance(plan, TaskPlan):
+            raise TypeError("plan must be the canonical TaskPlan")
+        rows = []
+        for task in sorted(plan.tasks.values(), key=lambda item: item.id):
+            metadata = {key: value for key, value in task.metadata.items()
+                        if key not in {"execution_output", "last_execution_at"}}
+            rows.append({
+                "id": task.id, "title": task.title, "description": task.description,
+                "priority": task.priority, "dependencies": sorted(task.dependencies),
+                "subtasks": task.subtasks, "tags": task.tags, "acceptance": task.acceptance,
+                "files": task.files, "metadata": metadata,
+                "parallel_group": task.parallel_group, "checkpoint": task.checkpoint,
+                "verification_strategy": task.verification_strategy,
+            })
+        payload = json.dumps(rows, sort_keys=True, separators=(",", ":"), allow_nan=False)
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
     @staticmethod
     def _is_read_only(task: Task) -> bool:
-        return task.metadata.get("execution_mode") == "read_only"
+        if task.metadata.get("execution_mode") != "read_only":
+            return False
+        protected = {"evidence", "memory", "mutation", "write", "canonical_write"}
+        if protected.intersection(tag.lower() for tag in task.tags):
+            return False
+        return not any(task.metadata.get(key) is True for key in (
+            "writes_canonical_evidence", "writes_canonical_memory", "mutates_state",
+            "writes_files", "performs_external_effect",
+        ))
+
+    def _validate_bindings(self) -> None:
+        actual_plan = self.plan_digest(self.plan)
+        if self.expected_plan_digest is not None and self.expected_plan_digest != actual_plan:
+            raise ValueError("stale plan digest; refusing to dispatch tasks")
+        if self.expected_intent_digest is not None and self.expected_intent_digest != self.current_intent_digest:
+            raise ValueError("stale intent digest; refusing to dispatch tasks")
+
+    def _parallelism_is_worthwhile(self, tasks: list[Task]) -> bool:
+        if len(tasks) < 2:
+            return False
+        estimates = [task.metadata.get("estimated_duration_ms") for task in tasks]
+        if any(value is None for value in estimates):
+            return True
+        if any(type(value) is not int or value < 0 for value in estimates):
+            return False
+        sequential_ms = sum(estimates)
+        parallel_ms = max(estimates) + self.fanout_overhead_ms
+        return sequential_ms > parallel_ms
 
     def run(self) -> FanoutResult:
+        self._validate_bindings()
         result = FanoutResult()
         for task_id, task in self.plan.tasks.items():
             result.statuses[task_id] = "done" if task.status == "done" else (
@@ -117,7 +178,7 @@ class DependencyAwareFanout:
                 available = self.max_workers - len(active)
                 if not cancelled and available > 0 and ready:
                     read_only = [task for task in ready if self._is_read_only(task)]
-                    if read_only:
+                    if read_only and self._parallelism_is_worthwhile(read_only):
                         for task in read_only[:available]:
                             result.statuses[task.id] = "running"
                             result.dispatch_order.append(task.id)
