@@ -618,7 +618,7 @@ def execute(
                 release_phase = "rollback" if decision.action == "rollback" else "release"
                 release_span = trace.span(
                     "release_transition", "release_controller",
-                    {"decision": decision.action, "reason": decision.reason,
+                    {"decision": decision.action,
                      "artifact_ref": artifact_ref.artifact_id if artifact_ref else None},
                     parent_id=regression_span.span_id, phase=release_phase,
                     actor_id="auren.release_controller",
@@ -632,7 +632,13 @@ def execute(
                     "action": result.release_state.action,
                     "artifact_id": result.release_state.artifact_id,
                 }, "ok", None)
-                trace.metadata["release"] = result.release_state.as_dict()
+                # Release reasons can contain operator-provided free text.
+                # Keep the complete decision in canonical release history, but
+                # expose only structured state and digests in trace metadata.
+                trace.metadata["release"] = {
+                    key: value for key, value in result.release_state.as_dict().items()
+                    if key != "reason"
+                }
                 trace.score("release_applied", 1.0, "release state transition completed", "auren")
                 result.ledger.append(LedgerEntry("release", f"{result.release_state.action}: {result.release_state.artifact_id or 'previous'}"))
         elif regression_result is not None and regression_id:
