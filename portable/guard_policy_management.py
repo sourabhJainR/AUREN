@@ -93,9 +93,9 @@ def _validate_local_schedule(policy: Mapping[str, Any], context: Mapping[str, An
         raise GuardPolicyError("invalid policy timezone") from exc
     hours = policy.get("hours_local")
     weekdays = policy.get("weekdays_local")
-    if hours is not None and (not isinstance(hours, list) or not hours or any(type(x) is not int or x < 0 or x > 23 for x in hours) or len(set(hours)) != len(hours):
+    if hours is not None and (not isinstance(hours, list) or not hours or any(type(x) is not int or x < 0 or x > 23 for x in hours) or len(set(hours)) != len(hours)):
         raise GuardPolicyError("hours_local must be a non-empty unique list of integers from 0 to 23")
-    if weekdays is not None and (not isinstance(weekdays, list) or not weekdays or any(type(x) is not int or x < 0 or x > 6 for x in weekdays) or len(set(weekdays)) != len(weekdays):
+    if weekdays is not None and (not isinstance(weekdays, list) or not weekdays or any(type(x) is not int or x < 0 or x > 6 for x in weekdays) or len(set(weekdays)) != len(weekdays)):
         raise GuardPolicyError("weekdays_local must be a non-empty unique list of integers from 0 to 6")
     return (hours is None or local.hour in hours) and (weekdays is None or local.weekday() in weekdays)
 
@@ -224,7 +224,7 @@ def evaluate_managed_policy(
         return GuardDecision(False, "deny", "organization policy local-time schedule does not match", digest)
     # Resource/network scopes are ordinary exact/glob policy match fields and
     # are enforced by the canonical evaluator after context normalization.
-    decision = evaluate_guard_policy(policy, context, mandatory_authorized=True, approval_gate_configured=approval_gate_configured)
+    base_policy = {key: value for key, value in policy.items() if key not in {"timezone", "hours_local", "weekdays_local"}}\n    decision = evaluate_guard_policy(base_policy, context, mandatory_authorized=True, approval_gate_configured=approval_gate_configured)
     if not decision.allowed or rate_limit is None:
         return decision
     if rate_limiter is None:
