@@ -456,7 +456,10 @@ class CapabilityAuditLedger:
                 selected TEXT NOT NULL, alternatives TEXT NOT NULL,
                 rationale_digest TEXT NOT NULL, outcome TEXT NOT NULL,
                 evidence_digest TEXT NOT NULL, cost REAL, duration_seconds REAL,
-                created_at TEXT NOT NULL)""")
+                created_at TEXT NOT NULL, inventory_snapshot_id TEXT NOT NULL DEFAULT '')""")
+            decision_columns = {row[1] for row in db.execute("PRAGMA table_info(capability_decisions)")}
+            if "inventory_snapshot_id" not in decision_columns:
+                db.execute("ALTER TABLE capability_decisions ADD COLUMN inventory_snapshot_id TEXT NOT NULL DEFAULT ''")
             db.execute("CREATE INDEX IF NOT EXISTS idx_capability_decisions_lookup ON capability_decisions(stage, crew_id, selected, created_at)")
             db.commit()
 
@@ -521,6 +524,7 @@ class CapabilityAuditLedger:
         selected: str, alternatives: Iterable[str] = (), rationale: str = "",
         outcome: str = "pending", evidence_ids: Iterable[str] = (),
         cost: float | None = None, duration_seconds: float | None = None,
+        inventory_snapshot_id: str = "",
     ) -> str:
         event_id = uuid.uuid4().hex
         request_digest = hashlib.sha256(request[:8192].encode("utf-8")).hexdigest()
@@ -533,10 +537,15 @@ class CapabilityAuditLedger:
         with sqlite3.connect(self.path, timeout=10) as db:
             db.execute("PRAGMA busy_timeout=10000")
             db.execute(
-                """INSERT INTO capability_decisions VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                """INSERT INTO capability_decisions
+                (event_id,run_id,stage,crew_id,request_digest,selected,alternatives,
+                 rationale_digest,outcome,evidence_digest,cost,duration_seconds,created_at,
+                 inventory_snapshot_id)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (event_id, run_id[:160], stage[:160], crew_id[:160], request_digest,
                  selected[:160], json.dumps(sorted(str(x)[:160] for x in alternatives)[:16]),
-                 rationale_digest, outcome[:64], evidence_digest, safe_cost, safe_duration, _utc().isoformat()),
+                 rationale_digest, outcome[:64], evidence_digest, safe_cost, safe_duration,
+                 _utc().isoformat(), inventory_snapshot_id[:64]),
             )
             db.commit()
         return event_id
