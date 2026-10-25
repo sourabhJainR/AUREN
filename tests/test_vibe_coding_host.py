@@ -150,6 +150,7 @@ class VibeCodingHostTests(unittest.TestCase):
                 tool_name="web_search",
                 argument_map={"query": "$intent"},
                 timeout_seconds=5,
+                requires_authority_binding=False,
             )
             raw = search({
                 "stage": "research", "intent": "market alternatives",
@@ -178,6 +179,7 @@ class VibeCodingHostTests(unittest.TestCase):
                 tool_name="research",
                 argument_map={"query": "$intent"},
                 timeout_seconds=5,
+                requires_authority_binding=False,
             )
             result = tool({"stage": "research", "intent": "test", "state": {"workspace_root": str(project)}})
             self.assertEqual(result["competitors"], ["example.com"])
@@ -281,12 +283,11 @@ class VibeCodingHostTests(unittest.TestCase):
             },
         }
 
-    def test_consequential_mcp_adapter_without_authority_fails_before_process_launch(self):
+    def test_mcp_adapter_defaults_to_authority_binding_and_fails_before_launch(self):
         tool = MCPStdioToolAdapter(
             argv=(sys.executable, "-c", "pass"),
             tool_name="publish",
             timeout_seconds=5,
-            requires_authority_binding=True,
         )
         with patch("portable.vibe_coding_host.subprocess.Popen") as popen:
             with self.assertRaisesRegex(AdapterUnavailable, "trusted execution authority resolver"):
