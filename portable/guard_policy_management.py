@@ -255,7 +255,11 @@ class GuardActionEvidenceLedger:
             "verified_outcome": verified_outcome, "event_type": event_type,
             "timestamp": time.time() if timestamp is None else timestamp,
         }
-        if isinstance(payload["timestamp"], bool) or not isinstance(payload["timestamp"], (int, float)):
+        if (
+            isinstance(payload["timestamp"], bool)
+            or not isinstance(payload["timestamp"], (int, float))
+            or not math.isfinite(payload["timestamp"])
+        ):
             raise GuardPolicyError("invalid evidence timestamp")
         encoded = _canonical(payload)
         try:
@@ -290,11 +294,12 @@ class GuardActionEvidenceLedger:
                 return False
             try:
                 payload = json.loads(encoded)
-            except (TypeError, json.JSONDecodeError):
+                if not isinstance(payload, Mapping) or payload.get("event_id") != event_id:
+                    return False
+                canonical = _canonical(payload)
+            except (TypeError, ValueError, json.JSONDecodeError):
                 return False
-            if payload.get("event_id") != event_id:
-                return False
-            expected = hashlib.sha256((previous + _canonical(payload)).encode("utf-8")).hexdigest()
+            expected = hashlib.sha256((previous + canonical).encode("utf-8")).hexdigest()
             if expected != stored_digest:
                 return False
             previous = stored_digest
