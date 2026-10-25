@@ -727,6 +727,8 @@ def _http_json(url: str) -> dict:
     )
     if status >= 400:
         raise SystemExit("remote update metadata request failed")
+    if len(raw) > 2 * 1024 * 1024:
+        raise SystemExit("remote update metadata exceeds the response limit")
     value = json.loads(raw.decode("utf-8"))
     if not isinstance(value, dict):
         raise SystemExit("unexpected update metadata")
