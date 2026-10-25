@@ -36,7 +36,7 @@ class DependencyAwareFanoutTests(unittest.TestCase):
             Task("b", "B", metadata={"execution_mode": "read_only"}),
             Task("c", "C", dependencies=["a", "b"], metadata={"execution_mode": "read_only"}),
         ])
-        result = DependencyAwareFanout(
+        result = make_fanout(
             plan, execute, execution_guard=RuntimeExecutionGuard(max_steps=3, max_attempts=3),
             max_workers=2,
         ).run()
@@ -60,7 +60,7 @@ class DependencyAwareFanoutTests(unittest.TestCase):
                 active -= 1
 
         plan = TaskPlan([Task("a", "A"), Task("b", "B")])
-        result = DependencyAwareFanout(
+        result = make_fanout(
             plan, execute, execution_guard=RuntimeExecutionGuard(max_steps=2, max_attempts=2),
             max_workers=2,
         ).run()
@@ -73,7 +73,7 @@ class DependencyAwareFanoutTests(unittest.TestCase):
             Task("a", "A", metadata={"execution_mode": "read_only"}),
             Task("b", "B", metadata={"execution_mode": "read_only"}),
         ])
-        result = DependencyAwareFanout(
+        result = make_fanout(
             plan, lambda task: started.append(task.id),
             execution_guard=RuntimeExecutionGuard(max_steps=1, max_attempts=2),
             max_workers=2,
@@ -94,7 +94,7 @@ class DependencyAwareFanoutTests(unittest.TestCase):
             Task("a", "A", metadata={"execution_mode": "read_only"}),
             Task("b", "B", metadata={"execution_mode": "read_only"}),
         ])
-        result = DependencyAwareFanout(
+        result = make_fanout(
             plan, execute,
             execution_guard=RuntimeExecutionGuard(max_steps=2, max_attempts=1),
             max_workers=2,
@@ -107,7 +107,7 @@ class DependencyAwareFanoutTests(unittest.TestCase):
         plan = TaskPlan([
             Task("a", "A", metadata={"execution_mode": "read_only"}),
         ])
-        result = DependencyAwareFanout(
+        result = make_fanout(
             plan, lambda task: object(),
             execution_guard=RuntimeExecutionGuard(max_steps=1, max_attempts=1),
             max_workers=1,
@@ -201,7 +201,7 @@ class DependencyAwareFanoutTests(unittest.TestCase):
             called.append(task.id)
             raise RuntimeError("failure") if task.id == "a" else AssertionError("must not run")
 
-        result = DependencyAwareFanout(
+        result = make_fanout(
             plan, execute, execution_guard=RuntimeExecutionGuard(max_steps=2, max_attempts=2),
             max_workers=2,
         ).run()
