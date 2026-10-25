@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+import sqlite3
 from pathlib import Path
 import tempfile
 import unittest
@@ -10,7 +11,11 @@ from portable.workflow_profile import WorkflowProfile
 from portable.workflow_profile_store import WorkflowProfileStoreError, save_profile
 
 
+_WORKFLOW_PROFILE_HANDLER_CALLS = []
+
+
 def workflow_profile_test_handler(payload):
+    _WORKFLOW_PROFILE_HANDLER_CALLS.append(dict(payload))
     return {"ok": True}
 
 
@@ -20,6 +25,7 @@ class WorkflowProfileSupervisorBindingTests(unittest.TestCase):
         self.addCleanup(self._temporary_directory.cleanup)
         self.root = Path(self._temporary_directory.name)
         self.controller = ExecutionController(self.root)
+        _WORKFLOW_PROFILE_HANDLER_CALLS.clear()
         self.controller.register_handler(
             "workflow-profile-test",
             workflow_profile_test_handler,
@@ -93,18 +99,11 @@ class WorkflowProfileSupervisorBindingTests(unittest.TestCase):
             },
             work_key="workflow-profile:stage-only-merge",
         )
-        score = self.controller.run_once(task.id)
-        self.assertIsNotNone(score)
+        self.controller.run_once(task.id)
         self.assertEqual("failed", self.controller.task(task.id).state)
-        progress = self.controller.progress(task.id)
-        self.assertTrue(any(
-            "stage-only workflow profile forbids" in str(item.get("message", ""))
-            for item in progress
-        ))
+        self.assertEqual([], _WORKFLOW_PROFILE_HANDLER_CALLS)
 
-    def test_stage_only_profile_blocks_generic_consequential_handler(self) -> None:
-        # A generic handler name must not evade the stage-only boundary merely
-        # because it does not contain the word merge/push/commit.
+    def test_stage_only_blocks_generic_consequential_handler_before_dispatch(self) -> None:
         task = self.controller.submit(
             "workflow-profile-test",
             {
@@ -113,15 +112,19 @@ class WorkflowProfileSupervisorBindingTests(unittest.TestCase):
                     delivery_mode="stage_only", execution_mode="autonomous",
                 ).as_dict(),
             },
-            work_key="workflow-profile:stage-only-generic",
+            work_key="workflow-profile:stage-only-consequential",
         )
-        self.controller._verify_workflow_profile_binding(task)
-        profile = WorkflowProfile.from_mapping(task.payload["_auren_workflow_profile"])
-        self.assertEqual("stage_only", profile.delivery_mode)
-        # The controller-level guard is exercised with a consequential
-        # classification via the profile policy helper in unit tests; this
-        # read-only handler remains allowed when it has no delivery intent.
-        self.assertTrue(self.controller._preflight_gates(task)[0])
+        # Simulate a previously registered generic handler classified as
+        # consequential; no action name or task field is needed to trigger the
+        # fail-closed stage-only boundary.
+        with sqlite3.connect(self.controller.db_path) as db:
+            db.execute(
+                "UPDATE handlers SET execution_class='consequential' WHERE name=?",
+                ("workflow-profile-test",),
+            )
+        self.controller.run_once(task.id)
+        self.assertEqual("failed", self.controller.task(task.id).state)
+        self.assertEqual([], _WORKFLOW_PROFILE_HANDLER_CALLS)
 
     def test_saved_profile_change_cannot_reuse_existing_work_key(self) -> None:
         save_profile(
