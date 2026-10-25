@@ -83,3 +83,24 @@ The local host classifies configured MCP capabilities before building adapters, 
 Product/research/web-search/accessibility/task-planning/independent-review/observability capabilities are read-only by default. Security tools default to authority-bound mode and may set `external_effects: false` only when the operator has verified that the configured tool is read-only. The resolver must be created from trusted host identity and repository state; agent-supplied state is not a trusted identity source. Read-only calls without a provider operation bind their action ID to the exact request digest. Any non-read action requires a durable provider operation ID and idempotency key. The gate does not prove OS/container isolation or remote provider outcome. Deployment/release still require provider-native idempotency, authoritative lookup and evidence-backed reconciliation.
 
 Rollback: if host resolver integration is unavailable or fails, keep consequential MCP tools blocked and use the last-known-good workflow with those capabilities disabled. Do not remove the pre-launch gate or restore unbound MCP dispatch.
+
+
+## MCP read-only launch working-directory boundary (2026-10-25)
+
+The MCP stdio adapter now requires an explicit trusted workspace root whenever a
+caller opts out of authority binding for a declared read-only tool. Before
+launch, it rejects missing workspace identity, a missing trusted root, and any
+resolved working directory outside that root. Host-built MCP adapters and
+provider-operation status lookups pin this root to the host-owned isolated
+workspace. Regression tests assert that missing and escaping paths are denied
+before `subprocess.Popen`.
+
+This narrows the read-only MCP bypass surface; it does not prove that a remote
+tool is actually read-only, authorize its arguments, or provide OS-level
+filesystem/network isolation. Read-only classification remains an operator
+configuration trust boundary and needs independent provider/tool capability
+verification.
+
+Rollback: revert the workspace-root parameter and associated checks only if
+they break a documented supported invocation; keep authority binding enabled by
+default and do not restore unpinned unbound dispatch.
