@@ -23,6 +23,7 @@ def test_execute_applies_promote_to_artifact(tmp_path: Path):
     def worker(task, assignments):
         return {
             "deliverables": [str(artifact)],
+            "artifact_refs": [str(artifact)],
             "verification": ["smoke"],
             "dimensions": {
                 "correctness": 25, "completeness": 15, "evidence": 15,
