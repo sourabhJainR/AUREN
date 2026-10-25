@@ -57,7 +57,7 @@ _RULES: tuple[tuple[str, tuple[str, ...], bool], ...] = (
     ("portable/state_graph.py", ("tests.test_runtime_recovery", "tests.test_graph_agent_team", "tests.test_graph_agent_crews"), True),
     ("portable/runtime_recovery.py", ("tests.test_runtime_recovery", "tests.test_adaptive_runtime_recovery_integration"), True),
     (".ai-harness/runtime/task_memory.py", ("tests.test_graph_agent_team",), True),
-    (".ai-harness/tests/test_task_memory.py", ("tests.test_graph_agent_team",), True),
+    (".ai-harness/tests/test_task_memory.py", ("tests.test_task_memory", "tests.test_graph_agent_team"), True),
     ("tests/test_runtime_recovery.py", ("tests.test_runtime_recovery",), True),
     ("tests/test_graph_agent_team.py", ("tests.test_graph_agent_team",), True),
     ("portable/agency_state_graph.py", ("tests.test_agency_state_graph", "tests.test_state_graph_hardening"), True),
