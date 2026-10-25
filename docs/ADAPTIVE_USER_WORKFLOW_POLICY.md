@@ -12,7 +12,8 @@ AUREN should adapt its working style to the user's explicit preferences while pr
 Use `auren workflow-profile show` to inspect the saved profile, source, digest,
 and authority boundary. Use `auren workflow-profile set --delivery-mode
 pull_request` or the other supported mode options to update selected
-preferences. Use `auren workflow-profile reset` to return to safe defaults.
+preferences. Use `auren workflow-profile reset` to return to safe defaults. Use `auren guard-policy show`,
+`validate`, and `dry-run` to inspect organization policy without executing actions.
 The profile is stored under `.auren/workflow_profile.json`; malformed or
 incompatible data blocks rather than silently falling back.
 
