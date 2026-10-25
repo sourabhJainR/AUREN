@@ -43,6 +43,7 @@ from .vibe_coding_adapters import (
 )
 from .orchestration import Orchestrator, RunStatus
 from .side_effect_ledger import DurableSideEffectLedger
+from .guarded_filesystem import read_workspace_bytes, read_workspace_text, resolve_workspace_path, write_workspace_text
 
 _CONFIG_SCHEMA = "auren-vibe-host-config-v1"
 _CHECKPOINT_SCHEMA = "auren-vibe-host-checkpoint-v1"
@@ -285,11 +286,12 @@ def fingerprint_worktree(workspace_root: str | Path) -> str:
     digest = hashlib.sha256(diff.stdout)
     for raw_path in sorted(item for item in untracked.stdout.split(b"\0") if item):
         relative = Path(os.fsdecode(raw_path))
-        target = (root / relative).resolve()
-        if root not in target.parents or not target.is_file():
-            raise PermissionError("untracked path escaped workspace during side-effect recovery")
-        digest.update(str(relative).encode("utf-8"))
-        digest.update(target.read_bytes())
+        relative_name = relative.as_posix()
+        target = resolve_workspace_path(root, relative_name)
+        if not target.is_file():
+            raise PermissionError("untracked path is not a regular workspace file")
+        digest.update(relative_name.encode("utf-8"))
+        digest.update(read_workspace_bytes(root, relative_name))
     return digest.hexdigest()
 
 
@@ -1428,14 +1430,10 @@ class LocalDesignTool:
             "## Accessibility baseline", "- Keyboard navigation and visible focus", "- Programmatic labels and names",
             "- Contrast review", "- Error identification and recovery", "",
         ]
-        target_dir = (self.root / "docs" / "design").resolve()
-        if self.root not in target_dir.parents:
-            raise PermissionError("design output path escaped the isolated workspace")
-        target_dir.mkdir(parents=True, exist_ok=True)
         workflow_id = str(request.get("state", {}).get("vibe_coding_workflow_id", "workflow"))
         safe_id = re.sub(r"[^A-Za-z0-9_.-]", "-", workflow_id)[:80]
-        target = target_dir / f"vibe-{safe_id}.md"
-        target.write_text("\n".join(body), encoding="utf-8")
+        relative_target = f"docs/design/vibe-{safe_id}.md"
+        target = write_workspace_text(self.root, relative_target, "\n".join(body))
         return {
             "design_artifacts": [str(target.relative_to(self.root))],
             "evidence": [{"source": "workspace-file", "locator": f"file://{target}"}],
@@ -1460,11 +1458,12 @@ class LocalAccessibilityTool:
             paths = request.get("stage_output", {}).get("design_artifacts", [])
         findings = []
         for item in paths:
-            path = (self.root / str(item)).resolve()
-            if self.root not in path.parents or not path.is_file():
+            try:
+                path = resolve_workspace_path(self.root, str(item))
+                text = read_workspace_text(self.root, str(item)).lower()
+            except (OSError, ValueError, PermissionError):
                 findings.append({"severity": "high", "finding": "design artifact missing or outside workspace", "path": str(item)})
                 continue
-            text = path.read_text(encoding="utf-8", errors="replace").lower()
             for term in ("keyboard", "focus", "labels", "contrast", "error"):
                 if term not in text:
                     findings.append({"severity": "medium", "finding": f"design brief missing accessibility topic: {term}", "path": str(item)})
