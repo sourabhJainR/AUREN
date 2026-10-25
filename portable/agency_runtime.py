@@ -624,7 +624,10 @@ def execute(
                     actor_id="auren.release_controller",
                     source_revision=approved_plan.source_revision if approved_plan else (task.source_revision or None),
                 )
-                result.release_state = apply_promotion_decision(release_store, decision, artifact_ref)
+                result.release_state = apply_promotion_decision(
+                    release_store, decision, artifact_ref,
+                    trace=trace, parent_span_id=release_span.span_id,
+                )
                 release_span.finish({
                     "action": result.release_state.action,
                     "artifact_id": result.release_state.artifact_id,
