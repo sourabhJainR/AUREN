@@ -34,6 +34,8 @@ from .persistent_memory import PersistentMemory
 from .progress_journal import ProgressJournal
 from .provider_operation_lifecycle import ProviderOutcomeBlocked
 from .durable_approval import ApprovalPending, InvalidApprovalTransition
+from .workflow_profile import WorkflowProfile, resolve_profile
+from .workflow_profile_store import load_profile
 
 Handler = Callable[[Mapping[str, Any]], Any]
 
@@ -148,6 +150,7 @@ class ExecutionController:
         self, root: str | Path, *, company: AutonomousCompany | None = None,
         evidence_signer: Callable[[bytes], Mapping[str, str]] | None = None,
         provider_resume_authorizer: Callable[[str, str, str, str], bool] | None = None,
+        workflow_profile_path: str | Path | None = None,
     ) -> None:
         if provider_resume_authorizer is not None and not callable(provider_resume_authorizer):
             raise TypeError("provider_resume_authorizer must be callable")
@@ -156,6 +159,13 @@ class ExecutionController:
         self.company = company or AutonomousCompany(self.root)
         self.db_path = self.root / ".auren" / "execution.sqlite3"
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        # Preferences are machine/project-local and are loaded fail-closed.
+        # The effective profile is copied into each new task's immutable intent.
+        self.workflow_profile_path = (
+            Path(workflow_profile_path).expanduser()
+            if workflow_profile_path is not None
+            else self.db_path.parent / "workflow_profile.json"
+        )
         self.progress_journal = ProgressJournal(self.db_path.parent / "progress.jsonl")
         self._progress_journal_error: str | None = None
         with closing(sqlite3.connect(self.db_path)) as db, db:
@@ -1622,6 +1632,26 @@ class ExecutionController:
             }
         return payload
 
+    def _verify_workflow_profile_binding(self, task: DurableTask) -> None:
+        """Validate a task's persisted effective profile before any handler dispatch.
+
+        Legacy tasks without either field remain on their original behavior. New
+        tasks must carry both fields, and a partial, malformed, or digest-mismatched
+        profile fails closed rather than silently adopting today's saved defaults.
+        """
+        profile_data = task.payload.get("_auren_workflow_profile")
+        profile_digest = task.payload.get("_auren_workflow_profile_digest")
+        if profile_data is None and profile_digest is None:
+            return
+        if not isinstance(profile_data, Mapping) or not isinstance(profile_digest, str):
+            raise RuntimeError("durable workflow profile binding is incomplete")
+        try:
+            profile = WorkflowProfile.from_mapping(profile_data)
+        except (TypeError, ValueError) as exc:
+            raise RuntimeError("durable workflow profile is incompatible") from exc
+        if profile.digest != profile_digest:
+            raise RuntimeError("durable workflow profile digest mismatch")
+
     def _pause_for_approval(self, task: DurableTask, pending: ApprovalPending) -> str:
         """Persist a nonterminal approval wait and release the worker lease."""
         with closing(sqlite3.connect(self.db_path, timeout=10)) as db:
@@ -1804,6 +1834,18 @@ class ExecutionController:
                 raise ValueError("approval-gated handler has no trusted gateway/ledger policy")
         self._load_handler(handler)
         payload_copy = dict(payload)
+        # Never trust caller-supplied supervisor-owned profile fields. A public
+        # workflow_profile may override saved preferences for this task only.
+        task_profile = payload_copy.pop("workflow_profile", None)
+        payload_copy.pop("_auren_workflow_profile", None)
+        payload_copy.pop("_auren_workflow_profile_digest", None)
+        saved_profile = load_profile(self.workflow_profile_path)
+        effective_profile = resolve_profile(
+            task=task_profile,
+            saved=saved_profile.as_dict() if saved_profile is not None else None,
+        )
+        payload_copy["_auren_workflow_profile"] = effective_profile.as_dict()
+        payload_copy["_auren_workflow_profile_digest"] = effective_profile.digest
         payload_key = payload_copy.get("work_key")
         candidate_key = work_key if work_key is not None else payload_key
         stable_work_key: str | None = None
@@ -2691,6 +2733,7 @@ class ExecutionController:
                     raise TaskDeadlineExceeded("task deadline expired before preflight")
             self.heartbeat(task)
             self._verify_engineering_plan_dispatch_checkpoint(task)
+            self._verify_workflow_profile_binding(task)
             gates_passed, gate_detail, gate_evidence = self._preflight_gates(task)
             if not gates_passed:
                 if not self._finalize_claim(task, "failed"):
