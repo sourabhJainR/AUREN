@@ -186,3 +186,39 @@ class GuardPolicyManagementTests(unittest.TestCase):
                 provider_operation_id="provider-2", verified_outcome="succeeded",
                 event_type="dispatch_authorized", timestamp=10,
             )
+
+
+    def test_action_evidence_rejects_non_finite_timestamps(self):
+        from portable.guard_policy_management import GuardActionEvidenceLedger
+
+        ledger = GuardActionEvidenceLedger(self.tmp_path / "evidence.sqlite3")
+        base = dict(
+            event_id="invalid-time", identity="worker", delegated_scope=("tool.read",),
+            policy_version="v1", policy_digest="e" * 64, approval_id=None,
+            provider_operation_id="provider-time", verified_outcome="pending",
+            event_type="dispatch_authorized",
+        )
+        for timestamp in (float("nan"), float("inf"), float("-inf"), True):
+            with self.subTest(timestamp=timestamp):
+                with self.assertRaises(GuardPolicyError):
+                    ledger.append(**base, timestamp=timestamp)
+        assert ledger.verify()
+
+    def test_action_evidence_verification_rejects_non_object_json_without_crashing(self):
+        from portable.guard_policy_management import GuardActionEvidenceLedger
+
+        ledger = GuardActionEvidenceLedger(self.tmp_path / "evidence.sqlite3")
+        ledger.append(
+            event_id="op:dispatch", identity="worker", delegated_scope=("tool.read",),
+            policy_version="v1", policy_digest="f" * 64, approval_id=None,
+            provider_operation_id="provider-malformed", verified_outcome="pending",
+            event_type="dispatch_authorized", timestamp=10,
+        )
+        with sqlite3.connect(ledger.database) as db:
+            db.execute(
+                "UPDATE guard_action_events SET event_json=? WHERE event_id=?",
+                ('["not", "an", "event"]', "op:dispatch"),
+            )
+        assert not ledger.verify()
+        with self.assertRaises(GuardPolicyError):
+            ledger.unresolved_operations()
