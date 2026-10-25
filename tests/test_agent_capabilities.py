@@ -198,6 +198,31 @@ class AgentCapabilityTests(unittest.TestCase):
                 network_allowed=False,
             )
 
+
+    def test_advertised_api_and_tool_capabilities_are_discovered_without_imports(self):
+        import os
+        import tempfile
+        from portable.agent_capabilities import CapabilityExecutioner
+        keys = {
+            "AER_API_CAPABILITIES": '[{"name":"api:policy-check","description":"policy validation","tags":["policy"],"risk":"medium"}]',
+            "AER_TOOL_CAPABILITIES": '[{"name":"tool:repo-index","description":"repository index","tags":["repository","search"]}]',
+        }
+        previous = {key: os.environ.get(key) for key in keys}
+        try:
+            os.environ.update(keys)
+            with tempfile.TemporaryDirectory() as tmp:
+                options = CapabilityExecutioner().discover_installed(tmp)
+            by_name = {item.name: item for item in options}
+            self.assertEqual("api", by_name["api:policy-check"].source)
+            self.assertEqual("tool", by_name["tool:repo-index"].source)
+            self.assertIn("policy", by_name["api:policy-check"].tags)
+        finally:
+            for key, value in previous.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+
     def test_optional_metadata_is_sanitized_and_malformed_metadata_is_ignored(self):
         import os
         import tempfile
@@ -673,19 +698,108 @@ class AgentCapabilityTests(unittest.TestCase):
                 selected="mcp:repo-search", alternatives=("core:search",),
                 rationale="selected for fit", outcome="passed",
                 evidence_ids=("test:capability-audit",), cost=0.1, duration_seconds=0.25,
+                inventory_snapshot_id=snapshot,
             )
             with sqlite3.connect(path) as db:
                 inventory = db.execute(
                     "SELECT name,source,risk FROM capability_inventory ORDER BY name"
                 ).fetchall()
                 decision = db.execute(
-                    "SELECT stage,crew_id,selected,outcome,request_digest FROM capability_decisions"
+                    "SELECT stage,crew_id,selected,outcome,request_digest,inventory_snapshot_id FROM capability_decisions"
                 ).fetchone()
             self.assertEqual(["mcp:repo-search", "plugin:deploy"], [row[0] for row in inventory])
             self.assertEqual(["mcp", "plugin"], [row[1] for row in inventory])
             self.assertEqual(("verification", "review", "mcp:repo-search", "passed"), decision[:4])
             self.assertEqual(64, len(decision[4]))
+            self.assertEqual(snapshot, decision[5])
             self.assertNotIn("secret=do-not-store", path.read_bytes().decode("utf-8", errors="ignore"))
+            with sqlite3.connect(path) as db:
+                with self.assertRaises(sqlite3.IntegrityError):
+                    db.execute("UPDATE capability_decisions SET outcome='forged'")
+                with self.assertRaises(sqlite3.IntegrityError):
+                    db.execute("DELETE FROM capability_inventory")
+
+
+
+    def test_capability_audit_migrates_existing_decision_table(self):
+        import sqlite3
+        import tempfile
+        from portable.agent_capabilities import CapabilityAuditLedger
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "capability_audit.sqlite3"
+            with sqlite3.connect(path) as db:
+                db.execute("""CREATE TABLE capability_decisions (
+                    event_id TEXT PRIMARY KEY, run_id TEXT NOT NULL, stage TEXT NOT NULL,
+                    crew_id TEXT NOT NULL, request_digest TEXT NOT NULL, selected TEXT NOT NULL,
+                    alternatives TEXT NOT NULL, rationale_digest TEXT NOT NULL, outcome TEXT NOT NULL,
+                    evidence_digest TEXT NOT NULL, cost REAL, duration_seconds REAL, created_at TEXT NOT NULL)""")
+            CapabilityAuditLedger(path)
+            with sqlite3.connect(path) as db:
+                columns = {row[1] for row in db.execute("PRAGMA table_info(capability_decisions)")}
+            self.assertIn("inventory_snapshot_id", columns)
+
+    def test_explicit_user_tool_request_is_preserved_in_selected_bundle(self):
+        from portable.agent_capabilities import CapabilityExecutioner, CapabilityOption
+        result = CapabilityExecutioner().select_collaborative(
+            request="review task " + ("context " * 40),
+            explicit_request=("context " * 40) + "User instruction: must use mcp:repo-search for this task",
+            options=(
+                CapabilityOption("core:general", source="core", tags=frozenset({"general"}), evidence_quality=0.99, confidence=0.99),
+                CapabilityOption("mcp:repo-search", source="mcp", tags=frozenset({"repository", "search"}), risk="medium"),
+            ),
+        )
+        self.assertIn("mcp:repo-search", result.selected_set)
+
+
+    def test_explicit_only_directive_excludes_every_other_capability(self):
+        from portable.agent_capabilities import CapabilityExecutioner, CapabilityOption
+        result = CapabilityExecutioner().select_collaborative(
+            request="Use only mcp:repo-search",
+            options=(
+                CapabilityOption("mcp:repo-search", source="mcp", tags=frozenset({"repository", "search"})),
+                CapabilityOption("core:general", source="core", tags=frozenset({"general"})),
+                CapabilityOption("plugin:deploy", source="plugin", tags=frozenset({"deploy"})),
+            ),
+        )
+        self.assertEqual(("mcp:repo-search",), result.selected_set)
+
+    def test_multiple_explicit_user_tools_are_combined_or_fail_closed(self):
+        from portable.agent_capabilities import CapabilityExecutioner, CapabilityOption
+        result = CapabilityExecutioner().select_collaborative(
+            request="Must use mcp:repo-search and must use skill:repo-review",
+            options=(
+                CapabilityOption("mcp:repo-search", source="mcp", tags=frozenset({"repository", "search"})),
+                CapabilityOption("skill:repo-review", source="skill", tags=frozenset({"review", "repository"})),
+                CapabilityOption("core:general", source="core", tags=frozenset({"general"})),
+            ),
+            max_skills=2,
+        )
+        self.assertTrue({"mcp:repo-search", "skill:repo-review"}.issubset(set(result.selected_set)))
+        with self.assertRaisesRegex(PermissionError, "bundle limit"):
+            CapabilityExecutioner().select_collaborative(
+                request="Must use mcp:repo-search and must use skill:repo-review and must use api:verify",
+                options=(
+                    CapabilityOption("mcp:repo-search", source="mcp"),
+                    CapabilityOption("skill:repo-review", source="skill"),
+                    CapabilityOption("api:verify", source="api"),
+                ),
+                max_skills=2,
+            )
+
+    def test_explicit_tool_exclusion_and_policy_denial_are_fail_closed(self):
+        from portable.agent_capabilities import CapabilityExecutioner, CapabilityOption
+        with self.assertRaises(LookupError):
+            CapabilityExecutioner().select_collaborative(
+                request="Do not use mcp:remote-write",
+                options=(CapabilityOption("mcp:remote-write", source="mcp"),),
+            )
+        with self.assertRaisesRegex(PermissionError, "blocked by execution policy"):
+            CapabilityExecutioner().select_collaborative(
+                request="Must use mcp:remote-write",
+                options=(CapabilityOption("mcp:remote-write", source="mcp", risk="high", requires_network=True),),
+                network_allowed=False,
+            )
 
 if __name__ == "__main__":
     unittest.main()
