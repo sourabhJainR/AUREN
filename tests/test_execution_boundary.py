@@ -410,19 +410,20 @@ class SubprocessBoundaryInventoryTests(unittest.TestCase):
     that non-Popen execution mechanisms are covered.
     """
 
-    REVIEWED_POPEN_CALLSITES = {
-        ".ai-harness/provider.py::main": 1,
-        ".ai-harness/resilient_provider.py::main": 1,
-        "portable/bounded_subprocess.py::run_bounded_command": 1,
-        "portable/container_sandboxed_arena.py::_run_one_case": 1,
-        "portable/docker_external_evaluator_executor.py::__init__": 1,
-        "portable/docker_isolated_evaluator.py::launch": 1,
-        "portable/external_evaluator_gateway.py::evaluate": 1,
-        "portable/isolated_arena_runner.py::policy": 1,
-        "portable/local_offload.py::run": 1,
-        "portable/subprocess_provider.py::__call__": 1,
-        "portable/vibe_coding_host.py::__call__": 1,
+    REVIEWED_POPEN_DISPOSITIONS = {
+        ".ai-harness/provider.py::main": "interactive provider process; inspect argv, environment, deadline and output lifecycle",
+        ".ai-harness/resilient_provider.py::main": "retrying provider process; inspect safe-provider handoff and shared retry budget",
+        "portable/bounded_subprocess.py::run_bounded_command": "bounded primitive; inspect timeout, output caps, process-tree cleanup and requested resource limits",
+        "portable/container_sandboxed_arena.py::_run_one_case": "container-backed Arena; verify runtime flags and fail closed on container setup errors",
+        "portable/docker_external_evaluator_executor.py::__init__": "container runtime lifecycle; verify fixed argv, cleanup and container policy",
+        "portable/docker_isolated_evaluator.py::launch": "Docker evaluator; verify image, mounts, capabilities, egress and cleanup policy",
+        "portable/external_evaluator_gateway.py::evaluate": "host-process mode is test-only and is not a security sandbox",
+        "portable/isolated_arena_runner.py::policy": "policy-command runner; the supplied command is not itself proof of OS isolation",
+        "portable/local_offload.py::run": "local offload; inspect argv, environment, workspace, timeout and cancellation",
+        "portable/subprocess_provider.py::__call__": "command provider; clean environment, no shell, bounded timeout and process-tree controls",
+        "portable/vibe_coding_host.py::__call__": "host adapter; inspect argv, safe environment, workspace, cancellation and output bounds",
     }
+    REVIEWED_POPEN_CALL_COUNTS = {key: 1 for key in REVIEWED_POPEN_DISPOSITIONS}
 
     def test_every_direct_popen_callsite_has_an_exact_reviewed_disposition(self):
         root = Path(__file__).resolve().parents[1]
@@ -462,12 +463,13 @@ class SubprocessBoundaryInventoryTests(unittest.TestCase):
 
         self.assertEqual(
             actual,
-            self.REVIEWED_POPEN_CALLSITES,
+            self.REVIEWED_POPEN_CALL_COUNTS,
             "New, moved, or duplicated Popen callsites require an explicit review and "
             "denial-before-launch regression test; do not weaken this assertion to pass CI.",
         )
 
     def test_registry_records_non_sandbox_and_runtime_policy_limits(self):
         doc = (Path(__file__).resolve().parents[1] / "docs/GUARDED_EXECUTION_BOUNDARY_FOLLOWUP.md").read_text(encoding="utf-8")
+        self.assertTrue(all(value.strip() for value in self.REVIEWED_POPEN_DISPOSITIONS.values()))
         self.assertIn("not a security sandbox", doc)
         self.assertIn("not proof that every callsite within an already-listed module is authorized", doc)
