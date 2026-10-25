@@ -935,6 +935,7 @@ class MCPStdioToolAdapter:
         self, *, argv: Sequence[str], tool_name: str, argument_map: Mapping[str, Any] | None = None,
         timeout_seconds: int = 30, env_allowlist: Sequence[str] = (),
         requires_authority_binding: bool = True,
+        trusted_workspace_root: str | Path | None = None,
         authority_dispatch: Callable[
             [Mapping[str, Any], MCPToolCallBinding, Callable[[], Mapping[str, Any]]],
             Mapping[str, Any],
@@ -956,6 +957,12 @@ class MCPStdioToolAdapter:
         self.timeout_seconds = timeout_seconds
         self.env_allowlist = tuple(env_allowlist)
         self.requires_authority_binding = requires_authority_binding
+        self.trusted_workspace_root = (
+            Path(trusted_workspace_root).expanduser().resolve()
+            if trusted_workspace_root is not None else None
+        )
+        if not requires_authority_binding and self.trusted_workspace_root is None:
+            raise ValueError("unbound read-only MCP dispatch requires a trusted workspace root")
         self.authority_dispatch = authority_dispatch
 
     @staticmethod
@@ -1036,8 +1043,19 @@ class MCPStdioToolAdapter:
     def _invoke_unchecked(
         self, request: Mapping[str, Any], *, arguments: Mapping[str, Any] | None = None,
     ) -> Mapping[str, Any]:
-        cwd_value = request.get("state", {}).get("workspace_root") or request.get("state", {}).get("project_root")
-        cwd = Path(str(cwd_value)).expanduser().resolve() if cwd_value else Path.cwd()
+        state = request.get("state", {})
+        if not isinstance(state, Mapping):
+            raise AdapterUnavailable("MCP request state must be a mapping")
+        cwd_value = state.get("workspace_root") or state.get("project_root")
+        if not cwd_value:
+            raise AdapterUnavailable("MCP dispatch requires an explicit workspace root")
+        cwd = Path(str(cwd_value)).expanduser().resolve()
+        if self.trusted_workspace_root is not None:
+            trusted_root = self.trusted_workspace_root
+            if not trusted_root.is_dir():
+                raise AdapterUnavailable("trusted MCP workspace root is missing or not a directory")
+            if cwd != trusted_root and trusted_root not in cwd.parents:
+                raise AdapterUnavailable("MCP working directory escapes the trusted workspace root")
         proc = subprocess.Popen(
             list(self.argv), cwd=str(cwd), stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             text=True, bufsize=1, shell=False, env=_safe_env(self.env_allowlist),
@@ -1800,8 +1818,9 @@ def _build_provider_operation_lookups(
             ),
             timeout_seconds=int(spec.get("timeout_seconds", 30)),
             env_allowlist=tuple(spec.get("env_allowlist", env_allowlist)),
-            # Provider operation lookup is a read-only status query, not a side-effect dispatch.
+            # Read-only status lookup still has a host-pinned cwd boundary.
             requires_authority_binding=False,
+            trusted_workspace_root=workspace,
         )
 
         def lookup(
@@ -2114,6 +2133,7 @@ class LocalVibeCodingHost:
                 timeout_seconds=int(spec.get("timeout_seconds", 30)),
                 env_allowlist=tuple(spec.get("env_allowlist", self.config.env_allowlist)),
                 requires_authority_binding=bool(spec.get("external_effects", capability not in _MCP_READ_ONLY_CAPABILITIES)),
+                trusted_workspace_root=workspace,
                 authority_dispatch=mcp_authority_dispatch,
             )
         if "independent_review" in self.config.mcp_tools:
