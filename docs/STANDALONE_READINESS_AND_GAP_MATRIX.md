@@ -135,3 +135,12 @@
 5. Build from pinned source; retain bundle manifest and SHA-256 digest; install and smoke-test in a clean environment.
 6. Execute staging migration, interruption, rollback, and user-data integrity rehearsal; record operator, environment, timestamps, logs, and before/after data checks.
 7. Keep #404 and release blocked until external custody, signed results, extension isolation, and rollback evidence are independently verified.
+
+
+### Arena uncertainty reporting follow-up — 2026-10-25
+
+- [x] Add packet schema v2 with an uncertainty summary bound by the campaign content digest and external attestation.
+- [x] Validate method, sample size, confidence level, interval bounds, and unknown-result count; reject malformed or contradictory reports.
+- [x] Keep schema v1 readable for historical compatibility but explicitly report that it lacks the new uncertainty acceptance evidence.
+- [ ] Run exact-head CI and adversarial regression checks.
+- [ ] Obtain externally controlled signed v2 campaign evidence. Local schema tests do not close issue #404 or prove independent custody, signer identity, or an actual campaign run.

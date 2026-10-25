@@ -17,11 +17,14 @@ from typing import Any
 _HEX256 = re.compile(r"^[0-9a-f]{64}$")
 _RUN_FIELDS = {"run_id", "run_nonce", "result_digest", "receipt_digest", "outcome"}
 _ROLE_FIELDS = {"candidate_owner", "corpus_owner", "evaluator_owner", "sandbox_auditor"}
-_PACKET_FIELDS = {
+_PACKET_FIELDS_V1 = {
     "schema_version", "campaign_id", "candidate", "source_domain", "target_domain",
     "operators", "corpus", "evaluator", "attestation", "runs", "baseline",
     "negative_controls", "resource_cost", "limitations",
 }
+# V2 adds a signed uncertainty summary. V1 remains readable for historical packets,
+# but it cannot satisfy the current uncertainty-reporting acceptance criterion.
+_PACKET_FIELDS_V2 = _PACKET_FIELDS_V1 | {"uncertainty"}
 
 
 class CampaignPacketError(ValueError):
@@ -78,8 +81,14 @@ def validate_campaign_packet(
     signer, operator roles, campaign/corpus/evaluator lineage, and signatures.
     A boolean supplied inside the packet is never accepted as verification.
     """
-    p = _object(packet, _PACKET_FIELDS, "campaign packet")
-    if p["schema_version"] != "auren-external-campaign-packet-v1":
+    if not isinstance(packet, Mapping):
+        raise CampaignPacketError("campaign packet must be a mapping")
+    schema_version = packet.get("schema_version")
+    if schema_version == "auren-external-campaign-packet-v1":
+        p = _object(packet, _PACKET_FIELDS_V1, "campaign packet")
+    elif schema_version == "auren-external-campaign-packet-v2":
+        p = _object(packet, _PACKET_FIELDS_V2, "campaign packet")
+    else:
         raise CampaignPacketError("unsupported campaign packet schema")
     campaign_id = _text(p["campaign_id"], "campaign_id")
     _text(p["source_domain"], "source_domain")
@@ -178,7 +187,42 @@ def validate_campaign_packet(
     limitations = p["limitations"]
     if not isinstance(limitations, list) or not limitations or any(not isinstance(v, str) or not v.strip() for v in limitations):
         raise CampaignPacketError("limitations must be a non-empty list of explicit statements")
-    return {
+
+    uncertainty_report: dict[str, Any] | None = None
+    if schema_version == "auren-external-campaign-packet-v2":
+        uncertainty = _object(
+            p["uncertainty"],
+            {"method", "sample_size", "confidence_level", "lower_bound", "upper_bound", "unknown_count"},
+            "uncertainty",
+        )
+        _text(uncertainty["method"], "uncertainty.method")
+        sample_size = uncertainty["sample_size"]
+        unknown_count = uncertainty["unknown_count"]
+        if type(sample_size) is not int or sample_size < 1:
+            raise CampaignPacketError("uncertainty.sample_size must be a positive integer")
+        if type(unknown_count) is not int or not 0 <= unknown_count <= sample_size:
+            raise CampaignPacketError("uncertainty.unknown_count must be an integer within sample_size")
+        confidence = uncertainty["confidence_level"]
+        if isinstance(confidence, bool) or not isinstance(confidence, (int, float)) or not math.isfinite(confidence) or not 0 < confidence < 1:
+            raise CampaignPacketError("uncertainty.confidence_level must be finite and in (0, 1)")
+        bounds: list[float] = []
+        for key in ("lower_bound", "upper_bound"):
+            value = uncertainty[key]
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not 0 <= value <= 1:
+                raise CampaignPacketError(f"uncertainty.{key} must be a finite probability")
+            bounds.append(float(value))
+        if bounds[0] > bounds[1]:
+            raise CampaignPacketError("uncertainty lower_bound must not exceed upper_bound")
+        uncertainty_report = {
+            "method": uncertainty["method"].strip(),
+            "sample_size": sample_size,
+            "confidence_level": float(confidence),
+            "lower_bound": bounds[0],
+            "upper_bound": bounds[1],
+            "unknown_count": unknown_count,
+        }
+
+    result = {
         "accepted": True,
         "campaign_id": campaign_id,
         "candidate_commit": candidate["commit_sha"],
@@ -187,4 +231,8 @@ def validate_campaign_packet(
         "repeatability_verified": True,
         "negative_controls_rejected": sorted(required_controls),
         "limitations": list(limitations),
+        "uncertainty_reported": uncertainty_report is not None,
     }
+    if uncertainty_report is not None:
+        result["uncertainty"] = uncertainty_report
+    return result

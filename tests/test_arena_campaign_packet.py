@@ -123,6 +123,56 @@ class ArenaCampaignPacketTests(unittest.TestCase):
         with self.assertRaisesRegex(CampaignPacketError, "unknown or missing fields"):
             validate_campaign_packet(data, verify_external_attestation=lambda _: True)
 
+    def test_v2_requires_signed_uncertainty_report(self):
+        data = packet()
+        data["schema_version"] = "auren-external-campaign-packet-v2"
+        data["uncertainty"] = {
+            "method": "wilson-score-interval",
+            "sample_size": 20,
+            "confidence_level": 0.95,
+            "lower_bound": 0.43,
+            "upper_bound": 0.82,
+            "unknown_count": 1,
+        }
+        refresh_campaign_digest(data)
+        result = validate_campaign_packet(data, verify_external_attestation=lambda _: True)
+        self.assertTrue(result["accepted"])
+        self.assertTrue(result["uncertainty_reported"])
+        self.assertEqual(result["uncertainty"]["sample_size"], 20)
+        self.assertEqual(result["uncertainty"]["unknown_count"], 1)
+
+    def test_v2_rejects_invalid_uncertainty_and_binds_it_to_attestation(self):
+        data = packet()
+        data["schema_version"] = "auren-external-campaign-packet-v2"
+        data["uncertainty"] = {
+            "method": "wilson-score-interval",
+            "sample_size": 20,
+            "confidence_level": 0.95,
+            "lower_bound": 0.8,
+            "upper_bound": 0.2,
+            "unknown_count": 1,
+        }
+        refresh_campaign_digest(data)
+        with self.assertRaisesRegex(CampaignPacketError, "lower_bound must not exceed upper_bound"):
+            validate_campaign_packet(data, verify_external_attestation=lambda _: True)
+
+        data["uncertainty"]["lower_bound"] = 0.2
+        refresh_campaign_digest(data)
+        data["uncertainty"]["unknown_count"] = 21
+        refresh_campaign_digest(data)
+        with self.assertRaisesRegex(CampaignPacketError, "within sample_size"):
+            validate_campaign_packet(data, verify_external_attestation=lambda _: True)
+
+    def test_v2_requires_uncertainty_but_v1_remains_compatible(self):
+        data = packet()
+        self.assertFalse(validate_campaign_packet(
+            data, verify_external_attestation=lambda _: True
+        )["uncertainty_reported"])
+        data["schema_version"] = "auren-external-campaign-packet-v2"
+        refresh_campaign_digest(data)
+        with self.assertRaisesRegex(CampaignPacketError, "unknown or missing fields"):
+            validate_campaign_packet(data, verify_external_attestation=lambda _: True)
+
     def test_malformed_digest_and_empty_limitations_fail_closed(self):
         data = packet()
         data["corpus"]["digest"] = "not-a-digest"
