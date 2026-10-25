@@ -224,6 +224,16 @@ class TestAgencyObservability(unittest.TestCase):
         assert terminal[0]["status"] == "cancelled"
         assert terminal[0]["end"] is not None
 
+    def test_set_metadata_is_canonical_for_repeatable_digests(self):
+        first = Tracer().start("canonical-set").span(
+            "worker", metadata={"labels": {"zeta", "alpha", "middle"}},
+        )
+        second = Tracer().start("canonical-set").span(
+            "worker", metadata={"labels": set(["middle", "zeta", "alpha"])},
+        )
+        assert first.metadata["labels"] == ["alpha", "middle", "zeta"]
+        assert first.metadata["labels"] == second.metadata["labels"]
+
     def test_unsupported_objects_never_invoke_arbitrary_repr(self):
         class UnsafeRepresentation:
             def __repr__(self):
