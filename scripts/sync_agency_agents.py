@@ -10,6 +10,8 @@ from __future__ import annotations
 import argparse, hashlib, json, re, sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 from portable.guarded_network import guarded_https_get
 
 SOURCE = "msitarzewski/agency-agents"
