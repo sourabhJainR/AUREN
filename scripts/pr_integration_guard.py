@@ -13,6 +13,8 @@ import sys
 import urllib.error
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from portable.guarded_network import guarded_https_get
 from typing import Any
 
