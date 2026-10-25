@@ -7,6 +7,7 @@ Missing or invalid configured policy fails closed.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 import hashlib
 import json
 from fnmatch import fnmatchcase
@@ -20,7 +21,7 @@ _MATCH_FIELDS = frozenset({
     "action", "tool", "resource", "organization_id", "agent_id", "risk",
 })
 _POLICY_FIELDS = frozenset({"schema_version", "default_effect", "rules"})
-_RULE_FIELDS = frozenset({"id", "effect", *_MATCH_FIELDS})
+_RULE_FIELDS = frozenset({"id", "effect", "hours_utc", "weekdays_utc", *_MATCH_FIELDS})
 
 
 class GuardPolicyError(ValueError):
@@ -75,7 +76,7 @@ def validate_policy(value: Mapping[str, Any]) -> dict[str, Any]:
     rules = value.get("rules", [])
     if not isinstance(rules, list) or len(rules) > 500:
         raise GuardPolicyError("rules must be a list of at most 500 entries")
-    normalized: list[dict[str, str]] = []
+    normalized: list[dict[str, Any]] = []
     seen_ids: set[str] = set()
     for index, rule in enumerate(rules):
         if not isinstance(rule, Mapping):
@@ -88,7 +89,7 @@ def validate_policy(value: Mapping[str, Any]) -> dict[str, Any]:
             raise GuardPolicyError(f"rule {index} requires a unique non-empty id")
         if not isinstance(effect, str) or effect not in _ALLOWED_EFFECTS:
             raise GuardPolicyError(f"rule {rule_id} has an invalid effect")
-        item: dict[str, str] = {"id": rule_id, "effect": effect}
+        item: dict[str, Any] = {"id": rule_id, "effect": effect}
         for field in _MATCH_FIELDS:
             if field in rule:
                 matcher = rule[field]
@@ -98,8 +99,22 @@ def validate_policy(value: Mapping[str, Any]) -> dict[str, Any]:
                 ):
                     raise GuardPolicyError(f"rule {rule_id} has an invalid {field} matcher")
                 item[field] = matcher
-        if not any(field in item for field in _MATCH_FIELDS):
-            raise GuardPolicyError(f"rule {rule_id} must match at least one context field")
+        for field, maximum in (("hours_utc", 23), ("weekdays_utc", 6)):
+            if field in rule:
+                values = rule[field]
+                if (
+                    not isinstance(values, list) or not values or len(values) > maximum + 1
+                    or any(type(value) is not int or value < 0 or value > maximum for value in values)
+                    or len(set(values)) != len(values)
+                ):
+                    raise GuardPolicyError(
+                        f"rule {rule_id} {field} must be a non-empty unique list of integers from 0 to {maximum}"
+                    )
+                item[field] = sorted(values)
+        if not any(field in item for field in _MATCH_FIELDS) and not any(
+            field in item for field in ("hours_utc", "weekdays_utc")
+        ):
+            raise GuardPolicyError(f"rule {rule_id} must match at least one context field or UTC time condition")
         normalized.append(item)
         seen_ids.add(rule_id)
     return {"schema_version": POLICY_VERSION, "default_effect": default_effect, "rules": normalized}
@@ -124,6 +139,20 @@ def load_guard_policy(path: str | Path) -> dict[str, Any] | None:
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise GuardPolicyError("configured Guard policy is malformed") from exc
     return validate_policy(value)
+
+
+def _time_conditions_match(rule: Mapping[str, Any], current: datetime) -> bool:
+    """Apply optional UTC hour/weekday constraints using a trusted clock."""
+    if current.tzinfo is None:
+        raise GuardPolicyError("Guard evaluation time must be timezone-aware")
+    current_utc = current.astimezone(timezone.utc)
+    hours = rule.get("hours_utc")
+    weekdays = rule.get("weekdays_utc")
+    if hours is not None and current_utc.hour not in hours:
+        return False
+    if weekdays is not None and current_utc.weekday() not in weekdays:
+        return False
+    return True
 
 
 def evaluate_guard_policy(
@@ -153,8 +182,11 @@ def evaluate_guard_policy(
     digest = hashlib.sha256(_canonical(normalized).encode("utf-8")).hexdigest()
     if not mandatory_authorized:
         return GuardDecision(False, "deny", "mandatory platform or execution-controller authorization is missing", digest)
-    matched: list[Mapping[str, str]] = []
+    matched: list[Mapping[str, Any]] = []
+    current_utc = datetime.now(timezone.utc)
     for rule in normalized["rules"]:
+        if not _time_conditions_match(rule, current_utc):
+            continue
         if all(
             key in safe_context and (
                 rule[key] == safe_context[key]

@@ -1,9 +1,11 @@
 import json
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 
 from portable.organization_guard import (
     POLICY_VERSION,
+    _time_conditions_match,
     GuardPolicyError,
     evaluate_guard_policy,
     load_guard_policy,
@@ -136,3 +138,51 @@ def test_question_mark_glob_is_rejected_when_only_star_wildcards_are_supported()
     import pytest
     with pytest.raises(GuardPolicyError):
         validate_policy(policy(rule("unsupported-pattern", "deny", resource="prod/?")))
+
+
+def test_guard_rules_support_utc_hour_and_weekday_constraints():
+    now = datetime(2026, 10, 25, 9, 30, tzinfo=timezone.utc)
+    condition = {"hours_utc": [9, 10], "weekdays_utc": [6]}
+    assert _time_conditions_match(condition, now)
+    assert not _time_conditions_match(condition, now + timedelta(hours=2))
+    assert not _time_conditions_match(condition, now.replace(hour=11))
+    assert not _time_conditions_match(condition, now.replace(day=26))
+
+
+def test_guard_time_constraints_validate_strictly():
+    import pytest
+    with pytest.raises(GuardPolicyError):
+        validate_policy(policy(rule("bad-hour", "deny", action="publish", hours_utc=[24])))
+    with pytest.raises(GuardPolicyError):
+        validate_policy(policy(rule("bad-day", "deny", action="publish", weekdays_utc=[7])))
+    with pytest.raises(GuardPolicyError):
+        validate_policy(policy(rule("duplicate-hour", "deny", action="publish", hours_utc=[9, 9])))
+    with pytest.raises(GuardPolicyError):
+        validate_policy(policy(rule("empty-time-rule", "deny", hours_utc=[])))
+
+
+def test_evaluator_enforces_utc_time_conditions_using_trusted_clock():
+    from unittest.mock import patch
+
+    fixed = datetime(2026, 10, 25, 9, 30, tzinfo=timezone.utc)
+
+    class FixedDateTime:
+        @staticmethod
+        def now(tz=None):
+            return fixed if tz is None else fixed.astimezone(tz)
+
+    configured = policy(rule(
+        "deny-publish-sunday-morning", "deny", action="publish",
+        hours_utc=[9], weekdays_utc=[6],
+    ))
+    with patch("portable.organization_guard.datetime", FixedDateTime):
+        inside = evaluate_guard_policy(configured, {"action": "publish"})
+        outside_policy = policy(rule(
+            "deny-publish-other-hour", "deny", action="publish",
+            hours_utc=[10], weekdays_utc=[6],
+        ))
+        outside = evaluate_guard_policy(outside_policy, {"action": "publish"})
+
+    assert not inside.allowed
+    assert inside.matched_rule_ids == ("deny-publish-sunday-morning",)
+    assert outside.allowed
