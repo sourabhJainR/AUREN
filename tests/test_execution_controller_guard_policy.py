@@ -100,3 +100,29 @@ def test_restart_keeps_submitted_profile_when_saved_preferences_change(tmp_path:
     restarted.run_once(task.id)
     assert not marker.exists()
     assert restarted.task(task.id).state != "completed"
+
+
+def test_invalid_configured_guard_policy_is_durable_and_blocks_dispatch(tmp_path: Path):
+    controller = ExecutionController(tmp_path)
+    controller.register_handler(
+        "tests.guarded_marker_handler", guarded_marker_handler, execution_class="read_only"
+    )
+    policy_path = tmp_path / ".auren" / "guard_policy.json"
+    policy_path.parent.mkdir(parents=True, exist_ok=True)
+    policy_path.write_text(
+        '{"schema_version":"auren-guard-v1","schema_version":"auren-guard-v1","rules":[]}',
+        encoding="utf-8",
+    )
+    marker = tmp_path / "must-not-run.txt"
+    task = controller.submit("tests.guarded_marker_handler", {"marker_path": str(marker)})
+    with sqlite3.connect(controller.evidence_capture.path) as db:
+        row = db.execute(
+            "SELECT metadata_json FROM engineering_events WHERE task_id=? AND event_type='task_submitted'",
+            (task.id,),
+        ).fetchone()
+    assert row is not None
+    assert json.loads(row[0])["guard_policy_status"] == "invalid"
+
+    controller.run_once(task.id)
+    assert not marker.exists()
+    assert controller.task(task.id).state != "completed"
