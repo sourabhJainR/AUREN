@@ -2610,7 +2610,6 @@ class ExecutionController:
             "packet_digest": metadata.get("packet_digest"),
             "handler": task.handler,
             "payload_digest": payload_digest,
-            "guard": guard_binding,
         }
         binding_digest = hashlib.sha256(
             json.dumps(binding, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
@@ -2681,6 +2680,7 @@ class ExecutionController:
             ),
             "handler": task.handler,
             "payload_digest": payload_digest,
+            "guard": guard_binding,
         }
         decision = DurableSideEffectLedger(self.db_path).begin(key, binding)
         if decision.action == "replay":
