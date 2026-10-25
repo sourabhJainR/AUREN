@@ -21,7 +21,6 @@ _MATCH_FIELDS = frozenset({
 })
 _POLICY_FIELDS = frozenset({"schema_version", "default_effect", "rules"})
 _RULE_FIELDS = frozenset({"id", "effect", *_MATCH_FIELDS})
-_SENSITIVE = re.compile(r"(?i)(?:secret|token|password|credential|api[_-]?key|private[_-]?key)")
 
 
 class GuardPolicyError(ValueError):
