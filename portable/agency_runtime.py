@@ -605,7 +605,10 @@ def execute(
             gaps = trace.metadata.setdefault("phase_coverage_gaps", [])
             if "learning" in gaps:
                 gaps.remove("learning")
-            trace.metadata["promotion"] = decision.as_dict()
+            trace.metadata["promotion"] = {
+                key: value for key, value in decision.as_dict().items()
+                if key != "reason"
+            }
             result.ledger.append(LedgerEntry("regression", f"{regression_run.regression_id}: {'passed' if regression_run.passed else 'failed'}"))
             result.ledger.append(LedgerEntry("promotion", f"{decision.action}: {decision.reason}"))
 
