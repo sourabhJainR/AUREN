@@ -54,7 +54,7 @@ _POST_MUTATION_STAGES = {
     VibeStage.PRODUCTION_DEPLOY, VibeStage.MONITORING,
 }
 _MCP_READ_ONLY_CAPABILITIES = frozenset({
-    "product", "research", "web_search", "accessibility", "security",
+    "product", "research", "web_search", "accessibility",
     "task_planning", "independent_review", "observability",
 })
 
@@ -610,6 +610,13 @@ class ProviderCliAgent:
         return result
 
 
+def mcp_request_action_id(request: Mapping[str, Any]) -> str:
+    """Return a deterministic action ID bound to the exact MCP request for read-only calls."""
+    if not isinstance(request, Mapping):
+        raise TypeError("MCP request must be a mapping")
+    return "mcp-read-" + _digest(dict(request))[:32]
+
+
 @dataclass(frozen=True)
 class MCPExecutionAuthorization:
     """Trusted, task-owned authority required before a consequential MCP call."""
@@ -650,18 +657,22 @@ class MCPExecutionAuthorization:
         if self.action_request.run_id != workflow_id or self.action_request.task_id != task_id:
             raise ValueError("MCP action identity does not match the dispatched workflow/task")
         operation = request.get("provider_operation")
-        if not isinstance(operation, Mapping):
-            raise ValueError("MCP consequential dispatch requires a durable provider-operation receipt")
-        operation_id = operation.get("operation_id")
-        idempotency_key = operation.get("idempotency_key")
-        if not isinstance(operation_id, str) or not operation_id.strip():
-            raise ValueError("MCP provider operation ID is required")
-        if not isinstance(idempotency_key, str) or not idempotency_key.strip():
-            raise ValueError("MCP provider idempotency key is required")
-        if self.action_request.action_id != operation_id:
-            raise ValueError("MCP action ID must match the durable provider operation ID")
-        if self.action_request.idempotency_key != idempotency_key:
-            raise ValueError("MCP action idempotency key must match the durable provider operation key")
+        if isinstance(operation, Mapping):
+            operation_id = operation.get("operation_id")
+            idempotency_key = operation.get("idempotency_key")
+            if not isinstance(operation_id, str) or not operation_id.strip():
+                raise ValueError("MCP provider operation ID is required")
+            if not isinstance(idempotency_key, str) or not idempotency_key.strip():
+                raise ValueError("MCP provider idempotency key is required")
+            if self.action_request.action_id != operation_id:
+                raise ValueError("MCP action ID must match the durable provider operation ID")
+            if self.action_request.idempotency_key != idempotency_key:
+                raise ValueError("MCP action idempotency key must match the durable provider operation key")
+        else:
+            if self.action_request.risk != "read":
+                raise ValueError("MCP writes require a durable provider-operation ID and idempotency key")
+            if self.action_request.action_id != mcp_request_action_id(request):
+                raise ValueError("MCP read action ID must bind to the exact request digest")
         if (
             self.authority.run_id != workflow_id
             or self.authority.task_id != task_id
@@ -1953,6 +1964,6 @@ __all__ = [
     "JournaledToolAdapter", "LocalAccessibilityTool", "LocalBrowserTool", "LocalDesignTool",
     "LocalProjectTool", "LocalSecurityTool", "LocalTestExecutionTool", "LocalVibeCodingHost",
     "MCPExecutionAuthorization", "MCPIndependentReviewTool", "MCPStdioToolAdapter", "MemoizedToolAdapter", "ProviderCliAgent", "SideEffectJournal",
-    "VerifiedResearchTool", "VibeHostConfig", "build_engineering_design_contract", "build_mcp_authority_dispatch",
+    "VerifiedResearchTool", "VibeHostConfig", "build_engineering_design_contract", "build_mcp_authority_dispatch", "mcp_request_action_id",
     "fingerprint_worktree", "load_host_config",
 ]
