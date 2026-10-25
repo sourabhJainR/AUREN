@@ -409,6 +409,7 @@ class SubprocessBoundaryInventoryTests(unittest.TestCase):
     REVIEWED_POPEN_DISPOSITIONS = {
         ".ai-harness/provider.py::main": "interactive provider process; inspect argv, environment, deadline and output lifecycle",
         ".ai-harness/resilient_provider.py::main": "retrying provider process; inspect safe-provider handoff and shared retry budget",
+        ".ai-harness/safe_provider.py::_bounded_process_output": "bounded provider process; inspect clean environment, timeout, output caps, process-tree and Windows job limits",
         "portable/bounded_subprocess.py::run_bounded_command": "bounded primitive; inspect timeout, output caps, process-tree cleanup and requested resource limits",
         "portable/container_sandboxed_arena.py::_run_one_case": "container-backed Arena; verify runtime flags and fail closed on container setup errors",
         "portable/docker_external_evaluator_executor.py::__init__": "container runtime lifecycle; verify fixed argv, cleanup and container policy",

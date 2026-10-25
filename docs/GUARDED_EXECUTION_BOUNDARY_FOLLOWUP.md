@@ -48,8 +48,8 @@ The policy evaluator now validates and canonicalizes IPv4/IPv6 CIDR selectors an
 
 A regression tripwire now inventories direct `subprocess.Popen` callsites under
 `portable/` and `.ai-harness/` against an explicit reviewed adapter registry.
-Adding a new launch module without a disposition fails the test. The registry
-records important limitations (for example, a host process is not a sandbox and
+Adding a new direct Popen callsite or changing its containing function without a disposition fails the test. The registry
+records important limitations (for example, a host process is not a security sandbox and
 a container launch is only as strong as its runtime policy).
 
 This is deliberately a **discovery gate**, not proof that every callsite within
