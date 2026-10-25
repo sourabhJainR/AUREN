@@ -297,7 +297,9 @@ class ExecutionController:
         resolved_handler = self._resolve_reference(reference) if isinstance(handler, str) else handler
         if not callable(resolved_handler):
             raise TypeError(f"durable handler is not callable: {reference}")
-        implementation_digest = self._implementation_digest(resolved_handler)        name_tokens = _handler_tokens(name)
+        implementation_digest = self._implementation_digest(resolved_handler)
+
+        name_tokens = _handler_tokens(name)
         if isinstance(handler, str):
             handler_identity = handler.split(":", 1)[-1]
         else:
@@ -596,7 +598,9 @@ class ExecutionController:
         if not isinstance(receipt_node_id, str) or not re.fullmatch(r"[0-9a-f]{64}", receipt_node_id):
             raise RuntimeError("durable evidence receipt is missing or malformed")
         graph = self.evidence_gate_integration.graph
-        node = graph.get_node(receipt_node_id)        if node is None or node.kind != "evidence_gate_receipt":            raise RuntimeError("durable evidence receipt is absent from the supervisor-owned graph")
+        node = graph.get_node(receipt_node_id)
+        if node is None or node.kind != "evidence_gate_receipt":
+            raise RuntimeError("durable evidence receipt is absent from the supervisor-owned graph")
         metadata = dict(node.metadata)
         if metadata.get("project") != self.evidence_project:
             raise RuntimeError("durable evidence receipt belongs to a different project")
@@ -687,7 +691,7 @@ class ExecutionController:
             profile = WorkflowProfile.from_mapping(task.payload["_auren_workflow_profile"])
             delivery_action = infer_delivery_action(task.handler, task.payload)
             # Organization policy adds restrictions before dispatch. It is not an
-            # authority grant: the existing approval, exact-head CI, and promotion
+            # authority grant: existing approval, exact-head CI, and promotion
             # gates below remain independently mandatory.
             try:
                 guard_policy = load_guard_policy(self.root / ".auren" / "guard_policy.json")
@@ -895,7 +899,8 @@ class ExecutionController:
                 or not 0.05 <= time_budget_seconds <= 30.0):
             raise ValueError("reconciliation time budget must be between 0.05 and 30 seconds")
         started = time.monotonic()
-        deadline = started + float(time_budget_seconds)        findings: list[str] = []
+        deadline = started + float(time_budget_seconds)
+        findings: list[str] = []
         reconciled = 0
         scanned = 0
         incomplete = False
@@ -929,6 +934,7 @@ class ExecutionController:
                 work_state, _iteration = self.company._state(str(work_unit_id))
             except Exception:
                 work_state = "unknown"
+
             if task_state in {"completed", "failed", "cancelled"}:
                 if work_state == task_state:
                     target_state = str(task_state)
@@ -1088,8 +1094,8 @@ class ExecutionController:
             pass
         repository = __import__("os").environ.get("AUREN_REPOSITORY_SLUG", "")
         safe_metadata = dict(metadata or {})
-        # Bind each durable lifecycle event to the effective workflow profile.
-        # Never include the caller's business payload in the profile receipt.
+        # Bind lifecycle evidence to the immutable effective workflow profile.
+        # Do not copy task business payload into the receipt.
         profile_data = task.payload.get("_auren_workflow_profile")
         profile_digest = task.payload.get("_auren_workflow_profile_digest")
         if isinstance(profile_data, Mapping) and isinstance(profile_digest, str):
@@ -1115,7 +1121,6 @@ class ExecutionController:
                 if configured_policy is not None else "builtin-baseline"
             )
         except (GuardPolicyError, OSError, ValueError):
-            # Do not project an apparently valid receipt for an invalid policy.
             safe_metadata["guard_policy_status"] = "invalid"
         self.evidence_capture.record(
             event_type,
@@ -1194,7 +1199,8 @@ class ExecutionController:
         invokes a handler or replays an external side effect.
         """
         if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 10000:
-            raise ValueError("terminal reconciliation limit must be an integer from 1 to 10000")        if (
+            raise ValueError("terminal reconciliation limit must be an integer from 1 to 10000")
+        if (
             isinstance(time_budget_seconds, bool)
             or not isinstance(time_budget_seconds, (int, float))
             or not math.isfinite(time_budget_seconds)
@@ -1257,7 +1263,8 @@ class ExecutionController:
                     findings.append(task.id)
             except Exception:
                 findings.append(str(task_id))
-        if total > len(rows) or scanned < len(rows):            incomplete = True
+        if total > len(rows) or scanned < len(rows):
+            incomplete = True
         self._terminal_reconciliation_findings = list(dict.fromkeys(findings))
         self._terminal_reconciliation_incomplete = incomplete
         return {
@@ -1493,7 +1500,8 @@ class ExecutionController:
             handler=handler,
             packet=packet,
             payload=payload,
-            goal=goal,        )
+            goal=goal,
+        )
 
     def register_provider_operation_adapter(self, handler_name: str, adapter: Any) -> None:
         """Register trusted lookup and evidence-verification capabilities for a handler.
@@ -1555,7 +1563,8 @@ class ExecutionController:
             raise PermissionError(
                 "provider reconciliation resume authorizer rejected the request; it must return literal True"
             )
-        if clarification[0] == "open":            self.company.resolve_clarification(
+        if clarification[0] == "open":
+            self.company.resolve_clarification(
                 clarification_id,
                 f"Operator {operator_id.strip()} authorized reconciliation-only resume: {operator_reason.strip()}",
             )
@@ -1792,7 +1801,8 @@ class ExecutionController:
                 "UPDATE tasks SET state=?,payload=?,updated_at=?,heartbeat_at=NULL,lease_until=NULL,"
                 "lease_token=NULL WHERE id=? AND state='running' AND lease_token=? AND lease_generation=?",
                 (next_state, json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False),
-                 _now(), task.id, task.lease_token, task.lease_generation),            )
+                 _now(), task.id, task.lease_token, task.lease_generation),
+            )
             if cursor.rowcount != 1:
                 db.rollback()
                 raise LeaseLostError("task changed while approval wait was being persisted")
@@ -1853,7 +1863,8 @@ class ExecutionController:
             payload["auren_approval_resume"] = {**dict(checkpoint), "status": "approved"}
             cursor = db.execute(
                 "UPDATE tasks SET state='pending',payload=?,updated_at=?,heartbeat_at=NULL,lease_until=NULL,"
-                "lease_token=NULL WHERE id=? AND state='waiting_approval'",                (json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False), _now(), task_id),
+                "lease_token=NULL WHERE id=? AND state='waiting_approval'",
+                (json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False), _now(), task_id),
             )
             if cursor.rowcount != 1:
                 db.rollback()
@@ -2091,7 +2102,8 @@ class ExecutionController:
             if not row or row[3] in {"completed", "failed", "cancelled"}:
                 return None
             now_dt = datetime.now(timezone.utc)
-            now = now_dt.isoformat()            if row[3] == "running":
+            now = now_dt.isoformat()
+            if row[3] == "running":
                 # A live lease belongs to another worker. Missing lease metadata
                 # is ambiguous and must be recovered explicitly, not stolen.
                 if not row[6]:
@@ -2151,7 +2163,8 @@ class ExecutionController:
     def _invoke_with_lease_heartbeat(self, task: DurableTask, handler: Handler) -> Any:
         """Renew leases and propagate durable cancellation while a handler runs."""
         stop = Event()
-        cancel = Event()        deadline = Event()
+        cancel = Event()
+        deadline = Event()
         lease_errors: list[BaseException] = []
         cancellation_observation_errors: list[BaseException] = []
         handler_started = False
@@ -2390,7 +2403,8 @@ class ExecutionController:
 
     def due_quota_task_ids(self, *, now: datetime | None = None, limit: int = 20) -> list[str]:
         """Return only due waits; local SQLite reads do not contact providers."""
-        if type(limit) is not int or limit < 1:            raise ValueError("limit must be a positive integer")
+        if type(limit) is not int or limit < 1:
+            raise ValueError("limit must be a positive integer")
         current = now or datetime.now(timezone.utc)
         if current.tzinfo is None:
             raise ValueError("now must be timezone-aware")
@@ -2449,7 +2463,8 @@ class ExecutionController:
                     "SELECT work_unit_id FROM tasks WHERE id=? AND state='waiting_quota' "
                     "AND next_retry_at IS NOT NULL AND next_retry_at<=?", (task_id, stamp),
                 ).fetchone()
-                if not row:                    continue
+                if not row:
+                    continue
                 cursor = db.execute(
                     "UPDATE tasks SET state='pending',updated_at=?,next_retry_at=NULL,quota_reason=NULL "
                     "WHERE id=? AND state='waiting_quota' AND next_retry_at IS NOT NULL AND next_retry_at<=?",
@@ -2689,7 +2704,8 @@ class ExecutionController:
                 # The provider receipt was committed before a prior worker died.
                 # Reuse the digest-bound durable receipt; remote lookup is unnecessary.
                 provider_receipt = lifecycle.reconcile(
-                    operation_key, provider_name, provider_intent, None,                )
+                    operation_key, provider_name, provider_intent, None,
+                )
                 evidence_ref = provider_receipt.get("evidence_ref")
                 if not isinstance(evidence_ref, str) or not evidence_ref.strip():
                     raise ProviderOutcomeBlocked(
@@ -2747,7 +2763,8 @@ class ExecutionController:
             operation_id = str(event.get("operation_id", ""))
             safe_metadata = {
                 "operation_id": operation_id,
-                "intent_digest": str(event.get("intent_digest", "")),                "provider": provider_name,
+                "intent_digest": str(event.get("intent_digest", "")),
+                "provider": provider_name,
                 "operation_state": operation_state,
             }
             if hasattr(task, "work_unit_id") and hasattr(task, "attempts"):
@@ -2988,7 +3005,8 @@ class ExecutionController:
         task_ids: list[str] = []
         for task_id, state, lease_until in rows:
             if state == "pending":
-                task_ids.append(str(task_id))            elif state == "running" and lease_until:
+                task_ids.append(str(task_id))
+            elif state == "running" and lease_until:
                 try:
                     lease_time = datetime.fromisoformat(str(lease_until))
                 except ValueError:
@@ -3045,7 +3063,8 @@ class ExecutionController:
         configurable no-progress budget so a scheduler can safely resume it later.
         Cancellation is observed between batches; handlers must use the existing
         lease heartbeat/cancellation contracts for work already in progress.
-        """        for value, name in ((batch_size, "batch_size"), (max_cycles, "max_cycles"), (max_idle_cycles, "max_idle_cycles")):
+        """
+        for value, name in ((batch_size, "batch_size"), (max_cycles, "max_cycles"), (max_idle_cycles, "max_idle_cycles")):
             if isinstance(value, bool) or not isinstance(value, int) or value < 1:
                 raise ValueError(f"{name} must be a positive integer")
         if batch_size > 100 or max_cycles > 1000 or max_idle_cycles > 100:
@@ -3287,7 +3306,8 @@ class ExecutionController:
             row = db.execute(
                 "SELECT id,handler,payload,state,attempts,work_unit_id,deadline_at FROM tasks WHERE id=?",
                 (task_id,),
-            ).fetchone()        return DurableTask(row[0], row[1], json.loads(row[2]), row[3], int(row[4]), row[5], deadline_at=row[6]) if row else None
+            ).fetchone()
+        return DurableTask(row[0], row[1], json.loads(row[2]), row[3], int(row[4]), row[5], deadline_at=row[6]) if row else None
 
     @staticmethod
     def _validate_graph_checkpoint_envelope(task_id: str, envelope: Mapping[str, Any]) -> dict[str, Any]:
@@ -3343,7 +3363,8 @@ class ExecutionController:
             RuntimeExecutionGuard.resume(runtime_guard)
         provider_resume = payload.get("provider_resume_state")
         if provider_resume is not None:
-            if not isinstance(provider_resume, Mapping):                raise ValueError("provider resume state must be a mapping")
+            if not isinstance(provider_resume, Mapping):
+                raise ValueError("provider resume state must be a mapping")
             provider_digest = provider_resume.get("digest")
             provider_payload = {key: value for key, value in provider_resume.items() if key != "digest"}
             canonical = json.dumps(
