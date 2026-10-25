@@ -302,7 +302,7 @@ def test_final_guard_dispatch_receipt_is_persisted_before_handler_runs(tmp_path:
     task = controller.submit("tests.guarded_marker_handler", {"marker_path": str(marker)})
     allowed = evaluate_guard_policy(None, {"action": "read"})
 
-    with patch.object(controller, "_evaluate_guard_for_task", side_effect=[allowed, allowed]):
+    with patch.object(controller, "_evaluate_guard_for_task", side_effect=[allowed, allowed, allowed]):
         controller.run_once(task.id)
 
     assert marker.exists()
@@ -319,3 +319,32 @@ def test_final_guard_dispatch_receipt_is_persisted_before_handler_runs(tmp_path:
     assert metadata["guard_decision"] == "allow"
     assert len(metadata["guard_policy_digest"]) == 64
     assert "marker_path" not in row[1]
+
+
+
+def test_policy_change_during_guard_receipt_persistence_blocks_handler(tmp_path: Path):
+    import pytest
+    from unittest.mock import patch
+
+    from portable.organization_guard import evaluate_guard_policy
+
+    controller = ExecutionController(tmp_path)
+    controller.register_handler(
+        "tests.guarded_marker_handler", guarded_marker_handler, execution_class="read_only",
+        guard_action="read",
+    )
+    marker = tmp_path / "must-not-run-after-receipt-race.txt"
+    task = controller.submit("tests.guarded_marker_handler", {"marker_path": str(marker)})
+    allowed = evaluate_guard_policy(None, {"action": "read"})
+    revoked = evaluate_guard_policy(
+        {"schema_version": "auren-guard-v1", "default_effect": "allow",
+         "rules": [{"id": "revoke-after-receipt", "effect": "deny", "action": "read"}]},
+        {"action": "read"},
+    )
+
+    with patch.object(controller, "_evaluate_guard_for_task", side_effect=[allowed, allowed, revoked]):
+        with pytest.raises(RuntimeError, match="changed after decision receipt"):
+            controller.run_once(task.id)
+
+    assert not marker.exists()
+    assert controller.task(task.id).state == "failed"
