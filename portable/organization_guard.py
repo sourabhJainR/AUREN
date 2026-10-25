@@ -19,7 +19,7 @@ POLICY_VERSION = "auren-guard-v1"
 MAX_POLICY_BYTES = 64 * 1024
 _ALLOWED_EFFECTS = frozenset({"allow", "deny", "require_approval"})
 _MATCH_FIELDS = frozenset({
-    "action", "tool", "resource", "network", "network_ip", "organization_id", "agent_id", "risk",
+    "action", "tool", "resource", "network", "organization_id", "agent_id", "risk",
 })
 _POLICY_FIELDS = frozenset({"schema_version", "default_effect", "rules"})
 _RULE_FIELDS = frozenset({"id", "effect", "hours_utc", "weekdays_utc", "network_cidr", *_MATCH_FIELDS})
@@ -184,6 +184,9 @@ def evaluate_guard_policy(
         value = context.get(field)
         if isinstance(value, str) and value and value.isprintable():
             safe_context[field] = value
+    network_ip = context.get("network_ip")
+    if isinstance(network_ip, str) and network_ip and network_ip.isprintable():
+        safe_context["network_ip"] = network_ip
     if policy is None:
         normalized = {"schema_version": POLICY_VERSION, "default_effect": "allow", "rules": []}
     else:
