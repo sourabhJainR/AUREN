@@ -180,3 +180,78 @@ def test_policy_tightening_between_submit_and_dispatch_is_enforced(tmp_path: Pat
 
     assert not marker.exists()
     assert controller.task(task.id).state != "completed"
+
+
+def test_consequential_ledger_binding_contains_guard_action_and_policy_digest(tmp_path: Path):
+    from types import SimpleNamespace
+    from unittest.mock import patch
+
+    controller = ExecutionController(tmp_path)
+    controller.register_handler(
+        "tests.guarded_marker_handler", guarded_marker_handler,
+        execution_class="read_only", guard_action="publish",
+    )
+    task = controller.submit("tests.guarded_marker_handler", {
+        "marker_path": str(tmp_path / "must-not-run.txt"),
+    })
+    with patch(
+        "portable.execution_controller.DurableSideEffectLedger.begin",
+        return_value=SimpleNamespace(
+            action="replay", state="completed",
+            receipt={"result": {"success": True, "detail": "previous receipt"}},
+        ),
+    ) as begin:
+        result = controller._invoke_consequential_with_ledger(task, guarded_marker_handler)
+
+    binding = begin.call_args.args[1]
+    assert binding["guard"]["action"] == "publish"
+    assert binding["guard"]["effect"] == "allow"
+    assert len(binding["guard"]["policy_digest"]) == 64
+    assert result["detail"] == "previous receipt"
+    assert not (tmp_path / "must-not-run.txt").exists()
+
+
+def test_guard_policy_change_is_rechecked_at_provider_dispatch(tmp_path: Path):
+    import pytest
+    from unittest.mock import patch
+
+    from portable.organization_guard import evaluate_guard_policy
+
+    controller = ExecutionController(tmp_path)
+    controller.register_handler(
+        "tests.guarded_marker_handler", guarded_marker_handler,
+        execution_class="read_only", guard_action="publish",
+    )
+    task = controller.submit("tests.guarded_marker_handler", {
+        "marker_path": str(tmp_path / "must-not-run.txt"),
+    })
+    context = {"action": "publish", "tool": "tests.guarded_marker_handler"}
+    allow_policy = {
+        "schema_version": "auren-guard-v1", "default_effect": "allow", "rules": [],
+    }
+    deny_policy = {
+        "schema_version": "auren-guard-v1", "default_effect": "allow",
+        "rules": [{"id": "deny-publish", "effect": "deny", "action": "publish"}],
+    }
+    allow = evaluate_guard_policy(allow_policy, context)
+    deny = evaluate_guard_policy(deny_policy, context)
+
+    def dispatch_without_remote_call(_self, _key, _provider, intent, dispatch):
+        return dispatch(intent, "operation-id", "idempotency-key")
+
+    with (
+        patch.object(controller, "_evaluate_guard_for_task", side_effect=[allow, deny]),
+        patch(
+            "portable.execution_controller.DurableSideEffectLedger.begin",
+            return_value=SimpleNamespace(action="execute", state="pending", receipt=None),
+        ),
+        patch(
+            "portable.provider_operation_lifecycle.ProviderOperationLifecycle.execute",
+            autospec=True,
+            side_effect=dispatch_without_remote_call,
+        ),
+    ):
+        with pytest.raises(RuntimeError, match="Guard policy changed or denied"):
+            controller._invoke_consequential_with_ledger(task, guarded_marker_handler)
+
+    assert not (tmp_path / "must-not-run.txt").exists()
