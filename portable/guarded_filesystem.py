@@ -107,12 +107,12 @@ def open_workspace_file(
     parts = _relative_parts(relative_path)
     if os.name == "posix":
         descriptor = _open_posix(workspace, parts, mode, create_parents)
-        return os.fdopen(descriptor, mode, encoding=None if "b" in mode else "utf-8")
+        return os.fdopen(descriptor, mode) if "b" in mode else os.fdopen(descriptor, mode, encoding="utf-8")
     target = resolve_workspace_path(workspace, relative_path)
     if create_parents:
         target.parent.mkdir(parents=True, exist_ok=True)
         target = resolve_workspace_path(workspace, relative_path)
-    return target.open(mode, encoding=None if "b" in mode else "utf-8")
+    return target.open(mode) if "b" in mode else target.open(mode, encoding="utf-8")
 
 
 def read_workspace_text(root: str | Path, relative_path: str | Path) -> str:
