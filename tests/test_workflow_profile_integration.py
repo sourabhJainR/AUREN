@@ -117,11 +117,15 @@ class WorkflowProfileSupervisorBindingTests(unittest.TestCase):
         # Simulate a previously registered generic handler classified as
         # consequential; no action name or task field is needed to trigger the
         # fail-closed stage-only boundary.
-        with sqlite3.connect(self.controller.db_path) as db:
-            db.execute(
-                "UPDATE handlers SET execution_class='consequential' WHERE name=?",
-                ("workflow-profile-test",),
-            )
+        db = sqlite3.connect(self.controller.db_path)
+        try:
+            with db:
+                db.execute(
+                    "UPDATE handlers SET execution_class='consequential' WHERE name=?",
+                    ("workflow-profile-test",),
+                )
+        finally:
+            db.close()
         self.controller.run_once(task.id)
         self.assertEqual("failed", self.controller.task(task.id).state)
         self.assertEqual([], _WORKFLOW_PROFILE_HANDLER_CALLS)
