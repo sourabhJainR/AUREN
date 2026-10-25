@@ -55,6 +55,7 @@ _RULES: tuple[tuple[str, tuple[str, ...], bool], ...] = (
     ("tests/test_workflow_profile_integration.py", ("tests.test_workflow_profile_integration",), True),
     ("portable/execution_controller.py", ("tests.test_execution_controller", "tests.test_execution_controller_restart", "tests.test_execution_controller_cancellation", "tests.test_execution_controller_promotion_rollback_contract", "tests.test_provider_operation_lifecycle", "tests.test_durable_approval"), True),
     ("portable/state_graph.py", ("tests.test_runtime_recovery", "tests.test_graph_agent_team", "tests.test_graph_agent_crews"), True),
+    ("tests/test_state_graph_observability_live.py", ("tests.test_state_graph_observability_live",), True),
     ("portable/runtime_recovery.py", ("tests.test_runtime_recovery", "tests.test_adaptive_runtime_recovery_integration"), True),
     (".ai-harness/runtime/task_memory.py", ("tests.test_graph_agent_team",), True),
     (".ai-harness/tests/test_task_memory.py", ("tests.test_task_memory", "tests.test_graph_agent_team"), True),
