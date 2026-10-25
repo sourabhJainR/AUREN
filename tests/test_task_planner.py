@@ -28,3 +28,6 @@ class TaskPlannerTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+# Run durable graph checkpoint fault tests under the existing architecture gate.
+from tests.test_engineering_recovery import GraphRunRecoveryTests
