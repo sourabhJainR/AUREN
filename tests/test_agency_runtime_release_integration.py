@@ -74,6 +74,9 @@ def test_execute_applies_promote_to_artifact(tmp_path: Path):
     assert result.promotion_decision.action == "promote"
     assert result.release_state.action == "promote"
     assert store.state()["current"]["artifact_id"] == "t-release"
+    assert result.release_state.context_evidence_digest
+    assert result.release_state.verification_digest
+    assert result.release_state.review_digest
 
     records = [json.loads(line) for line in trace_path.read_text(encoding="utf-8").splitlines()]
     spans = [
