@@ -53,6 +53,8 @@ _RULES: tuple[tuple[str, tuple[str, ...], bool], ...] = (
     ("portable/execution_controller.py", ("tests.test_execution_controller", "tests.test_execution_controller_restart", "tests.test_execution_controller_promotion_rollback_contract", "tests.test_provider_operation_lifecycle", "tests.test_durable_approval"), True),
     ("portable/agency_state_graph.py", ("tests.test_agency_state_graph", "tests.test_state_graph_hardening"), True),
     ("tests/test_agency_state_graph.py", ("tests.test_agency_state_graph",), True),
+    ("portable/hybrid_model_router.py", ("tests.test_hybrid_model_router",), True),
+    ("tests/test_hybrid_model_router.py", ("tests.test_hybrid_model_router",), True),
     ("portable/engineering_recovery.py", ("tests.test_engineering_recovery", "tests.test_engineering_recovery_fault_matrix"), True),
     ("portable/engineering_plan_recovery.py", ("tests.test_engineering_plan_recovery",), True),
     ("portable/progress_journal.py", ("tests.test_progress_journal", "tests.test_progress_journal_integration"), True),
