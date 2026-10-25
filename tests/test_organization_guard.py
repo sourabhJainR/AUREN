@@ -159,3 +159,30 @@ def test_guard_time_constraints_validate_strictly():
         validate_policy(policy(rule("duplicate-hour", "deny", action="publish", hours_utc=[9, 9])))
     with pytest.raises(GuardPolicyError):
         validate_policy(policy(rule("empty-time-rule", "deny", hours_utc=[])))
+
+
+def test_evaluator_enforces_utc_time_conditions_using_trusted_clock():
+    from unittest.mock import patch
+
+    fixed = datetime(2026, 10, 25, 9, 30, tzinfo=timezone.utc)
+
+    class FixedDateTime:
+        @staticmethod
+        def now(tz=None):
+            return fixed if tz is None else fixed.astimezone(tz)
+
+    configured = policy(rule(
+        "deny-publish-sunday-morning", "deny", action="publish",
+        hours_utc=[9], weekdays_utc=[6],
+    ))
+    with patch("portable.organization_guard.datetime", FixedDateTime):
+        inside = evaluate_guard_policy(configured, {"action": "publish"})
+        outside_policy = policy(rule(
+            "deny-publish-other-hour", "deny", action="publish",
+            hours_utc=[10], weekdays_utc=[6],
+        ))
+        outside = evaluate_guard_policy(outside_policy, {"action": "publish"})
+
+    assert not inside.allowed
+    assert inside.matched_rule_ids == ("deny-publish-sunday-morning",)
+    assert outside.allowed
