@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import multiprocessing
 import os
+import time
 import unittest
 from concurrent.futures import ProcessPoolExecutor
 from uuid import uuid4
@@ -19,7 +20,7 @@ def _binding(**overrides):
         "issuer_key_id": "arena-key-v1",
         "audience": "auren-arena",
         "purpose": "external-evaluation",
-        "expires_at_epoch": 200,
+        "expires_at_epoch": int(time.time()) + 3600,
         "policy_version": "freshness-v1",
         "policy_digest": "b" * 64,
     }
@@ -232,6 +233,18 @@ class PostgreSQLAttestationReplayRegistryTests(unittest.TestCase):
     def test_invalid_table_name_is_rejected(self):
         with self.assertRaises(ValueError):
             PostgreSQLAttestationReplayRegistry(lambda: FakeConnection({}), table_name="bad; DROP TABLE x")
+
+    def test_expired_attestation_binding_is_rejected_before_backend_access(self):
+        def unexpected_connection():
+            raise AssertionError("expired claim must be rejected before opening the backend")
+
+        registry = PostgreSQLAttestationReplayRegistry(unexpected_connection)
+        with self.assertRaisesRegex(ValueError, "has expired"):
+            registry.claim(
+                "attestation-expired",
+                binding=_binding(expires_at_epoch=int(time.time()) - 1),
+                operation_id="claim-expired",
+            )
 
     def test_invalid_binding_and_empty_operation_id_are_rejected(self):
         registry = PostgreSQLAttestationReplayRegistry(lambda: FakeConnection({}))
