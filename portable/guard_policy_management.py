@@ -255,8 +255,7 @@ class GuardActionEvidenceLedger:
                 existing = db.execute("SELECT event_json,digest FROM guard_action_events WHERE event_id=?", (event_id,)).fetchone()
                 if existing:
                     db.execute("ROLLBACK")
-                    if self.verify() and existing[0] == hashlib.sha256(encoded.encode("utf-8")).hexdigest():
-                        return existing[0]
+                    if existing[0] == encoded and self.verify():\n                        return existing[1]
                     raise GuardPolicyError("evidence event ID replayed with different content")
                 previous = db.execute("SELECT digest FROM guard_action_events ORDER BY sequence DESC LIMIT 1").fetchone()
                 previous_digest = previous[0] if previous else "0" * 64
