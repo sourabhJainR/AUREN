@@ -350,6 +350,18 @@ class GraphLearningEvidenceGateTests(unittest.TestCase):
         with self.assertRaisesRegex(PermissionError, "trusted verifier distinct"):
             self.evaluate(verification_receipt=self_attested, holdout_evidence=holdouts)
 
+    def test_holdout_score_receipt_cannot_be_rebound_to_different_metrics(self):
+        evidence = self.make_holdout_evidence(self.candidate, self.receipt)
+        changed = dict(evidence)
+        row = dict(changed["holdout-a"])
+        score = dict(row["score_receipt"])
+        score["candidate_metric_digest"] = self.digest({"quality_score": 1.0})
+        row["score_receipt"] = score
+        row["score_receipt_digest"] = self.digest(score)
+        changed["holdout-a"] = row
+        with self.assertRaisesRegex(ValueError, "candidate_metric_digest"):
+            self.evaluate(holdout_evidence=changed)
+
     def test_learning_cannot_change_policy_authority_or_rollback_controls(self):
         candidate = {**self.candidate, "verification_thresholds": {"minimum_quality": 0.1}}
         with self.assertRaisesRegex(PermissionError, "cannot change safety or authority"):
