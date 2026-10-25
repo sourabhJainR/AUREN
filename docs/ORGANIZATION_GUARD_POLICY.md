@@ -34,8 +34,8 @@ grants authority or bypasses those gates.
 ```
 
 Supported matching fields are `action`, `tool`, `resource`,
-`organization_id`, `agent_id`, and `risk`. Values are exact matches or
-`*`; wildcards are whole-field matches, not shell globs or regular expressions.
+`organization_id`, `agent_id`, and `risk`. Values support exact matches and `*` wildcards within a field (for example,
+`prod/*`). Shell character classes and regular expressions are not supported.
 A rule must match at least one field. Rule IDs must be unique.
 
 ## Enforcement rules
