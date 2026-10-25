@@ -19,6 +19,8 @@ class Impact:
 # Order is stable for deterministic evidence. Every sensitive source path has
 # a mandatory focused suite; recovery changes also require production hardening.
 _RULES: tuple[tuple[str, tuple[str, ...], bool], ...] = (
+    (".ai-harness/runtime/task_memory.py", ("tests.test_task_memory", "tests.test_graph_agent_team"), True),
+    (".ai-harness/tests/test_task_memory.py", ("tests.test_task_memory",), True),
     ("portable/agency_observability.py", ("tests.test_agency_observability",), True),
     ("tests/test_agency_observability.py", ("tests.test_agency_observability",), True),
     ("portable/engineering_dashboard.py", ("tests.test_engineering_dashboard",), True),
