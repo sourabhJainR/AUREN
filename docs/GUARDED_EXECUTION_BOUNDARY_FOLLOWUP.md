@@ -83,3 +83,33 @@ The local host classifies configured MCP capabilities before building adapters, 
 Product/research/web-search/accessibility/task-planning/independent-review/observability capabilities are read-only by default. Security tools default to authority-bound mode and may set `external_effects: false` only when the operator has verified that the configured tool is read-only. The resolver must be created from trusted host identity and repository state; agent-supplied state is not a trusted identity source. Read-only calls without a provider operation bind their action ID to the exact request digest. Any non-read action requires a durable provider operation ID and idempotency key. The gate does not prove OS/container isolation or remote provider outcome. Deployment/release still require provider-native idempotency, authoritative lookup and evidence-backed reconciliation.
 
 Rollback: if host resolver integration is unavailable or fails, keep consequential MCP tools blocked and use the last-known-good workflow with those capabilities disabled. Do not remove the pre-launch gate or restore unbound MCP dispatch.
+
+
+## Independent OpenShell isolation acceptance probe (2026-10-25)
+
+`scripts/verify_openshell_isolation.py` is a real-runtime acceptance probe, not a
+mock. It requires an explicit non-empty policy and an installed OpenShell CLI.
+On Linux, it first confirms the host can reach a selected network target; inside
+the sandbox it then probes writes outside the curated workspace, network egress,
+and visibility of a host-only process marker through `/proc`. It also verifies
+that a host-only sentinel remains unchanged. The probe refuses to claim success
+when its host-network precondition is unavailable, when OpenShell is missing, or
+when a probe fails.
+
+Example (use the reviewed policy for the exact deployment environment):
+
+```bash
+python scripts/verify_openshell_isolation.py --policy /path/to/reviewed-policy.yaml
+```
+
+This script has been added but has **not** been run against a real OpenShell
+runtime in this change. Until an authorized environment runs it successfully,
+OS isolation remains **unproven**. A successful run proves only the tested Linux
+filesystem, egress, and PID-namespace probes for the recorded policy digest; it
+does not prove all syscalls, IPC, kernel escape resistance, credential-provider
+boundaries, or Windows/macOS isolation. Keep the receipt and policy digest as
+deployment evidence and repeat after policy/runtime upgrades.
+
+Rollback: remove the acceptance script only if the supported runtime no longer
+exposes the tested contract; retain fail-closed sandbox launch and do not replace
+runtime evidence with unit tests or a Guard-policy decision.
