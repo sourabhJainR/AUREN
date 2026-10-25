@@ -40,9 +40,9 @@ class DependencyAwareFanout:
         *,
         execution_guard: RuntimeExecutionGuard,
         max_workers: int = 4,
-        expected_plan_digest: str | None = None,
-        expected_intent_digest: str | None = None,
-        current_intent_digest: str | None = None,
+        expected_plan_digest: str,
+        expected_intent_digest: str,
+        current_intent_digest: str,
         fanout_overhead_ms: int = 5,
     ) -> None:
         if not isinstance(plan, TaskPlan):
@@ -61,6 +61,12 @@ class DependencyAwareFanout:
         self.execute = execute
         self.guard = execution_guard
         self.max_workers = max_workers
+        if not isinstance(expected_plan_digest, str) or not expected_plan_digest:
+            raise ValueError("expected_plan_digest is required")
+        if not isinstance(expected_intent_digest, str) or not expected_intent_digest:
+            raise ValueError("expected_intent_digest is required")
+        if not isinstance(current_intent_digest, str) or not current_intent_digest:
+            raise ValueError("current_intent_digest is required")
         self.expected_plan_digest = expected_plan_digest
         self.expected_intent_digest = expected_intent_digest
         self.current_intent_digest = current_intent_digest
@@ -100,9 +106,9 @@ class DependencyAwareFanout:
 
     def _validate_bindings(self) -> None:
         actual_plan = self.plan_digest(self.plan)
-        if self.expected_plan_digest is not None and self.expected_plan_digest != actual_plan:
+        if self.expected_plan_digest != actual_plan:
             raise ValueError("stale plan digest; refusing to dispatch tasks")
-        if self.expected_intent_digest is not None and self.expected_intent_digest != self.current_intent_digest:
+        if self.expected_intent_digest != self.current_intent_digest:
             raise ValueError("stale intent digest; refusing to dispatch tasks")
 
     def _parallelism_is_worthwhile(self, tasks: list[Task]) -> bool:
