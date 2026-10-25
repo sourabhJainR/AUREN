@@ -224,7 +224,8 @@ and uses descriptor digests to detect inventory changes. Discovery is
 descriptive only; it never grants authority or overrides policy.
 
 Selection decisions record the chosen capability, bounded alternatives,
-digested request/rationale, outcome, evidence references, cost and duration.
+digested request/rationale, outcome, evidence references, cost and duration, and
+the exact inventory snapshot ID used for that decision.
 Raw task text, skill instructions, credentials and provider payloads are not
 written to this audit. Exact role/task learning remains the primary signal; a
 capability-level cross-stage prior is consulted only when exact history is
