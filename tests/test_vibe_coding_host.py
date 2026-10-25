@@ -532,6 +532,91 @@ class VibeCodingHostTests(unittest.TestCase):
                     tool(request)
                 popen.assert_not_called()
 
+    def test_mcp_read_only_path_rejects_policy_classified_external_effect(self):
+        with tempfile.TemporaryDirectory() as temp:
+            ledger = DurableSideEffectLedger(Path(temp) / "side-effects.sqlite")
+            root_path = str(Path.cwd().resolve())
+            request = {
+                "stage": "research",
+                "intent": "read-only request",
+                "state": {
+                    "vibe_coding_workflow_id": "workflow-read-1",
+                    "task_id": "task-read-1",
+                    "project_root": root_path,
+                    "workspace_root": root_path,
+                },
+            }
+            context = MCPTrustedExecutionContext(
+                workflow_id="workflow-read-1",
+                task_id="task-read-1",
+                project_root=root_path,
+                workspace_root=root_path,
+                repository_revision="read-revision",
+                repository_digest="repo-read-digest",
+                budget_id="budget-mcp-read",
+            )
+
+            def resolver(actual_request, call_binding):
+                action_request = ActionRequest(
+                    run_id=context.workflow_id,
+                    task_id=context.task_id,
+                    action_id=mcp_request_action_id(actual_request, call_binding.digest),
+                    actor="agent:reader",
+                    capability="repository.read",
+                    action="publish",
+                    target="src/module.py",
+                    risk="read",
+                    idempotency_key="mcp-read-external-action",
+                    evidence_refs=(
+                        f"mcp-request:{mcp_request_digest(actual_request)}",
+                        f"mcp-call:{call_binding.digest}",
+                    ),
+                )
+                authority = ExecutionAuthorityBinding(
+                    execution_id="exec-mcp-read-external",
+                    run_id=context.workflow_id,
+                    task_id=context.task_id,
+                    repository_digest=context.repository_digest,
+                    repository_revision=context.repository_revision,
+                    principal="agent:reader",
+                    allowed_capabilities=("repository.read",),
+                    allowed_actions=("publish",),
+                    allowed_targets=("src",),
+                    budget_id=context.budget_id,
+                    max_attempts=2,
+                )
+                gateway = ActionGovernanceGateway(ActionPolicy(
+                    allowed_capabilities=frozenset({"repository.read"}),
+                    allowed_actions=frozenset({"publish"}),
+                    approval_required_actions=frozenset(),
+                    evidence_required_actions=frozenset(),
+                    external_effect_actions=frozenset({"publish"}),
+                    require_idempotency_for_external_effects=True,
+                    require_durable_ledger_for_external_effects=True,
+                ), side_effect_ledger=ledger)
+                return MCPExecutionAuthorization(
+                    gateway=gateway,
+                    authority=authority,
+                    action_request=action_request,
+                    repository_revision=context.repository_revision,
+                    repository_digest=context.repository_digest,
+                    budget_id=context.budget_id,
+                    trusted_context=context,
+                    execution_guard=RuntimeExecutionGuard(max_steps=5, max_attempts=2),
+                )
+
+            tool = MCPStdioToolAdapter(
+                argv=(sys.executable, "-c", "pass"),
+                tool_name="publish",
+                timeout_seconds=5,
+                requires_authority_binding=True,
+                authority_dispatch=build_mcp_authority_dispatch(resolver),
+            )
+            with patch("portable.vibe_coding_host.subprocess.Popen") as popen:
+                with self.assertRaisesRegex(AdapterUnavailable, "authority resolution failed closed"):
+                    tool(request)
+                popen.assert_not_called()
+
     def test_mcp_request_cannot_override_host_derived_task_identity(self):
         with tempfile.TemporaryDirectory() as temp:
             ledger = DurableSideEffectLedger(Path(temp) / "side-effects.sqlite")
