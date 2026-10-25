@@ -77,6 +77,8 @@ jobs:
         run: python -m unittest tests.test_durable_approval tests.test_execution_boundary tests.test_impact_policy -v
       - name: Verify supervisor-to-graph cancellation and deadline binding
         run: python -m unittest tests.test_agency_state_graph tests.test_state_graph_hardening -v
+      - name: Verify supervisor-to-model-router cancellation and deadline binding
+        run: python -m unittest tests.test_hybrid_model_router -v
       - name: Verify canonical evidence durability and exact-head binding
         run: python -m unittest tests.test_canonical_evidence_ledger -v
       - name: Verify Gates C, D and E evidence, calibration and journal invariants
