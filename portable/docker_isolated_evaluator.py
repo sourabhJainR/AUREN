@@ -71,6 +71,15 @@ class _DockerAttachedProcess:
         self.termination_error: str | None = None
 
     @property
+    def container_id(self) -> str | None:
+        """Return a validated live-container ID from the private cidfile."""
+        try:
+            value = self._container_id_file.read_text(encoding="ascii").strip()
+        except (OSError, UnicodeError):
+            return None
+        return value if re.fullmatch(r"[0-9a-f]{64}", value) else None
+
+    @property
     def returncode(self):
         return self._process.returncode
 
