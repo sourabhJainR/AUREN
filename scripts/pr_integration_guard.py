@@ -76,8 +76,9 @@ def main() -> int:
         current_paths = {item["filename"] for item in current_files}
         open_prs = api_json(f"{root}/pulls?state=open&per_page=100", token)
         overlaps = []
+        base_branch_name = args.base_ref.rsplit("/", 1)[-1]
         for pr in open_prs:
-            if pr.get("number") == args.pr or pr.get("base", {}).get("ref") != args.base_ref:
+            if pr.get("number") == args.pr or pr.get("base", {}).get("ref") != base_branch_name:
                 continue
             changed = api_json(f"{root}/pulls/{pr['number']}/files?per_page=100", token)
             shared = sorted(current_paths.intersection(item["filename"] for item in changed))
