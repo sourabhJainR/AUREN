@@ -3,7 +3,8 @@ import json
 
 from portable.agency_observability import LocalExporter, Tracer
 
-from portable.agency_release_lifecycle import ArtifactStore
+from portable.agency_release_lifecycle import ArtifactStore, apply_promotion_decision
+from types import SimpleNamespace
 from portable.agency_regression_loop import PromotionDecision
 
 
@@ -77,6 +78,33 @@ def test_release_transition_emits_parented_phase_span(tmp_path: Path):
     ]
     assert finished[-1]["status"] == "ok"
     assert finished[-1]["output"]["transition_applied"] is True
+
+
+def test_promotion_decision_adapter_propagates_trace_context(tmp_path: Path):
+    source = tmp_path / "candidate-adapter.txt"
+    source.write_text("candidate", encoding="utf-8")
+    store = ArtifactStore(tmp_path / "release-adapter")
+    artifact = store.stage(source, "candidate-adapter")
+    trace_path = tmp_path / "release-adapter-trace.jsonl"
+    tracer = Tracer(LocalExporter(trace_path, enabled=True))
+    trace = tracer.start("release-adapter-run", run_id="release-adapter-run", task_id="release-adapter-task")
+    parent = trace.span("runtime_release_controller", phase="release")
+
+    state = apply_promotion_decision(
+        store, SimpleNamespace(action="shadow", reason="synthetic adapter test"), artifact,
+        trace=trace, parent_span_id=parent.span_id,
+    )
+    tracer.end(trace)
+
+    assert state.action == "shadow"
+    records = [json.loads(line) for line in trace_path.read_text(encoding="utf-8").splitlines()]
+    started = [
+        record["span"] for record in records
+        if record.get("event_type") == "span_started"
+        and (record.get("span") or {}).get("name") == "release_transition:shadow"
+    ]
+    assert len(started) == 1
+    assert started[0]["parent_id"] == parent.span_id
 
 
 def test_rejected_release_transition_emits_error_span(tmp_path: Path):
