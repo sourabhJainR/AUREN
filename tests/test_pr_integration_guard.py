@@ -73,3 +73,25 @@ def test_overlap_ordering_missing_evidence_fails_closed():
     current = {"number": 20, "created_at": "2026-10-25T10:00:00Z"}
     with pytest.raises(ValueError, match="creation order"):
         blocking_overlaps(current, [{"number": 19, "paths": ["portable/a.py"]}])
+
+def test_api_json_uses_pinned_github_host_scope_and_bounded_response():
+    import json
+    with patch(
+        "scripts.pr_integration_guard.guarded_https_get",
+        return_value=(200, b'{"ok": true}'),
+    ) as request:
+        from scripts.pr_integration_guard import api_json
+        assert api_json("https://api.github.com/repos/o/r", "token") == {"ok": True}
+    assert request.call_args.kwargs["allowed_hosts"] == ("api.github.com",)
+    assert request.call_args.kwargs["max_bytes"] == 4 * 1024 * 1024
+
+
+def test_api_json_rejects_http_failure_without_parsing_as_success():
+    with patch("scripts.pr_integration_guard.guarded_https_get", return_value=(403, b'{"message":"denied"}')):
+        from scripts.pr_integration_guard import api_json
+        try:
+            api_json("https://api.github.com/repos/o/r", "token")
+        except RuntimeError as exc:
+            assert "request failed" in str(exc)
+        else:
+            raise AssertionError("HTTP denial must not be accepted as API success")
