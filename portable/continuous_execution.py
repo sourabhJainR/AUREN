@@ -15,14 +15,13 @@ import subprocess
 import sqlite3
 from contextlib import closing
 import time
-import urllib.error
-import urllib.request
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 from uuid import uuid4
 
 from .execution_controller import ExecutionController
+from .guarded_network import guarded_https_get
 
 _SHA = re.compile(r"^[0-9a-f]{40}$")
 _MAX_RESPONSE_BYTES = 2 * 1024 * 1024
@@ -122,13 +121,19 @@ class GitHubActionsCheckPoller:
         headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "AUREN-continuous-execution"}
         if self.token:
             headers["Authorization"] = f"Bearer {self.token}"
-        request = urllib.request.Request(url, headers=headers, method="GET")
         try:
-            with urllib.request.urlopen(request, timeout=self.timeout_seconds) as response:
-                raw = response.read(_MAX_RESPONSE_BYTES + 1)
-        except (urllib.error.URLError, TimeoutError, OSError) as exc:
-            # Do not copy exception text: URL errors can contain operational details.
+            status_code, raw = guarded_https_get(
+                url,
+                allowed_hosts=("api.github.com",),
+                headers=headers,
+                timeout=self.timeout_seconds,
+                max_bytes=_MAX_RESPONSE_BYTES,
+            )
+        except (TimeoutError, OSError) as exc:
+            # Do not copy exception text: network errors can contain operational details.
             return {"status": "poll_error", "repository": self.repository, "head_sha": self.head_sha, "error_type": type(exc).__name__}
+        if status_code >= 400:
+            return {"status": "poll_error", "repository": self.repository, "head_sha": self.head_sha, "error_type": "HTTPError"}
         if len(raw) > _MAX_RESPONSE_BYTES:
             return {"status": "poll_error", "repository": self.repository, "head_sha": self.head_sha, "error_type": "response_too_large"}
         try:
