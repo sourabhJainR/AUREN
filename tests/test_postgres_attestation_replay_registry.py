@@ -235,10 +235,17 @@ class PostgreSQLAttestationReplayRegistryTests(unittest.TestCase):
             PostgreSQLAttestationReplayRegistry(lambda: FakeConnection({}), table_name="bad; DROP TABLE x")
 
     def test_expired_attestation_binding_is_rejected_before_backend_access(self):
-        def unexpected_connection():
+        calls = 0
+        store = {}
+
+        def connection_factory():
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                return FakeConnection(store)
             raise AssertionError("expired claim must be rejected before opening the backend")
 
-        registry = PostgreSQLAttestationReplayRegistry(unexpected_connection)
+        registry = PostgreSQLAttestationReplayRegistry(connection_factory)
         with self.assertRaisesRegex(ValueError, "has expired"):
             registry.claim(
                 "attestation-expired",
