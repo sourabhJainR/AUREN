@@ -95,3 +95,43 @@
 3. Include regression tests and a rollback strategy for every runtime-affecting change.
 4. After merge, verify the new main SHA, push-triggered workflows, and Pages deployment where relevant.
 5. Close a gate only when its exit evidence exists. Do not mark external isolation, sealed-corpus custody, or independent evaluation complete based on local CI.
+
+
+## Review refresh — 2026-10-25
+
+**Main revision observed at review start:** `97099d84af3a799a99ac929e3920817a137639f8` (merge of PR #923). This is a review anchor, not a claim that all post-merge checks completed. Refresh the SHA again when running the final exit gate.
+
+### Evidence-linked status
+
+| Acceptance area | Current evidence | Status / remaining action |
+|---|---|---|
+| Adaptive workflow profile | `portable/workflow_profile.py`; `tests/test_workflow_profile.py`; `docs/ADAPTIVE_USER_WORKFLOW_POLICY.md` on the implementation branch | Profile schema, deterministic digest, validation, and preference precedence are implemented as a standalone contract. Runtime wiring to CLI/dashboard/execution controller, persisted profile on run receipt, and action-level tests remain open. |
+| Arena #404 | [Issue #404](https://github.com/sourabhJainR/AUREN/issues/404) | Open. Independent operator/evaluator and sealed holdout custody, independently retained signed result, repeatability report, adversarial outcomes, uncertainty, and cost evidence are not established by repository CI. |
+| Provider crash/reconciliation | [PR #925](https://github.com/sourabhJainR/AUREN/pull/925), [PR #924](https://github.com/sourabhJainR/AUREN/pull/924) | Open PRs observed during this refresh. Their exact-head checks and review must be checked live; neither proves complete cross-store or provider-native reconciliation. |
+| Dashboard recovery and memory provenance | Existing durable progress/journal and memory modules; matrix gates above | Partial foundations. Still require a cross-store crash matrix, dashboard/CLI parity after restart and partial writes, cross-agent/branch access scope, freshness, conflict resolution and retraction tests. |
+| Extension isolation | `portable/extension_contract.py` and its tests | Manifest validation and command adapter are not an OS sandbox. Restricted filesystem/network, no inherited secrets, resource limits, forced termination, malicious extension and revocation tests remain open. |
+| Install/upgrade/rollback | `portable/auren_runtime.py` and portable bundle workflows | Mechanisms and clean-start coverage exist. Full clean-environment platform matrix, dependency/SBOM, tampered bundle, interrupted migration/upgrade/rollback, and user-data preservation rehearsal remain open. |
+| Exact-head and post-merge checks | GitHub Actions runs attached to the exact commit/PR head; branch ruleset settings | Check current live results for the exact PR head and new main SHA. Queued/running/skipped/missing checks are not passes. Owner/admin must configure and verify required status checks if still absent. |
+| Release artifact and rollback proof | Reproducible bundle manifest/hash mechanisms and release instructions | No release is authorized by this matrix update. Record source SHA, artifact SHA-256, manifest, platform smoke tests, signed provenance where available, and operator-run rollback evidence before release. |
+
+### Workflow profile integration acceptance
+
+- [x] Add a versioned immutable profile contract with strict allowed values and rejection of unknown fields.
+- [x] Canonical digest and task > project > saved > safe-default resolution for complete profiles.
+- [x] Unit tests for defaults, deterministic digest, invalid modes, unknown fields, unsupported version, precedence, and fail-closed invalid task profile.
+- [ ] Wire profile resolution into the canonical supervisor/execution controller; do not create a second authority system.
+- [ ] Persist profile version/digest with durable task intent and evidence receipt; reject incompatible resume.
+- [ ] Implement commit-per-change, stage-only, working-tree and PR modes in repository adapters while preserving unrelated changes.
+- [ ] Add interrupted action, dirty/untracked worktree, cancellation/restart, and rollback tests.
+- [ ] Verify autonomous mode cannot bypass review, required checks, approval boundaries, or uncertain-side-effect reconciliation.
+- [ ] Surface effective mode, approval boundary, durable state, and next action in CLI/dashboard.
+
+### Final exit-gate procedure
+
+1. Resolve the exact current `main` SHA and bind this matrix plus every evidence link to that revision.
+2. For each criterion, attach a test/log/artifact or an independently controlled external attestation. Mark unavailable evidence `blocked`, not passed.
+3. Verify review state and all required exact-head checks; explain each skipped job and rerun any required skipped/missing check.
+4. Verify post-merge workflows on the resulting main SHA and Pages deployment where relevant.
+5. Build from pinned source; retain bundle manifest and SHA-256 digest; install and smoke-test in a clean environment.
+6. Execute staging migration, interruption, rollback, and user-data integrity rehearsal; record operator, environment, timestamps, logs, and before/after data checks.
+7. Keep #404 and release blocked until external custody, signed results, extension isolation, and rollback evidence are independently verified.
