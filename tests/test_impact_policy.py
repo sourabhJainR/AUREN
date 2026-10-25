@@ -144,6 +144,9 @@ class ImpactPolicyTests(unittest.TestCase):
         agency_sync = classify_path("scripts/sync_agency_agents.py")
         self.assertTrue(agency_sync.hardening_required)
         self.assertIn("tests.test_guarded_network", agency_sync.required_suites)
+        updater = classify_path("portable/auren_runtime.py")
+        self.assertTrue(updater.hardening_required)
+        self.assertIn("tests.test_guarded_network", updater.required_suites)
         for path in ("tests/test_guarded_filesystem.py", "tests/test_guarded_network.py"):
             with self.subTest(path=path):
                 impact = classify_path(path)
