@@ -10,8 +10,10 @@ from __future__ import annotations
 import argparse
 import concurrent.futures
 import json
+import math
 import os
 import platform
+import signal
 import re
 import shutil
 import subprocess
@@ -20,7 +22,7 @@ import threading
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Iterable, Sequence
+from typing import Iterable, Mapping, Sequence
 
 _SECRET_ENV = re.compile(r"(?i)(token|secret|password|api[_-]?key|private[_-]?key|credential|auth)")
 _BLOCKED_COMMANDS = {"rm", "rmdir", "del", "format", "shutdown", "reboot"}
@@ -149,25 +151,84 @@ class LocalOffloadBroker:
             "memory_pressure": memory_pressure,
         }
 
-    def run(self, job: OffloadJob) -> OffloadResult:
+    def run(
+        self,
+        job: OffloadJob,
+        *,
+        cancellation_event: threading.Event | None = None,
+        deadline_epoch: float | None = None,
+    ) -> OffloadResult:
         started = time.monotonic()
         with self._state_lock:
             self._queued_jobs += 1
+        queued_counted = True
+        active_counted = False
         workspace: Path | None = None
+        process: subprocess.Popen[str] | None = None
         try:
+            if cancellation_event is not None and not isinstance(cancellation_event, threading.Event):
+                raise ValueError("cancellation_event must be a threading.Event")
             command = self._validate_command(job.command, allow_write=job.allow_write)
-            timeout = float(job.timeout_seconds or self.budget.timeout_seconds)
+            timeout = float(job.timeout_seconds if job.timeout_seconds is not None else self.budget.timeout_seconds)
+            if not math.isfinite(timeout) or timeout <= 0:
+                raise ValueError("job timeout_seconds must be finite and positive")
+            if deadline_epoch is not None:
+                if (
+                    isinstance(deadline_epoch, bool)
+                    or not isinstance(deadline_epoch, (int, float))
+                    or not math.isfinite(float(deadline_epoch))
+                ):
+                    raise ValueError("deadline_epoch must be a finite Unix timestamp")
+                remaining = float(deadline_epoch) - time.time()
+                if remaining <= 0:
+                    return OffloadResult(
+                        job.job_id, "timeout", None, time.monotonic() - started, "",
+                        "supervisor deadline expired before process launch", None,
+                    )
+                timeout = min(timeout, remaining)
             output_limit = int(job.max_output_chars or self.budget.max_output_chars)
             cwd = self._resolve_cwd(job.cwd)
+            deadline_monotonic = time.monotonic() + timeout
+
+            if cancellation_event is not None and cancellation_event.is_set():
+                return OffloadResult(
+                    job.job_id, "cancelled", None, time.monotonic() - started, "",
+                    "supervisor cancellation requested before process launch", str(cwd),
+                )
 
             if job.isolate:
                 workspace = Path(tempfile.mkdtemp(prefix="auren-offload-"))
                 self._copy_workspace(self.project_root, workspace)
                 cwd = self._map_isolated_cwd(self.project_root, cwd, workspace)
 
+            # Re-evaluate the absolute wall-clock deadline after workspace
+            # preparation so setup time cannot extend the caller's budget.
+            if deadline_epoch is not None:
+                remaining = float(deadline_epoch) - time.time()
+                if remaining <= 0:
+                    return OffloadResult(
+                        job.job_id, "timeout", None, time.monotonic() - started, "",
+                        "supervisor deadline expired before process launch", str(cwd),
+                    )
+                deadline_monotonic = min(
+                    deadline_monotonic, time.monotonic() + remaining,
+                )
+            if cancellation_event is not None and cancellation_event.is_set():
+                return OffloadResult(
+                    job.job_id, "cancelled", None, time.monotonic() - started, "",
+                    "supervisor cancellation requested before process launch", str(cwd),
+                )
+
+            process_options: dict[str, object] = {}
+            if os.name == "nt":
+                process_options["creationflags"] = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+            else:
+                process_options["start_new_session"] = True
             with self._state_lock:
                 self._queued_jobs -= 1
+                queued_counted = False
                 self._active_jobs += 1
+                active_counted = True
             process = subprocess.Popen(
                 list(command),
                 cwd=str(cwd),
@@ -179,18 +240,33 @@ class LocalOffloadBroker:
                 encoding="utf-8",
                 errors="replace",
                 shell=False,
+                **process_options,
                 **self._resource_limits(),
             )
-            try:
-                output, _ = process.communicate(timeout=timeout)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                output, _ = process.communicate()
-                return OffloadResult(
-                    job.job_id, "timeout", None, time.monotonic() - started,
-                    self._truncate(output, output_limit),
-                    f"job exceeded {timeout:.1f}s timeout", str(cwd)
-                )
+            output = ""
+            while True:
+                if cancellation_event is not None and cancellation_event.is_set():
+                    output = self._terminate_and_collect(process)
+                    return OffloadResult(
+                        job.job_id, "cancelled", None, time.monotonic() - started,
+                        self._truncate(output, output_limit),
+                        "supervisor cancellation requested; process tree terminated", str(cwd),
+                    )
+                remaining = deadline_monotonic - time.monotonic()
+                if remaining <= 0 or (
+                    deadline_epoch is not None and time.time() >= float(deadline_epoch)
+                ):
+                    output = self._terminate_and_collect(process)
+                    return OffloadResult(
+                        job.job_id, "timeout", None, time.monotonic() - started,
+                        self._truncate(output, output_limit),
+                        f"job exceeded its {timeout:.3f}s execution deadline; process tree terminated", str(cwd),
+                    )
+                try:
+                    output, _ = process.communicate(timeout=min(0.1, remaining))
+                    break
+                except subprocess.TimeoutExpired:
+                    continue
 
             output = self._truncate(output, output_limit)
             status = "passed" if process.returncode == 0 else "failed"
@@ -199,6 +275,11 @@ class LocalOffloadBroker:
                 output, None if process.returncode == 0 else f"exit code {process.returncode}", str(cwd)
             )
         except Exception as exc:
+            if process is not None and process.poll() is None:
+                try:
+                    self._terminate_and_collect(process)
+                except Exception:
+                    pass
             return OffloadResult(
                 job.job_id, "rejected" if isinstance(exc, ValueError) else "error",
                 None, time.monotonic() - started, "", str(exc),
@@ -206,11 +287,83 @@ class LocalOffloadBroker:
             )
         finally:
             with self._state_lock:
-                if self._active_jobs:
-                    self._active_jobs -= 1
+                if queued_counted:
+                    self._queued_jobs = max(0, self._queued_jobs - 1)
+                if active_counted:
+                    self._active_jobs = max(0, self._active_jobs - 1)
                 self._completed_jobs += 1
             if workspace:
                 shutil.rmtree(workspace, ignore_errors=True)
+
+    def run_supervised(
+        self,
+        job: OffloadJob,
+        *,
+        execution_payload: Mapping[str, object],
+    ) -> OffloadResult:
+        """Run a command under supervisor cancellation and absolute deadline controls."""
+        if not isinstance(execution_payload, Mapping):
+            raise TypeError("execution_payload must be a mapping")
+        cancellation_event = execution_payload.get("auren_cancel_event")
+        if cancellation_event is not None and not isinstance(cancellation_event, threading.Event):
+            raise TypeError("auren_cancel_event must be a threading.Event")
+        return self.run(
+            job,
+            cancellation_event=cancellation_event,
+            deadline_epoch=execution_payload.get("auren_deadline_epoch"),
+        )
+
+    @staticmethod
+    def _terminate_process_tree(process: subprocess.Popen[str]) -> None:
+        if process.poll() is not None:
+            return
+        if os.name == "nt":
+            try:
+                subprocess.run(
+                    ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                    timeout=5, check=False,
+                )
+            except Exception:
+                try:
+                    process.kill()
+                except OSError:
+                    pass
+            return
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except OSError:
+            try:
+                process.terminate()
+            except OSError:
+                pass
+        try:
+            process.wait(timeout=1)
+        except subprocess.TimeoutExpired:
+            pass
+        # Kill any descendants that ignored SIGTERM, even if the leader exited.
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except OSError:
+            if process.poll() is None:
+                try:
+                    process.kill()
+                except OSError:
+                    pass
+
+    @classmethod
+    def _terminate_and_collect(cls, process: subprocess.Popen[str]) -> str:
+        cls._terminate_process_tree(process)
+        try:
+            output, _ = process.communicate(timeout=5)
+            return output or ""
+        except subprocess.TimeoutExpired:
+            try:
+                process.kill()
+            except OSError:
+                pass
+            output, _ = process.communicate()
+            return output or ""
 
     def run_many(self, jobs: Sequence[OffloadJob]) -> list[OffloadResult]:
         if not jobs:
