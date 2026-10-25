@@ -47,6 +47,53 @@ class TestAgencyObservability(unittest.TestCase):
 
 
 
+    def test_interrupted_trace_resumes_same_identity_and_monotonic_event_sequence(self):
+        path = self.tmp_path / "resume-traces.jsonl"
+        tracer = Tracer(LocalExporter(path, enabled=True))
+        original = tracer.start(
+            "durable-run", {"phase_coverage_gaps": ["release"]},
+            run_id="run-resume-1", task_id="task-resume-1", session_id="session-1",
+            source_revision="source-a", config_digest="config-a",
+        )
+        root = original.span("supervisor", phase="supervisor")
+        child = original.span("provider", parent_id=root.span_id, phase="provider")
+        child.finish({"dispatch_returned": True}, "ok")
+        prior_sequence = original.event_sequence
+
+        resumed = tracer.resume(
+            original.trace_id, expected_run_id="run-resume-1",
+            task_id="task-resume-1", session_id="session-1",
+            source_revision="source-a", config_digest="config-a",
+        )
+        self.assertEqual(original.trace_id, resumed.trace_id)
+        self.assertEqual(original.run_id, resumed.run_id)
+        self.assertEqual(prior_sequence, resumed.event_sequence)
+        self.assertEqual({root.span_id, child.span_id}, {span.span_id for span in resumed.spans})
+        resumed_child = resumed.span("resumed_provider", parent_id=root.span_id, phase="provider")
+        resumed_child.finish({"reconciled": True}, "ok")
+        tracer.end(resumed)
+
+        records = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+        events = [
+            record for record in records
+            if record.get("event_record_version") == 1
+            and record.get("trace_id") == original.trace_id
+        ]
+        sequences = [record["event_sequence"] for record in events]
+        self.assertEqual(list(range(1, len(sequences) + 1)), sequences)
+        self.assertEqual(original.trace_id, events[-1]["trace_id"])
+        self.assertEqual("trace_finished", events[-1]["event_type"])
+
+    def test_trace_resume_rejects_mismatched_run_and_terminal_trace(self):
+        path = self.tmp_path / "resume-guard-traces.jsonl"
+        tracer = Tracer(LocalExporter(path, enabled=True))
+        trace = tracer.start("run", run_id="expected-run", task_id="task")
+        with self.assertRaisesRegex(ValueError, "run_id"):
+            tracer.resume(trace.trace_id, expected_run_id="different-run")
+        tracer.end(trace)
+        with self.assertRaisesRegex(ValueError, "terminal"):
+            tracer.resume(trace.trace_id, expected_run_id="expected-run")
+
     def test_prompt_registry_versions_and_promotion(self):
         registry = PromptRegistry()
         v1 = registry.register("planner", "1", "plan: {task}")
