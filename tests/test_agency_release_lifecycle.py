@@ -1,6 +1,10 @@
 from pathlib import Path
+import json
 
-from portable.agency_release_lifecycle import ArtifactStore
+from portable.agency_observability import LocalExporter, Tracer
+
+from portable.agency_release_lifecycle import ArtifactStore, apply_promotion_decision
+from types import SimpleNamespace
 from portable.agency_regression_loop import PromotionDecision
 
 
@@ -34,6 +38,99 @@ def test_shadow_canary_promote_and_rollback(tmp_path: Path):
     rolled = store.apply_decision(PromotionDecision("rollback", "regression failed", 0.1, False, "r5"))
     assert rolled.action == "rollback"
     assert store.state()["current"]["artifact_id"] == "v1"
+
+
+def test_release_transition_emits_parented_phase_span(tmp_path: Path):
+    source = tmp_path / "candidate.txt"
+    source.write_text("candidate", encoding="utf-8")
+    store = ArtifactStore(tmp_path / "release")
+    artifact = store.stage(source, "candidate-v1")
+    trace_path = tmp_path / "release-trace.jsonl"
+    tracer = Tracer(LocalExporter(trace_path, enabled=True))
+    trace = tracer.start("release-run", run_id="release-run", task_id="release-task")
+    parent = trace.span("supervisor", phase="supervisor")
+
+    state = store.transition(
+        "shadow", artifact, "evaluate candidate",
+        context_evidence_digest="context-digest",
+        trace=trace, parent_span_id=parent.span_id,
+    )
+    assert state.action == "shadow"
+    tracer.end(trace)
+
+    records = [json.loads(line) for line in trace_path.read_text(encoding="utf-8").splitlines()]
+    started = [
+        record["span"] for record in records
+        if record.get("event_type") == "span_started"
+        and (record.get("span") or {}).get("name") == "release_transition:shadow"
+    ]
+    assert len(started) == 1
+    assert started[0]["parent_id"] == parent.span_id
+    assert started[0]["phase"] == "release"
+    assert started[0]["actor_id"] == "auren.agency_release_lifecycle"
+    assert started[0]["metadata"]["artifact_digest"] == artifact.digest
+    assert "evaluate candidate" not in json.dumps(started[0])
+    finished = [
+        record["span"] for record in records
+        if record.get("event_type") == "span_updated"
+        and (record.get("span") or {}).get("name") == "release_transition:shadow"
+        and (record.get("span") or {}).get("end") is not None
+    ]
+    assert finished[-1]["status"] == "ok"
+    assert finished[-1]["output"]["transition_applied"] is True
+
+
+def test_promotion_decision_adapter_propagates_trace_context(tmp_path: Path):
+    source = tmp_path / "candidate-adapter.txt"
+    source.write_text("candidate", encoding="utf-8")
+    store = ArtifactStore(tmp_path / "release-adapter")
+    artifact = store.stage(source, "candidate-adapter")
+    trace_path = tmp_path / "release-adapter-trace.jsonl"
+    tracer = Tracer(LocalExporter(trace_path, enabled=True))
+    trace = tracer.start("release-adapter-run", run_id="release-adapter-run", task_id="release-adapter-task")
+    parent = trace.span("runtime_release_controller", phase="release")
+
+    state = apply_promotion_decision(
+        store, SimpleNamespace(action="shadow", reason="synthetic adapter test"), artifact,
+        trace=trace, parent_span_id=parent.span_id,
+    )
+    tracer.end(trace)
+
+    assert state.action == "shadow"
+    records = [json.loads(line) for line in trace_path.read_text(encoding="utf-8").splitlines()]
+    started = [
+        record["span"] for record in records
+        if record.get("event_type") == "span_started"
+        and (record.get("span") or {}).get("name") == "release_transition:shadow"
+    ]
+    assert len(started) == 1
+    assert started[0]["parent_id"] == parent.span_id
+
+
+def test_rejected_release_transition_emits_error_span(tmp_path: Path):
+    trace_path = tmp_path / "release-error-trace.jsonl"
+    tracer = Tracer(LocalExporter(trace_path, enabled=True))
+    trace = tracer.start("release-error-run", run_id="release-error-run", task_id="release-task")
+
+    try:
+        ArtifactStore(tmp_path / "release").transition(
+            "promote", None, "missing candidate", trace=trace,
+        )
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("invalid promotion must fail closed")
+    tracer.end(trace)
+
+    records = [json.loads(line) for line in trace_path.read_text(encoding="utf-8").splitlines()]
+    finished = [
+        record["span"] for record in records
+        if record.get("event_type") == "span_updated"
+        and (record.get("span") or {}).get("name") == "release_transition:promote"
+        and (record.get("span") or {}).get("end") is not None
+    ]
+    assert finished[-1]["status"] == "error"
+    assert finished[-1]["output"]["transition_applied"] is False
 
 
 def test_rollback_without_active_artifact_is_recorded(tmp_path: Path):
