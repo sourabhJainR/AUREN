@@ -94,6 +94,19 @@ class DependencyAwareFanoutTests(unittest.TestCase):
         self.assertLessEqual(len(started), 1)
         self.assertTrue(any("attempt budget" in error.lower() for error in result.errors.values()))
 
+    def test_non_checkpointable_output_is_not_reported_as_success(self):
+        plan = TaskPlan([
+            Task("a", "A", metadata={"execution_mode": "read_only"}),
+        ])
+        result = DependencyAwareFanout(
+            plan, lambda task: object(),
+            execution_guard=RuntimeExecutionGuard(max_steps=1, max_attempts=1),
+            max_workers=1,
+        ).run()
+        self.assertEqual(result.statuses["a"], "failed")
+        self.assertIn("TypeError", result.errors["a"])
+        self.assertNotEqual(plan.tasks["a"].status, "done")
+
     def test_dependency_failure_blocks_downstream_without_dispatch(self):
         called = []
         plan = TaskPlan([
