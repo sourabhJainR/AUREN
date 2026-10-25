@@ -393,7 +393,9 @@ class EngineeringDashboard:
                     ).fetchone()
                     if table is None:
                         continue
-                    rows = db.execute("SELECT id,payload FROM tasks LIMIT 500").fetchall()
+                    columns = {row[1] for row in db.execute("PRAGMA table_info(tasks)").fetchall()}
+                    ordering = "updated_at DESC" if "updated_at" in columns else "rowid DESC"
+                    rows = db.execute(f"SELECT id,payload FROM tasks ORDER BY {ordering} LIMIT 500").fetchall()
                 for task_id, payload_json in rows:
                     try:
                         payload = json.loads(payload_json)
