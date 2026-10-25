@@ -2,6 +2,7 @@
 from __future__ import annotations
 from dataclasses import asdict, dataclass, field, replace
 from hashlib import sha256
+import json
 from typing import Callable, Mapping
 from .agency_registry import rank
 from .agency_quality import ReviewFinding, QualityReceipt, evaluate
@@ -627,8 +628,25 @@ def execute(
                     actor_id="auren.release_controller",
                     source_revision=approved_plan.source_revision if approved_plan else (task.source_revision or None),
                 )
+                review_evidence = {
+                    "plan_review": trace.metadata.get("plan_review"),
+                    "implementation_review": trace.metadata.get("implementation_review"),
+                }
+                review_digest = sha256(json.dumps(
+                    review_evidence, sort_keys=True, separators=(",", ":"), allow_nan=False,
+                ).encode("utf-8")).hexdigest()
+                verification_digest = sha256(json.dumps(
+                    result.verification, sort_keys=True, separators=(",", ":"), allow_nan=False,
+                ).encode("utf-8")).hexdigest()
+                context_evidence_digest = sha256(json.dumps(
+                    sorted(evidence_id(item) for item in result.evidence),
+                    separators=(",", ":"), allow_nan=False,
+                ).encode("utf-8")).hexdigest()
                 result.release_state = apply_promotion_decision(
                     release_store, decision, artifact_ref,
+                    context_evidence_digest=context_evidence_digest,
+                    verification_digest=verification_digest,
+                    review_digest=review_digest,
                     trace=trace, parent_span_id=release_span.span_id,
                 )
                 release_span.finish({
