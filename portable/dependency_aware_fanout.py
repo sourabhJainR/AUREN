@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass, field
-from threading import Event
+from threading import Lock
 from typing import Any, Callable, Mapping
 
 from .runtime_recovery import ExecutionBudgetExceeded, RuntimeExecutionGuard
@@ -51,8 +51,6 @@ class DependencyAwareFanout:
         self.execute = execute
         self.guard = execution_guard
         self.max_workers = max_workers
-        self._active = 0
-        self._active_lock = Event()
 
     @staticmethod
     def _is_read_only(task: Task) -> bool:
@@ -68,7 +66,7 @@ class DependencyAwareFanout:
                 result.outputs[task_id] = task.metadata.get("execution_output")
 
         active: dict[Future[Any], Task] = {}
-        lock = __import__("threading").Lock()
+        lock = Lock()
         active_count = 0
 
         def run_one(task: Task) -> Any:
@@ -91,12 +89,14 @@ class DependencyAwareFanout:
 
         with ThreadPoolExecutor(max_workers=self.max_workers, thread_name_prefix="auren-fanout") as pool:
             while True:
-                if self.guard.cancellation_event.is_set():
+                cancelled = self.guard.cancellation_event.is_set()
+                if cancelled:
                     for task in self.plan.tasks.values():
                         if result.statuses[task.id] == "pending":
                             result.statuses[task.id] = "blocked"
                             result.errors[task.id] = self.guard.cancellation_reason or "task cancelled"
-                    break
+                    if not active:
+                        break
 
                 # Propagate dependency failure without launching downstream nodes.
                 for task in self.plan.tasks.values():
@@ -114,7 +114,7 @@ class DependencyAwareFanout:
                 # Do not launch two mutable/serial tasks together. Read-only
                 # tasks may fan out only up to the remaining worker capacity.
                 available = self.max_workers - len(active)
-                if available > 0 and ready:
+                if not cancelled and available > 0 and ready:
                     read_only = [task for task in ready if self._is_read_only(task)]
                     if read_only:
                         for task in read_only[:available]:
