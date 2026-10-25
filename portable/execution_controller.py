@@ -34,7 +34,7 @@ from .persistent_memory import PersistentMemory
 from .progress_journal import ProgressJournal
 from .provider_operation_lifecycle import ProviderOutcomeBlocked
 from .durable_approval import ApprovalPending, InvalidApprovalTransition
-from .workflow_profile import WorkflowProfile, resolve_profile
+from .workflow_profile import WorkflowProfile, delivery_mode_allows, infer_delivery_action, resolve_profile
 from .workflow_profile_store import load_profile
 
 Handler = Callable[[Mapping[str, Any]], Any]
@@ -687,6 +687,21 @@ class ExecutionController:
                 return False, "internal context providers cannot be executed as task handlers", ("handler-class:rejected",)
             if execution_class not in {"read_only", "ci_gated", "consequential", "approval_gated"}:
                 return False, "unclassified legacy handler fails closed", ("handler-class:unclassified",)
+            profile = WorkflowProfile.from_mapping(task.payload["_auren_workflow_profile"])
+            delivery_action = infer_delivery_action(task.handler, task.payload)
+            # Stage-only is a hard delivery boundary, not just a UI preference.
+            # Block every consequential/approval-gated operation even if the
+            # handler uses a generic name or omits an action field.
+            if profile.delivery_mode == "stage_only" and execution_class in {"consequential", "approval_gated"}:
+                return False, (
+                    "stage-only workflow profile forbids consequential or approval-gated actions; "
+                    "leave repository changes staged and do not commit, push, create a PR, or merge"
+                ), ("workflow-profile:stage-only", "delivery-action:blocked")
+            if delivery_action is not None and not delivery_mode_allows(profile, delivery_action):
+                return False, (
+                    f"workflow profile delivery mode {profile.delivery_mode!r} forbids {delivery_action!r}; "
+                    "no repository delivery side effect was dispatched"
+                ), (f"workflow-profile:{profile.delivery_mode}", f"delivery-action:{delivery_action}:blocked")
             configured_promotion_policy = self._handler_promotion_gate_policy(task.handler)
             configured_ci_policy = self._handler_ci_gate_policy(task.handler)
             configured_approval_policy = self._handler_approval_gate_policy(task.handler)
