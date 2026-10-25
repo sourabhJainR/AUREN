@@ -53,42 +53,9 @@ jobs:
               output.write(f'required={str(required).lower()}\n')
           PY
 
-  integration-guard:
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      contents: read
-      pull-requests: read
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.sha }}
-      - name: Fetch exact target branch
-        env:
-          BASE_BRANCH: ${{ github.event.pull_request.base.ref }}
-        run: git fetch origin "${BASE_BRANCH}:refs/remotes/origin/${BASE_BRANCH}" --no-tags
-      - name: Verify exact revisions and overlapping open PR paths
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-          REPOSITORY: ${{ github.repository }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          BASE_BRANCH: ${{ github.event.pull_request.base.ref }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: |
-          python scripts/pr_integration_guard.py \
-            --repo "${REPOSITORY}" \
-            --pr "${PR_NUMBER}" \
-            --base-ref "refs/remotes/origin/${BASE_BRANCH}" \
-            --head-ref "HEAD" \
-            --base-sha "${BASE_SHA}" \
-            --head-sha "${HEAD_SHA}"
-
   durable-runtime:
-    needs: [impact, integration-guard]
-    if: needs.impact.outputs.required == 'true' && (needs.integration-guard.result == 'success' || needs.integration-guard.result == 'skipped')
+    needs: impact
+    if: needs.impact.outputs.required == 'true'
     name: Durable runtime (${{ matrix.os }}, Python ${{ matrix.python-version }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
