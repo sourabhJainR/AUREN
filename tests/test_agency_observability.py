@@ -234,6 +234,25 @@ class TestAgencyObservability(unittest.TestCase):
         assert first.metadata["labels"] == ["alpha", "middle", "zeta"]
         assert first.metadata["labels"] == second.metadata["labels"]
 
+    def test_free_text_provider_tokens_and_embedded_url_credentials_are_redacted(self):
+        path = self.tmp_path / "provider-token-redaction.jsonl"
+        tracer = Tracer(LocalExporter(path, enabled=True))
+        secrets = (
+            "ghp_abcdefghijklmnopqrstuvwxyz123456",
+            "AKIA1234567890ABCDEF",
+            "xoxb-1234567890abcdef",
+            "sk-abcdefghijklmnopqrstuvwxyz1234",
+            "eyJabcdefghijklm.eyJabcdefghijklm.abcdefghijklmno",
+            "https://service-user:service-password@example.invalid/path",
+        )
+        trace = tracer.start("provider-token-redaction")
+        trace.span("provider", input={"free_text": " ".join(secrets)}).finish({"status": "ok"})
+        tracer.end(trace)
+        exported = path.read_text()
+        for secret in secrets:
+            assert secret not in exported
+        assert exported.count("[REDACTED]") >= len(secrets)
+
     def test_unsupported_objects_never_invoke_arbitrary_repr(self):
         class UnsafeRepresentation:
             def __repr__(self):
