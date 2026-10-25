@@ -644,6 +644,28 @@ def mcp_action_idempotency_key(operation_id: str, request: Mapping[str, Any]) ->
 
 
 @dataclass(frozen=True)
+class MCPTrustedExecutionContext:
+    """Host-derived repository identity passed to the operator authority resolver."""
+
+    workflow_id: str
+    task_id: str
+    project_root: str
+    workspace_root: str
+    repository_revision: str
+    repository_digest: str
+    budget_id: str
+
+    def validate(self) -> None:
+        for name in (
+            "workflow_id", "task_id", "project_root", "workspace_root",
+            "repository_revision", "repository_digest", "budget_id",
+        ):
+            value = getattr(self, name)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"trusted MCP execution context {name} is required")
+
+
+@dataclass(frozen=True)
 class MCPExecutionAuthorization:
     """Trusted, task-owned authority required before a consequential MCP call."""
 
@@ -1832,7 +1854,8 @@ class LocalVibeCodingHost:
         self, project_root: str | Path, *, config: VibeHostConfig,
         state_root: str | Path | None = None,
         mcp_authority_resolver: Callable[
-            [Mapping[str, Any], DurableSideEffectLedger], MCPExecutionAuthorization
+            [Mapping[str, Any], DurableSideEffectLedger, MCPTrustedExecutionContext],
+            MCPExecutionAuthorization,
         ] | None = None,
     ) -> None:
         self.project_root = Path(project_root).expanduser().resolve()
@@ -1883,10 +1906,51 @@ class LocalVibeCodingHost:
         agent = ProviderCliAgent(provider=self.config.provider, allow_workspace_writes=self.config.allow_workspace_writes, timeout_seconds=self.config.agent_timeout_seconds, env_allowlist=self.config.env_allowlist)
         journal = SideEffectJournal(self.state_root / "operations.sqlite3")
         side_effect_ledger = DurableSideEffectLedger(self.state_root / "operations.sqlite3")
-        mcp_authority_dispatch = (
-            build_mcp_authority_dispatch(
-                lambda request: self.mcp_authority_resolver(request, side_effect_ledger)
+        def resolve_mcp_authority(request: Mapping[str, Any]) -> MCPExecutionAuthorization:
+            state = request.get("state")
+            if not isinstance(state, Mapping):
+                raise AdapterUnavailable("MCP request lacks task state")
+            request_workflow = state.get("vibe_coding_workflow_id") or state.get("task_id")
+            request_task = state.get("task_id")
+            if request_workflow != workflow_id or request_task != workflow_id:
+                raise AdapterUnavailable("MCP request identity does not match the active host workflow")
+            current_head = _run(
+                ("git", "-C", str(workspace), "rev-parse", "HEAD"),
+                cwd=workspace, timeout=10,
             )
+            if current_head.returncode:
+                raise AdapterUnavailable("cannot verify repository revision before MCP dispatch")
+            trusted_context = MCPTrustedExecutionContext(
+                workflow_id=workflow_id,
+                task_id=workflow_id,
+                project_root=str(self.project_root),
+                workspace_root=str(workspace),
+                repository_revision=current_head.stdout.strip(),
+                repository_digest=fingerprint_worktree(workspace),
+                budget_id=f"mcp:{workflow_id}",
+            )
+            trusted_context.validate()
+            assert self.mcp_authority_resolver is not None
+            authorization = self.mcp_authority_resolver(
+                request, side_effect_ledger, trusted_context,
+            )
+            if not isinstance(authorization, MCPExecutionAuthorization):
+                raise AdapterUnavailable("MCP resolver returned no typed execution authorization")
+            if (
+                authorization.repository_revision != trusted_context.repository_revision
+                or authorization.repository_digest != trusted_context.repository_digest
+                or authorization.budget_id != trusted_context.budget_id
+                or authorization.authority.run_id != trusted_context.workflow_id
+                or authorization.authority.task_id != trusted_context.task_id
+                or authorization.authority.repository_revision != trusted_context.repository_revision
+                or authorization.authority.repository_digest != trusted_context.repository_digest
+                or authorization.authority.budget_id != trusted_context.budget_id
+            ):
+                raise AdapterUnavailable("MCP authorization does not match host-derived repository identity and budget")
+            return authorization
+
+        mcp_authority_dispatch = (
+            build_mcp_authority_dispatch(resolve_mcp_authority)
             if self.mcp_authority_resolver is not None else None
         )
         active_agent = JournaledToolAdapter(agent, journal, capability="agent")
@@ -2028,7 +2092,7 @@ __all__ = [
     "DurableVibeCheckpointStore", "IndependentReviewTool", "IsolatedGitWorktree",
     "JournaledToolAdapter", "LocalAccessibilityTool", "LocalBrowserTool", "LocalDesignTool",
     "LocalProjectTool", "LocalSecurityTool", "LocalTestExecutionTool", "LocalVibeCodingHost",
-    "MCPExecutionAuthorization", "MCPIndependentReviewTool", "MCPStdioToolAdapter", "MemoizedToolAdapter", "ProviderCliAgent", "SideEffectJournal",
+    "MCPExecutionAuthorization", "MCPIndependentReviewTool", "MCPStdioToolAdapter", "MCPTrustedExecutionContext", "MemoizedToolAdapter", "ProviderCliAgent", "SideEffectJournal",
     "VerifiedResearchTool", "VibeHostConfig", "build_engineering_design_contract", "build_mcp_authority_dispatch", "mcp_action_id", "mcp_action_idempotency_key", "mcp_request_action_id", "mcp_request_digest",
     "fingerprint_worktree", "load_host_config",
 ]
