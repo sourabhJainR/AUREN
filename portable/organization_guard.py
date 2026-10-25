@@ -10,7 +10,7 @@ from dataclasses import dataclass
 import hashlib
 import json
 from pathlib import Path
-import re
+from fnmatch import fnmatchcase
 from typing import Any, Mapping
 
 POLICY_VERSION = "auren-guard-v1"
@@ -71,7 +71,7 @@ def validate_policy(value: Mapping[str, Any]) -> dict[str, Any]:
     if value.get("schema_version") != POLICY_VERSION:
         raise GuardPolicyError("unsupported Guard policy schema version")
     default_effect = value.get("default_effect", "allow")
-    if default_effect not in {"allow", "deny"}:
+    if not isinstance(default_effect, str) or default_effect not in {"allow", "deny"}:
         raise GuardPolicyError("default_effect must be allow or deny")
     rules = value.get("rules", [])
     if not isinstance(rules, list) or len(rules) > 500:
@@ -87,13 +87,16 @@ def validate_policy(value: Mapping[str, Any]) -> dict[str, Any]:
         rule_id, effect = rule.get("id"), rule.get("effect")
         if not isinstance(rule_id, str) or not rule_id.strip() or len(rule_id) > 128 or rule_id in seen_ids:
             raise GuardPolicyError(f"rule {index} requires a unique non-empty id")
-        if effect not in _ALLOWED_EFFECTS:
+        if not isinstance(effect, str) or effect not in _ALLOWED_EFFECTS:
             raise GuardPolicyError(f"rule {rule_id} has an invalid effect")
         item: dict[str, str] = {"id": rule_id, "effect": effect}
         for field in _MATCH_FIELDS:
             if field in rule:
                 matcher = rule[field]
-                if not isinstance(matcher, str) or not matcher or len(matcher) > 512 or not matcher.isprintable():
+                if (
+                    not isinstance(matcher, str) or not matcher or len(matcher) > 512
+                    or not matcher.isprintable() or "[" in matcher or "]" in matcher
+                ):
                     raise GuardPolicyError(f"rule {rule_id} has an invalid {field} matcher")
                 item[field] = matcher
         if not any(field in item for field in _MATCH_FIELDS):
