@@ -742,7 +742,8 @@ class AgentCapabilityTests(unittest.TestCase):
     def test_explicit_user_tool_request_is_preserved_in_selected_bundle(self):
         from portable.agent_capabilities import CapabilityExecutioner, CapabilityOption
         result = CapabilityExecutioner().select_collaborative(
-            request="User instruction: must use mcp:repo-search for this task",
+            request="review task " + ("context " * 40),
+            explicit_request=("context " * 40) + "User instruction: must use mcp:repo-search for this task",
             options=(
                 CapabilityOption("core:general", source="core", tags=frozenset({"general"}), evidence_quality=0.99, confidence=0.99),
                 CapabilityOption("mcp:repo-search", source="mcp", tags=frozenset({"repository", "search"}), risk="medium"),
