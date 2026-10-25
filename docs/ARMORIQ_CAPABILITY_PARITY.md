@@ -22,7 +22,7 @@ The published offering describes pre-execution intent capture and policy evaluat
 | Pre-dispatch authorization | Durable ExecutionController preflight; registered handler execution classes; approval and promotion gates | **Partial.** Ensure every provider/tool dispatch path is mediated, including nested tools and subprocesses. |
 | Organization-configurable policy | New optional `.auren/guard_policy.json`, versioned schema, deny-overrides, default-deny, approval requirement, policy digest | **Initial implementation.** Add inheritance, explicit policy priority, partial wildcards, time windows, rate limits, resource/network scopes, and validation tooling. |
 | Fail-closed policy evaluation | Invalid/oversized/symlinked/duplicate-key policy blocks task preflight | **Partial.** Add concurrent policy update tests and independent adapter-boundary enforcement. |
-| Intent-to-action binding | Workflow profile digest and typed action inference; existing side-effect ledger and task evidence | **Gap.** Need a canonical, immutable action plan/intent commitment that binds each actual tool call to approved scope; profile digest alone is not intent proof. |
+| Intent-to-action binding | Trusted registered `guard_action`; current Guard decision rechecked before consequential provider dispatch; action, policy digest, effect, and matched rules bound into the durable side-effect ledger and provider operation payload | **Partial.** This binds registered actions and current policy to the consequential dispatch path. Still need a canonical immutable plan commitment and enforcement for every nested tool/MCP call. |
 | Cryptographic plan integrity | Existing AUREN evidence and signing components in other paths | **Not parity-verified.** Build and verify per-action proof/chain from approved plan through provider dispatch and result. |
 | Delegation and scope narrowing | Existing supervisor/approval architecture | **Gap.** Carry parent intent, delegated subset, expiry, and revocation lineage across child agents; reject scope widening. |
 | Runtime tool interception | Existing provider lifecycle and controller paths | **Partial.** Inventory all execution routes; enforce in the common execution boundary and fail closed on unmediated tool adapters. |
@@ -46,9 +46,10 @@ The published offering describes pre-execution intent capture and policy evaluat
 ## Delivery sequence
 
 - **Phase 1 — current PR:** organization policy schema/evaluator, fail-closed supervisor integration, workflow-profile receipts, CLI profile lifecycle, deterministic tests, and impact-policy classification.
-- **Phase 2 — action-plan binding:** immutable intent/action graph and per-dispatch verification across every provider/tool adapter.
-- **Phase 3 — organization policy lifecycle:** inheritance, priority, time/budget/rate constraints, dry-run, policy diff, activation, rollback, and audit views.
-- **Phase 4 — isolation and inventory:** adapter/tool inventory, least-privilege profiles, process/filesystem/network boundaries, and supported-platform fault injection.
-- **Phase 5 — evidence and assurance:** cross-process restart and revocation tests, cryptographic receipt lineage, independent evaluation, and narrowly worded compliance evidence.
+- **Phase 2 — action-bound dispatch (follow-on PR):** re-evaluate Guard policy at consequential provider dispatch and bind the registered action and policy digest to durable side-effect/provider receipts. This is not yet universal nested-tool mediation.
+- **Phase 3 — immutable action-plan binding:** immutable intent/action graph and per-dispatch verification across every provider/tool adapter.
+- **Phase 4 — organization policy lifecycle:** inheritance, priority, time/budget/rate constraints, dry-run, policy diff, activation, rollback, and audit views.
+- **Phase 5 — isolation and inventory:** adapter/tool inventory, least-privilege profiles, process/filesystem/network boundaries, and supported-platform fault injection.
+- **Phase 6 — evidence and assurance:** cross-process restart and revocation tests, cryptographic receipt lineage, independent evaluation, and narrowly worded compliance evidence.
 
 **Release gate:** do not claim full ArmorIQ parity until the action-boundary inventory is complete, every dispatch path is proven mediated, policy changes/revocation are restart-safe, and the relevant security acceptance suites pass. Kernel-level isolation and external certifications require separate implementation or external assurance.
