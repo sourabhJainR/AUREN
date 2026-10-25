@@ -66,7 +66,7 @@ This contract is not proof of a fully implemented preference engine. Runtime wor
 6. Test that autonomy cannot bypass required checks, reviews, approval gates, or external-effect reconciliation.
 7. Expose the effective mode and next action in CLI/dashboard before consequential actions and in the durable receipt after execution.
 8. Enforce delivery-mode restrictions in durable supervisor preflight, not only in CLI/dashboard presentation. Infer action from registered handler identity and typed action fields; block stage-only consequential handlers even when their names are generic. Keep the delivery profile non-authoritative: promotion gates remain independently required.
-9. Prevent parallel-PR conflicts with a pre-merge integration guard: verify exact base/head SHAs, fail closed when the branch is behind base, list overlapping open PR paths across all pages, and require serialization or path ownership split before merge. Branch from the latest target; never auto-resolve conflicts by choosing a side.
+9. Prevent parallel-PR conflicts with a pre-merge integration guard: verify exact base/head SHAs, fail closed when the branch is behind base, and list overlapping open PR paths across all pages. Serialize shared paths deterministically: the oldest open overlapping PR owns the integration slot; newer PRs wait, then refresh the target and rerun exact-head checks. Missing ordering evidence fails closed. Branch from the latest target; never auto-resolve conflicts by choosing a side.
 
 ## Acceptance criteria
 
