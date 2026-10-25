@@ -151,6 +151,7 @@ class VibeCodingHostTests(unittest.TestCase):
                 argument_map={"query": "$intent"},
                 timeout_seconds=5,
                 requires_authority_binding=False,
+                trusted_workspace_root=project,
             )
             raw = search({
                 "stage": "research", "intent": "market alternatives",
@@ -167,6 +168,48 @@ class VibeCodingHostTests(unittest.TestCase):
             self.assertEqual(len(result["competitors"]), 2)
             self.assertTrue(all(item["locator"].startswith("https://") for item in result["evidence"]))
 
+
+    def test_unbound_mcp_dispatch_rejects_missing_or_escaping_trusted_workspace(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / "trusted"
+            outside = Path(temp) / "outside"
+            root.mkdir()
+            outside.mkdir()
+            with self.assertRaisesRegex(ValueError, "trusted workspace root"):
+                MCPStdioToolAdapter(
+                    argv=(sys.executable, "-c", "pass"),
+                    tool_name="research",
+                    timeout_seconds=5,
+                    requires_authority_binding=False,
+                )
+            tool = MCPStdioToolAdapter(
+                argv=(sys.executable, "-c", "pass"),
+                tool_name="research",
+                timeout_seconds=5,
+                requires_authority_binding=False,
+                trusted_workspace_root=root,
+            )
+            request = {"stage": "research", "intent": "test", "state": {"workspace_root": str(outside)}}
+            with patch("portable.vibe_coding_host.subprocess.Popen") as popen:
+                with self.assertRaisesRegex(AdapterUnavailable, "escapes the trusted workspace root"):
+                    tool(request)
+                popen.assert_not_called()
+
+    def test_unbound_mcp_dispatch_rejects_missing_workspace_before_launch(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            tool = MCPStdioToolAdapter(
+                argv=(sys.executable, "-c", "pass"),
+                tool_name="research",
+                timeout_seconds=5,
+                requires_authority_binding=False,
+                trusted_workspace_root=root,
+            )
+            with patch("portable.vibe_coding_host.subprocess.Popen") as popen:
+                with self.assertRaisesRegex(AdapterUnavailable, "explicit workspace root"):
+                    tool({"stage": "research", "intent": "test", "state": {}})
+                popen.assert_not_called()
+
     def test_mcp_structured_content_is_preserved(self):
         with tempfile.TemporaryDirectory() as temp:
             base = Path(temp)
@@ -180,6 +223,7 @@ class VibeCodingHostTests(unittest.TestCase):
                 argument_map={"query": "$intent"},
                 timeout_seconds=5,
                 requires_authority_binding=False,
+                trusted_workspace_root=project,
             )
             result = tool({"stage": "research", "intent": "test", "state": {"workspace_root": str(project)}})
             self.assertEqual(result["competitors"], ["example.com"])
