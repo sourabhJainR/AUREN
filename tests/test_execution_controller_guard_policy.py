@@ -76,7 +76,7 @@ def test_restart_keeps_submitted_profile_when_saved_preferences_change(tmp_path:
 
     controller = ExecutionController(tmp_path)
     controller.register_handler(
-        "tests.marker_handler", guarded_marker_handler, execution_class="consequential"
+        "tests.marker_handler", guarded_marker_handler, execution_class="read_only"
     )
     saved_path = tmp_path / ".auren" / "workflow_profile.json"
     save_profile(saved_path, WorkflowProfile(delivery_mode="stage_only"))
