@@ -724,6 +724,19 @@ class AgentCapabilityTests(unittest.TestCase):
         )
         self.assertIn("mcp:repo-search", result.selected_set)
 
+
+    def test_explicit_only_directive_excludes_every_other_capability(self):
+        from portable.agent_capabilities import CapabilityExecutioner, CapabilityOption
+        result = CapabilityExecutioner().select_collaborative(
+            request="Use only mcp:repo-search",
+            options=(
+                CapabilityOption("mcp:repo-search", source="mcp", tags=frozenset({"repository", "search"})),
+                CapabilityOption("core:general", source="core", tags=frozenset({"general"})),
+                CapabilityOption("plugin:deploy", source="plugin", tags=frozenset({"deploy"})),
+            ),
+        )
+        self.assertEqual(("mcp:repo-search",), result.selected_set)
+
     def test_multiple_explicit_user_tools_are_combined_or_fail_closed(self):
         from portable.agent_capabilities import CapabilityExecutioner, CapabilityOption
         result = CapabilityExecutioner().select_collaborative(
