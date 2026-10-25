@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+import sqlite3
 from pathlib import Path
 import tempfile
 import unittest
@@ -10,7 +11,11 @@ from portable.workflow_profile import WorkflowProfile
 from portable.workflow_profile_store import WorkflowProfileStoreError, save_profile
 
 
+_WORKFLOW_PROFILE_HANDLER_CALLS = []
+
+
 def workflow_profile_test_handler(payload):
+    _WORKFLOW_PROFILE_HANDLER_CALLS.append(dict(payload))
     return {"ok": True}
 
 
@@ -20,6 +25,7 @@ class WorkflowProfileSupervisorBindingTests(unittest.TestCase):
         self.addCleanup(self._temporary_directory.cleanup)
         self.root = Path(self._temporary_directory.name)
         self.controller = ExecutionController(self.root)
+        _WORKFLOW_PROFILE_HANDLER_CALLS.clear()
         self.controller.register_handler(
             "workflow-profile-test",
             workflow_profile_test_handler,
@@ -80,6 +86,90 @@ class WorkflowProfileSupervisorBindingTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(RuntimeError, "digest mismatch"):
             self.controller._verify_workflow_profile_binding(tampered)
+
+    def test_stage_only_profile_blocks_merge_intent_before_handler_dispatch(self) -> None:
+        task = self.controller.submit(
+            "workflow-profile-test",
+            {
+                "value": 6,
+                "operation": "merge",
+                "workflow_profile": WorkflowProfile(
+                    delivery_mode="stage_only", execution_mode="autonomous",
+                ).as_dict(),
+            },
+            work_key="workflow-profile:stage-only-merge",
+        )
+        self.controller.run_once(task.id)
+        self.assertEqual("failed", self.controller.task(task.id).state)
+        self.assertEqual([], _WORKFLOW_PROFILE_HANDLER_CALLS)
+
+    def test_stage_only_blocks_generic_consequential_handler_before_dispatch(self) -> None:
+        task = self.controller.submit(
+            "workflow-profile-test",
+            {
+                "value": 7,
+                "workflow_profile": WorkflowProfile(
+                    delivery_mode="stage_only", execution_mode="autonomous",
+                ).as_dict(),
+            },
+            work_key="workflow-profile:stage-only-consequential",
+        )
+        # Simulate a previously registered generic handler classified as
+        # consequential; no action name or task field is needed to trigger the
+        # fail-closed stage-only boundary.
+        db = sqlite3.connect(self.controller.db_path)
+        try:
+            with db:
+                db.execute(
+                    "UPDATE handlers SET execution_class='consequential' WHERE name=?",
+                    ("workflow-profile-test",),
+                )
+        finally:
+            db.close()
+        self.controller.run_once(task.id)
+        self.assertEqual("failed", self.controller.task(task.id).state)
+        self.assertEqual([], _WORKFLOW_PROFILE_HANDLER_CALLS)
+
+    def test_read_only_handler_cannot_dispatch_typed_deploy_action(self) -> None:
+        task = self.controller.submit(
+            "workflow-profile-test",
+            {
+                "value": 8,
+                "operation": "deploy",
+                "workflow_profile": WorkflowProfile(
+                    delivery_mode="pull_request", execution_mode="autonomous",
+                ).as_dict(),
+            },
+            work_key="workflow-profile:read-only-deploy",
+        )
+        self.controller.run_once(task.id)
+        self.assertEqual("failed", self.controller.task(task.id).state)
+        self.assertEqual([], _WORKFLOW_PROFILE_HANDLER_CALLS)
+
+    def test_approval_gated_merge_still_requires_promotion_and_exact_head_ci(self) -> None:
+        task = self.controller.submit(
+            "workflow-profile-test",
+            {
+                "value": 9,
+                "operation": "merge",
+                "workflow_profile": WorkflowProfile(
+                    delivery_mode="pull_request", execution_mode="autonomous",
+                ).as_dict(),
+            },
+            work_key="workflow-profile:approval-merge-needs-ci",
+        )
+        db = sqlite3.connect(self.controller.db_path)
+        try:
+            with db:
+                db.execute(
+                    "UPDATE handlers SET execution_class='approval_gated', approval_gate_policy_json=? WHERE name=?",
+                    ('{"configured": true}', "workflow-profile-test"),
+                )
+        finally:
+            db.close()
+        self.controller.run_once(task.id)
+        self.assertEqual("failed", self.controller.task(task.id).state)
+        self.assertEqual([], _WORKFLOW_PROFILE_HANDLER_CALLS)
 
     def test_saved_profile_change_cannot_reuse_existing_work_key(self) -> None:
         save_profile(

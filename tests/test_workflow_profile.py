@@ -5,6 +5,8 @@ from portable.workflow_profile import (
     PROFILE_VERSION,
     WorkflowProfile,
     WorkflowProfileError,
+    delivery_mode_allows,
+    infer_delivery_action,
     resolve_profile,
 )
 
@@ -49,6 +51,32 @@ class WorkflowProfileTests(unittest.TestCase):
         saved = WorkflowProfile().as_dict()
         with self.assertRaises(WorkflowProfileError):
             resolve_profile(saved=saved, task={"profile_version": PROFILE_VERSION, "skip_ci": True})
+
+    def test_delivery_modes_restrict_repository_actions(self):
+        stage_only = WorkflowProfile(delivery_mode="stage_only")
+        for action in ("commit", "push", "create_pr", "merge", "publish", "release", "deploy"):
+            with self.subTest(mode="stage_only", action=action):
+                self.assertFalse(delivery_mode_allows(stage_only, action))
+        working_tree = WorkflowProfile(delivery_mode="working_tree")
+        self.assertFalse(delivery_mode_allows(working_tree, "commit"))
+        self.assertFalse(delivery_mode_allows(working_tree, "create_pr"))
+        commit_each = WorkflowProfile(delivery_mode="commit_each_change")
+        self.assertTrue(delivery_mode_allows(commit_each, "commit"))
+        self.assertFalse(delivery_mode_allows(commit_each, "push"))
+        pull_request = WorkflowProfile(delivery_mode="pull_request")
+        self.assertTrue(delivery_mode_allows(pull_request, "create_pr"))
+        # Delivery mode is not a promotion grant; the controller must still
+        # enforce operator-owned approval and exact-head CI for consequential actions.
+        self.assertTrue(delivery_mode_allows(pull_request, "merge"))
+        self.assertTrue(delivery_mode_allows(pull_request, "release"))
+
+    def test_delivery_action_inference_uses_handler_and_typed_action_fields(self):
+        self.assertEqual("merge", infer_delivery_action("merge-pull-request", {}))
+        self.assertEqual("create_pr", infer_delivery_action("repo-worker", {"operation": "create pull request"}))
+        self.assertEqual("push", infer_delivery_action("repo-worker", {"git_action": "push"}))
+        self.assertEqual("merge", infer_delivery_action("repo-worker", {"argv": ["git", "merge", "origin/main"]}))
+        self.assertEqual("push", infer_delivery_action("repo-worker", {"intent": {"git_command": "git push origin main"}}))
+        self.assertIsNone(infer_delivery_action("repo-worker", {"description": "please do not merge"}))
 
     def test_profile_does_not_encode_authority_or_skip_checks(self):
         profile = WorkflowProfile(execution_mode="autonomous", approval_mode="scoped_autonomy")

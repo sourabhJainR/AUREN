@@ -8,6 +8,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 import hashlib
 import json
+import re
 from typing import Any, Mapping
 
 PROFILE_VERSION = "auren-workflow-v1"
@@ -21,6 +22,79 @@ _FIELDS = frozenset({
     "profile_version", "delivery_mode", "execution_mode", "approval_mode",
     "review_mode", "communication_mode", "recovery_mode",
 })
+
+
+
+# Delivery modes are preferences, never authority grants. Consequential release
+# and merge actions still require the controller's independent operator-owned
+# policy, approval, and exact-head evidence gates.
+_DELIVERY_ACTION_ALIASES: dict[str, frozenset[str]] = {
+    "commit": frozenset({"commit", "git_commit", "commit_changes", "commit_change"}),
+    "push": frozenset({"push", "git_push", "push_branch", "push_changes"}),
+    "create_pr": frozenset({"pr", "pull_request", "create_pr", "open_pr", "create_pull_request", "open_pull_request"}),
+    "merge": frozenset({"merge", "merge_pr", "merge_pull_request", "merge_pull_request_handler"}),
+    "publish": frozenset({"publish", "publish_release", "publish_package"}),
+    "release": frozenset({"release", "create_release", "publish_release"}),
+    "deploy": frozenset({"deploy", "deployment", "deploy_release"}),
+}
+_ACTION_PRIORITY = ("merge", "create_pr", "push", "commit", "publish", "release", "deploy")
+
+
+def infer_delivery_action(handler_name: str, payload: Mapping[str, Any]) -> str | None:
+    """Infer repository delivery intent from handler identity or typed action fields.
+
+    Only explicit action-like fields are inspected; arbitrary free text and task
+    descriptions are not interpreted as executable intent.
+    """
+    action_payloads = [payload]
+    nested_intent = payload.get("intent")
+    if isinstance(nested_intent, Mapping):
+        action_payloads.append(nested_intent)
+    for action_payload in action_payloads:
+        for field in (
+            "delivery_action", "repository_action", "git_action", "action",
+            "action_type", "intent_type", "operation", "command", "git_command", "argv",
+        ):
+            value = action_payload.get(field)
+            if isinstance(value, (list, tuple)) and all(isinstance(item, str) for item in value[:64]):
+                value = " ".join(value[:64])
+            if not isinstance(value, str):
+                continue
+            normalized = re.sub(r"[^a-z0-9]+", "_", value.casefold()).strip("_")
+            for action in _ACTION_PRIORITY:
+                aliases = _DELIVERY_ACTION_ALIASES[action]
+                if normalized in aliases:
+                    return action
+                words = set(normalized.split("_"))
+                if action == "create_pr" and ({"create", "open"} & words) and ({"pr", "pull_request", "pull", "request"} & words):
+                    return action
+                if action in {"commit", "push", "merge", "publish", "release", "deploy"} and action in words:
+                    return action
+    normalized_handler = re.sub(r"[^a-z0-9]+", "_", handler_name.casefold()).strip("_")
+    words = set(normalized_handler.split("_"))
+    for action in _ACTION_PRIORITY:
+        if action in words:
+            return action
+        if action == "create_pr" and ({"create", "open"} & words) and ({"pr", "pull", "request"} & words):
+            return action
+    return None
+
+
+def delivery_mode_allows(profile: "WorkflowProfile", action: str) -> bool:
+    """Check only the delivery-mode boundary; this never authorizes an action.
+
+    PR mode can prepare a PR but does not bypass promotion gates for merge,
+    release, or deploy. Unknown actions remain subject to controller policy.
+    """
+    if action not in _DELIVERY_ACTION_ALIASES:
+        return True
+    if profile.delivery_mode == "stage_only":
+        return False
+    if profile.delivery_mode == "working_tree":
+        return action not in {"commit", "push", "create_pr", "merge"}
+    if profile.delivery_mode == "commit_each_change":
+        return action not in {"push", "create_pr", "merge"}
+    return True
 
 
 class WorkflowProfileError(ValueError):
@@ -88,4 +162,4 @@ def resolve_profile(
     return WorkflowProfile()
 
 
-__all__ = ["PROFILE_VERSION", "WorkflowProfile", "WorkflowProfileError", "resolve_profile"]
+__all__ = ["PROFILE_VERSION", "WorkflowProfile", "WorkflowProfileError", "delivery_mode_allows", "infer_delivery_action", "resolve_profile"]

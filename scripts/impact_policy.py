@@ -60,6 +60,7 @@ _RULES: tuple[tuple[str, tuple[str, ...], bool], ...] = (
     ("tests/test_continuous_execution.py", ("tests.test_continuous_execution",), True),
     ("tests/test_ci_repair_watchdog.py", ("tests.test_ci_repair_watchdog",), True),
     ("portable/workflow_profile.py", ("tests.test_workflow_profile", "tests.test_workflow_profile_store", "tests.test_workflow_profile_integration"), True),
+    ("tests/test_workflow_profile.py", ("tests.test_workflow_profile",), True),
     ("portable/workflow_profile_store.py", ("tests.test_workflow_profile_store", "tests.test_workflow_profile_integration"), True),
     ("tests/test_workflow_profile_integration.py", ("tests.test_workflow_profile_integration",), True),
     ("portable/execution_controller.py", ("tests.test_execution_controller", "tests.test_execution_controller_restart", "tests.test_execution_controller_cancellation", "tests.test_execution_controller_promotion_rollback_contract", "tests.test_provider_operation_lifecycle", "tests.test_durable_approval"), True),
