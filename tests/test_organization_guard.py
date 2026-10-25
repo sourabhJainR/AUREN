@@ -106,3 +106,27 @@ def test_scoped_globs_and_malformed_types_are_handled_safely():
         validate_policy({"schema_version": POLICY_VERSION, "default_effect": [], "rules": []})
     with pytest.raises(GuardPolicyError):
         validate_policy(policy(rule("bad-effect", [], action="read")))
+
+
+def test_approval_requirement_never_substitutes_for_default_deny_allow():
+    configured = policy(
+        rule("approval-release", "require_approval", action="release"),
+        default_effect="deny",
+    )
+    decision = evaluate_guard_policy(
+        configured, {"action": "release"}, approval_gate_configured=True,
+    )
+    assert not decision.allowed
+    assert decision.effect == "deny"
+    assert "default-deny" in decision.reason
+
+    explicitly_allowed = policy(
+        rule("allow-release", "allow", action="release"),
+        rule("approval-release", "require_approval", action="release"),
+        default_effect="deny",
+    )
+    approved_path = evaluate_guard_policy(
+        explicitly_allowed, {"action": "release"}, approval_gate_configured=True,
+    )
+    assert approved_path.allowed
+    assert approved_path.effect == "require_approval"
