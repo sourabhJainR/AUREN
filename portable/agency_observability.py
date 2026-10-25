@@ -8,6 +8,7 @@ immutable; privacy filtering runs before persistence.
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import math
 import os
