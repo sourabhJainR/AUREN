@@ -401,3 +401,72 @@ class ExecutionBoundaryTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SubprocessBoundaryInventoryTests(unittest.TestCase):
+    """Require every portable/harness Popen adapter to have an explicit disposition.
+
+    This is a path-level tripwire, not proof that a listed adapter is safe or
+    that non-Popen execution mechanisms are covered. New launch modules fail
+    closed until the inventory and the corresponding denial-before-launch tests
+    are reviewed together.
+    """
+
+    REVIEWED_POPEN_ADAPTERS = {
+        ".ai-harness/provider.py": "interactive provider process; bounded lifecycle and explicit output handling",
+        ".ai-harness/resilient_provider.py": "retrying provider process; bounded retry wrapper and safe-provider handoff",
+        "portable/bounded_subprocess.py": "bounded subprocess primitive; process-tree cleanup and output/deadline limits",
+        "portable/container_sandboxed_arena.py": "container-backed Arena execution; container boundary must be verified separately",
+        "portable/docker_external_evaluator_executor.py": "container runtime lifecycle; kill/remove cleanup",
+        "portable/docker_isolated_evaluator.py": "Docker evaluator launcher; isolation depends on runtime policy",
+        "portable/external_evaluator_gateway.py": "external evaluator; host-process mode is test-only, not a security sandbox",
+        "portable/isolated_arena_runner.py": "policy-command Arena launcher; isolation depends on the supplied policy command",
+        "portable/local_offload.py": "local offload worker; command/environment validation and cancellation",
+        "portable/subprocess_provider.py": "command-backed provider; clean environment, no shell, timeout and process-tree controls",
+        "portable/vibe_coding_host.py": "host adapter process; explicit argv, safe environment, and bounded response handling",
+    }
+
+    def test_every_direct_popen_callsite_is_in_the_reviewed_adapter_inventory(self):
+        root = Path(__file__).resolve().parents[1]
+        scan_roots = (root / "portable", root / ".ai-harness")
+        actual = set()
+
+        class Visitor(ast.NodeVisitor):
+            def __init__(self, relative_path):
+                self.relative_path = relative_path
+
+            def visit_Call(self, node):
+                func = node.func
+                if (
+                    isinstance(func, ast.Attribute)
+                    and func.attr == "Popen"
+                    and isinstance(func.value, ast.Name)
+                    and func.value.id == "subprocess"
+                ):
+                    actual.add(self.relative_path)
+                self.generic_visit(node)
+
+        for scan_root in scan_roots:
+            if not scan_root.exists():
+                continue
+            for source in sorted(scan_root.rglob("*.py")):
+                relative = source.relative_to(root).as_posix()
+                visitor = Visitor(relative)
+                visitor.visit(ast.parse(source.read_text(encoding="utf-8"), filename=relative))
+
+        self.assertEqual(
+            actual,
+            set(self.REVIEWED_POPEN_ADAPTERS),
+            "New or removed subprocess launch adapters require an explicit reviewed disposition "
+            "and denial-before-launch regression tests.",
+        )
+
+    def test_inventory_does_not_claim_host_process_isolation(self):
+        self.assertIn(
+            "not a security sandbox",
+            self.REVIEWED_POPEN_ADAPTERS["portable/external_evaluator_gateway.py"],
+        )
+        self.assertIn(
+            "verified separately",
+            self.REVIEWED_POPEN_ADAPTERS["portable/container_sandboxed_arena.py"],
+        )
