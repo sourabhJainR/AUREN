@@ -119,3 +119,29 @@ This is request/receipt binding, not cryptographic provider attestation.
 Interrupted outcomes still require trusted provider lookup and independently
 verified evidence. If an adapter does not emit these fields, migrate the adapter
 and tests; do not restore acceptance of unbound completed receipts.
+
+
+## Independent OpenShell isolation acceptance probe
+
+`scripts/verify_openshell_isolation.py` is a real-runtime acceptance probe, not
+a mock. It requires an explicit non-empty policy and an installed OpenShell CLI.
+On Linux, it first confirms the host can reach a selected network target; inside
+the sandbox it probes writes outside the curated workspace, network egress, and
+visibility of a host-only process marker through `/proc`. It also verifies
+that a host-only sentinel remains unchanged. It refuses to claim success when
+the network precondition is unavailable or a probe fails.
+
+Run against the reviewed deployment policy:
+
+```bash
+python scripts/verify_openshell_isolation.py --policy /path/to/reviewed-policy.yaml
+```
+
+This probe has not been run against a real OpenShell runtime in this change.
+Until an authorized environment records a successful run, OS isolation remains
+**unproven**. A successful run proves only the tested Linux filesystem, egress,
+and PID-namespace probes for the recorded policy digest; it does not prove all
+syscalls, IPC, kernel escape resistance, or Windows/macOS isolation.
+
+Rollback: retain fail-closed sandbox launch. Do not replace runtime evidence with
+unit tests or application Guard decisions.
