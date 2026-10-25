@@ -1818,15 +1818,16 @@ class LocalVibeCodingHost:
     def __init__(
         self, project_root: str | Path, *, config: VibeHostConfig,
         state_root: str | Path | None = None,
-        mcp_authority_resolver: Callable[[Mapping[str, Any]], MCPExecutionAuthorization] | None = None,
+        mcp_authority_resolver: Callable[
+            [Mapping[str, Any], DurableSideEffectLedger], MCPExecutionAuthorization
+        ] | None = None,
     ) -> None:
         self.project_root = Path(project_root).expanduser().resolve()
         self.config = config
         self.state_root = Path(state_root or (Path.home() / ".auren" / "vibe-coding")).expanduser().resolve()
-        self.mcp_authority_dispatch = (
-            build_mcp_authority_dispatch(mcp_authority_resolver)
-            if mcp_authority_resolver is not None else None
-        )
+        if mcp_authority_resolver is not None and not callable(mcp_authority_resolver):
+            raise TypeError("MCP authority resolver must be callable")
+        self.mcp_authority_resolver = mcp_authority_resolver
         if not self.project_root.is_dir():
             raise ValueError("project_root must be an existing directory")
         if not config.allow_workspace_writes:
@@ -1868,6 +1869,13 @@ class LocalVibeCodingHost:
         test_tool = LocalTestExecutionTool(workspace, self.config.test_commands, timeout_seconds=self.config.test_timeout_seconds, env_allowlist=self.config.env_allowlist)
         agent = ProviderCliAgent(provider=self.config.provider, allow_workspace_writes=self.config.allow_workspace_writes, timeout_seconds=self.config.agent_timeout_seconds, env_allowlist=self.config.env_allowlist)
         journal = SideEffectJournal(self.state_root / "operations.sqlite3")
+        side_effect_ledger = DurableSideEffectLedger(self.state_root / "operations.sqlite3")
+        mcp_authority_dispatch = (
+            build_mcp_authority_dispatch(
+                lambda request: self.mcp_authority_resolver(request, side_effect_ledger)
+            )
+            if self.mcp_authority_resolver is not None else None
+        )
         active_agent = JournaledToolAdapter(agent, journal, capability="agent")
         reviewer: ProviderCliAgent | None = None
         tools: dict[str, Any] = {
@@ -1893,7 +1901,7 @@ class LocalVibeCodingHost:
                 timeout_seconds=int(spec.get("timeout_seconds", 30)),
                 env_allowlist=tuple(spec.get("env_allowlist", self.config.env_allowlist)),
                 requires_authority_binding=bool(spec.get("external_effects", capability not in _MCP_READ_ONLY_CAPABILITIES)),
-                authority_dispatch=self.mcp_authority_dispatch,
+                authority_dispatch=mcp_authority_dispatch,
             )
         if "independent_review" in self.config.mcp_tools:
             tools["independent_review"] = MCPIndependentReviewTool(
@@ -1931,7 +1939,6 @@ class LocalVibeCodingHost:
         })
         learning_path = self.state_root / f"adapter-learning-{tool_config_digest[:12]}.json"
         # Reuse the host operations database; do not create a parallel ledger file.
-        side_effect_ledger = DurableSideEffectLedger(self.state_root / "operations.sqlite3")
         lookup_operations = _build_provider_operation_lookups(
             self.config.mcp_tools,
             workspace_root=workspace,
