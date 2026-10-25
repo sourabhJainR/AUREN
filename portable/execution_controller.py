@@ -36,6 +36,7 @@ from .provider_operation_lifecycle import ProviderOutcomeBlocked
 from .durable_approval import ApprovalPending, InvalidApprovalTransition
 from .workflow_profile import WorkflowProfile, delivery_mode_allows, infer_delivery_action, resolve_profile
 from .workflow_profile_store import load_profile
+from .organization_guard import GuardPolicyError, evaluate_guard_policy, load_guard_policy
 
 Handler = Callable[[Mapping[str, Any]], Any]
 
@@ -297,7 +298,6 @@ class ExecutionController:
         if not callable(resolved_handler):
             raise TypeError(f"durable handler is not callable: {reference}")
         implementation_digest = self._implementation_digest(resolved_handler)
-
         name_tokens = _handler_tokens(name)
         if isinstance(handler, str):
             handler_identity = handler.split(":", 1)[-1]
@@ -597,8 +597,7 @@ class ExecutionController:
         if not isinstance(receipt_node_id, str) or not re.fullmatch(r"[0-9a-f]{64}", receipt_node_id):
             raise RuntimeError("durable evidence receipt is missing or malformed")
         graph = self.evidence_gate_integration.graph
-        node = graph.get_node(receipt_node_id)
-        if node is None or node.kind != "evidence_gate_receipt":
+        node = graph.get_node(receipt_node_id)        if node is None or node.kind != "evidence_gate_receipt":
             raise RuntimeError("durable evidence receipt is absent from the supervisor-owned graph")
         metadata = dict(node.metadata)
         if metadata.get("project") != self.evidence_project:
@@ -689,6 +688,42 @@ class ExecutionController:
                 return False, "unclassified legacy handler fails closed", ("handler-class:unclassified",)
             profile = WorkflowProfile.from_mapping(task.payload["_auren_workflow_profile"])
             delivery_action = infer_delivery_action(task.handler, task.payload)
+            # Organization policy adds restrictions before dispatch. It is not an
+            # authority grant: the existing approval, exact-head CI, and promotion
+            # gates below remain independently mandatory.
+            try:
+                guard_policy = load_guard_policy(self.root / ".auren" / "guard_policy.json")
+                execution_class = self._handler_execution_class(task.handler)
+                typed_action = task.payload.get("tool_action", task.payload.get("action"))
+                guard_action = delivery_action or (typed_action if isinstance(typed_action, str) else "")
+                resource = task.payload.get("resource", task.payload.get("resource_id", task.payload.get("path", "")))
+                organization_id = __import__("os").environ.get("AUREN_ORGANIZATION_ID", "")
+                approval_policy = self._handler_approval_gate_policy(task.handler)
+                guard_decision = evaluate_guard_policy(
+                    guard_policy,
+                    {
+                        "action": guard_action,
+                        "tool": task.handler,
+                        "resource": resource if isinstance(resource, str) else "",
+                        "organization_id": organization_id,
+                        "agent_id": task.handler,
+                        "risk": "high" if execution_class in {"consequential", "approval_gated"} else "standard",
+                    },
+                    mandatory_authorized=True,
+                    approval_present=(execution_class == "approval_gated" and bool(approval_policy)),
+                )
+            except (GuardPolicyError, OSError, ValueError) as exc:
+                return False, f"configured Guard policy could not be verified: {type(exc).__name__}", ("guard-policy:invalid", "guard-policy:blocked")
+            if not guard_decision.allowed:
+                return False, guard_decision.reason, (
+                    "guard-policy:" + guard_decision.policy_digest,
+                    "guard-decision:" + guard_decision.effect,
+                    *("guard-rule:" + rule_id for rule_id in guard_decision.matched_rule_ids),
+                )
+            evidence.extend((
+                "guard-policy:" + guard_decision.policy_digest,
+                "guard-decision:allow",
+            ))
             # Stage-only is a hard delivery boundary, not just a UI preference.
             # Block every consequential/approval-gated operation even if the
             # handler uses a generic name or omits an action field.
@@ -897,7 +932,6 @@ class ExecutionController:
                 work_state, _iteration = self.company._state(str(work_unit_id))
             except Exception:
                 work_state = "unknown"
-
             if task_state in {"completed", "failed", "cancelled"}:
                 if work_state == task_state:
                     target_state = str(task_state)
@@ -1056,6 +1090,36 @@ class ExecutionController:
         except (OSError, subprocess.SubprocessError):
             pass
         repository = __import__("os").environ.get("AUREN_REPOSITORY_SLUG", "")
+        safe_metadata = dict(metadata or {})
+        # Bind each durable lifecycle event to the effective workflow profile.
+        # Never include the caller's business payload in the profile receipt.
+        profile_data = task.payload.get("_auren_workflow_profile")
+        profile_digest = task.payload.get("_auren_workflow_profile_digest")
+        if isinstance(profile_data, Mapping) and isinstance(profile_digest, str):
+            try:
+                effective_profile = WorkflowProfile.from_mapping(profile_data)
+                if effective_profile.digest != profile_digest:
+                    raise RuntimeError("workflow profile receipt digest mismatch")
+                safe_metadata["workflow_profile_receipt"] = {
+                    "profile_version": effective_profile.profile_version,
+                    "profile_digest": effective_profile.digest,
+                    "delivery_mode": effective_profile.delivery_mode,
+                    "execution_mode": effective_profile.execution_mode,
+                    "approval_mode": effective_profile.approval_mode,
+                    "review_mode": effective_profile.review_mode,
+                    "recovery_mode": effective_profile.recovery_mode,
+                }
+            except (TypeError, ValueError) as exc:
+                raise RuntimeError("cannot record invalid workflow profile receipt") from exc
+        try:
+            configured_policy = load_guard_policy(self.root / ".auren" / "guard_policy.json")
+            safe_metadata["guard_policy_digest"] = (
+                hashlib.sha256(json.dumps(configured_policy, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+                if configured_policy is not None else "builtin-baseline"
+            )
+        except (GuardPolicyError, OSError, ValueError):
+            # Do not project an apparently valid receipt for an invalid policy.
+            safe_metadata["guard_policy_status"] = "invalid"
         self.evidence_capture.record(
             event_type,
             work_unit_id=task.work_unit_id,
@@ -1064,7 +1128,7 @@ class ExecutionController:
             status=status,
             repository=repository,
             head_sha=head_sha,
-            metadata=dict(metadata or {}),
+            metadata=safe_metadata,
             event_id=event_id,
         )
 
@@ -1197,8 +1261,7 @@ class ExecutionController:
                     findings.append(task.id)
             except Exception:
                 findings.append(str(task_id))
-        if total > len(rows) or scanned < len(rows):
-            incomplete = True
+        if total > len(rows) or scanned < len(rows):            incomplete = True
         self._terminal_reconciliation_findings = list(dict.fromkeys(findings))
         self._terminal_reconciliation_incomplete = incomplete
         return {
@@ -1497,8 +1560,7 @@ class ExecutionController:
             raise PermissionError(
                 "provider reconciliation resume authorizer rejected the request; it must return literal True"
             )
-        if clarification[0] == "open":
-            self.company.resolve_clarification(
+        if clarification[0] == "open":            self.company.resolve_clarification(
                 clarification_id,
                 f"Operator {operator_id.strip()} authorized reconciliation-only resume: {operator_reason.strip()}",
             )
@@ -1797,8 +1859,7 @@ class ExecutionController:
             payload["auren_approval_resume"] = {**dict(checkpoint), "status": "approved"}
             cursor = db.execute(
                 "UPDATE tasks SET state='pending',payload=?,updated_at=?,heartbeat_at=NULL,lease_until=NULL,"
-                "lease_token=NULL WHERE id=? AND state='waiting_approval'",
-                (json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False), _now(), task_id),
+                "lease_token=NULL WHERE id=? AND state='waiting_approval'",                (json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False), _now(), task_id),
             )
             if cursor.rowcount != 1:
                 db.rollback()
@@ -2097,8 +2158,7 @@ class ExecutionController:
     def _invoke_with_lease_heartbeat(self, task: DurableTask, handler: Handler) -> Any:
         """Renew leases and propagate durable cancellation while a handler runs."""
         stop = Event()
-        cancel = Event()
-        deadline = Event()
+        cancel = Event()        deadline = Event()
         lease_errors: list[BaseException] = []
         cancellation_observation_errors: list[BaseException] = []
         handler_started = False
@@ -2397,8 +2457,7 @@ class ExecutionController:
                     "SELECT work_unit_id FROM tasks WHERE id=? AND state='waiting_quota' "
                     "AND next_retry_at IS NOT NULL AND next_retry_at<=?", (task_id, stamp),
                 ).fetchone()
-                if not row:
-                    continue
+                if not row:                    continue
                 cursor = db.execute(
                     "UPDATE tasks SET state='pending',updated_at=?,next_retry_at=NULL,quota_reason=NULL "
                     "WHERE id=? AND state='waiting_quota' AND next_retry_at IS NOT NULL AND next_retry_at<=?",
@@ -2697,8 +2756,7 @@ class ExecutionController:
             operation_id = str(event.get("operation_id", ""))
             safe_metadata = {
                 "operation_id": operation_id,
-                "intent_digest": str(event.get("intent_digest", "")),
-                "provider": provider_name,
+                "intent_digest": str(event.get("intent_digest", "")),                "provider": provider_name,
                 "operation_state": operation_state,
             }
             if hasattr(task, "work_unit_id") and hasattr(task, "attempts"):
@@ -2997,8 +3055,7 @@ class ExecutionController:
         configurable no-progress budget so a scheduler can safely resume it later.
         Cancellation is observed between batches; handlers must use the existing
         lease heartbeat/cancellation contracts for work already in progress.
-        """
-        for value, name in ((batch_size, "batch_size"), (max_cycles, "max_cycles"), (max_idle_cycles, "max_idle_cycles")):
+        """        for value, name in ((batch_size, "batch_size"), (max_cycles, "max_cycles"), (max_idle_cycles, "max_idle_cycles")):
             if isinstance(value, bool) or not isinstance(value, int) or value < 1:
                 raise ValueError(f"{name} must be a positive integer")
         if batch_size > 100 or max_cycles > 1000 or max_idle_cycles > 100:
@@ -3297,8 +3354,7 @@ class ExecutionController:
             RuntimeExecutionGuard.resume(runtime_guard)
         provider_resume = payload.get("provider_resume_state")
         if provider_resume is not None:
-            if not isinstance(provider_resume, Mapping):
-                raise ValueError("provider resume state must be a mapping")
+            if not isinstance(provider_resume, Mapping):                raise ValueError("provider resume state must be a mapping")
             provider_digest = provider_resume.get("digest")
             provider_payload = {key: value for key, value in provider_resume.items() if key != "digest"}
             canonical = json.dumps(
