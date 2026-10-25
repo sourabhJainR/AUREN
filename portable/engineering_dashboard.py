@@ -15,6 +15,7 @@ from .repository_intelligence import RepositoryIntelligence
 from .engineering_plan import EngineeringPlan, EngineeringPlanRun
 from .progress_journal import ProgressJournal, _journal_file_lock, _safe
 from .identity_compat import canonical_auren_home
+from .workflow_profile import WorkflowProfile
 
 def _utc() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -370,6 +371,70 @@ class EngineeringDashboard:
                 "plan_tasks": sum(plan_task_counts.values()), "plan_task_counts": plan_task_counts,
                 "progress": self._progress_snapshots()}
 
+    def _workflow_profile_bindings(self) -> dict[str, dict[str, str]]:
+        """Read only the safe profile summary for durable tasks; never expose payloads."""
+        candidates = (
+            self.root / ".auren" / "execution.sqlite3",
+            canonical_auren_home() / "executive" / ".auren" / "execution.sqlite3",
+        )
+        found: dict[str, dict[str, str]] = {}
+        seen: set[str] = set()
+        for path in candidates:
+            if not path.is_file():
+                continue
+            identity = str(path.resolve())
+            if identity in seen:
+                continue
+            seen.add(identity)
+            try:
+                with closing(sqlite3.connect(str(path), timeout=1.0)) as db:
+                    db.execute("PRAGMA query_only=ON")
+                    table = db.execute(
+                        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='tasks'"
+                    ).fetchone()
+                    if table is None:
+                        continue
+                    columns = {row[1] for row in db.execute("PRAGMA table_info(tasks)").fetchall()}
+                    ordering = "updated_at DESC" if "updated_at" in columns else "rowid DESC"
+                    rows = db.execute(f"SELECT id,payload FROM tasks ORDER BY {ordering} LIMIT 500").fetchall()
+                for task_id, payload_json in rows:
+                    try:
+                        payload = json.loads(payload_json)
+                    except (TypeError, ValueError):
+                        continue
+                    if not isinstance(payload, Mapping):
+                        continue
+                    profile_data = payload.get("_auren_workflow_profile")
+                    digest = payload.get("_auren_workflow_profile_digest")
+                    if not isinstance(profile_data, Mapping) or not isinstance(digest, str):
+                        continue
+                    if len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest):
+                        found.setdefault(str(task_id), {"binding_status": "invalid"})
+                        continue
+                    try:
+                        profile = WorkflowProfile.from_mapping(profile_data)
+                    except (TypeError, ValueError):
+                        found.setdefault(str(task_id), {"binding_status": "invalid"})
+                        continue
+                    if profile.digest != digest:
+                        found.setdefault(str(task_id), {"binding_status": "invalid"})
+                        continue
+                    summary = {
+                        key: profile.as_dict()[key]
+                        for key in (
+                            "profile_version", "delivery_mode", "execution_mode", "approval_mode",
+                            "review_mode", "communication_mode", "recovery_mode",
+                        )
+                    }
+                    summary["profile_digest"] = digest
+                    summary["binding_status"] = "verified"
+                    found.setdefault(str(task_id), summary)
+            except (OSError, sqlite3.Error):
+                # Dashboard is a projection, not authority. Preserve the journal
+                # snapshot if a task database is busy, unreadable, or incompatible.
+                continue
+        return found
+
     def _progress_snapshots(self) -> list[dict[str, Any]]:
         """Expose supervisor journal snapshots; never infer progress from model text."""
         home = canonical_auren_home()
@@ -379,6 +444,7 @@ class EngineeringDashboard:
         )
         snapshots: dict[str, dict[str, Any]] = {}
         seen_paths: set[str] = set()
+        profile_bindings = self._workflow_profile_bindings()
         for path in candidates:
             key = str(path.resolve())
             if key in seen_paths or not path.is_file():
@@ -396,6 +462,17 @@ class EngineeringDashboard:
                 }]
             for row in rows:
                 snapshots[str(row.get("task_id", "unknown"))] = row
+        for task_id, row in snapshots.items():
+            profile = profile_bindings.get(task_id)
+            if profile is None:
+                row["workflow_profile_status"] = "legacy-or-unavailable"
+            elif profile.get("binding_status") == "verified":
+                row["workflow_profile_status"] = "verified"
+                row["workflow_profile"] = {
+                    key: value for key, value in profile.items() if key != "binding_status"
+                }
+            else:
+                row["workflow_profile_status"] = "invalid"
         return sorted(
             snapshots.values(),
             key=lambda row: str(row.get("last_update") or ""),

@@ -21,6 +21,63 @@ def test_dashboard_snapshot_uses_repository_and_test_evidence():
         assert snapshot["usage"]["average_task_duration_ms"]==300
         assert snapshot["executions"]==()
 
+
+
+def test_dashboard_projects_effective_workflow_profile_without_exposing_payload():
+    import sqlite3
+    from portable.progress_journal import ProgressJournal
+    from portable.workflow_profile import WorkflowProfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        auren_dir = root / ".auren"
+        auren_dir.mkdir()
+        database = auren_dir / "execution.sqlite3"
+        profile = {
+            "profile_version": "auren-workflow-v1",
+            "delivery_mode": "stage_only",
+            "execution_mode": "autonomous",
+            "approval_mode": "before_push_or_pr",
+            "review_mode": "all_applicable",
+            "communication_mode": "concise",
+            "recovery_mode": "checkpoint",
+        }
+        secret_payload_value = "must-not-be-rendered"
+        payload = {
+            "business_input": secret_payload_value,
+            "_auren_workflow_profile": profile,
+            "_auren_workflow_profile_digest": WorkflowProfile.from_mapping(profile).digest,
+        }
+        tampered_payload = {
+            "_auren_workflow_profile": profile,
+            "_auren_workflow_profile_digest": "a" * 64,
+        }
+        with sqlite3.connect(database) as db:
+            db.execute("CREATE TABLE tasks (id TEXT PRIMARY KEY, payload TEXT NOT NULL)")
+            db.execute("INSERT INTO tasks (id,payload) VALUES (?,?)", ("profile-task", json.dumps(payload)))
+            db.execute("INSERT INTO tasks (id,payload) VALUES (?,?)", ("tampered-task", json.dumps(tampered_payload)))
+        journal = ProgressJournal(auren_dir / "progress.jsonl")
+        for task_id in ("profile-task", "tampered-task"):
+            journal.record(
+                task_id, "task_submitted", state="queued", stage="queued",
+                message="Task durably queued; execution has not started.",
+            )
+
+        snapshot = EngineeringDashboard(root).snapshot().as_dict()
+        progress = snapshot["tasks"]["progress"]
+        row = next(item for item in progress if item["task_id"] == "profile-task")
+        assert row["workflow_profile_status"] == "verified"
+        assert row["workflow_profile"]["profile_version"] == "auren-workflow-v1"
+        assert row["workflow_profile"]["delivery_mode"] == "stage_only"
+        assert row["workflow_profile"]["execution_mode"] == "autonomous"
+        assert row["workflow_profile"]["approval_mode"] == "before_push_or_pr"
+        assert row["workflow_profile"]["profile_digest"] == payload["_auren_workflow_profile_digest"]
+        assert row["next_action"]
+        tampered = next(item for item in progress if item["task_id"] == "tampered-task")
+        assert tampered["workflow_profile_status"] == "invalid"
+        assert "workflow_profile" not in tampered
+        assert secret_payload_value not in json.dumps(snapshot)
+
 def test_dashboard_reports_active_execution():
     with tempfile.TemporaryDirectory() as tmp:
         dashboard=EngineeringDashboard(tmp)
