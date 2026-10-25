@@ -78,6 +78,8 @@ jobs:
       - name: Compile AUREN components
         run: |
           python -m py_compile auren_cli.py portable/auren_runtime.py portable/orchestration.py portable/side_effect_ledger.py portable/provider_operation_lifecycle.py portable/ci_repair_watchdog.py portable/continuous_execution.py portable/execution_controller.py portable/action_governance.py portable/durable_approval.py portable/engineering_recovery.py portable/engineering_plan_recovery.py portable/progress_journal.py portable/canonical_evidence_ledger.py portable/vibe_coding_adapters.py portable/vibe_coding_host.py scripts/impact_policy.py portable/agency_evolution_gates.py portable/agency_evolution_runtime.py .ai-harness/security_gate.py .ai-harness/safe_provider.py .ai-harness/state_validator.py .ai-harness/verification_gate.py .ai-harness/run.py .ai-harness/provider.py .ai-harness/p1_lifecycle.py .ai-harness/runtime/artifact_chain.py .ai-harness/runtime/work_report.py .ai-harness/runtime/regression_memory.py .ai-harness/runtime/regression_selector.py .ai-harness/runtime/learning_controller.py .ai-harness/runtime/work_report_traceability.py .ai-harness/runtime/requirement_traceability.py .ai-harness/runtime/context_pipeline.py .ai-harness/runtime/context_planner.py
+      - name: Install pytest for fixture-based Guard acceptance tests
+        run: python -m pip install pytest
       - name: Run focused hardening tests
         run: |
           set -euo pipefail
@@ -86,11 +88,13 @@ jobs:
             echo "===== RUNNING ${test_module} ====="
             python -m unittest "${test_module}" -v 2>&1 | tee "ci-artifacts/${test_module##*.}.log"
           done
+      - name: Run Guard and workflow-profile acceptance tests
+        run: |
+          python -m pytest -q tests/test_organization_guard.py tests/test_execution_controller_guard_policy.py tests/test_auren_cli_workflow_profile.py
       - name: Verify persistent task-memory SQLite lifecycle
         env:
           PYTHONPATH: .ai-harness
         run: |
-          python -m pip install pytest
           python -m pytest -q .ai-harness/tests/test_task_memory.py
       - name: Run Arena trust-boundary regression suites
         run: |
