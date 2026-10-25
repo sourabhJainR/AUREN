@@ -523,7 +523,6 @@ class DirectNetworkCallInventoryTests(unittest.TestCase):
     REVIEWED_NETWORK_DISPOSITIONS = {
         "portable/local_llm.py::available": "legacy optional local-LLM endpoint; must be restricted to loopback or explicit remote host policy",
         "portable/local_llm.py::_generate_ollama": "legacy local-LLM POST client; migration requires HTTP and HTTPS endpoint policy",
-        "portable/auren_runtime.py::_http_json": "portable updater metadata client; migrate to pinned HTTPS and explicit host scope",
         "portable/auren_runtime.py::_download_source": "portable updater archive download; migration requires bounded streaming and explicit redirect-host chain",
         "scripts/pr_integration_guard.py::api_json": "CI bootstrap exception; fixed api.github.com allowlist and same-host-only redirects, not DNS-pinned",
     }
