@@ -1,7 +1,6 @@
 import json
 from pathlib import Path
 
-import pytest
 
 from portable.organization_guard import (
     POLICY_VERSION,
@@ -68,6 +67,7 @@ def test_policy_digest_and_receipt_are_deterministic():
 
 
 def test_invalid_policy_unknown_fields_and_duplicate_ids_fail_closed():
+    import pytest
     with pytest.raises(GuardPolicyError):
         validate_policy({**policy(), "bypass_guard": True})
     with pytest.raises(GuardPolicyError):
@@ -75,6 +75,7 @@ def test_invalid_policy_unknown_fields_and_duplicate_ids_fail_closed():
 
 
 def test_loader_rejects_duplicate_json_keys_and_symlink(tmp_path: Path):
+    import pytest
     configured = tmp_path / "guard.json"
     configured.write_text('{"schema_version":"auren-guard-v1","schema_version":"auren-guard-v1","rules":[]}', encoding="utf-8")
     with pytest.raises(GuardPolicyError):
@@ -97,6 +98,7 @@ def test_missing_policy_is_distinct_and_uses_safe_baseline(tmp_path: Path):
     assert len(decision.policy_digest) == 64
 
 def test_scoped_globs_and_malformed_types_are_handled_safely():
+    import pytest
     configured = policy(rule("deny-prod", "deny", resource="prod/*"))
     assert not evaluate_guard_policy(configured, {"resource": "prod/customer-7"}).allowed
     assert evaluate_guard_policy(configured, {"resource": "dev/customer-7"}).allowed
