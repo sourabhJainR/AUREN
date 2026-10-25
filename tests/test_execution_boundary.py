@@ -554,6 +554,14 @@ class DirectNetworkCallInventoryTests(unittest.TestCase):
             def __init__(self, relative_path):
                 self.relative_path = relative_path
                 self.scope = []
+                self.urlopen_aliases = set()
+
+            def visit_ImportFrom(self, node):
+                if node.module == "urllib.request":
+                    for alias in node.names:
+                        if alias.name == "urlopen":
+                            self.urlopen_aliases.add(alias.asname or alias.name)
+                self.generic_visit(node)
 
             def visit_FunctionDef(self, node):
                 self.scope.append(node.name)
