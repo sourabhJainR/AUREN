@@ -534,6 +534,7 @@ class DirectNetworkCallInventoryTests(unittest.TestCase):
         "portable/auren_runtime.py::_download_source": "portable updater archive download; migration requires bounded streaming and explicit redirect-host chain",
         "scripts/pr_integration_guard.py::api_json": "CI bootstrap exception; fixed api.github.com allowlist and same-host-only redirects, not DNS-pinned",
         "scripts/verify_openshell_isolation.py::_host_can_reach": "host-side reachability precondition for an isolation probe; never treated as sandbox policy enforcement",
+        "scripts/verify_docker_isolation.py::_host_network_precondition": "host-side reachability precondition for the actual Docker isolation probe; never treated as sandbox policy enforcement",
     }
     REVIEWED_NETWORK_CALL_COUNTS = {key: 1 for key in REVIEWED_NETWORK_DISPOSITIONS}
 
