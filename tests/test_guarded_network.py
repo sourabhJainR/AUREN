@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import socket
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from portable.guarded_network import (
     NetworkPolicyDenied,
@@ -131,7 +131,7 @@ class GuardedNetworkTests(unittest.TestCase):
 
     def test_agency_sync_fetch_uses_pinned_upstream_host_scope(self):
         from scripts.sync_agency_agents import fetch
-        with unittest.mock.patch(
+        with patch(
             "scripts.sync_agency_agents.guarded_https_get",
             return_value=(200, b"agent bytes"),
         ) as request:
@@ -140,7 +140,7 @@ class GuardedNetworkTests(unittest.TestCase):
             ("api.github.com", "raw.githubusercontent.com"),
             request.call_args.kwargs["allowed_hosts"],
         )
-        with unittest.mock.patch(
+        with patch(
             "scripts.sync_agency_agents.guarded_https_get",
             return_value=(403, b"denied"),
         ):
