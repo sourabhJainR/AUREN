@@ -62,6 +62,7 @@ def run_bounded_command(
     argv: Sequence[str], *, timeout_seconds: float,
     max_memory_bytes: int | None = None,
     max_processes: int | None = None,
+    max_cpu_seconds: int | None = None,
     deadline_monotonic: float | None = None,
     cancellation_event: threading.Event | None = None,
     cwd: str | os.PathLike[str] | None = None,
@@ -84,6 +85,8 @@ def run_bounded_command(
         raise ValueError("max_memory_bytes must be an integer of at least 16 MiB")
     if max_processes is not None and (type(max_processes) is not int or max_processes < 1):
         raise ValueError("max_processes must be a positive integer")
+    if max_cpu_seconds is not None and (type(max_cpu_seconds) is not int or max_cpu_seconds < 1):
+        raise ValueError("max_cpu_seconds must be a positive integer")
     if deadline_monotonic is not None and (isinstance(deadline_monotonic, bool) or not isinstance(deadline_monotonic, (int, float)) or not math.isfinite(deadline_monotonic)):
         raise ValueError("deadline_monotonic must be finite")
     started = time.monotonic()
@@ -96,25 +99,25 @@ def run_bounded_command(
     reason_on_timeout = "parent_deadline_exceeded" if deadline_monotonic is not None and deadline_monotonic <= local_deadline else "command_timeout"
     options = dict(stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=str(cwd) if cwd is not None else None,
                    env=dict(env) if env is not None else None, shell=False, close_fds=True)
-    if max_memory_bytes is not None and os.name != "nt":
-        # RLIMIT_AS is per-process, inherited by descendants; not aggregate container isolation.
+    if os.name != "nt" and any(value is not None for value in (max_memory_bytes, max_processes, max_cpu_seconds)):
         import resource
-        if not hasattr(resource, "RLIMIT_AS"):
+        if max_memory_bytes is not None and not hasattr(resource, "RLIMIT_AS"):
             raise RuntimeError("memory_limit_unavailable: RLIMIT_AS is not supported")
-        def apply_resource_limits():
-            resource.setrlimit(resource.RLIMIT_AS, (max_memory_bytes, max_memory_bytes))
-            if max_processes is not None:
-                if not hasattr(resource, "RLIMIT_NPROC"):
-                    raise RuntimeError("process_limit_unavailable: RLIMIT_NPROC is not supported")
-                resource.setrlimit(resource.RLIMIT_NPROC, (max_processes, max_processes))
-        options["preexec_fn"] = apply_resource_limits
-    if max_processes is not None and os.name != "nt" and max_memory_bytes is None:
-        import resource
-        if not hasattr(resource, "RLIMIT_NPROC"):
+        if max_processes is not None and not hasattr(resource, "RLIMIT_NPROC"):
             raise RuntimeError("process_limit_unavailable: RLIMIT_NPROC is not supported")
-        def apply_process_limit():
-            resource.setrlimit(resource.RLIMIT_NPROC, (max_processes, max_processes))
-        options["preexec_fn"] = apply_process_limit
+        if max_cpu_seconds is not None and not hasattr(resource, "RLIMIT_CPU"):
+            raise RuntimeError("cpu_limit_unavailable: RLIMIT_CPU is not supported")
+
+        def apply_resource_limits():
+            if max_memory_bytes is not None:
+                # RLIMIT_AS is per-process, inherited by descendants; not aggregate container isolation.
+                resource.setrlimit(resource.RLIMIT_AS, (max_memory_bytes, max_memory_bytes))
+            if max_processes is not None:
+                resource.setrlimit(resource.RLIMIT_NPROC, (max_processes, max_processes))
+            if max_cpu_seconds is not None:
+                resource.setrlimit(resource.RLIMIT_CPU, (max_cpu_seconds, max_cpu_seconds))
+
+        options["preexec_fn"] = apply_resource_limits
     job = None
     if os.name == "nt":
         from .windows_kill_job import CREATE_SUSPENDED, WindowsKillJob
