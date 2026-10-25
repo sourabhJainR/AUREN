@@ -1117,7 +1117,7 @@ class CapabilityExecutioner:
         explicit_required, explicit_excluded = self._explicit_constraints(request, options)
         required_set.update(explicit_required)
         failed_set.update(explicit_excluded)
-        if re.search(r"\\b(?:use only|only use)\\b", request, re.IGNORECASE):
+        if re.search(r"\b(?:use only|only use)\b", request, re.IGNORECASE):
             if not required_set:
                 raise LookupError("explicit-only capability directive did not resolve to a known option")
             failed_set.update(option.name for option in options if option.name not in required_set)
