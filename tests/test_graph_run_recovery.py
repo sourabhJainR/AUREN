@@ -121,11 +121,24 @@ class GraphRunRecoveryTests(unittest.TestCase):
             )
 
     def test_expired_deadline_cannot_produce_node_completion(self):
-        self.working("root", "root-start")
-        deadline_guard = RuntimeExecutionGuard(max_steps=20, max_attempts=10, deadline_seconds=0.01)
-        time.sleep(0.03)
+        deadline_guard = RuntimeExecutionGuard(max_steps=20, max_attempts=10, deadline_seconds=0.2)
+        bridge = GraphRunRecoveryBridge(
+            run_id="deadline-run", plan=self.plan,
+            intent_digest=sha("deadline intent"), source_revision="b" * 40,
+            ledger=EngineeringRecoveryLedger(self.root / "deadline-recovery.db"),
+            journal=ImprovementJournal(self.root / "deadline-graph.jsonl"),
+        )
+        bridge.start(budget_snapshot=deadline_guard.snapshot())
+        deadline_guard.charge_step()
+        deadline_guard.charge_attempt("root:deadline-attempt")
+        bridge.record_node(
+            event_id="root-start", node_id="root", status="working",
+            budget_snapshot=deadline_guard.snapshot(), worker_id="worker-root",
+            workspace_id="workspace-root", attempts=1, next_safe_action="execute:root",
+        )
+        time.sleep(0.25)
         with self.assertRaisesRegex(ValueError, "expired deadline"):
-            self.bridge.record_node(
+            bridge.record_node(
                 event_id="late-completion", node_id="root", status="complete",
                 budget_snapshot=deadline_guard.snapshot(), evidence_refs=["claimed://not-enough"],
                 next_safe_action="inspect-deadline",
