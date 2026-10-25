@@ -3,6 +3,7 @@ import json
 
 import unittest
 import tempfile
+import time
 
 from portable.agency_observability import Dataset, DatasetItem, LocalExporter, Tracer
 from portable.agency_observability_ops import (
@@ -221,6 +222,41 @@ class TestAgencyObservabilityOps(unittest.TestCase):
         assert snapshot["raw_payloads_exposed"] is False
 
 
+
+    def test_snapshot_flags_orphaned_and_cyclic_span_parentage(self):
+        path = self.tmp_path / "invalid-parentage.jsonl"
+        trace = Tracer().start("invalid-parentage", {"task_id": "parentage-task"})
+        root = trace.span("supervisor", phase="supervisor")
+        child = trace.span("provider", parent_id=root.span_id, phase="provider")
+        orphan = trace.span("orphan", phase="tool")
+        root.parent_id = child.span_id
+        child.parent_id = root.span_id
+        orphan.parent_id = "missing-parent"
+        path.write_text(json.dumps(trace.as_dict(), sort_keys=True) + "\n", encoding="utf-8")
+
+        snapshot = observability_snapshot(path)
+
+        assert snapshot["span_parentage_error_count"] >= 2
+        assert snapshot["status"] == "partial"
+        assert snapshot["raw_payloads_exposed"] is False
+
+    def test_stale_partial_trace_exposes_open_span_count_after_interruption(self):
+        path = self.tmp_path / "crashed-trace.jsonl"
+        tracer = Tracer(LocalExporter(path, enabled=True))
+        trace = tracer.start("crashed-run", {"task_id": "crashed-task"}, run_id="crashed-run-1")
+        trace.start = time.time() - 600
+        root = trace.span("supervisor", phase="supervisor")
+        child = trace.span("provider", parent_id=root.span_id, phase="provider")
+        child.finish({"dispatch_returned": True}, "ok")
+        # Simulate process death: no root finish and no trace terminal event.
+
+        snapshot = observability_snapshot(path)
+
+        assert snapshot["trace_count"] == 1
+        assert snapshot["recent_traces"][0]["recorded_status"] == "running"
+        assert snapshot["recent_traces"][0]["status"] == "stale"
+        assert snapshot["recent_traces"][0]["open_span_count"] == 1
+        assert snapshot["raw_payloads_exposed"] is False
 
     def test_missing_incremental_event_sequence_marks_trace_partial(self):
         path = self.tmp_path / "sequence-gap.jsonl"
