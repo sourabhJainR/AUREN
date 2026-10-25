@@ -46,20 +46,30 @@ def infer_delivery_action(handler_name: str, payload: Mapping[str, Any]) -> str 
     Only explicit action-like fields are inspected; arbitrary free text and task
     descriptions are not interpreted as executable intent.
     """
-    for field in ("delivery_action", "repository_action", "git_action", "action", "operation"):
-        value = payload.get(field)
-        if not isinstance(value, str):
-            continue
-        normalized = re.sub(r"[^a-z0-9]+", "_", value.casefold()).strip("_")
-        for action in _ACTION_PRIORITY:
-            aliases = _DELIVERY_ACTION_ALIASES[action]
-            if normalized in aliases:
-                return action
-            words = set(normalized.split("_"))
-            if action == "create_pr" and ({"create", "open"} & words) and ({"pr", "pull_request", "pull", "request"} & words):
-                return action
-            if action in {"commit", "push", "merge", "publish", "release", "deploy"} and action in words:
-                return action
+    action_payloads = [payload]
+    nested_intent = payload.get("intent")
+    if isinstance(nested_intent, Mapping):
+        action_payloads.append(nested_intent)
+    for action_payload in action_payloads:
+        for field in (
+            "delivery_action", "repository_action", "git_action", "action",
+            "action_type", "intent_type", "operation", "command", "git_command", "argv",
+        ):
+            value = action_payload.get(field)
+            if isinstance(value, (list, tuple)) and all(isinstance(item, str) for item in value[:64]):
+                value = " ".join(value[:64])
+            if not isinstance(value, str):
+                continue
+            normalized = re.sub(r"[^a-z0-9]+", "_", value.casefold()).strip("_")
+            for action in _ACTION_PRIORITY:
+                aliases = _DELIVERY_ACTION_ALIASES[action]
+                if normalized in aliases:
+                    return action
+                words = set(normalized.split("_"))
+                if action == "create_pr" and ({"create", "open"} & words) and ({"pr", "pull_request", "pull", "request"} & words):
+                    return action
+                if action in {"commit", "push", "merge", "publish", "release", "deploy"} and action in words:
+                    return action
     normalized_handler = re.sub(r"[^a-z0-9]+", "_", handler_name.casefold()).strip("_")
     words = set(normalized_handler.split("_"))
     for action in _ACTION_PRIORITY:
