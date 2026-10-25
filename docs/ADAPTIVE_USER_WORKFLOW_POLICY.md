@@ -1,11 +1,30 @@
 # Adaptive User Workflow Policy
 
-**Status (2026-10-25):** versioned profiles, durable storage, supervisor binding, and delivery-mode preflight enforcement are implemented in this change. CLI/dashboard projection, repository-adapter receipts, profile-change recovery, and end-to-end restart evidence remain open.
+**Status (2026-10-25):** versioned profiles, durable storage, supervisor binding, delivery-mode preflight, CLI show/set/reset, and profile-bound supervisor event receipts are implemented. Dashboard profile projection and task-profile persistence exist. Remaining gaps: repository-adapter-specific receipts, crash-process restart acceptance coverage across all workflow modes, and broader approval/profile-change fault injection.
 **Applies to:** task intake, planning, repository changes, verification, review, and delivery.
 
 ## Goal
 
 AUREN should adapt its working style to the user's explicit preferences while preserving one consistent safety and evidence model. Workflow preferences control how work is presented and staged; they must not silently grant authority, weaken verification, or bypass required repository policy.
+
+## CLI
+
+Use `auren workflow-profile show` to inspect the saved profile, source, digest,
+and authority boundary. Use `auren workflow-profile set --delivery-mode
+pull_request` or the other supported mode options to update selected
+preferences. Use `auren workflow-profile reset` to return to safe defaults. Use `auren guard-policy show`,
+`validate`, and `dry-run` to inspect organization policy without executing actions.
+The profile is stored under `.auren/workflow_profile.json`; malformed or
+incompatible data blocks rather than silently falling back.
+
+## Organization Guard
+
+Organizations may add restrictions with `.auren/guard_policy.json`. Guard
+policy uses deterministic deny-overrides evaluation, optional default-deny
+rules, approval requirements, duplicate-key rejection, and a canonical policy
+digest. Invalid configured policy blocks guarded task dispatch. An allow rule
+cannot override mandatory platform, approval, repository, or exact-head CI
+gates. See [Organization Guard Policy](ORGANIZATION_GUARD_POLICY.md).
 
 ## User-controlled workflow profile
 

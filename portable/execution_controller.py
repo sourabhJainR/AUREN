@@ -36,6 +36,7 @@ from .provider_operation_lifecycle import ProviderOutcomeBlocked
 from .durable_approval import ApprovalPending, InvalidApprovalTransition
 from .workflow_profile import WorkflowProfile, delivery_mode_allows, infer_delivery_action, resolve_profile
 from .workflow_profile_store import load_profile
+from .organization_guard import GuardDecision, GuardPolicyError, evaluate_guard_policy, load_guard_policy
 
 Handler = Callable[[Mapping[str, Any]], Any]
 
@@ -178,7 +179,8 @@ class ExecutionController:
               promotion_gate_policy_json TEXT NOT NULL DEFAULT '{}',
               approval_gate_policy_json TEXT NOT NULL DEFAULT '{}',
               execution_class TEXT NOT NULL DEFAULT 'unclassified',
-              implementation_digest TEXT NOT NULL DEFAULT '');
+              implementation_digest TEXT NOT NULL DEFAULT '',
+              guard_action TEXT NOT NULL DEFAULT '');
             CREATE TABLE IF NOT EXISTS tasks(
               id TEXT PRIMARY KEY, handler TEXT NOT NULL, payload TEXT NOT NULL,
               state TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0,
@@ -204,6 +206,8 @@ class ExecutionController:
                 db.execute("ALTER TABLE handlers ADD COLUMN execution_class TEXT NOT NULL DEFAULT 'unclassified'")
             if "implementation_digest" not in handler_columns:
                 db.execute("ALTER TABLE handlers ADD COLUMN implementation_digest TEXT NOT NULL DEFAULT ''")
+            if "guard_action" not in handler_columns:
+                db.execute("ALTER TABLE handlers ADD COLUMN guard_action TEXT NOT NULL DEFAULT ''")
             columns = {row[1] for row in db.execute("PRAGMA table_info(tasks)").fetchall()}
             for column in ("heartbeat_at", "lease_until"):
                 if column not in columns:
@@ -272,6 +276,7 @@ class ExecutionController:
         promotion_gate_policy: Mapping[str, Any] | None = None,
         approval_gate_policy: Mapping[str, Any] | None = None,
         execution_class: str | None = None,
+        guard_action: str | None = None,
     ) -> str:
         """Register a durable handler and trusted, operator-owned gate policies.
 
@@ -297,6 +302,13 @@ class ExecutionController:
         if not callable(resolved_handler):
             raise TypeError(f"durable handler is not callable: {reference}")
         implementation_digest = self._implementation_digest(resolved_handler)
+        if guard_action is not None:
+            if (not isinstance(guard_action, str)
+                    or not re.fullmatch(r"[a-z][a-z0-9_.:-]{0,63}", guard_action)):
+                raise ValueError("guard_action must be a lowercase trusted action label")
+            inferred_delivery_action = infer_delivery_action(name, {})
+            if inferred_delivery_action is not None and guard_action != inferred_delivery_action:
+                raise ValueError("guard_action cannot contradict the handler's delivery action")
 
         name_tokens = _handler_tokens(name)
         if isinstance(handler, str):
@@ -460,9 +472,14 @@ class ExecutionController:
 
         with closing(sqlite3.connect(self.db_path)) as db, db:
             prior = db.execute(
-                "SELECT ci_gate_policy_json,promotion_gate_policy_json FROM handlers WHERE name=?",
+                "SELECT ci_gate_policy_json,promotion_gate_policy_json,guard_action FROM handlers WHERE name=?",
                 (name,),
             ).fetchone()
+            prior_guard_action = str(prior[2] or "") if prior else ""
+            if guard_action is None:
+                guard_action = prior_guard_action
+            elif prior_guard_action and guard_action != prior_guard_action:
+                raise ValueError("registered guard_action is immutable; use a new handler identity for a different action")
             # Re-registering a handler after restart must not silently remove
             # either trusted gate when the caller omits or empties its policy.
             if not ci_policy and prior:
@@ -475,19 +492,52 @@ class ExecutionController:
             if not approval_policy and prior_approval_policy:
                 approval_policy = json.loads(prior_approval_policy[0] or "{}")
             db.execute(
-                "INSERT INTO handlers(name,reference,updated_at,ci_gate_policy_json,promotion_gate_policy_json,approval_gate_policy_json,execution_class,implementation_digest) "
-                "VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(name) DO UPDATE SET "
+                "INSERT INTO handlers(name,reference,updated_at,ci_gate_policy_json,promotion_gate_policy_json,approval_gate_policy_json,execution_class,implementation_digest,guard_action) "
+                "VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(name) DO UPDATE SET "
                 "reference=excluded.reference,updated_at=excluded.updated_at,"
                 "ci_gate_policy_json=excluded.ci_gate_policy_json,"
                 "promotion_gate_policy_json=excluded.promotion_gate_policy_json,"
                 "approval_gate_policy_json=excluded.approval_gate_policy_json,"
                 "execution_class=excluded.execution_class,"
-                "implementation_digest=excluded.implementation_digest",
+                "implementation_digest=excluded.implementation_digest,"
+                "guard_action=excluded.guard_action",
                 (name, reference, _now(), json.dumps(ci_policy, sort_keys=True),
                  json.dumps(promotion_policy, sort_keys=True), json.dumps(approval_policy, sort_keys=True),
-                 execution_class, implementation_digest),
+                 execution_class, implementation_digest, guard_action or ""),
             )
         return reference
+
+    def _handler_guard_action(self, name: str) -> str:
+        with closing(sqlite3.connect(self.db_path)) as db, db:
+            row = db.execute("SELECT guard_action FROM handlers WHERE name=?", (name,)).fetchone()
+        if not row:
+            raise KeyError(f"unknown durable handler: {name}")
+        value = row[0]
+        return value if isinstance(value, str) else ""
+
+    def _evaluate_guard_for_task(self, task: DurableTask) -> GuardDecision:
+        """Evaluate current organization policy using trusted handler registration context."""
+        policy = load_guard_policy(self.root / ".auren" / "guard_policy.json")
+        execution_class = self._handler_execution_class(task.handler)
+        action = infer_delivery_action(task.handler, {}) or self._handler_guard_action(task.handler)
+        resource = task.payload.get("resource", task.payload.get("resource_id", task.payload.get("path", "")))
+        if resource is not None and not isinstance(resource, str):
+            raise GuardPolicyError("Guard resource selector must be a string")
+        organization_id = __import__("os").environ.get("AUREN_ORGANIZATION_ID", "")
+        approval_policy = self._handler_approval_gate_policy(task.handler)
+        return evaluate_guard_policy(
+            policy,
+            {
+                "action": action,
+                "tool": task.handler,
+                "resource": resource if isinstance(resource, str) else "",
+                "organization_id": organization_id,
+                "agent_id": task.handler,
+                "risk": "high" if execution_class in {"consequential", "approval_gated"} else "standard",
+            },
+            mandatory_authorized=True,
+            approval_gate_configured=(execution_class == "approval_gated" and bool(approval_policy)),
+        )
 
     def _handler_execution_class(self, name: str) -> str:
         with closing(sqlite3.connect(self.db_path)) as db, db:
@@ -689,6 +739,23 @@ class ExecutionController:
                 return False, "unclassified legacy handler fails closed", ("handler-class:unclassified",)
             profile = WorkflowProfile.from_mapping(task.payload["_auren_workflow_profile"])
             delivery_action = infer_delivery_action(task.handler, task.payload)
+            # Organization policy adds restrictions before dispatch. It is not an
+            # authority grant: existing approval, exact-head CI, and promotion
+            # gates below remain independently mandatory.
+            try:
+                guard_decision = self._evaluate_guard_for_task(task)
+            except (GuardPolicyError, OSError, ValueError) as exc:
+                return False, f"configured Guard policy could not be verified: {type(exc).__name__}", ("guard-policy:invalid", "guard-policy:blocked")
+            if not guard_decision.allowed:
+                return False, guard_decision.reason, (
+                    "guard-policy:" + guard_decision.policy_digest,
+                    "guard-decision:" + guard_decision.effect,
+                    *("guard-rule:" + rule_id for rule_id in guard_decision.matched_rule_ids),
+                )
+            evidence.extend((
+                "guard-policy:" + guard_decision.policy_digest,
+                "guard-decision:" + guard_decision.effect,
+            ))
             # Stage-only is a hard delivery boundary, not just a UI preference.
             # Block every consequential/approval-gated operation even if the
             # handler uses a generic name or omits an action field.
@@ -1056,6 +1123,33 @@ class ExecutionController:
         except (OSError, subprocess.SubprocessError):
             pass
         repository = __import__("os").environ.get("AUREN_REPOSITORY_SLUG", "")
+        safe_metadata = dict(metadata or {})
+        # Bind lifecycle evidence to the immutable effective workflow profile.
+        # Do not copy task business payload into the receipt.
+        profile_data = task.payload.get("_auren_workflow_profile")
+        profile_digest = task.payload.get("_auren_workflow_profile_digest")
+        if isinstance(profile_data, Mapping) and isinstance(profile_digest, str):
+            try:
+                effective_profile = WorkflowProfile.from_mapping(profile_data)
+                if effective_profile.digest != profile_digest:
+                    raise RuntimeError("workflow profile receipt digest mismatch")
+                safe_metadata["workflow_profile_version"] = effective_profile.profile_version
+                safe_metadata["workflow_profile_digest"] = effective_profile.digest
+                safe_metadata["workflow_delivery_mode"] = effective_profile.delivery_mode
+                safe_metadata["workflow_execution_mode"] = effective_profile.execution_mode
+                safe_metadata["workflow_approval_mode"] = effective_profile.approval_mode
+                safe_metadata["workflow_review_mode"] = effective_profile.review_mode
+                safe_metadata["workflow_recovery_mode"] = effective_profile.recovery_mode
+            except (TypeError, ValueError) as exc:
+                raise RuntimeError("cannot record invalid workflow profile receipt") from exc
+        try:
+            configured_policy = load_guard_policy(self.root / ".auren" / "guard_policy.json")
+            if "guard_policy_digest" not in safe_metadata:
+                safe_metadata["guard_policy_digest"] = evaluate_guard_policy(
+                    configured_policy, {},
+                ).policy_digest
+        except (GuardPolicyError, OSError, ValueError):
+            safe_metadata["guard_policy_status"] = "invalid"
         self.evidence_capture.record(
             event_type,
             work_unit_id=task.work_unit_id,
@@ -1064,7 +1158,7 @@ class ExecutionController:
             status=status,
             repository=repository,
             head_sha=head_sha,
-            metadata=dict(metadata or {}),
+            metadata=safe_metadata,
             event_id=event_id,
         )
 
@@ -2529,14 +2623,22 @@ class ExecutionController:
             )
 
     def _invoke_consequential_with_ledger(self, task: DurableTask, handler: Handler) -> Any:
-        """Run consequential handlers behind the durable idempotency/reconciliation ledger.
+        """Run consequential handlers behind durable idempotency and Guard binding.
 
-        The ledger intent is committed before handler invocation. A completed receipt
-        is replayed without calling the handler; an interrupted/ambiguous execution
-        returns a reconciliation decision and fails closed. This is not a claim of
-        distributed exactly-once execution: provider-side lookup/idempotency remains
-        necessary for resolving uncertain outcomes.
+        The current organization policy is re-evaluated at dispatch. The decision
+        digest and trusted registered action are included in the ledger binding so
+        policy changes cannot silently replay an operation under different authority.
         """
+        guard_decision = self._evaluate_guard_for_task(task)
+        if not guard_decision.allowed:
+            raise RuntimeError("organization Guard denied consequential dispatch: " + guard_decision.reason)
+        guard_action = infer_delivery_action(task.handler, {}) or self._handler_guard_action(task.handler)
+        guard_binding = {
+            "action": guard_action,
+            "policy_digest": guard_decision.policy_digest,
+            "effect": guard_decision.effect,
+            "matched_rule_ids": list(guard_decision.matched_rule_ids),
+        }
         dispatch = task.payload.get("auren_dispatch")
         idempotency = task.payload.get("auren_idempotency")
         engineering_key = (
@@ -2578,6 +2680,7 @@ class ExecutionController:
             ),
             "handler": task.handler,
             "payload_digest": payload_digest,
+            "guard": guard_binding,
         }
         decision = DurableSideEffectLedger(self.db_path).begin(key, binding)
         if decision.action == "replay":
@@ -2614,6 +2717,10 @@ class ExecutionController:
                     "intent_digest": str(event.get("intent_digest", "")),
                     "provider": provider_name,
                     "operation_state": operation_state,
+                    "guard_action": guard_action or "unclassified",
+                    "guard_policy_digest": guard_decision.policy_digest,
+                    "guard_decision": guard_decision.effect,
+                    "guard_rule_ids": ",".join(guard_decision.matched_rule_ids) or "none",
                 }
                 if hasattr(task, "work_unit_id") and hasattr(task, "attempts"):
                     self._capture_event(
@@ -2700,6 +2807,10 @@ class ExecutionController:
                 "intent_digest": str(event.get("intent_digest", "")),
                 "provider": provider_name,
                 "operation_state": operation_state,
+                    "guard_action": guard_action or "unclassified",
+                    "guard_policy_digest": guard_decision.policy_digest,
+                    "guard_decision": guard_decision.effect,
+                    "guard_rule_ids": ",".join(guard_decision.matched_rule_ids) or "none",
             }
             if hasattr(task, "work_unit_id") and hasattr(task, "attempts"):
                 self._capture_event("provider_operation_" + operation_state, task,
@@ -2715,10 +2826,22 @@ class ExecutionController:
             DurableSideEffectLedger(self.db_path), record_event=record_provider_event,
         )
         def dispatch_provider(intent: Mapping[str, Any], operation_id: str, idempotency_key: str) -> Mapping[str, Any]:
+            latest_guard = self._evaluate_guard_for_task(task)
+            if (
+                not latest_guard.allowed
+                or latest_guard.policy_digest != guard_decision.policy_digest
+                or latest_guard.effect != guard_decision.effect
+                or latest_guard.matched_rule_ids != guard_decision.matched_rule_ids
+            ):
+                raise RuntimeError("Guard policy changed or denied the action before provider dispatch")
             provider_payload = dict(task.payload)
             provider_payload["auren_provider_operation"] = {
                 "operation_id": operation_id, "idempotency_key": idempotency_key,
                 "provider": provider_name,
+                "guard_action": guard_action or "unclassified",
+                "guard_policy_digest": guard_decision.policy_digest,
+                "guard_decision": guard_decision.effect,
+                "guard_rule_ids": ",".join(guard_decision.matched_rule_ids) or "none",
                 "intent_digest": hashlib.sha256(
                     json.dumps(dict(intent), sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
                 ).hexdigest(),

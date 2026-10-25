@@ -373,6 +373,161 @@ def _run_continuous(args: list[str]) -> int:
         controller.company.close() if hasattr(controller.company, "close") else None
 
 
+
+def _run_workflow_profile(args: list[str]) -> int:
+    """Inspect or update the durable workflow profile without starting the runtime."""
+    import argparse
+    from portable.workflow_profile import (
+        DELIVERY_MODES, EXECUTION_MODES, APPROVAL_MODES, REVIEW_MODES,
+        COMMUNICATION_MODES, RECOVERY_MODES, WorkflowProfile,
+    )
+    from portable.workflow_profile_store import load_profile, save_profile, WorkflowProfileStoreError
+
+    parser = argparse.ArgumentParser(
+        prog="auren workflow-profile",
+        description="Inspect or configure workflow preferences; these settings never grant execution authority.",
+    )
+    parser.add_argument("--project-root", default=".", help="project root (default: current directory)")
+    sub = parser.add_subparsers(dest="action", required=True)
+    sub.add_parser("show", help="show the effective saved profile and digest")
+    set_cmd = sub.add_parser("set", help="update selected workflow preferences")
+    set_cmd.add_argument("--delivery-mode", choices=sorted(DELIVERY_MODES))
+    set_cmd.add_argument("--execution-mode", choices=sorted(EXECUTION_MODES))
+    set_cmd.add_argument("--approval-mode", choices=sorted(APPROVAL_MODES))
+    set_cmd.add_argument("--review-mode", choices=sorted(REVIEW_MODES))
+    set_cmd.add_argument("--communication-mode", choices=sorted(COMMUNICATION_MODES))
+    set_cmd.add_argument("--recovery-mode", choices=sorted(RECOVERY_MODES))
+    sub.add_parser("reset", help="remove the saved profile and return to safe defaults")
+    options = parser.parse_args(args)
+    root = Path(options.project_root).expanduser().resolve()
+    profile_path = root / ".auren" / "workflow_profile.json"
+    try:
+        saved = load_profile(profile_path)
+        if options.action == "show":
+            profile = saved or WorkflowProfile()
+            print(json.dumps({
+                "source": "saved" if saved is not None else "safe_default",
+                "profile": profile.as_dict(),
+                "profile_digest": profile.digest,
+                "authority_note": "preferences do not grant permissions or bypass repository gates",
+            }, indent=2, sort_keys=True))
+            return 0
+        if options.action == "reset":
+            if profile_path.is_symlink():
+                raise WorkflowProfileStoreError("refusing to remove a symlink workflow profile")
+            if profile_path.exists():
+                if not profile_path.is_file():
+                    raise WorkflowProfileStoreError("workflow profile path is not a regular file")
+                profile_path.unlink()
+            profile = WorkflowProfile()
+        else:
+            current = saved or WorkflowProfile()
+            changes = {
+                key: getattr(options, key)
+                for key in (
+                    "delivery_mode", "execution_mode", "approval_mode",
+                    "review_mode", "communication_mode", "recovery_mode",
+                )
+                if getattr(options, key) is not None
+            }
+            if not changes:
+                parser.error("set requires at least one workflow preference option")
+            profile = WorkflowProfile.from_mapping({**current.as_dict(), **changes})
+            save_profile(profile_path, profile)
+        print(json.dumps({
+            "source": "safe_default" if options.action == "reset" else "saved",
+            "profile": profile.as_dict(),
+            "profile_digest": profile.digest,
+            "authority_note": "preferences do not grant permissions or bypass repository gates",
+        }, indent=2, sort_keys=True))
+        return 0
+    except (WorkflowProfileStoreError, ValueError, OSError) as exc:
+        print(f"workflow profile error: {exc}", file=sys.stderr)
+        return 2
+
+
+
+def _run_guard_policy(args: list[str]) -> int:
+    """Validate, inspect, or explain an organization Guard policy."""
+    import argparse
+    from portable.organization_guard import (
+        GuardPolicyError, evaluate_guard_policy, load_guard_policy,
+    )
+
+    parser = argparse.ArgumentParser(
+        prog="auren guard-policy",
+        description="Inspect organization Guard rules; dry-run output is explanatory, not an authorization grant.",
+    )
+    parser.add_argument("--project-root", default=".", help="project root (default: current directory)")
+    sub = parser.add_subparsers(dest="action", required=True)
+    sub.add_parser("show", help="show the normalized policy and canonical digest")
+    sub.add_parser("validate", help="validate policy schema and report rule IDs")
+    dry = sub.add_parser("dry-run", help="explain a policy decision for supplied context")
+    dry.add_argument("--action-name", default="", help="trusted action label to simulate")
+    dry.add_argument("--tool", default="", help="registered tool/handler identity")
+    dry.add_argument("--resource", default="", help="resource selector to simulate")
+    dry.add_argument("--organization-id", default=None, help="organization context; defaults to AUREN_ORGANIZATION_ID")
+    dry.add_argument("--agent-id", default="", help="agent identity context")
+    dry.add_argument("--risk", default="standard", help="risk classification context")
+    dry.add_argument("--approval-gate-configured", action="store_true", help="simulate a trusted approval-gated handler")
+    options = parser.parse_args(args)
+    root = Path(options.project_root).expanduser().resolve()
+    policy_path = root / ".auren" / "guard_policy.json"
+    try:
+        policy = load_guard_policy(policy_path)
+        baseline = evaluate_guard_policy(policy, {})
+        if options.action == "show":
+            print(json.dumps({
+                "configured": policy is not None,
+                "policy_path": str(policy_path),
+                "policy": policy,
+                "policy_digest": baseline.policy_digest,
+                "note": "policy restrictions do not grant authority or bypass mandatory AUREN gates",
+            }, indent=2, sort_keys=True))
+            return 0
+        if options.action == "validate":
+            normalized = policy or {
+                "schema_version": "auren-guard-v1",
+                "default_effect": "allow",
+                "rules": [],
+            }
+            print(json.dumps({
+                "valid": True,
+                "configured": policy is not None,
+                "policy_digest": baseline.policy_digest,
+                "rule_count": len(normalized["rules"]),
+                "rule_ids": [rule["id"] for rule in normalized["rules"]],
+                "default_effect": normalized["default_effect"],
+            }, indent=2, sort_keys=True))
+            return 0
+        organization_id = options.organization_id
+        if organization_id is None:
+            organization_id = __import__("os").environ.get("AUREN_ORGANIZATION_ID", "")
+        if not any((options.action_name, options.tool, options.resource, organization_id, options.agent_id, options.risk != "standard")):
+            parser.error("dry-run requires at least one context selector")
+        decision = evaluate_guard_policy(
+            policy,
+            {
+                "action": options.action_name,
+                "tool": options.tool,
+                "resource": options.resource,
+                "organization_id": organization_id,
+                "agent_id": options.agent_id,
+                "risk": options.risk,
+            },
+            approval_gate_configured=options.approval_gate_configured,
+        )
+        print(json.dumps({
+            "configured": policy is not None,
+            "decision": decision.as_receipt(),
+            "note": "dry-run is explanatory only and does not authorize or execute an action",
+        }, indent=2, sort_keys=True))
+        return 0 if decision.allowed else 3
+    except (GuardPolicyError, ValueError, OSError) as exc:
+        print(f"Guard policy error: {exc}", file=sys.stderr)
+        return 2
+
+
 def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     if len(args) == 1 and Path(args[0]).suffix.lower() == ".zip":
@@ -381,6 +536,10 @@ def main(argv: list[str] | None = None) -> int:
         args = [*args, "--skill", "auto"]
     if args and args[0] == "dashboard":
         return _run_dashboard(args[1:])
+    if args and args[0] == "workflow-profile":
+        return _run_workflow_profile(args[1:])
+    if args and args[0] == "guard-policy":
+        return _run_guard_policy(args[1:])
     runtime, temp_root = _load_runtime(args)
     _prepare_runtime_for_distribution(runtime)
     result = 1

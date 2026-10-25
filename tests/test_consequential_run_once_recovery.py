@@ -260,6 +260,7 @@ class ConsequentialRunOnceRecoveryTests(unittest.TestCase):
         from portable.provider_operation_lifecycle import (
             ProviderOperationLifecycle, ProviderOutcomeBlocked, stable_provider_operation_id,
         )
+        from portable.organization_guard import evaluate_guard_policy
         from portable.side_effect_ledger import DurableSideEffectLedger
 
         first = self.controller.submit("consequential-recovery-action", self._payload())
@@ -289,10 +290,17 @@ class ConsequentialRunOnceRecoveryTests(unittest.TestCase):
         payload_digest = hashlib.sha256(
             json.dumps(safe_payload, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
         ).hexdigest()
+        guard_decision = evaluate_guard_policy(None, {})
         binding = {
             "identity": identity,
             "handler": task.handler,
             "payload_digest": payload_digest,
+            "guard": {
+                "action": self.controller._handler_guard_action(task.handler),
+                "policy_digest": guard_decision.policy_digest,
+                "effect": guard_decision.effect,
+                "matched_rule_ids": list(guard_decision.matched_rule_ids),
+            },
         }
         provider_name = task.handler
         provider_intent = {"binding": binding, "payload": safe_payload}
