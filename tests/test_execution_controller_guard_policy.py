@@ -284,3 +284,38 @@ def test_policy_revocation_between_preflight_and_any_handler_dispatch_blocks(tmp
 
     assert not marker.exists()
     assert controller.task(task.id).state == "failed"
+
+
+def test_final_guard_dispatch_receipt_is_persisted_before_handler_runs(tmp_path: Path):
+    import json
+    import sqlite3
+    from unittest.mock import patch
+
+    from portable.organization_guard import evaluate_guard_policy
+
+    controller = ExecutionController(tmp_path)
+    controller.register_handler(
+        "tests.guarded_marker_handler", guarded_marker_handler, execution_class="read_only",
+        guard_action="read",
+    )
+    marker = tmp_path / "guarded-dispatch.txt"
+    task = controller.submit("tests.guarded_marker_handler", {"marker_path": str(marker)})
+    allowed = evaluate_guard_policy(None, {"action": "read"})
+
+    with patch.object(controller, "_evaluate_guard_for_task", side_effect=[allowed, allowed]):
+        controller.run_once(task.id)
+
+    assert marker.exists()
+    with sqlite3.connect(controller.evidence_capture.path) as db:
+        row = db.execute(
+            "SELECT status,metadata_json FROM engineering_events "
+            "WHERE task_id=? AND event_type='guard_dispatch_decision'",
+            (task.id,),
+        ).fetchone()
+    assert row is not None
+    assert row[0] == "allowed"
+    metadata = json.loads(row[1])
+    assert metadata["guard_action"] == "read"
+    assert metadata["guard_decision"] == "allow"
+    assert len(metadata["guard_policy_digest"]) == 64
+    assert "marker_path" not in row[1]
