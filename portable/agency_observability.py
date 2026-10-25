@@ -454,8 +454,17 @@ class Tracer:
                         raise ValueError(f"trace snapshot digest mismatch at line {line_number}")
                     if type(record.get("event_sequence")) is not int:
                         raise ValueError(f"invalid snapshot sequence at line {line_number}")
-                    if state is not None and record["event_sequence"] != last_sequence:
-                        raise ValueError(f"snapshot sequence does not match event stream at line {line_number}")
+                    if state is None and record["event_sequence"] != 0:
+                        raise ValueError("initial trace snapshot is missing; resume blocked")
+                    if state is not None:
+                        if record["event_sequence"] != last_sequence:
+                            raise ValueError(f"snapshot sequence does not match event stream at line {line_number}")
+                        for key in (
+                            "run_id", "session_id", "task_id", "name", "source_revision",
+                            "config_digest", "schema_version",
+                        ):
+                            if record.get(key) != state.get(key):
+                                raise ValueError(f"trace snapshot identity changed at line {line_number}: {key}")
                     state = dict(record)
                     last_sequence = record["event_sequence"]
                     raw_spans = record.get("spans")
