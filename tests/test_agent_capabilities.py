@@ -198,6 +198,31 @@ class AgentCapabilityTests(unittest.TestCase):
                 network_allowed=False,
             )
 
+
+    def test_advertised_api_and_tool_capabilities_are_discovered_without_imports(self):
+        import os
+        import tempfile
+        from portable.agent_capabilities import CapabilityExecutioner
+        keys = {
+            "AER_API_CAPABILITIES": '[{"name":"api:policy-check","description":"policy validation","tags":["policy"],"risk":"medium"}]',
+            "AER_TOOL_CAPABILITIES": '[{"name":"tool:repo-index","description":"repository index","tags":["repository","search"]}]',
+        }
+        previous = {key: os.environ.get(key) for key in keys}
+        try:
+            os.environ.update(keys)
+            with tempfile.TemporaryDirectory() as tmp:
+                options = CapabilityExecutioner().discover_installed(tmp)
+            by_name = {item.name: item for item in options}
+            self.assertEqual("api", by_name["api:policy-check"].source)
+            self.assertEqual("tool", by_name["tool:repo-index"].source)
+            self.assertIn("policy", by_name["api:policy-check"].tags)
+        finally:
+            for key, value in previous.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+
     def test_optional_metadata_is_sanitized_and_malformed_metadata_is_ignored(self):
         import os
         import tempfile
