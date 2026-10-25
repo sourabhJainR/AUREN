@@ -2822,8 +2822,9 @@ class ExecutionController:
                 evidence_ref=None,
             )
 
+        provider_ledger = DurableSideEffectLedger(self.db_path)
         lifecycle = ProviderOperationLifecycle(
-            DurableSideEffectLedger(self.db_path), record_event=record_provider_event,
+            provider_ledger, record_event=record_provider_event,
         )
         def dispatch_provider(intent: Mapping[str, Any], operation_id: str, idempotency_key: str) -> Mapping[str, Any]:
             latest_guard = self._evaluate_guard_for_task(task)
@@ -2849,7 +2850,20 @@ class ExecutionController:
             value = self._invoke_with_lease_heartbeat(task, lambda runtime_payload: handler(self._handler_payload(task, {**provider_payload, "auren_cancel_event": runtime_payload["auren_cancel_event"]})))
             if not isinstance(value, Mapping):
                 raise RuntimeError("consequential handlers must return a mapping receipt/result")
-            return {"result": dict(value), "provider_operation_id": operation_id}
+            intent_digest = provider_ledger.digest_payload({
+                "provider": provider_name,
+                "operation_id": operation_id,
+                "intent": dict(intent),
+            })
+            return {
+                "status": "completed",
+                "result": dict(value),
+                "provider_operation_id": operation_id,
+                "operation_id": operation_id,
+                "idempotency_key": idempotency_key,
+                "provider": provider_name,
+                "intent_digest": intent_digest,
+            }
 
         provider_receipt = lifecycle.execute(
             "provider-operation:" + key, provider_name, provider_intent, dispatch_provider,
