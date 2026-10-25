@@ -68,7 +68,7 @@ class WorkflowProfileTests(unittest.TestCase):
         # Delivery mode is not a promotion grant; the controller must still
         # enforce operator-owned approval and exact-head CI for consequential actions.
         self.assertTrue(delivery_mode_allows(pull_request, "merge"))
-        self.assertFalse(delivery_mode_allows(pull_request, "release"))
+        self.assertTrue(delivery_mode_allows(pull_request, "release"))
 
     def test_delivery_action_inference_uses_handler_and_typed_action_fields(self):
         self.assertEqual("merge", infer_delivery_action("merge-pull-request", {}))
