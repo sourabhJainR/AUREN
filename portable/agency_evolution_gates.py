@@ -688,18 +688,46 @@ class GraphLearningEvidenceGate:
 
         baseline_metrics = self._metrics(baseline, baseline_task_ids, "baseline")
         candidate_metrics = self._metrics(candidate, candidate_task_ids, "candidate")
+        candidate_digest = _digest(dict(candidate))
         holdout_evidence = dict(holdout_evidence) if isinstance(holdout_evidence, Mapping) else {}
         if set(holdout_evidence) != set(baseline_holdouts):
             raise ValueError("holdout evidence must cover the exact pinned holdout task set")
         for task_id, evidence in holdout_evidence.items():
             if not isinstance(evidence, Mapping) or evidence.get("scored") is not True:
                 raise PermissionError(f"holdout task {task_id} lacks an executed score")
-            if not evidence.get("baseline_ref") or not evidence.get("candidate_ref"):
+            baseline_ref, candidate_ref = evidence.get("baseline_ref"), evidence.get("candidate_ref")
+            if not isinstance(baseline_ref, str) or not baseline_ref.strip() or not isinstance(candidate_ref, str) or not candidate_ref.strip():
                 raise ValueError(f"holdout task {task_id} lacks baseline/candidate evidence references")
             if evidence.get("verifier_identity") not in self.trusted_verifier_ids:
                 raise PermissionError(f"holdout task {task_id} has an untrusted evaluator")
-            if evidence.get("receipt_digest") != receipt_digest:
+            if evidence.get("verification_receipt_digest") != receipt_digest:
                 raise ValueError(f"holdout task {task_id} is not bound to the verification receipt")
+            baseline_metric_digest = _digest(baseline_metrics[task_id])
+            candidate_metric_digest = _digest(candidate_metrics[task_id])
+            score_receipt = evidence.get("score_receipt")
+            score_receipt_digest = evidence.get("score_receipt_digest")
+            if not isinstance(score_receipt, Mapping) or not isinstance(score_receipt_digest, str) or not self._SHA256.fullmatch(score_receipt_digest):
+                raise ValueError(f"holdout task {task_id} lacks a digest-bound score receipt")
+            if _digest(dict(score_receipt)) != score_receipt_digest:
+                raise ValueError(f"holdout task {task_id} score receipt digest mismatch")
+            expected_score_fields = {
+                "task_id": task_id,
+                "baseline_ref": baseline_ref,
+                "candidate_ref": candidate_ref,
+                "scored": True,
+                "verifier_identity": evidence.get("verifier_identity"),
+                "verification_receipt_digest": receipt_digest,
+                "source_revision": candidate["source_revision"],
+                "task_digest": candidate["task_digest"],
+                "intent_digest": candidate["intent_digest"],
+                "baseline_digest": self.pinned_baseline_digest,
+                "candidate_digest": candidate_digest,
+                "baseline_metric_digest": baseline_metric_digest,
+                "candidate_metric_digest": candidate_metric_digest,
+            }
+            for field, expected_value in expected_score_fields.items():
+                if score_receipt.get(field) != expected_value:
+                    raise ValueError(f"holdout task {task_id} score receipt binding mismatch for {field}")
 
         baseline_all = self._aggregate(baseline_metrics, baseline_task_ids)
         candidate_all = self._aggregate(candidate_metrics, candidate_task_ids)
@@ -716,7 +744,6 @@ class GraphLearningEvidenceGate:
             "holdout_regressions_bounded": candidate_holdout["regression_count_total"] <= policy.maximum_regressions,
         }
         eligible = all(gates.values())
-        candidate_digest = _digest(dict(candidate))
         result = {
             "schema": "auren-graph-learning-evidence-v1",
             "run_id": run_id.strip(),
