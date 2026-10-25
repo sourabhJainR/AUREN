@@ -27,6 +27,7 @@ from portable.vibe_coding_host import (
     MCPStdioToolAdapter,
     JournaledToolAdapter,
     build_mcp_authority_dispatch,
+    mcp_request_action_id,
     SideEffectJournal,
     VerifiedResearchTool,
     fingerprint_worktree,
@@ -303,6 +304,73 @@ class VibeCodingHostTests(unittest.TestCase):
                     tool(self._mcp_external_request())
                 popen.assert_not_called()
 
+    def test_mcp_read_only_authority_binds_exact_request_without_provider_operation(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            server = root / "fake_mcp.py"
+            fake_mcp_server(server, structured={"read": True})
+            gateways = []
+
+            def resolver(request):
+                state = request["state"]
+                run_id = state["vibe_coding_workflow_id"]
+                task_id = state["task_id"]
+                action_request = ActionRequest(
+                    run_id=run_id,
+                    task_id=task_id,
+                    action_id=mcp_request_action_id(request),
+                    actor="agent:reader",
+                    capability="repository.read",
+                    action="read",
+                    target="src/module.py",
+                    risk="read",
+                )
+                authority = ExecutionAuthorityBinding(
+                    execution_id="exec-mcp-read",
+                    run_id=run_id,
+                    task_id=task_id,
+                    repository_digest="repo-read-digest",
+                    repository_revision="read-revision",
+                    principal="agent:reader",
+                    allowed_capabilities=("repository.read",),
+                    allowed_actions=("read",),
+                    allowed_targets=("src",),
+                    budget_id="budget-mcp-read",
+                    max_attempts=2,
+                )
+                gateway = ActionGovernanceGateway(ActionPolicy(
+                    allowed_capabilities=frozenset({"repository.read"}),
+                    allowed_actions=frozenset({"read"}),
+                    approval_required_actions=frozenset(),
+                    evidence_required_actions=frozenset(),
+                    external_effect_actions=frozenset(),
+                ))
+                gateways.append(gateway)
+                return MCPExecutionAuthorization(
+                    gateway=gateway,
+                    authority=authority,
+                    action_request=action_request,
+                    repository_revision="read-revision",
+                    repository_digest="repo-read-digest",
+                    budget_id="budget-mcp-read",
+                    execution_guard=RuntimeExecutionGuard(max_steps=5, max_attempts=2),
+                )
+
+            request = {
+                "stage": "architecture",
+                "intent": "inspect repository structure",
+                "state": {"vibe_coding_workflow_id": "workflow-read-1", "task_id": "task-read-1"},
+            }
+            tool = MCPStdioToolAdapter(
+                argv=(sys.executable, str(server)),
+                tool_name="inspect",
+                timeout_seconds=5,
+                requires_authority_binding=True,
+                authority_dispatch=build_mcp_authority_dispatch(resolver),
+            )
+            self.assertEqual(tool(request), {"read": True})
+            self.assertTrue(gateways[0].verify_trace()["passed"])
+
     def test_mcp_config_defaults_consequential_tools_to_authority_binding(self):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "host.json"
@@ -312,7 +380,7 @@ class VibeCodingHostTests(unittest.TestCase):
                 "allow_workspace_writes": True,
                 "test_commands": [[sys.executable, "-c", "pass"]],
                 "mcp_tools": {
-                    "security": {"argv": [sys.executable, "-c", "pass"], "tool_name": "scan"},
+                    "security": {"argv": [sys.executable, "-c", "pass"], "tool_name": "scan", "external_effects": False},
                     "repository": {"argv": [sys.executable, "-c", "pass"], "tool_name": "edit"},
                 },
                 "browser_qa_required": False,
@@ -540,6 +608,7 @@ print(json.dumps({"type": "item.completed", "item": {"type": "agent_message", "t
                     },
                     "security": {
                         "argv": [sys.executable, str(security_server)], "tool_name": "scan",
+                        "external_effects": False,
                         "argument_map": {"request": "$request"},
                     },
                     "independent_review": {
@@ -647,7 +716,7 @@ print(json.dumps({"type": "item.completed", "item": {"type": "agent_message", "t
                 "allow_workspace_writes": True,
                 "test_commands": [[sys.executable, "-c", "pass"]],
                 "mcp_tools": {
-                    "security": {"argv": [sys.executable, "-c", "pass"], "tool_name": "scan"},
+                    "security": {"argv": [sys.executable, "-c", "pass"], "tool_name": "scan", "external_effects": False},
                     "deployment": {"argv": [sys.executable, "-c", "pass"], "tool_name": "deploy"},
                     "preview": {"argv": [sys.executable, "-c", "pass"], "tool_name": "preview"},
                 },
@@ -688,7 +757,7 @@ print(json.dumps({"type": "item.completed", "item": {"type": "agent_message", "t
                 "allow_workspace_writes": True,
                 "test_commands": [[sys.executable, "-m", "unittest", "discover", "-s", "tests"]],
                 "mcp_tools": {
-                    "security": {"argv": [sys.executable, "-c", "pass"], "tool_name": "scan"},
+                    "security": {"argv": [sys.executable, "-c", "pass"], "tool_name": "scan", "external_effects": False},
                 },
                 "browser_qa_required": False,
                 "browser_qa_rationale": "Project has no browser surface in this validation scope",
