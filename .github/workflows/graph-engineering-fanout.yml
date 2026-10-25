@@ -1,0 +1,41 @@
+name: Graph Engineering Fan-out Gate
+
+on:
+  pull_request:
+    paths:
+      - "portable/dependency_aware_fanout.py"
+      - "portable/task_planner.py"
+      - "portable/runtime_recovery.py"
+      - "tests/test_dependency_aware_fanout.py"
+      - ".github/workflows/graph-engineering-fanout.yml"
+  push:
+    branches: [main]
+    paths:
+      - "portable/dependency_aware_fanout.py"
+      - "portable/task_planner.py"
+      - "portable/runtime_recovery.py"
+      - "tests/test_dependency_aware_fanout.py"
+      - ".github/workflows/graph-engineering-fanout.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: graph-engineering-fanout-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dependency-aware-fanout:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Run dependency-aware fan-out and shared-budget regressions
+        run: python -m unittest tests.test_dependency_aware_fanout tests.test_task_planner -v
