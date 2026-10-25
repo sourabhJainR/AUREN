@@ -422,7 +422,7 @@ class EngineeringDashboard:
                     summary = {
                         key: profile.as_dict()[key]
                         for key in (
-                            "delivery_mode", "execution_mode", "approval_mode",
+                            "profile_version", "delivery_mode", "execution_mode", "approval_mode",
                             "review_mode", "communication_mode", "recovery_mode",
                         )
                     }
