@@ -46,8 +46,6 @@ class ImpactPolicyTests(unittest.TestCase):
             "portable/execution_controller.py": {"tests.test_execution_controller", "tests.test_execution_controller_restart", "tests.test_execution_controller_promotion_rollback_contract", "tests.test_provider_operation_lifecycle", "tests.test_durable_approval"},
             "tests/test_consequential_run_once_recovery.py": {"tests.test_consequential_run_once_recovery", "tests.test_execution_controller"},
             "tests/test_consequential_outer_receipt_crash.py": {"tests.test_consequential_outer_receipt_crash", "tests.test_consequential_run_once_recovery", "tests.test_execution_controller"},
-            "portable/graph_run_recovery.py": {"tests.test_graph_run_recovery", "tests.test_engineering_recovery", "tests.test_engineering_plan_recovery"},
-            "tests/test_graph_run_recovery.py": {"tests.test_graph_run_recovery"},
             "portable/engineering_recovery.py": {"tests.test_engineering_recovery", "tests.test_engineering_recovery_fault_matrix"},
             "portable/engineering_plan_recovery.py": {"tests.test_engineering_plan_recovery"},
             "tests/test_engineering_plan_recovery.py": {"tests.test_engineering_plan_recovery"},
