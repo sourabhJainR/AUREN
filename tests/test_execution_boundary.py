@@ -458,18 +458,27 @@ class SubprocessBoundaryInventoryTests(unittest.TestCase):
                 relative = source.relative_to(root).as_posix()
                 Visitor(relative).visit(ast.parse(source.read_text(encoding="utf-8"), filename=relative))
 
+        expected = self.REVIEWED_POPEN_CALL_COUNTS
+        unexpected = {key: count for key, count in actual.items() if key not in expected}
+        missing = {key: count for key, count in expected.items() if key not in actual}
+        changed_counts = {
+            key: {"actual": actual[key], "expected": expected[key]}
+            for key in actual.keys() & expected.keys()
+            if actual[key] != expected[key]
+        }
         self.assertEqual(
-            actual,
-            self.REVIEWED_POPEN_CALL_COUNTS,
-            "New, moved, or duplicated Popen callsites require an explicit review and "
-            "denial-before-launch regression test; do not weaken this assertion to pass CI.",
+            (unexpected, missing, changed_counts),
+            ({}, {}, {}),
+            "Every direct Popen callsite must have an exact reviewed disposition. "
+            "Do not weaken this assertion to pass CI.",
         )
 
     def test_registry_records_non_sandbox_and_runtime_policy_limits(self):
         doc = (Path(__file__).resolve().parents[1] / "docs/GUARDED_EXECUTION_BOUNDARY_FOLLOWUP.md").read_text(encoding="utf-8")
+        normalized_doc = " ".join(doc.split())
         self.assertTrue(all(value.strip() for value in self.REVIEWED_POPEN_DISPOSITIONS.values()))
-        self.assertIn("not a security sandbox", doc)
-        self.assertIn("not proof that every callsite within an already-listed module is authorized", doc)
+        self.assertIn("not a security sandbox", normalized_doc)
+        self.assertIn("not proof that every callsite within an already-listed module is authorized", normalized_doc)
 
 
 if __name__ == "__main__":
