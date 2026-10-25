@@ -1,5 +1,8 @@
 from __future__ import annotations
+import time
 import unittest
+from threading import Event
+from types import SimpleNamespace
 
 from portable.orchestration import Graph, Node, NodeKind, RunStatus
 from portable.state_graph import GraphAgentTeam, StateGraph
@@ -107,6 +110,66 @@ class RuntimeExecutionGuardTests(unittest.TestCase):
         snapshot["digest"] = _digest(payload)
         with self.assertRaisesRegex(ValueError, "lacks absolute deadline"):
             RuntimeExecutionGuard.resume(snapshot)
+
+    def test_tighten_deadline_never_extends_shared_budget(self):
+        guard = RuntimeExecutionGuard(max_steps=4, max_attempts=4)
+        first_remaining = guard.tighten_deadline(0.5)
+        self.assertLessEqual(first_remaining, 0.5)
+        shortened_remaining = guard.snapshot()["remaining_seconds"]
+        guard.tighten_deadline(10)
+        self.assertLessEqual(guard.snapshot()["remaining_seconds"], shortened_remaining)
+        with self.assertRaises(ValueError):
+            guard.tighten_deadline(float("nan"))
+
+    def test_graph_agent_team_supervised_binding_reuses_guard_and_shortens_deadline(self):
+        cancellation = Event()
+        team = object.__new__(GraphAgentTeam)
+        team.graph = SimpleNamespace(states=("node",))
+        captured = {}
+        def run_stub(_task_id, _intent, context, **_kwargs):
+            captured["guard"] = context["_auren_runtime_execution_guard"]
+            return captured["guard"]
+        team.run = run_stub
+        guard = team.run_supervised(
+            "task-1", "goal", {"auren_runtime_guard": RuntimeExecutionGuard(
+                max_steps=4, max_attempts=4, deadline_seconds=30,
+            ).snapshot()},
+            execution_payload={
+                "auren_cancel_event": cancellation,
+                "auren_deadline_epoch": time.time() + 0.5,
+            },
+        )
+        self.assertIs(guard, captured["guard"])
+        self.assertIs(guard.cancellation_event, cancellation)
+        self.assertLessEqual(guard.snapshot()["remaining_seconds"], 0.5)
+        cancellation.set()
+        with self.assertRaises(ExecutionBudgetExceeded):
+            guard.check()
+
+    def test_graph_agent_team_supervised_rejects_expired_deadline_before_run(self):
+        team = object.__new__(GraphAgentTeam)
+        team.graph = SimpleNamespace(states=("node",))
+        calls = []
+        team.run = lambda *_args, **_kwargs: calls.append(True)
+        with self.assertRaisesRegex(ExecutionBudgetExceeded, "deadline expired before GraphAgentTeam dispatch"):
+            team.run_supervised(
+                "task-2", "goal", {},
+                execution_payload={"auren_deadline_epoch": time.time() - 1},
+            )
+        self.assertEqual([], calls)
+
+    def test_graph_agent_team_supervised_rejects_mismatched_guard_event(self):
+        team = object.__new__(GraphAgentTeam)
+        team.graph = SimpleNamespace(states=("node",))
+        calls = []
+        team.run = lambda *_args, **_kwargs: calls.append(True)
+        existing = RuntimeExecutionGuard(max_steps=4, max_attempts=4)
+        with self.assertRaisesRegex(ValueError, "cancellation event differs"):
+            team.run_supervised(
+                "task-3", "goal", {"_auren_runtime_execution_guard": existing},
+                execution_payload={"auren_cancel_event": Event()},
+            )
+        self.assertEqual([], calls)
 
     def test_non_finite_or_boolean_deadlines_are_rejected(self):
         for value in (float("nan"), float("inf"), True):
