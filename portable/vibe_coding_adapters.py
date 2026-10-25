@@ -369,7 +369,19 @@ class VibeAdapterRegistry:
                     # Normalize stage success only after its output contract passes.
                     # Missing remote IDs are intentionally left missing so the
                     # lifecycle blocks completion and requires reconciliation.
-                    receipt = {"status": "completed", "result": dict(stage_result)}
+                    intent_digest = self.side_effect_lifecycle.ledger.digest_payload({
+                        "provider": selected.adapter_id,
+                        "operation_id": operation_id,
+                        "intent": dict(intent),
+                    })
+                    receipt = {
+                        "status": "completed",
+                        "result": dict(stage_result),
+                        "operation_id": operation_id,
+                        "idempotency_key": _key,
+                        "provider": selected.adapter_id,
+                        "intent_digest": intent_digest,
+                    }
                     if remote_operation_id is not None:
                         receipt["provider_operation_id"] = remote_operation_id
                     return receipt
