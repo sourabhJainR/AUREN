@@ -313,6 +313,13 @@ class VibeCodingHostTests(unittest.TestCase):
     def test_consequential_mcp_authority_denial_never_launches_process(self):
         with tempfile.TemporaryDirectory() as temp:
             ledger = DurableSideEffectLedger(Path(temp) / "side-effects.sqlite")
+            request = self._mcp_external_request()
+            operation = request["provider_operation"]
+            ledger.begin(operation["idempotency_key"], {
+                "provider": operation["provider"],
+                "operation_id": operation["operation_id"],
+                "intent": {key: value for key, value in request.items() if key != "provider_operation"},
+            })
 
             def resolver(request):
                 authorization, _gateway = self._mcp_authorization(
@@ -329,7 +336,28 @@ class VibeCodingHostTests(unittest.TestCase):
             )
             with patch("portable.vibe_coding_host.subprocess.Popen") as popen:
                 with self.assertRaisesRegex(AdapterUnavailable, "principal_mismatch"):
-                    tool(self._mcp_external_request())
+                    tool(request)
+                popen.assert_not_called()
+
+    def test_consequential_mcp_adapter_requires_matching_durable_provider_claim(self):
+        with tempfile.TemporaryDirectory() as temp:
+            ledger = DurableSideEffectLedger(Path(temp) / "side-effects.sqlite")
+            request = self._mcp_external_request()
+
+            def resolver(request):
+                authorization, _gateway = self._mcp_authorization(request, ledger)
+                return authorization
+
+            tool = MCPStdioToolAdapter(
+                argv=(sys.executable, "-c", "pass"),
+                tool_name="publish",
+                timeout_seconds=5,
+                requires_authority_binding=True,
+                authority_dispatch=build_mcp_authority_dispatch(resolver),
+            )
+            with patch("portable.vibe_coding_host.subprocess.Popen") as popen:
+                with self.assertRaisesRegex(AdapterUnavailable, "authority resolution failed closed"):
+                    tool(request)
                 popen.assert_not_called()
 
     def test_mcp_read_only_authority_binds_exact_request_without_provider_operation(self):
