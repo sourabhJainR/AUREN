@@ -158,3 +158,22 @@ def test_corrupt_action_evidence_chain_blocks_recovery(tmp_path: Path):
     assert not ledger.verify()
     with pytest.raises(GuardPolicyError):
         ledger.unresolved_operations()
+
+
+def test_local_schedule_without_timezone_fails_closed():
+    configured = {**policy(rule("deny-publish", "deny", action="publish")), "hours_local": [9]}
+    with pytest.raises(GuardPolicyError):
+        evaluate_managed_policy(configured, {"action": "publish"}, now=datetime.fromisoformat("2026-10-25T09:00:00+00:00"))
+
+
+def test_action_evidence_does_not_allow_dispatch_receipt_to_claim_success(tmp_path: Path):
+    from portable.guard_policy_management import GuardActionEvidenceLedger
+
+    ledger = GuardActionEvidenceLedger(tmp_path / "evidence.sqlite3")
+    with pytest.raises(GuardPolicyError):
+        ledger.append(
+            event_id="bad:dispatch", identity="worker", delegated_scope=("tool.read",),
+            policy_version="v1", policy_digest="d" * 64, approval_id=None,
+            provider_operation_id="provider-2", verified_outcome="succeeded",
+            event_type="dispatch_authorized", timestamp=10,
+        )
