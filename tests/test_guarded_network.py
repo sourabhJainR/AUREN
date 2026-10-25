@@ -92,7 +92,7 @@ class GuardedNetworkTests(unittest.TestCase):
         self.assertEqual(["example.com"], wrapped)
 
     def test_invalid_dns_resolution_fails_closed(self):
-        with self.assertRaisesRegex(NetworkPolicyDenied, "resolution failed"):
+        with self.assertRaisesRegex(NetworkPolicyDenied, "no addresses"):
             resolve_https_destination(
                 "https://example.com",
                 allowed_hosts=("example.com",),
