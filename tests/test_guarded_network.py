@@ -148,5 +148,21 @@ class GuardedNetworkTests(unittest.TestCase):
                 fetch("https://api.github.com/repos/org/repo/tree")
 
 
+    def test_portable_updater_metadata_uses_pinned_github_hosts(self):
+        from portable.auren_runtime import _http_json
+        with patch(
+            "portable.auren_runtime.guarded_https_get",
+            return_value=(200, b'{"sha":"abc"}'),
+        ) as request:
+            self.assertEqual({"sha": "abc"}, _http_json("https://api.github.com/repos/o/r/commits/main"))
+        self.assertEqual(
+            ("api.github.com", "raw.githubusercontent.com"),
+            request.call_args.kwargs["allowed_hosts"],
+        )
+        with patch("portable.auren_runtime.guarded_https_get", return_value=(403, b"denied")):
+            with self.assertRaisesRegex(SystemExit, "metadata request failed"):
+                _http_json("https://api.github.com/repos/o/r/commits/main")
+
+
 if __name__ == "__main__":
     unittest.main()
