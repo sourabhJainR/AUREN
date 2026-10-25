@@ -6,7 +6,9 @@ attempt/time budget. Resource metrics are best-effort and labelled when absent.
 """
 from __future__ import annotations
 import json
+import math
 import time
+from threading import Event
 import urllib.request
 from dataclasses import dataclass
 from typing import Any, Callable, Mapping
@@ -141,6 +143,55 @@ class HybridModelRouter:
         # tier; only explicit capability metadata outranks name heuristics.
         ranked.sort(key=lambda candidate: (-candidate[0], candidate[1]))
         return [name for _, _, name in ranked]
+
+    def route_supervised(
+        self,
+        request: TaskRouteRequest,
+        *,
+        execution_payload: Mapping[str, Any],
+        execution_guard: RuntimeExecutionGuard | None = None,
+        execution_guard_persist: Callable[[Mapping[str, Any]], None] | None = None,
+    ) -> RouteResult:
+        """Bind supervisor cancellation/deadline controls to bounded model routing."""
+        if not isinstance(execution_payload, Mapping):
+            raise TypeError("execution_payload must be a mapping")
+        cancellation = execution_payload.get("auren_cancel_event")
+        if cancellation is not None and not isinstance(cancellation, Event):
+            raise TypeError("auren_cancel_event must be a threading.Event")
+        deadline_epoch = execution_payload.get("auren_deadline_epoch")
+        timeout = float(request.timeout_seconds)
+        if not math.isfinite(timeout) or timeout <= 0:
+            raise ValueError("request timeout_seconds must be finite and positive")
+        if deadline_epoch is not None:
+            if (
+                isinstance(deadline_epoch, bool)
+                or not isinstance(deadline_epoch, (int, float))
+                or not math.isfinite(float(deadline_epoch))
+            ):
+                raise ValueError("auren_deadline_epoch must be a finite Unix timestamp")
+            remaining = float(deadline_epoch) - time.time()
+            if remaining <= 0:
+                raise ExecutionBudgetExceeded("supervisor deadline expired before model routing")
+            timeout = min(timeout, remaining)
+            if timeout < 0.1:
+                raise ExecutionBudgetExceeded("supervisor deadline leaves insufficient budget for model routing")
+        bounded_request = TaskRouteRequest(
+            request.task, request.capability, request.privacy, request.max_attempts, timeout,
+        )
+        if execution_guard is not None:
+            if cancellation is not None and execution_guard.cancellation_event is not cancellation:
+                raise ValueError("execution guard cancellation event differs from supervisor event")
+            guard = execution_guard
+        else:
+            attempts = max(1, min(int(request.max_attempts), 3))
+            guard = RuntimeExecutionGuard(
+                max_steps=attempts, max_attempts=attempts, deadline_seconds=timeout,
+                cancellation_event=cancellation,
+            )
+        return self.route(
+            bounded_request, execution_guard=guard,
+            execution_guard_persist=execution_guard_persist,
+        )
 
     def route(
         self,
