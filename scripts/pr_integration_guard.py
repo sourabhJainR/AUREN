@@ -11,8 +11,9 @@ import os
 import subprocess
 import sys
 import urllib.error
-import urllib.request
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+
+from portable.guarded_network import guarded_https_get
 from typing import Any
 
 
@@ -73,16 +74,23 @@ def blocking_overlaps(current_pr: dict[str, Any], overlaps: list[dict[str, Any]]
 
 
 def api_json(url: str, token: str) -> Any:
-    request = urllib.request.Request(
+    status, raw = guarded_https_get(
         url,
+        allowed_hosts=("api.github.com",),
         headers={
             "Accept": "application/vnd.github+json",
             "Authorization": f"Bearer {token}",
             "X-GitHub-Api-Version": "2022-11-28",
         },
+        timeout=20,
+        max_bytes=4 * 1024 * 1024,
     )
-    with urllib.request.urlopen(request, timeout=20) as response:
-        return json.load(response)
+    if status >= 400:
+        raise RuntimeError("GitHub API request failed")
+    try:
+        return json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError("GitHub API returned invalid JSON") from exc
 
 
 def api_list(url: str, token: str) -> list[dict[str, Any]]:
