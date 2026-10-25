@@ -11,11 +11,8 @@ import os
 import subprocess
 import sys
 import urllib.error
+import urllib.request
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from portable.guarded_network import guarded_https_get
 from typing import Any
 
 
@@ -75,24 +72,44 @@ def blocking_overlaps(current_pr: dict[str, Any], overlaps: list[dict[str, Any]]
     return blocking
 
 
+class _SameHostRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Keep the CI bootstrap API client on api.github.com across redirects."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        parsed = urlsplit(newurl)
+        if (
+            parsed.scheme != "https"
+            or parsed.hostname != "api.github.com"
+            or parsed.username is not None
+            or parsed.password is not None
+        ):
+            raise urllib.error.HTTPError(
+                req.full_url, code, "redirect outside trusted GitHub API host", headers, fp,
+            )
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
 def api_json(url: str, token: str) -> Any:
-    status, raw = guarded_https_get(
+    parsed = urlsplit(url)
+    if (
+        parsed.scheme != "https"
+        or parsed.hostname != "api.github.com"
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.fragment
+    ):
+        raise ValueError("PR integration API URL is outside the trusted GitHub API host")
+    request = urllib.request.Request(
         url,
-        allowed_hosts=("api.github.com",),
         headers={
             "Accept": "application/vnd.github+json",
             "Authorization": f"Bearer {token}",
             "X-GitHub-Api-Version": "2022-11-28",
         },
-        timeout=20,
-        max_bytes=4 * 1024 * 1024,
     )
-    if status >= 400:
-        raise RuntimeError(f"GitHub API request failed with HTTP {status}: {raw[:200].decode('utf-8', errors='replace')}")
-    try:
-        return json.loads(raw.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise ValueError("GitHub API returned invalid JSON") from exc
+    opener = urllib.request.build_opener(_SameHostRedirectHandler())
+    with opener.open(request, timeout=20) as response:
+        return json.load(response)
 
 
 def api_list(url: str, token: str) -> list[dict[str, Any]]:
