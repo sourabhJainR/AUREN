@@ -145,7 +145,7 @@ def guarded_https_get(
     timeout: float = 10.0,
     max_bytes: int = 2 * 1024 * 1024,
     resolver: Callable[..., list[tuple]] = socket.getaddrinfo,
-    connector: Callable[..., socket.socket] = socket.create_connection,
+    connector: Callable[..., socket.socket] | None = None,
     tls_context: ssl.SSLContext | None = None,
 ) -> tuple[int, bytes]:
     """Perform one bounded HTTPS request through a validated, DNS-pinned socket.
@@ -186,10 +186,11 @@ def guarded_https_get(
     )
     context = tls_context or ssl.create_default_context()
     errors: list[OSError] = []
+    connect = connector or socket.create_connection
     for item in destinations:
         raw = None
         try:
-            raw = connector((item.address, item.port), timeout=float(timeout))
+            raw = connect((item.address, item.port), timeout=float(timeout))
             with context.wrap_socket(raw, server_hostname=item.hostname) as secure:
                 lines = [
                     f"{method} {request_target} HTTP/1.1",
