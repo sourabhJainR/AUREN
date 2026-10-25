@@ -79,3 +79,19 @@ class WorkflowProfileStoreTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+    def test_symlink_profile_parent_is_rejected(self) -> None:
+        external = self.root / "external"
+        external.mkdir()
+        parent_link = self.root / ".auren"
+        try:
+            parent_link.symlink_to(external, target_is_directory=True)
+        except (OSError, NotImplementedError):
+            self.skipTest("directory symlinks are not available on this platform")
+        profile_path = parent_link / "workflow_profile.json"
+        with self.assertRaisesRegex(WorkflowProfileStoreError, "symlink"):
+            load_profile(profile_path)
+        with self.assertRaisesRegex(WorkflowProfileStoreError, "symlink"):
+            save_profile(profile_path, WorkflowProfile())
+        self.assertFalse((external / "workflow_profile.json").exists())
