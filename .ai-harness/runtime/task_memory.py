@@ -110,6 +110,22 @@ def _connect(root: Path) -> sqlite3.Connection:
     return db
 
 
+@contextmanager
+def _managed_connection(root: Path) -> Iterator[sqlite3.Connection]:
+    """Commit/rollback and always close the SQLite handle.
+
+    sqlite3.Connection.__exit__ does not close the connection. Explicit closure
+    is required for deterministic cleanup on Windows, where open handles prevent
+    temporary roots and rollback workspaces from being removed.
+    """
+    db = _connect(root)
+    try:
+        with db:
+            yield db
+    finally:
+        db.close()
+
+
 def record(root: Path, *, task: str, category: str, outcome: str, detail: str,
            command: str | None = None, approach: str | None = None,
            construct_refs: list[str] | None = None, run_id: str | None = None,
@@ -142,7 +158,7 @@ def record(root: Path, *, task: str, category: str, outcome: str, detail: str,
     audit = dbp.with_name("task-memory.jsonl")
 
     with _process_lock(dbp.with_name("task-memory.lock")):
-        with _connect(root) as db:
+        with _managed_connection(root) as db:
             db.execute("BEGIN IMMEDIATE")
             try:
                 existing = db.execute("SELECT id FROM observations WHERE fingerprint=?", (fingerprint,)).fetchone()
@@ -190,7 +206,7 @@ def revise(root: Path, supersedes_id: str, *, outcome: str | None = None, detail
            source_agent: str = "dream-cycle") -> dict[str, Any]:
     """Create a new immutable revision while retaining the complete old record."""
     with _process_lock(_db_path(Path(root)).with_name("task-memory.lock")):
-        with _connect(Path(root)) as db:
+        with _managed_connection(Path(root)) as db:
             old = db.execute("SELECT * FROM observations WHERE id=?", (supersedes_id,)).fetchone()
     if not old:
         raise KeyError(f"learning observation not found: {supersedes_id}")
@@ -227,7 +243,7 @@ def approach_history(root: Path, approach: str, limit: int = 20, *, exact: bool 
     dbp = _db_path(Path(root))
     value = _clean(approach, 1600)
     with _process_lock(dbp.with_name("task-memory.lock")):
-        with _connect(Path(root)) as db:
+        with _managed_connection(Path(root)) as db:
             if exact:
                 rows = db.execute(
                     "SELECT * FROM observations WHERE promotion!='rejected' AND approach=? "
@@ -248,7 +264,7 @@ def relevant(root: Path, task: str, limit: int = 20) -> list[dict[str, Any]]:
     terms = {x.lower() for x in str(task).split() if len(x) > 2}
     found = []
     with _process_lock(dbp.with_name("task-memory.lock")):
-        with _connect(Path(root)) as db:
+        with _managed_connection(Path(root)) as db:
             rows = db.execute("SELECT * FROM observations WHERE promotion!='rejected' ORDER BY recorded_at DESC").fetchall()
     for raw in rows:
         row = _row_to_dict(raw)
@@ -288,7 +304,7 @@ def guidance(root: Path, task: str, limit: int = 3000) -> str:
 def history(root: Path, learning_key: str, limit: int = 20) -> list[dict[str, Any]]:
     """Return all preserved revisions for audit/debugging, newest first."""
     with _process_lock(_db_path(Path(root)).with_name("task-memory.lock")):
-        with _connect(Path(root)) as db:
+        with _managed_connection(Path(root)) as db:
             rows = db.execute("SELECT * FROM observations WHERE learning_key=? ORDER BY revision DESC LIMIT ?", (learning_key, max(1, int(limit)))).fetchall()
     return [_row_to_dict(row) for row in rows]
 
