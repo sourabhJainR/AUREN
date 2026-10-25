@@ -681,10 +681,27 @@ class MCPExecutionAuthorization:
                 raise ValueError("MCP provider operation ID is required")
             if not isinstance(idempotency_key, str) or not idempotency_key.strip():
                 raise ValueError("MCP provider idempotency key is required")
+            provider = operation.get("provider")
+            if not isinstance(provider, str) or not provider.strip():
+                raise ValueError("MCP provider identity is required")
             if not isinstance(self.provider_operation_ledger, DurableSideEffectLedger):
                 raise ValueError("MCP consequential dispatch requires the canonical provider-operation ledger")
             if self.gateway.side_effect_ledger is not self.provider_operation_ledger:
                 raise ValueError("MCP authority and provider lifecycle must share one canonical side-effect ledger")
+            provider_intent = {key: value for key, value in request.items() if key != "provider_operation"}
+            expected_provider_payload = {
+                "provider": provider,
+                "operation_id": operation_id,
+                "intent": provider_intent,
+            }
+            provider_record = self.provider_operation_ledger.get(idempotency_key)
+            if (
+                provider_record is None
+                or provider_record.get("state") != "executing"
+                or provider_record.get("payload_digest")
+                != DurableSideEffectLedger.digest_payload(expected_provider_payload)
+            ):
+                raise ValueError("MCP dispatch requires a matching active durable provider-operation claim")
             if self.action_request.action_id != operation_id:
                 raise ValueError("MCP action ID must match the durable provider operation ID")
             if self.action_request.idempotency_key != mcp_action_idempotency_key(operation_id):
