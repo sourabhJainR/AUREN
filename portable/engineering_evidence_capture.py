@@ -186,6 +186,8 @@ class EvidenceCapture:
             "checkpoint_digest", "crew_plan_digest", "retry_budget_digest",
             "plan_digest", "packet_digest", "dispatch_key_digest", "binding_digest", "run_revision",
             "provider_resume_digest", "intent_digest", "operation_id", "provider", "operation_state", "approval_id",
+            "workflow_profile_version", "workflow_delivery_mode", "workflow_execution_mode",
+            "workflow_approval_mode", "workflow_review_mode", "workflow_recovery_mode",
         }
         if "signature_verified" in metadata:
             raise ValueError("signature_verified is derived from the verified receipt store, not caller metadata")
