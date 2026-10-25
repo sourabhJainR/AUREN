@@ -41,7 +41,7 @@ def test_guard_policy_denial_blocks_dispatch_before_handler(tmp_path: Path):
     assert row is not None
     metadata = json.loads(row[0])
     assert metadata["guard_policy_digest"] != "builtin-baseline"
-    assert metadata["workflow_profile_receipt"]["profile_digest"] == task.payload["_auren_workflow_profile_digest"]
+    assert metadata["workflow_profile_digest"] == task.payload["_auren_workflow_profile_digest"]
 
 
 def test_profile_receipt_records_modes_without_business_payload(tmp_path: Path):
@@ -63,10 +63,9 @@ def test_profile_receipt_records_modes_without_business_payload(tmp_path: Path):
     assert row is not None
     encoded = row[0]
     metadata = json.loads(encoded)
-    receipt = metadata["workflow_profile_receipt"]
-    assert receipt["profile_digest"] == profile.digest
-    assert receipt["delivery_mode"] == "working_tree"
-    assert receipt["review_mode"] == "security_focused"
+    assert metadata["workflow_profile_digest"] == profile.digest
+    assert metadata["workflow_delivery_mode"] == "working_tree"
+    assert metadata["workflow_review_mode"] == "security_focused"
     assert "private_business_input" not in encoded
     assert "must-not-enter-receipt" not in encoded
 
