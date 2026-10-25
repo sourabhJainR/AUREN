@@ -162,6 +162,13 @@ class AgentTeamOrchestrator:
                             findings=(durable_verdict.reason,),
                             detail=f"AUREN durable side-effect gate blocked specialist execution: {durable_verdict.reason}",
                         )
+                    binding_verdict = governance_gateway.unbound_external_effect_preflight(request)
+                    if binding_verdict is not None:
+                        return AgentOutput(
+                            unit.unit_id, "blocked",
+                            findings=(binding_verdict.reason,),
+                            detail="AUREN blocks external-effect dispatch without execution authority binding.",
+                        )
                     result = governance_gateway.execute(request, handler, approval=approval)
                 if not result.executed or not captured:
                     return AgentOutput(

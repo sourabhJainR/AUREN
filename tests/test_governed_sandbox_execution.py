@@ -1,4 +1,6 @@
+import tempfile
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 
 from portable.action_governance import ActionGovernanceGateway, ActionPolicy, ActionRequest
@@ -6,6 +8,7 @@ from portable.execution_boundary import ExecutionAuthorityBinding
 from portable.runtime_recovery import RuntimeExecutionGuard
 from portable.governed_sandbox_execution import execute_governed_sandbox
 from portable.openshell_sandbox import OpenShellExecutionRequest
+from portable.side_effect_ledger import DurableSideEffectLedger
 
 
 class FakeBackend:
@@ -182,6 +185,22 @@ class GovernedSandboxExecutionTests(unittest.TestCase):
         self.assertTrue(gateway.verify_trace()["passed"])
 
 
+
+    def test_legacy_sandbox_path_blocks_external_effect_even_with_durable_ledger(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            ledger = DurableSideEffectLedger(Path(temp_dir) / "side-effects.sqlite")
+            gateway = ActionGovernanceGateway(ActionPolicy(
+                allowed_capabilities=frozenset({"repository.read", "repository.write"}),
+                external_effect_actions=frozenset({"specialist.execute"}),
+                require_idempotency_for_external_effects=False,
+            ), side_effect_ledger=ledger)
+            backend = FakeBackend()
+            receipt = execute_governed_sandbox(gateway, backend, make_action(), make_request())
+            self.assertFalse(receipt.action_executed)
+            self.assertEqual(receipt.policy_verdict.reason, "execution_authority_binding_required")
+            self.assertEqual(backend.calls, [])
+            self.assertIn("unbound_external_effect_blocked", [event["event"] for event in gateway.events])
+            self.assertTrue(gateway.verify_trace()["passed"])
 
     def test_legacy_sandbox_path_blocks_external_effect_without_durable_ledger(self):
         gateway = ActionGovernanceGateway(ActionPolicy(

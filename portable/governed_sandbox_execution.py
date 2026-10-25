@@ -82,9 +82,15 @@ def execute_governed_sandbox(
         if any(value is not None for value in binding_args[1:]):
             raise ValueError("authority is required when execution-binding arguments are supplied")
         durable_verdict = gateway.durable_side_effect_preflight(action)
-        result = (
-            GovernedResult(False, durable_verdict)
+        binding_verdict = (
+            None
             if durable_verdict is not None
+            else gateway.unbound_external_effect_preflight(action)
+        )
+        blocked_verdict = durable_verdict or binding_verdict
+        result = (
+            GovernedResult(False, blocked_verdict)
+            if blocked_verdict is not None
             else gateway.execute(action, handler, approval=approval)
         )
     else:

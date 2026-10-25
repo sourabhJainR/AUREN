@@ -7,6 +7,7 @@ from portable.agency_artifact_regression import snapshot_artifact
 from portable.agency_multi_specialist import SpecialistResourceProfile
 from portable.ai_coding_agency_bridge import CodingTask, run_coding_task, verify_provenance
 from portable.action_governance import ActionGovernanceGateway, ActionPolicy
+from portable.side_effect_ledger import DurableSideEffectLedger
 from portable.execution_boundary import ExecutionAuthorityBinding
 from portable.runtime_recovery import RuntimeExecutionGuard
 from portable.engineering_personas import AgentPersona, EngineeringPlan, PersonaReview, PersonaRoster, PersonaWorkflow
@@ -380,6 +381,32 @@ class AICodingAgencyBridgeTests(unittest.TestCase):
         self.assertEqual(captured_requests[0].action_id, "run-governed-multi-scope:coding-worker")
         self.assertTrue(gateway.verify_trace()["passed"])
 
+
+    def test_legacy_coding_worker_path_blocks_external_effect_even_with_durable_ledger(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            ledger = DurableSideEffectLedger(Path(temp_dir) / "side-effects.sqlite")
+            gateway = ActionGovernanceGateway(ActionPolicy(
+                allowed_capabilities=frozenset({"repository.read", "repository.write"}),
+                external_effect_actions=frozenset({"specialist.execute"}),
+                require_idempotency_for_external_effects=False,
+            ), side_effect_ledger=ledger)
+            task = CodingTask(
+                "run-legacy-external-bound", "publish a consequential change",
+                mutation_mode="bounded", allowed_artifact_changes=("src/api.py",),
+            )
+            calls = []
+            result = run_coding_task(
+                task, lambda profile, assignments: calls.append("worker") or self._worker(profile, assignments),
+                governance_gateway=gateway, run_id="legacy-external-bound-run",
+            )
+            self.assertFalse(result.ready)
+            self.assertEqual(calls, [])
+            self.assertTrue(any(
+                "execution_authority_binding_required" in finding.message
+                for finding in result.execution.findings
+            ))
+            self.assertIn("unbound_external_effect_blocked", [event["event"] for event in gateway.events])
+            self.assertTrue(gateway.verify_trace()["passed"])
 
     def test_legacy_coding_worker_path_blocks_external_effect_without_durable_ledger(self):
         gateway = ActionGovernanceGateway(ActionPolicy(

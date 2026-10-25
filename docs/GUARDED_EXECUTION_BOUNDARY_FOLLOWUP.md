@@ -8,7 +8,7 @@
 | Boundary | Existing route/control | What this change adds | Remaining proof required |
 |---|---|---|---|
 | Registered task handler | ExecutionController final Guard recheck and durable dispatch receipt (PR #978) | No change to controller boundary in this PR | Prove all production handler registrations are classified and nested actions cannot escape the boundary |
-| Direct action gateway | ActionGovernanceGateway.execute; reviewed callsite registry in portable/execution_boundary.py; AST regression in tests/test_execution_boundary.py | Durable policy/version/identity/scope/approval/provider-operation/outcome evidence primitive | Convert every legacy optional-authority branch to mandatory bound mode for consequential effects, or prove a separately safe equivalent |
+| Direct action gateway | ActionGovernanceGateway.execute; reviewed callsite registry in portable/execution_boundary.py; AST regression in tests/test_execution_boundary.py | Durable policy/version/identity/scope/approval/provider-operation/outcome evidence primitive; legacy unbound adapters now reject policy-classified external effects even when a ledger exists | Wire equivalent enforcement to every real provider/MCP/filesystem/network adapter and prove denial before the actual side effect |
 | Provider operation | portable/provider_operation_lifecycle.py, portable/side_effect_ledger.py, gateway preflight | GuardActionEvidenceLedger records pending/unknown outcomes and refuses recovery from a broken chain | Wire the ledger to every real provider adapter and verify remote outcome before terminal success |
 | MCP/tool dispatch | Provider and registered-handler integration points | Organization Guard supports a network context matcher | Inventory each MCP client/server and nested tool call; ensure the decision is made at the actual call boundary, not just at plan time |
 | Subprocess | Existing supervised subprocess and sandbox adapters | Policy primitives can scope the authorized action before an adapter runs | Enumerate every subprocess launch API and prove argv, environment, cwd, credentials, timeout, cancellation, and child process behavior are mediated |
@@ -63,3 +63,12 @@ closure until those gates and host isolation evidence pass.
 Rollback: revert the inventory-test commit if it causes unrelated CI instability;
 do not remove the existing execution-boundary controls. Any registry update must
 include the callsite review and a regression test in the same change.
+
+
+## Mandatory binding for unbound external-effect paths (2026-10-25)
+
+The gateway now exposes `unbound_external_effect_preflight()`. It uses the gateway's own classification (`risk == "external_effect"` or an action in the configured `external_effect_actions`), emits a denial event, and returns `execution_authority_binding_required`. The governed sandbox, coding-agency bridge, and team orchestrator call this preflight on legacy paths after durable-ledger preflight. A durable ledger is necessary for safe external effects, but it does not replace immutable run/task/actor/scope/revision/budget binding.
+
+Legacy read/write calls remain compatible when the gateway policy does not classify them as external effects. Authority-bound calls continue through `execute_bound_action`.
+
+Rollback: do not restore unbound external-effect dispatch. If this gate causes an operational regression, disable or deny the affected action route while correcting the caller; keep the preflight and denial-before-handler tests in place.

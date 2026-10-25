@@ -202,6 +202,27 @@ class ActionGovernanceGateway:
         })
         return verdict
 
+    def unbound_external_effect_preflight(self, request: ActionRequest) -> PolicyVerdict | None:
+        """Block external effects on legacy paths without immutable execution authority.
+
+        Call only when the adapter has no ExecutionAuthorityBinding. A durable
+        side-effect ledger fences duplicate dispatch, but does not bind the actor,
+        task, repository revision, delegated scope, or execution budget.
+        """
+        request.validate()
+        if not self.is_external_effect(request):
+            return None
+        fingerprint = request.fingerprint()
+        verdict = PolicyVerdict("deny", "execution_authority_binding_required", fingerprint)
+        self._append_event({
+            "event": "unbound_external_effect_blocked",
+            "run_id": request.run_id,
+            "action_id": request.action_id,
+            "reason": verdict.reason,
+            "request_fingerprint": fingerprint,
+        })
+        return verdict
+
     @property
     def events(self) -> tuple[dict[str, Any], ...]:
         with self._lock:

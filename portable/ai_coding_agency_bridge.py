@@ -257,6 +257,14 @@ def run_coding_task(task:CodingTask,worker:Callable[[TaskProfile,list[Assignment
                         "findings": [ReviewFinding("blocker", f"action_governance:{durable_verdict.reason}")],
                         "evidence": [],
                     }
+                binding_verdict = governance_gateway.unbound_external_effect_preflight(scope_request)
+                if binding_verdict is not None:
+                    return {
+                        "deliverables": [], "verification": [],
+                        "dimensions": {}, "hard_gates": {"action_governance": False},
+                        "findings": [ReviewFinding("blocker", f"action_governance:{binding_verdict.reason}")],
+                        "evidence": [],
+                    }
                 result = governance_gateway.execute(
                     scope_request,
                     handler,
