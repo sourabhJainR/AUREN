@@ -1103,23 +1103,20 @@ class ExecutionController:
                 effective_profile = WorkflowProfile.from_mapping(profile_data)
                 if effective_profile.digest != profile_digest:
                     raise RuntimeError("workflow profile receipt digest mismatch")
-                safe_metadata["workflow_profile_receipt"] = {
-                    "profile_version": effective_profile.profile_version,
-                    "profile_digest": effective_profile.digest,
-                    "delivery_mode": effective_profile.delivery_mode,
-                    "execution_mode": effective_profile.execution_mode,
-                    "approval_mode": effective_profile.approval_mode,
-                    "review_mode": effective_profile.review_mode,
-                    "recovery_mode": effective_profile.recovery_mode,
-                }
+                safe_metadata["workflow_profile_version"] = effective_profile.profile_version
+                safe_metadata["workflow_profile_digest"] = effective_profile.digest
+                safe_metadata["workflow_delivery_mode"] = effective_profile.delivery_mode
+                safe_metadata["workflow_execution_mode"] = effective_profile.execution_mode
+                safe_metadata["workflow_approval_mode"] = effective_profile.approval_mode
+                safe_metadata["workflow_review_mode"] = effective_profile.review_mode
+                safe_metadata["workflow_recovery_mode"] = effective_profile.recovery_mode
             except (TypeError, ValueError) as exc:
                 raise RuntimeError("cannot record invalid workflow profile receipt") from exc
         try:
             configured_policy = load_guard_policy(self.root / ".auren" / "guard_policy.json")
-            safe_metadata["guard_policy_digest"] = (
-                evaluate_guard_policy(configured_policy, {}).policy_digest
-                if configured_policy is not None else "builtin-baseline"
-            )
+            safe_metadata["guard_policy_digest"] = evaluate_guard_policy(
+                configured_policy, {},
+            ).policy_digest
         except (GuardPolicyError, OSError, ValueError):
             safe_metadata["guard_policy_status"] = "invalid"
         self.evidence_capture.record(
