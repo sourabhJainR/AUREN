@@ -853,6 +853,7 @@ class CapabilityExecutioner:
         *,
         request: str,
         options: Iterable[CapabilityOption],
+        explicit_request: str | None = None,
         required: Iterable[str] = (),
         failed: Iterable[str] = (),
         network_allowed: bool = True,
@@ -1132,10 +1133,11 @@ class CapabilityExecutioner:
         options = tuple(options)
         required_set = set(required)
         failed_set = set(failed)
-        explicit_required, explicit_excluded = self._explicit_constraints(request, options)
+        directive_text = request if explicit_request is None else explicit_request
+        explicit_required, explicit_excluded = self._explicit_constraints(directive_text, options)
         required_set.update(explicit_required)
         failed_set.update(explicit_excluded)
-        if re.search(r"\b(?:use only|only use)\b", request, re.IGNORECASE):
+        if re.search(r"\b(?:use only|only use)\b", directive_text, re.IGNORECASE):
             if not required_set:
                 raise LookupError("explicit-only capability directive did not resolve to a known option")
             failed_set.update(option.name for option in options if option.name not in required_set)
