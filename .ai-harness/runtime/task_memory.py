@@ -11,7 +11,7 @@ import json
 import os
 import sqlite3
 import time
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from pathlib import Path
 from typing import Any, Iterator
 
@@ -142,7 +142,7 @@ def record(root: Path, *, task: str, category: str, outcome: str, detail: str,
     audit = dbp.with_name("task-memory.jsonl")
 
     with _process_lock(dbp.with_name("task-memory.lock")):
-        with _connect(root) as db:
+        with closing(_connect(root)) as db, db:
             db.execute("BEGIN IMMEDIATE")
             try:
                 existing = db.execute("SELECT id FROM observations WHERE fingerprint=?", (fingerprint,)).fetchone()
@@ -190,7 +190,7 @@ def revise(root: Path, supersedes_id: str, *, outcome: str | None = None, detail
            source_agent: str = "dream-cycle") -> dict[str, Any]:
     """Create a new immutable revision while retaining the complete old record."""
     with _process_lock(_db_path(Path(root)).with_name("task-memory.lock")):
-        with _connect(Path(root)) as db:
+        with closing(_connect(Path(root))) as db, db:
             old = db.execute("SELECT * FROM observations WHERE id=?", (supersedes_id,)).fetchone()
     if not old:
         raise KeyError(f"learning observation not found: {supersedes_id}")
@@ -227,7 +227,7 @@ def approach_history(root: Path, approach: str, limit: int = 20, *, exact: bool 
     dbp = _db_path(Path(root))
     value = _clean(approach, 1600)
     with _process_lock(dbp.with_name("task-memory.lock")):
-        with _connect(Path(root)) as db:
+        with closing(_connect(Path(root))) as db, db:
             if exact:
                 rows = db.execute(
                     "SELECT * FROM observations WHERE promotion!='rejected' AND approach=? "
@@ -248,7 +248,7 @@ def relevant(root: Path, task: str, limit: int = 20) -> list[dict[str, Any]]:
     terms = {x.lower() for x in str(task).split() if len(x) > 2}
     found = []
     with _process_lock(dbp.with_name("task-memory.lock")):
-        with _connect(Path(root)) as db:
+        with closing(_connect(Path(root))) as db, db:
             rows = db.execute("SELECT * FROM observations WHERE promotion!='rejected' ORDER BY recorded_at DESC").fetchall()
     for raw in rows:
         row = _row_to_dict(raw)
@@ -288,7 +288,7 @@ def guidance(root: Path, task: str, limit: int = 3000) -> str:
 def history(root: Path, learning_key: str, limit: int = 20) -> list[dict[str, Any]]:
     """Return all preserved revisions for audit/debugging, newest first."""
     with _process_lock(_db_path(Path(root)).with_name("task-memory.lock")):
-        with _connect(Path(root)) as db:
+        with closing(_connect(Path(root))) as db, db:
             rows = db.execute("SELECT * FROM observations WHERE learning_key=? ORDER BY revision DESC LIMIT ?", (learning_key, max(1, int(limit)))).fetchall()
     return [_row_to_dict(row) for row in rows]
 
