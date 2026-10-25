@@ -58,6 +58,35 @@ def reviewed_trace_to_dataset_item(trace: Any, review: ReviewedTraceExample) -> 
     )
 
 
+def _append_reviewed_idempotently(
+    existing_items: tuple[DatasetItem, ...], item: DatasetItem,
+) -> tuple[DatasetItem, ...]:
+    """Append a reviewed example once, rejecting conflicting reuse of its review identity."""
+    metadata = item.metadata
+    identity = (
+        metadata.get("source_trace_id"),
+        metadata.get("source_event_digest"),
+        metadata.get("reviewer_id"),
+        metadata.get("review_evidence_ref"),
+    )
+    if not all(isinstance(part, str) and part for part in identity):
+        raise ValueError("reviewed trace item is missing stable ingestion identity")
+    for existing in existing_items:
+        prior = existing.metadata
+        prior_identity = (
+            prior.get("source_trace_id"),
+            prior.get("source_event_digest"),
+            prior.get("reviewer_id"),
+            prior.get("review_evidence_ref"),
+        )
+        if prior_identity != identity:
+            continue
+        if existing.input != item.input or existing.expected != item.expected or dict(existing.metadata) != dict(item.metadata):
+            raise ValueError("reviewed trace ingestion identity conflicts with existing example")
+        return existing_items
+    return existing_items + (item,)
+
+
 class DatasetRegistry:
     """In-memory immutable name/version registry; durable deployments must persist it."""
 
@@ -94,7 +123,7 @@ class DatasetRegistry:
         if base_version is not None:
             existing_items = self.get(name, base_version).items
         new_item = reviewed_trace_to_dataset_item(trace, review)
-        return self.register(Dataset(name, version, existing_items + (new_item,)))
+        return self.register(Dataset(name, version, _append_reviewed_idempotently(existing_items, new_item)))
 
 
 class SQLiteDatasetRegistry:
@@ -191,7 +220,7 @@ class SQLiteDatasetRegistry:
     ) -> Dataset:
         existing_items = self.get(name, base_version).items if base_version is not None else ()
         item = reviewed_trace_to_dataset_item(trace, review)
-        return self.register(Dataset(name, version, existing_items + (item,)))
+        return self.register(Dataset(name, version, _append_reviewed_idempotently(existing_items, item)))
 
 
 @dataclass(frozen=True)
