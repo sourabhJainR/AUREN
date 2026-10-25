@@ -26,7 +26,7 @@ from portable.experience_router import ExperienceRouter
 from portable.execution_strategy import PathwayOptimizer, execution_strategy, max_verification_depth
 from portable.autonomous_evolution_controller import AutonomousEvolutionController
 from portable.autonomous_capability_invention import CapabilityComposition
-from portable.agent_capabilities import CapabilityAuditLedger, CapabilityExecutioner, CapabilityOption
+from portable.agent_capabilities import CapabilityAuditLedger, CapabilityExecutioner, CapabilityFabric, CapabilityOption
 from portable.skill_evidence import attribute, assess_collaboration
 from portable.skill_group_evidence import adapt_execution_groups, attribute_groups
 from portable.execution_strategy_learning import ExecutionStrategyLearner
@@ -439,14 +439,29 @@ class GraphAgentTeam:
                     for name in declared_capabilities
                     if not any(option.name == name for option in installed)
                 )
-                # Audit the full advertised inventory before token-efficient
-                # candidate pruning; otherwise unselected resources disappear
-                # from the audit trail and cannot be compared across runs.
+                # Audit every advertised integration plus the full built-in
+                # capability catalogue before token-efficient candidate pruning.
+                # Catalogue entries are namespaced for audit only; declared and
+                # discovered options remain the executable candidate set.
+                core_catalog = CapabilityFabric().discover()
+                inventory_options = list(discovered_options)
+                inventory_names = {option.name for option in inventory_options}
+                for capability in core_catalog.values():
+                    audit_name = "core:" + capability.name
+                    if audit_name in inventory_names:
+                        continue
+                    inventory_options.append(CapabilityOption(
+                        name=audit_name, source="core", description=capability.description,
+                        tags=frozenset(str(token).lower() for token in (capability.name + " " + capability.description).replace("_", " ").split()),
+                        risk=capability.risk, requires_network=capability.requires_network,
+                        requires_sandbox=capability.requires_sandbox, model_invocable=False,
+                    ))
+                    inventory_names.add(audit_name)
                 capability_audit = CapabilityAuditLedger(
                     Path(memory.project_root) / ".auren" / "capability_audit.sqlite3"
                 )
                 capability_audit.record_inventory(
-                    discovered_options, run_id=intent_digest, stage=agent.name, crew_id=agent.role,
+                    inventory_options, run_id=intent_digest, stage=agent.name, crew_id=agent.role,
                 )
                 dynamic_options = self.capability_executioner.candidate_portfolio(
                     discovered_options,
