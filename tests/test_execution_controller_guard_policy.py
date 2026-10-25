@@ -152,3 +152,31 @@ def test_guard_action_comes_from_trusted_registration_not_task_payload(tmp_path:
 
     assert not marker.exists()
     assert controller.task(task.id).state != "completed"
+
+
+def test_policy_tightening_between_submit_and_dispatch_is_enforced(tmp_path: Path):
+    controller = ExecutionController(tmp_path)
+    controller.register_handler(
+        "tests.mutable_policy_handler", guarded_marker_handler,
+        execution_class="read_only", guard_action="read",
+    )
+    policy_path = tmp_path / ".auren" / "guard_policy.json"
+    policy_path.parent.mkdir(parents=True, exist_ok=True)
+    policy_path.write_text(json.dumps({
+        "schema_version": "auren-guard-v1",
+        "default_effect": "allow",
+        "rules": [],
+    }), encoding="utf-8")
+    marker = tmp_path / "must-not-run.txt"
+    task = controller.submit("tests.mutable_policy_handler", {"marker_path": str(marker)})
+
+    # Policy is changed after durable submission but before any handler dispatch.
+    policy_path.write_text(json.dumps({
+        "schema_version": "auren-guard-v1",
+        "default_effect": "allow",
+        "rules": [{"id": "deny-read", "effect": "deny", "action": "read"}],
+    }), encoding="utf-8")
+    controller.run_once(task.id)
+
+    assert not marker.exists()
+    assert controller.task(task.id).state != "completed"
