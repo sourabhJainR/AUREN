@@ -95,6 +95,22 @@ class GraphWorkspaceAdoptionTests(unittest.TestCase):
             self.coordinator.adopt(proposal)
         self.assertFalse((self.repo / "src" / "feature.py").exists())
 
+    def test_failed_adoption_cancels_siblings_and_records_failure(self):
+        workspace_a = self.coordinator.create_worker("worker-a", ["src/a.py"])
+        self.coordinator.create_worker("worker-b", ["src/b.py"])
+        (workspace_a / "src" / "a.py").write_text("a = 1\n", encoding="utf-8")
+        proposal = self.coordinator.prepare_proposal("worker-a")
+        (self.repo / "README.md").write_text("# dirty target\n", encoding="utf-8")
+        with self.assertRaisesRegex(PermissionError, "not clean"):
+            self.coordinator.adopt(proposal)
+        states = self.coordinator.worker_states()
+        self.assertEqual(states["worker-a"], "failed")
+        self.assertEqual(states["worker-b"], "cancel_requested")
+        self.assertTrue(Path(proposal.artifact_path).is_file())
+        self.coordinator.cleanup_worker("worker-a")
+        self.coordinator.mark_worker_stopped("worker-b")
+        self.coordinator.cleanup_worker("worker-b")
+
     def test_cancellation_blocks_new_workers_and_does_not_claim_sibling_stopped(self):
         self.coordinator.create_worker("worker-a", ["src/a.py"])
         states = self.coordinator.cancel_siblings("hard safety failure")
