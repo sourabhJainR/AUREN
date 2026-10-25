@@ -2717,6 +2717,10 @@ class ExecutionController:
                     "intent_digest": str(event.get("intent_digest", "")),
                     "provider": provider_name,
                     "operation_state": operation_state,
+                    "guard_action": guard_action or "unclassified",
+                    "guard_policy_digest": guard_decision.policy_digest,
+                    "guard_decision": guard_decision.effect,
+                    "guard_rule_ids": ",".join(guard_decision.matched_rule_ids) or "none",
                 }
                 if hasattr(task, "work_unit_id") and hasattr(task, "attempts"):
                     self._capture_event(
@@ -2803,6 +2807,10 @@ class ExecutionController:
                 "intent_digest": str(event.get("intent_digest", "")),
                 "provider": provider_name,
                 "operation_state": operation_state,
+                    "guard_action": guard_action or "unclassified",
+                    "guard_policy_digest": guard_decision.policy_digest,
+                    "guard_decision": guard_decision.effect,
+                    "guard_rule_ids": ",".join(guard_decision.matched_rule_ids) or "none",
             }
             if hasattr(task, "work_unit_id") and hasattr(task, "attempts"):
                 self._capture_event("provider_operation_" + operation_state, task,
