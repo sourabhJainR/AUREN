@@ -170,7 +170,7 @@ class ProviderOperationLifecycle:
             if not isinstance(receipt.get("auren_operation_id"), str) or receipt["auren_operation_id"] != op_id:
                 mismatched_binding = "auren_operation_id"
         if mismatched_binding is not None:
-            reason = f"provider receipt {mismatched_binding} is missing or does not match requested operation"
+            reason = f"provider receipt binding for {mismatched_binding} is missing or belongs to a different operation"
             self.ledger.require_reconciliation(operation_key, reason)
             self._event(
                 operation_key, "reconcile_required", op_id, decision.payload_digest,
