@@ -9,8 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 import hashlib
 import json
-from pathlib import Path
 from fnmatch import fnmatchcase
+from pathlib import Path
 from typing import Any, Mapping
 
 POLICY_VERSION = "auren-guard-v1"
@@ -156,7 +156,10 @@ def evaluate_guard_policy(
     matched: list[Mapping[str, str]] = []
     for rule in normalized["rules"]:
         if all(
-            key in safe_context and (rule[key] == "*" or rule[key] == safe_context[key])
+            key in safe_context and (
+                rule[key] == safe_context[key]
+                or ("*" in rule[key] and fnmatchcase(safe_context[key], rule[key]))
+            )
             for key in rule if key in _MATCH_FIELDS
         ):
             matched.append(rule)
