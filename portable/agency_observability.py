@@ -60,8 +60,15 @@ def _safe(value: Any, limit: int = 4000, _depth: int = 0) -> Any:
             result[safe_key] = "[REDACTED]" if _SECRET.search(str(key)) else _safe(item, limit, _depth + 1)
         return result
     if isinstance(value, (list, tuple, set, frozenset)):
-        items = list(value)
-        result = [_safe(item, limit, _depth + 1) for item in items[:100]]
+        # Sets have no stable iteration order. Canonicalize their sanitized
+        # members before hashing/export so equivalent metadata has repeatable
+        # digests across processes and restarts. Never sort with repr().
+        items = [_safe(item, limit, _depth + 1) for item in value]
+        if isinstance(value, (set, frozenset)):
+            items.sort(key=lambda item: json.dumps(
+                item, sort_keys=True, separators=(",", ":"), allow_nan=False,
+            ))
+        result = items[:100]
         if len(items) > 100:
             result.append("[TRUNCATED]")
         return result
