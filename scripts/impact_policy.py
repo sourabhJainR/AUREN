@@ -54,6 +54,13 @@ _RULES: tuple[tuple[str, tuple[str, ...], bool], ...] = (
     ("portable/durable_approval.py", ("tests.test_durable_approval", "tests.test_side_effect_ledger", "tests.test_execution_controller", "tests.test_execution_boundary"), True),
     ("portable/provider_operation_lifecycle.py", ("tests.test_provider_operation_lifecycle", "tests.test_side_effect_ledger"), True),
     ("portable/ci_repair_watchdog.py", ("tests.test_ci_repair_watchdog", "tests.test_engineering_recovery"), True),
+    ("portable/governed_sandbox_execution.py", ("tests.test_governed_sandbox_execution", "tests.test_execution_boundary", "tests.test_durable_approval", "tests.test_side_effect_ledger"), True),
+    ("tests/test_governed_sandbox_execution.py", ("tests.test_governed_sandbox_execution", "tests.test_execution_boundary", "tests.test_side_effect_ledger"), True),
+    ("portable/ai_coding_agency_bridge.py", ("tests.test_ai_coding_agency_bridge", "tests.test_execution_boundary", "tests.test_durable_approval"), True),
+    ("tests/test_ai_coding_agency_bridge.py", ("tests.test_ai_coding_agency_bridge", "tests.test_execution_boundary"), True),
+    ("portable/agency_team_orchestrator.py", ("tests.test_agency_team_orchestrator", "tests.test_execution_boundary", "tests.test_durable_approval"), True),
+    ("tests/test_agency_team_orchestrator.py", ("tests.test_agency_team_orchestrator", "tests.test_execution_boundary"), True),
+    ("tests/test_execution_boundary.py", ("tests.test_execution_boundary", "tests.test_durable_approval", "tests.test_side_effect_ledger"), True),
     ("portable/action_governance.py", ("tests.test_durable_approval", "tests.test_execution_boundary"), True),
     ("portable/execution_boundary.py", ("tests.test_execution_boundary", "tests.test_durable_approval"), True),
     ("portable/continuous_execution.py", ("tests.test_continuous_execution", "tests.test_ci_repair_watchdog", "tests.test_engineering_recovery"), True),
@@ -139,7 +146,7 @@ _SENSITIVE_PREFIXES = (
     ".ai-harness/security", ".ai-harness/runtime/rollback",
 )
 _SENSITIVE_NAMES = ("authority", "security", "guard", "approval", "rollback", "recovery", "side_effect", "execution_controller",
-                    "progress_journal", "canonical_evidence", "engineering_evidence", "provider_operation", "action_governance", "arena", "sealed", "evaluator", "sandbox", "corpus", "external_evaluation", "independent_evaluation", "attestation", "evolution_gates", "improvement_journal")
+                    "progress_journal", "canonical_evidence", "engineering_evidence", "provider_operation", "action_governance", "execution_boundary", "ai_coding_agency_bridge", "agency_team_orchestrator", "arena", "sealed", "evaluator", "sandbox", "corpus", "external_evaluation", "independent_evaluation", "attestation", "evolution_gates", "improvement_journal")
 
 
 def is_sensitive_path(path: str) -> bool:
