@@ -92,3 +92,12 @@ def test_missing_policy_is_distinct_and_uses_safe_baseline(tmp_path: Path):
     decision = evaluate_guard_policy(None, {"action": "read"})
     assert decision.allowed
     assert len(decision.policy_digest) == 64
+
+def test_scoped_globs_and_malformed_types_are_handled_safely():
+    configured = policy(rule("deny-prod", "deny", resource="prod/*"))
+    assert not evaluate_guard_policy(configured, {"resource": "prod/customer-7"}).allowed
+    assert evaluate_guard_policy(configured, {"resource": "dev/customer-7"}).allowed
+    with pytest.raises(GuardPolicyError):
+        validate_policy({"schema_version": POLICY_VERSION, "default_effect": [], "rules": []})
+    with pytest.raises(GuardPolicyError):
+        validate_policy(policy(rule("bad-effect", [], action="read")))
