@@ -223,6 +223,7 @@ class VibeCodingHostTests(unittest.TestCase):
                 argument_map={"query": "$intent"},
                 timeout_seconds=5,
                 requires_authority_binding=False,
+                trusted_workspace_root=project,
             )
             result = tool({"stage": "research", "intent": "test", "state": {"workspace_root": str(project)}})
             self.assertEqual(result["competitors"], ["example.com"])
