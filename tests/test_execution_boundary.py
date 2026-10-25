@@ -93,6 +93,14 @@ class ExecutionBoundaryTests(unittest.TestCase):
             def __init__(self, relative_path):
                 self.relative_path = relative_path
                 self.scope = []
+                self.urlopen_aliases = set()
+
+            def visit_ImportFrom(self, node):
+                if node.module == "urllib.request":
+                    for alias in node.names:
+                        if alias.name == "urlopen":
+                            self.urlopen_aliases.add(alias.asname or alias.name)
+                self.generic_visit(node)
 
             def visit_FunctionDef(self, node):
                 self.scope.append(node.name)
@@ -566,7 +574,8 @@ class DirectNetworkCallInventoryTests(unittest.TestCase):
                     self.relative_path == "scripts/pr_integration_guard.py"
                     and name == "opener.open"
                 )
-                if direct_client or bootstrap_opener:
+                imported_urlopen = isinstance(node.func, ast.Name) and node.func.id in self.urlopen_aliases
+                if direct_client or imported_urlopen or bootstrap_opener:
                     key = self.relative_path + "::" + "::".join(self.scope)
                     actual[key] = actual.get(key, 0) + 1
                 self.generic_visit(node)
