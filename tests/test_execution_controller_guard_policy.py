@@ -213,6 +213,7 @@ def test_consequential_ledger_binding_contains_guard_action_and_policy_digest(tm
 
 def test_guard_policy_change_is_rechecked_at_provider_dispatch(tmp_path: Path):
     import pytest
+    from types import SimpleNamespace
     from unittest.mock import patch
 
     from portable.organization_guard import evaluate_guard_policy
