@@ -503,7 +503,7 @@ def _run_guard_policy(args: list[str]) -> int:
         organization_id = options.organization_id
         if organization_id is None:
             organization_id = __import__("os").environ.get("AUREN_ORGANIZATION_ID", "")
-        if not any((options.action_name, options.tool, options.resource, organization_id, options.agent_id)):
+        if not any((options.action_name, options.tool, options.resource, organization_id, options.agent_id, options.risk != "standard")):
             parser.error("dry-run requires at least one context selector")
         decision = evaluate_guard_policy(
             policy,
