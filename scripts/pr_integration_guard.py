@@ -49,6 +49,29 @@ def overlapping_paths(current_paths: set[str], other_prs: list[dict[str, Any]]) 
     return overlaps
 
 
+def blocking_overlaps(current_pr: dict[str, Any], overlaps: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Serialize shared-file PRs in creation order without deadlocking both PRs.
+
+    The oldest open PR owns the integration slot for overlapping paths. Later
+    PRs fail closed until that PR is merged/closed, then must refresh their base
+    and rerun checks. Missing ordering evidence blocks rather than guessing.
+    """
+    current_created = current_pr.get("created_at")
+    current_number = current_pr.get("number")
+    if not isinstance(current_created, str) or not isinstance(current_number, int):
+        raise ValueError("current PR creation order is unavailable")
+    current_order = (current_created, current_number)
+    blocking = []
+    for overlap in overlaps:
+        created = overlap.get("created_at")
+        number = overlap.get("number")
+        if not isinstance(created, str) or not isinstance(number, int):
+            raise ValueError("overlapping PR creation order is unavailable")
+        if (created, number) < current_order:
+            blocking.append(overlap)
+    return blocking
+
+
 def api_json(url: str, token: str) -> Any:
     request = urllib.request.Request(
         url,
@@ -101,6 +124,9 @@ def main() -> int:
         current_files = api_list(f"{root}/pulls/{args.pr}/files", token)
         current_paths = {item["filename"] for item in current_files}
         open_prs = api_list(f"{root}/pulls?state=open", token)
+        current_pr = next((pr for pr in open_prs if pr.get("number") == args.pr), None)
+        if current_pr is None:
+            raise ValueError("current PR is missing from the complete open-PR listing")
         overlaps = []
         base_branch_name = args.base_ref.rsplit("/", 1)[-1]
         for pr in open_prs:
@@ -109,22 +135,30 @@ def main() -> int:
             changed = api_list(f"{root}/pulls/{pr['number']}/files", token)
             shared = sorted(current_paths.intersection(item["filename"] for item in changed))
             if shared:
-                overlaps.append({"number": pr["number"], "title": pr["title"], "paths": shared})
+                overlaps.append({
+                    "number": pr["number"],
+                    "title": pr["title"],
+                    "created_at": pr.get("created_at"),
+                    "paths": shared,
+                })
+        blockers = blocking_overlaps(current_pr, overlaps)
         print(json.dumps({
             "pull_request": args.pr,
             "head_sha": args.head_sha,
             "base_sha": args.base_sha,
             "commits_behind_base": behind,
             "overlapping_pull_requests": overlaps,
+            "blocking_overlaps": blockers,
+            "integration_order": "oldest open overlapping PR first",
         }, indent=2))
         failures = []
         if behind:
             failures.append(f"branch is {behind} commit(s) behind {args.base_ref}; rebase/update and rerun")
-        if overlaps:
+        if blockers:
             detail = "; ".join(
-                f"#{item['number']} ({', '.join(item['paths'])})" for item in overlaps
+                f"#{item['number']} ({', '.join(item['paths'])})" for item in blockers
             )
-            failures.append(f"shared-file work is active in another open PR: {detail}; serialize integration or split ownership")
+            failures.append(f"an older open PR owns overlapping paths: {detail}; wait for it to merge/close, refresh base, and rerun")
         if failures:
             print("PR integration guard failed: " + " | ".join(failures), file=sys.stderr)
             return 1
