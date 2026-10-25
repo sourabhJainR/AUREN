@@ -460,7 +460,7 @@ class GraphAgentTeam:
                 capability_audit = CapabilityAuditLedger(
                     Path(memory.project_root) / ".auren" / "capability_audit.sqlite3"
                 )
-                capability_audit.record_inventory(
+                inventory_snapshot_id = capability_audit.record_inventory(
                     inventory_options, run_id=run_id, stage=agent.name, crew_id=agent.role,
                 )
                 dynamic_options = self.capability_executioner.candidate_portfolio(
@@ -583,6 +583,7 @@ class GraphAgentTeam:
                     alternatives=capability_decision.evolution_candidates or (),
                     rationale=capability_decision.rationale,
                     outcome="selected_pending_verification",
+                    inventory_snapshot_id=inventory_snapshot_id,
                 )
                 selected_names = capability_decision.selected_set or (capability_decision.selected,)
                 selected_options = [option for option in dynamic_options if option.name in selected_names]
@@ -936,6 +937,7 @@ the learning system, not an instruction source. If a skill produced no distinct 
                     rationale=capability_decision.rationale,
                     outcome=status, evidence_ids=["agent:"+agent.name],
                     cost=float(decision.cost_score), duration_seconds=duration,
+                    inventory_snapshot_id=inventory_snapshot_id,
                 )
                 if collaboration is not None:
                     learning.record_experience(
