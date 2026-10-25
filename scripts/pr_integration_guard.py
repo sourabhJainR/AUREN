@@ -109,7 +109,10 @@ def api_json(url: str, token: str) -> Any:
     )
     opener = urllib.request.build_opener(_SameHostRedirectHandler())
     with opener.open(request, timeout=20) as response:
-        return json.load(response)
+        raw = response.read(4 * 1024 * 1024 + 1)
+    if len(raw) > 4 * 1024 * 1024:
+        raise ValueError("GitHub API response exceeds the configured limit")
+    return json.loads(raw.decode("utf-8"))
 
 
 def api_list(url: str, token: str) -> list[dict[str, Any]]:
