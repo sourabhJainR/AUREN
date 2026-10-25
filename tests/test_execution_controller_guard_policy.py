@@ -22,7 +22,7 @@ def test_guard_policy_denial_blocks_dispatch_before_handler(tmp_path: Path):
     policy_path.write_text(json.dumps({
         "schema_version": "auren-guard-v1",
         "default_effect": "allow",
-        "rules": [{"id": "deny-read", "effect": "deny", "action": "read"}],
+        "rules": [{"id": "deny-handler", "effect": "deny", "tool": "tests.guarded_marker_handler"}],
     }), encoding="utf-8")
     marker = tmp_path / "handler-ran.txt"
     task = controller.submit("tests.guarded_marker_handler", {
