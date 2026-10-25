@@ -70,6 +70,9 @@ class ImpactPolicyTests(unittest.TestCase):
             "portable/rollback_controller.py": {"tests.test_state_root_rollback_rehearsal", "tests.test_execution_controller_promotion_rollback_contract", "tests.test_execution_controls"},
             ".ai-harness/security_gate.py": {"tests.test_security_gate"},
             ".ai-harness/runtime/rollback_controller.py": {"tests.test_execution_controls", "tests.test_state_root_rollback_rehearsal"},
+            ".ai-harness/runtime/graph_agent_team.py": {"tests.test_graph_agent_team", "tests.test_task_planner", "tests.test_agency_state_graph"},
+            "portable/task_planner.py": {"tests.test_task_planner", "tests.test_graph_agent_team"},
+            "tests/test_task_planner.py": {"tests.test_task_planner"},
         }
         for path, required in expected.items():
             with self.subTest(path=path):
@@ -111,6 +114,9 @@ class ImpactPolicyTests(unittest.TestCase):
             "tests/test_ci_repair_watchdog.py",
             "portable/engineering_recovery.py",
             "tests/test_engineering_recovery.py",
+            ".ai-harness/runtime/graph_agent_team.py",
+            "portable/task_planner.py",
+            "tests/test_task_planner.py",
             "tests/test_engineering_recovery_fault_matrix.py",
             "portable/execution_controller.py",
             "tests/test_execution_controller_restart.py",

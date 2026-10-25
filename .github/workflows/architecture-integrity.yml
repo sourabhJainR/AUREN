@@ -108,8 +108,8 @@ jobs:
           PY
       - name: Run architecture contract regression tests
         run: python -m unittest tests.test_architecture_contract -v
-      - name: Run graph fan-out and shared-budget regressions
-        run: python -m unittest tests.test_dependency_aware_fanout tests.test_task_planner -v
+      - name: Run canonical TaskPlan and graph fan-out regressions
+        run: python -m unittest tests.test_task_planner tests.test_graph_agent_team tests.test_agency_state_graph -v
       - name: Run decision record and promotion gate regressions
         run: python -m unittest tests.test_decision_gate -v
       - name: Run execution-time capability promotion gate regressions
