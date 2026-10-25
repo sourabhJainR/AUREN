@@ -313,7 +313,8 @@ class GuardActionEvidenceLedger:
             latest[event["provider_operation_id"]] = event
         return [event for event in latest.values() if event["verified_outcome"] in {"pending", "unknown"}]
 
-\ndef evaluate_managed_policy(
+
+def evaluate_managed_policy(
     policy: Mapping[str, Any], context: Mapping[str, Any], *,
     rate_limiter: DurableRateLimiter | None = None,
     rate_limit: Mapping[str, Any] | None = None,
@@ -330,7 +331,8 @@ class GuardActionEvidenceLedger:
         return GuardDecision(False, "deny", "organization policy local-time schedule does not match", digest)
     # Resource/network scopes are ordinary exact/glob policy match fields and
     # are enforced by the canonical evaluator after context normalization.
-    base_policy = {key: value for key, value in policy.items() if key not in {"timezone", "hours_local", "weekdays_local"}}\n    decision = evaluate_guard_policy(base_policy, context, mandatory_authorized=True, approval_gate_configured=approval_gate_configured)
+    base_policy = {key: value for key, value in policy.items() if key not in {"timezone", "hours_local", "weekdays_local"}}
+    decision = evaluate_guard_policy(base_policy, context, mandatory_authorized=True, approval_gate_configured=approval_gate_configured)
     if not decision.allowed or rate_limit is None:
         return decision
     if rate_limiter is None:
