@@ -290,6 +290,12 @@ class PostgreSQLAttestationReplayRegistryTests(unittest.TestCase):
             self.assertTrue(restarted.lookup_claim(
                 "same-attestation", binding=binding, operation_id=winning_operation,
             ))
+            with self.assertRaises(ReplayClaimConflict):
+                restarted.claim(
+                    "different-attestation",
+                    binding=binding,
+                    operation_id=winning_operation,
+                )
             self.assertTrue(restarted.claim(
                 "same-attestation", binding=binding, operation_id=winning_operation,
             ))
