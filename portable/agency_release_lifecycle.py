@@ -6,6 +6,7 @@ import hashlib, json
 from pathlib import Path
 import shutil
 from typing import Mapping
+from .agency_observability import Trace
 
 ACTIONS = {"shadow", "canary", "promote", "rollback"}
 
@@ -90,7 +91,49 @@ class ArtifactStore:
     def state(self) -> Mapping[str, object]:
         shadow = self._read_channel("shadow"); canary = self._read_channel("canary"); current = self._read_channel("current")
         return {"shadow": shadow.as_dict() if shadow else None, "canary": canary.as_dict() if canary else None, "current": current.as_dict() if current else None}
-    def transition(self, action: str, ref: ArtifactRef | None, reason: str, *, context_evidence_digest: str | None = None, verification_digest: str | None = None, review_digest: str | None = None) -> ReleaseState:
+    def transition(
+        self, action: str, ref: ArtifactRef | None, reason: str, *,
+        context_evidence_digest: str | None = None,
+        verification_digest: str | None = None,
+        review_digest: str | None = None,
+        trace: Trace | None = None,
+        parent_span_id: str | None = None,
+    ) -> ReleaseState:
+        span = trace.span(
+            "release_transition:" + str(action),
+            "release",
+            metadata={
+                "action": str(action),
+                "artifact_digest": ref.digest if ref is not None else None,
+                "context_evidence_digest": context_evidence_digest,
+                "verification_digest": verification_digest,
+                "review_digest": review_digest,
+            },
+            parent_id=parent_span_id,
+            phase="release",
+            actor_id="auren.agency_release_lifecycle",
+        ) if trace is not None else None
+        try:
+            state = self._transition_impl(
+                action, ref, reason,
+                context_evidence_digest=context_evidence_digest,
+                verification_digest=verification_digest,
+                review_digest=review_digest,
+            )
+        except Exception as exc:
+            if span is not None:
+                span.finish({"transition_applied": False, "error_type": type(exc).__name__}, "error", type(exc).__name__)
+            raise
+        if span is not None:
+            span.finish({
+                "transition_applied": True,
+                "action": state.action,
+                "artifact_digest": state.digest,
+                "previous_artifact_id": state.previous_artifact_id,
+            }, "ok")
+        return state
+
+    def _transition_impl(self, action: str, ref: ArtifactRef | None, reason: str, *, context_evidence_digest: str | None = None, verification_digest: str | None = None, review_digest: str | None = None) -> ReleaseState:
         if action not in ACTIONS: raise ValueError(f"unsupported release action: {action}")
         if not reason.strip(): raise ValueError("release reason is required")
         if action != "rollback" and ref is None: raise ValueError(f"{action} requires an artifact")
@@ -114,9 +157,22 @@ class ArtifactStore:
                 state = ReleaseState("rollback", previous.artifact_id, previous.digest, previous.artifact_id, datetime.now(timezone.utc).isoformat(), reason + "; no previous promoted artifact available", context_evidence_digest, verification_digest, review_digest); self._record(state); return state
             target_ref = self._ref_from_history(candidates[-1]); self._set_channel("current", target_ref); self._set_channel("canary", None); self._set_channel("shadow", None); ref = target_ref
         state = ReleaseState(action, ref.artifact_id if ref else None, ref.digest if ref else None, previous.artifact_id if previous else None, datetime.now(timezone.utc).isoformat(), reason, context_evidence_digest, verification_digest, review_digest); self._record(state); return state
-    def apply_decision(self, decision: object, artifact: ArtifactRef | None = None, *, context_evidence_digest: str | None = None, verification_digest: str | None = None, review_digest: str | None = None) -> ReleaseState:
+    def apply_decision(
+        self, decision: object, artifact: ArtifactRef | None = None, *,
+        context_evidence_digest: str | None = None,
+        verification_digest: str | None = None,
+        review_digest: str | None = None,
+        trace: Trace | None = None,
+        parent_span_id: str | None = None,
+    ) -> ReleaseState:
         action = str(getattr(decision, "action", "")); reason = str(getattr(decision, "reason", "release decision"))
-        return self.transition(action, None if action == "rollback" else artifact, reason, context_evidence_digest=context_evidence_digest, verification_digest=verification_digest, review_digest=review_digest)
+        return self.transition(
+            action, None if action == "rollback" else artifact, reason,
+            context_evidence_digest=context_evidence_digest,
+            verification_digest=verification_digest,
+            review_digest=review_digest,
+            trace=trace, parent_span_id=parent_span_id,
+        )
     def _record(self, state: ReleaseState) -> None:
         with self.history.open("a", encoding="utf-8") as handle: handle.write(json.dumps(state.as_dict(), sort_keys=True) + "\n")
     def _history(self) -> list[dict]:
@@ -139,6 +195,19 @@ class ArtifactStore:
         if not path.exists(): raise RuntimeError(f"rollback artifact is missing: {digest}")
         ref = ArtifactRef(str(value["artifact_id"]), digest, str(path), int(value.get("size", 0)), "file"); self._verify_ref(ref); return ref
 
-def apply_promotion_decision(store: ArtifactStore, decision: object, artifact: ArtifactRef | None = None, *, context_evidence_digest: str | None = None, verification_digest: str | None = None, review_digest: str | None = None) -> ReleaseState:
+def apply_promotion_decision(
+    store: ArtifactStore, decision: object, artifact: ArtifactRef | None = None, *,
+    context_evidence_digest: str | None = None,
+    verification_digest: str | None = None,
+    review_digest: str | None = None,
+    trace: Trace | None = None,
+    parent_span_id: str | None = None,
+) -> ReleaseState:
     """Public integration point used by runtimes and deployment adapters."""
-    return store.apply_decision(decision, artifact, context_evidence_digest=context_evidence_digest, verification_digest=verification_digest, review_digest=review_digest)
+    return store.apply_decision(
+        decision, artifact,
+        context_evidence_digest=context_evidence_digest,
+        verification_digest=verification_digest,
+        review_digest=review_digest,
+        trace=trace, parent_span_id=parent_span_id,
+    )
