@@ -26,6 +26,7 @@ def test_dashboard_snapshot_uses_repository_and_test_evidence():
 def test_dashboard_projects_effective_workflow_profile_without_exposing_payload():
     import sqlite3
     from portable.progress_journal import ProgressJournal
+    from portable.workflow_profile import WorkflowProfile
 
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
