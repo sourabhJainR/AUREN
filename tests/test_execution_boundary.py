@@ -399,10 +399,6 @@ class ExecutionBoundaryTests(unittest.TestCase):
             self.assertTrue(result.executed)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class SubprocessBoundaryInventoryTests(unittest.TestCase):
     """Require every direct Popen function/callsite to have a reviewed disposition.
 
@@ -473,3 +469,7 @@ class SubprocessBoundaryInventoryTests(unittest.TestCase):
         self.assertTrue(all(value.strip() for value in self.REVIEWED_POPEN_DISPOSITIONS.values()))
         self.assertIn("not a security sandbox", doc)
         self.assertIn("not proof that every callsite within an already-listed module is authorized", doc)
+
+
+if __name__ == "__main__":
+    unittest.main()
