@@ -1,9 +1,12 @@
 from __future__ import annotations
+import tempfile
 import unittest
+from pathlib import Path
 from portable.agency_team_orchestrator import AgentOutput, AgentTeamOrchestrator, WorkUnit
 from portable.action_governance import ActionGovernanceGateway, ActionPolicy
 from portable.execution_boundary import ExecutionAuthorityBinding
 from portable.runtime_recovery import RuntimeExecutionGuard
+from portable.side_effect_ledger import DurableSideEffectLedger
 
 class AgentTeamOrchestratorTests(unittest.TestCase):
     def test_team_spawns_parallel_research_and_gates_before_dependents(self):
@@ -208,6 +211,33 @@ class AgentTeamOrchestratorTests(unittest.TestCase):
                 governance_gateway=gateway,
             )
 
+
+    def test_legacy_team_path_blocks_external_effect_even_with_durable_ledger(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            ledger = DurableSideEffectLedger(Path(temp_dir) / "side-effects.sqlite")
+            gateway = ActionGovernanceGateway(ActionPolicy(
+                allowed_capabilities=frozenset({"repository.read", "repository.write"}),
+                external_effect_actions=frozenset({"specialist.execute"}),
+                require_idempotency_for_external_effects=False,
+            ), side_effect_ledger=ledger)
+            units = (WorkUnit(
+                "publish-bound", "publish a consequential change", specialist="builder",
+                mutation_mode="bounded", write_paths=("src",),
+            ),)
+            spawned = []
+            run = AgentTeamOrchestrator().run(
+                units, evidence_digest="E-external-bound",
+                spawn=lambda unit, evidence: spawned.append(unit.unit_id) or AgentOutput(unit.unit_id, "done"),
+                verify=lambda unit, output, evidence: (True, "verified"),
+                review=lambda unit, output, evidence, verification: (True, "reviewed"),
+                governance_gateway=gateway, run_id="legacy-external-team-bound",
+            )
+            self.assertFalse(run.passed)
+            self.assertEqual(spawned, [])
+            self.assertEqual(run.outputs[0].status, "blocked")
+            self.assertEqual(run.outputs[0].findings, ("execution_authority_binding_required",))
+            self.assertIn("unbound_external_effect_blocked", [event["event"] for event in gateway.events])
+            self.assertTrue(gateway.verify_trace()["passed"])
 
     def test_legacy_team_path_blocks_external_effect_without_durable_ledger(self):
         gateway = ActionGovernanceGateway(ActionPolicy(

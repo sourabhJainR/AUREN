@@ -160,6 +160,34 @@ class ExecutionBoundaryTests(unittest.TestCase):
         self.assertFalse(allowed)
         self.assertEqual(reason, "execution_authority_expired")
 
+    def test_unbound_external_effect_preflight_blocks_even_with_durable_ledger(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            ledger = DurableSideEffectLedger(Path(temp_dir) / "side-effects.sqlite")
+            gateway = ActionGovernanceGateway(
+                ActionPolicy(
+                    allowed_capabilities=frozenset({"payments.send"}),
+                    external_effect_actions=frozenset({"publish"}),
+                    require_idempotency_for_external_effects=False,
+                ),
+                side_effect_ledger=ledger,
+            )
+            request = ActionRequest(
+                run_id="run-external",
+                action_id="publish-1",
+                actor="agent:publisher",
+                capability="payments.send",
+                action="publish",
+                target="release/1",
+                idempotency_key="publish-1",
+            )
+            self.assertIsNone(gateway.durable_side_effect_preflight(request))
+            verdict = gateway.unbound_external_effect_preflight(request)
+            self.assertIsNotNone(verdict)
+            self.assertFalse(verdict.allowed)
+            self.assertEqual(verdict.reason, "execution_authority_binding_required")
+            self.assertEqual(gateway.events[-1]["event"], "unbound_external_effect_blocked")
+            self.assertTrue(gateway.verify_trace()["passed"])
+
     def test_p2_bound_execution_denies_before_handler_and_then_uses_gateway(self):
         binding = self.binding()
         gateway = ActionGovernanceGateway(ActionPolicy(
