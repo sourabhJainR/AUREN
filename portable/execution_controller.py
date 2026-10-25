@@ -34,6 +34,8 @@ from .persistent_memory import PersistentMemory
 from .progress_journal import ProgressJournal
 from .provider_operation_lifecycle import ProviderOutcomeBlocked
 from .durable_approval import ApprovalPending, InvalidApprovalTransition
+from .workflow_profile import WorkflowProfile, WorkflowProfileError, resolve_profile
+from .workflow_profile_store import WorkflowProfileStoreError, load_profile, save_profile
 
 Handler = Callable[[Mapping[str, Any]], Any]
 
@@ -147,6 +149,8 @@ class ExecutionController:
         self.company = company or AutonomousCompany(self.root)
         self.db_path = self.root / ".auren" / "execution.sqlite3"
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self.workflow_profile_path = self.db_path.parent / "workflow-profile.json"
+        self.project_workflow_profile_path = self.db_path.parent / "project-workflow-profile.json"
         self.progress_journal = ProgressJournal(self.db_path.parent / "progress.jsonl")
         self._progress_journal_error: str | None = None
         with closing(sqlite3.connect(self.db_path)) as db, db:
@@ -1005,6 +1009,13 @@ class ExecutionController:
         except (OSError, subprocess.SubprocessError):
             pass
         repository = __import__("os").environ.get("AUREN_REPOSITORY_SLUG", "")
+        event_metadata = dict(metadata or {})
+        profile_value = task.payload.get("auren_workflow_profile")
+        profile_digest = task.payload.get("auren_workflow_profile_digest")
+        if profile_value is not None or profile_digest is not None:
+            profile = self._validated_workflow_profile_payload(task.payload)
+            event_metadata["workflow_profile_version"] = profile.profile_version
+            event_metadata["workflow_profile_digest"] = profile.digest
         self.evidence_capture.record(
             event_type,
             work_unit_id=task.work_unit_id,
@@ -1013,7 +1024,7 @@ class ExecutionController:
             status=status,
             repository=repository,
             head_sha=head_sha,
-            metadata=dict(metadata or {}),
+            metadata=event_metadata,
             event_id=event_id,
         )
 
@@ -1757,6 +1768,56 @@ class ExecutionController:
             stale_after_seconds=stale_after_seconds, now=now,
         )
 
+    @staticmethod
+    def _validated_workflow_profile_payload(payload: Mapping[str, Any]) -> WorkflowProfile:
+        """Validate the immutable profile embedded in a durable task envelope."""
+        profile_value = payload.get("auren_workflow_profile")
+        profile_digest = payload.get("auren_workflow_profile_digest")
+        if profile_value is None or not isinstance(profile_digest, str):
+            raise WorkflowProfileError("durable workflow profile and digest must be present together")
+        profile = WorkflowProfile.from_mapping(profile_value)
+        if profile.digest != profile_digest:
+            raise WorkflowProfileError("durable workflow profile digest mismatch")
+        return profile
+
+    def set_workflow_profile(
+        self, profile: WorkflowProfile | Mapping[str, Any], *, scope: str = "saved"
+    ) -> WorkflowProfile:
+        """Persist a validated preference profile; it grants no additional authority."""
+        if scope == "saved":
+            path = self.workflow_profile_path
+        elif scope == "project":
+            path = self.project_workflow_profile_path
+        else:
+            raise ValueError("workflow profile scope must be 'saved' or 'project'")
+        return save_profile(path, profile)
+
+    def _resolve_submission_workflow_profile(
+        self, payload: Mapping[str, Any]
+    ) -> WorkflowProfile | None:
+        """Resolve explicit task > project > saved preferences, preserving legacy intent."""
+        task_value = payload.get("auren_workflow_profile")
+        saved = load_profile(self.workflow_profile_path)
+        project = load_profile(self.project_workflow_profile_path)
+        # Do not silently rewrite legacy task intent when no profile was configured.
+        if task_value is None and saved is None and project is None:
+            if "auren_workflow_profile_digest" in payload:
+                raise WorkflowProfileError("workflow profile digest was supplied without a profile")
+            return None
+        if isinstance(task_value, WorkflowProfile):
+            task_value = task_value.as_dict()
+        if task_value is not None and not isinstance(task_value, Mapping):
+            raise WorkflowProfileError("task workflow profile must be a mapping")
+        profile = resolve_profile(
+            task=task_value,
+            project=project.as_dict() if project is not None else None,
+            saved=saved.as_dict() if saved is not None else None,
+        )
+        supplied_digest = payload.get("auren_workflow_profile_digest")
+        if supplied_digest is not None and supplied_digest != profile.digest:
+            raise WorkflowProfileError("supplied workflow profile digest does not match resolved profile")
+        return profile
+
     def submit(
         self,
         handler: str,
@@ -1779,6 +1840,10 @@ class ExecutionController:
                 raise ValueError("approval-gated handler has no trusted gateway/ledger policy")
         self._load_handler(handler)
         payload_copy = dict(payload)
+        profile = self._resolve_submission_workflow_profile(payload_copy)
+        if profile is not None:
+            payload_copy["auren_workflow_profile"] = profile.as_dict()
+            payload_copy["auren_workflow_profile_digest"] = profile.digest
         payload_key = payload_copy.get("work_key")
         candidate_key = work_key if work_key is not None else payload_key
         stable_work_key: str | None = None
@@ -1901,6 +1966,14 @@ class ExecutionController:
             ).fetchone()
             if not row or row[3] in {"completed", "failed", "cancelled"}:
                 return None
+            persisted_payload = json.loads(row[2])
+            if not isinstance(persisted_payload, dict):
+                raise WorkflowProfileError("durable task payload must be an object")
+            if (
+                "auren_workflow_profile" in persisted_payload
+                or "auren_workflow_profile_digest" in persisted_payload
+            ):
+                self._validated_workflow_profile_payload(persisted_payload)
             now_dt = datetime.now(timezone.utc)
             now = now_dt.isoformat()
             if row[3] == "running":
@@ -1928,7 +2001,7 @@ class ExecutionController:
             if cursor.rowcount != 1:
                 return None
         task = DurableTask(
-            row[0], row[1], json.loads(row[2]), "running", attempts, row[5],
+            row[0], row[1], persisted_payload, "running", attempts, row[5],
             lease_generation=generation, lease_token=token,
         )
         self._record_progress(
