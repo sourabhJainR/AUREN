@@ -38,6 +38,18 @@ Supported matching fields are `action`, `tool`, `resource`,
 `prod/*`). Shell character classes and regular expressions are not supported.
 A rule must match at least one field. Rule IDs must be unique.
 
+## CLI inspection
+
+- \`auren guard-policy show\` prints the normalized policy and canonical digest.
+- \`auren guard-policy validate\` validates the saved policy and lists rule IDs.
+- \`auren guard-policy dry-run --tool trusted.shell\` explains a simulated decision.
+  Add \`--action-name\`, \`--resource\`, \`--organization-id\`, \`--agent-id\`, or
+  \`--risk\` to supply other context selectors.
+
+Dry-run is explanatory only. It does not call a tool, create an approval, or grant
+authority. Put \`--project-root PATH\` before the subcommand when inspecting a
+project other than the current directory.
+
 ## Enforcement rules
 
 - `deny` always overrides `allow`, independent of rule order.
