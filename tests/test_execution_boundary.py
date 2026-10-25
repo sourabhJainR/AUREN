@@ -93,6 +93,14 @@ class ExecutionBoundaryTests(unittest.TestCase):
             def __init__(self, relative_path):
                 self.relative_path = relative_path
                 self.scope = []
+                self.urlopen_aliases = set()
+
+            def visit_ImportFrom(self, node):
+                if node.module == "urllib.request":
+                    for alias in node.names:
+                        if alias.name == "urlopen":
+                            self.urlopen_aliases.add(alias.asname or alias.name)
+                self.generic_visit(node)
 
             def visit_FunctionDef(self, node):
                 self.scope.append(node.name)
@@ -514,6 +522,102 @@ class SubprocessBoundaryInventoryTests(unittest.TestCase):
         self.assertTrue(all(value.strip() for value in self.REVIEWED_POPEN_DISPOSITIONS.values()))
         self.assertIn("not a security sandbox", normalized_doc)
         self.assertIn("not proof that every callsite within an already-listed module is authorized", normalized_doc)
+
+
+
+class DirectNetworkCallInventoryTests(unittest.TestCase):
+    """Tripwire for direct Python network clients; this is not enforcement proof."""
+
+    REVIEWED_NETWORK_DISPOSITIONS = {
+        "portable/local_llm.py::available": "legacy optional local-LLM endpoint; must be restricted to loopback or explicit remote host policy",
+        "portable/local_llm.py::_generate_ollama": "legacy local-LLM POST client; migration requires HTTP and HTTPS endpoint policy",
+        "portable/auren_runtime.py::_download_source": "portable updater archive download; migration requires bounded streaming and explicit redirect-host chain",
+        "scripts/pr_integration_guard.py::api_json": "CI bootstrap exception; fixed api.github.com allowlist and same-host-only redirects, not DNS-pinned",
+        "scripts/verify_openshell_isolation.py::_host_can_reach": "host-side reachability precondition for an isolation probe; never treated as sandbox policy enforcement",
+    }
+    REVIEWED_NETWORK_CALL_COUNTS = {key: 1 for key in REVIEWED_NETWORK_DISPOSITIONS}
+
+    @staticmethod
+    def _dotted(node):
+        if isinstance(node, ast.Name):
+            return node.id
+        if isinstance(node, ast.Attribute):
+            prefix = DirectNetworkCallInventoryTests._dotted(node.value)
+            return f"{prefix}.{node.attr}" if prefix else node.attr
+        return ""
+
+    def test_direct_network_clients_have_exact_reviewed_dispositions(self):
+        root = Path(__file__).resolve().parents[1]
+        scan_roots = (root / "portable", root / ".ai-harness", root / "scripts")
+        actual = {}
+
+        class Visitor(ast.NodeVisitor):
+            def __init__(self, relative_path):
+                self.relative_path = relative_path
+                self.scope = []
+                self.urlopen_aliases = set()
+
+            def visit_ImportFrom(self, node):
+                if node.module == "urllib.request":
+                    for alias in node.names:
+                        if alias.name == "urlopen":
+                            self.urlopen_aliases.add(alias.asname or alias.name)
+                self.generic_visit(node)
+
+            def visit_FunctionDef(self, node):
+                self.scope.append(node.name)
+                self.generic_visit(node)
+                self.scope.pop()
+
+            visit_AsyncFunctionDef = visit_FunctionDef
+
+            def visit_Call(self, node):
+                name = DirectNetworkCallInventoryTests._dotted(node.func)
+                direct_client = name in {
+                    "urllib.request.urlopen",
+                    "requests.get", "requests.post", "requests.request",
+                    "httpx.get", "httpx.post", "httpx.request",
+                    "socket.create_connection", "asyncio.open_connection",
+                }
+                bootstrap_opener = (
+                    self.relative_path == "scripts/pr_integration_guard.py"
+                    and name == "opener.open"
+                )
+                imported_urlopen = isinstance(node.func, ast.Name) and node.func.id in self.urlopen_aliases
+                if direct_client or imported_urlopen or bootstrap_opener:
+                    key = self.relative_path + "::" + "::".join(self.scope)
+                    actual[key] = actual.get(key, 0) + 1
+                self.generic_visit(node)
+
+        for scan_root in scan_roots:
+            if not scan_root.exists():
+                continue
+            for source in sorted(scan_root.rglob("*.py")):
+                relative = source.relative_to(root).as_posix()
+                Visitor(relative).visit(ast.parse(source.read_text(encoding="utf-8"), filename=relative))
+
+        expected = self.REVIEWED_NETWORK_CALL_COUNTS
+        unexpected = {key: count for key, count in actual.items() if key not in expected}
+        missing = {key: count for key, count in expected.items() if key not in actual}
+        changed_counts = {
+            key: {"actual": actual[key], "expected": expected[key]}
+            for key in actual.keys() & expected.keys()
+            if actual[key] != expected[key]
+        }
+        self.assertEqual(
+            (unexpected, missing, changed_counts),
+            ({}, {}, {}),
+            "New direct network clients require a reviewed disposition and guarded transport migration.",
+        )
+
+    def test_network_inventory_discloses_unproven_and_migration_pending_clients(self):
+        doc = (Path(__file__).resolve().parents[1] / "docs/GUARDED_EXECUTION_BOUNDARY_FOLLOWUP.md").read_text(encoding="utf-8")
+        normalized_doc = " ".join(doc.split())
+        self.assertTrue(all(value.strip() for value in self.REVIEWED_NETWORK_DISPOSITIONS.values()))
+        self.assertIn("not DNS-pinned", normalized_doc)
+        self.assertIn("local-LLM endpoint", normalized_doc)
+        self.assertIn("AST inventory", normalized_doc)
+
 
 
 if __name__ == "__main__":

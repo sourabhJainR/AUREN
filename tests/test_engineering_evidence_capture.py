@@ -616,23 +616,36 @@ class EngineeringEvidenceCaptureTests(unittest.TestCase):
 
     def test_https_sink_sends_stable_event_id_as_idempotency_key(self):
         sink = HttpsEvidenceSink("https://collector.invalid/events", "token")
-        response = MagicMock()
-        response.status = 202
-        response.__enter__.return_value = response
-        captured = []
-
-        def fake_urlopen(request, timeout):
-            captured.append((request, timeout))
-            return response
-
         event = {"event_id": "event-123", "event_type": "task_completed", "status": "completed"}
-        with patch("portable.engineering_evidence_capture.urlopen", side_effect=fake_urlopen):
+        with patch(
+            "portable.engineering_evidence_capture.guarded_https_request",
+            return_value=(202, b""),
+        ) as request:
             sink(event)
 
-        request, timeout = captured[0]
-        self.assertEqual("event-123", request.get_header("Idempotency-key"))
-        self.assertEqual("event-123", json.loads(request.data.decode("utf-8"))["event_id"])
-        self.assertGreater(timeout, 0)
+        self.assertEqual("https://collector.invalid/events", request.call_args.args[0])
+        self.assertEqual(("collector.invalid",), request.call_args.kwargs["allowed_hosts"])
+        self.assertEqual("POST", request.call_args.kwargs["method"])
+        self.assertEqual("event-123", request.call_args.kwargs["headers"]["Idempotency-Key"])
+        self.assertEqual("event-123", json.loads(request.call_args.kwargs["body"].decode("utf-8"))["event_id"])
+        self.assertGreater(request.call_args.kwargs["timeout"], 0)
+
+
+    def test_https_sink_rejects_private_destination_without_explicit_cidr_before_connect(self):
+        sink = HttpsEvidenceSink("https://127.0.0.1/events", "token")
+        with patch("portable.guarded_network.socket.create_connection") as connector:
+            with self.assertRaisesRegex(RuntimeError, "evidence export failed"):
+                sink({"event_id": "private-endpoint", "event_type": "task_completed"})
+        connector.assert_not_called()
+
+    def test_https_sink_accepts_explicit_private_cidr_scope_for_configured_endpoint(self):
+        sink = HttpsEvidenceSink(
+            "https://127.0.0.1/events", "token", allowed_cidrs=("127.0.0.0/8",),
+        )
+        with patch("portable.engineering_evidence_capture.guarded_https_request", return_value=(202, b"")) as request:
+            sink({"event_id": "private-scoped", "event_type": "task_completed"})
+        self.assertEqual(("127.0.0.1",), request.call_args.kwargs["allowed_hosts"])
+        self.assertEqual(("127.0.0.0/8",), request.call_args.kwargs["allowed_cidrs"])
 
     def test_https_sink_rejects_events_without_stable_id(self):
         sink = HttpsEvidenceSink("https://collector.invalid/events", "token")

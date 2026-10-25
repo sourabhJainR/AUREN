@@ -133,6 +133,25 @@ class ImpactPolicyTests(unittest.TestCase):
                     f"{path} must trigger Runtime Resilience Matrix",
                 )
 
+
+    def test_guarded_filesystem_and_network_boundaries_require_focused_gates(self):
+        filesystem = classify_path("portable/guarded_filesystem.py")
+        self.assertTrue(filesystem.hardening_required)
+        self.assertIn("tests.test_guarded_filesystem", filesystem.required_suites)
+        network = classify_path("portable/guarded_network.py")
+        self.assertTrue(network.hardening_required)
+        self.assertIn("tests.test_guarded_network", network.required_suites)
+        agency_sync = classify_path("scripts/sync_agency_agents.py")
+        self.assertTrue(agency_sync.hardening_required)
+        self.assertIn("tests.test_guarded_network", agency_sync.required_suites)
+        updater = classify_path("portable/auren_runtime.py")
+        self.assertTrue(updater.hardening_required)
+        self.assertIn("tests.test_guarded_network", updater.required_suites)
+        for path in ("tests/test_guarded_filesystem.py", "tests/test_guarded_network.py"):
+            with self.subTest(path=path):
+                impact = classify_path(path)
+                self.assertTrue(impact.hardening_required)
+
     def test_unclassified_sensitive_path_fails_closed(self):
         with self.assertRaisesRegex(ValueError, "no impact classification"):
             classify_path("portable/new_recovery_queue.py")

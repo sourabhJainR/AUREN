@@ -73,3 +73,30 @@ def test_overlap_ordering_missing_evidence_fails_closed():
     current = {"number": 20, "created_at": "2026-10-25T10:00:00Z"}
     with pytest.raises(ValueError, match="creation order"):
         blocking_overlaps(current, [{"number": 19, "paths": ["portable/a.py"]}])
+
+def test_api_json_requires_trusted_https_host_and_pins_redirects():
+    import io
+    from unittest.mock import Mock
+    from scripts.pr_integration_guard import api_json, _SameHostRedirectHandler
+
+    opener = Mock()
+    opener.open.return_value = io.BytesIO(b'{"ok": true}')
+    with patch("scripts.pr_integration_guard.urllib.request.build_opener", return_value=opener) as build:
+        assert api_json("https://api.github.com/repos/o/r", "token") == {"ok": True}
+    build.assert_called_once()
+    assert isinstance(build.call_args.args[0], _SameHostRedirectHandler)
+    assert opener.open.call_args.kwargs["timeout"] == 20
+
+def test_api_json_rejects_untrusted_host_before_opening_network():
+    from unittest.mock import Mock
+    from scripts.pr_integration_guard import api_json
+
+    build = Mock()
+    with patch("scripts.pr_integration_guard.urllib.request.build_opener", build):
+        try:
+            api_json("https://evil.example/repos/o/r", "token")
+        except ValueError as exc:
+            assert "trusted GitHub API host" in str(exc)
+        else:
+            raise AssertionError("untrusted API host must be rejected")
+    build.assert_not_called()

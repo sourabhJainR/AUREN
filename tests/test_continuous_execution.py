@@ -109,7 +109,7 @@ def test_github_poller_requires_every_exact_named_check_to_succeed():
         {"name": "validate", "status": "completed", "conclusion": "success"},
         {"name": "unit-tests (3.12)", "status": "completed", "conclusion": "skipped"},
     ]}
-    with patch("urllib.request.urlopen", return_value=_Response(payload)):
+    with patch("portable.continuous_execution.guarded_https_get", return_value=(200, json.dumps(payload).encode("utf-8"))):
         result = poller()
     assert result["status"] == "failure"
     assert result["failed_checks"] == ["unit-tests (3.12)"]
@@ -117,7 +117,7 @@ def test_github_poller_requires_every_exact_named_check_to_succeed():
 
 def test_github_poller_waits_for_missing_checks_and_never_guesses_success():
     poller = GitHubActionsCheckPoller("owner/repo", "b" * 40, ["required-check"])
-    with patch("urllib.request.urlopen", return_value=_Response({"check_runs": []})):
+    with patch("portable.continuous_execution.guarded_https_get", return_value=(200, json.dumps({"check_runs": []}).encode("utf-8"))):
         result = poller()
     assert result["status"] == "waiting_for_required_checks"
     assert result["missing_checks"] == ["required-check"]
@@ -126,7 +126,7 @@ def test_github_poller_waits_for_missing_checks_and_never_guesses_success():
 def test_github_rate_limit_is_audited_as_poll_error_not_success():
     poller = GitHubActionsCheckPoller("owner/repo", "c" * 40, ["required-check"])
     rate_limit = HTTPError("https://api.github.com", 429, "rate limited", {}, None)
-    with patch("urllib.request.urlopen", side_effect=rate_limit):
+    with patch("portable.continuous_execution.guarded_https_get", return_value=(429, b"rate limited")):
         result = poller()
     assert result["status"] == "poll_error"
     assert result["error_type"] == "HTTPError"
@@ -227,11 +227,11 @@ def test_failed_required_check_enqueues_one_bounded_repair_through_existing_supe
 
 def test_github_poller_observation_without_configured_required_checks_is_not_a_pass():
     poller = GitHubActionsCheckPoller("owner/repo", "c" * 40, [])
-    with patch("urllib.request.urlopen", return_value=_Response({
+    with patch("portable.continuous_execution.guarded_https_get", return_value=(200, json.dumps({
         "check_runs": [
             {"id": 1, "name": "validate", "status": "completed", "conclusion": "success"},
         ]
-    })):
+    }).encode("utf-8"))):
         result = poller()
     assert result["status"] == "observed_complete_unverified"
     assert result["required_checks"] == []

@@ -72,7 +72,33 @@ def blocking_overlaps(current_pr: dict[str, Any], overlaps: list[dict[str, Any]]
     return blocking
 
 
+class _SameHostRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Keep the CI bootstrap API client on api.github.com across redirects."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        parsed = urlsplit(newurl)
+        if (
+            parsed.scheme != "https"
+            or parsed.hostname != "api.github.com"
+            or parsed.username is not None
+            or parsed.password is not None
+        ):
+            raise urllib.error.HTTPError(
+                req.full_url, code, "redirect outside trusted GitHub API host", headers, fp,
+            )
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
 def api_json(url: str, token: str) -> Any:
+    parsed = urlsplit(url)
+    if (
+        parsed.scheme != "https"
+        or parsed.hostname != "api.github.com"
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.fragment
+    ):
+        raise ValueError("PR integration API URL is outside the trusted GitHub API host")
     request = urllib.request.Request(
         url,
         headers={
@@ -81,8 +107,12 @@ def api_json(url: str, token: str) -> Any:
             "X-GitHub-Api-Version": "2022-11-28",
         },
     )
-    with urllib.request.urlopen(request, timeout=20) as response:
-        return json.load(response)
+    opener = urllib.request.build_opener(_SameHostRedirectHandler())
+    with opener.open(request, timeout=20) as response:
+        raw = response.read(4 * 1024 * 1024 + 1)
+    if len(raw) > 4 * 1024 * 1024:
+        raise ValueError("GitHub API response exceeds the configured limit")
+    return json.loads(raw.decode("utf-8"))
 
 
 def api_list(url: str, token: str) -> list[dict[str, Any]]:

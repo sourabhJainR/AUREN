@@ -167,10 +167,17 @@ class ProviderOperationLifecycleTests(unittest.TestCase):
             },
         )
         self.assertEqual(operation_id, receipt["provider_operation_id"])
-        self.assertEqual("completed", self.ledger().get(_CRASH_OPERATION_KEY)["state"])
-        replay = lifecycle.execute(
+        self.assertEqual(f"provider://operation/{operation_id}", receipt["evidence_ref"])
+        durable_record = self.ledger().get(_CRASH_OPERATION_KEY)
+        self.assertEqual("completed", durable_record["state"])
+        self.assertEqual(receipt["evidence_ref"], durable_record["receipt"]["evidence_ref"])
+
+        # Re-open the durable ledger through a fresh lifecycle instance to model
+        # a process restart after evidence-backed reconciliation.
+        restarted = ProviderOperationLifecycle(self.ledger(verify=verified), record_event=self.events.append)
+        replay = restarted.execute(
             _CRASH_OPERATION_KEY, _CRASH_PROVIDER, _CRASH_INTENT,
-            lambda *_: self.fail("reconciled operation must replay its receipt, not dispatch"),
+            lambda *_: self.fail("restarted completed operation must replay, not dispatch"),
         )
         self.assertEqual(receipt, replay)
         self.assertEqual([operation_id], Path(provider_log).read_text(encoding="utf-8").splitlines())

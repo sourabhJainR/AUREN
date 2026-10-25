@@ -104,3 +104,79 @@ verification.
 Rollback: revert the workspace-root parameter and associated checks only if
 they break a documented supported invocation; keep authority binding enabled by
 default and do not restore unpinned unbound dispatch.
+
+
+## Provider dispatch receipt binding gate
+
+A provider dispatch response marked `completed` is rejected unless it binds the
+exact AUREN operation ID, idempotency key, provider name, and canonical intent
+digest. A remote `provider_operation_id` remains required and is treated as the
+provider's identifier, not as AUREN's operation ID. Missing or conflicting
+binding moves the durable operation to `reconcile_required`; a subsequent call
+must not dispatch again.
+
+This is request/receipt binding, not cryptographic provider attestation.
+Interrupted outcomes still require trusted provider lookup and independently
+verified evidence. If an adapter does not emit these fields, migrate the adapter
+and tests; do not restore acceptance of unbound completed receipts.
+
+
+## Independent OpenShell isolation acceptance probe
+
+`scripts/verify_openshell_isolation.py` is a real-runtime acceptance probe, not
+a mock. It requires an explicit non-empty policy and an installed OpenShell CLI.
+On Linux, it first confirms the host can reach a selected network target; inside
+the sandbox it probes writes outside the curated workspace, network egress, and
+visibility of a host-only process marker through `/proc`. It also verifies
+that a host-only sentinel remains unchanged. It refuses to claim success when
+the network precondition is unavailable or a probe fails.
+
+Run against the reviewed deployment policy:
+
+```bash
+python scripts/verify_openshell_isolation.py --policy /path/to/reviewed-policy.yaml
+```
+
+This probe has not been run against a real OpenShell runtime in this change.
+Until an authorized environment records a successful run, OS isolation remains
+**unproven**. A successful run proves only the tested Linux filesystem, egress,
+and PID-namespace probes for the recorded policy digest; it does not prove all
+syscalls, IPC, kernel escape resistance, or Windows/macOS isolation.
+
+Rollback: retain fail-closed sandbox launch. Do not replace runtime evidence with
+unit tests or application Guard decisions.
+
+
+## Network boundary coverage and remaining direct clients
+
+The bounded pinned HTTPS helper is now used by the GitHub Actions check poller,
+the upstream agency-sync fetcher, and the new denial-before-DNS/socket tests.
+The PR integration guard is a bootstrap dependency of the CI conflict gate; it
+validates HTTPS URLs against `api.github.com` and refuses cross-host redirects,
+but still uses the standard library transport and is **not DNS-pinned**. This
+exception is explicit so a transport failure cannot silently disable the
+merge-safety gate.
+
+The portable updater's archive download and the optional local-LLM endpoint
+still have direct network callsites. Updater metadata requests now use the pinned
+HTTPS helper with an explicit GitHub host allowlist. They are not considered covered
+by the new helper until they are migrated and tested at their actual boundary.
+The local-LLM client needs a separate contract because it supports local HTTP
+providers as well as optional embedded inference. OS egress policy remains the
+backstop for all subprocesses and SDKs that bypass Python-level clients.
+
+Next migration gates: (1) bounded guarded download with an explicit redirect
+host chain for the updater; (2) local-LLM endpoint policy that defaults to
+loopback and requires an explicit host scope for remote endpoints; (3) an AST
+inventory that fails on new direct network APIs without a reviewed disposition.
+
+
+## Evidence export network scope
+
+The configured HTTPS evidence sink now uses the pinned transport with the exact
+operator-configured hostname as its host scope. Public endpoints must resolve
+only to public addresses. Private or loopback sinks are denied unless the
+operator explicitly configures `AUREN_EVIDENCE_SINK_ALLOWED_CIDRS` with the
+approved CIDR range(s). Redirects are not followed, and the request body and
+response size remain bounded. The bearer token is sent only to the configured
+hostname over verified TLS.

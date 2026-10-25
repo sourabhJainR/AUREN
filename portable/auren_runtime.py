@@ -15,6 +15,7 @@ import json
 import shutil
 import signal
 import subprocess
+import sys
 import tempfile
 import urllib.error
 import urllib.request
@@ -23,6 +24,12 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from threading import Event
+
+if __package__:
+    from .guarded_network import guarded_https_get
+else:  # direct script entrypoint
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from portable.guarded_network import guarded_https_get
 
 BUNDLE_FORMAT_VERSION = 2
 BUNDLE_NAME = "auren-portable"
@@ -711,9 +718,18 @@ def install(bundle: Path, install_skill: str = "agents", auren_home: Path | None
             shutil.rmtree(temp_root, ignore_errors=True)
 
 def _http_json(url: str) -> dict:
-    request = urllib.request.Request(url, headers={"Accept": "application/vnd.github+json", "User-Agent": "auren-portable"})
-    with urllib.request.urlopen(request, timeout=20) as response:
-        value = json.loads(response.read().decode("utf-8"))
+    status, raw = guarded_https_get(
+        url,
+        allowed_hosts=("api.github.com", "raw.githubusercontent.com"),
+        headers={"Accept": "application/vnd.github+json", "User-Agent": "auren-portable"},
+        timeout=20,
+        max_bytes=2 * 1024 * 1024,
+    )
+    if status >= 400:
+        raise SystemExit("remote update metadata request failed")
+    if len(raw) > 2 * 1024 * 1024:
+        raise SystemExit("remote update metadata exceeds the response limit")
+    value = json.loads(raw.decode("utf-8"))
     if not isinstance(value, dict):
         raise SystemExit("unexpected update metadata")
     return value
