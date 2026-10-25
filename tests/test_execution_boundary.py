@@ -404,36 +404,42 @@ if __name__ == "__main__":
 
 
 class SubprocessBoundaryInventoryTests(unittest.TestCase):
-    """Require every portable/harness Popen adapter to have an explicit disposition.
+    """Require every direct Popen function/callsite to have a reviewed disposition.
 
-    This is a path-level tripwire, not proof that a listed adapter is safe or
-    that non-Popen execution mechanisms are covered. New launch modules fail
-    closed until the inventory and the corresponding denial-before-launch tests
-    are reviewed together.
+    This inventory is a tripwire, not proof that a listed adapter is safe or
+    that non-Popen execution mechanisms are covered.
     """
 
-    REVIEWED_POPEN_ADAPTERS = {
-        ".ai-harness/provider.py": "interactive provider process; bounded lifecycle and explicit output handling",
-        ".ai-harness/resilient_provider.py": "retrying provider process; bounded retry wrapper and safe-provider handoff",
-        "portable/bounded_subprocess.py": "bounded subprocess primitive; process-tree cleanup and output/deadline limits",
-        "portable/container_sandboxed_arena.py": "container-backed Arena execution; container boundary must be verified separately",
-        "portable/docker_external_evaluator_executor.py": "container runtime lifecycle; kill/remove cleanup",
-        "portable/docker_isolated_evaluator.py": "Docker evaluator launcher; isolation depends on runtime policy",
-        "portable/external_evaluator_gateway.py": "external evaluator; host-process mode is test-only, not a security sandbox",
-        "portable/isolated_arena_runner.py": "policy-command Arena launcher; isolation depends on the supplied policy command",
-        "portable/local_offload.py": "local offload worker; command/environment validation and cancellation",
-        "portable/subprocess_provider.py": "command-backed provider; clean environment, no shell, timeout and process-tree controls",
-        "portable/vibe_coding_host.py": "host adapter process; explicit argv, safe environment, and bounded response handling",
+    REVIEWED_POPEN_CALLSITES = {
+        ".ai-harness/provider.py::main": 1,
+        ".ai-harness/resilient_provider.py::main": 1,
+        "portable/bounded_subprocess.py::run_bounded_command": 1,
+        "portable/container_sandboxed_arena.py::_run_one_case": 1,
+        "portable/docker_external_evaluator_executor.py::__init__": 1,
+        "portable/docker_isolated_evaluator.py::launch": 1,
+        "portable/external_evaluator_gateway.py::evaluate": 1,
+        "portable/isolated_arena_runner.py::policy": 1,
+        "portable/local_offload.py::run": 1,
+        "portable/subprocess_provider.py::__call__": 1,
+        "portable/vibe_coding_host.py::__call__": 1,
     }
 
-    def test_every_direct_popen_callsite_is_in_the_reviewed_adapter_inventory(self):
+    def test_every_direct_popen_callsite_has_an_exact_reviewed_disposition(self):
         root = Path(__file__).resolve().parents[1]
         scan_roots = (root / "portable", root / ".ai-harness")
-        actual = set()
+        actual = {}
 
         class Visitor(ast.NodeVisitor):
             def __init__(self, relative_path):
                 self.relative_path = relative_path
+                self.scope = []
+
+            def visit_FunctionDef(self, node):
+                self.scope.append(node.name)
+                self.generic_visit(node)
+                self.scope.pop()
+
+            visit_AsyncFunctionDef = visit_FunctionDef
 
             def visit_Call(self, node):
                 func = node.func
@@ -443,7 +449,8 @@ class SubprocessBoundaryInventoryTests(unittest.TestCase):
                     and isinstance(func.value, ast.Name)
                     and func.value.id == "subprocess"
                 ):
-                    actual.add(self.relative_path)
+                    key = self.relative_path + "::" + "::".join(self.scope)
+                    actual[key] = actual.get(key, 0) + 1
                 self.generic_visit(node)
 
         for scan_root in scan_roots:
@@ -451,22 +458,16 @@ class SubprocessBoundaryInventoryTests(unittest.TestCase):
                 continue
             for source in sorted(scan_root.rglob("*.py")):
                 relative = source.relative_to(root).as_posix()
-                visitor = Visitor(relative)
-                visitor.visit(ast.parse(source.read_text(encoding="utf-8"), filename=relative))
+                Visitor(relative).visit(ast.parse(source.read_text(encoding="utf-8"), filename=relative))
 
         self.assertEqual(
             actual,
-            set(self.REVIEWED_POPEN_ADAPTERS),
-            "New or removed subprocess launch adapters require an explicit reviewed disposition "
-            "and denial-before-launch regression tests.",
+            self.REVIEWED_POPEN_CALLSITES,
+            "New, moved, or duplicated Popen callsites require an explicit review and "
+            "denial-before-launch regression test; do not weaken this assertion to pass CI.",
         )
 
-    def test_inventory_does_not_claim_host_process_isolation(self):
-        self.assertIn(
-            "not a security sandbox",
-            self.REVIEWED_POPEN_ADAPTERS["portable/external_evaluator_gateway.py"],
-        )
-        self.assertIn(
-            "verified separately",
-            self.REVIEWED_POPEN_ADAPTERS["portable/container_sandboxed_arena.py"],
-        )
+    def test_registry_records_non_sandbox_and_runtime_policy_limits(self):
+        doc = (Path(__file__).resolve().parents[1] / "docs/GUARDED_EXECUTION_BOUNDARY_FOLLOWUP.md").read_text(encoding="utf-8")
+        self.assertIn("not a security sandbox", doc)
+        self.assertIn("not proof that every callsite within an already-listed module is authorized", doc)
