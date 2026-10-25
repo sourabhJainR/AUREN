@@ -112,6 +112,8 @@ jobs:
         run: python -m unittest tests.test_dependency_aware_fanout tests.test_task_planner -v
       - name: Run isolated graph workspace and conflict-safe adoption regressions
         run: python -m unittest tests.test_graph_workspace_adoption -v
+      - name: Run fresh-worktree independent graph verification regressions
+        run: python -m unittest tests.test_independent_graph_verification -v
       - name: Run decision record and promotion gate regressions
         run: python -m unittest tests.test_decision_gate -v
       - name: Run execution-time capability promotion gate regressions
