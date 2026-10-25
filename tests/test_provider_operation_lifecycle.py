@@ -459,6 +459,40 @@ class ProviderOperationLifecycleTests(unittest.TestCase):
 
 
 
+
+    def test_completed_dispatch_requires_all_explicit_request_binding_fields(self):
+        key = "strict-dispatch-binding"
+        provider = "provider-a"
+        intent = {"target": "production", "revision": "release-17"}
+        lifecycle = ProviderOperationLifecycle(self.ledger(), record_event=self.events.append)
+        operation_id = stable_provider_operation_id(key, provider, intent)
+        incomplete = (
+            {"status": "completed", "provider_operation_id": "remote-17"},
+            {
+                "status": "completed", "provider_operation_id": "remote-17",
+                "operation_id": operation_id, "idempotency_key": key,
+                "provider": provider,
+            },
+            {
+                "status": "completed", "provider_operation_id": "remote-17",
+                "operation_id": operation_id, "idempotency_key": key,
+                "intent_digest": "0" * 64,
+            },
+        )
+        for index, receipt in enumerate(incomplete):
+            op_key = f"{key}:{index}"
+            with self.assertRaises(ProviderOutcomeBlocked):
+                lifecycle.execute(
+                    op_key, provider, intent,
+                    lambda *_args, value=receipt: value,
+                )
+            self.assertEqual("reconcile_required", self.ledger().get(op_key)["state"])
+            with self.assertRaises(ProviderOutcomeBlocked):
+                lifecycle.execute(
+                    op_key, provider, intent,
+                    lambda *_: self.fail("unbound or mismatched receipt must not be replayed"),
+                )
+
     def test_reconciliation_requires_explicit_request_binding_fields(self):
         operation_key = "deploy:reconcile-missing-binding"
         provider = "provider-a"
