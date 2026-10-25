@@ -15,7 +15,6 @@ import os
 import platform
 import re
 import shutil
-import subprocess
 import tempfile
 import threading
 import time
@@ -331,22 +330,6 @@ class LocalOffloadBroker:
             if not _SECRET_ENV.search(key) and key in allowed:
                 result[key] = value
         return result
-
-    def _resource_limits(self) -> dict[str, object]:
-        if os.name == "nt":
-            return {}
-        try:
-            import resource
-        except ImportError:
-            return {}
-        cpu_seconds = max(1, int(self.budget.timeout_seconds))
-        return {"preexec_fn": lambda: self._set_posix_limits(resource, cpu_seconds)}
-
-    def _set_posix_limits(self, resource_module, cpu_seconds: int) -> None:
-        resource_module.setrlimit(resource_module.RLIMIT_CPU, (cpu_seconds, cpu_seconds))
-        if self.budget.memory_mb and hasattr(resource_module, "RLIMIT_AS"):
-            limit = self.budget.memory_mb * 1024 * 1024
-            resource_module.setrlimit(resource_module.RLIMIT_AS, (limit, limit))
 
     @staticmethod
     def _truncate(output: str, limit: int) -> str:
