@@ -687,5 +687,54 @@ class AgentCapabilityTests(unittest.TestCase):
             self.assertEqual(64, len(decision[4]))
             self.assertNotIn("secret=do-not-store", path.read_bytes().decode("utf-8", errors="ignore"))
 
+
+    def test_explicit_user_tool_request_is_preserved_in_selected_bundle(self):
+        from portable.agent_capabilities import CapabilityExecutioner, CapabilityOption
+        result = CapabilityExecutioner().select_collaborative(
+            request="User instruction: must use mcp:repo-search for this task",
+            options=(
+                CapabilityOption("core:general", source="core", tags=frozenset({"general"}), evidence_quality=0.99, confidence=0.99),
+                CapabilityOption("mcp:repo-search", source="mcp", tags=frozenset({"repository", "search"}), risk="medium"),
+            ),
+        )
+        self.assertIn("mcp:repo-search", result.selected_set)
+
+    def test_multiple_explicit_user_tools_are_combined_or_fail_closed(self):
+        from portable.agent_capabilities import CapabilityExecutioner, CapabilityOption
+        result = CapabilityExecutioner().select_collaborative(
+            request="Must use mcp:repo-search and must use skill:repo-review",
+            options=(
+                CapabilityOption("mcp:repo-search", source="mcp", tags=frozenset({"repository", "search"})),
+                CapabilityOption("skill:repo-review", source="skill", tags=frozenset({"review", "repository"})),
+                CapabilityOption("core:general", source="core", tags=frozenset({"general"})),
+            ),
+            max_skills=2,
+        )
+        self.assertTrue({"mcp:repo-search", "skill:repo-review"}.issubset(set(result.selected_set)))
+        with self.assertRaisesRegex(PermissionError, "bundle limit"):
+            CapabilityExecutioner().select_collaborative(
+                request="Must use mcp:repo-search and must use skill:repo-review and must use api:verify",
+                options=(
+                    CapabilityOption("mcp:repo-search", source="mcp"),
+                    CapabilityOption("skill:repo-review", source="skill"),
+                    CapabilityOption("api:verify", source="api"),
+                ),
+                max_skills=2,
+            )
+
+    def test_explicit_tool_exclusion_and_policy_denial_are_fail_closed(self):
+        from portable.agent_capabilities import CapabilityExecutioner, CapabilityOption
+        with self.assertRaises(LookupError):
+            CapabilityExecutioner().select_collaborative(
+                request="Do not use mcp:remote-write",
+                options=(CapabilityOption("mcp:remote-write", source="mcp"),),
+            )
+        with self.assertRaisesRegex(PermissionError, "blocked by execution policy"):
+            CapabilityExecutioner().select_collaborative(
+                request="Must use mcp:remote-write",
+                options=(CapabilityOption("mcp:remote-write", source="mcp", risk="high", requires_network=True),),
+                network_allowed=False,
+            )
+
 if __name__ == "__main__":
     unittest.main()
