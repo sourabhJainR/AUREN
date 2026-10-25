@@ -211,3 +211,41 @@ skills cannot create an unbounded worker fan-out.
 The schedule is still subordinate to AUREN's resource, policy and verification
 controls. It describes what can run together; it does not grant execution
 authority.
+
+
+## Durable inventory audit and cross-stage learning
+
+Every graph-agent stage records a compact SQLite inventory snapshot at
+`.auren/capability_audit.sqlite3`. It records bounded metadata for discovered
+core capabilities, skills, MCP tools, plugins and any provider/API exposed by a
+registered discoverer. Each snapshot is scoped to the run, stage and crew/role,
+and uses descriptor digests to detect inventory changes. Discovery is
+descriptive only; it never grants authority or overrides policy.
+
+Selection decisions record the chosen capability, bounded alternatives,
+digested request/rationale, outcome, evidence references, cost and duration.
+Raw task text, skill instructions, credentials and provider payloads are not
+written to this audit. Exact role/task learning remains the primary signal; a
+capability-level cross-stage prior is consulted only when exact history is
+absent, and the selector's existing confidence cap bounds its influence.
+Outcomes are recorded separately for each stage/crew and for the shared
+capability prior, so one crew's success cannot erase another crew's failures.
+
+Use the existing discovery adapter seam for APIs and tools: an integration
+must explicitly advertise bounded `CapabilityOption` metadata. AUREN does not
+blindly enumerate credentials, import arbitrary packages, invoke unknown MCP
+servers, or mutate/install plugins to discover them. The audit shows what was
+advertised and selected, not that an external endpoint is trustworthy or that
+its action succeeded; consequential execution still requires authority,
+provider-bound receipts, independent verification and durable evidence.
+
+Token economy: discover once per stage, cap the candidate portfolio, store
+digests rather than prompts/instructions, use exact history before the shared
+prior, and avoid rediscovering a source after its metadata is known to be fresh.
+Do not reduce security checks or verification to save tokens.
+
+Rollback: disable the audit writer only if durable storage is unavailable and
+the task is non-consequential; consequential work must remain blocked if its
+required audit cannot be persisted. Existing experience records remain the
+learning source of truth; audit rows are an append-only explanation trail, not
+a second policy or learning engine.

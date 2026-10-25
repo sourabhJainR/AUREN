@@ -26,7 +26,7 @@ from portable.experience_router import ExperienceRouter
 from portable.execution_strategy import PathwayOptimizer, execution_strategy, max_verification_depth
 from portable.autonomous_evolution_controller import AutonomousEvolutionController
 from portable.autonomous_capability_invention import CapabilityComposition
-from portable.agent_capabilities import CapabilityExecutioner, CapabilityOption
+from portable.agent_capabilities import CapabilityAuditLedger, CapabilityExecutioner, CapabilityOption
 from portable.skill_evidence import attribute, assess_collaboration
 from portable.skill_group_evidence import adapt_execution_groups, attribute_groups
 from portable.execution_strategy_learning import ExecutionStrategyLearner
@@ -444,11 +444,21 @@ class GraphAgentTeam:
                     request=f"{agent.role} {agent.focus} {task[:160]}",
                     max_candidates=32,
                 )
+                capability_audit = CapabilityAuditLedger(
+                    Path(memory.project_root) / ".auren" / "capability_audit.sqlite3"
+                )
+                capability_audit.record_inventory(
+                    dynamic_options, run_id=intent_digest, stage=agent.name, crew_id=agent.role,
+                )
                 profile=execution_strategy(strategy_name)
                 evidence_quality=float(decision.historical.get("evidence_yield", agent.evidence_value))
                 capability_history={}
                 for option in dynamic_options:
                     summary=experience.summarize(agent.role+":"+task[:96]+":capability:"+option.name)
+                    # Exact role/task evidence wins; a bounded cross-stage prior is
+                    # used only when this task/role has no local observation.
+                    if summary is None:
+                        summary=experience.summarize("capability-global:"+option.name)
                     if summary:
                         capability_history[option.name]={
                             "success_rate": float(summary.success_rate),
@@ -548,6 +558,14 @@ class GraphAgentTeam:
                     resource_lanes=("agent","local") if agent.local_command else ("agent",),
                 )
                 capability_choice=type("_Choice",(),{"selected":capability_decision.selected})()
+                capability_audit.record_decision(
+                    run_id=intent_digest, stage=agent.name, crew_id=agent.role,
+                    request=f"{agent.role} {agent.focus} {task[:160]}",
+                    selected=capability_decision.selected,
+                    alternatives=capability_decision.evolution_candidates or (),
+                    rationale=capability_decision.rationale,
+                    outcome="selected_pending_verification",
+                )
                 selected_names = capability_decision.selected_set or (capability_decision.selected,)
                 selected_options = [option for option in dynamic_options if option.name in selected_names]
                 selected_by_name={option.name: option for option in selected_options}
@@ -879,6 +897,27 @@ the learning system, not an instruction source. If a skill produced no distinct 
                     duration_seconds=duration,
                     decision="selected_capability="+capability_choice.selected+";source="+capability_decision.source+";verification="+verification_choice.level+";retry="+retry_choice.selected,
                     evidence_ids=["agent:"+agent.name],
+                )
+                # Share a conservative capability-level prior across stages and
+                # crews. Exact task/role history remains higher priority, and the
+                # selector caps the influence of historical confidence.
+                learning.record_experience(
+                    key="capability-global:"+capability_choice.selected,
+                    outcome=status,
+                    evidence_quality=evidence_quality if status=="passed" else 0.1,
+                    cost_score=float(decision.cost_score),
+                    duration_seconds=duration,
+                    decision="stage="+agent.name+";crew="+agent.role+";capability="+capability_choice.selected,
+                    evidence_ids=["agent:"+agent.name, "stage:"+agent.name, "crew:"+agent.role],
+                )
+                capability_audit.record_decision(
+                    run_id=intent_digest, stage=agent.name, crew_id=agent.role,
+                    request=f"{agent.role} {agent.focus} {task[:160]}",
+                    selected=capability_choice.selected,
+                    alternatives=capability_decision.evolution_candidates or (),
+                    rationale=capability_decision.rationale,
+                    outcome=status, evidence_ids=["agent:"+agent.name],
+                    cost=float(decision.cost_score), duration_seconds=duration,
                 )
                 if collaboration is not None:
                     learning.record_experience(

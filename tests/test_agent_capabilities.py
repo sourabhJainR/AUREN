@@ -644,5 +644,48 @@ class AgentCapabilityTests(unittest.TestCase):
             "promoted",
         )
 
+
+    def test_capability_audit_persists_inventory_and_decision_without_raw_task_text(self):
+        import sqlite3
+        import tempfile
+        from portable.agent_capabilities import CapabilityAuditLedger, CapabilityOption
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / ".auren" / "capability_audit.sqlite3"
+            ledger = CapabilityAuditLedger(path)
+            options = (
+                CapabilityOption(
+                    "mcp:repo-search", source="mcp",
+                    description="search repository", tags=frozenset({"repo", "search"}),
+                ),
+                CapabilityOption(
+                    "plugin:deploy", source="plugin", risk="high",
+                    requires_sandbox=True,
+                ),
+            )
+            snapshot = ledger.record_inventory(
+                options, run_id="run-1", stage="verification", crew_id="review",
+            )
+            self.assertEqual(64, len(snapshot))
+            ledger.record_decision(
+                run_id="run-1", stage="verification", crew_id="review",
+                request="search private repository secret=do-not-store",
+                selected="mcp:repo-search", alternatives=("core:search",),
+                rationale="selected for fit", outcome="passed",
+                evidence_ids=("test:capability-audit",), cost=0.1, duration_seconds=0.25,
+            )
+            with sqlite3.connect(path) as db:
+                inventory = db.execute(
+                    "SELECT name,source,risk FROM capability_inventory ORDER BY name"
+                ).fetchall()
+                decision = db.execute(
+                    "SELECT stage,crew_id,selected,outcome,request_digest FROM capability_decisions"
+                ).fetchone()
+            self.assertEqual(["mcp:repo-search", "plugin:deploy"], [row[0] for row in inventory])
+            self.assertEqual(["mcp", "plugin"], [row[1] for row in inventory])
+            self.assertEqual(("verification", "review", "mcp:repo-search", "passed"), decision[:4])
+            self.assertEqual(64, len(decision[4]))
+            self.assertNotIn("secret=do-not-store", path.read_bytes().decode("utf-8", errors="ignore"))
+
 if __name__ == "__main__":
     unittest.main()

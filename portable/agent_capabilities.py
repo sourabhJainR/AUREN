@@ -429,6 +429,110 @@ class CapabilityOption:
     fallback: str | None = None
 
 
+
+class CapabilityAuditLedger:
+    """Compact durable audit of discovered resources, decisions, and outcomes.
+
+    Only bounded metadata and digests are stored. Skill instructions, prompts,
+    credentials, raw provider payloads, and task content are deliberately excluded.
+    This ledger records selection evidence; it never grants execution authority.
+    """
+
+    def __init__(self, path: Path | str) -> None:
+        self.path = Path(path)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        with sqlite3.connect(self.path, timeout=10) as db:
+            db.execute("PRAGMA journal_mode=WAL")
+            db.execute("""CREATE TABLE IF NOT EXISTS capability_inventory (
+                snapshot_id TEXT NOT NULL, run_id TEXT NOT NULL, stage TEXT NOT NULL,
+                crew_id TEXT NOT NULL, name TEXT NOT NULL, source TEXT NOT NULL,
+                descriptor_digest TEXT NOT NULL, available INTEGER NOT NULL,
+                risk TEXT NOT NULL, requires_network INTEGER NOT NULL,
+                requires_sandbox INTEGER NOT NULL, created_at TEXT NOT NULL,
+                PRIMARY KEY(snapshot_id, name))""")
+            db.execute("""CREATE TABLE IF NOT EXISTS capability_decisions (
+                event_id TEXT PRIMARY KEY, run_id TEXT NOT NULL, stage TEXT NOT NULL,
+                crew_id TEXT NOT NULL, request_digest TEXT NOT NULL,
+                selected TEXT NOT NULL, alternatives TEXT NOT NULL,
+                rationale_digest TEXT NOT NULL, outcome TEXT NOT NULL,
+                evidence_digest TEXT NOT NULL, cost REAL, duration_seconds REAL,
+                created_at TEXT NOT NULL)""")
+            db.execute("CREATE INDEX IF NOT EXISTS idx_capability_decisions_lookup ON capability_decisions(stage, crew_id, selected, created_at)")
+            db.commit()
+
+    @staticmethod
+    def _canonical(value: Mapping[str, Any]) -> str:
+        return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
+
+    @classmethod
+    def _digest(cls, value: Mapping[str, Any]) -> str:
+        return hashlib.sha256(cls._canonical(value).encode("utf-8")).hexdigest()
+
+    def record_inventory(
+        self, options: Iterable[CapabilityOption], *, run_id: str,
+        stage: str, crew_id: str = "unassigned",
+    ) -> str:
+        rows = []
+        for option in options:
+            descriptor = {
+                "name": option.name[:160], "source": option.source[:64],
+                "description": option.description[:512], "tags": sorted(option.tags)[:64],
+                "phase": option.phase[:64], "risk": option.risk[:32],
+                "available": bool(option.available),
+                "requires_network": bool(option.requires_network),
+                "requires_sandbox": bool(option.requires_sandbox),
+                "estimated_latency_ms": max(0.0, min(float(option.estimated_latency_ms), 86400000.0)),
+                "estimated_cost": max(0.0, min(float(option.estimated_cost), 1000000.0)),
+            }
+            rows.append((option, descriptor))
+        snapshot_id = hashlib.sha256(self._canonical({
+            "run_id": run_id, "stage": stage, "crew_id": crew_id,
+            "resources": sorted((item.name, self._digest(desc)) for item, desc in rows),
+        }).encode("utf-8")).hexdigest()
+        now = _utc().isoformat()
+        with sqlite3.connect(self.path, timeout=10) as db:
+            db.execute("PRAGMA busy_timeout=10000")
+            db.executemany(
+                """INSERT OR IGNORE INTO capability_inventory
+                (snapshot_id,run_id,stage,crew_id,name,source,descriptor_digest,available,
+                 risk,requires_network,requires_sandbox,created_at)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
+                [(
+                    snapshot_id, run_id[:160], stage[:160], crew_id[:160],
+                    option.name[:160], option.source[:64], self._digest(desc),
+                    int(bool(option.available)), option.risk[:32],
+                    int(bool(option.requires_network)), int(bool(option.requires_sandbox)), now,
+                ) for option, desc in rows],
+            )
+            db.commit()
+        return snapshot_id
+
+    def record_decision(
+        self, *, run_id: str, stage: str, crew_id: str, request: str,
+        selected: str, alternatives: Iterable[str] = (), rationale: str = "",
+        outcome: str = "pending", evidence_ids: Iterable[str] = (),
+        cost: float | None = None, duration_seconds: float | None = None,
+    ) -> str:
+        event_id = uuid.uuid4().hex
+        request_digest = hashlib.sha256(request[:8192].encode("utf-8")).hexdigest()
+        rationale_digest = hashlib.sha256(rationale[:2048].encode("utf-8")).hexdigest()
+        evidence_digest = hashlib.sha256(self._canonical({
+            "evidence_ids": sorted(str(item)[:256] for item in evidence_ids)[:64],
+        }).encode("utf-8")).hexdigest()
+        safe_cost = None if cost is None else max(0.0, min(float(cost), 1000000.0))
+        safe_duration = None if duration_seconds is None else max(0.0, min(float(duration_seconds), 31536000.0))
+        with sqlite3.connect(self.path, timeout=10) as db:
+            db.execute("PRAGMA busy_timeout=10000")
+            db.execute(
+                """INSERT INTO capability_decisions VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (event_id, run_id[:160], stage[:160], crew_id[:160], request_digest,
+                 selected[:160], json.dumps(sorted(str(x)[:160] for x in alternatives)[:16]),
+                 rationale_digest, outcome[:64], evidence_digest, safe_cost, safe_duration, _utc().isoformat()),
+            )
+            db.commit()
+        return event_id
+
+
 @dataclass(frozen=True)
 class CapabilityDecision:
     selected: str
