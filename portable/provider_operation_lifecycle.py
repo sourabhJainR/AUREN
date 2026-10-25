@@ -10,6 +10,7 @@ import json
 from typing import Any, Callable, Mapping
 
 from .side_effect_ledger import DurableSideEffectLedger, InvalidSideEffectTransition
+from .agency_observability import Trace
 
 
 class ProviderOutcomeBlocked(RuntimeError):
@@ -57,7 +58,8 @@ class ProviderOperationLifecycle:
 
     def execute(self, operation_key: str, provider: str, intent: Mapping[str, Any],
                 dispatch: Callable[[Mapping[str, Any], str, str], Mapping[str, Any]],
-                *, lookup: Callable[[str, str], Mapping[str, Any]] | None = None) -> Mapping[str, Any]:
+                *, lookup: Callable[[str, str], Mapping[str, Any]] | None = None,
+                trace: Trace | None = None, parent_span_id: str | None = None) -> Mapping[str, Any]:
         if not isinstance(intent, Mapping) or not callable(dispatch):
             raise TypeError("intent mapping and dispatch callable are required")
         op_id = stable_provider_operation_id(operation_key, provider, intent)
@@ -67,24 +69,54 @@ class ProviderOperationLifecycle:
             self._event(operation_key, "completed", op_id, decision.payload_digest, replay=True)
             return dict(decision.receipt or {})
         if decision.action == "reconcile":
-            return self.reconcile(operation_key, provider, intent, lookup)
+            return self.reconcile(
+                operation_key, provider, intent, lookup,
+                trace=trace, parent_span_id=parent_span_id,
+            )
         if decision.action != "execute":
             self._event(operation_key, "blocked", op_id, decision.payload_digest, reason="reconciliation_required")
             raise ProviderOutcomeBlocked(
                 f"provider operation {op_id} has uncertain outcome; reconcile before any retry"
             )
         self._event(operation_key, "dispatching", op_id, decision.payload_digest, provider=provider)
+        dispatch_span = trace.span(
+            "provider_dispatch:" + provider,
+            "provider",
+            metadata={
+                "operation_id": op_id,
+                "operation_key_digest": hashlib.sha256(operation_key.encode("utf-8")).hexdigest(),
+                "intent_digest": decision.payload_digest,
+            },
+            parent_id=parent_span_id,
+            phase="provider",
+            actor_id="auren.provider_operation_lifecycle",
+        ) if trace is not None else None
         try:
             receipt = dispatch(dict(intent), op_id, operation_key)
             if not isinstance(receipt, Mapping):
                 raise TypeError("provider dispatch must return a receipt mapping")
         except Exception as exc:
+            if dispatch_span is not None:
+                dispatch_span.finish(
+                    {"dispatch_returned": False, "error_type": type(exc).__name__},
+                    "error", type(exc).__name__,
+                )
             self.ledger.require_reconciliation(operation_key, f"dispatch outcome uncertain ({type(exc).__name__})")
             self._event(operation_key, "reconcile_required", op_id, decision.payload_digest,
                         error_type=type(exc).__name__)
             raise ProviderOutcomeBlocked(
                 f"provider operation {op_id} outcome is uncertain; no automatic retry"
             ) from exc
+        if dispatch_span is not None:
+            provider_status = receipt.get("status")
+            dispatch_span.finish(
+                {
+                    "dispatch_returned": True,
+                    "provider_status": provider_status.strip()[:80] if isinstance(provider_status, str) else "missing",
+                    "receipt_mapping": True,
+                },
+                "ok",
+            )
         # A returned mapping proves only that the adapter returned. It does not
         # prove that the remote side effect completed. Never persist pending,
         # failed, malformed, or unknown provider states as a completed receipt.
@@ -165,7 +197,8 @@ class ProviderOperationLifecycle:
         return dict(completed.receipt or {})
 
     def reconcile(self, operation_key: str, provider: str, intent: Mapping[str, Any],
-                  lookup: Callable[[str, str], Mapping[str, Any]] | None) -> Mapping[str, Any]:
+                  lookup: Callable[[str, str], Mapping[str, Any]] | None,
+                  *, trace: Trace | None = None, parent_span_id: str | None = None) -> Mapping[str, Any]:
         op_id = stable_provider_operation_id(operation_key, provider, intent)
         record = self.ledger.get(operation_key)
         if record is None:
@@ -177,18 +210,48 @@ class ProviderOperationLifecycle:
             return dict(record["receipt"] or {})
         if record["state"] != "reconcile_required":
             raise InvalidSideEffectTransition("provider operation is not awaiting reconciliation")
+        lookup_span = trace.span(
+            "provider_lookup:" + provider,
+            "provider",
+            metadata={
+                "operation_id": op_id,
+                "operation_key_digest": hashlib.sha256(operation_key.encode("utf-8")).hexdigest(),
+                "intent_digest": record["payload_digest"],
+            },
+            parent_id=parent_span_id,
+            phase="provider",
+            actor_id="auren.provider_operation_lifecycle",
+        ) if trace is not None else None
         if lookup is None:
+            if lookup_span is not None:
+                lookup_span.finish({"lookup_available": False}, "blocked", "lookup_unavailable")
             self._event(operation_key, "blocked", op_id, record["payload_digest"],
                         reason="provider_lookup_unavailable")
             raise ProviderOutcomeBlocked(f"provider operation {op_id} requires explicit resolution")
         try:
             status = lookup(op_id, operation_key)
         except Exception as exc:
+            if lookup_span is not None:
+                lookup_span.finish(
+                    {"lookup_returned": False, "error_type": type(exc).__name__},
+                    "error", type(exc).__name__,
+                )
             self._event(operation_key, "blocked", op_id, record["payload_digest"],
                         reason="provider_lookup_failed", error_type=type(exc).__name__)
             raise ProviderOutcomeBlocked(f"provider operation {op_id} lookup failed; explicit resolution required") from exc
         if not isinstance(status, Mapping):
+            if lookup_span is not None:
+                lookup_span.finish({"lookup_returned": True, "result_mapping": False}, "blocked", "invalid_lookup_result")
             raise ProviderOutcomeBlocked("provider lookup result is invalid; explicit resolution required")
+        if lookup_span is not None:
+            lookup_span.finish(
+                {
+                    "lookup_returned": True,
+                    "provider_status": str(status.get("status", "unknown"))[:80],
+                    "result_mapping": True,
+                },
+                "ok",
+            )
         if status.get("status") == "completed" and isinstance(status.get("receipt"), Mapping):
             evidence_ref = status.get("evidence_ref")
             receipt = dict(status["receipt"])
