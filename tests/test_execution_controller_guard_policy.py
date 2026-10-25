@@ -127,3 +127,28 @@ def test_invalid_configured_guard_policy_is_durable_and_blocks_dispatch(tmp_path
     controller.run_once(task.id)
     assert not marker.exists()
     assert controller.task(task.id).state != "completed"
+
+
+def test_guard_action_comes_from_trusted_registration_not_task_payload(tmp_path: Path):
+    controller = ExecutionController(tmp_path)
+    controller.register_handler(
+        "tests.generic_handler", guarded_marker_handler,
+        execution_class="read_only", guard_action="read",
+    )
+    policy_path = tmp_path / ".auren" / "guard_policy.json"
+    policy_path.parent.mkdir(parents=True, exist_ok=True)
+    policy_path.write_text(json.dumps({
+        "schema_version": "auren-guard-v1",
+        "default_effect": "allow",
+        "rules": [{"id": "deny-reads", "effect": "deny", "action": "read"}],
+    }), encoding="utf-8")
+    marker = tmp_path / "handler-ran.txt"
+    task = controller.submit("tests.generic_handler", {
+        "action": "unrelated-payload-label",
+        "marker_path": str(marker),
+    })
+
+    controller.run_once(task.id)
+
+    assert not marker.exists()
+    assert controller.task(task.id).state != "completed"
