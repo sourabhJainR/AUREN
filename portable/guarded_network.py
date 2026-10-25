@@ -159,14 +159,14 @@ def guarded_https_get(
     request_target = parsed.path or "/"
     if parsed.query:
         request_target += "?" + parsed.query
-    if "\\r" in request_target or "\\n" in request_target:
+    if "\r" in request_target or "\n" in request_target:
         raise NetworkPolicyDenied("invalid HTTP request target")
     safe_headers: list[tuple[str, str]] = []
     for name, value in (headers or {}).items():
         if (
             not isinstance(name, str) or not re.fullmatch(r"[!#$%&'*+.^_~0-9A-Za-z-]+", name)
             or name.lower() in {"host", "connection", "content-length", "transfer-encoding"}
-            or not isinstance(value, str) or "\\r" in value or "\\n" in value
+            or not isinstance(value, str) or "\r" in value or "\n" in value
         ):
             raise NetworkPolicyDenied("invalid or forbidden HTTP header")
         safe_headers.append((name, value))
@@ -188,7 +188,7 @@ def guarded_https_get(
                     "",
                     "",
                 ]
-                secure.sendall("\\r\\n".join(lines).encode("ascii", errors="strict"))
+                secure.sendall("\r\n".join(lines).encode("ascii", errors="strict"))
                 response = http.client.HTTPResponse(secure)
                 response.begin()
                 return int(response.status), response.read(max_bytes + 1)
