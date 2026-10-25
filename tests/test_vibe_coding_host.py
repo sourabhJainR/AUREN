@@ -310,6 +310,19 @@ class VibeCodingHostTests(unittest.TestCase):
                 ledger.get(mcp_action_idempotency_key(provider_operation["operation_id"], request))["state"],
                 "completed",
             )
+            second_tool_request = {
+                **request,
+                "capability": "preview",
+                "tool_results": {"deployment": {"status": "passed"}},
+            }
+            self.assertNotEqual(
+                mcp_action_id(provider_operation["operation_id"], request),
+                mcp_action_id(provider_operation["operation_id"], second_tool_request),
+            )
+            self.assertNotEqual(
+                mcp_action_idempotency_key(provider_operation["operation_id"], request),
+                mcp_action_idempotency_key(provider_operation["operation_id"], second_tool_request),
+            )
 
     def test_consequential_mcp_authority_denial_never_launches_process(self):
         with tempfile.TemporaryDirectory() as temp:
