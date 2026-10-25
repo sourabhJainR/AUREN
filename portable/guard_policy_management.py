@@ -9,6 +9,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import hashlib
 import json
+import math
 import sqlite3
 import time
 from pathlib import Path
@@ -84,6 +85,8 @@ def _validate_local_schedule(policy: Mapping[str, Any], context: Mapping[str, An
     """Check optional timezone-aware local schedule at evaluation time."""
     timezone_name = policy.get("timezone")
     if timezone_name is None:
+        if "hours_local" in policy or "weekdays_local" in policy:
+            raise GuardPolicyError("local schedule constraints require an IANA timezone")
         return True
     if not isinstance(timezone_name, str) or not timezone_name:
         raise GuardPolicyError("timezone must be an IANA timezone name")
@@ -115,7 +118,7 @@ class DurableRateLimiter:
         if not isinstance(scope_key, str) or not scope_key or type(limit) is not int or limit < 1 or type(window_seconds) is not int or window_seconds < 1:
             raise GuardPolicyError("invalid rate limit configuration")
         current = time.time() if now is None else now
-        if isinstance(current, bool) or not isinstance(current, (int, float)):
+        if isinstance(current, bool) or not isinstance(current, (int, float)) or not math.isfinite(current):
             raise GuardPolicyError("invalid rate limit clock")
         try:
             with sqlite3.connect(self.database, timeout=5, isolation_level=None) as db:
@@ -237,6 +240,12 @@ class GuardActionEvidenceLedger:
             raise GuardPolicyError("verified outcome must be pending, succeeded, failed, or unknown")
         if event_type not in {"dispatch_authorized", "provider_outcome_verified", "revoked", "reconciled"}:
             raise GuardPolicyError("unsupported action evidence event type")
+        if event_type == "dispatch_authorized" and verified_outcome != "pending":
+            raise GuardPolicyError("dispatch authorization must begin with pending outcome")
+        if event_type == "provider_outcome_verified" and verified_outcome not in {"succeeded", "failed", "unknown"}:
+            raise GuardPolicyError("provider outcome event must record an explicit terminal or unknown outcome")
+        if event_type == "revoked" and verified_outcome not in {"unknown", "failed"}:
+            raise GuardPolicyError("revocation cannot claim provider success")
         payload = {
             "schema_version": "auren-guard-action-evidence-v1",
             "event_id": event_id, "identity": identity,
