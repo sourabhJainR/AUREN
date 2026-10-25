@@ -461,6 +461,15 @@ class CapabilityAuditLedger:
             if "inventory_snapshot_id" not in decision_columns:
                 db.execute("ALTER TABLE capability_decisions ADD COLUMN inventory_snapshot_id TEXT NOT NULL DEFAULT ''")
             db.execute("CREATE INDEX IF NOT EXISTS idx_capability_decisions_lookup ON capability_decisions(stage, crew_id, selected, created_at)")
+            for table in ("capability_inventory", "capability_decisions"):
+                db.execute(f"""CREATE TRIGGER IF NOT EXISTS {table}_no_update
+                    BEFORE UPDATE ON {table} BEGIN
+                    SELECT RAISE(ABORT, 'capability audit rows are immutable');
+                    END""")
+                db.execute(f"""CREATE TRIGGER IF NOT EXISTS {table}_no_delete
+                    BEFORE DELETE ON {table} BEGIN
+                    SELECT RAISE(ABORT, 'capability audit rows are immutable');
+                    END""")
             db.commit()
 
     @staticmethod
