@@ -74,6 +74,8 @@ class WorkflowProfileTests(unittest.TestCase):
         self.assertEqual("merge", infer_delivery_action("merge-pull-request", {}))
         self.assertEqual("create_pr", infer_delivery_action("repo-worker", {"operation": "create pull request"}))
         self.assertEqual("push", infer_delivery_action("repo-worker", {"git_action": "push"}))
+        self.assertEqual("merge", infer_delivery_action("repo-worker", {"argv": ["git", "merge", "origin/main"]}))
+        self.assertEqual("push", infer_delivery_action("repo-worker", {"intent": {"git_command": "git push origin main"}}))
         self.assertIsNone(infer_delivery_action("repo-worker", {"description": "please do not merge"}))
 
     def test_profile_does_not_encode_authority_or_skip_checks(self):
