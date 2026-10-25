@@ -38,6 +38,15 @@ Supported matching fields are `action`, `tool`, `resource`,
 `prod/*`). Shell character classes and regular expressions are not supported.
 A rule must match at least one field. Rule IDs must be unique.
 
+`action` is taken from the trusted handler registration (`guard_action`) or from
+the controller's recognized repository-delivery action inference. It is never
+trusted from an arbitrary task payload field. Register handlers with a stable
+operation label, for example `guard_action="read"`, `guard_action="write"`, or
+`guard_action="delete"`, when organization rules need those semantics. The label
+is persisted with the handler registration and cannot contradict a recognized
+delivery action. Existing handlers without an explicit label can still be
+restricted by exact or wildcard `tool` rules.
+
 ## CLI inspection
 
 - \`auren guard-policy show\` prints the normalized policy and canonical digest.
