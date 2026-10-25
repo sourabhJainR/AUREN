@@ -715,6 +715,25 @@ class AgentCapabilityTests(unittest.TestCase):
             self.assertNotIn("secret=do-not-store", path.read_bytes().decode("utf-8", errors="ignore"))
 
 
+
+    def test_capability_audit_migrates_existing_decision_table(self):
+        import sqlite3
+        import tempfile
+        from portable.agent_capabilities import CapabilityAuditLedger
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "capability_audit.sqlite3"
+            with sqlite3.connect(path) as db:
+                db.execute("""CREATE TABLE capability_decisions (
+                    event_id TEXT PRIMARY KEY, run_id TEXT NOT NULL, stage TEXT NOT NULL,
+                    crew_id TEXT NOT NULL, request_digest TEXT NOT NULL, selected TEXT NOT NULL,
+                    alternatives TEXT NOT NULL, rationale_digest TEXT NOT NULL, outcome TEXT NOT NULL,
+                    evidence_digest TEXT NOT NULL, cost REAL, duration_seconds REAL, created_at TEXT NOT NULL)""")
+            CapabilityAuditLedger(path)
+            with sqlite3.connect(path) as db:
+                columns = {row[1] for row in db.execute("PRAGMA table_info(capability_decisions)")}
+            self.assertIn("inventory_snapshot_id", columns)
+
     def test_explicit_user_tool_request_is_preserved_in_selected_bundle(self):
         from portable.agent_capabilities import CapabilityExecutioner, CapabilityOption
         result = CapabilityExecutioner().select_collaborative(
