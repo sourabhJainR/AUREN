@@ -10,6 +10,7 @@ import hashlib
 import json
 import math
 import os
+import re
 import threading
 import time
 from dataclasses import asdict, dataclass, field
@@ -494,3 +495,299 @@ def evaluate_evaluator_calibration(
         reason = "calibration-thresholds-passed"
     return EvaluatorCalibration(evaluator_revision, count, accuracy, false_pass_rate,
                                 false_fail_rate, accepted, reason)
+
+
+
+@dataclass(frozen=True)
+class GraphLearningPolicy:
+    """Pinned, immutable safety gates for graph-learning comparisons."""
+
+    minimum_quality: float = 0.85
+    maximum_quality_drop: float = 0.02
+    maximum_regressions: int = 0
+    maximum_cost_increase_fraction: float = 0.10
+    maximum_latency_increase_fraction: float = 0.10
+    minimum_holdout_tasks: int = 2
+
+    def __post_init__(self) -> None:
+        for name in ("minimum_quality", "maximum_quality_drop", "maximum_cost_increase_fraction", "maximum_latency_increase_fraction"):
+            value = _finite(getattr(self, name), name)
+            if value < 0 or (name in {"minimum_quality", "maximum_quality_drop"} and value > 1):
+                raise ValueError(f"invalid graph learning policy value: {name}")
+        if type(self.maximum_regressions) is not int or self.maximum_regressions < 0:
+            raise ValueError("maximum_regressions must be a non-negative integer")
+        if type(self.minimum_holdout_tasks) is not int or self.minimum_holdout_tasks < 1:
+            raise ValueError("minimum_holdout_tasks must be a positive integer")
+
+
+class GraphLearningEvidenceGate:
+    """Record a pinned-baseline graph comparison without granting promotion authority."""
+
+    _CANDIDATE_KEYS = frozenset({
+        "baseline_id", "baseline_digest", "task_ids", "training_task_ids",
+        "holdout_task_ids", "task_set_digest", "graph_topology", "concurrency",
+        "model_provider", "worker_selection", "metrics", "task_digest",
+        "intent_digest", "artifact_digest", "source_revision",
+    })
+    _FORBIDDEN_KEYS = frozenset({
+        "policy", "authority", "authority_policy", "verification_thresholds",
+        "rollback_requirements", "promotion_authority", "safety_thresholds",
+        "minimum_quality", "maximum_regressions", "evaluator_policy",
+    })
+    _SHA256 = re.compile(r"^[0-9a-f]{64}$")
+    _REVISION = re.compile(r"^[0-9a-f]{40,64}$")
+
+    def __init__(
+        self,
+        journal: ImprovementJournal,
+        *,
+        pinned_baseline_id: str,
+        pinned_baseline_digest: str,
+        trusted_verifier_ids: Iterable[str],
+        policy: GraphLearningPolicy = GraphLearningPolicy(),
+    ) -> None:
+        if not isinstance(journal, ImprovementJournal):
+            raise TypeError("graph learning must use the canonical ImprovementJournal")
+        if not isinstance(pinned_baseline_id, str) or not pinned_baseline_id.strip():
+            raise ValueError("pinned_baseline_id is required")
+        if not isinstance(pinned_baseline_digest, str) or not self._SHA256.fullmatch(pinned_baseline_digest):
+            raise ValueError("pinned_baseline_digest must be a SHA-256 digest")
+        trusted = {item.strip() for item in trusted_verifier_ids if isinstance(item, str) and item.strip()}
+        if not trusted:
+            raise ValueError("at least one trusted verifier identity is required")
+        if not isinstance(policy, GraphLearningPolicy):
+            raise TypeError("policy must be the immutable GraphLearningPolicy")
+        self.journal = journal
+        self.pinned_baseline_id = pinned_baseline_id.strip()
+        self.pinned_baseline_digest = pinned_baseline_digest
+        self.trusted_verifier_ids = frozenset(trusted)
+        self.policy = policy
+        self.policy_digest = _digest(asdict(policy))
+
+    @staticmethod
+    def _task_ids(record: Mapping[str, Any], field: str) -> tuple[str, ...]:
+        values = record.get(field)
+        if not isinstance(values, (list, tuple)) or not values:
+            raise ValueError(f"{field} must be a non-empty task-id list")
+        if any(not isinstance(item, str) or not item.strip() for item in values):
+            raise ValueError(f"{field} contains an invalid task id")
+        normalized = tuple(sorted(item.strip() for item in values))
+        if len(set(normalized)) != len(normalized):
+            raise ValueError(f"{field} contains duplicate task ids")
+        return normalized
+
+    @staticmethod
+    def _metrics(record: Mapping[str, Any], task_ids: tuple[str, ...], label: str) -> dict[str, dict[str, Any]]:
+        metrics = record.get("metrics")
+        if not isinstance(metrics, Mapping) or set(metrics) != set(task_ids):
+            raise ValueError(f"{label} metrics must cover the exact pinned task set")
+        normalized: dict[str, dict[str, Any]] = {}
+        for task_id in task_ids:
+            item = metrics[task_id]
+            if not isinstance(item, Mapping):
+                raise TypeError(f"{label} metric for {task_id} must be a mapping")
+            latency = _finite(item.get("latency_ms"), f"{label}.{task_id}.latency_ms")
+            cost = _finite(item.get("cost_units"), f"{label}.{task_id}.cost_units")
+            quality = _finite(item.get("quality_score"), f"{label}.{task_id}.quality_score")
+            regressions = item.get("regression_count")
+            if latency < 0 or cost < 0 or not 0 <= quality <= 1:
+                raise ValueError(f"{label} metric values are outside valid ranges for {task_id}")
+            if type(regressions) is not int or regressions < 0:
+                raise ValueError(f"{label} regression_count must be a non-negative integer for {task_id}")
+            normalized[task_id] = {
+                "latency_ms": latency, "cost_units": cost,
+                "quality_score": quality, "regression_count": regressions,
+            }
+        return normalized
+
+    @staticmethod
+    def _aggregate(metrics: Mapping[str, Mapping[str, Any]], task_ids: tuple[str, ...]) -> dict[str, float | int]:
+        count = len(task_ids)
+        return {
+            "latency_ms_mean": sum(metrics[item]["latency_ms"] for item in task_ids) / count,
+            "cost_units_mean": sum(metrics[item]["cost_units"] for item in task_ids) / count,
+            "quality_score_mean": sum(metrics[item]["quality_score"] for item in task_ids) / count,
+            "regression_count_total": sum(metrics[item]["regression_count"] for item in task_ids),
+        }
+
+    def evaluate(
+        self,
+        *,
+        run_id: str,
+        baseline: Mapping[str, Any],
+        candidate: Mapping[str, Any],
+        verification_receipt: Mapping[str, Any],
+        holdout_evidence: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        if not isinstance(run_id, str) or not run_id.strip():
+            raise ValueError("run_id is required")
+        if not isinstance(baseline, Mapping) or not isinstance(candidate, Mapping):
+            raise TypeError("baseline and candidate must be mappings")
+        forbidden = self._FORBIDDEN_KEYS.intersection(candidate)
+        if forbidden:
+            raise PermissionError("learning candidate cannot change safety or authority controls: " + ", ".join(sorted(forbidden)))
+        if set(candidate) - self._CANDIDATE_KEYS:
+            raise ValueError("candidate contains fields outside the graph-learning evidence schema")
+        baseline_payload = {key: value for key, value in baseline.items() if key != "baseline_digest"}
+        actual_baseline_digest = _digest(baseline_payload)
+        if baseline.get("baseline_id") != self.pinned_baseline_id or actual_baseline_digest != self.pinned_baseline_digest:
+            raise ValueError("baseline does not match the pinned baseline identity and digest")
+        if candidate.get("baseline_id") != self.pinned_baseline_id or candidate.get("baseline_digest") != self.pinned_baseline_digest:
+            raise ValueError("candidate is not compared against the pinned baseline")
+        baseline_task_ids = self._task_ids(baseline, "task_ids")
+        candidate_task_ids = self._task_ids(candidate, "task_ids")
+        baseline_training = self._task_ids(baseline, "training_task_ids")
+        candidate_training = self._task_ids(candidate, "training_task_ids")
+        baseline_holdouts = self._task_ids(baseline, "holdout_task_ids")
+        candidate_holdouts = self._task_ids(candidate, "holdout_task_ids")
+        if baseline_task_ids != candidate_task_ids or baseline_training != candidate_training or baseline_holdouts != candidate_holdouts:
+            raise ValueError("baseline and candidate must use the same exact task and holdout sets")
+        if set(baseline_training).intersection(baseline_holdouts) or set(baseline_training).union(baseline_holdouts) != set(baseline_task_ids):
+            raise ValueError("training and holdout tasks must be disjoint and cover the pinned task set")
+        if len(baseline_holdouts) < self.policy.minimum_holdout_tasks:
+            raise ValueError("insufficient pinned holdout tasks")
+        task_set_digest = _digest(list(baseline_task_ids))
+        if baseline.get("task_set_digest") != task_set_digest or candidate.get("task_set_digest") != task_set_digest:
+            raise ValueError("task set digest does not match the pinned task set")
+        for record, label in ((baseline, "baseline"), (candidate, "candidate")):
+            topology = record.get("graph_topology")
+            provider = record.get("model_provider")
+            concurrency = record.get("concurrency")
+            if not isinstance(topology, Mapping) or not topology:
+                raise ValueError(f"{label} graph_topology is required")
+            if not isinstance(provider, Mapping) or not provider:
+                raise ValueError(f"{label} model_provider is required for evidence")
+            if type(concurrency) is not int or not 1 <= concurrency <= 16:
+                raise ValueError(f"{label} concurrency must be between 1 and 16")
+        worker_selection = candidate.get("worker_selection")
+        if not isinstance(worker_selection, (Mapping, list, tuple)) or not worker_selection:
+            raise ValueError("candidate worker_selection is required")
+        for field in ("task_digest", "intent_digest", "artifact_digest"):
+            if not isinstance(candidate.get(field), str) or not self._SHA256.fullmatch(candidate[field]):
+                raise ValueError(f"candidate {field} must be a SHA-256 digest")
+        if not isinstance(candidate.get("source_revision"), str) or not self._REVISION.fullmatch(candidate["source_revision"]):
+            raise ValueError("candidate source_revision must be a full commit revision")
+
+        if not isinstance(verification_receipt, Mapping):
+            raise TypeError("verification_receipt must be a verifier-produced receipt")
+        receipt_digest = verification_receipt.get("receipt_digest")
+        receipt_unsigned = {key: value for key, value in verification_receipt.items() if key != "receipt_digest"}
+        if not isinstance(receipt_digest, str) or not self._SHA256.fullmatch(receipt_digest) or _digest(receipt_unsigned) != receipt_digest:
+            raise ValueError("verification receipt digest is missing or invalid")
+        if verification_receipt.get("status") != "passed":
+            raise PermissionError("failed or unknown verification cannot feed graph learning")
+        verifier_identity = verification_receipt.get("verifier_identity")
+        if verifier_identity not in self.trusted_verifier_ids or verifier_identity == verification_receipt.get("worker_identity"):
+            raise PermissionError("verification receipt lacks a trusted verifier distinct from the worker")
+        for field in ("source_revision", "task_digest", "intent_digest", "artifact_digest"):
+            if verification_receipt.get(field) != candidate.get(field):
+                raise ValueError(f"verification receipt binding mismatch for {field}")
+        checks = verification_receipt.get("checks")
+        if not isinstance(checks, (list, tuple)) or not checks or any(not isinstance(item, Mapping) or item.get("status") != "passed" for item in checks):
+            raise PermissionError("all required verification checks must have executed and passed")
+
+        baseline_metrics = self._metrics(baseline, baseline_task_ids, "baseline")
+        candidate_metrics = self._metrics(candidate, candidate_task_ids, "candidate")
+        candidate_digest = _digest(dict(candidate))
+        holdout_evidence = dict(holdout_evidence) if isinstance(holdout_evidence, Mapping) else {}
+        if set(holdout_evidence) != set(baseline_holdouts):
+            raise ValueError("holdout evidence must cover the exact pinned holdout task set")
+        for task_id, evidence in holdout_evidence.items():
+            if not isinstance(evidence, Mapping) or evidence.get("scored") is not True:
+                raise PermissionError(f"holdout task {task_id} lacks an executed score")
+            baseline_ref, candidate_ref = evidence.get("baseline_ref"), evidence.get("candidate_ref")
+            if not isinstance(baseline_ref, str) or not baseline_ref.strip() or not isinstance(candidate_ref, str) or not candidate_ref.strip():
+                raise ValueError(f"holdout task {task_id} lacks baseline/candidate evidence references")
+            if evidence.get("verifier_identity") not in self.trusted_verifier_ids:
+                raise PermissionError(f"holdout task {task_id} has an untrusted evaluator")
+            if evidence.get("verification_receipt_digest") != receipt_digest:
+                raise ValueError(f"holdout task {task_id} is not bound to the verification receipt")
+            baseline_metric_digest = _digest(baseline_metrics[task_id])
+            candidate_metric_digest = _digest(candidate_metrics[task_id])
+            score_receipt = evidence.get("score_receipt")
+            score_receipt_digest = evidence.get("score_receipt_digest")
+            if not isinstance(score_receipt, Mapping) or not isinstance(score_receipt_digest, str) or not self._SHA256.fullmatch(score_receipt_digest):
+                raise ValueError(f"holdout task {task_id} lacks a digest-bound score receipt")
+            if _digest(dict(score_receipt)) != score_receipt_digest:
+                raise ValueError(f"holdout task {task_id} score receipt digest mismatch")
+            expected_score_fields = {
+                "task_id": task_id,
+                "baseline_ref": baseline_ref,
+                "candidate_ref": candidate_ref,
+                "scored": True,
+                "verifier_identity": evidence.get("verifier_identity"),
+                "verification_receipt_digest": receipt_digest,
+                "source_revision": candidate["source_revision"],
+                "task_digest": candidate["task_digest"],
+                "intent_digest": candidate["intent_digest"],
+                "baseline_digest": self.pinned_baseline_digest,
+                "candidate_digest": candidate_digest,
+                "baseline_metric_digest": baseline_metric_digest,
+                "candidate_metric_digest": candidate_metric_digest,
+            }
+            for field, expected_value in expected_score_fields.items():
+                if score_receipt.get(field) != expected_value:
+                    raise ValueError(f"holdout task {task_id} score receipt binding mismatch for {field}")
+
+        baseline_all = self._aggregate(baseline_metrics, baseline_task_ids)
+        candidate_all = self._aggregate(candidate_metrics, candidate_task_ids)
+        baseline_holdout = self._aggregate(baseline_metrics, baseline_holdouts)
+        candidate_holdout = self._aggregate(candidate_metrics, candidate_holdouts)
+        policy = self.policy
+        gates = {
+            "minimum_quality": candidate_all["quality_score_mean"] >= policy.minimum_quality,
+            "quality_non_regression": candidate_all["quality_score_mean"] >= baseline_all["quality_score_mean"] - policy.maximum_quality_drop,
+            "zero_regressions": candidate_all["regression_count_total"] <= policy.maximum_regressions,
+            "cost_bounded": candidate_all["cost_units_mean"] <= baseline_all["cost_units_mean"] * (1 + policy.maximum_cost_increase_fraction),
+            "latency_bounded": candidate_all["latency_ms_mean"] <= baseline_all["latency_ms_mean"] * (1 + policy.maximum_latency_increase_fraction),
+            "holdout_quality_non_regression": candidate_holdout["quality_score_mean"] >= baseline_holdout["quality_score_mean"] - policy.maximum_quality_drop,
+            "holdout_regressions_bounded": candidate_holdout["regression_count_total"] <= policy.maximum_regressions,
+        }
+        eligible = all(gates.values())
+        result = {
+            "schema": "auren-graph-learning-evidence-v1",
+            "run_id": run_id.strip(),
+            "status": "eligible_for_controller_review" if eligible else "blocked",
+            "baseline_id": self.pinned_baseline_id,
+            "baseline_digest": self.pinned_baseline_digest,
+            "candidate_digest": candidate_digest,
+            "task_set_digest": task_set_digest,
+            "training_task_ids": list(baseline_training),
+            "holdout_task_ids": list(baseline_holdouts),
+            "graph_topology": dict(candidate["graph_topology"]),
+            "concurrency": candidate["concurrency"],
+            "model_provider": dict(candidate["model_provider"]),
+            "worker_selection": candidate["worker_selection"],
+            "baseline_metrics": baseline_all,
+            "candidate_metrics": candidate_all,
+            "baseline_holdout_metrics": baseline_holdout,
+            "candidate_holdout_metrics": candidate_holdout,
+            "verification_receipt_digest": receipt_digest,
+            "verifier_identity": verifier_identity,
+            "external_evaluator_independence": verification_receipt.get("external_evaluator_independence", "not_proven"),
+            "external_evaluator_independence_proven": verification_receipt.get("external_evaluator_independence") in {"proven", "trusted_external"},
+            "safety_policy_digest": self.policy_digest,
+            "safety_gates": gates,
+            "recommendation": ({
+                "type": "graph_topology_or_worker_selection",
+                "graph_topology": dict(candidate["graph_topology"]),
+                "worker_selection": candidate["worker_selection"],
+                "authority_change": False,
+                "policy_change": False,
+                "verification_threshold_change": False,
+                "rollback_requirement_change": False,
+                "promotion_eligible": False,
+                "controller_approval_required": True,
+            } if eligible else None),
+            "promotion_eligible": False,
+            "controller_approval_required": True,
+        }
+        result["evidence_digest"] = _digest(result)
+        event = self.journal.append(
+            event_id=f"graph-learning:{run_id.strip()}:{candidate_digest}",
+            work_id=run_id.strip(), state="graph_learning_evaluated", payload=result,
+        )
+        result["journal_event_id"] = event.event_id
+        result["journal_event_digest"] = event.digest
+        return result
+
