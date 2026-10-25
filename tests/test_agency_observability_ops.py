@@ -70,6 +70,62 @@ class TestAgencyObservabilityOps(unittest.TestCase):
 
 
 
+    def test_reviewed_trace_ingestion_is_idempotent_for_memory_and_sqlite_registries(self):
+        trace = failed_trace()
+        review = ReviewedTraceExample(
+            reviewer_id="reviewer-idempotent",
+            evidence_ref="review:evidence-idempotent",
+            minimized_input={"case": "minimal"},
+            expected_behavior={"expected": "reject"},
+            approved=True,
+        )
+        memory = DatasetRegistry()
+        first = memory.append_reviewed(
+            name="reviewed", version="1", base_version=None, trace=trace, review=review,
+        )
+        duplicate = memory.append_reviewed(
+            name="reviewed", version="2", base_version="1", trace=trace, review=review,
+        )
+        assert len(first.items) == 1
+        assert len(duplicate.items) == 1
+        assert duplicate.items[0].metadata["source_trace_id"] == trace.trace_id
+
+        sqlite = SQLiteDatasetRegistry(self.tmp_path / "idempotent.sqlite3")
+        persisted_first = sqlite.append_reviewed(
+            name="reviewed", version="1", base_version=None, trace=trace, review=review,
+        )
+        persisted_duplicate = sqlite.append_reviewed(
+            name="reviewed", version="2", base_version="1", trace=trace, review=review,
+        )
+        assert len(persisted_first.items) == 1
+        assert len(persisted_duplicate.items) == 1
+        assert sqlite.get("reviewed", "2").digest == persisted_duplicate.digest
+
+    def test_reviewed_trace_ingestion_rejects_conflicting_duplicate_identity(self):
+        trace = failed_trace()
+        registry = DatasetRegistry()
+        review = ReviewedTraceExample(
+            reviewer_id="reviewer-conflict",
+            evidence_ref="review:evidence-conflict",
+            minimized_input={"case": "minimal"},
+            expected_behavior={"expected": "reject"},
+            approved=True,
+        )
+        registry.append_reviewed(
+            name="reviewed", version="1", base_version=None, trace=trace, review=review,
+        )
+        conflicting = ReviewedTraceExample(
+            reviewer_id="reviewer-conflict",
+            evidence_ref="review:evidence-conflict",
+            minimized_input={"case": "changed"},
+            expected_behavior={"expected": "allow"},
+            approved=True,
+        )
+        with self.assertRaisesRegex(ValueError, "conflicts"):
+            registry.append_reviewed(
+                name="reviewed", version="2", base_version="1", trace=trace, review=conflicting,
+            )
+
     def test_dataset_registry_rejects_mutation_of_existing_revision(self):
         registry = DatasetRegistry()
         original = Dataset("security", "1", (DatasetItem("a", "reject"),))
