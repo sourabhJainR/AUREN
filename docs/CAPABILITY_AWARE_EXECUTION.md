@@ -31,7 +31,8 @@ Local skills are discovered from:
 - `skills/<name>/SKILL.md`
 - paths listed in `AUREN_SKILLS_PATH`
 
-MCP and plugin hosts can advertise bounded capability metadata through
+Tool, API, MCP and plugin hosts can advertise bounded capability metadata
+through `AUREN_TOOL_CAPABILITIES`, `AUREN_API_CAPABILITIES`,
 `AUREN_MCP_CAPABILITIES` and `AUREN_PLUGIN_CAPABILITIES`. Each variable contains
 a JSON array of descriptors. The runtime ignores malformed or unavailable
 sources and continues with built-in capabilities.
