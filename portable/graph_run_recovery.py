@@ -205,6 +205,8 @@ class GraphRunRecoveryBridge:
         return snapshot
 
     def load(self) -> dict[str, Any]:
+        if DependencyAwareFanout.plan_digest(self.plan) != self.plan_digest:
+            raise GraphCheckpointMismatch("canonical TaskPlan changed after graph checkpoint binding")
         checkpoint = self.ledger.get_checkpoint(self.run_id, self.PHASE)
         if checkpoint is None:
             raise GraphCheckpointMismatch("canonical graph recovery checkpoint is missing")
@@ -227,6 +229,14 @@ class GraphRunRecoveryBridge:
                 raise GraphCheckpointMismatch(f"graph checkpoint identity mismatch for {key}")
         if checkpoint.payload.get("snapshot_digest") != _digest(snapshot):
             raise GraphCheckpointMismatch("ledger snapshot digest differs from journal")
+        if checkpoint.payload.get("contract") != "auren-graph-run-ledger-pointer-v1":
+            raise GraphCheckpointMismatch("unsupported graph ledger pointer contract")
+        if checkpoint.payload.get("run_status") != snapshot.get("run_status"):
+            raise GraphCheckpointMismatch("ledger run status differs from journal snapshot")
+        if checkpoint.payload.get("node_count") != len(snapshot.get("nodes", {})):
+            raise GraphCheckpointMismatch("ledger node count differs from journal snapshot")
+        if checkpoint.payload.get("next_safe_action") != snapshot.get("next_safe_action"):
+            raise GraphCheckpointMismatch("ledger next action differs from journal snapshot")
         if checkpoint.head_sha != self.source_revision:
             raise GraphCheckpointMismatch("graph checkpoint source revision mismatch")
         if checkpoint.status == "verified" and snapshot.get("run_status") != "complete":
