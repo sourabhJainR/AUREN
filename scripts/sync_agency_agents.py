@@ -7,8 +7,10 @@ is produced. Existing local files are replaced only under the agency/agents
 output root.
 """
 from __future__ import annotations
-import argparse, hashlib, json, re, sys, urllib.request
+import argparse, hashlib, json, re, sys
 from pathlib import Path
+
+from portable.guarded_network import guarded_https_get
 
 SOURCE = "msitarzewski/agency-agents"
 DEFAULT_REF = "ad9264e309bd5e5422c04784372d7841b1e5d604"
@@ -17,9 +19,18 @@ REQUIRED = ["Identity & Memory", "Core Mission", "Critical Rules", "Technical De
 
 
 def fetch(url: str) -> bytes:
-    req = urllib.request.Request(url, headers={"Accept":"application/vnd.github+json", "User-Agent":"AUREN-agency-sync/1.0"})
-    with urllib.request.urlopen(req, timeout=30) as r:
-        return r.read()
+    status, body = guarded_https_get(
+        url,
+        allowed_hosts=("api.github.com", "raw.githubusercontent.com"),
+        headers={"Accept": "application/vnd.github+json", "User-Agent": "AUREN-agency-sync/1.0"},
+        timeout=30,
+        max_bytes=4 * 1024 * 1024,
+    )
+    if status >= 400:
+        raise RuntimeError("upstream agency fetch failed")
+    if len(body) > 4 * 1024 * 1024:
+        raise ValueError("upstream agency resource exceeds the response limit")
+    return body
 
 
 def frontmatter(text: str):
