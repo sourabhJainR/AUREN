@@ -168,14 +168,17 @@ def evaluate_guard_policy(
         ids = tuple(rule["id"] for rule in deny)
         return GuardDecision(False, "deny", "organization policy denied this action", digest, ids)
     approvals = [rule for rule in matched if rule["effect"] == "require_approval"]
+    allows = [rule for rule in matched if rule["effect"] == "allow"]
+    # Approval is an additional condition, never a substitute for explicit
+    # authorization under default-deny.
+    if normalized["default_effect"] == "deny" and not allows:
+        ids = tuple(rule["id"] for rule in matched)
+        return GuardDecision(False, "deny", "organization policy default-deny: no matching allow rule", digest, ids)
     if approvals:
         ids = tuple(rule["id"] for rule in approvals)
         if not approval_gate_configured:
             return GuardDecision(False, "require_approval", "organization policy requires an approval-gated handler before dispatch", digest, ids, True)
         return GuardDecision(True, "require_approval", "dispatch only to the trusted approval-gated execution path", digest, ids, True)
-    if normalized["default_effect"] == "deny" and not any(rule["effect"] == "allow" for rule in matched):
-        ids = tuple(rule["id"] for rule in matched)
-        return GuardDecision(False, "deny", "organization policy default-deny: no matching allow rule", digest, ids)
     # An allow rule only satisfies this organization's default-deny policy. It
     # never bypasses the mandatory authorization argument checked above.
     ids = tuple(rule["id"] for rule in matched)
