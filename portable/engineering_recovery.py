@@ -512,6 +512,7 @@ class GraphRunRecoveryBridge:
     def _checkpoint_payload(self, event, snapshot: Mapping[str, Any], *, reason: str | None = None) -> dict[str, Any]:
         payload = {
             "contract": "auren-graph-run-ledger-pointer-v1",
+            "run_id": self.run_id,
             "plan_digest": self.plan_digest,
             "intent_digest": self.intent_digest,
             "source_revision": self.source_revision,
