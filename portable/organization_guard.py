@@ -76,7 +76,7 @@ def validate_policy(value: Mapping[str, Any]) -> dict[str, Any]:
     rules = value.get("rules", [])
     if not isinstance(rules, list) or len(rules) > 500:
         raise GuardPolicyError("rules must be a list of at most 500 entries")
-    normalized: list[dict[str, str]] = []
+    normalized: list[dict[str, Any]] = []
     seen_ids: set[str] = set()
     for index, rule in enumerate(rules):
         if not isinstance(rule, Mapping):
