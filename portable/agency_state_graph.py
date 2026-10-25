@@ -335,13 +335,26 @@ class CompiledStateGraph:
             state, cancellation=cancellation, deadline_seconds=deadline_seconds, **kwargs,
         )
 
-    def invoke(self, state: Mapping[str, Any], *, run_id: str = "run", checkpoint: CheckpointStore | None = None, resume: bool = False, max_steps: int = 100, parallel_nodes: Callable[[str], bool] | None = None, max_parallel_nodes: int = 1, node_timeout_seconds: float | None = None, cancellation: Event | None = None, parallel_failure_mode: str = "fail_fast", max_attempts: int = 12, deadline_seconds: float | None = None) -> GraphRun:
+    def invoke(self, state: Mapping[str, Any], *, run_id: str = "run", checkpoint: CheckpointStore | None = None, resume: bool = False, max_steps: int = 100, parallel_nodes: Callable[[str], bool] | None = None, max_parallel_nodes: int = 1, node_timeout_seconds: float | None = None, cancellation: Event | None = None, parallel_failure_mode: str = "fail_fast", max_attempts: int = 12, deadline_seconds: float | None = None, node_duration_estimates: Mapping[str, float] | None = None, parallel_overhead_seconds: float = 0.005) -> GraphRun:
         validate_state(state)
         cancellation_event = cancellation if cancellation is not None else Event()
         if max_steps < 1: raise ValueError("max_steps must be positive")
         if max_parallel_nodes < 1: raise ValueError("max_parallel_nodes must be positive")
         if parallel_failure_mode not in {"fail_fast", "isolate"}: raise ValueError("parallel_failure_mode must be fail_fast or isolate")
         if node_timeout_seconds is not None and node_timeout_seconds <= 0: raise ValueError("node_timeout_seconds must be positive")
+        if type(parallel_overhead_seconds) not in (int, float) or not math.isfinite(float(parallel_overhead_seconds)) or not 0 <= parallel_overhead_seconds <= 1_000_000:
+            raise ValueError("parallel_overhead_seconds must be finite and between 0 and 1000000")
+        if node_duration_estimates is not None:
+            if not isinstance(node_duration_estimates, Mapping):
+                raise TypeError("node_duration_estimates must be a mapping")
+            for name, duration in node_duration_estimates.items():
+                if (
+                    not isinstance(name, str) or not name
+                    or type(duration) not in (int, float)
+                    or duration < 0 or duration > 1_000_000_000
+                    or not math.isfinite(float(duration))
+                ):
+                    raise ValueError("node duration estimates must be finite non-negative seconds")
         existing = checkpoint.load(run_id) if resume and checkpoint else None
         if resume and checkpoint and existing is None:
             raise ValueError(f"no checkpoint available to resume run {run_id}")
@@ -385,6 +398,23 @@ class CompiledStateGraph:
                 raise
             parallel = [name for name in next_nodes if name != StateGraph.END and parallel_nodes and parallel_nodes(name)]
             sequential = [name for name in next_nodes if name != StateGraph.END and name not in parallel]
+            # Avoid thread-pool overhead for a single eligible node or when
+            # supplied duration estimates show too little benefit to offset it.
+            if len(parallel) < 2 or max_parallel_nodes == 1:
+                sequential = [name for name in next_nodes if name != StateGraph.END]
+                parallel = []
+            elif node_duration_estimates is not None and all(name in node_duration_estimates for name in parallel):
+                durations = [float(node_duration_estimates[name]) for name in parallel]
+                worker_count = min(max_parallel_nodes, len(durations))
+                worker_loads = [0.0] * worker_count
+                for duration in sorted(durations, reverse=True):
+                    index = min(range(worker_count), key=lambda item: worker_loads[item])
+                    worker_loads[index] += duration
+                sequential_estimate = sum(durations)
+                parallel_estimate = max(worker_loads, default=0.0)
+                if sequential_estimate - parallel_estimate <= float(parallel_overhead_seconds):
+                    sequential = [name for name in next_nodes if name != StateGraph.END]
+                    parallel = []
             results_by_name: dict[str, tuple[Mapping[str, Any], int]] = {}
             isolated_failures: set[str] = set()
             if cancellation and cancellation.is_set():
