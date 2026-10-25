@@ -78,7 +78,7 @@ EXECUTION_SURFACE_INVENTORY: tuple[ExecutionSurface, ...] = (
     ExecutionSurface(
         "mcp-tool-dispatch", "Configured MCP stdio calls that can execute external tools",
         "portable/vibe_coding_host.py:MCPStdioToolAdapter",
-        "Consequential capabilities require a trusted host resolver, immutable execution authority, canonical action gateway, task-owned budget, and provider-operation identity before Popen",
+        "MCPStdioToolAdapter defaults to authority-bound mode; consequential calls require host-derived context and execute_bound_action before Popen, with provider-operation identity, exact request/tool/argv/argument digests, environment allowlist, timeout, revision, worktree digest, and task budget bound to the action",
         "The resolver must use trusted identity and repository context; this application boundary is not OS isolation and remote outcomes still require provider-native reconciliation",
     ),
     ExecutionSurface(
@@ -155,7 +155,7 @@ def execution_surface_audit() -> dict[str, Any]:
         "coverage": {
             "task_identity": "partial",
             "action_authority": "present_with_caller_enforcement",
-            "mcp_tool_dispatch": "authority_bound_when_configured_as_consequential",
+            "mcp_tool_dispatch": "authority_bound_by_default_with_explicit_read_only_opt_out",
             "budget_and_cancellation": "present_with_cooperative_cancellation",
             "durable_recovery": "present_with_persistence_dependency",
             "trusted_isolation": "not_proven_by_repository_inventory",
