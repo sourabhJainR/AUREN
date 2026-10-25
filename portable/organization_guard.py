@@ -94,7 +94,7 @@ def validate_policy(value: Mapping[str, Any]) -> dict[str, Any]:
                 matcher = rule[field]
                 if (
                     not isinstance(matcher, str) or not matcher or len(matcher) > 512
-                    or not matcher.isprintable() or "[" in matcher or "]" in matcher
+                    or not matcher.isprintable() or any(char in matcher for char in "[]?")
                 ):
                     raise GuardPolicyError(f"rule {rule_id} has an invalid {field} matcher")
                 item[field] = matcher
