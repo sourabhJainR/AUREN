@@ -104,3 +104,18 @@ verification.
 Rollback: revert the workspace-root parameter and associated checks only if
 they break a documented supported invocation; keep authority binding enabled by
 default and do not restore unpinned unbound dispatch.
+
+
+## Provider dispatch receipt binding gate
+
+A provider dispatch response marked `completed` is rejected unless it binds the
+exact AUREN operation ID, idempotency key, provider name, and canonical intent
+digest. A remote `provider_operation_id` remains required and is treated as the
+provider's identifier, not as AUREN's operation ID. Missing or conflicting
+binding moves the durable operation to `reconcile_required`; a subsequent call
+must not dispatch again.
+
+This is request/receipt binding, not cryptographic provider attestation.
+Interrupted outcomes still require trusted provider lookup and independently
+verified evidence. If an adapter does not emit these fields, migrate the adapter
+and tests; do not restore acceptance of unbound completed receipts.
