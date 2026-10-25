@@ -7,6 +7,7 @@ this module never creates or resets a budget.
 from __future__ import annotations
 
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
+import json
 from dataclasses import dataclass, field
 from threading import Lock
 from typing import Any, Callable, Mapping
@@ -143,6 +144,8 @@ class DependencyAwareFanout:
                     task = active.pop(future)
                     try:
                         output = future.result()
+                        # TaskPlan is JSON-backed; reject outputs that cannot be checkpointed.
+                        json.dumps(output, sort_keys=True, allow_nan=False)
                     except BaseException as exc:
                         result.statuses[task.id] = "failed"
                         result.errors[task.id] = f"{type(exc).__name__}: {str(exc)[:500]}"
