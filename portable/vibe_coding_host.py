@@ -690,13 +690,16 @@ class MCPToolCallBinding:
 
     tool_name: str
     command_digest: str
+    environment_digest: str
     arguments_digest: str
     request_digest: str
+    timeout_seconds: int
 
     @classmethod
     def from_call(
         cls, tool_name: str, argv: Sequence[str], arguments: Mapping[str, Any],
-        request: Mapping[str, Any],
+        request: Mapping[str, Any], *, env_allowlist: Sequence[str] = (),
+        timeout_seconds: int = 30,
     ) -> "MCPToolCallBinding":
         if not isinstance(tool_name, str) or not tool_name.strip():
             raise ValueError("MCP tool name is required")
@@ -704,11 +707,17 @@ class MCPToolCallBinding:
             raise ValueError("MCP command must be a non-empty argument array")
         if not isinstance(arguments, Mapping) or not isinstance(request, Mapping):
             raise TypeError("MCP call binding requires argument and request mappings")
+        if type(timeout_seconds) is not int or not 1 <= timeout_seconds <= 300:
+            raise ValueError("MCP call binding timeout must be between 1 and 300 seconds")
+        if any(not isinstance(name, str) or not name for name in env_allowlist):
+            raise ValueError("MCP environment allowlist must contain non-empty names")
         return cls(
             tool_name=tool_name,
             command_digest=_digest(list(argv)),
+            environment_digest=_digest(sorted(set(env_allowlist))),
             arguments_digest=_digest(dict(arguments)),
             request_digest=mcp_request_digest(request),
+            timeout_seconds=timeout_seconds,
         )
 
     @property
@@ -716,17 +725,21 @@ class MCPToolCallBinding:
         return _digest({
             "tool_name": self.tool_name,
             "command_digest": self.command_digest,
+            "environment_digest": self.environment_digest,
             "arguments_digest": self.arguments_digest,
             "request_digest": self.request_digest,
+            "timeout_seconds": self.timeout_seconds,
         })
 
     def validate_for_request(self, request: Mapping[str, Any]) -> None:
         if not isinstance(self.tool_name, str) or not self.tool_name.strip():
             raise ValueError("MCP call binding tool name is required")
-        for name in ("command_digest", "arguments_digest", "request_digest"):
+        for name in ("command_digest", "environment_digest", "arguments_digest", "request_digest"):
             value = getattr(self, name)
             if not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{64}", value):
                 raise ValueError(f"MCP call binding {name} must be a SHA-256 digest")
+        if type(self.timeout_seconds) is not int or not 1 <= self.timeout_seconds <= 300:
+            raise ValueError("MCP call binding timeout is invalid")
         if self.request_digest != mcp_request_digest(request):
             raise ValueError("MCP call binding does not match the exact request")
 
@@ -998,6 +1011,7 @@ class MCPStdioToolAdapter:
             arguments = self._arguments_for_request(request_snapshot)
             call_binding = MCPToolCallBinding.from_call(
                 self.tool_name, self.argv, arguments, request_snapshot,
+                env_allowlist=self.env_allowlist, timeout_seconds=self.timeout_seconds,
             )
         except Exception as exc:
             raise AdapterUnavailable("MCP call binding could not be established; dispatch blocked") from exc
