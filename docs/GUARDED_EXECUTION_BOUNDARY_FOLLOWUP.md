@@ -13,7 +13,7 @@
 | MCP/tool dispatch | Provider and registered-handler integration points | Organization Guard supports a network context matcher | Inventory each MCP client/server and nested tool call; ensure the decision is made at the actual call boundary, not just at plan time |
 | Subprocess | Existing supervised subprocess and sandbox adapters | Policy primitives can scope the authorized action before an adapter runs | Enumerate every subprocess launch API and prove argv, environment, cwd, credentials, timeout, cancellation, and child process behavior are mediated |
 | Filesystem | Existing repository-relative path validation in authority-bound APIs | Resource matching and delegated capability scope can be captured in evidence | Cover direct open/read/write/delete, symlink traversal, path races, temporary files, and file descriptors; application checks alone are not containment |
-| Network | Existing provider clients and adapters | Optional network-scope match field and durable rate-limit primitive | Add trusted host/IP/CIDR resolution, DNS rebinding controls, socket-level enforcement, and per-adapter tests |
+| Network | Existing provider clients and adapters | Exact/glob network scope, validated IPv4/IPv6 CIDR policy matching against an explicit `network_ip` context, and durable rate-limit primitive | Still wire trusted destination resolution into every adapter; add DNS rebinding controls, socket-level enforcement, and per-adapter denial-before-connect tests. Missing/invalid `network_ip` with a CIDR rule fails closed. |
 | Policy lifecycle | portable/organization_guard.py | portable/guard_policy_management.py: inheritance, deny-overrides precedence, IANA timezone schedules, SQLite rate limits, compare-and-swap activation, integrity-checked rollback | Wire activation and rollback into every runtime entrypoint; audit/dry-run UI and IP/CIDR scopes remain open |
 | Recovery/evidence | Durable side-effect and engineering evidence ledgers | Hash-chained Guard action events bind identity, delegated scope, policy version/digest, approval, provider operation, and explicit outcome | External signing/trust anchor, trusted storage, independent remote-outcome verification, revocation/restart fault injection |
 
@@ -37,3 +37,8 @@ AUREN's Python Guard and policy layer are application controls. They do not prov
 - Restart tests for pending provider operations, active-policy corruption, policy revocation, rate-limit persistence, and evidence-chain corruption.
 - A supported-platform isolation matrix proving filesystem/process/network/IPC restrictions independently of the Python Guard.
 - Exact-head CI and authorized review. Passing unit tests alone does not establish external containment or universal mediation.
+
+
+## Follow-up implementation note (2026-10-25)
+
+The policy evaluator now validates and canonicalizes IPv4/IPv6 CIDR selectors and evaluates them against an explicit `network_ip` context. A CIDR-bearing policy rejects missing or malformed IP context rather than silently treating it as a non-match. This is policy matching only: it does not resolve hostnames, prevent DNS rebinding, inspect sockets, or prove that every network adapter supplies a trusted address. Those adapter and host-boundary acceptance gates remain open.

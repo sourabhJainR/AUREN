@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 import hashlib
 import json
 from fnmatch import fnmatchcase
+import ipaddress
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -21,7 +22,7 @@ _MATCH_FIELDS = frozenset({
     "action", "tool", "resource", "network", "organization_id", "agent_id", "risk",
 })
 _POLICY_FIELDS = frozenset({"schema_version", "default_effect", "rules"})
-_RULE_FIELDS = frozenset({"id", "effect", "hours_utc", "weekdays_utc", *_MATCH_FIELDS})
+_RULE_FIELDS = frozenset({"id", "effect", "hours_utc", "weekdays_utc", "network_cidr", *_MATCH_FIELDS})
 
 
 class GuardPolicyError(ValueError):
@@ -99,6 +100,14 @@ def validate_policy(value: Mapping[str, Any]) -> dict[str, Any]:
                 ):
                     raise GuardPolicyError(f"rule {rule_id} has an invalid {field} matcher")
                 item[field] = matcher
+        if "network_cidr" in rule:
+            cidr = rule["network_cidr"]
+            if not isinstance(cidr, str) or not cidr or len(cidr) > 128:
+                raise GuardPolicyError(f"rule {rule_id} has an invalid network_cidr")
+            try:
+                item["network_cidr"] = str(ipaddress.ip_network(cidr, strict=False))
+            except ValueError as exc:
+                raise GuardPolicyError(f"rule {rule_id} has an invalid network_cidr") from exc
         for field, maximum in (("hours_utc", 23), ("weekdays_utc", 6)):
             if field in rule:
                 values = rule[field]
@@ -111,7 +120,7 @@ def validate_policy(value: Mapping[str, Any]) -> dict[str, Any]:
                         f"rule {rule_id} {field} must be a non-empty unique list of integers from 0 to {maximum}"
                     )
                 item[field] = sorted(values)
-        if not any(field in item for field in _MATCH_FIELDS) and not any(
+        if not any(field in item for field in _MATCH_FIELDS) and "network_cidr" not in item and not any(
             field in item for field in ("hours_utc", "weekdays_utc")
         ):
             raise GuardPolicyError(f"rule {rule_id} must match at least one context field or UTC time condition")
@@ -175,10 +184,20 @@ def evaluate_guard_policy(
         value = context.get(field)
         if isinstance(value, str) and value and value.isprintable():
             safe_context[field] = value
+    network_ip = context.get("network_ip")
+    if isinstance(network_ip, str) and network_ip and network_ip.isprintable():
+        safe_context["network_ip"] = network_ip
     if policy is None:
         normalized = {"schema_version": POLICY_VERSION, "default_effect": "allow", "rules": []}
     else:
         normalized = validate_policy(policy)
+    cidr_rules = [rule for rule in normalized["rules"] if "network_cidr" in rule]
+    if cidr_rules:
+        network_ip = safe_context.get("network_ip")
+        try:
+            ipaddress.ip_address(network_ip or "")
+        except ValueError as exc:
+            raise GuardPolicyError("a valid network_ip context is required by network_cidr policy") from exc
     digest = hashlib.sha256(_canonical(normalized).encode("utf-8")).hexdigest()
     if not mandatory_authorized:
         return GuardDecision(False, "deny", "mandatory platform or execution-controller authorization is missing", digest)
@@ -187,13 +206,20 @@ def evaluate_guard_policy(
     for rule in normalized["rules"]:
         if not _time_conditions_match(rule, current_utc):
             continue
-        if all(
+        field_match = all(
             key in safe_context and (
                 rule[key] == safe_context[key]
                 or ("*" in rule[key] and fnmatchcase(safe_context[key], rule[key]))
             )
-            for key in rule if key in _MATCH_FIELDS
-        ):
+            for key in rule if key in _MATCH_FIELDS and key != "network_ip"
+        )
+        cidr_match = True
+        if "network_cidr" in rule:
+            try:
+                cidr_match = ipaddress.ip_address(safe_context["network_ip"]) in ipaddress.ip_network(rule["network_cidr"])
+            except (KeyError, ValueError) as exc:
+                raise GuardPolicyError("invalid network_ip for network_cidr policy") from exc
+        if field_match and cidr_match:
             matched.append(rule)
     deny = [rule for rule in matched if rule["effect"] == "deny"]
     if deny:
