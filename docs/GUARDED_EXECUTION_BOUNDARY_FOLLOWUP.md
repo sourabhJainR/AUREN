@@ -83,3 +83,23 @@ The local host classifies configured MCP capabilities before building adapters, 
 Product/research/web-search/accessibility/task-planning/independent-review/observability capabilities are read-only by default. Security tools default to authority-bound mode and may set `external_effects: false` only when the operator has verified that the configured tool is read-only. The resolver must be created from trusted host identity and repository state; agent-supplied state is not a trusted identity source. Read-only calls without a provider operation bind their action ID to the exact request digest. Any non-read action requires a durable provider operation ID and idempotency key. The gate does not prove OS/container isolation or remote provider outcome. Deployment/release still require provider-native idempotency, authoritative lookup and evidence-backed reconciliation.
 
 Rollback: if host resolver integration is unavailable or fails, keep consequential MCP tools blocked and use the last-known-good workflow with those capabilities disabled. Do not remove the pre-launch gate or restore unbound MCP dispatch.
+
+
+## Provider dispatch receipt binding gate (2026-10-25)
+
+A provider dispatch response marked `completed` is now rejected unless it binds
+the exact AUREN operation ID, idempotency key, provider name, and canonical
+intent digest. A remote `provider_operation_id` remains required and is treated
+as the provider's identifier, not as AUREN's operation ID. Missing or conflicting
+binding moves the durable operation to `reconcile_required`; a subsequent call
+must not dispatch again. This closes the prior gap where a minimal completed
+mapping with only a remote ID could be persisted as success.
+
+This is request/receipt binding, not a cryptographic provider attestation.
+Interrupted outcomes still require a trusted reconciliation verifier, durable
+evidence reference, and provider-native lookup. Hashes alone do not prove who
+authorized a remote effect.
+
+Rollback: if a provider adapter does not emit these binding fields, update that
+adapter to bind its response to the exact request and test the mapping. Do not
+restore acceptance of unbound completed receipts.
