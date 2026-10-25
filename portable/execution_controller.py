@@ -696,9 +696,12 @@ class ExecutionController:
             try:
                 guard_policy = load_guard_policy(self.root / ".auren" / "guard_policy.json")
                 execution_class = self._handler_execution_class(task.handler)
-                typed_action = task.payload.get("tool_action", task.payload.get("action"))
-                guard_action = delivery_action or (typed_action if isinstance(typed_action, str) else "")
+                # Task payload action labels are caller-controlled and cannot be
+                # treated as proof of the operation a handler will perform.
+                guard_action = infer_delivery_action(task.handler, {}) or ""
                 resource = task.payload.get("resource", task.payload.get("resource_id", task.payload.get("path", "")))
+                if resource is not None and not isinstance(resource, str):
+                    return False, "Guard resource selector must be a string", ("guard-policy:invalid-resource", "guard-policy:blocked")
                 organization_id = __import__("os").environ.get("AUREN_ORGANIZATION_ID", "")
                 approval_policy = self._handler_approval_gate_policy(task.handler)
                 guard_decision = evaluate_guard_policy(
