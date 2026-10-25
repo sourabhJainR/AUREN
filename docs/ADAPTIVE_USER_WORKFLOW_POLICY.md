@@ -78,3 +78,16 @@ This contract is not proof of a fully implemented preference engine. Runtime wor
 ## Relationship to readiness gates
 
 This policy does not close the independent Arena campaign (#404), production extension isolation, staging migration/rollback, or final release exit gate. Those require their own evidence and independent/external verification.
+
+### Persistence implementation follow-up — 2026-10-25
+
+The standalone persistence layer is implemented in `portable/workflow_profile_store.py`. It uses canonical JSON, atomic replacement, restrictive POSIX permissions, and fail-closed handling for malformed, incompatible, duplicate-key, oversized, and symlink-backed profiles. Tests are in `tests/test_workflow_profile_store.py`.
+
+This is a persistence primitive only. It is not yet connected to CLI/dashboard selection, supervisor task intent, durable receipts, or action execution. Do not treat a saved preference as authorization or as proof that the requested delivery mode was applied.
+
+
+### Durable execution binding — 2026-10-25
+
+The execution controller now resolves configured task, project and saved profiles; stores the canonical profile and digest in the durable task envelope; and includes profile identity in lifecycle evidence. Resume/claim validates the digest before dispatch. When no profile is configured, legacy task intent remains unchanged to preserve stable work-key compatibility.
+
+This is not yet action-level enforcement. Repository adapters still need to honor commit-per-change, stage-only, working-tree and pull-request modes while preserving unrelated changes. These preferences never bypass approval, review, CI or authority policy.
