@@ -24,6 +24,12 @@ For direct task submission, pass a stable `work_key` to `ExecutionController.sub
 
 Command-backed handlers should use `SubprocessProviderInvoker.invoke_supervised(prompt, timeout_seconds, execution_payload=payload)`. This passes the controller's cancellation event into the killable subprocess boundary and caps the process timeout using `auren_deadline_epoch`. A handler that ignores the event cannot be forcibly stopped by the Python supervisor. For consequential work, cancellation or deadline expiry after dispatch leaves the task blocked for provider reconciliation if the remote outcome is uncertain; never manually reset it to pending.
 
+## Wiring supervisor controls into runtimes
+
+Handlers that invoke the checkpointable graph runtime should call `GraphAgentTeam.run_supervised(..., execution_payload=payload)`. This binds the controller's cancellation event to the shared runtime guard and tightens (never extends) an existing checkpoint deadline. The compiled graph API uses `CompiledStateGraph.invoke_supervised(state, execution_payload=payload)`; model routing uses `HybridModelRouter.route_supervised(request, execution_payload=payload)`. These adapters keep runtime-only objects out of JSON graph state and reject expired deadlines before dispatch.
+
+An existing runtime guard must use the same cancellation event as the supervisor. A mismatch is rejected rather than silently creating a second cancellation domain. Cancellation remains cooperative for Python graph nodes and model callbacks; use `SubprocessProviderInvoker.invoke_supervised(...)` for command-backed work that must be terminated at the process boundary.
+
 **Rollback:** retain the task database and progress/evidence journals. A code rollback does not clear cancellation flags or deadlines and must not replay a consequential operation whose provider outcome is unknown.
 
 
