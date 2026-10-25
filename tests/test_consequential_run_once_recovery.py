@@ -139,7 +139,8 @@ class ConsequentialRunOnceRecoveryTests(unittest.TestCase):
             observed_operation_id = None
 
             def lookup_operation(self, operation_id, idempotency_key):
-                from portable.side_effect_ledger import DurableSideEffectLedger
+                from portable.organization_guard import evaluate_guard_policy
+        from portable.side_effect_ledger import DurableSideEffectLedger
                 self.observed_operation_id = operation_id
                 digest = DurableSideEffectLedger(self_outer.controller.db_path).get(
                     idempotency_key
@@ -289,10 +290,17 @@ class ConsequentialRunOnceRecoveryTests(unittest.TestCase):
         payload_digest = hashlib.sha256(
             json.dumps(safe_payload, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
         ).hexdigest()
+        guard_decision = evaluate_guard_policy(None, {})
         binding = {
             "identity": identity,
             "handler": task.handler,
             "payload_digest": payload_digest,
+            "guard": {
+                "action": self.controller._handler_guard_action(task.handler),
+                "policy_digest": guard_decision.policy_digest,
+                "effect": guard_decision.effect,
+                "matched_rule_ids": list(guard_decision.matched_rule_ids),
+            },
         }
         provider_name = task.handler
         provider_intent = {"binding": binding, "payload": safe_payload}
