@@ -399,5 +399,87 @@ class ExecutionBoundaryTests(unittest.TestCase):
             self.assertTrue(result.executed)
 
 
+class SubprocessBoundaryInventoryTests(unittest.TestCase):
+    """Require every direct Popen function/callsite to have a reviewed disposition.
+
+    This inventory is a tripwire, not proof that a listed adapter is safe or
+    that non-Popen execution mechanisms are covered.
+    """
+
+    REVIEWED_POPEN_DISPOSITIONS = {
+        ".ai-harness/provider.py::main": "interactive provider process; inspect argv, environment, deadline and output lifecycle",
+        ".ai-harness/resilient_provider.py::main": "retrying provider process; inspect safe-provider handoff and shared retry budget",
+        ".ai-harness/safe_provider.py::_bounded_process_output": "bounded provider process; inspect clean environment, timeout, output caps, process-tree and Windows job limits",
+        "portable/bounded_subprocess.py::run_bounded_command": "bounded primitive; inspect timeout, output caps, process-tree cleanup and requested resource limits",
+        "portable/container_sandboxed_arena.py::_run_one_case": "container-backed Arena; verify runtime flags and fail closed on container setup errors",
+        "portable/docker_external_evaluator_executor.py::__init__": "container runtime lifecycle; verify fixed argv, cleanup and container policy",
+        "portable/docker_isolated_evaluator.py::launch": "Docker evaluator; verify image, mounts, capabilities, egress and cleanup policy",
+        "portable/external_evaluator_gateway.py::evaluate": "host-process mode is test-only and is not a security sandbox",
+        "portable/isolated_arena_runner.py::run_campaign_isolated::policy": "policy-command runner; the supplied command is not itself proof of OS isolation",
+        "portable/local_offload.py::run": "local offload; inspect argv, environment, workspace, timeout and cancellation",
+        "portable/subprocess_provider.py::__call__": "command provider; clean environment, no shell, bounded timeout and process-tree controls",
+        "portable/vibe_coding_host.py::__call__": "host adapter; inspect argv, safe environment, workspace, cancellation and output bounds",
+    }
+    REVIEWED_POPEN_CALL_COUNTS = {key: 1 for key in REVIEWED_POPEN_DISPOSITIONS}
+
+    def test_every_direct_popen_callsite_has_an_exact_reviewed_disposition(self):
+        root = Path(__file__).resolve().parents[1]
+        scan_roots = (root / "portable", root / ".ai-harness")
+        actual = {}
+
+        class Visitor(ast.NodeVisitor):
+            def __init__(self, relative_path):
+                self.relative_path = relative_path
+                self.scope = []
+
+            def visit_FunctionDef(self, node):
+                self.scope.append(node.name)
+                self.generic_visit(node)
+                self.scope.pop()
+
+            visit_AsyncFunctionDef = visit_FunctionDef
+
+            def visit_Call(self, node):
+                func = node.func
+                if (
+                    isinstance(func, ast.Attribute)
+                    and func.attr == "Popen"
+                    and isinstance(func.value, ast.Name)
+                    and func.value.id == "subprocess"
+                ):
+                    key = self.relative_path + "::" + "::".join(self.scope)
+                    actual[key] = actual.get(key, 0) + 1
+                self.generic_visit(node)
+
+        for scan_root in scan_roots:
+            if not scan_root.exists():
+                continue
+            for source in sorted(scan_root.rglob("*.py")):
+                relative = source.relative_to(root).as_posix()
+                Visitor(relative).visit(ast.parse(source.read_text(encoding="utf-8"), filename=relative))
+
+        expected = self.REVIEWED_POPEN_CALL_COUNTS
+        unexpected = {key: count for key, count in actual.items() if key not in expected}
+        missing = {key: count for key, count in expected.items() if key not in actual}
+        changed_counts = {
+            key: {"actual": actual[key], "expected": expected[key]}
+            for key in actual.keys() & expected.keys()
+            if actual[key] != expected[key]
+        }
+        self.assertEqual(
+            (unexpected, missing, changed_counts),
+            ({}, {}, {}),
+            "Every direct Popen callsite must have an exact reviewed disposition. "
+            "Do not weaken this assertion to pass CI.",
+        )
+
+    def test_registry_records_non_sandbox_and_runtime_policy_limits(self):
+        doc = (Path(__file__).resolve().parents[1] / "docs/GUARDED_EXECUTION_BOUNDARY_FOLLOWUP.md").read_text(encoding="utf-8")
+        normalized_doc = " ".join(doc.split())
+        self.assertTrue(all(value.strip() for value in self.REVIEWED_POPEN_DISPOSITIONS.values()))
+        self.assertIn("not a security sandbox", normalized_doc)
+        self.assertIn("not proof that every callsite within an already-listed module is authorized", normalized_doc)
+
+
 if __name__ == "__main__":
     unittest.main()

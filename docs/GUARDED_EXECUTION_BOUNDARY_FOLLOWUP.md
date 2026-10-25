@@ -42,3 +42,24 @@ AUREN's Python Guard and policy layer are application controls. They do not prov
 ## Follow-up implementation note (2026-10-25)
 
 The policy evaluator now validates and canonicalizes IPv4/IPv6 CIDR selectors and evaluates them against an explicit `network_ip` context. A CIDR-bearing policy rejects missing or malformed IP context rather than silently treating it as a non-match. This is policy matching only: it does not resolve hostnames, prevent DNS rebinding, inspect sockets, or prove that every network adapter supplies a trusted address. Those adapter and host-boundary acceptance gates remain open.
+
+
+## Subprocess launch inventory gate (2026-10-25)
+
+A regression tripwire now inventories direct `subprocess.Popen` callsites under
+`portable/` and `.ai-harness/` against an explicit reviewed adapter registry.
+Adding a new direct Popen callsite or changing its containing function without a disposition fails the test. The registry
+records important limitations (for example, a host process is not a security sandbox and
+a container launch is only as strong as its runtime policy).
+
+This is deliberately a **discovery gate**, not proof that every callsite within
+an already-listed module is authorized, nor that subprocess aliases, `os.exec*`,
+shell wrappers, filesystem access, MCP, provider SDKs, network sockets, or IPC
+are fully inventoried. Remaining work is to move from path-level to exact
+function/callsite dispositions, add denial-before-side-effect tests to every
+adapter, and cover those other execution mechanisms. Do not claim adapter-bypass
+closure until those gates and host isolation evidence pass.
+
+Rollback: revert the inventory-test commit if it causes unrelated CI instability;
+do not remove the existing execution-boundary controls. Any registry update must
+include the callsite review and a regression test in the same change.
