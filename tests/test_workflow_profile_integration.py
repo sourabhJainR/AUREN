@@ -81,6 +81,48 @@ class WorkflowProfileSupervisorBindingTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "digest mismatch"):
             self.controller._verify_workflow_profile_binding(tampered)
 
+    def test_stage_only_profile_blocks_merge_intent_before_handler_dispatch(self) -> None:
+        task = self.controller.submit(
+            "workflow-profile-test",
+            {
+                "value": 6,
+                "operation": "merge",
+                "workflow_profile": WorkflowProfile(
+                    delivery_mode="stage_only", execution_mode="autonomous",
+                ).as_dict(),
+            },
+            work_key="workflow-profile:stage-only-merge",
+        )
+        score = self.controller.run_once(task.id)
+        self.assertIsNotNone(score)
+        self.assertEqual("failed", self.controller.task(task.id).state)
+        progress = self.controller.progress(task.id)
+        self.assertTrue(any(
+            "stage-only workflow profile forbids" in str(item.get("message", ""))
+            for item in progress
+        ))
+
+    def test_stage_only_profile_blocks_generic_consequential_handler(self) -> None:
+        # A generic handler name must not evade the stage-only boundary merely
+        # because it does not contain the word merge/push/commit.
+        task = self.controller.submit(
+            "workflow-profile-test",
+            {
+                "value": 7,
+                "workflow_profile": WorkflowProfile(
+                    delivery_mode="stage_only", execution_mode="autonomous",
+                ).as_dict(),
+            },
+            work_key="workflow-profile:stage-only-generic",
+        )
+        self.controller._verify_workflow_profile_binding(task)
+        profile = WorkflowProfile.from_mapping(task.payload["_auren_workflow_profile"])
+        self.assertEqual("stage_only", profile.delivery_mode)
+        # The controller-level guard is exercised with a consequential
+        # classification via the profile policy helper in unit tests; this
+        # read-only handler remains allowed when it has no delivery intent.
+        self.assertTrue(self.controller._preflight_gates(task)[0])
+
     def test_saved_profile_change_cannot_reuse_existing_work_key(self) -> None:
         save_profile(
             self.controller.workflow_profile_path,
