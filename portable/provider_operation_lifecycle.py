@@ -150,31 +150,6 @@ class ProviderOperationLifecycle:
             raise ProviderOutcomeBlocked(
                 f"provider operation {op_id} did not confirm completion; reconciliation required"
             )
-        binding_fields = (
-            ("operation_id", op_id),
-            ("auren_operation_id", op_id),
-            ("idempotency_key", operation_key),
-            ("provider", provider),
-            ("intent_digest", decision.payload_digest),
-        )
-        mismatched_binding = next(
-            (
-                field for field, expected in binding_fields
-                if field in receipt
-                and (not isinstance(receipt.get(field), str) or receipt.get(field) != expected)
-            ),
-            None,
-        )
-        if mismatched_binding is not None:
-            reason = f"provider receipt {mismatched_binding} does not match requested operation"
-            self.ledger.require_reconciliation(operation_key, reason)
-            self._event(
-                operation_key, "reconcile_required", op_id, decision.payload_digest,
-                reason="provider_operation_binding_mismatch", binding_field=mismatched_binding,
-            )
-            raise ProviderOutcomeBlocked(
-                f"provider operation {op_id} returned a receipt bound to a different operation"
-            )
         # provider_operation_id is the provider's own remote identifier and may
         # differ from AUREN's stable operation ID. It is not used as the request
         # binding; explicit operation_id/idempotency_key fields are.
@@ -190,6 +165,36 @@ class ProviderOperationLifecycle:
             )
             raise ProviderOutcomeBlocked(
                 f"provider operation {op_id} returned an invalid provider operation identifier"
+            )
+
+        # A "completed" adapter response is not accepted unless it carries
+        # explicit request binding. Optional bindings allow a stale or substituted
+        # provider receipt to be stored as success after a crash or retry.
+        required_binding_fields = (
+            ("operation_id", op_id),
+            ("idempotency_key", operation_key),
+            ("provider", provider),
+            ("intent_digest", decision.payload_digest),
+        )
+        mismatched_binding = next(
+            (
+                field for field, expected in required_binding_fields
+                if not isinstance(receipt.get(field), str) or receipt.get(field) != expected
+            ),
+            None,
+        )
+        if mismatched_binding is None and "auren_operation_id" in receipt:
+            if not isinstance(receipt.get("auren_operation_id"), str) or receipt["auren_operation_id"] != op_id:
+                mismatched_binding = "auren_operation_id"
+        if mismatched_binding is not None:
+            reason = f"provider receipt binding for {mismatched_binding} is missing or belongs to a different operation"
+            self.ledger.require_reconciliation(operation_key, reason)
+            self._event(
+                operation_key, "reconcile_required", op_id, decision.payload_digest,
+                reason="provider_operation_binding_mismatch", binding_field=mismatched_binding,
+            )
+            raise ProviderOutcomeBlocked(
+                f"provider operation {op_id} returned a receipt bound to a different operation"
             )
         completed = self.ledger.complete(operation_key, dict(receipt))
         self._event(operation_key, "completed", op_id, completed.payload_digest,
