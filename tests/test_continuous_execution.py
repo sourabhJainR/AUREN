@@ -227,11 +227,11 @@ def test_failed_required_check_enqueues_one_bounded_repair_through_existing_supe
 
 def test_github_poller_observation_without_configured_required_checks_is_not_a_pass():
     poller = GitHubActionsCheckPoller("owner/repo", "c" * 40, [])
-    with patch("urllib.request.urlopen", return_value=_Response({
+    with patch("portable.continuous_execution.guarded_https_get", return_value=(200, json.dumps({
         "check_runs": [
             {"id": 1, "name": "validate", "status": "completed", "conclusion": "success"},
         ]
-    })):
+    }).encode("utf-8"))):
         result = poller()
     assert result["status"] == "observed_complete_unverified"
     assert result["required_checks"] == []
