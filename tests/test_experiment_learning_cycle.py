@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import tempfile
+import json
 import unittest
 from pathlib import Path
 
 from portable.adaptive_experiment_controller import ExperimentController, ExperimentReplication
 from portable.campaign_intervention_loop import CampaignInterventionPlanner
 from portable.experiment_learning_cycle import ExperimentLearningCycle
+from portable.agency_observability import LocalExporter, Tracer
 from portable.external_evaluation_campaign import LearningIntervention
 from portable.persistent_experiment_learning import (
     ExperimentManifest,
@@ -97,6 +99,54 @@ class ExperimentLearningCycleTests(unittest.TestCase):
             self.assertEqual((outcome.receipt.receipt_id,), tuple(
                 item.receipt_id for item in store.retrieve_compatible(m)
             ))
+
+    def test_learning_cycle_emits_phase_spans_and_persisted_receipt_digest(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            cycle, _ = make_cycle(tmp)
+            i = intervention()
+            m = manifest()
+            contract = CampaignInterventionPlanner().retest_contract("p" * 64, i)
+            trace_path = Path(tmp) / "learning-trace.jsonl"
+            tracer = Tracer(LocalExporter(trace_path, enabled=True))
+            trace = tracer.start("learning-run", run_id="learning-run", task_id="learning-task")
+            parent = trace.span("supervisor", phase="supervisor")
+
+            outcome = cycle.run(
+                manifest=m, intervention=i, replications=replications(),
+                retest_contract=contract, baseline_score=0.50,
+                evidence_refs=("arena-run:campaign-1",),
+                trace=trace, parent_span_id=parent.span_id,
+            )
+            tracer.end(trace)
+
+            records = [json.loads(line) for line in trace_path.read_text(encoding="utf-8").splitlines()]
+            expected = {
+                "learning_aggregate",
+                "learning_signal_derivation",
+                "learning_evidence_persist",
+            }
+            spans = [
+                record["span"] for record in records
+                if record.get("event_type") == "span_started"
+                and (record.get("span") or {}).get("name") in expected
+            ]
+            self.assertEqual(expected, {span["name"] for span in spans})
+            self.assertTrue(all(span["parent_id"] == parent.span_id for span in spans))
+            self.assertTrue(all(span["phase"] == "learning" for span in spans))
+            self.assertTrue(all(span["actor_id"] == "auren.experiment_learning_cycle" for span in spans))
+            finished = [
+                record["span"] for record in records
+                if record.get("event_type") == "span_updated"
+                and (record.get("span") or {}).get("name") in expected
+                and (record.get("span") or {}).get("end") is not None
+            ]
+            by_name = {span["name"]: span for span in finished}
+            self.assertEqual("ok", by_name["learning_aggregate"]["status"])
+            self.assertEqual("ok", by_name["learning_signal_derivation"]["status"])
+            self.assertEqual("ok", by_name["learning_evidence_persist"]["status"])
+            self.assertEqual(outcome.receipt.record_digest, by_name["learning_evidence_persist"]["output"]["receipt_digest"])
+            self.assertNotIn("improve plan reliability", json.dumps(spans))
+
 
     def test_cycle_replay_is_idempotent(self):
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
