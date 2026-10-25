@@ -1,0 +1,49 @@
+name: PR Integration Conflict Guard
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  merge_group:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: pr-integration-guard-${{ github.event.pull_request.number || github.event.merge_group.head_sha }}
+  cancel-in-progress: true
+
+jobs:
+  freshness-and-overlap:
+    name: Fresh base and disjoint write set
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR head and base history
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
+          fetch-depth: 0
+      - name: Fetch base branch
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref || 'main' }}
+        run: git fetch origin "${BASE_REF}:refs/remotes/origin/${BASE_REF}"
+      - name: Reject stale or overlapping PRs
+        if: github.event_name == 'pull_request'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          python scripts/pr_integration_guard.py \
+            --repo "$GITHUB_REPOSITORY" \
+            --pr "$PR_NUMBER" \
+            --base-ref "refs/remotes/origin/$BASE_REF" \
+            --head-ref "$HEAD_SHA" \
+            --base-sha "$BASE_SHA" \
+            --head-sha "$HEAD_SHA"
+      - name: Verify merge queue checkout
+        if: github.event_name == 'merge_group'
+        run: git merge-base --is-ancestor "refs/remotes/origin/main" HEAD
