@@ -494,7 +494,7 @@ class ProviderOperationLifecycleTests(unittest.TestCase):
             {
                 "status": "completed", "provider_operation_id": "remote-17",
                 "operation_id": operation_id, "idempotency_key": key,
-                "provider": provider_name,
+                "provider": provider,
             },
             {
                 "status": "completed", "provider_operation_id": "remote-17",
@@ -533,7 +533,7 @@ class ProviderOperationLifecycleTests(unittest.TestCase):
             {
                 "status": "completed", "provider_operation_id": "remote-1",
                 "operation_id": operation_id, "idempotency_key": operation_key,
-                "provider": provider_name,
+                "provider": provider,
             },
             {
                 "status": "completed", "provider_operation_id": "remote-1",
@@ -624,7 +624,7 @@ class ProviderOperationLifecycleTests(unittest.TestCase):
                     "provider_operation_id": remote_id,
                     "operation_id": requested_id,
                     "idempotency_key": requested_key,
-                    "provider": provider_name,
+                    "provider": provider,
                     "intent_digest": self.ledger().get(operation_key)["payload_digest"],
                 },
             },
