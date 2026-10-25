@@ -20,8 +20,8 @@ class Impact:
 # a mandatory focused suite; recovery changes also require production hardening.
 _RULES: tuple[tuple[str, tuple[str, ...], bool], ...] = (
     ("portable/agency_observability_ops.py", ("tests.test_agency_observability_ops", "tests.test_agency_observability"), True),
-    ("scripts/pr_integration_guard.py", ("tests.test_pr_integration_guard",), False),
-    ("tests/test_pr_integration_guard.py", ("tests.test_pr_integration_guard",), False),
+    ("scripts/pr_integration_guard.py", ("tests.test_pr_integration_guard",), True),
+    ("tests/test_pr_integration_guard.py", ("tests.test_pr_integration_guard",), True),
     ("tests/test_agency_observability_ops.py", ("tests.test_agency_observability_ops",), True),
     ("portable/agency_release_lifecycle.py", ("tests.test_agency_release_lifecycle", "tests.test_agency_observability"), True),
     ("tests/test_agency_release_lifecycle.py", ("tests.test_agency_release_lifecycle",), True),
@@ -60,6 +60,7 @@ _RULES: tuple[tuple[str, tuple[str, ...], bool], ...] = (
     ("tests/test_continuous_execution.py", ("tests.test_continuous_execution",), True),
     ("tests/test_ci_repair_watchdog.py", ("tests.test_ci_repair_watchdog",), True),
     ("portable/workflow_profile.py", ("tests.test_workflow_profile", "tests.test_workflow_profile_store", "tests.test_workflow_profile_integration"), True),
+    ("tests/test_workflow_profile.py", ("tests.test_workflow_profile",), True),
     ("portable/workflow_profile_store.py", ("tests.test_workflow_profile_store", "tests.test_workflow_profile_integration"), True),
     ("tests/test_workflow_profile_integration.py", ("tests.test_workflow_profile_integration",), True),
     ("portable/execution_controller.py", ("tests.test_execution_controller", "tests.test_execution_controller_restart", "tests.test_execution_controller_cancellation", "tests.test_execution_controller_promotion_rollback_contract", "tests.test_provider_operation_lifecycle", "tests.test_durable_approval"), True),
