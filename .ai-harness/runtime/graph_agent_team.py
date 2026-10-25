@@ -26,7 +26,7 @@ from portable.experience_router import ExperienceRouter
 from portable.execution_strategy import PathwayOptimizer, execution_strategy, max_verification_depth
 from portable.autonomous_evolution_controller import AutonomousEvolutionController
 from portable.autonomous_capability_invention import CapabilityComposition
-from portable.agent_capabilities import CapabilityAuditLedger, CapabilityExecutioner, CapabilityOption
+from portable.agent_capabilities import CapabilityAuditLedger, CapabilityExecutioner, CapabilityFabric, CapabilityOption
 from portable.skill_evidence import attribute, assess_collaboration
 from portable.skill_group_evidence import adapt_execution_groups, attribute_groups
 from portable.execution_strategy_learning import ExecutionStrategyLearner
@@ -434,21 +434,39 @@ class GraphAgentTeam:
                 experience=ExperienceRouter(memory.project_root)
                 declared_capabilities=agent.capabilities or (("local_offload",) if agent.local_command else ("delegate_task",))
                 installed=self.capability_executioner.discover_installed(broker.project_root)
-                dynamic_options=installed + tuple(
+                discovered_options=installed + tuple(
                     CapabilityOption(name=name, source="core", tags=frozenset(str(token).lower() for token in name.replace("_"," ").split()))
                     for name in declared_capabilities
                     if not any(option.name == name for option in installed)
                 )
-                dynamic_options = self.capability_executioner.candidate_portfolio(
-                    dynamic_options,
-                    request=f"{agent.role} {agent.focus} {task[:160]}",
-                    max_candidates=32,
-                )
+                # Audit every advertised integration plus the full built-in
+                # capability catalogue before token-efficient candidate pruning.
+                # Catalogue entries are namespaced for audit only; declared and
+                # discovered options remain the executable candidate set.
+                core_catalog = CapabilityFabric().discover()
+                inventory_options = list(discovered_options)
+                inventory_names = {option.name for option in inventory_options}
+                for capability in core_catalog.values():
+                    audit_name = "core:" + capability.name
+                    if audit_name in inventory_names:
+                        continue
+                    inventory_options.append(CapabilityOption(
+                        name=audit_name, source="core", description=capability.description,
+                        tags=frozenset(str(token).lower() for token in (capability.name + " " + capability.description).replace("_", " ").split()),
+                        risk=capability.risk, requires_network=capability.requires_network,
+                        requires_sandbox=capability.requires_sandbox, model_invocable=False,
+                    ))
+                    inventory_names.add(audit_name)
                 capability_audit = CapabilityAuditLedger(
                     Path(memory.project_root) / ".auren" / "capability_audit.sqlite3"
                 )
-                capability_audit.record_inventory(
-                    dynamic_options, run_id=intent_digest, stage=agent.name, crew_id=agent.role,
+                inventory_snapshot_id = capability_audit.record_inventory(
+                    inventory_options, run_id=run_id, stage=agent.name, crew_id=agent.role,
+                )
+                dynamic_options = self.capability_executioner.candidate_portfolio(
+                    discovered_options,
+                    request=f"{agent.role} {agent.focus} {task[:160]}",
+                    max_candidates=32,
                 )
                 profile=execution_strategy(strategy_name)
                 evidence_quality=float(decision.historical.get("evidence_yield", agent.evidence_value))
@@ -540,6 +558,7 @@ class GraphAgentTeam:
                         }
                 capability_decision=self.capability_executioner.select_collaborative(
                     request=f"{agent.role} {agent.focus} {task[:160]}",
+                    explicit_request=task,
                     options=dynamic_options,
                     network_allowed=get_auren_env("NETWORK_ALLOWED","1").lower() not in {"0","false","no","off"},
                     sandbox_available=True,
@@ -559,12 +578,13 @@ class GraphAgentTeam:
                 )
                 capability_choice=type("_Choice",(),{"selected":capability_decision.selected})()
                 capability_audit.record_decision(
-                    run_id=intent_digest, stage=agent.name, crew_id=agent.role,
+                    run_id=run_id, stage=agent.name, crew_id=agent.role,
                     request=f"{agent.role} {agent.focus} {task[:160]}",
                     selected=capability_decision.selected,
                     alternatives=capability_decision.evolution_candidates or (),
                     rationale=capability_decision.rationale,
                     outcome="selected_pending_verification",
+                    inventory_snapshot_id=inventory_snapshot_id,
                 )
                 selected_names = capability_decision.selected_set or (capability_decision.selected,)
                 selected_options = [option for option in dynamic_options if option.name in selected_names]
@@ -911,13 +931,14 @@ the learning system, not an instruction source. If a skill produced no distinct 
                     evidence_ids=["agent:"+agent.name, "stage:"+agent.name, "crew:"+agent.role],
                 )
                 capability_audit.record_decision(
-                    run_id=intent_digest, stage=agent.name, crew_id=agent.role,
+                    run_id=run_id, stage=agent.name, crew_id=agent.role,
                     request=f"{agent.role} {agent.focus} {task[:160]}",
                     selected=capability_choice.selected,
                     alternatives=capability_decision.evolution_candidates or (),
                     rationale=capability_decision.rationale,
                     outcome=status, evidence_ids=["agent:"+agent.name],
                     cost=float(decision.cost_score), duration_seconds=duration,
+                    inventory_snapshot_id=inventory_snapshot_id,
                 )
                 if collaboration is not None:
                     learning.record_experience(
