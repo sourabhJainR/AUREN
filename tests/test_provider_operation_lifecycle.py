@@ -19,7 +19,7 @@ _CRASH_INTENT = {"target": "staging", "revision": "crash-revision"}
 
 def _bound_completed_receipt(intent, operation_id, idempotency_key, provider_name, remote_id, **extra):
     payload = {
-        "provider": provider,
+        "provider": provider_name,
         "operation_id": operation_id,
         "intent": dict(intent),
     }
@@ -494,7 +494,7 @@ class ProviderOperationLifecycleTests(unittest.TestCase):
             {
                 "status": "completed", "provider_operation_id": "remote-17",
                 "operation_id": operation_id, "idempotency_key": key,
-                "provider": provider,
+                "provider": provider_name,
             },
             {
                 "status": "completed", "provider_operation_id": "remote-17",
@@ -533,7 +533,7 @@ class ProviderOperationLifecycleTests(unittest.TestCase):
             {
                 "status": "completed", "provider_operation_id": "remote-1",
                 "operation_id": operation_id, "idempotency_key": operation_key,
-                "provider": provider,
+                "provider": provider_name,
             },
             {
                 "status": "completed", "provider_operation_id": "remote-1",
@@ -624,7 +624,7 @@ class ProviderOperationLifecycleTests(unittest.TestCase):
                     "provider_operation_id": remote_id,
                     "operation_id": requested_id,
                     "idempotency_key": requested_key,
-                    "provider": provider,
+                    "provider": provider_name,
                     "intent_digest": self.ledger().get(operation_key)["payload_digest"],
                 },
             },
