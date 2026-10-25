@@ -179,7 +179,8 @@ class ExecutionController:
               promotion_gate_policy_json TEXT NOT NULL DEFAULT '{}',
               approval_gate_policy_json TEXT NOT NULL DEFAULT '{}',
               execution_class TEXT NOT NULL DEFAULT 'unclassified',
-              implementation_digest TEXT NOT NULL DEFAULT '');
+              implementation_digest TEXT NOT NULL DEFAULT '',
+              guard_action TEXT NOT NULL DEFAULT '');
             CREATE TABLE IF NOT EXISTS tasks(
               id TEXT PRIMARY KEY, handler TEXT NOT NULL, payload TEXT NOT NULL,
               state TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0,
@@ -205,6 +206,8 @@ class ExecutionController:
                 db.execute("ALTER TABLE handlers ADD COLUMN execution_class TEXT NOT NULL DEFAULT 'unclassified'")
             if "implementation_digest" not in handler_columns:
                 db.execute("ALTER TABLE handlers ADD COLUMN implementation_digest TEXT NOT NULL DEFAULT ''")
+            if "guard_action" not in handler_columns:
+                db.execute("ALTER TABLE handlers ADD COLUMN guard_action TEXT NOT NULL DEFAULT ''")
             columns = {row[1] for row in db.execute("PRAGMA table_info(tasks)").fetchall()}
             for column in ("heartbeat_at", "lease_until"):
                 if column not in columns:
@@ -273,6 +276,7 @@ class ExecutionController:
         promotion_gate_policy: Mapping[str, Any] | None = None,
         approval_gate_policy: Mapping[str, Any] | None = None,
         execution_class: str | None = None,
+        guard_action: str | None = None,
     ) -> str:
         """Register a durable handler and trusted, operator-owned gate policies.
 
@@ -298,6 +302,13 @@ class ExecutionController:
         if not callable(resolved_handler):
             raise TypeError(f"durable handler is not callable: {reference}")
         implementation_digest = self._implementation_digest(resolved_handler)
+        if guard_action is not None:
+            if (not isinstance(guard_action, str)
+                    or not re.fullmatch(r"[a-z][a-z0-9_.:-]{0,63}", guard_action)):
+                raise ValueError("guard_action must be a lowercase trusted action label")
+            inferred_delivery_action = infer_delivery_action(name, {})
+            if inferred_delivery_action is not None and guard_action != inferred_delivery_action:
+                raise ValueError("guard_action cannot contradict the handler's delivery action")
 
         name_tokens = _handler_tokens(name)
         if isinstance(handler, str):
@@ -461,9 +472,14 @@ class ExecutionController:
 
         with closing(sqlite3.connect(self.db_path)) as db, db:
             prior = db.execute(
-                "SELECT ci_gate_policy_json,promotion_gate_policy_json FROM handlers WHERE name=?",
+                "SELECT ci_gate_policy_json,promotion_gate_policy_json,guard_action FROM handlers WHERE name=?",
                 (name,),
             ).fetchone()
+            prior_guard_action = str(prior[2] or "") if prior else ""
+            if guard_action is None:
+                guard_action = prior_guard_action
+            elif prior_guard_action and guard_action != prior_guard_action:
+                raise ValueError("registered guard_action is immutable; use a new handler identity for a different action")
             # Re-registering a handler after restart must not silently remove
             # either trusted gate when the caller omits or empties its policy.
             if not ci_policy and prior:
@@ -476,19 +492,28 @@ class ExecutionController:
             if not approval_policy and prior_approval_policy:
                 approval_policy = json.loads(prior_approval_policy[0] or "{}")
             db.execute(
-                "INSERT INTO handlers(name,reference,updated_at,ci_gate_policy_json,promotion_gate_policy_json,approval_gate_policy_json,execution_class,implementation_digest) "
-                "VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(name) DO UPDATE SET "
+                "INSERT INTO handlers(name,reference,updated_at,ci_gate_policy_json,promotion_gate_policy_json,approval_gate_policy_json,execution_class,implementation_digest,guard_action) "
+                "VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(name) DO UPDATE SET "
                 "reference=excluded.reference,updated_at=excluded.updated_at,"
                 "ci_gate_policy_json=excluded.ci_gate_policy_json,"
                 "promotion_gate_policy_json=excluded.promotion_gate_policy_json,"
                 "approval_gate_policy_json=excluded.approval_gate_policy_json,"
                 "execution_class=excluded.execution_class,"
-                "implementation_digest=excluded.implementation_digest",
+                "implementation_digest=excluded.implementation_digest,"
+                "guard_action=excluded.guard_action",
                 (name, reference, _now(), json.dumps(ci_policy, sort_keys=True),
                  json.dumps(promotion_policy, sort_keys=True), json.dumps(approval_policy, sort_keys=True),
-                 execution_class, implementation_digest),
+                 execution_class, implementation_digest, guard_action or ""),
             )
         return reference
+
+    def _handler_guard_action(self, name: str) -> str:
+        with closing(sqlite3.connect(self.db_path)) as db, db:
+            row = db.execute("SELECT guard_action FROM handlers WHERE name=?", (name,)).fetchone()
+        if not row:
+            raise KeyError(f"unknown durable handler: {name}")
+        value = row[0]
+        return value if isinstance(value, str) else ""
 
     def _handler_execution_class(self, name: str) -> str:
         with closing(sqlite3.connect(self.db_path)) as db, db:
@@ -698,7 +723,7 @@ class ExecutionController:
                 execution_class = self._handler_execution_class(task.handler)
                 # Task payload action labels are caller-controlled and cannot be
                 # treated as proof of the operation a handler will perform.
-                guard_action = infer_delivery_action(task.handler, {}) or ""
+                guard_action = infer_delivery_action(task.handler, {}) or self._handler_guard_action(task.handler)
                 resource = task.payload.get("resource", task.payload.get("resource_id", task.payload.get("path", "")))
                 if resource is not None and not isinstance(resource, str):
                     return False, "Guard resource selector must be a string", ("guard-policy:invalid-resource", "guard-policy:blocked")
