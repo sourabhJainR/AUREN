@@ -1,6 +1,6 @@
 # Adaptive User Workflow Policy
 
-**Status (2026-10-25):** versioned profile schema and unit tests are implemented on the workflow-profile branch. Execution-controller, CLI/dashboard, repository-action, durable-receipt, and restart integration remain required.
+**Status (2026-10-25):** versioned profiles, durable storage, supervisor binding, and delivery-mode preflight enforcement are implemented in this change. CLI/dashboard projection, repository-adapter receipts, profile-change recovery, and end-to-end restart evidence remain open.
 **Applies to:** task intake, planning, repository changes, verification, review, and delivery.
 
 ## Goal
@@ -65,6 +65,8 @@ This contract is not proof of a fully implemented preference engine. Runtime wor
 5. Add deterministic tests for precedence, profile changes mid-run, conflicting instructions, stage-only behavior, dirty worktrees, untracked files, commit failure, interrupted execution, and recovery.
 6. Test that autonomy cannot bypass required checks, reviews, approval gates, or external-effect reconciliation.
 7. Expose the effective mode and next action in CLI/dashboard before consequential actions and in the durable receipt after execution.
+8. Enforce delivery-mode restrictions in durable supervisor preflight, not only in CLI/dashboard presentation. Infer action from registered handler identity and typed action fields; block stage-only consequential handlers even when their names are generic. Keep the delivery profile non-authoritative: promotion gates remain independently required.
+9. Prevent parallel-PR conflicts with a pre-merge integration guard: verify exact base/head SHAs, fail closed when the branch is behind base, list overlapping open PR paths across all pages, and require serialization or path ownership split before merge. Branch from the latest target; never auto-resolve conflicts by choosing a side.
 
 ## Acceptance criteria
 
