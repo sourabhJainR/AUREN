@@ -932,7 +932,7 @@ class MCPStdioToolAdapter:
     def __init__(
         self, *, argv: Sequence[str], tool_name: str, argument_map: Mapping[str, Any] | None = None,
         timeout_seconds: int = 30, env_allowlist: Sequence[str] = (),
-        requires_authority_binding: bool = False,
+        requires_authority_binding: bool = True,
         authority_dispatch: Callable[
             [Mapping[str, Any], MCPToolCallBinding, Callable[[], Mapping[str, Any]]],
             Mapping[str, Any],
@@ -1798,6 +1798,8 @@ def _build_provider_operation_lookups(
             ),
             timeout_seconds=int(spec.get("timeout_seconds", 30)),
             env_allowlist=tuple(spec.get("env_allowlist", env_allowlist)),
+            # Provider operation lookup is a read-only status query, not a side-effect dispatch.
+            requires_authority_binding=False,
         )
 
         def lookup(
