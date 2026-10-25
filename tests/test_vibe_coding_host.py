@@ -336,6 +336,7 @@ class VibeCodingHostTests(unittest.TestCase):
             self.assertEqual(ledger.get(provider_key)["state"], "completed")
             call_binding = MCPToolCallBinding.from_call(
                 "publish", (sys.executable, str(server)), {"request": dict(request)}, request,
+                env_allowlist=(), timeout_seconds=5,
             )
             self.assertEqual(
                 ledger.get(mcp_action_idempotency_key(
@@ -508,6 +509,8 @@ class VibeCodingHostTests(unittest.TestCase):
                 (sys.executable, "-c", "pass"),
                 {"request": dict(request)},
                 request,
+                env_allowlist=(),
+                timeout_seconds=5,
             )
 
             def resolver(actual_request, _actual_binding):
