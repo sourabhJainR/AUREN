@@ -346,6 +346,205 @@ class Tracer:
         self._export_safely(trace)
         return trace
 
+    def resume(
+        self,
+        trace_id: str,
+        *,
+        expected_run_id: str,
+        task_id: str | None = None,
+        session_id: str | None = None,
+        source_revision: str | None = None,
+        config_digest: str | None = None,
+        max_bytes: int = 10_000_000,
+    ) -> Trace:
+        """Resume an interrupted local trace without changing its identity.
+
+        The append-only stream is validated before a mutable Trace is returned.
+        Terminal traces, corrupt records, sequence gaps, identity mismatches, and
+        invalid parent links fail closed. This is observation recovery only; it
+        does not restore or authorize canonical execution state.
+        """
+        if not isinstance(self.exporter, LocalExporter) or not self.exporter.enabled:
+            raise ValueError("trace resume requires an enabled LocalExporter")
+        if not isinstance(trace_id, str) or not trace_id.strip():
+            raise ValueError("trace_id is required")
+        if not isinstance(expected_run_id, str) or not expected_run_id.strip():
+            raise ValueError("expected_run_id is required")
+        if isinstance(max_bytes, bool) or not isinstance(max_bytes, int) or max_bytes < 1:
+            raise ValueError("max_bytes must be a positive integer")
+        path = self.exporter.path
+        if not path.is_file():
+            raise ValueError("trace store is unavailable")
+        if path.stat().st_size > max_bytes:
+            raise ValueError("trace store exceeds resume scan limit")
+
+        state: dict[str, Any] | None = None
+        spans: dict[str, dict[str, Any]] = {}
+        last_sequence = 0
+        terminal_seen = False
+        matching_records = 0
+        try:
+            with path.open("r", encoding="utf-8") as handle:
+                for line_number, line in enumerate(handle, 1):
+                    if not line.strip():
+                        continue
+                    record = json.loads(line)
+                    if not isinstance(record, dict):
+                        raise ValueError(f"invalid trace record at line {line_number}")
+                    if record.get("trace_id") != trace_id:
+                        continue
+                    matching_records += 1
+                    if terminal_seen:
+                        raise ValueError("trace contains records after its terminal event")
+
+                    if record.get("event_record_version") == 1:
+                        digest = record.get("event_digest")
+                        canonical_payload = {key: value for key, value in record.items() if key != "event_digest"}
+                        canonical = json.dumps(_safe(canonical_payload), sort_keys=True, separators=(",", ":"), allow_nan=False)
+                        if not isinstance(digest, str) or not hmac.compare_digest(
+                            hashlib.sha256(canonical.encode("utf-8")).hexdigest(), digest,
+                        ):
+                            raise ValueError(f"trace event digest mismatch at line {line_number}")
+                        sequence = record.get("event_sequence")
+                        if type(sequence) is not int or sequence != last_sequence + 1:
+                            raise ValueError(f"trace event sequence gap at line {line_number}")
+                        if state is None:
+                            raise ValueError("trace event stream has no initial snapshot")
+                        for key in (
+                            "run_id", "session_id", "task_id", "name", "source_revision",
+                            "config_digest", "schema_version",
+                        ):
+                            if record.get(key) != state.get(key):
+                                raise ValueError(f"trace identity changed at line {line_number}: {key}")
+                        state["event_sequence"] = sequence
+                        state["status"] = record.get("status", state.get("status"))
+                        state["end"] = record.get("end", state.get("end"))
+                        state["metadata"] = record.get("metadata", state.get("metadata", {}))
+                        state["scores"] = record.get("scores", state.get("scores", []))
+                        event_type = record.get("event_type")
+                        span = record.get("span")
+                        if event_type == "span_started":
+                            if not isinstance(span, dict) or not isinstance(span.get("span_id"), str):
+                                raise ValueError(f"invalid started span at line {line_number}")
+                            if span["span_id"] in spans:
+                                raise ValueError(f"duplicate span start at line {line_number}")
+                            spans[span["span_id"]] = span
+                        elif event_type == "span_updated":
+                            if not isinstance(span, dict) or not isinstance(span.get("span_id"), str):
+                                raise ValueError(f"invalid updated span at line {line_number}")
+                            if span["span_id"] not in spans:
+                                raise ValueError(f"span update has no start at line {line_number}")
+                            spans[span["span_id"]] = span
+                        elif event_type == "trace_finished":
+                            terminal_seen = True
+                        elif event_type not in {"trace_score"}:
+                            raise ValueError(f"unknown trace event type at line {line_number}")
+                        last_sequence = sequence
+                        continue
+
+                    # Full snapshots are emitted at trace start and end. Their
+                    # digest covers the complete record except the digest itself.
+                    digest = record.get("event_digest")
+                    canonical_payload = {key: value for key, value in record.items() if key != "event_digest"}
+                    canonical = json.dumps(_safe(canonical_payload), sort_keys=True, separators=(",", ":"), allow_nan=False)
+                    if not isinstance(digest, str) or not hmac.compare_digest(
+                        hashlib.sha256(canonical.encode("utf-8")).hexdigest(), digest,
+                    ):
+                        raise ValueError(f"trace snapshot digest mismatch at line {line_number}")
+                    if type(record.get("event_sequence")) is not int:
+                        raise ValueError(f"invalid snapshot sequence at line {line_number}")
+                    if state is not None and record["event_sequence"] != last_sequence:
+                        raise ValueError(f"snapshot sequence does not match event stream at line {line_number}")
+                    state = dict(record)
+                    last_sequence = record["event_sequence"]
+                    raw_spans = record.get("spans")
+                    if not isinstance(raw_spans, list):
+                        raise ValueError(f"invalid snapshot spans at line {line_number}")
+                    spans = {}
+                    for span in raw_spans:
+                        if not isinstance(span, dict) or not isinstance(span.get("span_id"), str):
+                            raise ValueError(f"invalid snapshot span at line {line_number}")
+                        if span["span_id"] in spans:
+                            raise ValueError(f"duplicate snapshot span at line {line_number}")
+                        spans[span["span_id"]] = span
+                    if record.get("end") is not None or record.get("status") != "running":
+                        terminal_seen = True
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ValueError("trace store is corrupt; resume blocked") from exc
+
+        if matching_records == 0 or state is None:
+            raise ValueError("trace_id not found")
+        if terminal_seen or state.get("end") is not None or state.get("status") != "running":
+            raise ValueError("terminal trace cannot be resumed")
+        if state.get("run_id") != expected_run_id:
+            raise ValueError("trace run_id does not match expected durable run")
+        for key, expected in (
+            ("task_id", task_id),
+            ("session_id", session_id),
+            ("source_revision", source_revision),
+            ("config_digest", config_digest),
+        ):
+            if expected is not None and state.get(key) != expected:
+                raise ValueError(f"trace {key} does not match expected identity")
+
+        for span_id, span in spans.items():
+            parent_id = span.get("parent_id")
+            if parent_id is not None and (not isinstance(parent_id, str) or parent_id not in spans or parent_id == span_id):
+                raise ValueError("trace contains invalid span parentage")
+        for span_id in spans:
+            visited: set[str] = set()
+            current = span_id
+            while current in spans:
+                if current in visited:
+                    raise ValueError("trace contains a span parent cycle")
+                visited.add(current)
+                parent_id = spans[current].get("parent_id")
+                if not isinstance(parent_id, str):
+                    break
+                current = parent_id
+
+        trace = Trace(
+            str(state.get("name", "")),
+            trace_id=trace_id,
+            start=float(state["start"]),
+            end=None,
+            status="running",
+            metadata=dict(state.get("metadata") or {}),
+            spans=[],
+            scores=[Score(**score) for score in state.get("scores", []) if isinstance(score, dict)],
+            schema_version=int(state.get("schema_version", 1)),
+            run_id=expected_run_id,
+            session_id=state.get("session_id"),
+            task_id=state.get("task_id"),
+            source_revision=state.get("source_revision"),
+            config_digest=state.get("config_digest"),
+            event_sequence=last_sequence,
+        )
+        for data in spans.values():
+            item = Span(
+                name=str(data.get("name", "")),
+                kind=str(data.get("kind", "internal")),
+                span_id=str(data["span_id"]),
+                parent_id=data.get("parent_id"),
+                start=float(data.get("start", 0.0)),
+                end=data.get("end"),
+                status=str(data.get("status", "running")),
+                input=data.get("input"),
+                output=data.get("output"),
+                metadata=dict(data.get("metadata") or {}),
+                scores=[Score(**score) for score in data.get("scores", []) if isinstance(score, dict)],
+                phase=str(data.get("phase", "unknown")),
+                actor_id=data.get("actor_id"),
+                provider=data.get("provider"),
+                model=data.get("model"),
+                source_revision=data.get("source_revision"),
+            )
+            item.terminal_reason = data.get("terminal_reason")
+            item.on_change = lambda item=item: trace.on_change(trace, "span_updated", item) if trace.on_change is not None else None
+            trace.spans.append(item)
+        trace.on_change = self._record_change
+        return trace
+
     def _export_safely(self, trace: Trace) -> None:
         try:
             self.exporter.export(trace)
