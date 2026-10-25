@@ -103,6 +103,21 @@ class RuntimeExecutionGuard:
                 self._reason = reason.strip()[:500]
             self._cancel.set()
 
+    def tighten_deadline(self, deadline_seconds: float) -> float:
+        """Shorten the current monotonic deadline without ever extending it."""
+        if (
+            isinstance(deadline_seconds, bool)
+            or not isinstance(deadline_seconds, (int, float))
+            or not math.isfinite(deadline_seconds)
+            or deadline_seconds <= 0
+        ):
+            raise ValueError("deadline_seconds must be a finite positive number")
+        candidate = time.monotonic() + float(deadline_seconds)
+        with self._lock:
+            if self._deadline is None or candidate < self._deadline:
+                self._deadline = candidate
+            return max(0.0, self._deadline - time.monotonic())
+
     def charge_step(self) -> int:
         with self._lock:
             self._check_locked()
