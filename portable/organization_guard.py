@@ -18,7 +18,7 @@ POLICY_VERSION = "auren-guard-v1"
 MAX_POLICY_BYTES = 64 * 1024
 _ALLOWED_EFFECTS = frozenset({"allow", "deny", "require_approval"})
 _MATCH_FIELDS = frozenset({
-    "action", "tool", "resource", "organization_id", "agent_id", "risk",
+    "action", "tool", "resource", "network", "organization_id", "agent_id", "risk",
 })
 _POLICY_FIELDS = frozenset({"schema_version", "default_effect", "rules"})
 _RULE_FIELDS = frozenset({"id", "effect", "hours_utc", "weekdays_utc", *_MATCH_FIELDS})
