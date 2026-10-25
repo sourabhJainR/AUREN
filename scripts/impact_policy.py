@@ -21,6 +21,10 @@ class Impact:
 _RULES: tuple[tuple[str, tuple[str, ...], bool], ...] = (
     ("portable/agency_observability_ops.py", ("tests.test_agency_observability_ops", "tests.test_agency_observability"), True),
     ("tests/test_agency_observability_ops.py", ("tests.test_agency_observability_ops",), True),
+    ("portable/agency_release_lifecycle.py", ("tests.test_agency_release_lifecycle", "tests.test_agency_observability"), True),
+    ("tests/test_agency_release_lifecycle.py", ("tests.test_agency_release_lifecycle",), True),
+    ("portable/experiment_learning_cycle.py", ("tests.test_experiment_learning_cycle", "tests.test_agency_observability"), True),
+    ("tests/test_experiment_learning_cycle.py", ("tests.test_experiment_learning_cycle",), True),
     ("portable/agency_observability.py", ("tests.test_agency_observability",), True),
     ("tests/test_agency_observability.py", ("tests.test_agency_observability",), True),
     ("portable/engineering_dashboard.py", ("tests.test_engineering_dashboard",), True),
