@@ -7,6 +7,7 @@ production isolation must still be supplied by the configured OS sandbox.
 """
 from __future__ import annotations
 
+import errno
 import os
 import stat
 from pathlib import Path, PurePosixPath
@@ -106,7 +107,12 @@ def open_workspace_file(
         raise NotADirectoryError("workspace root must be a directory")
     parts = _relative_parts(relative_path)
     if os.name == "posix":
-        descriptor = _open_posix(workspace, parts, mode, create_parents)
+        try:
+            descriptor = _open_posix(workspace, parts, mode, create_parents)
+        except OSError as exc:
+            if exc.errno in {errno.ELOOP, errno.ENOTDIR}:
+                raise PermissionError("symlink traversal is forbidden") from exc
+            raise
         return os.fdopen(descriptor, mode) if "b" in mode else os.fdopen(descriptor, mode, encoding="utf-8")
     target = resolve_workspace_path(workspace, relative_path)
     if create_parents:
