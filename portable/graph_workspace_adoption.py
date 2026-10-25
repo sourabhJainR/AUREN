@@ -83,6 +83,7 @@ class GraphWorkspaceCoordinator:
         self._leases: dict[str, IsolatedGitWorktree] = {}
         self._states: dict[str, str] = {}
         self._proposals: dict[str, WorkspaceProposal] = {}
+        self._captured_artifacts: dict[str, str] = {}
 
     @property
     def cancellation_event(self) -> threading.Event:
@@ -148,8 +149,6 @@ class GraphWorkspaceCoordinator:
                 raise ValueError("worker proposal has no changes")
             owned = self._owners[worker_id]
             outside = [path for path in changed if not any(path == root or path.startswith(root.rstrip("/") + "/") for root in owned)]
-            if outside:
-                raise PermissionError("worker changed paths outside declared ownership: " + ", ".join(outside))
             patch = _git(workspace, "diff", "--binary", self.base_revision, "--")
             digest = hashlib.sha256(patch).hexdigest()
             artifact = self.artifact_root / f"{worker_id}-{digest}.patch"
@@ -160,10 +159,14 @@ class GraphWorkspaceCoordinator:
             metadata = {
                 "worker_id": worker_id, "base_revision": self.base_revision,
                 "paths": list(changed), "artifact_digest": digest,
+                "scope_violation": bool(outside),
             }
             meta_path = artifact.with_suffix(".json")
             meta_path.write_text(json.dumps(metadata, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
             os.chmod(meta_path, 0o600)
+            self._captured_artifacts[worker_id] = str(artifact)
+            if outside:
+                raise PermissionError("worker changed paths outside declared ownership: " + ", ".join(outside))
             proposal = WorkspaceProposal(worker_id, self.base_revision, changed, patch, digest, str(artifact))
             self._proposals[worker_id] = proposal
             self._states[worker_id] = "proposal_ready"
@@ -255,7 +258,7 @@ class GraphWorkspaceCoordinator:
                 raise RuntimeError("refusing to clean a worker that may still be running")
             lease = self._leases[worker_id]
             status = _git(lease.path, "status", "--porcelain", "--untracked-files=all").strip()
-            if status and worker_id not in self._proposals:
+            if status and worker_id not in self._captured_artifacts:
                 raise PermissionError("dirty worker has no persisted proposal artifact; refusing destructive cleanup")
             _git(self.project_root, "worktree", "remove", "--force", str(lease.path))
             self._states[worker_id] = "cleaned"
