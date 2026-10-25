@@ -9,6 +9,15 @@ from portable.runtime_recovery import ExecutionBudgetExceeded, RuntimeExecutionG
 from portable.task_planner import Task, TaskPlan
 
 
+def make_fanout(plan, execute, **kwargs):
+    return make_fanout(
+        plan, execute,
+        expected_plan_digest=DependencyAwareFanout.plan_digest(plan),
+        expected_intent_digest="intent-v1", current_intent_digest="intent-v1",
+        **kwargs,
+    )
+
+
 class DependencyAwareFanoutTests(unittest.TestCase):
     def test_independent_read_only_tasks_overlap_but_dependency_waits(self):
         barrier = threading.Barrier(2)
@@ -106,6 +115,80 @@ class DependencyAwareFanoutTests(unittest.TestCase):
         self.assertEqual(result.statuses["a"], "failed")
         self.assertIn("TypeError", result.errors["a"])
         self.assertNotEqual(plan.tasks["a"].status, "done")
+
+    def test_stale_plan_digest_fails_before_dispatch(self):
+        plan = TaskPlan([Task("a", "A", metadata={"execution_mode": "read_only"})])
+        called = []
+        runner = DependencyAwareFanout(
+            plan, lambda task: called.append(task.id),
+            execution_guard=RuntimeExecutionGuard(max_steps=1, max_attempts=1),
+            expected_plan_digest="stale-plan", expected_intent_digest="intent-v1",
+            current_intent_digest="intent-v1",
+        )
+        with self.assertRaisesRegex(ValueError, "stale plan digest"):
+            runner.run()
+        self.assertEqual(called, [])
+        self.assertEqual(runner.guard.snapshot()["steps_used"], 0)
+
+    def test_stale_intent_digest_fails_before_dispatch(self):
+        plan = TaskPlan([Task("a", "A", metadata={"execution_mode": "read_only"})])
+        called = []
+        runner = DependencyAwareFanout(
+            plan, lambda task: called.append(task.id),
+            execution_guard=RuntimeExecutionGuard(max_steps=1, max_attempts=1),
+            expected_plan_digest=DependencyAwareFanout.plan_digest(plan),
+            expected_intent_digest="old-intent", current_intent_digest="new-intent",
+        )
+        with self.assertRaisesRegex(ValueError, "stale intent digest"):
+            runner.run()
+        self.assertEqual(called, [])
+        self.assertEqual(runner.guard.snapshot()["steps_used"], 0)
+
+    def test_parallelism_skips_overhead_when_expected_gain_is_too_small(self):
+        active = 0
+        maximum = 0
+        lock = threading.Lock()
+        def execute(task):
+            nonlocal active, maximum
+            with lock:
+                active += 1
+                maximum = max(maximum, active)
+            time.sleep(0.01)
+            with lock:
+                active -= 1
+        plan = TaskPlan([
+            Task("a", "A", metadata={"execution_mode": "read_only", "estimated_duration_ms": 3}),
+            Task("b", "B", metadata={"execution_mode": "read_only", "estimated_duration_ms": 3}),
+        ])
+        result = make_fanout(
+            plan, execute, execution_guard=RuntimeExecutionGuard(max_steps=2, max_attempts=2),
+            max_workers=2, fanout_overhead_ms=5,
+        ).run()
+        self.assertTrue(result.succeeded, result.errors)
+        self.assertEqual(maximum, 1)
+
+    def test_canonical_evidence_and_memory_writes_are_serial(self):
+        active = 0
+        maximum = 0
+        lock = threading.Lock()
+        def execute(task):
+            nonlocal active, maximum
+            with lock:
+                active += 1
+                maximum = max(maximum, active)
+            time.sleep(0.01)
+            with lock:
+                active -= 1
+        plan = TaskPlan([
+            Task("evidence", "Evidence", tags=["evidence"], metadata={"execution_mode": "read_only"}),
+            Task("memory", "Memory", metadata={"execution_mode": "read_only", "writes_canonical_memory": True}),
+        ])
+        result = make_fanout(
+            plan, execute, execution_guard=RuntimeExecutionGuard(max_steps=2, max_attempts=2),
+            max_workers=2,
+        ).run()
+        self.assertTrue(result.succeeded, result.errors)
+        self.assertEqual(maximum, 1)
 
     def test_dependency_failure_blocks_downstream_without_dispatch(self):
         called = []
