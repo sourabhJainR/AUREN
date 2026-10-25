@@ -16,13 +16,12 @@ from pathlib import Path
 import re
 import sqlite3
 from contextlib import closing
-from typing import Any, Callable, Mapping
-from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
+from typing import Any, Callable, Mapping, Sequence
 from urllib.parse import urlparse
 from uuid import uuid4
 
 from .canonical_evidence_ledger import CanonicalEvidenceLedger
+from .guarded_network import guarded_https_request
 
 
 _EVENT_TYPES = frozenset({
@@ -144,7 +143,11 @@ class EvidenceCapture:
         """
         url = os.environ.get("AUREN_EVIDENCE_SINK_URL", "").strip()
         token = os.environ.get("AUREN_EVIDENCE_SINK_TOKEN", "")
-        sink = HttpsEvidenceSink(url, token) if url else None
+        allowed_cidrs = tuple(
+            item.strip() for item in os.environ.get("AUREN_EVIDENCE_SINK_ALLOWED_CIDRS", "").split(",")
+            if item.strip()
+        )
+        sink = HttpsEvidenceSink(url, token, allowed_cidrs=allowed_cidrs) if url else None
         return cls(database_path, sink=sink, signer=signer, evidence_ledger=evidence_ledger)
 
     def record(
@@ -665,7 +668,10 @@ class EvidenceCapture:
 class HttpsEvidenceSink:
     """Small HTTPS JSON sink adapter; endpoint/token are operator-supplied."""
 
-    def __init__(self, url: str, bearer_token: str, *, timeout_seconds: float = 5.0) -> None:
+    def __init__(
+        self, url: str, bearer_token: str, *, timeout_seconds: float = 5.0,
+        allowed_cidrs: Sequence[str] = (),
+    ) -> None:
         url = _text(url, "sink URL", 2048)
         if not url.startswith("https://"):
             raise ValueError("evidence sink must use HTTPS")
@@ -691,6 +697,8 @@ class HttpsEvidenceSink:
         ):
             raise ValueError("timeout_seconds must be a finite number greater than 0 and at most 30")
         self.url = url
+        self._host = parsed_url.hostname.lower().rstrip(".")
+        self.allowed_cidrs = tuple(str(item).strip() for item in allowed_cidrs if str(item).strip())
         self._token = bearer_token
         self.timeout_seconds = timeout_seconds
 
@@ -698,22 +706,25 @@ class HttpsEvidenceSink:
         event_id = event.get("event_id") if isinstance(event, Mapping) else None
         if not isinstance(event_id, str) or not event_id.strip():
             raise ValueError("evidence sink event requires a stable event_id for idempotent delivery")
-        request = Request(
-            self.url,
-            data=_canonical(event),
-            headers={
-                "Authorization": f"Bearer {self._token}",
-                "Content-Type": "application/json",
-                "Idempotency-Key": event_id.strip(),
-                "User-Agent": "AUREN-Engineering-Evidence/1",
-            },
-            method="POST",
-        )
         try:
-            with urlopen(request, timeout=self.timeout_seconds) as response:
-                if not 200 <= response.status < 300:
-                    raise RuntimeError(f"evidence sink returned HTTP {response.status}")
-        except (HTTPError, URLError, TimeoutError) as exc:
+            status, _response_body = guarded_https_request(
+                self.url,
+                allowed_hosts=(self._host,),
+                allowed_cidrs=self.allowed_cidrs,
+                method="POST",
+                body=_canonical(event),
+                headers={
+                    "Authorization": f"Bearer {self._token}",
+                    "Content-Type": "application/json",
+                    "Idempotency-Key": event_id.strip(),
+                    "User-Agent": "AUREN-Engineering-Evidence/1",
+                },
+                timeout=self.timeout_seconds,
+                max_bytes=64 * 1024,
+            )
+            if not 200 <= status < 300:
+                raise RuntimeError(f"evidence sink returned HTTP {status}")
+        except (OSError, TimeoutError, ValueError) as exc:
             raise RuntimeError("evidence export failed; see configured sink diagnostics") from exc
 
 
