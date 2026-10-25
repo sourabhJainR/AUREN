@@ -244,3 +244,38 @@ class SubprocessProviderInvokerTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+
+    def test_supervised_invocation_passes_cancellation_event_to_process_boundary(self):
+        provider = self.invoker("import time; time.sleep(10)")
+        cancelled = threading.Event()
+        trigger = threading.Thread(target=lambda: (time.sleep(0.1), cancelled.set()), daemon=True)
+        trigger.start()
+        started = time.monotonic()
+        with self.assertRaisesRegex(InterruptedError, "cancelled and terminated"):
+            provider.invoke_supervised(
+                "request", 5, execution_payload={"auren_cancel_event": cancelled},
+            )
+        self.assertLess(time.monotonic() - started, 2.0)
+
+    def test_supervised_invocation_caps_timeout_to_task_deadline(self):
+        provider = self.invoker("import time; time.sleep(10)")
+        started = time.monotonic()
+        with self.assertRaises(TimeoutError):
+            provider.invoke_supervised(
+                "request", 5,
+                execution_payload={"auren_deadline_epoch": time.time() + 0.25},
+            )
+        self.assertLess(time.monotonic() - started, 2.0)
+
+    def test_supervised_invocation_rejects_expired_deadline_before_launch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "launched.txt"
+            provider = self.invoker(f"import pathlib; pathlib.Path({str(marker)!r}).write_text('launched')")
+            with self.assertRaisesRegex(TimeoutError, "expired before provider launch"):
+                provider.invoke_supervised(
+                    "request", 5,
+                    execution_payload={"auren_deadline_epoch": time.time() - 1},
+                )
+            self.assertFalse(marker.exists())

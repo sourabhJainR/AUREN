@@ -243,6 +243,42 @@ class SubprocessProviderInvoker:
             except OSError:
                 pass
 
+    def invoke_supervised(
+        self, prompt: str, timeout_seconds: int | float, *,
+        execution_payload: Mapping[str, object],
+    ) -> str:
+        """Invoke with cancellation/deadline controls from ExecutionController.
+
+        The controller-owned event is passed to the killable process boundary.
+        A task deadline caps the adapter timeout; invalid or expired deadlines
+        fail before process launch. This is the preferred bridge for supervised
+        command-backed handlers.
+        """
+        if not isinstance(execution_payload, Mapping):
+            raise TypeError("execution_payload must be a mapping")
+        cancel_event = execution_payload.get("auren_cancel_event")
+        deadline = execution_payload.get("auren_deadline_epoch")
+        effective_timeout = timeout_seconds
+        if deadline is not None:
+            if (
+                isinstance(deadline, bool)
+                or not isinstance(deadline, (int, float))
+                or not math.isfinite(float(deadline))
+            ):
+                raise ValueError("auren_deadline_epoch must be a finite Unix timestamp")
+            remaining = float(deadline) - time.time()
+            if remaining <= 0:
+                raise TimeoutError("supervisor task deadline expired before provider launch")
+            if (
+                isinstance(timeout_seconds, bool)
+                or not isinstance(timeout_seconds, (int, float))
+                or not math.isfinite(float(timeout_seconds))
+                or not 0 < float(timeout_seconds) <= 86400
+            ):
+                raise ValueError("timeout_seconds must be finite and between 0 and 86400 seconds")
+            effective_timeout = min(float(timeout_seconds), remaining)
+        return self(prompt, effective_timeout, cancel_event=cancel_event)
+
     def __call__(self, prompt: str, timeout_seconds: int | float, *, cancel_event: threading.Event | None = None) -> str:
         if not isinstance(prompt, str):
             raise TypeError("provider prompt must be text")

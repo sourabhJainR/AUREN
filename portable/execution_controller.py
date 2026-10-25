@@ -105,6 +105,7 @@ class DurableTask:
     work_unit_id: str
     lease_generation: int = 0
     lease_token: str | None = None
+    deadline_at: str | None = None
 
 
 @dataclass(frozen=True)
@@ -128,6 +129,14 @@ class WorkKeyConflict(ValueError):
 
 class LeaseLostError(RuntimeError):
     """Raised when a stale worker attempts to renew or finalize a task lease."""
+
+
+class TaskCancellationRequested(InterruptedError):
+    """Raised when the supervisor requests cancellation of an active task."""
+
+
+class TaskDeadlineExceeded(TimeoutError):
+    """Raised when a durable task exceeds its supervisor-owned deadline."""
 
 
 class ExecutionController:
@@ -199,6 +208,8 @@ class ExecutionController:
                 ("quota_attempts", "INTEGER NOT NULL DEFAULT 0"),
                 ("next_retry_at", "TEXT"), ("quota_blocked", "INTEGER NOT NULL DEFAULT 0"),
                 ("work_key", "TEXT"), ("intent_digest", "TEXT"),
+                ("cancel_requested", "INTEGER NOT NULL DEFAULT 0"),
+                ("cancel_reason_digest", "TEXT"), ("deadline_at", "TEXT"),
             ):
                 if column not in columns:
                     db.execute(f"ALTER TABLE tasks ADD COLUMN {column} {declaration}")
@@ -229,6 +240,8 @@ class ExecutionController:
         # Provider adapters are restored by the host on worker startup. Missing
         # adapters never authorize a retry; ambiguous effects remain blocked.
         self._provider_operation_adapters: dict[str, Any] = {}
+        self._cancellation_events: dict[str, Event] = {}
+        self._cancellation_events_lock = __import__("threading").RLock()
         self._progress_reconciliation_findings: list[str] = []
         self._progress_reconciliation_incomplete = False
         self._submission_reconciliation_findings: list[str] = []
@@ -1764,7 +1777,19 @@ class ExecutionController:
         *,
         goal: str | None = None,
         work_key: str | None = None,
+        deadline_seconds: float | None = None,
     ) -> DurableTask:
+        if deadline_seconds is not None and (
+            isinstance(deadline_seconds, bool)
+            or not isinstance(deadline_seconds, (int, float))
+            or not math.isfinite(deadline_seconds)
+            or not 0 < deadline_seconds <= 86400
+        ):
+            raise ValueError("deadline_seconds must be finite, greater than 0, and at most 86400")
+        requested_deadline_at = (
+            (datetime.now(timezone.utc) + timedelta(seconds=float(deadline_seconds))).isoformat()
+            if deadline_seconds is not None else None
+        )
         execution_class = self._handler_execution_class(handler)
         if not isinstance(payload, Mapping):
             raise TypeError("durable task payload must be a mapping")
@@ -1821,7 +1846,7 @@ class ExecutionController:
                 existing = None
                 if stable_work_key is not None:
                     existing = db.execute(
-                        "SELECT id,handler,payload,state,attempts,work_unit_id,lease_generation,lease_token,intent_digest "
+                        "SELECT id,handler,payload,state,attempts,work_unit_id,lease_generation,lease_token,intent_digest,deadline_at "
                         "FROM tasks WHERE work_key=?",
                         (stable_work_key,),
                     ).fetchone()
@@ -1832,19 +1857,19 @@ class ExecutionController:
                         )
                     task = DurableTask(
                         existing[0], existing[1], json.loads(existing[2]), existing[3],
-                        int(existing[4]), existing[5], int(existing[6] or 0), existing[7],
+                        int(existing[4]), existing[5], int(existing[6] or 0), existing[7], existing[9],
                     )
                     db.commit()
                 else:
                     work = self.company.start(goal_text, work_key=stable_work_key)
-                    task = DurableTask(uuid4().hex, handler, payload_copy, "pending", 0, work.id)
+                    task = DurableTask(uuid4().hex, handler, payload_copy, "pending", 0, work.id, deadline_at=requested_deadline_at)
                     now = _now()
                     db.execute(
                         "INSERT INTO tasks(id,handler,payload,state,attempts,work_unit_id,created_at,updated_at,"
-                        "heartbeat_at,lease_until,work_key,intent_digest) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                        "heartbeat_at,lease_until,work_key,intent_digest,deadline_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
                         (
                             task.id, task.handler, payload_json, task.state, task.attempts, task.work_unit_id,
-                            now, now, now, now, stable_work_key, intent_digest,
+                            now, now, now, now, stable_work_key, intent_digest, requested_deadline_at,
                         ),
                     )
                     db.commit()
@@ -1888,6 +1913,45 @@ class ExecutionController:
             )
         return task
 
+    def request_cancellation(self, task_id: str, *, reason: str = "operator requested cancellation") -> bool:
+        """Durably request cancellation; active handlers observe a live Event.
+
+        Returns False for an already terminal or missing task. The request does
+        not claim the task is cancelled: the owning worker must stop and commit
+        the terminal state, or consequential work must remain blocked for
+        reconciliation if the remote outcome is ambiguous.
+        """
+        if not isinstance(task_id, str) or not task_id.strip():
+            raise ValueError("task_id is required")
+        if not isinstance(reason, str) or not reason.strip() or len(reason) > 1000:
+            raise ValueError("cancellation reason must be non-empty text of at most 1000 characters")
+        with closing(sqlite3.connect(self.db_path, timeout=10)) as db, db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("SELECT state FROM tasks WHERE id=?", (task_id,)).fetchone()
+            if row is None or row[0] in {"completed", "failed", "cancelled", "blocked_reconciliation"}:
+                return False
+            reason_digest = hashlib.sha256(reason.strip().encode("utf-8")).hexdigest()
+            db.execute(
+                "UPDATE tasks SET cancel_requested=1, cancel_reason_digest=COALESCE(cancel_reason_digest, ?), "
+                "updated_at=? WHERE id=? AND state IN ('pending','running')",
+                (reason_digest, _now(), task_id),
+            )
+        with self._cancellation_events_lock:
+            event = self._cancellation_events.get(task_id)
+            if event is not None:
+                event.set()
+        self._record_progress(
+            task_id, "cancellation_requested", state=str(row[0]), stage="cancellation",
+            message="Cancellation requested; reason_digest=" + reason_digest
+                    + ". Task outcome remains nonterminal until the owning worker confirms it.",
+        )
+        return True
+
+    def _cancellation_requested(self, task_id: str) -> bool:
+        with closing(sqlite3.connect(self.db_path, timeout=5)) as db:
+            row = db.execute("SELECT cancel_requested FROM tasks WHERE id=?", (task_id,)).fetchone()
+        return bool(row and row[0])
+
     def _claim(self, task_id: str) -> DurableTask | None:
         # Claim under a write lock so two controllers cannot both observe
         # "pending" and execute the same side-effecting handler. Each claim
@@ -1895,7 +1959,7 @@ class ExecutionController:
         with closing(sqlite3.connect(self.db_path, timeout=10)) as db, db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute(
-                "SELECT id,handler,payload,state,attempts,work_unit_id,lease_until,lease_generation "
+                "SELECT id,handler,payload,state,attempts,work_unit_id,lease_until,lease_generation,deadline_at "
                 "FROM tasks WHERE id=?",
                 (task_id,),
             ).fetchone()
@@ -1929,7 +1993,7 @@ class ExecutionController:
                 return None
         task = DurableTask(
             row[0], row[1], json.loads(row[2]), "running", attempts, row[5],
-            lease_generation=generation, lease_token=token,
+            lease_generation=generation, lease_token=token, deadline_at=row[8],
         )
         self._record_progress(
             task.id, "attempt_started", state="running", stage="dispatch",
@@ -1961,9 +2025,15 @@ class ExecutionController:
         return False
 
     def _invoke_with_lease_heartbeat(self, task: DurableTask, handler: Handler) -> Any:
-        """Renew the current lease while a handler runs; reject results after lease loss."""
+        """Renew leases and propagate durable cancellation while a handler runs."""
         stop = Event()
+        cancel = Event()
+        deadline = Event()
         lease_errors: list[BaseException] = []
+        cancellation_observation_errors: list[BaseException] = []
+        handler_started = False
+        with self._cancellation_events_lock:
+            self._cancellation_events[task.id] = cancel
 
         def renew() -> None:
             while not stop.wait(self._LEASE_HEARTBEAT_INTERVAL_SECONDS):
@@ -1974,23 +2044,103 @@ class ExecutionController:
                     stop.set()
                     return
 
-        thread = Thread(target=renew, name=f"auren-lease-{task.id[:8]}", daemon=True)
-        thread.start()
+        def watch_cancellation() -> None:
+            while not stop.wait(0.05):
+                try:
+                    if task.deadline_at is not None:
+                        due = datetime.fromisoformat(task.deadline_at)
+                        if due.tzinfo is None:
+                            deadline.set()
+                            cancel.set()
+                            return
+                        if datetime.now(timezone.utc) >= due.astimezone(timezone.utc):
+                            deadline.set()
+                            cancel.set()
+                            return
+                    if self._cancellation_requested(task.id):
+                        cancel.set()
+                        return
+                except Exception as exc:
+                    # A database read failure is not evidence of cancellation.
+                    # Record uncertainty and fail closed after handler return.
+                    cancellation_observation_errors.append(exc)
+                    return
+
+        lease_thread = Thread(target=renew, name=f"auren-lease-{task.id[:8]}", daemon=True)
+        cancel_thread = Thread(target=watch_cancellation, name=f"auren-cancel-{task.id[:8]}", daemon=True)
+        lease_thread.start()
+        cancel_thread.start()
         result: Any = None
         handler_error: BaseException | None = None
         try:
-            result = handler(self._handler_payload(task))
+            if task.deadline_at is not None:
+                try:
+                    due = datetime.fromisoformat(task.deadline_at)
+                    if due.tzinfo is None:
+                        raise ValueError("task deadline must be timezone-aware")
+                except (TypeError, ValueError) as exc:
+                    deadline.set()
+                    raise TaskDeadlineExceeded("task deadline record is invalid") from exc
+                if datetime.now(timezone.utc) >= due.astimezone(timezone.utc):
+                    deadline.set()
+                    raise TaskDeadlineExceeded("task deadline expired before handler dispatch")
+            if self._cancellation_requested(task.id):
+                cancel.set()
+            if cancel.is_set():
+                if deadline.is_set():
+                    raise TaskDeadlineExceeded("task deadline expired before handler dispatch")
+                raise TaskCancellationRequested("task cancellation requested before handler dispatch")
+            payload = self._handler_payload(task)
+            payload["auren_cancel_event"] = cancel
+            if task.deadline_at is not None:
+                payload["auren_deadline_epoch"] = datetime.fromisoformat(task.deadline_at).timestamp()
+            handler_started = True
+            result = handler(payload)
         except BaseException as exc:
             handler_error = exc
         finally:
             stop.set()
-            thread.join(timeout=2)
+            lease_thread.join(timeout=2)
+            cancel_thread.join(timeout=2)
+            with self._cancellation_events_lock:
+                self._cancellation_events.pop(task.id, None)
         if lease_errors:
             raise LeaseLostError(
                 "task lease was lost while handler was running; result cannot be committed"
             ) from (handler_error or lease_errors[0])
         if handler_error is not None:
+            if deadline.is_set():
+                if handler_started and self._handler_execution_class(task.handler) == "consequential":
+                    raise ProviderOutcomeBlocked("deadline expired after consequential dispatch; remote outcome requires reconciliation") from handler_error
+                raise TaskDeadlineExceeded("task deadline expired during handler execution") from handler_error
+            if cancel.is_set():
+                if handler_started and self._handler_execution_class(task.handler) == "consequential":
+                    raise ProviderOutcomeBlocked("consequential handler was interrupted after cancellation; remote outcome requires reconciliation") from handler_error
+                raise TaskCancellationRequested("handler was interrupted after supervisor cancellation") from handler_error
+            if handler_started and self._handler_execution_class(task.handler) == "consequential":
+                raise ProviderOutcomeBlocked("consequential handler exited with an exception after dispatch; remote outcome requires reconciliation") from handler_error
             raise handler_error
+        if cancellation_observation_errors:
+            if handler_started and self._handler_execution_class(task.handler) == "consequential":
+                raise ProviderOutcomeBlocked("cancellation state could not be verified after consequential dispatch; remote outcome requires reconciliation") from cancellation_observation_errors[0]
+            raise RuntimeError("cancellation state could not be verified; handler result cannot be committed") from cancellation_observation_errors[0]
+        if task.deadline_at is not None:
+            try:
+                final_deadline = datetime.fromisoformat(task.deadline_at)
+                if final_deadline.tzinfo is None:
+                    deadline.set()
+                elif datetime.now(timezone.utc) >= final_deadline.astimezone(timezone.utc):
+                    deadline.set()
+            except (TypeError, ValueError):
+                deadline.set()
+        if deadline.is_set():
+            if handler_started and self._handler_execution_class(task.handler) == "consequential":
+                raise ProviderOutcomeBlocked("deadline expired after consequential dispatch; remote outcome requires reconciliation")
+            raise TaskDeadlineExceeded("task deadline expired; handler result cannot be committed")
+        if cancel.is_set() or self._cancellation_requested(task.id):
+            if handler_started and self._handler_execution_class(task.handler) == "consequential":
+                raise ProviderOutcomeBlocked("cancellation arrived after consequential dispatch; remote outcome requires reconciliation")
+            raise TaskCancellationRequested("task cancellation requested; handler result cannot be committed")
         # Verify ownership once more before the caller can finalize the result.
         self.heartbeat(task)
         return result
@@ -2503,7 +2653,7 @@ class ExecutionController:
                     json.dumps(dict(intent), sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
                 ).hexdigest(),
             }
-            value = self._invoke_with_lease_heartbeat(task, lambda _payload: handler(self._handler_payload(task, provider_payload)))
+            value = self._invoke_with_lease_heartbeat(task, lambda runtime_payload: handler(self._handler_payload(task, {**provider_payload, "auren_cancel_event": runtime_payload["auren_cancel_event"]})))
             if not isinstance(value, Mapping):
                 raise RuntimeError("consequential handlers must return a mapping receipt/result")
             return {"result": dict(value), "provider_operation_id": operation_id}
@@ -2530,6 +2680,15 @@ class ExecutionController:
             message="Checking dispatch policy, revision binding, and required evidence.",
         )
         try:
+            if self._cancellation_requested(task.id):
+                raise TaskCancellationRequested("task cancellation requested before preflight")
+            if task.deadline_at is not None:
+                try:
+                    deadline = datetime.fromisoformat(task.deadline_at)
+                except (TypeError, ValueError) as exc:
+                    raise TaskDeadlineExceeded("task deadline record is invalid") from exc
+                if deadline.tzinfo is None or datetime.now(timezone.utc) >= deadline.astimezone(timezone.utc):
+                    raise TaskDeadlineExceeded("task deadline expired before preflight")
             self.heartbeat(task)
             self._verify_engineering_plan_dispatch_checkpoint(task)
             gates_passed, gate_detail, gate_evidence = self._preflight_gates(task)
@@ -2564,6 +2723,39 @@ class ExecutionController:
             raise
         except ApprovalPending as exc:
             self._pause_for_approval(task, exc)
+            return None
+        except TaskDeadlineExceeded as exc:
+            if not self._finalize_claim(task, "failed"):
+                raise LeaseLostError("task lease was lost; stale worker cannot finalize deadline failure") from exc
+            detail = "Task deadline exceeded; handler result was not accepted."
+            self.company.record(task.work_unit_id, "execution", "failed", detail,
+                                (f"handler:{task.handler}", f"task:{task.id}", "deadline_exceeded"))
+            self.company.finish(task.work_unit_id, success=False, reason=detail)
+            self._capture_terminal_event("task_failed", task, status="failed", metadata={
+                "handler": task.handler, "phase": "deadline",
+                "failure_class": "TaskDeadlineExceeded",
+            })
+            self._record_progress(task.id, "task_terminal", state="failed", stage="terminal", message=detail)
+            return None
+        except TaskCancellationRequested as exc:
+            if not self._finalize_claim(task, "cancelled"):
+                raise LeaseLostError(
+                    "task lease was lost; stale worker cannot finalize cancellation"
+                ) from exc
+            detail = "Task cancelled by supervisor request; handler result was not accepted."
+            self.company.record(
+                task.work_unit_id, "execution", "failed", detail,
+                (f"handler:{task.handler}", f"task:{task.id}", "cancellation_requested"),
+            )
+            self.company.finish(task.work_unit_id, success=False, reason=detail)
+            self._capture_terminal_event("task_cancelled", task, status="cancelled", metadata={
+                "handler": task.handler, "phase": "cancellation",
+                "failure_class": "TaskCancellationRequested",
+            })
+            self._record_progress(
+                task.id, "task_terminal", state="cancelled", stage="terminal",
+                message=detail,
+            )
             return None
         except ProviderOutcomeBlocked as exc:
             if not self._finalize_claim(task, "blocked_reconciliation"):
@@ -2975,10 +3167,10 @@ class ExecutionController:
     def task(self, task_id: str) -> DurableTask | None:
         with closing(sqlite3.connect(self.db_path)) as db, db:
             row = db.execute(
-                "SELECT id,handler,payload,state,attempts,work_unit_id FROM tasks WHERE id=?",
+                "SELECT id,handler,payload,state,attempts,work_unit_id,deadline_at FROM tasks WHERE id=?",
                 (task_id,),
             ).fetchone()
-        return DurableTask(row[0], row[1], json.loads(row[2]), row[3], int(row[4]), row[5]) if row else None
+        return DurableTask(row[0], row[1], json.loads(row[2]), row[3], int(row[4]), row[5], deadline_at=row[6]) if row else None
 
     @staticmethod
     def _validate_graph_checkpoint_envelope(task_id: str, envelope: Mapping[str, Any]) -> dict[str, Any]:
@@ -3211,4 +3403,4 @@ class ExecutionController:
         return Orchestrator(graph).run(task_id, intent, context)
 
 
-__all__ = ["ExecutionController", "DurableTask", "ContinuousRunReport", "Handler", "ProviderQuotaError", "LeaseLostError"]
+__all__ = ["ExecutionController", "DurableTask", "ContinuousRunReport", "Handler", "ProviderQuotaError", "LeaseLostError", "TaskCancellationRequested", "TaskDeadlineExceeded"]
