@@ -207,7 +207,104 @@ class GuardPolicyStore:
         return version_id
 
 
-def evaluate_managed_policy(
+
+class GuardActionEvidenceLedger:
+    """Durable hash-chained action lineage; outcomes are never inferred on resume.
+
+    This ledger proves internal event consistency, not signer identity or trusted
+    remote truth. Callers must verify provider outcomes independently before
+    finalizing them and must reconcile 'pending' operations after restart.
+    """
+
+    def __init__(self, database: str | Path):
+        self.database = str(database)
+        Path(self.database).parent.mkdir(parents=True, exist_ok=True)
+        with sqlite3.connect(self.database) as db:
+            db.execute("""CREATE TABLE IF NOT EXISTS guard_action_events (
+                sequence INTEGER PRIMARY KEY AUTOINCREMENT, event_id TEXT UNIQUE NOT NULL,
+                event_json TEXT NOT NULL, previous_digest TEXT NOT NULL, digest TEXT NOT NULL)""")
+
+    def append(self, *, event_id: str, identity: str, delegated_scope: Sequence[str],
+               policy_version: str, policy_digest: str, approval_id: str | None,
+               provider_operation_id: str, verified_outcome: str, event_type: str,
+               timestamp: float | None = None) -> str:
+        required = (event_id, identity, policy_version, policy_digest, provider_operation_id, event_type)
+        if any(not isinstance(value, str) or not value.strip() for value in required):
+            raise GuardPolicyError("action evidence identity fields are required")
+        if not isinstance(delegated_scope, (list, tuple)) or not delegated_scope or any(not isinstance(x, str) or not x for x in delegated_scope):
+            raise GuardPolicyError("delegated scope must be a non-empty list of capabilities")
+        if verified_outcome not in {"pending", "succeeded", "failed", "unknown"}:
+            raise GuardPolicyError("verified outcome must be pending, succeeded, failed, or unknown")
+        if event_type not in {"dispatch_authorized", "provider_outcome_verified", "revoked", "reconciled"}:
+            raise GuardPolicyError("unsupported action evidence event type")
+        payload = {
+            "schema_version": "auren-guard-action-evidence-v1",
+            "event_id": event_id, "identity": identity,
+            "delegated_scope": sorted(set(delegated_scope)),
+            "policy_version": policy_version, "policy_digest": policy_digest,
+            "approval_id": approval_id, "provider_operation_id": provider_operation_id,
+            "verified_outcome": verified_outcome, "event_type": event_type,
+            "timestamp": time.time() if timestamp is None else timestamp,
+        }
+        if isinstance(payload["timestamp"], bool) or not isinstance(payload["timestamp"], (int, float)):
+            raise GuardPolicyError("invalid evidence timestamp")
+        encoded = _canonical(payload)
+        try:
+            with sqlite3.connect(self.database, timeout=5, isolation_level=None) as db:
+                db.execute("BEGIN IMMEDIATE")
+                existing = db.execute("SELECT digest FROM guard_action_events WHERE event_id=?", (event_id,)).fetchone()
+                if existing:
+                    db.execute("ROLLBACK")
+                    if self.verify() and existing[0] == hashlib.sha256(encoded.encode("utf-8")).hexdigest():
+                        return existing[0]
+                    raise GuardPolicyError("evidence event ID replayed with different content")
+                previous = db.execute("SELECT digest FROM guard_action_events ORDER BY sequence DESC LIMIT 1").fetchone()
+                previous_digest = previous[0] if previous else "0" * 64
+                digest = hashlib.sha256((previous_digest + encoded).encode("utf-8")).hexdigest()
+                db.execute("INSERT INTO guard_action_events(event_id,event_json,previous_digest,digest) VALUES (?,?,?,?)",
+                           (event_id, encoded, previous_digest, digest))
+                db.execute("COMMIT")
+                return digest
+        except sqlite3.Error as exc:
+            raise GuardPolicyError("action evidence persistence failed; dispatch must remain blocked") from exc
+
+    def verify(self) -> bool:
+        try:
+            with sqlite3.connect(self.database) as db:
+                rows = db.execute("SELECT event_id,event_json,previous_digest,digest FROM guard_action_events ORDER BY sequence").fetchall()
+        except sqlite3.Error as exc:
+            raise GuardPolicyError("action evidence ledger unavailable") from exc
+        previous = "0" * 64
+        seen: set[str] = set()
+        for event_id, encoded, stored_previous, stored_digest in rows:
+            if event_id in seen or stored_previous != previous:
+                return False
+            try:
+                payload = json.loads(encoded)
+            except (TypeError, json.JSONDecodeError):
+                return False
+            if payload.get("event_id") != event_id:
+                return False
+            expected = hashlib.sha256((previous + _canonical(payload)).encode("utf-8")).hexdigest()
+            if expected != stored_digest:
+                return False
+            previous = stored_digest
+            seen.add(event_id)
+        return True
+
+    def unresolved_operations(self) -> list[dict[str, Any]]:
+        """Return latest per-operation state; pending/unknown must be reconciled."""
+        if not self.verify():
+            raise GuardPolicyError("action evidence chain integrity failure; refusing recovery")
+        with sqlite3.connect(self.database) as db:
+            rows = db.execute("SELECT event_json FROM guard_action_events ORDER BY sequence").fetchall()
+        latest: dict[str, dict[str, Any]] = {}
+        for (encoded,) in rows:
+            event = json.loads(encoded)
+            latest[event["provider_operation_id"]] = event
+        return [event for event in latest.values() if event["verified_outcome"] in {"pending", "unknown"}]
+
+\ndef evaluate_managed_policy(
     policy: Mapping[str, Any], context: Mapping[str, Any], *,
     rate_limiter: DurableRateLimiter | None = None,
     rate_limit: Mapping[str, Any] | None = None,
@@ -237,6 +334,6 @@ def evaluate_managed_policy(
 
 
 __all__ = [
-    "DurableRateLimiter", "GuardPolicyStore", "evaluate_managed_policy",
+    "DurableRateLimiter", "GuardPolicyStore", "GuardActionEvidenceLedger", "evaluate_managed_policy",
     "resolve_policy_inheritance",
 ]
