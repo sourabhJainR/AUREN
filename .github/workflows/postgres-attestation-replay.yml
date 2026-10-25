@@ -1,0 +1,57 @@
+name: PostgreSQL Attestation Replay Integration
+
+on:
+  pull_request:
+    paths:
+      - "portable/postgres_attestation_replay_registry.py"
+      - "portable/attestation_freshness.py"
+      - "tests/test_postgres_attestation_replay_registry.py"
+      - ".github/workflows/postgres-attestation-replay.yml"
+  push:
+    branches: [main]
+    paths:
+      - "portable/postgres_attestation_replay_registry.py"
+      - "portable/attestation_freshness.py"
+      - "tests/test_postgres_attestation_replay_registry.py"
+      - ".github/workflows/postgres-attestation-replay.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: postgres-attestation-replay-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  shared-postgres-replay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: auren_test
+          POSTGRES_PASSWORD: auren_test_password
+          POSTGRES_DB: auren_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U auren_test -d auren_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      AUREN_TEST_POSTGRES_DSN: postgresql://auren_test:auren_test_password@127.0.0.1:5432/auren_test
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install PostgreSQL driver
+        run: python -m pip install --disable-pip-version-check "psycopg[binary]>=3.2,<4"
+      - name: Exercise shared-store replay, race, restart and unknown-commit recovery
+        run: python -m unittest tests.test_postgres_attestation_replay_registry -v
