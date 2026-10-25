@@ -236,6 +236,129 @@ class ProviderOperationLifecycleTests(unittest.TestCase):
         self.assertTrue(events[-1]["replay"])
         self.assertEqual([operation_id], Path(provider_log).read_text(encoding="utf-8").splitlines())
 
+    def test_provider_dispatch_emits_live_child_span_without_receipt_secrets(self):
+        path = self.path.parent / "provider-traces.jsonl"
+        tracer = Tracer(LocalExporter(path, enabled=True))
+        trace = tracer.start("provider-lifecycle")
+        root = trace.span("supervisor", "agent", phase="supervisor")
+        lifecycle = ProviderOperationLifecycle(self.ledger(), record_event=self.events.append)
+        result = lifecycle.execute(
+            "deploy-traced", "provider-a", {"target": "staging"},
+            lambda intent, operation_id, idempotency_key: {
+                "status": "completed",
+                "provider_operation_id": operation_id,
+                "api_key": "never-export-this",
+            },
+            trace=trace, parent_span_id=root.span_id,
+        )
+        self.assertEqual("completed", result["status"])
+        records = [
+            json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()
+        ]
+        starts = [
+            record for record in records
+            if record.get("event_type") == "span_started"
+            and (record.get("span") or {}).get("name") == "provider_dispatch:provider-a"
+        ]
+        finishes = [
+            record for record in records
+            if record.get("event_type") == "span_updated"
+            and (record.get("span") or {}).get("name") == "provider_dispatch:provider-a"
+            and (record.get("span") or {}).get("end") is not None
+        ]
+        self.assertEqual(1, len(starts))
+        self.assertEqual(root.span_id, starts[0]["span"]["parent_id"])
+        self.assertEqual(1, len(finishes))
+        self.assertEqual("ok", finishes[-1]["span"]["status"])
+        self.assertNotIn("never-export-this", path.read_text(encoding="utf-8"))
+
+    def test_provider_dispatch_failure_emits_error_span_and_blocks_retry(self):
+        path = self.path.parent / "provider-failed-traces.jsonl"
+        tracer = Tracer(LocalExporter(path, enabled=True))
+        trace = tracer.start("provider-lifecycle-failed")
+        root = trace.span("supervisor", "agent", phase="supervisor")
+        lifecycle = ProviderOperationLifecycle(self.ledger(), record_event=self.events.append)
+        calls = []
+
+        def fail_after_possible_acceptance(*_args):
+            calls.append("called")
+            raise TimeoutError("provider response lost")
+
+        for _ in range(2):
+            with self.assertRaises(ProviderOutcomeBlocked):
+                lifecycle.execute(
+                    "deploy-traced-failed", "provider-a", {"target": "prod"},
+                    fail_after_possible_acceptance,
+                    trace=trace, parent_span_id=root.span_id,
+                )
+        self.assertEqual(["called"], calls)
+        records = [
+            json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()
+        ]
+        failed = [
+            record for record in records
+            if record.get("event_type") == "span_updated"
+            and (record.get("span") or {}).get("name") == "provider_dispatch:provider-a"
+            and (record.get("span") or {}).get("end") is not None
+        ]
+        self.assertEqual(1, len(failed))
+        self.assertEqual("error", failed[-1]["span"]["status"])
+        self.assertEqual("TimeoutError", failed[-1]["span"]["output"]["error_type"])
+
+    def test_provider_lookup_emits_child_span_during_reconciliation(self):
+        path = self.path.parent / "provider-lookup-traces.jsonl"
+        tracer = Tracer(LocalExporter(path, enabled=True))
+        trace = tracer.start("provider-reconciliation")
+        root = trace.span("supervisor", "agent", phase="supervisor")
+        lifecycle = ProviderOperationLifecycle(
+            self.ledger(verify=lambda *_: True), record_event=self.events.append,
+        )
+        key = "deploy-traced-reconcile"
+        intent = {"target": "staging"}
+        with self.assertRaises(ProviderOutcomeBlocked):
+            lifecycle.execute(
+                key, "provider-a", intent,
+                lambda *_: (_ for _ in ()).throw(TimeoutError("lost")),
+                trace=trace, parent_span_id=root.span_id,
+            )
+        operation_id = stable_provider_operation_id(key, "provider-a", intent)
+        digest = self.ledger().get(key)["payload_digest"]
+        result = lifecycle.reconcile(
+            key, "provider-a", intent,
+            lambda op_id, operation_key: {
+                "status": "completed",
+                "evidence_ref": f"provider://operation/{op_id}",
+                "receipt": {
+                    "status": "completed",
+                    "provider_operation_id": op_id,
+                    "operation_id": operation_id,
+                    "idempotency_key": operation_key,
+                    "provider": "provider-a",
+                    "intent_digest": digest,
+                },
+            },
+            trace=trace, parent_span_id=root.span_id,
+        )
+        self.assertEqual("completed", result["status"])
+        records = [
+            json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()
+        ]
+        started = [
+            record for record in records
+            if record.get("event_type") == "span_started"
+            and (record.get("span") or {}).get("name") == "provider_lookup:provider-a"
+        ]
+        finished = [
+            record for record in records
+            if record.get("event_type") == "span_updated"
+            and (record.get("span") or {}).get("name") == "provider_lookup:provider-a"
+            and (record.get("span") or {}).get("end") is not None
+        ]
+        self.assertEqual(1, len(started))
+        self.assertEqual(root.span_id, started[0]["span"]["parent_id"])
+        self.assertEqual(1, len(finished))
+        self.assertEqual("ok", finished[-1]["span"]["status"])
+
     def test_stable_operation_id_is_bound_to_key_provider_and_intent(self):
         intent = {"target": "staging", "revision": "abc"}
         first = stable_provider_operation_id("deploy-1", "provider-a", intent)
