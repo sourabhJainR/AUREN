@@ -27,7 +27,9 @@ from portable.vibe_coding_host import (
     MCPStdioToolAdapter,
     JournaledToolAdapter,
     build_mcp_authority_dispatch,
+    mcp_action_idempotency_key,
     mcp_request_action_id,
+    mcp_request_digest,
     SideEffectJournal,
     VerifiedResearchTool,
     fingerprint_worktree,
@@ -191,7 +193,12 @@ class VibeCodingHostTests(unittest.TestCase):
             action="publish",
             target="src/module.py",
             risk="external_effect",
-            idempotency_key=operation["idempotency_key"],
+            idempotency_key=mcp_action_idempotency_key(operation["operation_id"]),
+            evidence_refs=(
+                f"provider-operation:{operation['operation_id']}",
+                f"provider-idempotency:{operation['idempotency_key']}",
+                f"mcp-request:{mcp_request_digest(request)}",
+            ),
         )
         authority = ExecutionAuthorityBinding(
             execution_id="exec-mcp-1",
@@ -226,6 +233,7 @@ class VibeCodingHostTests(unittest.TestCase):
             repository_digest="repo-digest",
             budget_id="budget-mcp-1",
             execution_guard=RuntimeExecutionGuard(max_steps=10, max_attempts=3),
+            provider_operation_ledger=ledger,
         ), gateway
 
     @staticmethod
@@ -270,6 +278,16 @@ class VibeCodingHostTests(unittest.TestCase):
                 gateways.append(gateway)
                 return authorization
 
+            request = self._mcp_external_request()
+            provider_operation = request["provider_operation"]
+            provider_key = provider_operation["idempotency_key"]
+            provider_intent = {key: value for key, value in request.items() if key != "provider_operation"}
+            claimed = ledger.begin(provider_key, {
+                "provider": provider_operation["provider"],
+                "operation_id": provider_operation["operation_id"],
+                "intent": provider_intent,
+            })
+            self.assertEqual(claimed.action, "execute")
             tool = MCPStdioToolAdapter(
                 argv=(sys.executable, str(server)),
                 tool_name="publish",
@@ -277,10 +295,20 @@ class VibeCodingHostTests(unittest.TestCase):
                 requires_authority_binding=True,
                 authority_dispatch=build_mcp_authority_dispatch(resolver),
             )
-            result = tool(self._mcp_external_request())
+            result = tool(request)
+            ledger.complete(provider_key, {
+                "status": "completed",
+                "provider_operation_id": provider_operation["operation_id"],
+                "result": result,
+            })
             self.assertEqual(result, {"ok": True})
             self.assertEqual(len(gateways), 1)
             self.assertTrue(gateways[0].verify_trace()["passed"])
+            self.assertEqual(ledger.get(provider_key)["state"], "completed")
+            self.assertEqual(
+                ledger.get(mcp_action_idempotency_key(provider_operation["operation_id"]))["state"],
+                "completed",
+            )
 
     def test_consequential_mcp_authority_denial_never_launches_process(self):
         with tempfile.TemporaryDirectory() as temp:
