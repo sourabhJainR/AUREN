@@ -1,6 +1,6 @@
 from unittest.mock import patch
 
-from scripts.pr_integration_guard import api_list, commits_behind, overlapping_paths, require_revision
+from scripts.pr_integration_guard import api_list, blocking_overlaps, commits_behind, overlapping_paths, require_revision
 
 
 def test_api_list_reads_all_pages_without_silently_truncating_results():
@@ -48,3 +48,28 @@ def test_require_revision_fails_closed_when_base_or_head_moved():
             assert "base ref changed" in str(exc)
         else:
             raise AssertionError("moved base ref must fail closed")
+
+
+def test_oldest_overlapping_pr_keeps_integration_slot():
+    current = {"number": 20, "created_at": "2026-10-25T10:00:00Z"}
+    overlaps = [
+        {"number": 19, "created_at": "2026-10-25T09:00:00Z", "paths": ["portable/a.py"]},
+        {"number": 21, "created_at": "2026-10-25T11:00:00Z", "paths": ["portable/a.py"]},
+    ]
+    assert blocking_overlaps(current, overlaps) == [overlaps[0]]
+
+
+def test_older_overlapping_pr_is_not_blocked_by_newer_pr():
+    current = {"number": 19, "created_at": "2026-10-25T09:00:00Z"}
+    overlaps = [
+        {"number": 20, "created_at": "2026-10-25T10:00:00Z", "paths": ["portable/a.py"]},
+    ]
+    assert blocking_overlaps(current, overlaps) == []
+
+
+def test_overlap_ordering_missing_evidence_fails_closed():
+    import pytest
+
+    current = {"number": 20, "created_at": "2026-10-25T10:00:00Z"}
+    with pytest.raises(ValueError, match="creation order"):
+        blocking_overlaps(current, [{"number": 19, "paths": ["portable/a.py"]}])
