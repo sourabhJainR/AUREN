@@ -303,6 +303,8 @@ class GraphRunRecoveryBridge:
             raise ValueError("non-blocked node cannot retain blockers")
         refs = list(dict.fromkeys(str(item).strip() for item in evidence_refs if str(item).strip()))
         if status == "complete":
+            if current_budget.get("remaining_seconds") is not None and current_budget["remaining_seconds"] <= 0:
+                raise ValueError("expired deadline cannot produce a completed node")
             if any(snapshot["nodes"][dependency]["status"] != "complete" for dependency in node["dependencies"]):
                 raise ValueError("node cannot complete before all dependencies are complete")
             if not refs:
@@ -382,6 +384,58 @@ class GraphRunRecoveryBridge:
         self.ledger.start_run(self.run_id, self._immutable_intent)
         self._publish_pointer(latest, snapshot, reason=reason)
         return self.load()
+
+
+    def cancel_run(
+        self,
+        *,
+        event_id: str,
+        reason: str,
+        next_safe_action: str,
+        budget_snapshot: Mapping[str, Any],
+        confirmed_stopped_nodes: Sequence[str] = (),
+    ) -> dict[str, Any]:
+        """Persist cancellation without claiming an unconfirmed worker has stopped."""
+        if not isinstance(reason, str) or not reason.strip():
+            raise ValueError("cancellation reason is required")
+        if not isinstance(next_safe_action, str) or not next_safe_action.strip():
+            raise ValueError("cancellation requires a next safe action")
+        snapshot = self.load()
+        if snapshot["run_status"] != "in_progress":
+            raise GraphCheckpointMismatch(f"cannot cancel graph run from state {snapshot['run_status']}")
+        budget = _validate_budget_snapshot(budget_snapshot)
+        _assert_budget_monotonic(snapshot["budget_snapshot"], budget)
+        if budget.get("cancelled") is not True:
+            raise ValueError("canonical RuntimeExecutionGuard must confirm cancellation before run cancellation is persisted")
+        confirmed = set(confirmed_stopped_nodes)
+        unknown_ids = confirmed - set(snapshot["nodes"])
+        if unknown_ids:
+            raise ValueError("confirmed stop set contains unknown nodes: " + ", ".join(sorted(unknown_ids)))
+        nodes = {}
+        for node_id, old in snapshot["nodes"].items():
+            node = dict(old)
+            if node["status"] == "waiting":
+                node["status"] = "cancelled"
+                node["next_safe_action"] = next_safe_action.strip()
+            elif node["status"] == "working":
+                node["status"] = "cancelled" if node_id in confirmed else "unknown"
+                node["next_safe_action"] = (
+                    "inspect_partial_results_before_resume" if node_id in confirmed
+                    else "reconcile_worker_termination_before_resume"
+                )
+            nodes[node_id] = node
+        updated = {
+            **snapshot, "nodes": nodes, "run_status": "cancelled",
+            "cancel_reason": reason.strip()[:500], "budget_snapshot": budget,
+            "next_safe_action": next_safe_action.strip(),
+        }
+        event = self.journal.append(
+            event_id=f"graph:{self.run_id}:{event_id.strip()}", work_id=self.run_id,
+            state="graph_checkpoint",
+            payload={"snapshot": updated, "snapshot_digest": _digest(updated), "event_kind": "run_cancelled"},
+        )
+        self._publish_pointer(event, updated)
+        return updated
 
 
 __all__ = ["GraphRunRecoveryBridge", "GraphCheckpointMismatch"]
