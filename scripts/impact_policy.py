@@ -28,6 +28,7 @@ _RULES: tuple[tuple[str, tuple[str, ...], bool], ...] = (
     ("portable/independent_evaluation_attestation.py", ("tests.test_independent_evaluation_attestation", "tests.test_sealed_arena_boundary", "tests.test_sealed_arena_signature"), True),
     ("portable/attestation_freshness.py", ("tests.test_attestation_freshness", "tests.test_postgres_attestation_replay_registry"), True),
     ("portable/postgres_attestation_replay_registry.py", ("tests.test_postgres_attestation_replay_registry", "tests.test_attestation_freshness"), True),
+    (".github/workflows/postgres-replay-integration.yml", ("tests.test_postgres_attestation_replay_registry",), True),
     ("tests/test_attestation_freshness.py", ("tests.test_attestation_freshness", "tests.test_postgres_attestation_replay_registry"), True),
     ("tests/test_postgres_attestation_replay_registry.py", ("tests.test_postgres_attestation_replay_registry", "tests.test_attestation_freshness"), True),
     ("tests/test_canary_evaluator.py", ("tests.test_canary_evaluator",), True),
