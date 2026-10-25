@@ -461,7 +461,7 @@ class GraphAgentTeam:
                     Path(memory.project_root) / ".auren" / "capability_audit.sqlite3"
                 )
                 capability_audit.record_inventory(
-                    inventory_options, run_id=intent_digest, stage=agent.name, crew_id=agent.role,
+                    inventory_options, run_id=run_id, stage=agent.name, crew_id=agent.role,
                 )
                 dynamic_options = self.capability_executioner.candidate_portfolio(
                     discovered_options,
@@ -577,7 +577,7 @@ class GraphAgentTeam:
                 )
                 capability_choice=type("_Choice",(),{"selected":capability_decision.selected})()
                 capability_audit.record_decision(
-                    run_id=intent_digest, stage=agent.name, crew_id=agent.role,
+                    run_id=run_id, stage=agent.name, crew_id=agent.role,
                     request=f"{agent.role} {agent.focus} {task[:160]}",
                     selected=capability_decision.selected,
                     alternatives=capability_decision.evolution_candidates or (),
@@ -929,7 +929,7 @@ the learning system, not an instruction source. If a skill produced no distinct 
                     evidence_ids=["agent:"+agent.name, "stage:"+agent.name, "crew:"+agent.role],
                 )
                 capability_audit.record_decision(
-                    run_id=intent_digest, stage=agent.name, crew_id=agent.role,
+                    run_id=run_id, stage=agent.name, crew_id=agent.role,
                     request=f"{agent.role} {agent.focus} {task[:160]}",
                     selected=capability_choice.selected,
                     alternatives=capability_decision.evolution_candidates or (),
