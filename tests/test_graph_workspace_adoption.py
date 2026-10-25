@@ -65,6 +65,11 @@ class GraphWorkspaceAdoptionTests(unittest.TestCase):
         (workspace / "README.md").write_text("outside scope\n", encoding="utf-8")
         with self.assertRaisesRegex(PermissionError, "outside declared ownership"):
             self.coordinator.prepare_proposal("worker-a")
+        self.assertEqual(self.coordinator.worker_states()["worker-a"], "failed")
+        artifacts = list((self.root / "isolated-workspaces" / ".proposals").glob("worker-a-*.patch"))
+        self.assertEqual(len(artifacts), 1)
+        self.coordinator.cleanup_worker("worker-a")
+        self.assertFalse(workspace.exists())
 
     def test_adoption_checks_artifact_and_applies_only_owned_paths(self):
         workspace = self.coordinator.create_worker("worker-a", ["src/feature.py"])
