@@ -131,7 +131,7 @@ def evaluate_guard_policy(
     context: Mapping[str, Any],
     *,
     mandatory_authorized: bool = True,
-    approval_present: bool = False,
+    approval_gate_configured: bool = False,
 ) -> GuardDecision:
     """Evaluate organization rules without allowing them to override mandatory gates.
 
@@ -165,9 +165,11 @@ def evaluate_guard_policy(
         ids = tuple(rule["id"] for rule in deny)
         return GuardDecision(False, "deny", "organization policy denied this action", digest, ids)
     approvals = [rule for rule in matched if rule["effect"] == "require_approval"]
-    if approvals and not approval_present:
+    if approvals:
         ids = tuple(rule["id"] for rule in approvals)
-        return GuardDecision(False, "require_approval", "organization policy requires approval before dispatch", digest, ids, True)
+        if not approval_gate_configured:
+            return GuardDecision(False, "require_approval", "organization policy requires an approval-gated handler before dispatch", digest, ids, True)
+        return GuardDecision(True, "require_approval", "dispatch only to the trusted approval-gated execution path", digest, ids, True)
     if normalized["default_effect"] == "deny" and not any(rule["effect"] == "allow" for rule in matched):
         ids = tuple(rule["id"] for rule in matched)
         return GuardDecision(False, "deny", "organization policy default-deny: no matching allow rule", digest, ids)
