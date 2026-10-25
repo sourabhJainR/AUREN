@@ -11,6 +11,8 @@ import hashlib
 import json
 from typing import Sequence
 
+from .agency_observability import Trace
+
 from .adaptive_experiment_controller import (
     AdaptiveExperimentResult,
     ExperimentController,
@@ -74,6 +76,8 @@ class ExperimentLearningCycle:
         evidence_refs: Sequence[str],
         domain_lifts: tuple[tuple[str, float], ...] = (),
         episode: EngineeringEpisode | None = None,
+        trace: Trace | None = None,
+        parent_span_id: str | None = None,
     ) -> ExperimentLearningCycleResult:
         if not isinstance(manifest, ExperimentManifest):
             raise TypeError("an ExperimentManifest is required")
@@ -86,28 +90,98 @@ class ExperimentLearningCycle:
         if retest_contract.intervention_digest != manifest.intervention_digest:
             raise LearningStoreConflict("retest contract does not match the learning manifest")
 
-        result = self.controller.aggregate(
-            experiment_id=manifest.experiment_id,
-            intervention=intervention,
-            replications=replications,
-            retest_contract=retest_contract,
-            baseline_score=baseline_score,
-        )
-        signal = self.bridge.derive(
-            capability=manifest.capability,
-            result=result,
-            domain_lifts=domain_lifts,
-        )
+        aggregate_span = trace.span(
+            "learning_aggregate",
+            "learning",
+            metadata={
+                "experiment_id_digest": hashlib.sha256(manifest.experiment_id.encode("utf-8")).hexdigest(),
+                "manifest_digest": manifest.digest,
+                "intervention_digest": manifest.intervention_digest,
+                "replication_count": len(replications),
+            },
+            parent_id=parent_span_id,
+            phase="learning",
+            actor_id="auren.experiment_learning_cycle",
+        ) if trace is not None else None
+        try:
+            result = self.controller.aggregate(
+                experiment_id=manifest.experiment_id,
+                intervention=intervention,
+                replications=replications,
+                retest_contract=retest_contract,
+                baseline_score=baseline_score,
+            )
+        except Exception as exc:
+            if aggregate_span is not None:
+                aggregate_span.finish({"aggregation_completed": False, "error_type": type(exc).__name__}, "error", type(exc).__name__)
+            raise
+        if aggregate_span is not None:
+            aggregate_span.finish({
+                "aggregation_completed": True,
+                "evidence_sufficient": result.evidence_sufficient,
+                "rollback_recommended": result.rollback_recommended,
+                "result_digest": result.result_digest,
+            }, "ok")
+
+        signal_span = trace.span(
+            "learning_signal_derivation",
+            "learning",
+            metadata={"result_digest": result.result_digest, "capability": manifest.capability},
+            parent_id=parent_span_id,
+            phase="learning",
+            actor_id="auren.experiment_learning_cycle",
+        ) if trace is not None else None
+        try:
+            signal = self.bridge.derive(
+                capability=manifest.capability,
+                result=result,
+                domain_lifts=domain_lifts,
+            )
+        except Exception as exc:
+            if signal_span is not None:
+                signal_span.finish({"signal_derived": False, "error_type": type(exc).__name__}, "error", type(exc).__name__)
+            raise
+        if signal_span is not None:
+            signal_span.finish({
+                "signal_derived": True,
+                "action": signal.action,
+                "signal_digest": signal.signal_digest,
+            }, "ok")
+
         # record() is the durable gate. If evidence cannot be verified or storage
         # fails, this cycle raises instead of returning an unpersisted success.
-        receipt = self.learning_store.record(
-            manifest=manifest,
-            result=result,
-            signal=signal,
-            evidence_refs=evidence_refs,
-            episode=episode,
-            domain_lifts=domain_lifts,
-        )
+        persist_span = trace.span(
+            "learning_evidence_persist",
+            "learning",
+            metadata={
+                "manifest_digest": manifest.digest,
+                "result_digest": result.result_digest,
+                "signal_digest": signal.signal_digest,
+                "evidence_ref_count": len(evidence_refs),
+            },
+            parent_id=parent_span_id,
+            phase="learning",
+            actor_id="auren.experiment_learning_cycle",
+        ) if trace is not None else None
+        try:
+            receipt = self.learning_store.record(
+                manifest=manifest,
+                result=result,
+                signal=signal,
+                evidence_refs=evidence_refs,
+                episode=episode,
+                domain_lifts=domain_lifts,
+            )
+        except Exception as exc:
+            if persist_span is not None:
+                persist_span.finish({"receipt_persisted": False, "error_type": type(exc).__name__}, "error", type(exc).__name__)
+            raise
+        if persist_span is not None:
+            persist_span.finish({
+                "receipt_persisted": True,
+                "receipt_digest": receipt.record_digest,
+                "disposition": receipt.disposition,
+            }, "ok")
         return ExperimentLearningCycleResult(result, signal, receipt)
 
 
