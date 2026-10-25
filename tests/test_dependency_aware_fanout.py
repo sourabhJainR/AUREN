@@ -10,7 +10,7 @@ from portable.task_planner import Task, TaskPlan
 
 
 def make_fanout(plan, execute, **kwargs):
-    return make_fanout(
+    return DependencyAwareFanout(
         plan, execute,
         expected_plan_digest=DependencyAwareFanout.plan_digest(plan),
         expected_intent_digest="intent-v1", current_intent_digest="intent-v1",
