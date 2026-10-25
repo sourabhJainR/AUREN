@@ -256,3 +256,30 @@ def test_guard_policy_change_is_rechecked_at_provider_dispatch(tmp_path: Path):
             controller._invoke_consequential_with_ledger(task, guarded_marker_handler)
 
     assert not (tmp_path / "must-not-run.txt").exists()
+
+
+def test_policy_revocation_between_preflight_and_any_handler_dispatch_blocks(tmp_path: Path):
+    from unittest.mock import patch
+
+    from portable.organization_guard import evaluate_guard_policy
+
+    controller = ExecutionController(tmp_path)
+    controller.register_handler(
+        "tests.guarded_marker_handler", guarded_marker_handler, execution_class="read_only",
+        guard_action="read",
+    )
+    marker = tmp_path / "must-not-run-after-revocation.txt"
+    task = controller.submit("tests.guarded_marker_handler", {"marker_path": str(marker)})
+    allowed = evaluate_guard_policy(None, {"action": "read"})
+    revoked = evaluate_guard_policy(
+        {"schema_version": "auren-guard-v1", "default_effect": "allow",
+         "rules": [{"id": "revoke-read", "effect": "deny", "action": "read"}]},
+        {"action": "read"},
+    )
+
+    with patch.object(controller, "_evaluate_guard_for_task", side_effect=[allowed, revoked]):
+        controller.run_once(task.id)
+
+    assert not marker.exists()
+    assert controller.task(task.id).state == "failed"
+
