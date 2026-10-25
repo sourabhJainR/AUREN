@@ -10,6 +10,7 @@ The code-owned inventory lives in `portable/execution_boundary.py` as `EXECUTION
 |---|---|---|---|
 | Task/repository/evidence identity | `portable/execution_contract.py:ExecutionEnvelope` | Validated task/plan/repository/evidence references and deterministic digest | Not automatically required by every action gateway caller |
 | Action authorization | `portable/action_governance.py:ActionGovernanceGateway` | Capability/action allowlists, approval checks, external-effect idempotency, event hash chain | Callers must route consequential actions through the gateway; the trace is not trusted storage |
+| MCP tool launch | `portable/vibe_coding_host.py:MCPStdioToolAdapter` | Consequential capabilities require a trusted resolver and `execute_bound_action` before `Popen`; run/task, provider operation, idempotency key, revision, digest and task budget are checked | Host must inject a resolver backed by trusted identity/repository context; no OS isolation or remote-outcome proof is implied |
 | Runtime budget and cancellation | `portable/runtime_recovery.py:RuntimeExecutionGuard` | Bounded steps/attempts/deadline, cancellation, repeated-failure detection, digest-checked snapshot/resume | Durable behavior depends on persistence and cooperative worker cancellation |
 | Engineering recovery | `portable/engineering_recovery.py:EngineeringRecoveryLedger` | SQLite-backed attempt/checkpoint ledger and exact-head CI helper | Does not sandbox workers or make external effects idempotent |
 | Provider failover/resume | `portable/resumable_provider.py:ResumableProviderExecutor` | Pinned provider versions, task/stage identity, retry budget, persistence callbacks | Irreversible effects still require downstream idempotency and a durable outbox/inbox |
@@ -42,3 +43,8 @@ The execution-boundary tests cover deterministic inventory, explicit direct-gate
 ## Rollback
 
 The changes are additive: the inventory and new contracts are introduced in `portable/execution_boundary.py`, with isolated regression tests. Rollback can revert the feature commit/PR without rewriting existing `ExecutionEnvelope`, `ActionRequest`, or `RuntimeExecutionGuard` formats. Do not remove existing guards as part of rollback. Before adopting the new binding at additional call sites, record baseline behavior and add call-site regression tests.
+
+
+## Consequential MCP dispatch
+
+Configured consequential MCP capabilities fail closed before process launch without a trusted `MCPExecutionAuthorization`. Read-only tools remain compatible; custom tools must opt into the gate with `external_effects: true`. This is application-level authority enforcement only. Provider-native idempotency, outcome lookup/reconciliation, and independently tested host isolation remain separate gates.
