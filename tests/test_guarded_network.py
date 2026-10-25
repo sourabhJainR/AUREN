@@ -121,7 +121,7 @@ class GuardedNetworkTests(unittest.TestCase):
             guarded_https_get(
                 "https://api.github.com/repos/owner/repo",
                 allowed_hosts=("api.github.com",),
-                headers={"Authorization": "Bearer safe\\r\\nHost: evil.example"},
+                headers={"Authorization": "Bearer safe\r\nHost: evil.example"},
                 resolver=resolver,
                 connector=connector,
             )
