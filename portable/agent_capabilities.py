@@ -456,8 +456,20 @@ class CapabilityAuditLedger:
                 selected TEXT NOT NULL, alternatives TEXT NOT NULL,
                 rationale_digest TEXT NOT NULL, outcome TEXT NOT NULL,
                 evidence_digest TEXT NOT NULL, cost REAL, duration_seconds REAL,
-                created_at TEXT NOT NULL)""")
+                created_at TEXT NOT NULL, inventory_snapshot_id TEXT NOT NULL DEFAULT '')""")
+            decision_columns = {row[1] for row in db.execute("PRAGMA table_info(capability_decisions)")}
+            if "inventory_snapshot_id" not in decision_columns:
+                db.execute("ALTER TABLE capability_decisions ADD COLUMN inventory_snapshot_id TEXT NOT NULL DEFAULT ''")
             db.execute("CREATE INDEX IF NOT EXISTS idx_capability_decisions_lookup ON capability_decisions(stage, crew_id, selected, created_at)")
+            for table in ("capability_inventory", "capability_decisions"):
+                db.execute(f"""CREATE TRIGGER IF NOT EXISTS {table}_no_update
+                    BEFORE UPDATE ON {table} BEGIN
+                    SELECT RAISE(ABORT, 'capability audit rows are immutable');
+                    END""")
+                db.execute(f"""CREATE TRIGGER IF NOT EXISTS {table}_no_delete
+                    BEFORE DELETE ON {table} BEGIN
+                    SELECT RAISE(ABORT, 'capability audit rows are immutable');
+                    END""")
             db.commit()
 
     @staticmethod
@@ -483,6 +495,15 @@ class CapabilityAuditLedger:
                 "requires_sandbox": bool(option.requires_sandbox),
                 "estimated_latency_ms": max(0.0, min(float(option.estimated_latency_ms), 86400000.0)),
                 "estimated_cost": max(0.0, min(float(option.estimated_cost), 1000000.0)),
+                "model_invocable": bool(option.model_invocable),
+                "provides": sorted(option.provides)[:64],
+                "requires": sorted(option.requires)[:64],
+                "fallback": str(option.fallback or "")[:160],
+                "instructions_digest": hashlib.sha256(
+                    sanitize_capability_reference(option.instructions, 4096).encode("utf-8")
+                ).hexdigest(),
+                "evidence_quality": max(0.0, min(1.0, float(option.evidence_quality))),
+                "confidence": max(0.0, min(1.0, float(option.confidence))),
             }
             rows.append((option, descriptor))
         snapshot_id = hashlib.sha256(self._canonical({
@@ -512,6 +533,7 @@ class CapabilityAuditLedger:
         selected: str, alternatives: Iterable[str] = (), rationale: str = "",
         outcome: str = "pending", evidence_ids: Iterable[str] = (),
         cost: float | None = None, duration_seconds: float | None = None,
+        inventory_snapshot_id: str = "",
     ) -> str:
         event_id = uuid.uuid4().hex
         request_digest = hashlib.sha256(request[:8192].encode("utf-8")).hexdigest()
@@ -524,10 +546,15 @@ class CapabilityAuditLedger:
         with sqlite3.connect(self.path, timeout=10) as db:
             db.execute("PRAGMA busy_timeout=10000")
             db.execute(
-                """INSERT INTO capability_decisions VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                """INSERT INTO capability_decisions
+                (event_id,run_id,stage,crew_id,request_digest,selected,alternatives,
+                 rationale_digest,outcome,evidence_digest,cost,duration_seconds,created_at,
+                 inventory_snapshot_id)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (event_id, run_id[:160], stage[:160], crew_id[:160], request_digest,
                  selected[:160], json.dumps(sorted(str(x)[:160] for x in alternatives)[:16]),
-                 rationale_digest, outcome[:64], evidence_digest, safe_cost, safe_duration, _utc().isoformat()),
+                 rationale_digest, outcome[:64], evidence_digest, safe_cost, safe_duration,
+                 _utc().isoformat(), inventory_snapshot_id[:64]),
             )
             db.commit()
         return event_id
@@ -671,7 +698,9 @@ class CapabilityExecutioner:
                 ))
                 seen.add(directory.name)
         for source, payload in (
+            ("tool", get_auren_env("TOOL_CAPABILITIES", "")),
             ("mcp", get_auren_env("MCP_CAPABILITIES", "")),
+            ("api", get_auren_env("API_CAPABILITIES", "")),
             ("plugin", get_auren_env("PLUGIN_CAPABILITIES", "")),
         ):
             try:
@@ -824,6 +853,7 @@ class CapabilityExecutioner:
         *,
         request: str,
         options: Iterable[CapabilityOption],
+        explicit_request: str | None = None,
         required: Iterable[str] = (),
         failed: Iterable[str] = (),
         network_allowed: bool = True,
@@ -1101,23 +1131,44 @@ class CapabilityExecutioner:
         every member before scoring.
         """
         options = tuple(options)
+        required_set = set(required)
+        failed_set = set(failed)
+        directive_text = request if explicit_request is None else explicit_request
+        explicit_required, explicit_excluded = self._explicit_constraints(directive_text, options)
+        required_set.update(explicit_required)
+        failed_set.update(explicit_excluded)
+        if re.search(r"\b(?:use only|only use)\b", directive_text, re.IGNORECASE):
+            if not required_set:
+                raise LookupError("explicit-only capability directive did not resolve to a known option")
+            failed_set.update(option.name for option in options if option.name not in required_set)
+        if required_set & failed_set:
+            raise PermissionError("explicit capability requirement conflicts with an explicit exclusion")
+        option_by_name = {option.name: option for option in options}
+        missing_required = sorted(name for name in required_set if name not in option_by_name or not option_by_name[name].available)
+        if missing_required:
+            raise LookupError(f"explicitly requested capability is unavailable: {missing_required}")
+        limit = max(1, min(3, int(max_skills)))
+        if len(required_set) > limit:
+            raise PermissionError("explicitly requested capability set exceeds the configured bundle limit")
+        for name in required_set:
+            if not self._allowed(option_by_name[name], network_allowed, sandbox_available, max_risk):
+                raise PermissionError(f"explicitly requested capability is blocked by execution policy: {name}")
         history = history or {}
         bundle_history = bundle_history or {}
         contribution_history = contribution_history or {}
-        limit = max(1, min(3, int(max_skills)))
         singleton_history = {
             name: history.get(name, {})
             for name in {option.name for option in options}
             if history.get(name)
         }
         primary = self.select(
-            request=request, options=options, required=required, failed=failed,
+            request=request, options=options, required=(), failed=failed_set,
             network_allowed=network_allowed, sandbox_available=sandbox_available,
             max_risk=max_risk, resource_budget=resource_budget, history=history,
         )
         eligible = [
             option for option in options
-            if option.name not in set(failed)
+            if option.name not in failed_set
             and option.available
             and self._allowed(option, network_allowed, sandbox_available, max_risk)
         ]
@@ -1133,6 +1184,7 @@ class CapabilityExecutioner:
             reverse=True,
         )
         pool_names = {primary.selected}
+        pool_names.update(required_set)
         pool_names.update(option.name for option in eligible[:11])
         pool = tuple(option for option in eligible if option.name in pool_names)
         by_name = {option.name: option for option in pool}
@@ -1150,6 +1202,8 @@ class CapabilityExecutioner:
         for size in range(1, limit + 1):
             for names in itertools.combinations(sorted(by_name), size):
                 members = tuple(by_name[name] for name in names)
+                if not required_set.issubset({member.name for member in members}):
+                    continue
                 metrics = self._bundle_metrics(request, members, history)
                 coverage, phase_diversity, source_diversity, evidence, confidence, redundancy, reason = metrics
                 if coverage < 0 or reason:
@@ -1252,6 +1306,27 @@ class CapabilityExecutioner:
             evolution_candidates=mutation_labels,
             evolution_stage=evolution_stage,
         )
+
+    @staticmethod
+    def _explicit_constraints(
+        request: str, options: Sequence[CapabilityOption],
+    ) -> tuple[set[str], set[str]]:
+        """Recognize exact named tool/skill directives without guessing aliases."""
+        text = request.casefold()
+        required: set[str] = set()
+        excluded: set[str] = set()
+        for option in options:
+            aliases = {option.name.casefold()}
+            if ":" in option.name:
+                aliases.add(option.name.rsplit(":", 1)[-1].casefold())
+            for alias in sorted((item for item in aliases if item), key=len, reverse=True):
+                escaped = re.escape(alias)
+                quoted_alias = rf"(?:`{escaped}`|'{escaped}'|{escaped})"
+                if re.search(rf"\b(?:must use|must select|explicitly use|please use|use only|only use)\s+(?:the\s+)?{quoted_alias}(?![\w.-])", text):
+                    required.add(option.name)
+                if re.search(rf"\b(?:do not use|don't use|must not use|never use|avoid)\s+(?:the\s+)?{quoted_alias}(?![\w.-])", text):
+                    excluded.add(option.name)
+        return required, excluded
 
     @staticmethod
     def _exploration_need(prior: Mapping[str, float]) -> float:
