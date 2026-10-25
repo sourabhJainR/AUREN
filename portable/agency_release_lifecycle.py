@@ -195,6 +195,19 @@ class ArtifactStore:
         if not path.exists(): raise RuntimeError(f"rollback artifact is missing: {digest}")
         ref = ArtifactRef(str(value["artifact_id"]), digest, str(path), int(value.get("size", 0)), "file"); self._verify_ref(ref); return ref
 
-def apply_promotion_decision(store: ArtifactStore, decision: object, artifact: ArtifactRef | None = None, *, context_evidence_digest: str | None = None, verification_digest: str | None = None, review_digest: str | None = None) -> ReleaseState:
+def apply_promotion_decision(
+    store: ArtifactStore, decision: object, artifact: ArtifactRef | None = None, *,
+    context_evidence_digest: str | None = None,
+    verification_digest: str | None = None,
+    review_digest: str | None = None,
+    trace: Trace | None = None,
+    parent_span_id: str | None = None,
+) -> ReleaseState:
     """Public integration point used by runtimes and deployment adapters."""
-    return store.apply_decision(decision, artifact, context_evidence_digest=context_evidence_digest, verification_digest=verification_digest, review_digest=review_digest)
+    return store.apply_decision(
+        decision, artifact,
+        context_evidence_digest=context_evidence_digest,
+        verification_digest=verification_digest,
+        review_digest=review_digest,
+        trace=trace, parent_span_id=parent_span_id,
+    )
