@@ -76,12 +76,13 @@ def test_restart_keeps_submitted_profile_when_saved_preferences_change(tmp_path:
 
     controller = ExecutionController(tmp_path)
     controller.register_handler(
-        "tests.merge_marker_handler", guarded_marker_handler, execution_class="consequential"
+        "tests.marker_handler", guarded_marker_handler, execution_class="consequential"
     )
     saved_path = tmp_path / ".auren" / "workflow_profile.json"
     save_profile(saved_path, WorkflowProfile(delivery_mode="stage_only"))
     marker = tmp_path / "must-not-run.txt"
-    task = controller.submit("tests.merge_marker_handler", {
+    task = controller.submit("tests.marker_handler", {
+        "operation": "merge",
         "marker_path": str(marker),
     })
     submitted_digest = task.payload["_auren_workflow_profile_digest"]
@@ -91,7 +92,7 @@ def test_restart_keeps_submitted_profile_when_saved_preferences_change(tmp_path:
     save_profile(saved_path, WorkflowProfile(delivery_mode="pull_request"))
     restarted = ExecutionController(tmp_path)
     restarted.register_handler(
-        "tests.merge_marker_handler", guarded_marker_handler, execution_class="read_only"
+        "tests.marker_handler", guarded_marker_handler, execution_class="read_only"
     )
     recovered = restarted.task(task.id)
     assert recovered.payload["_auren_workflow_profile_digest"] == submitted_digest
