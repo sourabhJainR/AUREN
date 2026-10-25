@@ -234,6 +234,26 @@ class TestAgencyObservability(unittest.TestCase):
         assert first.metadata["labels"] == ["alpha", "middle", "zeta"]
         assert first.metadata["labels"] == second.metadata["labels"]
 
+    def test_free_text_provider_tokens_and_embedded_url_credentials_are_redacted(self):
+        path = self.tmp_path / "provider-token-redaction.jsonl"
+        tracer = Tracer(LocalExporter(path, enabled=True))
+        # Repeated-character fixtures are synthetic and contain no real credentials.
+        secrets = (
+            "ghp_" + "X" * 24,
+            "AKIA" + "0" * 16,
+            "xoxb-" + "0" * 16,
+            "sk-" + "X" * 24,
+            "eyJ" + "X" * 12 + ".eyJ" + "Y" * 12 + "." + "Z" * 16,
+            "https://synthetic-user:synthetic-password@example.invalid/path",
+        )
+        trace = tracer.start("provider-token-redaction")
+        trace.span("provider", input={"free_text": " ".join(secrets)}).finish({"status": "ok"})
+        tracer.end(trace)
+        exported = path.read_text(encoding="utf-8")
+        for secret in secrets:
+            self.assertNotIn(secret, exported)
+        self.assertGreaterEqual(exported.count("[REDACTED]"), len(secrets))
+
     def test_unsupported_objects_never_invoke_arbitrary_repr(self):
         class UnsafeRepresentation:
             def __repr__(self):

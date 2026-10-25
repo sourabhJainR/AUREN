@@ -29,6 +29,15 @@ _SECRET_VALUE = re.compile(r"""(?ix)(api[_-]?key|token|password|secret|authoriza
 _TRACE_LOCK = threading.RLock()
 _MAX_TRACE_BYTES = 1_000_000
 _BEARER_VALUE = re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._~+/-]+=*")
+_SECRET_TOKEN_PATTERNS = (
+    re.compile(r"\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})\b"),
+    re.compile(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b"),
+    re.compile(r"\bxox[baprs]-[A-Za-z0-9-]{10,}\b"),
+    re.compile(r"\bsk-[A-Za-z0-9_-]{20,}\b"),
+    re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b"),
+    re.compile(r"(?i)\bhttps?://[^/\s:@]+:[^/\s@]+@"),
+)
+
 
 
 def _freeze(value: Any) -> Any:
@@ -49,6 +58,8 @@ def _safe(value: Any, limit: int = 4000, _depth: int = 0) -> Any:
     if isinstance(value, str):
         value = _SECRET_VALUE.sub(r"\1=[REDACTED]", value)
         value = _BEARER_VALUE.sub("Bearer [REDACTED]", value)
+        for pattern in _SECRET_TOKEN_PATTERNS:
+            value = pattern.sub("[REDACTED]", value)
         return value if len(value) <= limit else value[:limit] + "…"
     if isinstance(value, Mapping):
         result = {}
