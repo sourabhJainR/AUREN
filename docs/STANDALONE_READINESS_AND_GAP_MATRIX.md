@@ -135,3 +135,14 @@
 5. Build from pinned source; retain bundle manifest and SHA-256 digest; install and smoke-test in a clean environment.
 6. Execute staging migration, interruption, rollback, and user-data integrity rehearsal; record operator, environment, timestamps, logs, and before/after data checks.
 7. Keep #404 and release blocked until external custody, signed results, extension isolation, and rollback evidence are independently verified.
+
+
+### Workflow profile persistence follow-up — 2026-10-25
+
+- [x] Add `portable/workflow_profile_store.py` for validated, canonical, atomic profile persistence.
+- [x] Reject symlink targets, duplicate JSON keys, malformed or incompatible profiles, and oversized input; never silently replace invalid saved preferences with defaults.
+- [x] Use restrictive file permissions on POSIX and fsync the file plus parent directory around atomic replacement.
+- [x] Add tests for missing-vs-invalid state, canonical writes, private permissions, duplicate keys, size limits, symlinks, and refusing invalid writes.
+- [ ] Run the exact-head test and required CI suites; results are not inferred from source inspection.
+- [ ] Wire persisted profiles into supervisor task intent and durable receipts, then enforce effective modes in repository adapters. Storage alone does not change runtime behavior.
+- [ ] Add crash/interruption tests for a profile write and task resume; reject incompatible profile versions on resume.
