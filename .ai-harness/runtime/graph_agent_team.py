@@ -558,6 +558,7 @@ class GraphAgentTeam:
                         }
                 capability_decision=self.capability_executioner.select_collaborative(
                     request=f"{agent.role} {agent.focus} {task[:160]}",
+                    explicit_request=task,
                     options=dynamic_options,
                     network_allowed=get_auren_env("NETWORK_ALLOWED","1").lower() not in {"0","false","no","off"},
                     sandbox_available=True,
