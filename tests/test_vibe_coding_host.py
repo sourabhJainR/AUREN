@@ -9,7 +9,13 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
+from portable.action_governance import ActionGovernanceGateway, ActionPolicy, ActionRequest
+from portable.execution_boundary import ExecutionAuthorityBinding
+from portable.runtime_recovery import RuntimeExecutionGuard
+from portable.side_effect_ledger import DurableSideEffectLedger
+from portable.vibe_coding_adapters import AdapterUnavailable
 from portable.vibe_coding import VibeCodingCheckpoint, VibeStage
 from portable.vibe_coding_host import (
     DurableVibeCheckpointStore,
@@ -17,8 +23,10 @@ from portable.vibe_coding_host import (
     LocalProjectTool,
     LocalTestExecutionTool,
     LocalVibeCodingHost,
+    MCPExecutionAuthorization,
     MCPStdioToolAdapter,
     JournaledToolAdapter,
+    build_mcp_authority_dispatch,
     SideEffectJournal,
     VerifiedResearchTool,
     fingerprint_worktree,
@@ -167,6 +175,161 @@ class VibeCodingHostTests(unittest.TestCase):
             )
             result = tool({"stage": "research", "intent": "test", "state": {"workspace_root": str(project)}})
             self.assertEqual(result["competitors"], ["example.com"])
+
+    def _mcp_authorization(self, request, ledger, *, authority_principal=None):
+        state = request["state"]
+        operation = request["provider_operation"]
+        run_id = state["vibe_coding_workflow_id"]
+        task_id = state["task_id"]
+        action_request = ActionRequest(
+            run_id=run_id,
+            task_id=task_id,
+            action_id=operation["operation_id"],
+            actor="agent:publisher",
+            capability="repository.write",
+            action="publish",
+            target="src/module.py",
+            risk="external_effect",
+            idempotency_key=operation["idempotency_key"],
+        )
+        authority = ExecutionAuthorityBinding(
+            execution_id="exec-mcp-1",
+            run_id=run_id,
+            task_id=task_id,
+            repository_digest="repo-digest",
+            repository_revision="abc123",
+            principal=authority_principal or "agent:publisher",
+            allowed_capabilities=("repository.write",),
+            allowed_actions=("publish",),
+            allowed_targets=("src",),
+            budget_id="budget-mcp-1",
+            max_attempts=3,
+        )
+        gateway = ActionGovernanceGateway(
+            ActionPolicy(
+                allowed_capabilities=frozenset({"repository.write"}),
+                allowed_actions=frozenset({"publish"}),
+                approval_required_actions=frozenset(),
+                evidence_required_actions=frozenset(),
+                external_effect_actions=frozenset({"publish"}),
+                require_idempotency_for_external_effects=True,
+                require_durable_ledger_for_external_effects=True,
+            ),
+            side_effect_ledger=ledger,
+        )
+        return MCPExecutionAuthorization(
+            gateway=gateway,
+            authority=authority,
+            action_request=action_request,
+            repository_revision="abc123",
+            repository_digest="repo-digest",
+            budget_id="budget-mcp-1",
+            execution_guard=RuntimeExecutionGuard(max_steps=10, max_attempts=3),
+        ), gateway
+
+    @staticmethod
+    def _mcp_external_request():
+        return {
+            "stage": "production_deploy",
+            "state": {
+                "vibe_coding_workflow_id": "workflow-mcp-1",
+                "task_id": "task-mcp-1",
+                "workspace_root": ".",
+            },
+            "provider_operation": {
+                "operation_id": "auren-op-mcp-1",
+                "idempotency_key": "vibe-stage:workflow-mcp-1:production_deploy:release:v1",
+                "provider": "release",
+                "adapter_version": "v1",
+            },
+        }
+
+    def test_consequential_mcp_adapter_without_authority_fails_before_process_launch(self):
+        tool = MCPStdioToolAdapter(
+            argv=(sys.executable, "-c", "pass"),
+            tool_name="publish",
+            timeout_seconds=5,
+            requires_authority_binding=True,
+        )
+        with patch("portable.vibe_coding_host.subprocess.Popen") as popen:
+            with self.assertRaisesRegex(AdapterUnavailable, "trusted execution authority resolver"):
+                tool(self._mcp_external_request())
+            popen.assert_not_called()
+
+    def test_consequential_mcp_adapter_uses_bound_authority_before_launch(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            server = root / "fake_mcp.py"
+            fake_mcp_server(server, structured={"ok": True})
+            ledger = DurableSideEffectLedger(root / "side-effects.sqlite")
+            gateways = []
+
+            def resolver(request):
+                authorization, gateway = self._mcp_authorization(request, ledger)
+                gateways.append(gateway)
+                return authorization
+
+            tool = MCPStdioToolAdapter(
+                argv=(sys.executable, str(server)),
+                tool_name="publish",
+                timeout_seconds=5,
+                requires_authority_binding=True,
+                authority_dispatch=build_mcp_authority_dispatch(resolver),
+            )
+            result = tool(self._mcp_external_request())
+            self.assertEqual(result, {"ok": True})
+            self.assertEqual(len(gateways), 1)
+            self.assertTrue(gateways[0].verify_trace()["passed"])
+
+    def test_consequential_mcp_authority_denial_never_launches_process(self):
+        with tempfile.TemporaryDirectory() as temp:
+            ledger = DurableSideEffectLedger(Path(temp) / "side-effects.sqlite")
+
+            def resolver(request):
+                authorization, _gateway = self._mcp_authorization(
+                    request, ledger, authority_principal="agent:someone-else",
+                )
+                return authorization
+
+            tool = MCPStdioToolAdapter(
+                argv=(sys.executable, "-c", "pass"),
+                tool_name="publish",
+                timeout_seconds=5,
+                requires_authority_binding=True,
+                authority_dispatch=build_mcp_authority_dispatch(resolver),
+            )
+            with patch("portable.vibe_coding_host.subprocess.Popen") as popen:
+                with self.assertRaisesRegex(AdapterUnavailable, "principal_mismatch"):
+                    tool(self._mcp_external_request())
+                popen.assert_not_called()
+
+    def test_mcp_config_defaults_consequential_tools_to_authority_binding(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "host.json"
+            config = {
+                "schema_version": "auren-vibe-host-config-v1",
+                "provider": "codex",
+                "allow_workspace_writes": True,
+                "test_commands": [[sys.executable, "-c", "pass"]],
+                "mcp_tools": {
+                    "security": {"argv": [sys.executable, "-c", "pass"], "tool_name": "scan"},
+                    "repository": {"argv": [sys.executable, "-c", "pass"], "tool_name": "edit"},
+                },
+                "browser_qa_required": False,
+                "browser_qa_rationale": "Browser QA is not in this test scope",
+                "preview_deployment_required": False,
+                "preview_deployment_rationale": "No preview deployment is configured",
+            }
+            path.write_text(json.dumps(config), encoding="utf-8")
+            os.chmod(path, 0o600)
+            loaded = load_host_config(path)
+            self.assertFalse(loaded.mcp_tools["security"]["external_effects"])
+            self.assertTrue(loaded.mcp_tools["repository"]["external_effects"])
+
+            config["mcp_tools"]["repository"]["external_effects"] = False
+            path.write_text(json.dumps(config), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "cannot disable mandatory execution authority binding"):
+                load_host_config(path)
 
     def test_provider_operation_event_projection_is_idempotent(self):
         with tempfile.TemporaryDirectory() as temp:
