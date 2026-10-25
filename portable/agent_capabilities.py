@@ -1286,7 +1286,7 @@ class CapabilityExecutioner:
                 aliases.add(option.name.rsplit(":", 1)[-1].casefold())
             for alias in sorted((item for item in aliases if item), key=len, reverse=True):
                 escaped = re.escape(alias)
-                quoted_alias = rf"(?:`{escaped}`|'{escaped}'|\\"{escaped}\\"|{escaped})"
+                quoted_alias = rf"(?:`{escaped}`|'{escaped}'|{escaped})"
                 if re.search(rf"\b(?:must use|must select|explicitly use|please use|use only|only use)\s+(?:the\s+)?{quoted_alias}(?![\w.-])", text):
                     required.add(option.name)
                 if re.search(rf"\b(?:do not use|don't use|must not use|never use|avoid)\s+(?:the\s+)?{quoted_alias}(?![\w.-])", text):
