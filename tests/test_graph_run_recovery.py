@@ -8,7 +8,7 @@ from pathlib import Path
 
 from portable.agency_evolution_gates import ImprovementJournal
 from portable.dependency_aware_fanout import DependencyAwareFanout
-from portable.graph_run_recovery import GraphCheckpointMismatch, GraphRunRecoveryBridge
+from portable.engineering_recovery import GraphCheckpointMismatch, GraphRunRecoveryBridge
 from portable.runtime_recovery import EngineeringRecoveryLedger, RuntimeExecutionGuard
 from portable.task_planner import Task, TaskPlan
 
