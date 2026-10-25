@@ -720,6 +720,32 @@ class MCPToolCallBinding:
             "request_digest": self.request_digest,
         })
 
+    def validate_for_request(self, request: Mapping[str, Any]) -> None:
+        if not isinstance(self.tool_name, str) or not self.tool_name.strip():
+            raise ValueError("MCP call binding tool name is required")
+        for name in ("command_digest", "arguments_digest", "request_digest"):
+            value = getattr(self, name)
+            if not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{64}", value):
+                raise ValueError(f"MCP call binding {name} must be a SHA-256 digest")
+        if self.request_digest != mcp_request_digest(request):
+            raise ValueError("MCP call binding does not match the exact request")
+
+
+@dataclass(frozen=True)
+class MCPExecutionAuthorization:
+    """Trusted, task-owned authority required before a consequential MCP call."""
+
+    gateway: ActionGovernanceGateway
+    authority: ExecutionAuthorityBinding
+    action_request: ActionRequest
+    repository_revision: str
+    repository_digest: str
+    budget_id: str
+    trusted_context: MCPTrustedExecutionContext
+    execution_guard: RuntimeExecutionGuard
+    provider_operation_ledger: DurableSideEffectLedger | None = None
+    approval: ApprovalReceipt | None = None
+
     def validate_for_request(
         self, request: Mapping[str, Any], call_binding: MCPToolCallBinding,
     ) -> None:
