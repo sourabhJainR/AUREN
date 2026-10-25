@@ -25,6 +25,7 @@ _RULES: tuple[tuple[str, tuple[str, ...], bool], ...] = (
     ("tests/test_guarded_filesystem.py", ("tests.test_guarded_filesystem",), True),
     ("tests/test_guarded_network.py", ("tests.test_guarded_network",), True),
     ("scripts/pr_integration_guard.py", ("tests.test_pr_integration_guard",), False),
+    ("scripts/sync_agency_agents.py", ("tests.test_guarded_network",), True),
     ("tests/test_pr_integration_guard.py", ("tests.test_pr_integration_guard",), False),
     ("tests/test_agency_observability_ops.py", ("tests.test_agency_observability_ops",), True),
     ("portable/agency_release_lifecycle.py", ("tests.test_agency_release_lifecycle", "tests.test_agency_observability"), True),
