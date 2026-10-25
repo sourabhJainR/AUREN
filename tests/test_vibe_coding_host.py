@@ -531,6 +531,59 @@ class VibeCodingHostTests(unittest.TestCase):
                     tool(request)
                 popen.assert_not_called()
 
+    def test_mcp_request_cannot_override_host_derived_task_identity(self):
+        with tempfile.TemporaryDirectory() as temp:
+            ledger = DurableSideEffectLedger(Path(temp) / "side-effects.sqlite")
+            trusted_request = self._mcp_external_request()
+            request = self._mcp_external_request()
+            request["state"]["task_id"] = "attacker-selected-task"
+            operation = request["provider_operation"]
+            ledger.begin(operation["idempotency_key"], {
+                "provider": operation["provider"],
+                "operation_id": operation["operation_id"],
+                "intent": {key: value for key, value in request.items() if key != "provider_operation"},
+            })
+            trusted_context = self._mcp_trusted_context(trusted_request)
+
+            def resolver(actual_request, call_binding):
+                authorization, _gateway = self._mcp_authorization(
+                    actual_request, ledger, trusted_context, call_binding,
+                )
+                return authorization
+
+            tool = MCPStdioToolAdapter(
+                argv=(sys.executable, "-c", "pass"),
+                tool_name="publish",
+                timeout_seconds=5,
+                requires_authority_binding=True,
+                authority_dispatch=build_mcp_authority_dispatch(resolver),
+            )
+            with patch("portable.vibe_coding_host.subprocess.Popen") as popen:
+                with self.assertRaisesRegex(AdapterUnavailable, "authority resolution failed closed"):
+                    tool(request)
+                popen.assert_not_called()
+
+    def test_mcp_call_binding_covers_command_environment_and_timeout(self):
+        request = self._mcp_external_request()
+        arguments = {"request": dict(request)}
+        argv = (sys.executable, "-c", "pass")
+        baseline = MCPToolCallBinding.from_call(
+            "publish", argv, arguments, request, env_allowlist=("DEPLOY_TOKEN",), timeout_seconds=5,
+        )
+        changed_command = MCPToolCallBinding.from_call(
+            "publish", (sys.executable, "-c", "other"), arguments, request,
+            env_allowlist=("DEPLOY_TOKEN",), timeout_seconds=5,
+        )
+        changed_environment = MCPToolCallBinding.from_call(
+            "publish", argv, arguments, request, env_allowlist=("OTHER_TOKEN",), timeout_seconds=5,
+        )
+        changed_timeout = MCPToolCallBinding.from_call(
+            "publish", argv, arguments, request, env_allowlist=("DEPLOY_TOKEN",), timeout_seconds=6,
+        )
+        self.assertNotEqual(baseline.digest, changed_command.digest)
+        self.assertNotEqual(baseline.digest, changed_environment.digest)
+        self.assertNotEqual(baseline.digest, changed_timeout.digest)
+
     def test_mcp_config_defaults_consequential_tools_to_authority_binding(self):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "host.json"
