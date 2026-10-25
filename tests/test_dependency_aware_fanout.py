@@ -73,6 +73,27 @@ class DependencyAwareFanoutTests(unittest.TestCase):
         self.assertLessEqual(len(started), 1)
         self.assertTrue(any("budget" in error.lower() for error in result.errors.values()))
 
+    def test_shared_attempt_budget_is_not_reset_between_workers(self):
+        started = []
+        barrier = threading.Barrier(2)
+
+        def execute(task):
+            started.append(task.id)
+            return task.id
+
+        plan = TaskPlan([
+            Task("a", "A", metadata={"execution_mode": "read_only"}),
+            Task("b", "B", metadata={"execution_mode": "read_only"}),
+        ])
+        result = DependencyAwareFanout(
+            plan, execute,
+            execution_guard=RuntimeExecutionGuard(max_steps=2, max_attempts=1),
+            max_workers=2,
+        ).run()
+        self.assertIn("failed", result.statuses.values())
+        self.assertLessEqual(len(started), 1)
+        self.assertTrue(any("attempt budget" in error.lower() for error in result.errors.values()))
+
     def test_dependency_failure_blocks_downstream_without_dispatch(self):
         called = []
         plan = TaskPlan([
