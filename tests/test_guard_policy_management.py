@@ -54,7 +54,8 @@ class GuardPolicyManagementTests(unittest.TestCase):
         inside = evaluate_managed_policy(configured, {"action": "publish"}, now=datetime.fromisoformat("2026-10-25T09:30:00+05:30"))
         outside = evaluate_managed_policy(configured, {"action": "publish"}, now=datetime.fromisoformat("2026-10-25T11:30:00+05:30"))
         assert not inside.allowed
-        assert outside.allowed
+        assert not outside.allowed
+        assert "schedule does not match" in outside.reason
 
 
     def test_invalid_timezone_schedule_fails_closed(self):
