@@ -31,7 +31,8 @@ Local skills are discovered from:
 - `skills/<name>/SKILL.md`
 - paths listed in `AUREN_SKILLS_PATH`
 
-MCP and plugin hosts can advertise bounded capability metadata through
+Tool, API, MCP and plugin hosts can advertise bounded capability metadata
+through `AUREN_TOOL_CAPABILITIES`, `AUREN_API_CAPABILITIES`,
 `AUREN_MCP_CAPABILITIES` and `AUREN_PLUGIN_CAPABILITIES`. Each variable contains
 a JSON array of descriptors. The runtime ignores malformed or unavailable
 sources and continues with built-in capabilities.
@@ -223,7 +224,8 @@ and uses descriptor digests to detect inventory changes. Discovery is
 descriptive only; it never grants authority or overrides policy.
 
 Selection decisions record the chosen capability, bounded alternatives,
-digested request/rationale, outcome, evidence references, cost and duration.
+digested request/rationale, outcome, evidence references, cost and duration, and
+the exact inventory snapshot ID used for that decision.
 Raw task text, skill instructions, credentials and provider payloads are not
 written to this audit. Exact role/task learning remains the primary signal; a
 capability-level cross-stage prior is consulted only when exact history is
@@ -247,5 +249,25 @@ Do not reduce security checks or verification to save tokens.
 Rollback: disable the audit writer only if durable storage is unavailable and
 the task is non-consequential; consequential work must remain blocked if its
 required audit cannot be persisted. Existing experience records remain the
-learning source of truth; audit rows are an append-only explanation trail, not
-a second policy or learning engine.
+learning source of truth; audit rows are an append-only explanation trail at the SQLite API layer
+(triggers reject update/delete), not a second policy or learning engine. This is
+not a cryptographic tamper-proof ledger against a privileged filesystem owner.
+
+
+## Explicit user constraints take precedence over learned ranking
+
+The collaborative selector recognizes exact named directives such as `must use
+mcp:repo-search`, `use only skill:repo-review`, and `do not use
+mcp:remote-write`. Explicit required options are included in the chosen bundle;
+multiple requirements are combined only within the configured bundle limit.
+An unavailable, excluded, over-limit, or policy-blocked requirement fails closed
+instead of silently substituting a different tool. Explicit exclusions are
+removed before scoring. Learned outcomes, cost and latency optimize only among
+the remaining compliant choices.
+
+This directive parser is intentionally conservative: it matches exact option
+names (and their final namespaced component) after explicit directive phrases.
+The full task is inspected only for these constraints; ranking still uses the
+bounded request context, so long prompts do not expand every scoring operation.
+It does not infer permission from natural-language tool mentions, and no user
+directive can override authority, network, sandbox, risk or verification gates.
