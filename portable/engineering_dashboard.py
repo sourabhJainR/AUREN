@@ -402,6 +402,8 @@ class EngineeringDashboard:
                         payload = json.loads(payload_json)
                     except (TypeError, ValueError):
                         continue
+                    if not isinstance(payload, Mapping):
+                        continue
                     profile_data = payload.get("_auren_workflow_profile")
                     digest = payload.get("_auren_workflow_profile_digest")
                     if not isinstance(profile_data, Mapping) or not isinstance(digest, str):
