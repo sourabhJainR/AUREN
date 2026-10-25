@@ -614,11 +614,23 @@ class ProviderCliAgent:
         return result
 
 
-def mcp_request_action_id(request: Mapping[str, Any]) -> str:
-    """Return a deterministic action ID bound to the exact MCP request for read-only calls."""
+def mcp_request_digest(request: Mapping[str, Any]) -> str:
+    """Return a deterministic digest bound to the exact MCP request."""
     if not isinstance(request, Mapping):
         raise TypeError("MCP request must be a mapping")
-    return "mcp-read-" + _digest(dict(request))[:32]
+    return _digest(dict(request))
+
+
+def mcp_request_action_id(request: Mapping[str, Any]) -> str:
+    """Return a deterministic action ID bound to the exact MCP request for read-only calls."""
+    return "mcp-read-" + mcp_request_digest(request)[:32]
+
+
+def mcp_action_idempotency_key(operation_id: str) -> str:
+    """Return a gateway ledger key distinct from the provider lifecycle key."""
+    if not isinstance(operation_id, str) or not operation_id.strip():
+        raise ValueError("provider operation ID is required")
+    return "mcp-action-" + hashlib.sha256(operation_id.encode("utf-8")).hexdigest()[:32]
 
 
 @dataclass(frozen=True)
@@ -632,6 +644,7 @@ class MCPExecutionAuthorization:
     repository_digest: str
     budget_id: str
     execution_guard: RuntimeExecutionGuard
+    provider_operation_ledger: DurableSideEffectLedger | None = None
     approval: ApprovalReceipt | None = None
 
     def validate_for_request(self, request: Mapping[str, Any]) -> None:
@@ -668,10 +681,21 @@ class MCPExecutionAuthorization:
                 raise ValueError("MCP provider operation ID is required")
             if not isinstance(idempotency_key, str) or not idempotency_key.strip():
                 raise ValueError("MCP provider idempotency key is required")
+            if not isinstance(self.provider_operation_ledger, DurableSideEffectLedger):
+                raise ValueError("MCP consequential dispatch requires the canonical provider-operation ledger")
+            if self.gateway.side_effect_ledger is not self.provider_operation_ledger:
+                raise ValueError("MCP authority and provider lifecycle must share one canonical side-effect ledger")
             if self.action_request.action_id != operation_id:
                 raise ValueError("MCP action ID must match the durable provider operation ID")
-            if self.action_request.idempotency_key != idempotency_key:
-                raise ValueError("MCP action idempotency key must match the durable provider operation key")
+            if self.action_request.idempotency_key != mcp_action_idempotency_key(operation_id):
+                raise ValueError("MCP gateway ledger key must be deterministically bound to the provider operation ID")
+            required_evidence = {
+                f"provider-operation:{operation_id}",
+                f"provider-idempotency:{idempotency_key}",
+                f"mcp-request:{mcp_request_digest(request)}",
+            }
+            if not required_evidence.issubset(set(self.action_request.evidence_refs)):
+                raise ValueError("MCP action evidence must bind the provider operation, provider key, and exact request digest")
         else:
             if self.action_request.risk != "read":
                 raise ValueError("MCP writes require a durable provider-operation ID and idempotency key")
@@ -1968,6 +1992,6 @@ __all__ = [
     "JournaledToolAdapter", "LocalAccessibilityTool", "LocalBrowserTool", "LocalDesignTool",
     "LocalProjectTool", "LocalSecurityTool", "LocalTestExecutionTool", "LocalVibeCodingHost",
     "MCPExecutionAuthorization", "MCPIndependentReviewTool", "MCPStdioToolAdapter", "MemoizedToolAdapter", "ProviderCliAgent", "SideEffectJournal",
-    "VerifiedResearchTool", "VibeHostConfig", "build_engineering_design_contract", "build_mcp_authority_dispatch", "mcp_request_action_id",
+    "VerifiedResearchTool", "VibeHostConfig", "build_engineering_design_contract", "build_mcp_authority_dispatch", "mcp_action_idempotency_key", "mcp_request_action_id", "mcp_request_digest",
     "fingerprint_worktree", "load_host_config",
 ]
