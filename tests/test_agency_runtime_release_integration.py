@@ -88,3 +88,7 @@ def test_execute_applies_promote_to_artifact(tmp_path: Path):
     assert inner["phase"] == "release"
     assert inner["actor_id"] == "auren.agency_release_lifecycle"
     assert inner["metadata"]["artifact_digest"] == result.release_state.digest
+    assert "reason" not in outer.get("input", {})
+    assert "reason" not in inner.get("metadata", {})
+    serialized_trace = json.dumps(records)
+    assert result.promotion_decision.reason not in serialized_trace
