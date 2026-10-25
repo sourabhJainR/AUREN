@@ -17,6 +17,23 @@ _CRASH_PROVIDER = "provider-a"
 _CRASH_INTENT = {"target": "staging", "revision": "crash-revision"}
 
 
+def _bound_completed_receipt(intent, operation_id, idempotency_key, provider, remote_id, **extra):
+    payload = {
+        "provider": provider,
+        "operation_id": operation_id,
+        "intent": dict(intent),
+    }
+    return {
+        "status": "completed",
+        "provider_operation_id": remote_id,
+        "operation_id": operation_id,
+        "idempotency_key": idempotency_key,
+        "provider": provider,
+        "intent_digest": DurableSideEffectLedger.digest_payload(payload),
+        **extra,
+    }
+
+
 def _crash_inside_provider_dispatch(database: str, provider_log: str) -> None:
     lifecycle = ProviderOperationLifecycle(DurableSideEffectLedger(database))
     def dispatch(intent, operation_id, idempotency_key):
@@ -50,7 +67,9 @@ def _crash_after_provider_receipt_before_event_projection(
             stream.write(operation_id + "\n")
             stream.flush()
             os.fsync(stream.fileno())
-        return {"status": "completed", "provider_operation_id": operation_id}
+        return _bound_completed_receipt(
+            intent, operation_id, idempotency_key, "provider-a", operation_id,
+        )
 
     lifecycle.execute(
         "deploy:provider-receipt-crash:staging", "provider-a",
@@ -370,10 +389,14 @@ class ProviderOperationLifecycleTests(unittest.TestCase):
     def test_persists_before_dispatch_and_replays_durable_receipt(self):
         lifecycle = ProviderOperationLifecycle(self.ledger(), record_event=self.events.append)
         calls = []
-        receipt = {"status": "completed", "provider_operation_id": "remote-42"}
-        result = lifecycle.execute("deploy-1", "provider-a", {"target": "staging"},
-                                  lambda intent, op_id, key: calls.append((intent, op_id, key)) or receipt)
-        self.assertEqual(receipt, result)
+        intent = {"target": "staging"}
+        result = lifecycle.execute(
+            "deploy-1", "provider-a", intent,
+            lambda request, op_id, key: calls.append((request, op_id, key))
+            or _bound_completed_receipt(request, op_id, key, "provider-a", "remote-42"),
+        )
+        self.assertEqual("remote-42", result["provider_operation_id"])
+        self.assertEqual("deploy-1", result["idempotency_key"])
         self.assertTrue(calls)
         self.assertEqual("completed", self.ledger().get("deploy-1")["state"])
         self.assertEqual("completed", lifecycle.execute(
@@ -688,33 +711,17 @@ class ProviderOperationLifecycleTests(unittest.TestCase):
                 for event in self.events
             ))
 
-    def test_explicit_legacy_success_is_accepted_but_conflicting_status_is_not(self):
+    def test_unbound_legacy_success_is_rejected_and_conflicting_status_is_not(self):
         lifecycle = ProviderOperationLifecycle(self.ledger())
-        receipt = {"success": True, "detail": "operation completed", "provider_operation_id": "legacy-remote-1"}
-        result = lifecycle.execute(
-            "legacy-success", "provider-a", {"target": "staging"},
-            lambda *_: receipt,
-        )
-        self.assertEqual(receipt, result)
-        self.assertEqual("completed", self.ledger().get("legacy-success")["state"])
-
-        with self.assertRaises(ProviderOutcomeBlocked):
-            lifecycle.execute(
-                "conflicting-status", "provider-a", {"target": "prod"},
-                lambda *_: {"status": "pending", "success": True},
-            )
-        self.assertEqual("reconcile_required", self.ledger().get("conflicting-status")["state"])
-
-        nested = {"result": {"success": True, "detail": "completed"}, "provider_operation_id": "remote-1"}
-        self.assertEqual(nested, lifecycle.execute(
-            "nested-success", "provider-a", {"target": "staging"},
-            lambda *_: nested,
-        ))
-        with self.assertRaises(ProviderOutcomeBlocked):
-            lifecycle.execute(
-                "nested-pending", "provider-a", {"target": "prod"},
-                lambda *_: {"result": {"status": "pending", "success": True}},
-            )
+        for key, intent, receipt in (
+            ("legacy-success", {"target": "staging"}, {"success": True, "detail": "operation completed", "provider_operation_id": "legacy-remote-1"}),
+            ("nested-success", {"target": "staging"}, {"result": {"success": True, "detail": "completed"}, "provider_operation_id": "remote-1"}),
+            ("conflicting-status", {"target": "prod"}, {"status": "pending", "success": True}),
+            ("nested-pending", {"target": "prod"}, {"result": {"status": "pending", "success": True}}),
+        ):
+            with self.assertRaises(ProviderOutcomeBlocked):
+                lifecycle.execute(key, "provider-a", intent, lambda *_args, value=receipt: value)
+            self.assertEqual("reconcile_required", self.ledger().get(key)["state"])
 
 
     def test_completed_dispatch_without_provider_operation_id_stays_reconciliation_required(self):
@@ -739,13 +746,19 @@ class ProviderOperationLifecycleTests(unittest.TestCase):
 
     def test_reused_key_with_changed_intent_is_rejected(self):
         lifecycle = ProviderOperationLifecycle(self.ledger())
-        lifecycle.execute("deploy-4", "provider-a", {"target": "staging"}, lambda *_: {"status": "completed", "provider_operation_id": "remote-4"})
+        lifecycle.execute(
+            "deploy-4", "provider-a", {"target": "staging"},
+            lambda intent, op_id, key: _bound_completed_receipt(intent, op_id, key, "provider-a", "remote-4"),
+        )
         with self.assertRaises(ValueError):
             lifecycle.execute("deploy-4", "provider-a", {"target": "production"}, lambda *_: {"status": "completed"})
 
     def test_journal_events_have_operation_identity_and_bounded_receipt_reference(self):
         lifecycle = ProviderOperationLifecycle(self.ledger(), record_event=self.events.append)
-        lifecycle.execute("deploy-5", "provider-a", {"target": "staging"}, lambda *_: {"status": "completed", "provider_operation_id": "remote-5"})
+        lifecycle.execute(
+            "deploy-5", "provider-a", {"target": "staging"},
+            lambda intent, op_id, key: _bound_completed_receipt(intent, op_id, key, "provider-a", "remote-5"),
+        )
         self.assertEqual(["dispatching", "completed"], [event["state"] for event in self.events])
         self.assertTrue(all(event["operation_id"].startswith("auren-op-") for event in self.events))
         self.assertTrue(all(event["intent_digest"] for event in self.events))
@@ -762,10 +775,9 @@ class ProviderOperationLifecycleTests(unittest.TestCase):
             "deploy:trace-test",
             "provider-a",
             {"target": "staging", "revision": "revision-123"},
-            lambda _intent, operation_id, _key: {
-                "status": "completed",
-                "provider_operation_id": "remote-operation-123",
-            },
+            lambda intent, operation_id, key: _bound_completed_receipt(
+                intent, operation_id, key, "provider-a", "remote-operation-123",
+            ),
             trace=trace,
             parent_span_id=parent.span_id,
         )
