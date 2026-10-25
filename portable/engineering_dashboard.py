@@ -15,6 +15,7 @@ from .repository_intelligence import RepositoryIntelligence
 from .engineering_plan import EngineeringPlan, EngineeringPlanRun
 from .progress_journal import ProgressJournal, _journal_file_lock, _safe
 from .identity_compat import canonical_auren_home
+from .workflow_profile import WorkflowProfile
 
 def _utc() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -401,21 +402,30 @@ class EngineeringDashboard:
                         payload = json.loads(payload_json)
                     except (TypeError, ValueError):
                         continue
-                    profile = payload.get("_auren_workflow_profile")
+                    profile_data = payload.get("_auren_workflow_profile")
                     digest = payload.get("_auren_workflow_profile_digest")
-                    if not isinstance(profile, Mapping) or not isinstance(digest, str):
+                    if not isinstance(profile_data, Mapping) or not isinstance(digest, str):
                         continue
                     if len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest):
+                        found.setdefault(str(task_id), {"binding_status": "invalid"})
+                        continue
+                    try:
+                        profile = WorkflowProfile.from_mapping(profile_data)
+                    except (TypeError, ValueError):
+                        found.setdefault(str(task_id), {"binding_status": "invalid"})
+                        continue
+                    if profile.digest != digest:
+                        found.setdefault(str(task_id), {"binding_status": "invalid"})
                         continue
                     summary = {
-                        key: profile[key]
+                        key: profile.as_dict()[key]
                         for key in (
                             "delivery_mode", "execution_mode", "approval_mode",
                             "review_mode", "communication_mode", "recovery_mode",
                         )
-                        if isinstance(profile.get(key), str)
                     }
                     summary["profile_digest"] = digest
+                    summary["binding_status"] = "verified"
                     found.setdefault(str(task_id), summary)
             except (OSError, sqlite3.Error):
                 # Dashboard is a projection, not authority. Preserve the journal
@@ -452,11 +462,15 @@ class EngineeringDashboard:
                 snapshots[str(row.get("task_id", "unknown"))] = row
         for task_id, row in snapshots.items():
             profile = profile_bindings.get(task_id)
-            if profile is not None:
-                row["workflow_profile"] = profile
-                row["workflow_profile_status"] = "bound"
-            else:
+            if profile is None:
                 row["workflow_profile_status"] = "legacy-or-unavailable"
+            elif profile.get("binding_status") == "verified":
+                row["workflow_profile_status"] = "verified"
+                row["workflow_profile"] = {
+                    key: value for key, value in profile.items() if key != "binding_status"
+                }
+            else:
+                row["workflow_profile_status"] = "invalid"
         return sorted(
             snapshots.values(),
             key=lambda row: str(row.get("last_update") or ""),
