@@ -835,6 +835,9 @@ the learning system, not an instruction source. If a skill produced no distinct 
                 if local is not None and local.status not in {"passed"} and agent.role=="verifier":
                     status="failed"
                 learning=LearningSteward(memory.project_root,run_id=intent_digest,task=task)
+                def publish_memory_serialized(**kwargs):
+                    with canonical_write_lock:
+                        return memory.publish(**kwargs)
                 def record_experience_serialized(*args, **kwargs):
                     with canonical_write_lock:
                         return learning.record_experience(*args, **kwargs)
@@ -911,9 +914,9 @@ the learning system, not an instruction source. If a skill produced no distinct 
                 evidence=[f"agent:{agent.name}"]
                 if local is not None:
                     evidence.append(f"local:{agent.name}:{local.status}")
-                    memory.publish(agent=agent.name,role=agent.role,kind="local-evidence",text=json.dumps(local_payload,sort_keys=True),evidence=[f"local:{agent.name}"],confidence=.9 if local.status=="passed" else .2)
+                    publish_memory_serialized(agent=agent.name,role=agent.role,kind="local-evidence",text=json.dumps(local_payload,sort_keys=True),evidence=[f"local:{agent.name}"],confidence=.9 if local.status=="passed" else .2)
                 handoff=handoff_from_output(task_id=intent_digest,sender=agent.name,receiver="downstream",objective=agent.focus or task,output=output,success=status=="passed",max_chars=memory.context.policy.output_chars)
-                result.memory_ids.append(memory.publish(agent=agent.name,role=agent.role,kind="handoff",text=handoff.render(memory.context.policy.output_chars),evidence=evidence,confidence=.8 if status=="passed" else .2))
+                result.memory_ids.append(publish_memory_serialized(agent=agent.name,role=agent.role,kind="handoff",text=handoff.render(memory.context.policy.output_chars),evidence=evidence,confidence=.8 if status=="passed" else .2))
                 if agent.name=="learning-steward":
                     with canonical_write_lock:
                         LearningSteward(memory.project_root,run_id=intent_digest,task=task).persist(output,evidence_ids=[f"agent:{n}" for n in self.agents if n!=agent.name])
