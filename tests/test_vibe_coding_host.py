@@ -27,6 +27,7 @@ from portable.vibe_coding_host import (
     MCPStdioToolAdapter,
     JournaledToolAdapter,
     build_mcp_authority_dispatch,
+    mcp_action_id,
     mcp_action_idempotency_key,
     mcp_request_action_id,
     mcp_request_digest,
@@ -187,13 +188,13 @@ class VibeCodingHostTests(unittest.TestCase):
         action_request = ActionRequest(
             run_id=run_id,
             task_id=task_id,
-            action_id=operation["operation_id"],
+            action_id=mcp_action_id(operation["operation_id"], request),
             actor="agent:publisher",
             capability="repository.write",
             action="publish",
             target="src/module.py",
             risk="external_effect",
-            idempotency_key=mcp_action_idempotency_key(operation["operation_id"]),
+            idempotency_key=mcp_action_idempotency_key(operation["operation_id"], request),
             evidence_refs=(
                 f"provider-operation:{operation['operation_id']}",
                 f"provider-idempotency:{operation['idempotency_key']}",
@@ -306,7 +307,7 @@ class VibeCodingHostTests(unittest.TestCase):
             self.assertTrue(gateways[0].verify_trace()["passed"])
             self.assertEqual(ledger.get(provider_key)["state"], "completed")
             self.assertEqual(
-                ledger.get(mcp_action_idempotency_key(provider_operation["operation_id"]))["state"],
+                ledger.get(mcp_action_idempotency_key(provider_operation["operation_id"], request))["state"],
                 "completed",
             )
 
