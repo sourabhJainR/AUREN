@@ -210,8 +210,15 @@ class Trace:
 
     def finish(self, status: str = "ok") -> "Trace":
         with _TRACE_LOCK:
+            if self.end is not None:
+                # Terminal state is immutable; do not emit contradictory end events.
+                if self.status != status:
+                    raise ValueError("trace is already finished with a different status")
+                return self
             self.end = time.time()
             self.status = status
+            if self.on_change is not None:
+                self.on_change(self, "trace_finished", None)
         return self
 
     def as_dict(self) -> dict[str, Any]:
