@@ -11,6 +11,7 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from contextvars import ContextVar, Token
 from dataclasses import dataclass
 import json
+import math
 import time
 from hashlib import sha256
 from threading import Event
@@ -297,6 +298,42 @@ class StateGraph:
 
 class CompiledStateGraph:
     def __init__(self, graph: StateGraph) -> None: self._g = graph
+
+    def invoke_supervised(
+        self,
+        state: Mapping[str, Any],
+        *,
+        execution_payload: Mapping[str, Any],
+        **kwargs: Any,
+    ) -> GraphRun:
+        """Bind a controller handler payload to graph cancellation and deadline guards.
+
+        Keep runtime-only controls out of JSON graph state. The supervisor passes
+        them in its handler payload; this adapter converts an absolute Unix
+        deadline into the graph's monotonic remaining-budget guard.
+        """
+        if not isinstance(execution_payload, Mapping):
+            raise TypeError("execution_payload must be a mapping")
+        if "cancellation" in kwargs or "deadline_seconds" in kwargs:
+            raise TypeError("invoke_supervised owns cancellation and deadline_seconds")
+        cancellation = execution_payload.get("auren_cancel_event")
+        if cancellation is not None and not isinstance(cancellation, Event):
+            raise TypeError("auren_cancel_event must be a threading.Event")
+        deadline_epoch = execution_payload.get("auren_deadline_epoch")
+        deadline_seconds: float | None = None
+        if deadline_epoch is not None:
+            if (
+                isinstance(deadline_epoch, bool)
+                or not isinstance(deadline_epoch, (int, float))
+                or not math.isfinite(float(deadline_epoch))
+            ):
+                raise ValueError("auren_deadline_epoch must be a finite Unix timestamp")
+            deadline_seconds = float(deadline_epoch) - time.time()
+            if deadline_seconds <= 0:
+                raise TimeoutError("supervisor deadline expired before graph dispatch")
+        return self.invoke(
+            state, cancellation=cancellation, deadline_seconds=deadline_seconds, **kwargs,
+        )
 
     def invoke(self, state: Mapping[str, Any], *, run_id: str = "run", checkpoint: CheckpointStore | None = None, resume: bool = False, max_steps: int = 100, parallel_nodes: Callable[[str], bool] | None = None, max_parallel_nodes: int = 1, node_timeout_seconds: float | None = None, cancellation: Event | None = None, parallel_failure_mode: str = "fail_fast", max_attempts: int = 12, deadline_seconds: float | None = None) -> GraphRun:
         validate_state(state)
