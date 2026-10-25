@@ -108,6 +108,16 @@ class RuntimeExecutionGuardTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "lacks absolute deadline"):
             RuntimeExecutionGuard.resume(snapshot)
 
+    def test_tighten_deadline_never_extends_shared_budget(self):
+        guard = RuntimeExecutionGuard(max_steps=4, max_attempts=4)
+        first_remaining = guard.tighten_deadline(0.5)
+        self.assertLessEqual(first_remaining, 0.5)
+        shortened_remaining = guard.snapshot()["deadline_remaining_seconds"]
+        guard.tighten_deadline(10)
+        self.assertLessEqual(guard.snapshot()["deadline_remaining_seconds"], shortened_remaining)
+        with self.assertRaises(ValueError):
+            guard.tighten_deadline(float("nan"))
+
     def test_non_finite_or_boolean_deadlines_are_rejected(self):
         for value in (float("nan"), float("inf"), True):
             with self.assertRaisesRegex(ValueError, "finite positive"):
