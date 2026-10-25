@@ -415,7 +415,7 @@ class SubprocessBoundaryInventoryTests(unittest.TestCase):
         "portable/docker_external_evaluator_executor.py::__init__": "container runtime lifecycle; verify fixed argv, cleanup and container policy",
         "portable/docker_isolated_evaluator.py::launch": "Docker evaluator; verify image, mounts, capabilities, egress and cleanup policy",
         "portable/external_evaluator_gateway.py::evaluate": "host-process mode is test-only and is not a security sandbox",
-        "portable/isolated_arena_runner.py::policy": "policy-command runner; the supplied command is not itself proof of OS isolation",
+        "portable/isolated_arena_runner.py::run_campaign_isolated::policy": "policy-command runner; the supplied command is not itself proof of OS isolation",
         "portable/local_offload.py::run": "local offload; inspect argv, environment, workspace, timeout and cancellation",
         "portable/subprocess_provider.py::__call__": "command provider; clean environment, no shell, bounded timeout and process-tree controls",
         "portable/vibe_coding_host.py::__call__": "host adapter; inspect argv, safe environment, workspace, cancellation and output bounds",
