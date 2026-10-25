@@ -57,6 +57,10 @@ _MCP_READ_ONLY_CAPABILITIES = frozenset({
     "product", "research", "web_search", "accessibility",
     "task_planning", "independent_review", "observability",
 })
+_MCP_MANDATORY_AUTHORITY_CAPABILITIES = frozenset({
+    "repository", "environment", "design", "test_execution", "browser",
+    "deployment", "preview", "release", "rollback",
+})
 
 
 def _digest(value: Any) -> str:
@@ -1683,7 +1687,7 @@ def load_host_config(path: str | Path | None = None) -> VibeHostConfig:
         external_effects = spec.get("external_effects", name not in _MCP_READ_ONLY_CAPABILITIES)
         if type(external_effects) is not bool:
             raise ValueError(f"MCP tool {name} external_effects must be a boolean")
-        if name not in _MCP_READ_ONLY_CAPABILITIES and not external_effects:
+        if name in _MCP_MANDATORY_AUTHORITY_CAPABILITIES and not external_effects:
             raise ValueError(f"MCP tool {name} cannot disable mandatory execution authority binding")
         normalized_spec = dict(spec)
         normalized_spec["external_effects"] = external_effects
