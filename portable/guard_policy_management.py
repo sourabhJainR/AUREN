@@ -252,7 +252,7 @@ class GuardActionEvidenceLedger:
         try:
             with sqlite3.connect(self.database, timeout=5, isolation_level=None) as db:
                 db.execute("BEGIN IMMEDIATE")
-                existing = db.execute("SELECT digest FROM guard_action_events WHERE event_id=?", (event_id,)).fetchone()
+                existing = db.execute("SELECT event_json,digest FROM guard_action_events WHERE event_id=?", (event_id,)).fetchone()
                 if existing:
                     db.execute("ROLLBACK")
                     if self.verify() and existing[0] == hashlib.sha256(encoded.encode("utf-8")).hexdigest():
