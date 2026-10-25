@@ -642,5 +642,51 @@ class ProviderOperationLifecycleTests(unittest.TestCase):
         self.assertTrue(finished[-1]["span"]["output"]["dispatch_returned"])
 
 
+    def test_provider_lookup_span_records_pending_outcome_without_accepting_it(self):
+        trace_path = self.path.parent / "provider-lookup-trace.jsonl"
+        tracer = Tracer(LocalExporter(trace_path, enabled=True))
+        trace = tracer.start("provider-lookup-run", run_id="provider-lookup-run", task_id="provider-task")
+        parent = trace.span("supervisor", "internal", phase="supervisor")
+        lifecycle = ProviderOperationLifecycle(self.ledger())
+        operation_key = "deploy:lookup-trace"
+        intent = {"target": "staging", "revision": "lookup-revision"}
+
+        with self.assertRaises(ProviderOutcomeBlocked):
+            lifecycle.execute(
+                operation_key, "provider-a", intent,
+                lambda *_: (_ for _ in ()).throw(OSError("synthetic lost response")),
+                trace=trace, parent_span_id=parent.span_id,
+            )
+        with self.assertRaises(ProviderOutcomeBlocked):
+            lifecycle.reconcile(
+                operation_key, "provider-a", intent,
+                lambda _operation_id, _key: {"status": "pending"},
+                trace=trace, parent_span_id=parent.span_id,
+            )
+        self.assertEqual("reconcile_required", self.ledger().get(operation_key)["state"])
+        tracer.end(trace)
+
+        records = [
+            json.loads(line)
+            for line in trace_path.read_text(encoding="utf-8").splitlines()
+        ]
+        started = [
+            record for record in records
+            if record.get("event_type") == "span_started"
+            and (record.get("span") or {}).get("name") == "provider_lookup:provider-a"
+        ]
+        self.assertEqual(1, len(started))
+        self.assertEqual(parent.span_id, started[0]["span"]["parent_id"])
+        finished = [
+            record for record in records
+            if record.get("event_type") == "span_updated"
+            and (record.get("span") or {}).get("name") == "provider_lookup:provider-a"
+            and (record.get("span") or {}).get("end") is not None
+        ]
+        self.assertTrue(finished)
+        self.assertEqual("pending", finished[-1]["span"]["output"]["provider_status"])
+        self.assertEqual("reconcile_required", self.ledger().get(operation_key)["state"])
+
+
 if __name__ == "__main__":
     unittest.main()
