@@ -603,6 +603,19 @@ class GraphRunRecoveryBridge:
             raise GraphCheckpointMismatch("ledger reports blocked while graph snapshot is not blocked")
         return json.loads(_canonical(dict(snapshot)))
 
+    @staticmethod
+    def _priority_key(priority: Any) -> int:
+        if isinstance(priority, int) and not isinstance(priority, bool):
+            return -priority
+        normalized = str(priority or "medium").strip().lower()
+        named = {"critical": 0, "urgent": 0, "high": 1, "medium": 2, "normal": 2, "low": 3}
+        if normalized in named:
+            return named[normalized]
+        try:
+            return -int(normalized)
+        except ValueError:
+            return named["medium"]
+
     def dispatchable_nodes(self) -> tuple[str, ...]:
         snapshot = self.load()
         if snapshot["run_status"] != "in_progress" or snapshot["budget_snapshot"].get("cancelled") is True:
@@ -614,7 +627,7 @@ class GraphRunRecoveryBridge:
             and all(nodes[dependency]["status"] == "complete" for dependency in node["dependencies"])
         ]
         return tuple(sorted(ready, key=lambda node_id: (
-            -int(getattr(self.plan.tasks[node_id], "priority", 0)), node_id
+            self._priority_key(getattr(self.plan.tasks[node_id], "priority", "medium")), node_id
         )))
 
     def record_node(
