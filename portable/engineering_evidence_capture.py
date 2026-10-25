@@ -722,6 +722,8 @@ class HttpsEvidenceSink:
                 timeout=self.timeout_seconds,
                 max_bytes=64 * 1024,
             )
+            if len(_response_body) > 64 * 1024:
+                raise RuntimeError("evidence sink response exceeds the configured limit")
             if not 200 <= status < 300:
                 raise RuntimeError(f"evidence sink returned HTTP {status}")
         except (OSError, TimeoutError, ValueError) as exc:
