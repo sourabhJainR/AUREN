@@ -237,13 +237,14 @@ class TestAgencyObservability(unittest.TestCase):
     def test_free_text_provider_tokens_and_embedded_url_credentials_are_redacted(self):
         path = self.tmp_path / "provider-token-redaction.jsonl"
         tracer = Tracer(LocalExporter(path, enabled=True))
+        # Repeated-character fixtures are intentionally synthetic; no real credentials.
         secrets = (
-            "ghp_abcdefghijklmnopqrstuvwxyz123456",
-            "AKIA1234567890ABCDEF",
-            "xoxb-1234567890abcdef",
-            "sk-abcdefghijklmnopqrstuvwxyz1234",
-            "eyJabcdefghijklm.eyJabcdefghijklm.abcdefghijklmno",
-            "https://service-user:service-password@example.invalid/path",
+            "ghp_" + "X" * 24,
+            "AKIA" + "0" * 16,
+            "xoxb-" + "0" * 16,
+            "sk-" + "X" * 24,
+            "eyJ" + "X" * 12 + ".eyJ" + "Y" * 12 + "." + "Z" * 16,
+            "https://synthetic-user:synthetic-password@example.invalid/path",
         )
         trace = tracer.start("provider-token-redaction")
         trace.span("provider", input={"free_text": " ".join(secrets)}).finish({"status": "ok"})
