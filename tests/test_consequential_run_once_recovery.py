@@ -139,8 +139,7 @@ class ConsequentialRunOnceRecoveryTests(unittest.TestCase):
             observed_operation_id = None
 
             def lookup_operation(self, operation_id, idempotency_key):
-                from portable.organization_guard import evaluate_guard_policy
-        from portable.side_effect_ledger import DurableSideEffectLedger
+                from portable.side_effect_ledger import DurableSideEffectLedger
                 self.observed_operation_id = operation_id
                 digest = DurableSideEffectLedger(self_outer.controller.db_path).get(
                     idempotency_key
@@ -261,6 +260,7 @@ class ConsequentialRunOnceRecoveryTests(unittest.TestCase):
         from portable.provider_operation_lifecycle import (
             ProviderOperationLifecycle, ProviderOutcomeBlocked, stable_provider_operation_id,
         )
+        from portable.organization_guard import evaluate_guard_policy
         from portable.side_effect_ledger import DurableSideEffectLedger
 
         first = self.controller.submit("consequential-recovery-action", self._payload())
