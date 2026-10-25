@@ -810,6 +810,8 @@ class MCPExecutionAuthorization:
         self.authority.validate()
         self.action_request.validate()
         operation = request.get("provider_operation")
+        if "provider_operation" in request and not isinstance(operation, Mapping):
+            raise ValueError("MCP provider operation must be a structured mapping")
         if isinstance(operation, Mapping):
             operation_id = operation.get("operation_id")
             idempotency_key = operation.get("idempotency_key")
@@ -854,8 +856,8 @@ class MCPExecutionAuthorization:
             if not required_evidence.issubset(set(self.action_request.evidence_refs)):
                 raise ValueError("MCP action evidence must bind provider identity, exact request, and configured tool call")
         else:
-            if self.action_request.risk != "read":
-                raise ValueError("MCP writes require a durable provider-operation ID and idempotency key")
+            if self.action_request.risk != "read" or self.gateway.is_external_effect(self.action_request):
+                raise ValueError("MCP external effects require a durable provider-operation ID and idempotency key")
             if self.action_request.action_id != mcp_request_action_id(request, call_binding.digest):
                 raise ValueError("MCP read action ID must bind the exact request and configured tool call")
             required_evidence = {
