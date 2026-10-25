@@ -1,6 +1,7 @@
 """Provider-neutral dependency-aware task planning."""
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -89,6 +90,29 @@ class TaskPlan:
 
     def to_dict(self) -> dict:
         return {"tasks": [asdict(task) for task in sorted(self.tasks.values(), key=lambda t: t.id)]}
+
+    def digest(self) -> str:
+        """Return a stable digest of task definitions, excluding mutable run state."""
+        self.validate()
+        rows = []
+        for task in sorted(self.tasks.values(), key=lambda item: item.id):
+            metadata = {key: value for key, value in task.metadata.items() if key != "execution_output"}
+            rows.append({
+                "id": task.id, "title": task.title, "description": task.description,
+                "priority": task.priority, "dependencies": list(task.dependencies),
+                "subtasks": list(task.subtasks), "tags": list(task.tags),
+                "acceptance": list(task.acceptance), "files": list(task.files),
+                "metadata": metadata, "parallel_group": task.parallel_group,
+                "checkpoint": task.checkpoint,
+                "verification_strategy": list(task.verification_strategy),
+            })
+        try:
+            payload = json.dumps(
+                {"tasks": rows}, sort_keys=True, separators=(",", ":"), allow_nan=False
+            ).encode("utf-8")
+        except (TypeError, ValueError) as exc:
+            raise ValueError("TaskPlan definitions must be finite JSON-compatible values") from exc
+        return hashlib.sha256(payload).hexdigest()
 
     @classmethod
     def from_dict(cls, raw: dict) -> "TaskPlan":

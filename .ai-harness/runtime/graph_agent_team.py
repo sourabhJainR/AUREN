@@ -412,20 +412,30 @@ class GraphAgentTeam:
     def _run_local(self,agent:AgentSpec,decision:ResourceDecision,memory:SharedTaskMemory,broker:LocalOffloadBroker)->OffloadResult|None:
         if decision.lane!="local": return None
         return broker.run(OffloadJob(agent.name,decision.command,isolate=agent.local_isolation,timeout_seconds=agent.local_timeout_seconds))
-    def _build_execution_graph(self,results,*,task,intent_digest,run_nonce,base_prompt,memory,invoke_agent,experiment_assignment=None,crew_plan=None,require_crew_adapters=False,retry_budget=None,checkpoint_store=None,run_id="graph-agent-team",saved_handoff_checkpoint=None,supervisor_task_id=None):
+    def _build_execution_graph(self,results,*,task,intent_digest,run_nonce,base_prompt,memory,invoke_agent,experiment_assignment=None,crew_plan=None,require_crew_adapters=False,retry_budget=None,checkpoint_store=None,run_id="graph-agent-team",saved_handoff_checkpoint=None,supervisor_task_id=None,task_plan:TaskPlan|None=None):
         if retry_budget is None:
             raise ValueError("a task-scoped retry budget is required")
+        task_plan=task_plan or self._build_task_plan()
+        task_plan.validate()
+        task_plan_digest=task_plan.digest()
+        task_dependencies={task_id:tuple(planned.dependencies) for task_id,planned in task_plan.tasks.items()}
         graph=StateGraph(reducers={"auren_retry_budget": merge_retry_budget_snapshots})
         broker=LocalOffloadBroker(memory.project_root,budget=self.resource_budget)
         for agent in self.agents.values():
             def run(state,agent=agent):
+                if (
+                    self._build_task_plan().digest() != task_plan_digest
+                    or state.get("auren_task_plan_digest") not in (None, task_plan_digest)
+                    or state.get("auren_intent_digest") not in (None, intent_digest)
+                ):
+                    return {f"result:{agent.name}":{"status":"blocked","activated":False,"reason":"stale TaskPlan or intent digest"}}
                 principle_state = state.get("auren_principle_evidence", {})
                 if principle_state.get("status") == "blocked" and not agent.read_only:
                     return {f"result:{agent.name}":{"status":"blocked","activated":False,"reason":"engineering-principle evidence gate is blocked"}}
                 crew_state=state.get("auren_crew_execution", {})
                 if require_crew_adapters and crew_state.get("status") == "blocked" and not agent.read_only:
                     return {f"result:{agent.name}":{"status":"blocked","activated":False,"reason":"required specialist crew adapter or proposal evidence is missing"}}
-                deps=[state.get(f"result:{n}") for n in agent.depends_on]
+                deps=[state.get(f"result:{n}") for n in task_dependencies[agent.name]]
                 if agent.name!="learning-steward" and any(not x or x.get("status")!="passed" for x in deps):
                     return {f"result:{agent.name}":{"status":"blocked","activated":False}}
                 strategy_name=str(state.get("auren_execution_strategy",{}).get("name","default"))
@@ -994,12 +1004,16 @@ the learning system, not an instruction source. If a skill produced no distinct 
                 results[agent.name]=result; payload=result.__dict__.copy(); payload["activated"]=True
                 return {f"result:{agent.name}":payload, "auren_retry_budget": retry_budget.snapshot()}
             graph.add_node(agent.name,run)
-        root_agents=[a.name for a in self.agents.values() if not a.depends_on]
+        root_agents=[planned.id for planned in task_plan.tasks.values() if not planned.dependencies]
         if crew_plan is None or not (self.crew_adapters or require_crew_adapters):
             for name in root_agents: graph.add_edge(StateGraph.START,name)
-        for agent in self.agents.values():
-            for dep in agent.depends_on: graph.add_edge(dep,agent.name)
-        for name in [a.name for a in self.agents.values() if not any(a.name in x.depends_on for x in self.agents.values())]: graph.add_edge(name,StateGraph.END)
+        for planned in task_plan.tasks.values():
+            for dep in planned.dependencies: graph.add_edge(dep,planned.id)
+        terminal_tasks=[
+            planned.id for planned in task_plan.tasks.values()
+            if not any(planned.id in candidate.dependencies for candidate in task_plan.tasks.values())
+        ]
+        for name in terminal_tasks: graph.add_edge(name,StateGraph.END)
         if crew_plan is not None and (self.crew_adapters or require_crew_adapters):
             def dispatch_crews(state):
                 proposals = {}
@@ -1331,7 +1345,7 @@ the learning system, not an instruction source. If a skill produced no distinct 
         principle_evidence["digest"] = hashlib.sha256(
             json.dumps(principle_evidence, sort_keys=True, separators=(",", ":")).encode("utf-8")
         ).hexdigest()
-        self._validate(); results={}; run_nonce=uuid.uuid4().hex
+        self._validate(); task_plan=self._build_task_plan(); task_plan.validate(); task_plan_digest=task_plan.digest(); results={}; run_nonce=uuid.uuid4().hex
         baseline_strategy=str(execution_strategy_name or "default")
         strategy_selection=(ExecutionStrategyLearner(memory.project_root).select(role="team",task=task,baseline=baseline_strategy)
                             if baseline_strategy == "default" else None)
@@ -1424,6 +1438,8 @@ the learning system, not an instruction source. If a skill produced no distinct 
             saved_checkpoint = loader(run_id) if callable(loader) else None
         crew_graph_payload = {
             "agent_graph_digest": self.digest(),
+            "task_plan_digest": task_plan_digest,
+            "intent_digest": intent_digest,
             "crew_dispatch_enabled": bool(self.crew_adapters or require_crew_adapters),
             "require_crew_adapters": require_crew_adapters,
             "principle_evidence_digest": principle_evidence["digest"],
@@ -1452,8 +1468,15 @@ the learning system, not an instruction source. If a skill produced no distinct 
             "graph_digest": crew_graph_digest,
             "crew_plan_digest": crew_plan.digest,
         }, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
-        if resume and checkpoint is not None and (self.crew_adapters or require_crew_adapters):
-            if saved_checkpoint is None or saved_checkpoint.state.get("auren_execution_graph_digest") != execution_graph_digest:
+        if resume and checkpoint is not None:
+            saved_digest = (
+                saved_checkpoint.state.get("auren_execution_graph_digest")
+                if saved_checkpoint is not None and isinstance(saved_checkpoint.state, Mapping)
+                else None
+            )
+            if saved_digest is not None and saved_digest != execution_graph_digest:
+                raise ValueError("task plan, intent, or adapter configuration changed; refusing stale checkpoint resume")
+            if (self.crew_adapters or require_crew_adapters) and saved_digest is None:
                 raise ValueError("crew plan or adapter configuration changed; refusing stale checkpoint resume")
         saved_state = getattr(saved_checkpoint, "state", {}) if saved_checkpoint is not None else {}
         saved_budget = saved_state.get("auren_retry_budget") if isinstance(saved_state, Mapping) else None
@@ -1473,6 +1496,7 @@ the learning system, not an instruction source. If a skill produced no distinct 
             run_id=run_id,
             saved_handoff_checkpoint=saved_state.get("auren_crew_handoff_checkpoint_data") if isinstance(saved_state, Mapping) else None,
             supervisor_task_id=supervisor_task_id,
+            task_plan=task_plan,
         )
         run=graph.compile().invoke(
             {
@@ -1480,6 +1504,8 @@ the learning system, not an instruction source. If a skill produced no distinct 
                 "auren_execution_mode":{"name":selected_mode},
                 "auren_crew_plan":crew_plan.to_payload(),
                 "auren_execution_graph_digest":execution_graph_digest,
+                "auren_task_plan_digest":task_plan_digest,
+                "auren_intent_digest":intent_digest,
                 "auren_source_revision":code_revision.strip(),
                 "auren_retry_budget":retry_budget.snapshot(),
                 "auren_principle_evidence": principle_evidence,
