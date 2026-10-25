@@ -69,3 +69,35 @@ def test_profile_receipt_records_modes_without_business_payload(tmp_path: Path):
     assert receipt["review_mode"] == "security_focused"
     assert "private_business_input" not in encoded
     assert "must-not-enter-receipt" not in encoded
+
+
+def test_restart_keeps_submitted_profile_when_saved_preferences_change(tmp_path: Path):
+    from portable.workflow_profile import WorkflowProfile
+    from portable.workflow_profile_store import save_profile
+
+    controller = ExecutionController(tmp_path)
+    controller.register_handler(
+        "tests.merge_marker_handler", guarded_marker_handler, execution_class="read_only"
+    )
+    saved_path = tmp_path / ".auren" / "workflow_profile.json"
+    save_profile(saved_path, WorkflowProfile(delivery_mode="stage_only"))
+    marker = tmp_path / "must-not-run.txt"
+    task = controller.submit("tests.merge_marker_handler", {
+        "marker_path": str(marker),
+    })
+    submitted_digest = task.payload["_auren_workflow_profile_digest"]
+    assert task.payload["_auren_workflow_profile"]["delivery_mode"] == "stage_only"
+
+    # A changed saved profile must not retroactively widen the submitted task.
+    save_profile(saved_path, WorkflowProfile(delivery_mode="pull_request"))
+    restarted = ExecutionController(tmp_path)
+    restarted.register_handler(
+        "tests.merge_marker_handler", guarded_marker_handler, execution_class="read_only"
+    )
+    recovered = restarted.task(task.id)
+    assert recovered.payload["_auren_workflow_profile_digest"] == submitted_digest
+    assert recovered.payload["_auren_workflow_profile"]["delivery_mode"] == "stage_only"
+
+    restarted.run_once(task.id)
+    assert not marker.exists()
+    assert restarted.task(task.id).state != "completed"
