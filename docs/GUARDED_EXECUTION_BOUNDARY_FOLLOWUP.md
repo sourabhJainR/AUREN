@@ -157,8 +157,9 @@ but still uses the standard library transport and is **not DNS-pinned**. This
 exception is explicit so a transport failure cannot silently disable the
 merge-safety gate.
 
-The portable updater's metadata/archive download and the optional local-LLM
-endpoint still have direct network callsites. They are not considered covered
+The portable updater's archive download and the optional local-LLM endpoint
+still have direct network callsites. Updater metadata requests now use the pinned
+HTTPS helper with an explicit GitHub host allowlist. They are not considered covered
 by the new helper until they are migrated and tested at their actual boundary.
 The local-LLM client needs a separate contract because it supports local HTTP
 providers as well as optional embedded inference. OS egress policy remains the
