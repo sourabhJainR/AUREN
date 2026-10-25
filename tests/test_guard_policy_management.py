@@ -101,3 +101,60 @@ def test_network_scope_is_enforced_by_canonical_guard():
     configured = policy(rule("deny-private-egress", "deny", network="prod-egress"))
     assert not evaluate_guard_policy(configured, {"network": "prod-egress"}).allowed
     assert evaluate_guard_policy(configured, {"network": "dev-egress"}).allowed
+
+
+def test_action_evidence_binds_identity_scope_policy_approval_and_provider_outcome(tmp_path: Path):
+    from portable.guard_policy_management import GuardActionEvidenceLedger
+
+    ledger = GuardActionEvidenceLedger(tmp_path / "evidence.sqlite3")
+    authorized = dict(
+        event_id="op-1:dispatch", identity="org:acme/agent:worker",
+        delegated_scope=("file.read", "file.write"), policy_version="policy-v7",
+        policy_digest="a" * 64, approval_id="approval-42",
+        provider_operation_id="provider-op-9", verified_outcome="pending",
+        event_type="dispatch_authorized", timestamp=100,
+    )
+    digest = ledger.append(**authorized)
+    assert ledger.verify()
+    assert ledger.append(**authorized) == digest
+    assert [item["provider_operation_id"] for item in ledger.unresolved_operations()] == ["provider-op-9"]
+    ledger.append(
+        **{**authorized, "event_id": "op-1:outcome", "verified_outcome": "succeeded",
+           "event_type": "provider_outcome_verified", "timestamp": 101},
+    )
+    assert ledger.verify()
+    assert ledger.unresolved_operations() == []
+
+
+def test_action_evidence_rejects_event_id_replay_with_changed_authority(tmp_path: Path):
+    from portable.guard_policy_management import GuardActionEvidenceLedger
+
+    ledger = GuardActionEvidenceLedger(tmp_path / "evidence.sqlite3")
+    event = dict(
+        event_id="op-1:dispatch", identity="org:acme/agent:worker",
+        delegated_scope=("file.read",), policy_version="policy-v7",
+        policy_digest="b" * 64, approval_id=None, provider_operation_id="remote-1",
+        verified_outcome="pending", event_type="dispatch_authorized", timestamp=10,
+    )
+    ledger.append(**event)
+    with pytest.raises(GuardPolicyError):
+        ledger.append(**{**event, "delegated_scope": ("admin",)})
+    assert ledger.verify()
+
+
+def test_corrupt_action_evidence_chain_blocks_recovery(tmp_path: Path):
+    from portable.guard_policy_management import GuardActionEvidenceLedger
+
+    ledger = GuardActionEvidenceLedger(tmp_path / "evidence.sqlite3")
+    ledger.append(
+        event_id="op:dispatch", identity="worker", delegated_scope=("tool.read",),
+        policy_version="v1", policy_digest="c" * 64, approval_id=None,
+        provider_operation_id="provider-1", verified_outcome="pending",
+        event_type="dispatch_authorized", timestamp=10,
+    )
+    import sqlite3
+    with sqlite3.connect(ledger.database) as db:
+        db.execute("UPDATE guard_action_events SET event_json=? WHERE event_id=?", ('{"event_id":"op:dispatch"}', "op:dispatch"))
+    assert not ledger.verify()
+    with pytest.raises(GuardPolicyError):
+        ledger.unresolved_operations()
