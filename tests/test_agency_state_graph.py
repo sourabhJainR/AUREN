@@ -11,6 +11,7 @@ from portable.agency_state_graph import (
     StateGraph,
     current_cancellation_event,
 )
+from portable.runtime_recovery import ExecutionBudgetExceeded
 
 
 class StateGraphTests(unittest.TestCase):
@@ -240,23 +241,26 @@ class StateGraphTests(unittest.TestCase):
         graph.add_node("cooperative", cooperative_node)
         graph.add_edge(StateGraph.START, "cooperative").add_edge("cooperative", StateGraph.END)
         outcomes = []
-        worker = Thread(
-            target=lambda: outcomes.append(
-                graph.compile().invoke_supervised(
-                    {}, execution_payload={"auren_cancel_event": cancellation},
-                    run_id="supervised-cancel",
+        def invoke():
+            try:
+                outcomes.append(
+                    graph.compile().invoke_supervised(
+                        {}, execution_payload={"auren_cancel_event": cancellation},
+                        run_id="supervised-cancel",
+                    )
                 )
-            ),
-            daemon=True,
-        )
+            except BaseException as exc:
+                outcomes.append(exc)
+        worker = Thread(target=invoke, daemon=True)
         worker.start()
         self.assertTrue(started.wait(timeout=3), "graph node did not start")
         cancellation.set()
         worker.join(timeout=5)
         self.assertFalse(worker.is_alive(), "cooperative graph node did not stop")
         self.assertEqual(1, len(outcomes))
-        self.assertTrue(outcomes[0].interrupted)
-        self.assertNotIn("completed", outcomes[0].state)
+        # Cancellation during a node rejects its result through the runtime
+        # guard instead of converting a late node return into success.
+        self.assertIsInstance(outcomes[0], ExecutionBudgetExceeded)
 
     def test_supervised_invocation_rejects_expired_deadline_before_dispatch(self):
         calls = []
