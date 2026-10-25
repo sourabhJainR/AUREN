@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import time
 from typing import Any, Callable, Mapping
 
 
@@ -186,6 +187,8 @@ class PostgreSQLAttestationReplayRegistry:
         identifier = _required_text("attestation_id", attestation_id)
         operation = _required_text("operation_id", operation_id)
         normalized, binding_digest = _canonical_binding(binding)
+        if normalized["expires_at_epoch"] <= int(time.time()):
+            raise ValueError("attestation binding has expired")
         connection = self._connection_factory()
         cursor = None
         try:
@@ -232,11 +235,19 @@ class PostgreSQLAttestationReplayRegistry:
                 except Exception:
                     pass
                 raise
-            except Exception:
+            except Exception as exc:
                 try:
                     connection.rollback()
                 except Exception:
                     pass
+                # The attestation primary-key conflict is handled by
+                # ON CONFLICT above. A remaining PostgreSQL unique violation
+                # therefore indicates operation-ID reuse across attestations.
+                sqlstate = getattr(exc, "sqlstate", None) or getattr(exc, "pgcode", None)
+                if sqlstate == "23505":
+                    raise ReplayClaimConflict(
+                        "claim operation ID is already bound to another attestation"
+                    ) from exc
                 raise
             finally:
                 if cursor is not None:
