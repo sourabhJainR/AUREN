@@ -267,5 +267,7 @@ the remaining compliant choices.
 
 This directive parser is intentionally conservative: it matches exact option
 names (and their final namespaced component) after explicit directive phrases.
+The full task is inspected only for these constraints; ranking still uses the
+bounded request context, so long prompts do not expand every scoring operation.
 It does not infer permission from natural-language tool mentions, and no user
 directive can override authority, network, sandbox, risk or verification gates.
