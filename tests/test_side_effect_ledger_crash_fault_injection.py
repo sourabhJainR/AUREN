@@ -179,3 +179,20 @@ class ProviderCompletionReceiptCrashTests(unittest.TestCase):
                 Path(provider_log).read_text(encoding="utf-8").splitlines(),
                 "recovery must not redispatch a remotely completed operation",
             )
+
+class RepeatedRestartAmbiguousOutcomeTests(unittest.TestCase):
+    def test_repeated_restart_never_turns_ambiguous_effect_into_redispatch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            database = str(Path(tmp) / "effects.sqlite3")
+            provider_log = str(Path(tmp) / "provider-operations.log")
+            self.assertEqual(72, _crash_process(_crash_after_provider_accept, database, provider_log))
+            for _ in range(4):
+                ledger = DurableSideEffectLedger(database)
+                decision = ledger.begin(_IDEMPOTENCY_KEY, _PAYLOAD)
+                self.assertEqual("reconcile", decision.action)
+                self.assertEqual("reconcile_required", decision.state)
+            self.assertEqual(
+                ["provider-op-001"],
+                Path(provider_log).read_text(encoding="utf-8").splitlines(),
+                "repeated restart must not redispatch an ambiguous provider operation",
+            )
