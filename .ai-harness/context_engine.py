@@ -6,14 +6,18 @@ history before the model boundary, and preserve correctness-critical state.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import subprocess
-from time import perf_counter
 from pathlib import Path
+from time import perf_counter
 from typing import Any
 
 from runtime.context_cache import ContextPageCache
+
+_REPOSITORY_FILE_DIGEST_LIMIT_BYTES = 2 * 1024 * 1024
+_REPOSITORY_DIGEST_BUDGET_BYTES = 32 * 1024 * 1024
 
 _STOP = {"the", "and", "for", "with", "from", "this", "that", "into", "have", "will", "task", "change", "please", "need", "make", "using"}
 _PRIORITY = (
@@ -68,6 +72,33 @@ def _rank_file(name: str, task_words: set[str]) -> float:
     return score
 
 
+def _fingerprint_repository_file(
+    root: Path, name: str, remaining_bytes: int,
+) -> tuple[str | None, str | None, int]:
+    """Return a content digest when safe and bounded, otherwise a visible warning."""
+    try:
+        relative = Path(name)
+        if relative.is_absolute() or ".." in relative.parts:
+            return None, "path-escape", 0
+        root_resolved = root.resolve()
+        path = (root_resolved / relative).resolve(strict=True)
+        path.relative_to(root_resolved)
+        before = path.stat()
+        if not path.is_file():
+            return None, "not-a-file", 0
+        if before.st_size > _REPOSITORY_FILE_DIGEST_LIMIT_BYTES:
+            return None, f"file-size-limit;size={before.st_size};mtime_ns={before.st_mtime_ns}", 0
+        if before.st_size > remaining_bytes:
+            return None, f"snapshot-budget;size={before.st_size};mtime_ns={before.st_mtime_ns}", 0
+        content = path.read_bytes()
+        after = path.stat()
+        if before.st_size != after.st_size or before.st_mtime_ns != after.st_mtime_ns:
+            return None, f"changed-during-read;size={after.st_size};mtime_ns={after.st_mtime_ns}", 0
+        return hashlib.sha256(content).hexdigest()[:12], None, len(content)
+    except (OSError, RuntimeError, ValueError):
+        return None, "unreadable-or-outside-root", 0
+
+
 def build_repository_context(root: Path, task: str, limit_files: int = 180, budget_chars: int = 9000) -> str:
     try:
         result = subprocess.run(["git", "ls-files", "--cached", "--others", "--exclude-standard"], cwd=root, text=True, capture_output=True, check=False, timeout=30)
@@ -89,21 +120,49 @@ def build_repository_context(root: Path, task: str, limit_files: int = 180, budg
 
     lines = ["# Repository Context", "", "## Stable structure"]
     used = 0
-    for bucket in sorted(top_level):
+    omitted_buckets = 0
+    status_reserve = 220
+    for index, bucket in enumerate(sorted(top_level)):
         entry = f"- {bucket}/ ({len(top_level[bucket])} relevant files)"
-        if used + len(entry) + 1 > budget_chars:
+        if used + len(entry) + 1 + status_reserve > budget_chars:
+            omitted_buckets = len(top_level) - index
             break
         lines.append(entry)
         used += len(entry) + 1
 
     lines.extend(["", "## Relevant files"])
-    for name in selected:
-        entry = f"- {name}"
-        if used + len(entry) + 1 > budget_chars:
+    fingerprinted = 0
+    fingerprint_warnings = 0
+    omitted_files = 0
+    bytes_hashed = 0
+    root_path = Path(root)
+    for index, name in enumerate(selected):
+        digest, warning, bytes_used = _fingerprint_repository_file(
+            root_path, name, _REPOSITORY_DIGEST_BUDGET_BYTES - bytes_hashed,
+        )
+        bytes_hashed += bytes_used
+        if digest:
+            fingerprint = f"sha256:{digest}"
+        else:
+            fingerprint = f"digest-unavailable:{warning or 'unknown'}"
+        entry = f"- {name} [{fingerprint}]"
+        if used + len(entry) + 1 + status_reserve > budget_chars:
+            omitted_files = len(selected) - index
             break
+        if digest:
+            fingerprinted += 1
+        else:
+            fingerprint_warnings += 1
         lines.append(entry)
         used += len(entry) + 1
 
+    complete = fingerprint_warnings == 0 and omitted_buckets == 0 and omitted_files == 0
+    status = (
+        f"- selected-file fingerprints complete: {'yes' if complete else 'no'}; "
+        f"hashed={fingerprinted}/{len(selected)}; warnings={fingerprint_warnings}; "
+        f"omitted_files={omitted_files}; omitted_buckets={omitted_buckets}; bytes_hashed={bytes_hashed}"
+    )
+    lines.extend(["", "## Fingerprint status", status])
     return "\n".join(lines) + "\n"
 
 
@@ -236,17 +295,51 @@ def benchmark_context_selection(
     budget_chars: int = 12000,
     *,
     provider_token_usage: dict[str, int] | None = None,
+    task_success: bool | None = None,
+    evaluation_ref: str | None = None,
+    raw_artifact_ref: str | None = None,
+    bounded_artifact_ref: str | None = None,
 ) -> dict[str, Any]:
-    """Measure raw versus selected context without claiming estimated tokens are exact."""
+    """Measure context economics and attach evaluator-supplied success evidence when available."""
+    if task_success is not None and type(task_success) is not bool:
+        raise ValueError("task success must be a boolean or None")
+    if task_success is not None and (
+        not isinstance(evaluation_ref, str) or not evaluation_ref.strip() or len(evaluation_ref) > 512
+    ):
+        raise ValueError("task success requires a bounded evaluation reference")
+    if task_success is None and evaluation_ref is not None:
+        raise ValueError("evaluation reference requires a task success result")
+    artifact_refs = (raw_artifact_ref, bounded_artifact_ref)
+    if any(reference is not None for reference in artifact_refs) and not all(
+        isinstance(reference, str) and reference.strip() and len(reference) <= 512
+        for reference in artifact_refs
+    ):
+        raise ValueError("raw and bounded artifact references must be supplied together")
+    if task_success is not None and not all(
+        isinstance(reference, str) and reference.strip() and len(reference) <= 512
+        for reference in artifact_refs
+    ):
+        raise ValueError("task success requires raw and bounded artifact references")
+    if evaluation_ref is not None:
+        evaluation_ref = evaluation_ref.strip()
+    if raw_artifact_ref is not None:
+        raw_artifact_ref = raw_artifact_ref.strip()
+    if bounded_artifact_ref is not None:
+        bounded_artifact_ref = bounded_artifact_ref.strip()
     started = perf_counter()
     selected = select_context(task, repo_map, memory, history, budget_chars)
     elapsed_ms = round((perf_counter() - started) * 1000, 3)
-    raw_chars = len(repo_map) + len(memory) + len(history)
-    bounded_chars = sum(
-        len(selected[key]) for key in ("repository", "memory", "history")
-    )
+    raw_parts = (repo_map, memory, history)
+    bounded_parts = tuple(selected[key] for key in ("repository", "memory", "history"))
+    raw_chars = sum(map(len, raw_parts))
+    bounded_chars = sum(map(len, bounded_parts))
+    task_digest = hashlib.sha256(task.encode("utf-8")).hexdigest()
+    raw_digest = hashlib.sha256("\0".join(raw_parts).encode("utf-8")).hexdigest()
+    bounded_digest = hashlib.sha256("\0".join(bounded_parts).encode("utf-8")).hexdigest()
     usage: dict[str, int] | None = None
     if provider_token_usage is not None:
+        if not isinstance(provider_token_usage, dict):
+            raise ValueError("provider token usage must be a mapping")
         usage = {}
         for key in ("input_tokens", "output_tokens"):
             value = provider_token_usage.get(key)
@@ -256,11 +349,19 @@ def benchmark_context_selection(
     return {
         "raw_chars": raw_chars,
         "bounded_chars": bounded_chars,
+        "task_sha256": task_digest,
+        "raw_sha256": raw_digest,
+        "bounded_sha256": bounded_digest,
         "reduction_ratio": round(1 - bounded_chars / max(1, raw_chars), 4),
         "approx_raw_tokens": (raw_chars + 3) // 4,
         "approx_bounded_tokens": (bounded_chars + 3) // 4,
         "token_estimate_method": "characters-divided-by-four; not provider token usage",
         "provider_token_usage": usage,
+        "task_success": task_success,
+        "evaluation_ref": evaluation_ref,
+        "raw_artifact_ref": raw_artifact_ref,
+        "bounded_artifact_ref": bounded_artifact_ref,
+        "task_success_source": "host-evaluator" if task_success is not None else None,
         "latency_ms": elapsed_ms,
         "history_compression": selected["history_compression"],
         "retained_signals": selected["history_compression"]["retained_signals"],
