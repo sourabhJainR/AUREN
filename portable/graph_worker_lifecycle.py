@@ -263,12 +263,21 @@ class GraphWorkerLifecycle:
                     next_safe_action="inspect_prior_progress_before_redispatch",
                     blockers=["prior_progress_requires_reconciliation"],
                 )
-            self.journal.record(
-                task_id, "duplicate-dispatch-blocked", state="blocked", stage="recovery",
-                message=self._binding(task_id, worker_id, plan_digest, self.intent_digest, "inspect_prior_state")
-                + "; next_action=reconcile_progress_journal_and_recovery_ledger",
-                evidence_ref=prior.get("evidence_ref"),
-            )
+            message = self._binding(
+                task_id, worker_id, plan_digest, self.intent_digest, "inspect_prior_state"
+            ) + "; next_action=reconcile_progress_journal_and_recovery_ledger"
+            prior_state = prior.get("reported_state", prior.get("state"))
+            if prior_state in {"completed", "failed", "cancelled"}:
+                self.journal.record_reconciliation(
+                    task_id, state="blocked", stage="recovery", message=message,
+                    evidence_ref=prior.get("evidence_ref"),
+                    expected_sequence=prior.get("sequence", 0),
+                )
+            else:
+                self.journal.record(
+                    task_id, "duplicate-dispatch-blocked", state="blocked", stage="recovery",
+                    message=message, evidence_ref=prior.get("evidence_ref"),
+                )
             self._block_recovery_run(
                 "prior progress exists without a safe dispatch continuation",
                 "reconcile_progress_journal_and_recovery_ledger",
