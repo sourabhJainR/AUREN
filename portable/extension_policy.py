@@ -31,8 +31,14 @@ def evaluate_invocation(
         reasons.append("extension_manifest_invalid")
     if metadata.get("trust_class") != "trusted" or trust_granted is not True:
         reasons.append("explicit_trust_grant_required")
-    if metadata.get("requires_approval") is not False and approval_granted is not True:
+    requires_approval = metadata.get("requires_approval")
+    if requires_approval is not False and approval_granted is not True:
         reasons.append("task_scoped_approval_required")
+    side_effects = metadata.get("side_effects", ())
+    if side_effects and approval_granted is not True:
+        reasons.append("side_effect_approval_required")
+    if metadata.get("privacy_class") == "external" and approval_granted is not True:
+        reasons.append("external_data_approval_required")
     declared = metadata.get("permissions")
     if (
         not isinstance(declared, (list, tuple, set, frozenset))
