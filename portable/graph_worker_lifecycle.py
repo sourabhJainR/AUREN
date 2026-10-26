@@ -150,7 +150,8 @@ class GraphWorkerLifecycle:
             proposal = self.coordinator.prepare_proposal(worker_id)
             self.journal.record(
                 task_id, "proposal-captured", state="running", stage="independent_verification",
-                message=self._binding(task_id, worker_id, plan_digest, self.intent_digest, "proposal_captured")\n                + "; budget=" + json.dumps(self.runtime_guard.snapshot(), sort_keys=True, separators=(",", ":")),
+                message=self._binding(task_id, worker_id, plan_digest, self.intent_digest, "proposal_captured")
+                + "; budget=" + json.dumps(self.runtime_guard.snapshot(), sort_keys=True, separators=(",", ":")),
                 evidence_ref=proposal.artifact_path,
             )
             self.runtime_guard.check()
@@ -218,7 +219,8 @@ class GraphWorkerLifecycle:
                 self._prepared[worker_id] = prepared
             self.journal.record(
                 task_id, "proposal-independently-verified", state="running", stage="adoption",
-                message=self._binding(task_id, worker_id, plan_digest, self.intent_digest, "await_serialized_adoption")\n                + "; budget=" + json.dumps(self.runtime_guard.snapshot(), sort_keys=True, separators=(",", ":")),
+                message=self._binding(task_id, worker_id, plan_digest, self.intent_digest, "await_serialized_adoption")
+                + "; budget=" + json.dumps(self.runtime_guard.snapshot(), sort_keys=True, separators=(",", ":")),
                 evidence_ref=str(receipt_path),
             )
             return prepared
