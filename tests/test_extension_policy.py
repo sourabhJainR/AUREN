@@ -16,6 +16,8 @@ class ExtensionPolicyTests(unittest.TestCase):
             "requires_approval": True,
             "permissions": ["read-repository"],
             "output_limit_chars": 24,
+            "artifact_fresh": True,
+            "manifest_valid": True,
         }
         value.update(overrides)
         return value
@@ -100,6 +102,45 @@ class ExtensionPolicyTests(unittest.TestCase):
         self.assertFalse(decision["allowed"])
         self.assertIn("invalid_requested_output_limit", decision["reasons"])
 
+
+
+    def test_missing_policy_and_unscoped_provider_are_denied_before_dispatch(self):
+        called = []
+        with self.assertRaises(ExtensionInvocationDenied):
+            invoke_extension(
+                None,
+                lambda: called.append("called"),
+                trust_granted=True,
+                approval_granted=True,
+                requested_permissions=["read-repository"],
+                artifact_fresh=True,
+                provider_id="provider-a",
+                require_provider_scope=True,
+            )
+        self.assertEqual([], called)
+
+        decision = evaluate_invocation(
+            self.metadata(provider_ids=["provider-b"]),
+            trust_granted=True,
+            approval_granted=True,
+            requested_permissions=["read-repository"],
+            artifact_fresh=True,
+            provider_id="provider-a",
+            require_provider_scope=True,
+        )
+        self.assertFalse(decision["allowed"])
+        self.assertIn("provider_scope_not_authorized", decision["reasons"])
+
+    def test_artifact_freshness_must_match_manifest_not_only_caller_claim(self):
+        decision = evaluate_invocation(
+            self.metadata(artifact_fresh=False),
+            trust_granted=True,
+            approval_granted=True,
+            requested_permissions=["read-repository"],
+            artifact_fresh=True,
+        )
+        self.assertFalse(decision["allowed"])
+        self.assertIn("freshness_not_verified", decision["reasons"])
 
 if __name__ == "__main__":
     unittest.main()
