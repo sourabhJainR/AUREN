@@ -11,6 +11,7 @@ sys.path.insert(0,str(RUNTIME))
 sys.path.insert(0,str(ROOT/".ai-harness"))
 from p0 import add_evidence, evidence, new_state, proof_bundle, record_outcome, save_json, verification
 from p1 import affected_profile_fields, graph_edge, graph_node, profile, regression_case, save
+from regression_genome import candidate_case
 from state_validator import validate_state
 from artifact_chain import build_artifacts
 
@@ -80,6 +81,27 @@ def finish(run_dir: Path, manifest: dict[str,Any]) -> dict[str,Any]:
     nodes=[graph_node("requirement",state["task_id"]),graph_node("changeset",state["changeset"]["diff_identity"] or "none"),graph_node("proof",proof["proof_id"]),graph_node("outcome",outcome_status)]
     edges=[graph_edge(nodes[0]["id"],"implemented_by",nodes[1]["id"],[e["id"] for e in state["evidence"]]),graph_edge(nodes[1]["id"],"verified_by",nodes[2]["id"],[]),graph_edge(nodes[2]["id"],"resulted_in",nodes[3]["id"],[outcome_ev["id"]])]
     regression=regression_case("task-completion:"+state["task_id"],state["status"],["preserve protected behavior","proof required"])
-    genome={"version":"1.1","case":regression,"result":{"status":state["status"],"outcome":outcome_status},"affected_profile_fields":affected_profile_fields(changed)}
+    candidates=[]
+    raw_candidates=manifest.get("regression_candidates",[])
+    if not isinstance(raw_candidates,list):
+        candidates.append({"status":"rejected","reason":"candidate_list_invalid"})
+    else:
+        for item in raw_candidates:
+            if not isinstance(item,dict):
+                candidates.append({"status":"rejected","reason":"candidate_must_be_object"})
+                continue
+            try:
+                candidates.append(candidate_case(
+                    item.get("source_kind"),item.get("source_ref"),item.get("trigger"),item.get("expected"),
+                    item.get("constraints",[]),proposer_id=manifest.get("proposer_id","unknown")
+                ))
+            except (TypeError,ValueError):
+                candidates.append({"status":"rejected","reason":"candidate_validation_failed"})
+    genome={"version":"1.2","case":regression,"candidates":candidates,
+            "promotion_policy":{"auto_promote":False,"deterministic_passes":2,
+                                "independent_sealed_holdout":True,"human_approval":True,
+                                "verified_evidence_required":True},
+            "result":{"status":state["status"],"outcome":outcome_status},
+            "affected_profile_fields":affected_profile_fields(changed)}
     save_json(run_dir/"proof-bundle.json",proof); save_json(run_dir/"proof-graph.json",{"version":"1.1","nodes":nodes,"edges":edges}); save_json(run_dir/"regression-genome.json",genome)
     return proof
