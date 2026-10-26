@@ -303,6 +303,16 @@ class SubprocessProviderInvokerTests(unittest.TestCase):
                 provider("request", 2)
             self.assertFalse(marker.exists())
 
+
+    def test_extension_provider_with_missing_policy_never_launches(self):
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "provider-launched.txt"
+            command = f"import pathlib; pathlib.Path({str(marker)!r}).write_text('launched')"
+            provider = self.invoker(command, is_extension=True)
+            with self.assertRaisesRegex(PermissionError, "extension_policy_missing"):
+                provider("request", 2)
+            self.assertFalse(marker.exists())
+
 if __name__ == "__main__":
     unittest.main()
 
