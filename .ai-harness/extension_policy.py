@@ -33,9 +33,20 @@ def evaluate_invocation(
     if metadata.get("requires_approval", True) is not False and approval_granted is not True:
         reasons.append("task_scoped_approval_required")
     declared = metadata.get("permissions", ())
-    if not isinstance(declared, (list, tuple, set, frozenset)):
+    if (
+        not isinstance(declared, (list, tuple, set, frozenset))
+        or any(not isinstance(item, str) or not item.strip() for item in declared)
+    ):
+        reasons.append("invalid_permission_manifest")
         declared = ()
-    requested = set(requested_permissions)
+    requested_values = requested_permissions
+    if (
+        not isinstance(requested_values, (list, tuple, set, frozenset))
+        or any(not isinstance(item, str) or not item.strip() for item in requested_values)
+    ):
+        reasons.append("invalid_requested_permissions")
+        requested_values = ()
+    requested = set(requested_values)
     if not requested.issubset(set(declared)):
         reasons.append("permission_scope_exceeded")
     if artifact_fresh is not True:

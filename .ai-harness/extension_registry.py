@@ -116,7 +116,7 @@ def validate_registry_manifest(data: dict[str, Any]) -> dict[str, list[str]]:
         return {"__registry__": sorted(set(global_errors + ["extensions_section_invalid"]))}
     results: dict[str, list[str]] = {}
     required_strings = (
-        "kind", "version", "cost_class", "trust_class", "freshness",
+        "kind", "version", "cost_class", "trust_class", "privacy_class", "freshness",
         "failure_mode", "policy", "source", "license",
     )
     required_lists = ("capabilities", "evidence_types", "permissions", "side_effects")
@@ -128,9 +128,15 @@ def validate_registry_manifest(data: dict[str, Any]) -> dict[str, list[str]]:
         for key in required_strings:
             if not isinstance(spec.get(key), str) or not spec[key].strip():
                 errors.append(f"{key}_required")
+        cost_class = spec.get("cost_class")
+        if not isinstance(cost_class, str) or cost_class not in {"low", "medium", "high", "unknown"}:
+            errors.append("cost_class_invalid")
         trust_class = spec.get("trust_class")
         if not isinstance(trust_class, str) or trust_class not in {"local-unverified", "external-unverified", "unverified", "trusted"}:
             errors.append("trust_class_invalid")
+        privacy_class = spec.get("privacy_class")
+        if not isinstance(privacy_class, str) or privacy_class not in {"local-only", "external", "unknown"}:
+            errors.append("privacy_class_invalid")
         for key in required_lists:
             value = spec.get(key)
             if not isinstance(value, list) or any(not isinstance(item, str) or not item.strip() for item in value):
@@ -143,6 +149,10 @@ def validate_registry_manifest(data: dict[str, Any]) -> dict[str, list[str]]:
                 errors.append(f"{key}_must_be_string_list")
         if type(spec.get("requires_approval")) is not bool:
             errors.append("requires_approval_must_be_boolean")
+        if spec.get("side_effects") and spec.get("requires_approval") is False:
+            errors.append("side_effects_require_approval")
+        if spec.get("privacy_class") == "external" and spec.get("requires_approval") is not True:
+            errors.append("external_data_use_requires_approval")
         limit = spec.get("output_limit_chars")
         if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 1_000_000:
             errors.append("output_limit_chars_out_of_range")
@@ -188,6 +198,7 @@ def detect_extensions() -> dict[str, dict[str, Any]]:
             "capabilities": sorted(set(_string_list(spec.get("capabilities", [])))),
             "cost_class": spec.get("cost_class", "unknown"),
             "trust_class": spec.get("trust_class", "unverified"),
+            "privacy_class": spec.get("privacy_class", "unknown"),
             "evidence_types": sorted(set(_string_list(spec.get("evidence_types", [])))),
             "freshness": spec.get("freshness", "not-checked"),
             "artifact_fresh": freshness_check["fresh"],

@@ -82,6 +82,19 @@ class ExtensionPolicyTests(unittest.TestCase):
         decision = evaluate_invocation(self.metadata(manifest_valid=False))
         self.assertIn("extension_manifest_invalid", decision["reasons"])
 
+    def test_malformed_permission_scope_is_denied_before_dispatch(self):
+        called = []
+        with self.assertRaises(ExtensionInvocationDenied):
+            invoke_extension(
+                self.metadata(permissions=[{"write": True}]),
+                lambda: called.append("called"),
+                trust_granted=True,
+                approval_granted=True,
+                requested_permissions=["read-repository"],
+                artifact_fresh=True,
+            )
+        self.assertEqual([], called)
+
     def test_output_limit_must_be_positive(self):
         decision = evaluate_invocation(self.metadata(), requested_output_limit_chars=0)
         self.assertFalse(decision["allowed"])

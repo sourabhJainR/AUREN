@@ -46,6 +46,10 @@ The optional extension inventory now reports a conservative capability manifest 
 
 The registry remains read-only. It does not install, enable, invoke, or grant trust to an extension. An extension's self-declared trust label is not evidence of independent verification. Discovered skills default to unverified, and external/MCP providers require approval by default.
 
+## Cost-, capability-, and privacy-aware extension routing
+
+The capability catalog now ranks only extensions that pass manifest, trust, approval, permission, freshness, and output-bound checks. It uses required capability coverage, declared cost class, privacy class, and side-effect count for deterministic ordering. It can combine eligible extensions only when their union covers every required capability; incomplete coverage falls back to repository-native work. Unknown privacy is not treated as local; external data use requires an explicit policy flag. If no extension qualifies, the planner returns the repository-native fallback. The registry does not grant trust or approval by itself. Task-generated route fields cannot authorize external data use or supply trust grants; those values come from a separate trusted policy input.
+
 ## Repository artifact freshness implementation slice
 
 The optional extension inventory validates required metadata types, trust class, approval booleans, and output bounds before an extension is eligible; invalid manifests are marked unavailable. It also checks graph/index artifacts against a sidecar manifest named `<artifact-name>.auren-manifest.json`. The manifest binds the artifact SHA-256 to a repository snapshot SHA-256. Snapshot computation is bounded to 20,000 paths and 64 MiB of file content; an incomplete scan, missing manifest, malformed digest, changed artifact, changed repository, or path outside the repository is never marked fresh. The capability planner only exposes an extension hint when trust, freshness, availability, and approval policy all pass.
