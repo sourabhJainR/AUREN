@@ -260,7 +260,10 @@ class GraphWorkerLifecycle:
                     worker_id=worker_id,
                     workspace_id=recovery_node.get("workspace_id"),
                     attempts=recovery_node["attempts"],
-                    evidence_refs=[prior["evidence_ref"]] if prior.get("evidence_ref") else (),
+                    evidence_refs=tuple(dict.fromkeys((
+                        *recovery_node.get("evidence_refs", ()),
+                        *([prior["evidence_ref"]] if prior.get("evidence_ref") else ()),
+                    ))),
                 )
                 self._block_recovery_run("prior progress exists without an in-memory worker lease", "reconcile_worker_workspace_and_receipt_before_resume")
             elif recovery_node["status"] == "waiting":
