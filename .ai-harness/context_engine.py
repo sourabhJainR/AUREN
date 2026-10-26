@@ -6,6 +6,7 @@ history before the model boundary, and preserve correctness-critical state.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import subprocess
@@ -236,17 +237,31 @@ def benchmark_context_selection(
     budget_chars: int = 12000,
     *,
     provider_token_usage: dict[str, int] | None = None,
+    task_success: bool | None = None,
+    evaluation_ref: str | None = None,
 ) -> dict[str, Any]:
-    """Measure raw versus selected context without claiming estimated tokens are exact."""
+    """Measure context economics and attach evaluator-supplied success evidence when available."""
+    if task_success is not None and type(task_success) is not bool:
+        raise ValueError("task success must be a boolean or None")
+    if task_success is not None and (
+        not isinstance(evaluation_ref, str) or not evaluation_ref.strip() or len(evaluation_ref) > 512
+    ):
+        raise ValueError("task success requires a bounded evaluation reference")
+    if task_success is None and evaluation_ref is not None:
+        raise ValueError("evaluation reference requires a task success result")
     started = perf_counter()
     selected = select_context(task, repo_map, memory, history, budget_chars)
     elapsed_ms = round((perf_counter() - started) * 1000, 3)
-    raw_chars = len(repo_map) + len(memory) + len(history)
-    bounded_chars = sum(
-        len(selected[key]) for key in ("repository", "memory", "history")
-    )
+    raw_parts = (repo_map, memory, history)
+    bounded_parts = tuple(selected[key] for key in ("repository", "memory", "history"))
+    raw_chars = sum(map(len, raw_parts))
+    bounded_chars = sum(map(len, bounded_parts))
+    raw_digest = hashlib.sha256("\0".join(raw_parts).encode("utf-8")).hexdigest()
+    bounded_digest = hashlib.sha256("\0".join(bounded_parts).encode("utf-8")).hexdigest()
     usage: dict[str, int] | None = None
     if provider_token_usage is not None:
+        if not isinstance(provider_token_usage, dict):
+            raise ValueError("provider token usage must be a mapping")
         usage = {}
         for key in ("input_tokens", "output_tokens"):
             value = provider_token_usage.get(key)
@@ -256,11 +271,16 @@ def benchmark_context_selection(
     return {
         "raw_chars": raw_chars,
         "bounded_chars": bounded_chars,
+        "raw_sha256": raw_digest,
+        "bounded_sha256": bounded_digest,
         "reduction_ratio": round(1 - bounded_chars / max(1, raw_chars), 4),
         "approx_raw_tokens": (raw_chars + 3) // 4,
         "approx_bounded_tokens": (bounded_chars + 3) // 4,
         "token_estimate_method": "characters-divided-by-four; not provider token usage",
         "provider_token_usage": usage,
+        "task_success": task_success,
+        "evaluation_ref": evaluation_ref,
+        "task_success_source": "host-evaluator" if task_success is not None else None,
         "latency_ms": elapsed_ms,
         "history_compression": selected["history_compression"],
         "retained_signals": selected["history_compression"]["retained_signals"],

@@ -88,6 +88,9 @@ class ContextEngineTests(unittest.TestCase):
         self.assertGreater(report["raw_chars"], report["bounded_chars"])
         self.assertGreaterEqual(report["latency_ms"], 0)
         self.assertEqual({"input_tokens": 123, "output_tokens": 45}, report["provider_token_usage"])
+        self.assertEqual(64, len(report["raw_sha256"]))
+        self.assertEqual(64, len(report["bounded_sha256"]))
+        self.assertIsNone(report["task_success"])
         self.assertIn("timeout", report["retained_signals"])
         self.assertIn("security", report["retained_signals"])
         self.assertIsInstance(report["missed_signals"], list)
@@ -95,6 +98,36 @@ class ContextEngineTests(unittest.TestCase):
             self.module.benchmark_context_selection(
                 "task", "repo", "memory", "history",
                 provider_token_usage={"input_tokens": True, "output_tokens": 1},
+            )
+
+    def test_context_benchmark_records_evaluator_success_without_inference(self):
+        report = self.module.benchmark_context_selection(
+            "provider timeout",
+            "repo files",
+            "preserve scope",
+            "ERROR: provider timeout",
+            task_success=False,
+            evaluation_ref="eval://run/42",
+        )
+        self.assertFalse(report["task_success"])
+        self.assertEqual("eval://run/42", report["evaluation_ref"])
+        self.assertEqual("host-evaluator", report["task_success_source"])
+        with self.assertRaisesRegex(ValueError, "evaluation reference"):
+            self.module.benchmark_context_selection(
+                "task", "repo", "memory", "history", task_success=True,
+            )
+        with self.assertRaisesRegex(ValueError, "requires a task success"):
+            self.module.benchmark_context_selection(
+                "task", "repo", "memory", "history", evaluation_ref="eval://orphan",
+            )
+        with self.assertRaisesRegex(ValueError, "boolean or None"):
+            self.module.benchmark_context_selection(
+                "task", "repo", "memory", "history", task_success="passed",
+                evaluation_ref="eval://run/43",
+            )
+        with self.assertRaisesRegex(ValueError, "token usage must be a mapping"):
+            self.module.benchmark_context_selection(
+                "task", "repo", "memory", "history", provider_token_usage=[],
             )
 
     def test_empty_history_is_empty(self):

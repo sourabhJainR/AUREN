@@ -56,6 +56,10 @@ The optional extension inventory validates required metadata types, trust class,
 
 The manifest builder returns data for the artifact producer to persist; it does not mutate or install extensions. Existing external graph tools do not automatically produce this manifest, so their artifacts remain unverified until an adapter writes the manifest after generation. The repository context page cache now supports replace-on-refresh: unchanged content-addressed pages are reused, stale pages for the repository domain are evicted, and unrelated memory/history domains are preserved. This is not a substitute for per-file graph-neighborhood invalidation. Live task benchmarks remain open.
 
+## Context benchmark evidence
+
+Context benchmark reports now bind raw and selected context with SHA-256 digests, preserve provider-reported token counts separately from approximate character-based estimates, and accept an optional host-evaluator task-success result only with an evidence reference. The benchmark never infers task success from context reduction; live-provider task evaluation remains an explicit host/evaluator responsibility.
+
 ## Follow-on implementation order
 
 1. **P0 — Prove metadata enforcement:** tests that output bounds, approval, provider scope, freshness, and failure behavior are enforced at the actual invocation boundary, not merely displayed by the inventory.
