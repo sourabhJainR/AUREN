@@ -119,6 +119,7 @@ class ContextEngineTests(unittest.TestCase):
         self.assertGreater(report["raw_chars"], report["bounded_chars"])
         self.assertGreaterEqual(report["latency_ms"], 0)
         self.assertEqual({"input_tokens": 123, "output_tokens": 45}, report["provider_token_usage"])
+        self.assertEqual(64, len(report["task_sha256"]))
         self.assertEqual(64, len(report["raw_sha256"]))
         self.assertEqual(64, len(report["bounded_sha256"]))
         self.assertIsNone(report["task_success"])
