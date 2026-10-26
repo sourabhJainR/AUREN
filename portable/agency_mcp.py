@@ -51,7 +51,7 @@ class MCPToolEndpoint:
                 arguments = request.params.get("arguments", {})
                 if not isinstance(arguments, Mapping):
                     raise TypeError("arguments must be an object")
-                result = self.registry.execute(name, arguments, self.policy)
+                result = self.registry.execute(name, arguments, self.policy, require_extension_policy=True)
                 return MCPResponse(request.request_id, {"content": [{"type": "text", "text": str(result)}]})
             return MCPResponse(request.request_id, error={"code": -32601, "message": "method not found"})
         except PermissionError as exc:
