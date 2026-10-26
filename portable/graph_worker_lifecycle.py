@@ -394,6 +394,8 @@ class GraphWorkerLifecycle:
                     raise PermissionError(f"worker {worker_id} lacks a verified graph result")
             missing = [worker_id for worker_id in ids if worker_id not in prepared_workers]
             if missing:
+                self.runtime_guard.cancel("prepared graph worker state was lost during restart")
+                self.coordinator.cancel_siblings("prepared graph worker state was lost during restart")
                 for worker_id in missing:
                     marker = state.get("graph_worker_prepared_" + worker_id)
                     task_id = marker.get("task_id") if isinstance(marker, Mapping) else None
