@@ -242,6 +242,67 @@ class SubprocessProviderInvokerTests(unittest.TestCase):
             self.invoker("pass", env={"BAD=KEY": "value"})
 
 
+
+    def test_extension_policy_denies_before_provider_launch_and_bounds_output(self):
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "provider-launched.txt"
+            command = f"import pathlib; pathlib.Path({str(marker)!r}).write_text('launched')"
+            metadata = {
+                "available": True,
+                "manifest_valid": True,
+                "trust_class": "trusted",
+                "requires_approval": True,
+                "permissions": ["provider:invoke"],
+                "provider_ids": ["provider-test"],
+                "artifact_fresh": True,
+                "output_limit_chars": 12,
+            }
+            denied = self.invoker(
+                command,
+                is_extension=True,
+                extension_metadata=metadata,
+                extension_trust_granted=True,
+                extension_approval_granted=False,
+                extension_permissions=("provider:invoke",),
+                extension_artifact_fresh=True,
+                extension_provider_id="provider-test",
+            )
+            with self.assertRaises(PermissionError):
+                denied("request", 2)
+            self.assertFalse(marker.exists())
+
+            bounded = self.invoker(
+                "print('0123456789abcdefghijklmnopqrstuvwxyz')",
+                is_extension=True,
+                extension_metadata={**metadata, "requires_approval": False},
+                extension_trust_granted=True,
+                extension_permissions=("provider:invoke",),
+                extension_artifact_fresh=True,
+                extension_provider_id="provider-test",
+            )
+            result = bounded("request", 2)
+            self.assertLessEqual(len(result), 12)
+
+    def test_extension_provider_scope_mismatch_denies_before_launch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "provider-launched.txt"
+            command = f"import pathlib; pathlib.Path({str(marker)!r}).write_text('launched')"
+            provider = self.invoker(
+                command,
+                is_extension=True,
+                extension_metadata={
+                    "available": True, "manifest_valid": True, "trust_class": "trusted",
+                    "requires_approval": False, "permissions": [], "provider_ids": ["provider-b"],
+                    "artifact_fresh": True, "output_limit_chars": 100,
+                },
+                extension_trust_granted=True,
+                extension_artifact_fresh=True,
+                extension_provider_id="provider-a",
+            )
+            with self.assertRaisesRegex(PermissionError, "provider_scope_not_authorized"):
+                provider("request", 2)
+            self.assertFalse(marker.exists())
+
 if __name__ == "__main__":
     unittest.main()
 
