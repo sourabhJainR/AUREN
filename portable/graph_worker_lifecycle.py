@@ -564,6 +564,28 @@ class GraphWorkerLifecycle:
                     if isinstance(task_id, str) and task_id in self.task_plan.tasks:
                         try:
                             snapshot = self.journal.snapshot(task_id)
+                            receipt_ref = marker.get("receipt_path") if isinstance(marker, Mapping) else None
+                            receipt_path = Path(receipt_ref) if isinstance(receipt_ref, str) and receipt_ref else None
+                            proposal_ref = (
+                                str(receipt_path.with_name(receipt_path.name.removesuffix(".verification.json") + ".patch"))
+                                if receipt_path else None
+                            )
+                            recovery_snapshot = self.recovery_bridge.load()
+                            recovery_node = recovery_snapshot["nodes"][task_id]
+                            if recovery_node["status"] == "working":
+                                self._record_recovery_node(
+                                    task_id=task_id, status="unknown",
+                                    next_safe_action="reconcile_persisted_receipt_and_workspace_before_resume",
+                                    worker_id=worker_id, evidence_refs=tuple(
+                                        ref for ref in (proposal_ref, receipt_ref) if ref
+                                    ), attempts=recovery_node["attempts"],
+                                )
+                            elif recovery_node["status"] == "waiting":
+                                self._record_recovery_node(
+                                    task_id=task_id, status="blocked",
+                                    next_safe_action="inspect_persisted_receipt_and_workspace",
+                                    blockers=["prepared_worker_state_lost"],
+                                )
                             if snapshot.get("state") not in {"completed", "failed", "cancelled"}:
                                 self.journal.record(
                                     task_id, "prepared-worker-lost", state="blocked", stage="recovery",
@@ -571,10 +593,14 @@ class GraphWorkerLifecycle:
                                         task_id, worker_id, self.task_plan.digest(), self.intent_digest,
                                         "prepared_worker_lost",
                                     ) + "; next_action=inspect_persisted_receipt_and_workspace",
-                                    evidence_ref=snapshot.get("evidence_ref"),
+                                    evidence_ref=receipt_ref or snapshot.get("evidence_ref"),
                                 )
                         except BaseException:
                             pass
+                self._block_recovery_run(
+                    "prepared worker state was lost during restart",
+                    "reconcile_persisted_receipt_and_workspace_before_resume",
+                )
                 raise PermissionError("prepared worker state was lost; restart reconciliation is required")
             return {"graph_worker_adoption": self.adopt_prepared(ids)}
         return node
