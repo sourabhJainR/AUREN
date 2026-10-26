@@ -148,6 +148,52 @@ class GraphWorkerLifecycleTests(unittest.TestCase):
         self.assertEqual(self.journal.snapshot("write-a")["state"], "completed")
         self.assertEqual(self.journal.snapshot("write-b")["state"], "completed")
 
+    def test_state_graph_runs_worker_nodes_then_one_serialized_adoption_node(self):
+        from portable.agency_state_graph import StateGraph
+
+        tasks = [
+            Task("write-a", "write file a", files=["src/a.py"], metadata={"execution_mode": "mutating"}),
+            Task("write-b", "write file b", files=["src/b.py"], metadata={"execution_mode": "mutating"}),
+        ]
+        plan = self.lifecycle(tasks)
+        prepared = {}
+        def writer(path, value):
+            def write(workspace, _task):
+                (workspace / path).write_text(value, encoding="utf-8")
+            return write
+        graph = StateGraph()
+        graph.add_node("worker-a", plan.as_prepare_node(
+            prepared_workers=prepared, task_id="write-a", worker_id="worker-a",
+            worker_identity="worker-a", owned_paths=["src/a.py"],
+            execute_in_workspace=writer("src/a.py", "a = 1\\n"),
+            checks=self.checks("src/a.py", "a = 1\\n"),
+        ))
+        graph.add_node("worker-b", plan.as_prepare_node(
+            prepared_workers=prepared, task_id="write-b", worker_id="worker-b",
+            worker_identity="worker-b", owned_paths=["src/b.py"],
+            execute_in_workspace=writer("src/b.py", "b = 2\\n"),
+            checks=self.checks("src/b.py", "b = 2\\n"),
+        ))
+        graph.add_node("adopt", plan.as_adoption_node(
+            prepared_workers=prepared, worker_ids=("worker-a", "worker-b"),
+        ))
+        graph.add_edge(StateGraph.START, "worker-a")
+        graph.add_edge(StateGraph.START, "worker-b")
+        graph.add_edge("worker-a", "adopt")
+        graph.add_edge("worker-b", "adopt")
+        graph.add_edge("adopt", StateGraph.END)
+        result = graph.compile().invoke(
+            {}, run_id="graph-worker-lifecycle",
+            parallel_nodes=lambda name: name.startswith("worker-"),
+            max_parallel_nodes=2,
+            node_duration_estimates={"worker-a": 5.0, "worker-b": 5.0},
+            parallel_overhead_seconds=0.001,
+        )
+        self.assertFalse(result.interrupted)
+        self.assertEqual(result.state["graph_worker_adoption"]["status"], "completed")
+        self.assertTrue((self.repo / "src" / "a.py").is_file())
+        self.assertTrue((self.repo / "src" / "b.py").is_file())
+
     def test_restart_or_duplicate_dispatch_fails_closed_from_durable_journal(self):
         plan = self.lifecycle([
             Task("write-a", "write one file", files=["src/feature.py"], metadata={"execution_mode": "mutating"})
