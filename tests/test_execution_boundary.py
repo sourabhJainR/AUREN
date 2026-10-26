@@ -460,7 +460,7 @@ class SubprocessBoundaryInventoryTests(unittest.TestCase):
         "portable/external_evaluator_gateway.py::evaluate": "host-process mode is test-only and is not a security sandbox",
         "portable/isolated_arena_runner.py::run_campaign_isolated::policy": "policy-command runner; the supplied command is not itself proof of OS isolation",
         "portable/local_offload.py::run": "local offload; inspect argv, environment, workspace, timeout and cancellation",
-        "portable/subprocess_provider.py::__call__": "command provider; clean environment, no shell, bounded timeout and process-tree controls",
+        "portable/subprocess_provider.py::_invoke_unchecked": "private process-launch implementation; only public __call__/invoke_supervised entrypoints are supported, and optional extensions pass policy preflight before this launch; clean environment, no shell, bounded timeout, output and process-tree controls",
         "portable/vibe_coding_host.py::_invoke_unchecked": "MCP subprocess launch is only reached through the authority wrapper for consequential capabilities; inspect argv, safe environment, workspace, cancellation and output bounds",
     }
     REVIEWED_POPEN_CALL_COUNTS = {key: 1 for key in REVIEWED_POPEN_DISPOSITIONS}
