@@ -52,6 +52,20 @@ class ArtifactFreshnessTests(unittest.TestCase):
         self.assertFalse(result["fresh"])
         self.assertEqual("artifact_digest_mismatch", result["reason"])
 
+    def test_malformed_manifest_is_not_trusted(self):
+        self.manifest.write_text(
+            json.dumps({
+                "schema_version": True,
+                "artifact_sha256": "0" * 64,
+                "repository_snapshot_sha256": "0" * 64,
+            }),
+            encoding="utf-8",
+        )
+        result = validate_artifact_freshness(self.artifact, self.root)
+        self.assertFalse(result["fresh"])
+        self.assertEqual("invalid", result["status"])
+        self.assertEqual("freshness_manifest_invalid", result["reason"])
+
     def test_missing_manifest_is_unverified_not_fresh(self):
         result = validate_artifact_freshness(self.artifact, self.root)
         self.assertFalse(result["fresh"])
