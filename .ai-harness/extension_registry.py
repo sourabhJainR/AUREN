@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import json
 import re
-
-from artifact_freshness import validate_artifact_freshness
 import shutil
 from pathlib import Path
 from typing import Any
+
+from artifact_freshness import validate_artifact_freshness
 
 ROOT = Path(__file__).resolve().parents[1]
 REGISTRY = ROOT / ".ai-harness" / "extension_registry.toml"
