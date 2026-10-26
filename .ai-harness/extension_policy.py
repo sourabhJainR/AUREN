@@ -89,4 +89,6 @@ def invoke_extension(
     if len(rendered) <= limit:
         return rendered
     suffix = "\n[output truncated by AUREN policy]"
-    return rendered[: max(0, limit - len(suffix))] + suffix[:limit]
+    if limit <= len(suffix):
+        return rendered[:limit]
+    return rendered[: limit - len(suffix)] + suffix
