@@ -71,10 +71,11 @@ Context benchmark reports now bind raw and selected context with SHA-256 digests
 
 ## Verification requirements
 
-- Run python .ai-harness/extension_registry.py and python -m unittest tests.test_extension_registry -v.
-- Run the repository's applicable architecture, hardening, portable-bundle, runtime-resilience, and integration-conflict checks on the exact PR head.
+- Run `python .ai-harness/extension_registry.py`.
+- Run `python -m unittest tests.test_extension_registry tests.test_extension_policy tests.test_capability_catalog tests.test_context_engine -v`.
+- Run the applicable architecture, hardening, portable-bundle, runtime-resilience, and integration-conflict checks on the exact PR head.
 - Confirm the branch's final head before merge; after merge, verify required checks on the resulting main commit.
-- Roll back this change by reverting the extension inventory/manifest/test commits. No external tool configuration or installation is changed by this change.
+- Roll back the scoped implementation PR if a gate regresses. Do not disable fail-closed freshness, trust, approval, privacy, cancellation, or holdout checks to make CI pass.
 
 ## Limits
 
