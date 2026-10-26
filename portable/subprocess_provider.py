@@ -15,7 +15,7 @@ import threading
 import time
 from pathlib import Path
 from typing import Mapping, Sequence
-from .extension_policy import invoke_extension
+from .extension_policy import ExtensionInvocationDenied, evaluate_invocation
 
 
 class SubprocessProviderError(RuntimeError):
@@ -294,7 +294,20 @@ class SubprocessProviderInvoker:
             effective_timeout = min(float(timeout_seconds), remaining)
         return self(prompt, effective_timeout, cancel_event=cancel_event)
 
-    def _invoke_unchecked(self, prompt: str, timeout_seconds: int | float, *, cancel_event: threading.Event | None = None) -> str:
+    def __call__(self, prompt: str, timeout_seconds: int | float, *, cancel_event: threading.Event | None = None) -> str:
+        extension_decision = None
+        if self.is_extension:
+            extension_decision = evaluate_invocation(
+                self.extension_metadata,
+                trust_granted=self.extension_trust_granted,
+                approval_granted=self.extension_approval_granted,
+                requested_permissions=self.extension_permissions,
+                artifact_fresh=self.extension_artifact_fresh,
+                provider_id=self.extension_provider_id,
+                require_provider_scope=True,
+            )
+            if not extension_decision["allowed"]:
+                raise ExtensionInvocationDenied(";".join(extension_decision["reasons"]))
         if not isinstance(prompt, str):
             raise TypeError("provider prompt must be text")
         if cancel_event is not None and not isinstance(cancel_event, threading.Event):
@@ -450,22 +463,13 @@ class SubprocessProviderInvoker:
         if process.returncode != 0:
             raise SubprocessProviderError(f"provider subprocess exited with code {process.returncode}")
         try:
-            return bytes(output).decode("utf-8")
+            rendered = bytes(output).decode("utf-8")
         except UnicodeDecodeError as exc:
             raise ValueError("provider response must be UTF-8 text") from exc
+        if extension_decision is not None:
+            limit = extension_decision["output_limit_chars"]
+            if len(rendered) > limit:
+                suffix = "\n[output truncated by AUREN policy]"
+                rendered = rendered[:limit] if limit <= len(suffix) else rendered[:limit - len(suffix)] + suffix
+        return rendered
 
-    def __call__(self, prompt: str, timeout_seconds: int | float, *, cancel_event: threading.Event | None = None) -> str:
-        if not self.is_extension:
-            return self._invoke_unchecked(prompt, timeout_seconds, cancel_event=cancel_event)
-        # Extension providers are denied before process creation unless all
-        # trust, approval, provider-scope, freshness and output policies verify.
-        return invoke_extension(
-            self.extension_metadata,
-            lambda: self._invoke_unchecked(prompt, timeout_seconds, cancel_event=cancel_event),
-            trust_granted=self.extension_trust_granted,
-            approval_granted=self.extension_approval_granted,
-            requested_permissions=self.extension_permissions,
-            artifact_fresh=self.extension_artifact_fresh,
-            provider_id=self.extension_provider_id,
-            require_provider_scope=True,
-        )
