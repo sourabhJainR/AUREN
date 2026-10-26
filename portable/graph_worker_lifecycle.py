@@ -153,6 +153,49 @@ class GraphWorkerLifecycle:
             # the primary execution failure and ProgressJournal retains its record.
             pass
 
+    def _mark_cancelled_siblings_unknown(self, *, exclude_task_id: str, reason: str) -> None:
+        """Persist uncertainty for sibling workers cancelled while a node failed."""
+        try:
+            snapshot = self.recovery_bridge.load()
+            worker_states = self.coordinator.worker_states()
+        except BaseException:
+            return
+        for sibling_id, node in snapshot["nodes"].items():
+            if sibling_id == exclude_task_id or node.get("status") != "working":
+                continue
+            worker_id = node.get("worker_id")
+            if not isinstance(worker_id, str) or worker_states.get(worker_id) != "cancel_requested":
+                continue
+            message = self._binding(
+                sibling_id, worker_id, self.task_plan.digest(), self.intent_digest, "sibling_cancel_requested"
+            ) + "; reason=" + reason + "; next_action=confirm_sibling_termination_and_reconcile"
+            try:
+                self._record_recovery_node(
+                    task_id=sibling_id, status="unknown",
+                    next_safe_action="confirm_sibling_termination_and_reconcile",
+                    worker_id=worker_id, workspace_id=node.get("workspace_id"),
+                    attempts=node["attempts"], evidence_refs=node.get("evidence_refs", ()),
+                )
+            except BaseException:
+                pass
+            try:
+                progress = self.journal.snapshot(sibling_id)
+                prior_state = progress.get("reported_state", progress.get("state"))
+                if prior_state in {"completed", "failed", "cancelled"}:
+                    self.journal.record_reconciliation(
+                        sibling_id, state="blocked", stage="recovery", message=message,
+                        evidence_ref=progress.get("evidence_ref"),
+                        expected_sequence=progress.get("sequence", 0),
+                    )
+                else:
+                    self.journal.record(
+                        sibling_id, "sibling-cancellation-requested", state="blocked",
+                        stage="recovery", message=message,
+                        evidence_ref=progress.get("evidence_ref"),
+                    )
+            except BaseException:
+                pass
+
     @staticmethod
     def _receipt_digest(receipt: Mapping[str, Any]) -> str:
         payload = dict(receipt)
@@ -352,6 +395,9 @@ class GraphWorkerLifecycle:
                 self.coordinator.cancel_siblings(f"graph worker preparation failed: {type(exc).__name__}")
             except BaseException:
                 pass
+            self._mark_cancelled_siblings_unknown(
+                exclude_task_id=task_id, reason=type(exc).__name__,
+            )
             try:
                 recovery_snapshot = self.recovery_bridge.load()
                 node = recovery_snapshot["nodes"][task_id]
