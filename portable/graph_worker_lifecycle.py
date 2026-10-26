@@ -16,6 +16,7 @@ from typing import Any, Callable, Mapping, Sequence
 from portable.graph_workspace_adoption import GraphWorkspaceCoordinator, WorkspaceProposal
 from portable.independent_graph_verification import IndependentGraphVerifier
 from portable.progress_journal import ProgressJournal
+from portable.runtime_recovery import ExecutionBudgetExceeded, RuntimeExecutionGuard
 from portable.task_planner import TaskPlan
 
 
@@ -45,6 +46,7 @@ class GraphWorkerLifecycle:
         journal: ProgressJournal,
         task_plan: TaskPlan,
         intent_digest: str,
+        runtime_guard: RuntimeExecutionGuard,
     ) -> None:
         if not isinstance(coordinator, GraphWorkspaceCoordinator):
             raise TypeError("coordinator must be the canonical GraphWorkspaceCoordinator")
@@ -54,6 +56,8 @@ class GraphWorkerLifecycle:
             raise TypeError("journal must be the canonical ProgressJournal")
         if not isinstance(task_plan, TaskPlan):
             raise TypeError("task_plan must be the canonical TaskPlan")
+        if not isinstance(runtime_guard, RuntimeExecutionGuard):
+            raise TypeError("runtime_guard must be the caller-owned shared RuntimeExecutionGuard")
         if not isinstance(intent_digest, str) or len(intent_digest) != 64:
             raise ValueError("intent_digest must be a SHA-256 digest")
         try:
@@ -65,6 +69,7 @@ class GraphWorkerLifecycle:
         self.journal = journal
         self.task_plan = task_plan
         self.intent_digest = intent_digest
+        self.runtime_guard = runtime_guard
         self._prepared: dict[str, PreparedGraphWorker] = {}
         self._lock = RLock()
 
@@ -118,25 +123,54 @@ class GraphWorkerLifecycle:
                 evidence_ref=prior.get("evidence_ref"),
             )
             raise PermissionError("durable progress already exists; reconcile prior worker state before redispatch")
-        self.journal.record(
-            task_id, "worker-started", state="running", stage="isolated_workspace",
-            message=self._binding(task_id, worker_id, plan_digest, self.intent_digest, "worker_started"),
-        )
         proposal: WorkspaceProposal | None = None
         receipt_path: Path | None = None
         try:
+            self.runtime_guard.check()
+            self.runtime_guard.charge_step()
+            self.runtime_guard.charge_attempt(f"graph-worker:{task_id}:{worker_id}")
+            self.journal.record(
+                task_id, "worker-started", state="running", stage="isolated_workspace",
+                message=self._binding(task_id, worker_id, plan_digest, self.intent_digest, "worker_started")
+                + "; budget=" + json.dumps(self.runtime_guard.snapshot(), sort_keys=True, separators=(",", ":")),
+            )
             workspace = self.coordinator.create_worker(worker_id, owned_paths)
-            execute_in_workspace(workspace, dict(task.__dict__))
+            self.journal.record(
+                task_id, "workspace-created", state="running", stage="isolated_workspace",
+                message=self._binding(task_id, worker_id, plan_digest, self.intent_digest, "workspace_created")
+                + "; workspace=" + str(workspace) + "; base_revision=" + self.coordinator.base_revision
+                + "; dependencies=" + json.dumps(task.dependencies, separators=(",", ":"))
+                + "; next_action=execute_worker_and_capture_proposal",
+            )
+            worker_context = dict(task.__dict__)
+            worker_context["_auren_cancellation_event"] = self.runtime_guard.cancellation_event
+            worker_context["_auren_runtime_guard"] = self.runtime_guard
+            execute_in_workspace(workspace, worker_context)
+            self.runtime_guard.check()
             proposal = self.coordinator.prepare_proposal(worker_id)
             self.journal.record(
                 task_id, "proposal-captured", state="running", stage="independent_verification",
                 message=self._binding(task_id, worker_id, plan_digest, self.intent_digest, "proposal_captured"),
                 evidence_ref=proposal.artifact_path,
             )
+            self.runtime_guard.check()
+            remaining = self.runtime_guard.snapshot().get("remaining_seconds")
+            if remaining is not None and remaining < 1.0:
+                raise ExecutionBudgetExceeded("shared task deadline leaves insufficient time for a verification command")
+            bounded_checks = []
+            for check in checks:
+                row = dict(check)
+                if remaining is not None:
+                    row["timeout_seconds"] = min(
+                        row.get("timeout_seconds", min(120, self.verifier.max_timeout_seconds)),
+                        max(1, int(remaining)),
+                    )
+                bounded_checks.append(row)
             receipt = self.verifier.verify(
                 proposal, worker_identity=worker_identity, task_digest=plan_digest,
-                intent_digest=self.intent_digest, checks=checks,
+                intent_digest=self.intent_digest, checks=bounded_checks,
             )
+            self.runtime_guard.check()
             expected = {
                 "status": "passed", "worker_identity": worker_identity,
                 "task_digest": plan_digest, "intent_digest": self.intent_digest,
@@ -207,6 +241,7 @@ class GraphWorkerLifecycle:
             if missing:
                 raise PermissionError(f"prepared worker receipts are unavailable; reconcile before adoption: {missing}")
             prepared = [self._prepared[worker_id] for worker_id in worker_ids]
+        self.runtime_guard.check()
         for item in prepared:
             task = self.task_plan.tasks.get(item.task_id)
             if task is None or task.status != "pending":
@@ -224,7 +259,7 @@ class GraphWorkerLifecycle:
             if json.loads(persisted.read_text(encoding="utf-8")) != receipt:
                 raise PermissionError("persisted verification receipt does not match prepared result")
         try:
-            adopted = self.coordinator.adopt_many([item.proposal for item in prepared])
+            self.runtime_guard.check()\n            adopted = self.coordinator.adopt_many([item.proposal for item in prepared])
             for item in prepared:
                 if tuple(adopted[item.worker_id]) != tuple(sorted(item.proposal.paths)):
                     raise GraphWorkerLifecycleError("adopted paths differ from verified proposal")
