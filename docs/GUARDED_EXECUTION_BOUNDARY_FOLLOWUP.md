@@ -180,3 +180,24 @@ operator explicitly configures `AUREN_EVIDENCE_SINK_ALLOWED_CIDRS` with the
 approved CIDR range(s). Redirects are not followed, and the request body and
 response size remain bounded. The bearer token is sent only to the configured
 hostname over verified TLS.
+
+
+## Automated Docker OS isolation acceptance
+
+`scripts/verify_docker_isolation.py` exercises the real
+`DockerIsolatedEvaluatorExecutor` with an immutable Python image digest. The
+workflow `.github/workflows/docker-isolation-acceptance.yml` pulls that exact
+digest, launches a non-root container through the production adapter, inspects
+the live container's runtime configuration, and probes host-sentinel visibility,
+read-only rootfs, writable restricted tmpfs, network isolation, PID namespace
+separation, resource limits, dropped capabilities, and cleanup.
+
+A passing workflow run is runtime evidence for that image digest and the
+observed Docker configuration. It does not prove kernel escape resistance,
+all syscall behavior, alternate images, Windows/macOS isolation, or other
+providers. The OpenShell probe remains separate and must be run against an
+approved OpenShell policy before making OpenShell-specific claims.
+
+Rollback: if Docker is unavailable or the digest cannot be verified, the job
+must fail or block; do not replace this gate with unit tests or application
+Guard decisions.

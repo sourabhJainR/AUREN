@@ -1,0 +1,33 @@
+name: Docker OS Isolation Acceptance
+
+on:
+  push:
+    branches:
+      - main
+      - "security/**"
+    paths:
+      - "portable/docker_isolated_evaluator.py"
+      - "scripts/verify_docker_isolation.py"
+      - ".github/workflows/docker-isolation-acceptance.yml"
+  pull_request:
+    paths:
+      - "portable/docker_isolated_evaluator.py"
+      - "scripts/verify_docker_isolation.py"
+      - ".github/workflows/docker-isolation-acceptance.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux-docker-isolation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      AUREN_ISOLATION_IMAGE: python@sha256:2b4f19dae3a777dfc3b76730bda1e82e1f66ab2a2686fa93ca78edbfb4f04ffe
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pull immutable probe image
+        run: docker pull "$AUREN_ISOLATION_IMAGE"
+      - name: Verify actual Docker runtime isolation
+        run: python scripts/verify_docker_isolation.py --image "$AUREN_ISOLATION_IMAGE"
