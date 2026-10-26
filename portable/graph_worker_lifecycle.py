@@ -225,13 +225,17 @@ class GraphWorkerLifecycle:
                 raise PermissionError("persisted verification receipt does not match prepared result")
         try:
             adopted = self.coordinator.adopt_many([item.proposal for item in prepared])
+            for item in prepared:
+                if tuple(adopted[item.worker_id]) != tuple(sorted(item.proposal.paths)):
+                    raise GraphWorkerLifecycleError("adopted paths differ from verified proposal")
+            # Complete cleanup for the whole sibling set before any task is marked
+            # complete. A cleanup failure leaves all journal tasks non-terminal.
+            for item in prepared:
+                self.coordinator.cleanup_worker(item.worker_id)
             results = {}
             for item in prepared:
                 task = self.task_plan.tasks[item.task_id]
                 paths = adopted[item.worker_id]
-                if tuple(paths) != tuple(sorted(item.proposal.paths)):
-                    raise GraphWorkerLifecycleError("adopted paths differ from verified proposal")
-                self.coordinator.cleanup_worker(item.worker_id)
                 self.journal.record(
                     item.task_id, "verified-proposal-adopted", state="completed", stage="adoption",
                     message=self._binding(item.task_id, item.worker_id, item.task_digest, item.intent_digest, "complete"),
