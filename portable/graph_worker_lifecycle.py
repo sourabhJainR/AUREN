@@ -104,6 +104,54 @@ class GraphWorkerLifecycle:
             "cancellation_reason": snapshot.get("cancellation_reason"),
         }
 
+    def _record_recovery_node(
+        self,
+        *,
+        task_id: str,
+        status: str,
+        next_safe_action: str,
+        worker_id: str | None = None,
+        workspace_id: str | None = None,
+        attempts: int | None = None,
+        evidence_refs: Sequence[str] = (),
+        blockers: Sequence[str] = (),
+    ) -> dict[str, Any]:
+        snapshot = self.recovery_bridge.load()
+        node = snapshot["nodes"][task_id]
+        payload = {
+            "task_id": task_id, "status": status, "next_safe_action": next_safe_action,
+            "worker_id": worker_id, "workspace_id": workspace_id, "attempts": attempts,
+            "evidence_refs": list(evidence_refs), "blockers": list(blockers),
+            "budget_digest": self.runtime_guard.snapshot()["digest"],
+        }
+        event_suffix = hashlib.sha256(
+            json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
+        ).hexdigest()[:20]
+        return self.recovery_bridge.record_node(
+            event_id=f"{task_id}:{status}:{event_suffix}",
+            node_id=task_id, status=status,
+            budget_snapshot=self.runtime_guard.snapshot(),
+            next_safe_action=next_safe_action,
+            worker_id=worker_id, workspace_id=workspace_id,
+            attempts=node["attempts"] if attempts is None else attempts,
+            evidence_refs=evidence_refs, blockers=blockers,
+        )
+
+    def _block_recovery_run(self, reason: str, next_safe_action: str) -> None:
+        try:
+            snapshot = self.recovery_bridge.load()
+            if snapshot.get("run_status") == "in_progress":
+                suffix = hashlib.sha256(reason.encode("utf-8")).hexdigest()[:20]
+                self.recovery_bridge.block_run(
+                    event_id=f"lifecycle-blocked:{suffix}", reason=reason,
+                    next_safe_action=next_safe_action,
+                    budget_snapshot=self.runtime_guard.snapshot(),
+                )
+        except BaseException:
+            # Recovery disagreement remains fail-closed; the caller still raises
+            # the primary execution failure and ProgressJournal retains its record.
+            pass
+
     @staticmethod
     def _receipt_digest(receipt: Mapping[str, Any]) -> str:
         payload = dict(receipt)
