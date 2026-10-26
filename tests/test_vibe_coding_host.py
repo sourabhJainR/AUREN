@@ -327,6 +327,50 @@ class VibeCodingHostTests(unittest.TestCase):
             },
         }
 
+    def test_mcp_response_limit_rejects_invalid_values(self):
+        with self.assertRaisesRegex(ValueError, "response limit"):
+            MCPStdioToolAdapter(
+                argv=(sys.executable, "-c", "pass"),
+                tool_name="research",
+                max_response_chars=0,
+            )
+
+    def test_mcp_oversized_response_is_rejected(self):
+        import queue
+
+        responses = queue.Queue()
+        responses.put(MCPStdioToolAdapter._OVERSIZE_RESPONSE)
+        with self.assertRaisesRegex(AdapterUnavailable, "character limit"):
+            MCPStdioToolAdapter._read_response(None, responses, 2, 0.1)
+
+    def test_mcp_adapter_rejects_oversized_tool_result_before_acceptance(self):
+        with tempfile.TemporaryDirectory() as temp:
+            project = Path(temp) / "project"
+            project.mkdir()
+            server = Path(temp) / "oversized_mcp.py"
+            server.write_text(
+                "import json, sys\n"
+                "for line in sys.stdin:\n"
+                "    request = json.loads(line)\n"
+                "    if request.get('id') == 1:\n"
+                "        result = {'protocolVersion': '2024-11-05', 'capabilities': {}, 'serverInfo': {'name': 'fake', 'version': '1'}}\n"
+                "        print(json.dumps({'jsonrpc': '2.0', 'id': 1, 'result': result}), flush=True)\n"
+                "    elif request.get('id') == 2:\n"
+                "        result = {'content': [{'type': 'text', 'text': 'x' * 2000}]}\n"
+                "        print(json.dumps({'jsonrpc': '2.0', 'id': 2, 'result': result}), flush=True)\n",
+                encoding="utf-8",
+            )
+            tool = MCPStdioToolAdapter(
+                argv=(sys.executable, str(server)),
+                tool_name="research",
+                timeout_seconds=5,
+                max_response_chars=512,
+                requires_authority_binding=False,
+                trusted_workspace_root=project,
+            )
+            with self.assertRaisesRegex(AdapterUnavailable, "character limit"):
+                tool({"stage": "research", "intent": "oversized", "state": {"workspace_root": str(project)}})
+
     def test_mcp_adapter_defaults_to_authority_binding_and_fails_before_launch(self):
         tool = MCPStdioToolAdapter(
             argv=(sys.executable, "-c", "pass"),

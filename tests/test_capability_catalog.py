@@ -26,10 +26,46 @@ class CapabilityCatalogTests(unittest.TestCase):
         self.assertIn("rca_investigator", plan["selected"])
         self.assertNotIn("builder", plan["selected"])
 
+    def test_discovery_does_not_make_extension_an_execution_hint(self):
+        plan = select_capabilities(
+            {"mode": "research"},
+            extensions={
+                "mcp": {
+                    "available": True,
+                    "trust_class": "external-unverified",
+                    "requires_approval": True,
+                    "permissions": ["read-repository"],
+                    "output_limit_chars": 1000,
+                },
+                "trusted_readonly": {
+                    "available": True,
+                    "trust_class": "trusted",
+                    "trust_granted": True,
+                    "artifact_fresh": True,
+                    "requires_approval": False,
+                    "permissions": ["read-repository"],
+                    "output_limit_chars": 1000,
+                },
+            },
+        )
+        self.assertEqual(plan["extension_hints"], ["trusted_readonly"])
+        self.assertIn("explicit_trust_grant_required", plan["extension_decisions"]["mcp"]["reasons"])
+        self.assertTrue(validate_plan(plan)["passed"])
+
     def test_invalid_plan_is_rejected(self):
         result = validate_plan({"selected": ["builder", "builder"], "max_parallel_read_only": 1})
         self.assertFalse(result["passed"])
         self.assertIn("duplicate_capability", result["reasons"])
+
+    def test_unapproved_extension_hint_is_rejected(self):
+        result = validate_plan({
+            "selected": ["planner"],
+            "max_parallel_read_only": 1,
+            "extension_hints": ["mcp"],
+            "extension_decisions": {"mcp": {"allowed": False, "reasons": ["approval_required"]}},
+        })
+        self.assertFalse(result["passed"])
+        self.assertIn("unapproved_extension_hint", result["reasons"])
 
 
 if __name__ == "__main__":
