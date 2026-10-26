@@ -371,10 +371,11 @@ class GraphCheckpointMismatch(RuntimeError):
     """The durable graph journal and canonical recovery checkpoint disagree."""
 
 
-_GRAPH_STATUSES = frozenset({"waiting", "working", "blocked", "failed", "unknown", "cancelled", "complete"})
+_GRAPH_STATUSES = frozenset({"waiting", "working", "adopting", "blocked", "failed", "unknown", "cancelled", "complete"})
 _TRANSITIONS = {
     "waiting": frozenset({"working", "blocked", "cancelled"}),
-    "working": frozenset({"blocked", "failed", "unknown", "cancelled", "complete"}),
+    "working": frozenset({"adopting", "blocked", "failed", "unknown", "cancelled", "complete"}),
+    "adopting": frozenset({"blocked", "failed", "unknown", "cancelled", "complete"}),
     "blocked": frozenset({"waiting", "cancelled"}),
     "failed": frozenset({"waiting", "cancelled"}),
     "unknown": frozenset({"blocked", "failed", "cancelled"}),
@@ -666,7 +667,7 @@ class GraphRunRecoveryBridge:
             raise ValueError("node attempts cannot decrease or be non-integer")
         if node["status"] in {"failed", "blocked"} and status == "waiting" and new_attempts <= prior_attempts:
             raise ValueError("retrying a failed or blocked node requires a higher attempt count")
-        if status == "working":
+        if status in {"working", "adopting"}:
             if not isinstance(worker_id, str) or not worker_id.strip() or not isinstance(workspace_id, str) or not workspace_id.strip():
                 raise ValueError("working nodes require worker_id and workspace_id")
             if any(snapshot["nodes"][dependency]["status"] != "complete" for dependency in node["dependencies"]):
@@ -682,6 +683,8 @@ class GraphRunRecoveryBridge:
         if status != "blocked" and clean_blockers:
             raise ValueError("non-blocked node cannot retain blockers")
         refs = list(dict.fromkeys(str(item).strip() for item in evidence_refs if str(item).strip()))
+        if status == "adopting" and not refs:
+            raise ValueError("adopting nodes require verified proposal and receipt evidence")
         if status == "complete":
             if current_budget.get("remaining_seconds") is not None and current_budget["remaining_seconds"] <= 0:
                 raise ValueError("expired deadline cannot produce a completed node")
@@ -797,6 +800,11 @@ class GraphRunRecoveryBridge:
             if node["status"] == "waiting":
                 node["status"] = "cancelled"
                 node["next_safe_action"] = next_safe_action.strip()
+            elif node["status"] == "adopting":
+                # A stopped adoption process may have applied some or all of its
+                # patch. Process termination alone cannot establish target state.
+                node["status"] = "unknown"
+                node["next_safe_action"] = "reconcile_target_tree_and_recovery_ledger"
             elif node["status"] == "working":
                 node["status"] = "cancelled" if node_id in confirmed else "unknown"
                 node["next_safe_action"] = (
