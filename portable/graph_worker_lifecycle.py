@@ -311,7 +311,11 @@ class GraphWorkerLifecycle:
                 persisted = Path(item.receipt_path)
                 if persisted.is_symlink() or not persisted.is_file():
                     raise PermissionError("verification receipt is missing or unsafe")
-                if json.loads(persisted.read_text(encoding="utf-8")) != receipt:
+                try:
+                    persisted_receipt = json.loads(persisted.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError) as exc:
+                    raise PermissionError("persisted verification receipt is invalid") from exc
+                if persisted_receipt != receipt:
                     raise PermissionError("persisted verification receipt does not match prepared result")
             self.runtime_guard.check()
             adopted = self.coordinator.adopt_many([item.proposal for item in prepared])
