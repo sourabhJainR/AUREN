@@ -15,6 +15,7 @@ import threading
 import time
 from pathlib import Path
 from typing import Mapping, Sequence
+from .extension_policy import invoke_extension
 
 
 class SubprocessProviderError(RuntimeError):
