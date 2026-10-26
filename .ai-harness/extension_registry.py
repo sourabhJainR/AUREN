@@ -128,7 +128,8 @@ def validate_registry_manifest(data: dict[str, Any]) -> dict[str, list[str]]:
         for key in required_strings:
             if not isinstance(spec.get(key), str) or not spec[key].strip():
                 errors.append(f"{key}_required")
-        if spec.get("trust_class") not in {"local-unverified", "external-unverified", "unverified", "trusted"}:
+        trust_class = spec.get("trust_class")
+        if not isinstance(trust_class, str) or trust_class not in {"local-unverified", "external-unverified", "unverified", "trusted"}:
             errors.append("trust_class_invalid")
         for key in required_lists:
             value = spec.get(key)
