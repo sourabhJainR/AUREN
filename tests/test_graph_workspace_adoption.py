@@ -3,6 +3,7 @@ from __future__ import annotations
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 from portable.graph_workspace_adoption import GraphWorkspaceCoordinator
@@ -79,6 +80,53 @@ class GraphWorkspaceAdoptionTests(unittest.TestCase):
         self.assertEqual(adopted, ("src/feature.py",))
         self.assertEqual((self.repo / "src" / "feature.py").read_text(encoding="utf-8"), "answer = 42\n")
         self.assertEqual(self.coordinator.worker_states()["worker-a"], "adopted")
+
+    def test_disjoint_sibling_proposals_are_adopted_in_one_serialized_step(self):
+        workspace_a = self.coordinator.create_worker("worker-a", ["src/feature_a.py"])
+        workspace_b = self.coordinator.create_worker("worker-b", ["src/feature_b.py"])
+        (workspace_a / "src" / "feature_a.py").write_text("answer_a = 1\\n", encoding="utf-8")
+        (workspace_b / "src" / "feature_b.py").write_text("answer_b = 2\\n", encoding="utf-8")
+        proposal_a = self.coordinator.prepare_proposal("worker-a")
+        proposal_b = self.coordinator.prepare_proposal("worker-b")
+        adopted = self.coordinator.adopt_many((proposal_a, proposal_b))
+        self.assertEqual(adopted, {
+            "worker-a": ("src/feature_a.py",),
+            "worker-b": ("src/feature_b.py",),
+        })
+        self.assertEqual((self.repo / "src" / "feature_a.py").read_text(encoding="utf-8"), "answer_a = 1\\n")
+        self.assertEqual((self.repo / "src" / "feature_b.py").read_text(encoding="utf-8"), "answer_b = 2\\n")
+
+    def test_batch_adoption_rejects_duplicate_proposals_before_apply(self):
+        workspace = self.coordinator.create_worker("worker-a", ["src/feature.py"])
+        (workspace / "src" / "feature.py").write_text("answer = 42\\n", encoding="utf-8")
+        proposal = self.coordinator.prepare_proposal("worker-a")
+        with self.assertRaisesRegex(ValueError, "worker ids must be unique"):
+            self.coordinator.adopt_many((proposal, proposal))
+        self.assertFalse((self.repo / "src" / "feature.py").exists())
+
+    def test_failed_post_apply_verification_rolls_back_target(self):
+        workspace = self.coordinator.create_worker("worker-a", ["src/feature.py"])
+        (workspace / "src" / "feature.py").write_text("answer = 42\\n", encoding="utf-8")
+        proposal = self.coordinator.prepare_proposal("worker-a")
+        import portable.graph_workspace_adoption as adoption_module
+        real_git = adoption_module._git
+        applied = {"value": False}
+
+        def injected_git(root, *args, input_bytes=None):
+            if args[:2] == ("apply", "--") and "--check" not in args:
+                result = real_git(root, *args, input_bytes=input_bytes)
+                applied["value"] = True
+                return result
+            if applied["value"] and args[:2] == ("diff", "--name-only"):
+                return b"unexpected\x00"
+            return real_git(root, *args, input_bytes=input_bytes)
+
+        with patch("portable.graph_workspace_adoption._git", side_effect=injected_git):
+            with self.assertRaisesRegex(RuntimeError, "adopted path set differs"):
+                self.coordinator.adopt(proposal)
+        self.assertFalse((self.repo / "src" / "feature.py").exists())
+        self.assertEqual(git(self.repo, "status", "--porcelain"), "")
+        self.assertEqual(self.coordinator.worker_states()["worker-a"], "failed")
 
     def test_stale_target_head_blocks_adoption(self):
         workspace = self.coordinator.create_worker("worker-a", ["src/feature.py"])

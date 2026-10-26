@@ -184,46 +184,95 @@ class GraphWorkspaceCoordinator:
                 self.cancel_siblings(f"adoption failed: {type(exc).__name__}", except_worker_id=worker_id)
             raise
 
-    def _adopt_locked(self, proposal: WorkspaceProposal) -> tuple[str, ...]:
-        """Apply one proposal only after fresh base, digest, scope, and conflict checks."""
-        with self._lock:
-            if self._cancel_event.is_set():
-                raise RuntimeError(self._cancel_reason or "adoption blocked by cancellation")
-            known = self._proposals.get(proposal.worker_id)
-            if known != proposal:
-                raise PermissionError("proposal is not the coordinator's verified artifact")
-            if hashlib.sha256(proposal.patch).hexdigest() != proposal.artifact_digest:
-                raise ValueError("proposal artifact digest mismatch")
-            artifact = Path(proposal.artifact_path)
-            if artifact.is_symlink() or not artifact.is_file() or hashlib.sha256(artifact.read_bytes()).hexdigest() != proposal.artifact_digest:
-                raise ValueError("persisted proposal artifact digest mismatch")
-            if proposal.base_revision != self.base_revision:
-                raise RuntimeError("stale proposal base revision")
-            current = _git(self.project_root, "rev-parse", "--verify", "HEAD^{commit}").decode().strip()
-            if current != proposal.base_revision:
-                raise RuntimeError("stale target HEAD; refusing adoption")
-            if _git(self.project_root, "status", "--porcelain", "--untracked-files=all").strip():
-                raise PermissionError("target checkout is not clean; refusing overlapping or uncommitted adoption")
-            owned = self._owners[proposal.worker_id]
-            if any(not any(path == root or path.startswith(root.rstrip("/") + "/") for root in owned) for path in proposal.paths):
-                raise PermissionError("proposal exceeds declared file ownership")
-            _git(self.project_root, "apply", "--check", "--", input_bytes=proposal.patch)
-            _git(self.project_root, "apply", "--", input_bytes=proposal.patch)
-            adopted_paths = {
-                item.decode("utf-8", errors="strict") for item in _git(
-                    self.project_root, "diff", "--name-only", "-z", proposal.base_revision, "--"
-                ).split(b"\x00") if item
-            }
-            adopted_paths.update(
-                item.decode("utf-8", errors="strict") for item in _git(
-                    self.project_root, "ls-files", "--others", "--exclude-standard", "-z"
-                ).split(b"\x00") if item
-            )
-            adopted = tuple(sorted(adopted_paths))
-            if adopted != proposal.paths:
-                raise RuntimeError("adopted path set differs from verified proposal")
-            self._states[proposal.worker_id] = "adopted"
-            return adopted
+    def adopt(self, proposal: WorkspaceProposal) -> tuple[str, ...]:
+        """Adopt one proposal through the same serialized multi-proposal boundary."""
+        return self.adopt_many((proposal,))[proposal.worker_id]
+
+    def adopt_many(self, proposals: Iterable[WorkspaceProposal]) -> dict[str, tuple[str, ...]]:
+        """Apply a verified sibling set once, against one clean base revision.
+
+        All patches must be from this coordinator, have disjoint changed paths,
+        and still target the exact clean source revision. No partial application
+        is allowed: the combined patch is checked before a single apply operation.
+        """
+        rows = tuple(proposals)
+        if any(not isinstance(proposal, WorkspaceProposal) for proposal in rows):
+            raise TypeError("all adoption inputs must be coordinator-issued WorkspaceProposal values")
+        applied = False
+        try:
+            with self._lock:
+                if not rows:
+                    raise ValueError("at least one proposal is required for adoption")
+                if self._cancel_event.is_set():
+                    raise RuntimeError(self._cancel_reason or "adoption blocked by cancellation")
+                worker_ids = [proposal.worker_id for proposal in rows]
+                if len(set(worker_ids)) != len(worker_ids):
+                    raise ValueError("proposal worker ids must be unique")
+                union_paths: set[str] = set()
+                for proposal in rows:
+                    known = self._proposals.get(proposal.worker_id)
+                    if known != proposal or self._states.get(proposal.worker_id) != "proposal_ready":
+                        raise PermissionError("proposal is not a registered ready artifact")
+                    if hashlib.sha256(proposal.patch).hexdigest() != proposal.artifact_digest:
+                        raise ValueError("proposal artifact digest mismatch")
+                    artifact = Path(proposal.artifact_path)
+                    if artifact.is_symlink() or not artifact.is_file() or hashlib.sha256(artifact.read_bytes()).hexdigest() != proposal.artifact_digest:
+                        raise ValueError("persisted proposal artifact digest mismatch")
+                    if proposal.base_revision != self.base_revision:
+                        raise RuntimeError("stale proposal base revision")
+                    owned = self._owners[proposal.worker_id]
+                    if any(not any(path == root or path.startswith(root.rstrip("/") + "/") for root in owned) for path in proposal.paths):
+                        raise PermissionError("proposal exceeds declared file ownership")
+                    for path in proposal.paths:
+                        if path in union_paths:
+                            raise PermissionError(f"proposals overlap changed path: {path}")
+                        union_paths.add(path)
+                current = _git(self.project_root, "rev-parse", "--verify", "HEAD^{commit}").decode().strip()
+                if current != self.base_revision:
+                    raise RuntimeError("stale target HEAD; refusing adoption")
+                if _git(self.project_root, "status", "--porcelain", "--untracked-files=all").strip():
+                    raise PermissionError("target checkout is not clean; refusing overlapping or uncommitted adoption")
+                combined_patch = b"".join(
+                    proposal.patch + (b"" if proposal.patch.endswith(b"\n") else b"\n")
+                    for proposal in rows
+                )
+                _git(self.project_root, "apply", "--check", "--", input_bytes=combined_patch)
+                _git(self.project_root, "apply", "--", input_bytes=combined_patch)
+                applied = True
+                adopted_paths = {
+                    item.decode("utf-8", errors="strict") for item in _git(
+                        self.project_root, "diff", "--name-only", "-z", self.base_revision, "--"
+                    ).split(b"\x00") if item
+                }
+                adopted_paths.update(
+                    item.decode("utf-8", errors="strict") for item in _git(
+                        self.project_root, "ls-files", "--others", "--exclude-standard", "-z"
+                    ).split(b"\x00") if item
+                )
+                if adopted_paths != union_paths:
+                    raise RuntimeError("adopted path set differs from verified proposal set")
+                result = {}
+                for proposal in rows:
+                    self._states[proposal.worker_id] = "adopted"
+                    result[proposal.worker_id] = tuple(sorted(proposal.paths))
+                return result
+        except BaseException as exc:
+            rollback_error = None
+            with self._lock:
+                if applied:
+                    try:
+                        _git(self.project_root, "apply", "--reverse", "--", input_bytes=combined_patch)
+                        if _git(self.project_root, "status", "--porcelain", "--untracked-files=all").strip():
+                            raise RuntimeError("target checkout is still dirty after adoption rollback")
+                    except BaseException as rollback_exc:
+                        rollback_error = rollback_exc
+                self.cancel_siblings(f"adoption failed: {type(exc).__name__}")
+                for proposal in rows:
+                    if proposal.worker_id in self._states and self._states[proposal.worker_id] not in {"adopted", "cleaned"}:
+                        self._states[proposal.worker_id] = "failed"
+            if rollback_error is not None:
+                raise RuntimeError("adoption failed and rollback could not be verified; operator reconciliation required") from rollback_error
+            raise
 
     def cancel_siblings(self, reason: str, *, except_worker_id: str | None = None) -> dict[str, str]:
         if not isinstance(reason, str) or not reason.strip():

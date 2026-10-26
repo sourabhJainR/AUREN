@@ -61,4 +61,17 @@ Record graph topology, concurrency, model/provider, quality, regression, latency
 
 ## Status
 
-Existing AUREN code already has graph execution, bounded parallel proposal dispatch, proposal digests, review-pending states, durable recovery components, and evidence-gated promotion concepts. The full end-to-end invariants above remain subject to code-level implementation and regression evidence tracked in issue #998 and roadmap #696.
+- Gate 1 is merged in PR #1008. The exact PR head passed all 11 workflows, including architecture, runtime resilience, Windows/Linux, production hardening, and the integration guard.
+- Gates 2–3 have existing isolated-worktree and fresh-worktree verifier primitives. PR #1009 adds a StateGraph node adapter, one serialized sibling-adoption boundary, receipt persistence, and progress-journal integration. It remains unmerged until its latest exact-head checks pass.
+- Gate 4 is partially implemented by the shared RuntimeExecutionGuard, checkpoints, recovery ledger, and ProgressJournal. The new lifecycle blocks duplicate dispatch after ambiguous prior state and marks cancelled sibling workers unknown until termination is confirmed. This slice adds cleanup-failure, recovery-commit, and sibling-cancellation fault injection; broader supervisor reconciliation remains required before this gate is complete.
+
+- Gate 5 is merged in PR #1006. Its fixed safety gates and pinned-baseline comparison remain authoritative; learning is advisory only.
+- The fresh-worktree verifier proves reproducible checks in a separate worktree, not external evaluator custody or OS sandbox resistance. Those claims remain open until independent operator-controlled evidence is supplied.
+
+### Adoption failure recovery and rollback
+
+The adoption boundary is considered uncertain as soon as the coordinator is entered. A failed return may include an interrupted rollback, so the worker lifecycle records the affected node as unknown, blocks the graph run, and corrects any terminal progress projection to blocked unless the node's durable completion evidence already agrees with the recovery ledger. A cleanup or recovery-ledger commit failure after file application is not a successful task and must not be retried automatically. Siblings whose cancellation was requested remain unknown/blocked until the host confirms they have stopped.
+
+For recovery, preserve the canonical checkout, source revision, proposal patches, verification receipts, progress journal, and recovery ledger. Compare the target tree with the recorded base and proposed path set, verify each receipt digest and workspace state, and reconcile the journal and recovery ledger before resuming. If rollback is needed, use a reviewed rollback against the exact recorded base and verify the resulting tree is clean. Never reset a blocked/unknown task to pending or replay its worker to make the run green.
+
+Do not treat this contract as proof of production isolation. Gate completion requires passing exact-head tests, truthful skipped-check reporting, post-merge main verification, and explicit evidence for every external dependency.

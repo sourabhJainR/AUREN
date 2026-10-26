@@ -110,6 +110,8 @@ jobs:
         run: python -m unittest tests.test_architecture_contract -v
       - name: Run canonical TaskPlan and graph integration regressions
         run: python -m unittest tests.test_task_planner tests.test_graph_agent_team tests.test_agency_state_graph tests.test_state_graph_hardening -v
+      - name: Run isolated graph workspace, verifier, and recovery regressions
+        run: python -m unittest tests.test_graph_workspace_adoption tests.test_independent_graph_verification tests.test_graph_worker_lifecycle tests.test_engineering_recovery_fault_matrix -v
       - name: Run isolated graph workspace and conflict-safe adoption regressions
         run: python -m unittest tests.test_graph_workspace_adoption -v
       - name: Run fresh-worktree independent graph verification regressions
