@@ -86,7 +86,8 @@ def capture_migration_rehearsal(
             and verified.byte_count == before.byte_count
         )
         sqlite_reports = _sqlite_integrity(dst)
-    sqlite_ok = all(item["status"] == "passed" for item in sqlite_reports)
+    # A missing database is not proof of integrity for state roots expected to carry durable sessions/evidence.
+    sqlite_ok = bool(sqlite_reports) and all(item["status"] == "passed" for item in sqlite_reports)
     file_copy_verified = (
         mode == "apply" and result.status in {"copied_verified_source_retained", "already_migrated_verified"}
         and source_unchanged and destination_verified and sqlite_ok
