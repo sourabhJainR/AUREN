@@ -56,12 +56,31 @@ class ContextPageCache:
     def page(self, kind: str, text: str, *, stable: bool = False) -> ContextPage:
         return self.put(kind, text, stable=stable)
 
-    def paginate(self, kind: str, text: str, *, stable: bool = False) -> list[ContextPage]:
+    def paginate(
+        self, kind: str, text: str, *, stable: bool = False, replace: bool = False,
+    ) -> list[ContextPage]:
         value = text.strip()
         if not value:
+            if replace:
+                self.invalidate(kind)
             return []
         chunks = [value[i : i + self.page_chars] for i in range(0, len(value), self.page_chars)]
+        if replace:
+            keep_digests = {self._digest(kind, chunk.strip(), stable) for chunk in chunks}
+            for digest, page in list(self._pages.items()):
+                if page.kind == kind and digest not in keep_digests:
+                    del self._pages[digest]
         return [self.put(kind, chunk, stable=stable) for chunk in chunks]
+
+    def invalidate(self, kind: str, *, keep_page_ids: set[str] | None = None) -> int:
+        """Remove stale pages for one content domain while preserving selected identities."""
+        keep = keep_page_ids or set()
+        removed = 0
+        for digest, page in list(self._pages.items()):
+            if page.kind == kind and page.page_id not in keep:
+                del self._pages[digest]
+                removed += 1
+        return removed
 
     def search(self, kind: str, query: str, *, budget_chars: int = 8_000) -> list[ContextPage]:
         """Return matching existing pages without creating pages or contacting a provider."""
