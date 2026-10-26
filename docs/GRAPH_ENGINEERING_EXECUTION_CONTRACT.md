@@ -61,4 +61,10 @@ Record graph topology, concurrency, model/provider, quality, regression, latency
 
 ## Status
 
-Existing AUREN code already has graph execution, bounded parallel proposal dispatch, proposal digests, review-pending states, durable recovery components, and evidence-gated promotion concepts. The full end-to-end invariants above remain subject to code-level implementation and regression evidence tracked in issue #998 and roadmap #696.
+- Gate 1 is merged in PR #1008. The exact PR head passed all 11 workflows, including architecture, runtime resilience, Windows/Linux, production hardening, and the integration guard.
+- Gates 2–3 have existing isolated-worktree and fresh-worktree verifier primitives. PR #1009 adds a StateGraph node adapter, one serialized sibling-adoption boundary, receipt persistence, and progress-journal integration. It remains unmerged until its latest exact-head checks pass.
+- Gate 4 is partially implemented by the shared RuntimeExecutionGuard, checkpoints, recovery ledger, and ProgressJournal. The new lifecycle blocks duplicate dispatch after ambiguous prior state. Additional fault injection and supervisor reconciliation remain required before this gate is complete.
+- Gate 5 is merged in PR #1006. Its fixed safety gates and pinned-baseline comparison remain authoritative; learning is advisory only.
+- The fresh-worktree verifier proves reproducible checks in a separate worktree, not external evaluator custody or OS sandbox resistance. Those claims remain open until independent operator-controlled evidence is supplied.
+
+Do not treat this contract as proof of production isolation. Gate completion requires passing exact-head tests, truthful skipped-check reporting, post-merge main verification, and explicit evidence for every external dependency.
