@@ -150,8 +150,10 @@ def compact_history(history: str, task: str, budget_chars: int) -> str:
     return "\n".join(line for _, line in selected)
 
 
-def _paged_section(kind: str, text: str, budget_chars: int, *, stable: bool = False) -> tuple[str, list[str]]:
-    pages = _PAGE_CACHE.paginate(kind, text, stable=stable)
+def _paged_section(
+    kind: str, text: str, budget_chars: int, *, stable: bool = False, replace: bool = False,
+) -> tuple[str, list[str]]:
+    pages = _PAGE_CACHE.paginate(kind, text, stable=stable, replace=replace)
     selected = _PAGE_CACHE.select(pages, budget_chars)
     return "\n".join(page.text for page in selected), [page.page_id for page in selected]
 
@@ -171,7 +173,7 @@ def select_context(task: str, repo_map: str, memory: str, history: str, budget_c
     remaining = budget_chars
 
     repository, repository_pages = _paged_section(
-        "repository", repo_map[: min(len(repo_map), remaining // 2)], min(remaining // 2, 9000), stable=True
+        "repository", repo_map[: min(len(repo_map), remaining // 2)], min(remaining // 2, 9000), stable=True, replace=True
     )
     remaining -= len(repository)
     memory_text, memory_pages = _paged_section(

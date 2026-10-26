@@ -26,6 +26,8 @@ def evaluate_invocation(
     reasons: list[str] = []
     if metadata.get("available") is not True:
         reasons.append("extension_unavailable")
+    if metadata.get("manifest_valid", True) is not True:
+        reasons.append("extension_manifest_invalid")
     if metadata.get("trust_class") != "trusted" or trust_granted is not True:
         reasons.append("explicit_trust_grant_required")
     if metadata.get("requires_approval", True) is not False and approval_granted is not True:
