@@ -1,60 +1,131 @@
 [registry]
-version = 1
+version = 2
 install_optional = false
 mutate_external_tools = false
+metadata_is_trust_grant = false
 
 [extensions.graphify]
 kind = "code-intelligence"
+version = "unknown"
 commands = ["graphify"]
 artifacts = ["graphify-out/graph.json", ".graphify/graph.json"]
 capabilities = ["ast", "graph", "impact", "query", "path", "explain"]
+evidence_types = ["repository-structure", "graph-path", "impact-analysis"]
+cost_class = "low"
+trust_class = "local-unverified"
+freshness = "validate artifact against current repository snapshot"
+failure_mode = "skip stale or malformed graph; fall back to repository-native retrieval"
+permissions = ["read-repository"]
+side_effects = ["may-write-configured-artifacts"]
+requires_approval = true
+output_limit_chars = 12000
 policy = "prefer when available and fresh; preserve extracted/inferred provenance"
 source = "https://github.com/Graphify-Labs/graphify"
 license = "Apache-2.0"
 
 [extensions.code_memory]
 kind = "code-intelligence"
+version = "unknown"
 commands = ["codebase-memory-mcp"]
 artifacts = [".codebase-memory/graph.json"]
 capabilities = ["ast", "graph", "semantic-search", "impact", "call-tracing", "architecture"]
+evidence_types = ["repository-structure", "semantic-retrieval", "call-trace"]
+cost_class = "medium"
+trust_class = "local-unverified"
+freshness = "validate index revision and freshness before relying on results"
+failure_mode = "skip stale or malformed index; fall back to repository-native retrieval"
+permissions = ["read-repository"]
+side_effects = ["may-write-configured-index"]
+requires_approval = true
+output_limit_chars = 12000
 policy = "prefer for persistent structural retrieval and impact analysis when available"
 source = "https://github.com/SuperCodeAgents/code-memory-mcp"
 license = "MIT"
 
 [extensions.superpowers]
 kind = "process-skill"
+version = "unknown"
 markers = ["~/.config/superpowers/skills", "~/.claude/plugins", ".claude-plugin"]
 capabilities = ["brainstorming", "tdd", "systematic-debugging", "planning", "execution", "skill-development"]
+evidence_types = ["workflow-guidance"]
+cost_class = "low"
+trust_class = "external-unverified"
+freshness = "not-checked"
+failure_mode = "skip skill; preserve canonical AUREN workflow and gates"
+permissions = []
+side_effects = []
+requires_approval = true
+output_limit_chars = 12000
 policy = "invoke only the specific applicable skill; do not duplicate the full process"
 source = "https://github.com/obra/superpowers"
 license = "MIT"
 
 [extensions.ponytail]
 kind = "behavior-skill"
+version = "unknown"
 commands = []
 markers = ["~/.claude/skills/ponytail", ".claude/skills/ponytail", ".agents/skills/ponytail"]
 capabilities = ["yagni", "minimal-change", "delete-before-add"]
+evidence_types = ["workflow-guidance"]
+cost_class = "low"
+trust_class = "external-unverified"
+freshness = "not-checked"
+failure_mode = "skip skill; preserve correctness and acceptance criteria"
+permissions = []
+side_effects = []
+requires_approval = true
+output_limit_chars = 12000
 policy = "use as a design constraint; never trade away correctness, security, error handling, accessibility, or acceptance criteria"
 source = "https://github.com/DietrichGebert/ponytail"
 license = "MIT"
 
 [extensions.caveman]
 kind = "context-compression"
+version = "unknown"
 commands = ["caveman"]
 markers = ["~/.claude/skills/caveman", ".claude/skills/caveman", ".agents/skills/caveman"]
 capabilities = ["output-compression", "subagent-compression", "token-efficiency"]
+evidence_types = ["compressed-communication"]
+cost_class = "low"
+trust_class = "external-unverified"
+freshness = "not-checked"
+failure_mode = "retain original for source, commands, errors, acceptance criteria, and verification evidence"
+permissions = []
+side_effects = []
+requires_approval = true
+output_limit_chars = 12000
 policy = "compress communication only; never lossily compress source, commands, errors, acceptance criteria, or verification evidence"
 source = "https://github.com/JuliusBrussee/caveman"
 license = "MIT"
 
 [extensions.generic_skill]
 kind = "agent-skill"
+version = "unknown"
 markers = [".agents/skills", ".claude/skills"]
 capabilities = ["task-specific-process"]
+evidence_types = ["workflow-guidance"]
+cost_class = "unknown"
+trust_class = "unverified"
+freshness = "not-checked"
+failure_mode = "skip skill; continue canonical workflow"
+permissions = []
+side_effects = []
+requires_approval = true
+output_limit_chars = 12000
 policy = "discover by description and invoke only when relevant"
 
 [extensions.mcp]
 kind = "tool-provider"
+version = "unknown"
 markers = [".mcp.json", "~/.claude.json"]
 capabilities = ["external-tools", "external-context"]
+evidence_types = ["provider-returned-data"]
+cost_class = "unknown"
+trust_class = "external-unverified"
+freshness = "provider-specific; validate per operation"
+failure_mode = "deny unapproved provider; block consequential action when outcome is ambiguous"
+permissions = ["declared-provider-scopes-only"]
+side_effects = ["provider-defined; inspect manifest and policy before invocation"]
+requires_approval = true
+output_limit_chars = 12000
 policy = "use only approved, trusted, explicitly configured MCP servers"
