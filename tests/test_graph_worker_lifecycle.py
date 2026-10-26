@@ -306,6 +306,17 @@ class GraphWorkerLifecycleTests(unittest.TestCase):
         self.assertEqual(blocked["state"], "blocked")
         self.assertIn("blocked_by", blocked["message"])
         tasks[0].status = "done"
+        plan.recovery_bridge.record_node(
+            event_id="parent-start", node_id="parent", status="working",
+            budget_snapshot=self.guard.snapshot(), next_safe_action="complete_parent",
+            worker_id="worker-parent", workspace_id="workspace-parent", attempts=1,
+        )
+        plan.recovery_bridge.record_node(
+            event_id="parent-complete", node_id="parent", status="complete",
+            budget_snapshot=self.guard.snapshot(), next_safe_action="continue_dependency_ready_nodes",
+            worker_id="worker-parent", workspace_id="workspace-parent", attempts=1,
+            evidence_refs=("test://parent-completion",),
+        )
         with self.assertRaisesRegex(PermissionError, "only a recorded dependency blocker"):
             plan.reconcile_dependencies("parent")
         plan.reconcile_dependencies("child")
