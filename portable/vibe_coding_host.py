@@ -1076,28 +1076,17 @@ class MCPStdioToolAdapter:
 
         def read_stdout() -> None:
             assert proc.stdout is not None
-            buffer = ""
-            discarding = False
             while True:
-                chunk = proc.stdout.read(4096)
-                if not chunk:
+                line = proc.stdout.readline(self.max_response_chars + 1)
+                if not line:
                     break
-                for index, piece in enumerate(chunk.split("\\n")):
-                    has_newline = index < len(chunk.split("\\n")) - 1
-                    if discarding:
-                        if has_newline:
-                            discarding = False
-                        continue
-                    buffer += piece
-                    if len(buffer) > self.max_response_chars:
-                        responses.put(self._OVERSIZE_RESPONSE)
-                        buffer = ""
-                        discarding = not has_newline
-                    elif has_newline:
-                        responses.put(buffer)
-                        buffer = ""
-            if buffer and not discarding:
-                responses.put(buffer)
+                if len(line) > self.max_response_chars:
+                    responses.put(self._OVERSIZE_RESPONSE)
+                    # Drain this line in bounded chunks before reading the next JSON-RPC frame.
+                    while line and not line.endswith("\n"):
+                        line = proc.stdout.readline(4096)
+                    continue
+                responses.put(line.rstrip("\n"))
 
         def read_stderr() -> None:
             assert proc.stderr is not None
