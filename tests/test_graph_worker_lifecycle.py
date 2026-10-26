@@ -569,7 +569,7 @@ class GraphWorkerLifecycleTests(unittest.TestCase):
             journal=ProgressJournal(state_root / "progress.jsonl"),
             task_plan=task_plan,
             intent_digest=self.intent_digest,
-            runtime_guard=RuntimeExecutionGuard(max_steps=20, max_attempts=20, deadline_seconds=60),
+            runtime_guard=RuntimeExecutionGuard.resume(snapshot["budget_snapshot"]),
             recovery_bridge=bridge,
         )
         with self.assertRaisesRegex(PermissionError, "durable progress already exists"):
