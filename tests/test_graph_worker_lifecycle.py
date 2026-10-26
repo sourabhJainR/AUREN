@@ -597,7 +597,7 @@ class GraphWorkerLifecycleTests(unittest.TestCase):
     def test_crash_between_recovery_checkpoint_and_progress_event_blocks_redispatch(self):
         state_root = self.root / "journal-crash-state"
         state_root.mkdir()
-        script = textwrap.dedent("""\\
+        script = textwrap.dedent("""\
             import hashlib
             import os
             import sys
@@ -642,13 +642,13 @@ class GraphWorkerLifecycleTests(unittest.TestCase):
 
             def write(workspace, _task):
                 (workspace / "src" / "feature.py").write_text(
-                    "verified = True\\\\n", encoding="utf-8"
+                    "verified = True\\n", encoding="utf-8"
                 )
 
             check_code = (
                 "from pathlib import Path; "
                 "assert Path('src/feature.py').read_text(encoding='utf-8') == "
-                + repr("verified = True\\\\n")
+                + repr("verified = True\\n")
             )
             prepared = lifecycle.prepare(
                 task_id="write-a", worker_id="worker-a", worker_identity="worker-a",
