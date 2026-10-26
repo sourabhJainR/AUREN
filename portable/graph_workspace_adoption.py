@@ -230,7 +230,7 @@ class GraphWorkspaceCoordinator:
                 if _git(self.project_root, "status", "--porcelain", "--untracked-files=all").strip():
                     raise PermissionError("target checkout is not clean; refusing overlapping or uncommitted adoption")
                 combined_patch = b"".join(
-                    proposal.patch + (b"" if proposal.patch.endswith(b"\\n") else b"\\n")
+                    proposal.patch + (b"" if proposal.patch.endswith(b"\n") else b"\n")
                     for proposal in rows
                 )
                 _git(self.project_root, "apply", "--check", "--", input_bytes=combined_patch)
@@ -238,12 +238,12 @@ class GraphWorkspaceCoordinator:
                 adopted_paths = {
                     item.decode("utf-8", errors="strict") for item in _git(
                         self.project_root, "diff", "--name-only", "-z", self.base_revision, "--"
-                    ).split(b"\\x00") if item
+                    ).split(b"\x00") if item
                 }
                 adopted_paths.update(
                     item.decode("utf-8", errors="strict") for item in _git(
                         self.project_root, "ls-files", "--others", "--exclude-standard", "-z"
-                    ).split(b"\\x00") if item
+                    ).split(b"\x00") if item
                 )
                 if adopted_paths != union_paths:
                     raise RuntimeError("adopted path set differs from verified proposal set")
