@@ -249,14 +249,31 @@ class GraphWorkerLifecycle:
             and "dispatch_authorized" in prior.get("message", "")
         )
         if prior.get("event_count", 0) and not reconciled_queue:
-            if recovery_node["status"] == "working":
+            recovery_next_action = {
+                "adopting": "reconcile_target_tree_and_recovery_ledger",
+                "working": "reconcile_worker_workspace_and_receipt_before_resume",
+                "waiting": "inspect_prior_progress_before_redispatch",
+            }.get(recovery_node["status"], "reconcile_progress_journal_and_recovery_ledger")
+            if recovery_node["status"] in {"working", "adopting"}:
                 self._record_recovery_node(
                     task_id=task_id, status="unknown",
-                    next_safe_action="reconcile_worker_workspace_and_receipt_before_resume",
+                    next_safe_action=(
+                        "reconcile_target_tree_and_recovery_ledger"
+                        if recovery_node["status"] == "adopting"
+                        else "reconcile_worker_workspace_and_receipt_before_resume"
+                    ),
                     worker_id=worker_id,
-                    evidence_refs=[prior["evidence_ref"]] if prior.get("evidence_ref") else (),
+                    workspace_id=recovery_node.get("workspace_id"),
+                    attempts=recovery_node["attempts"],
+                    evidence_refs=tuple(dict.fromkeys((
+                        *recovery_node.get("evidence_refs", ()),
+                        *([prior["evidence_ref"]] if prior.get("evidence_ref") else ()),
+                    ))),
                 )
-                self._block_recovery_run("prior progress exists without an in-memory worker lease", "reconcile_worker_workspace_and_receipt_before_resume")
+                self._block_recovery_run(
+                    "prior progress exists without an in-memory worker lease",
+                    recovery_next_action,
+                )
             elif recovery_node["status"] == "waiting":
                 self._record_recovery_node(
                     task_id=task_id, status="blocked",
@@ -266,12 +283,12 @@ class GraphWorkerLifecycle:
             self.journal.record(
                 task_id, "duplicate-dispatch-blocked", state="blocked", stage="recovery",
                 message=self._binding(task_id, worker_id, plan_digest, self.intent_digest, "inspect_prior_state")
-                + "; next_action=reconcile_progress_journal_and_recovery_ledger",
+                + "; next_action=" + recovery_next_action,
                 evidence_ref=prior.get("evidence_ref"),
             )
             self._block_recovery_run(
                 "prior progress exists without a safe dispatch continuation",
-                "reconcile_progress_journal_and_recovery_ledger",
+                recovery_next_action,
             )
             raise PermissionError("durable progress already exists; reconcile prior worker state before redispatch")
         if recovery_node["status"] != "waiting":
@@ -499,6 +516,29 @@ class GraphWorkerLifecycle:
                 if persisted_receipt != receipt:
                     raise PermissionError("persisted verification receipt does not match prepared result")
             self.runtime_guard.check()
+            # Persist the irreversible boundary before applying any patch. A process
+            # crash after apply must resume as adopting, never as runnable work.
+            for item in prepared:
+                recovery_node = self.recovery_bridge.load()["nodes"][item.task_id]
+                if recovery_node["status"] != "working":
+                    raise PermissionError(
+                        f"worker {item.worker_id} is not in the working recovery state"
+                    )
+                evidence_refs = (item.proposal.artifact_path, item.receipt_path)
+                self._record_recovery_node(
+                    task_id=item.task_id, status="adopting",
+                    next_safe_action="reconcile_target_tree_and_recovery_ledger",
+                    worker_id=item.worker_id, workspace_id=item.workspace_id,
+                    attempts=recovery_node["attempts"], evidence_refs=evidence_refs,
+                )
+                self.journal.record(
+                    item.task_id, "adoption-started", state="running", stage="adoption",
+                    message=self._binding(
+                        item.task_id, item.worker_id, item.task_digest, item.intent_digest,
+                        "adoption_started",
+                    ) + "; next_action=reconcile_target_tree_and_recovery_ledger",
+                    evidence_ref=item.receipt_path,
+                )
             # Once the coordinator is entered, a failed return can mean rollback
             # itself was interrupted. Treat the target tree as uncertain until
             # explicit reconciliation proves otherwise.
@@ -549,13 +589,16 @@ class GraphWorkerLifecycle:
                 pass
             for item in prepared:
                 recovery_status = None
+                node_status = None
                 try:
                     recovery_snapshot = self.recovery_bridge.load()
                     node = recovery_snapshot["nodes"][item.task_id]
-                    if node["status"] == "working":
+                    node_status = node.get("status")
+                    uncertain_adoption = adoption_started or node_status == "adopting"
+                    if node_status in {"working", "adopting"}:
                         node = self._record_recovery_node(
-                            task_id=item.task_id, status="unknown" if adoption_started else "failed",
-                            next_safe_action="reconcile_target_tree_and_recovery_ledger" if adoption_started else "inspect_failed_worker_and_retry_only_after_reconciliation",
+                            task_id=item.task_id, status="unknown" if uncertain_adoption else "failed",
+                            next_safe_action="reconcile_target_tree_and_recovery_ledger" if uncertain_adoption else "inspect_failed_worker_and_retry_only_after_reconciliation",
                             worker_id=item.worker_id, workspace_id=item.workspace_id,
                             attempts=node["attempts"],
                             evidence_refs=(item.proposal.artifact_path, item.receipt_path),
@@ -571,12 +614,13 @@ class GraphWorkerLifecycle:
                 try:
                     progress = self.journal.snapshot(item.task_id)
                     prior_state = progress.get("reported_state", progress.get("state"))
-                    target_state = "blocked" if adoption_started or prior_state == "completed" else "failed"
+                    uncertain_adoption = adoption_started or node_status == "adopting" or prior_state == "completed"
+                    target_state = "blocked" if uncertain_adoption else "failed"
                     message = self._binding(
                         item.task_id, item.worker_id, item.task_digest, item.intent_digest, "reconcile_adoption"
                     ) + "; error=" + type(exc).__name__ + (
                         "; next_action=reconcile_target_tree_and_recovery_ledger"
-                        if adoption_started or prior_state == "completed"
+                        if uncertain_adoption
                         else "; next_action=inspect_failed_worker_and_retry_only_after_reconciliation"
                     )
                     if prior_state in {"completed", "failed", "cancelled"}:
@@ -645,11 +689,16 @@ class GraphWorkerLifecycle:
                             )
                             recovery_snapshot = self.recovery_bridge.load()
                             recovery_node = recovery_snapshot["nodes"][task_id]
-                            if recovery_node["status"] == "working":
+                            if recovery_node["status"] in {"working", "adopting"}:
                                 self._record_recovery_node(
                                     task_id=task_id, status="unknown",
-                                    next_safe_action="reconcile_persisted_receipt_and_workspace_before_resume",
-                                    worker_id=worker_id, evidence_refs=tuple(
+                                    next_safe_action=(
+                                        "reconcile_target_tree_and_recovery_ledger"
+                                        if recovery_node["status"] == "adopting"
+                                        else "reconcile_persisted_receipt_and_workspace_before_resume"
+                                    ),
+                                    worker_id=worker_id, workspace_id=recovery_node.get("workspace_id"),
+                                    evidence_refs=tuple(
                                         ref for ref in (proposal_ref, receipt_ref) if ref
                                     ), attempts=recovery_node["attempts"],
                                 )
