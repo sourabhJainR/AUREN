@@ -429,6 +429,7 @@ class GraphWorkerLifecycle:
             if missing:
                 raise PermissionError(f"prepared worker receipts are unavailable; reconcile before adoption: {missing}")
             prepared = [self._prepared[worker_id] for worker_id in worker_ids]
+        adoption_started = False
         adoption_applied = False
         try:
             self.runtime_guard.check()
@@ -453,6 +454,10 @@ class GraphWorkerLifecycle:
                 if persisted_receipt != receipt:
                     raise PermissionError("persisted verification receipt does not match prepared result")
             self.runtime_guard.check()
+            # Once the coordinator is entered, a failed return can mean rollback
+            # itself was interrupted. Treat the target tree as uncertain until
+            # explicit reconciliation proves otherwise.
+            adoption_started = True
             adopted = self.coordinator.adopt_many([item.proposal for item in prepared])
             adoption_applied = True
             for item in prepared:
@@ -466,6 +471,14 @@ class GraphWorkerLifecycle:
             for item in prepared:
                 task = self.task_plan.tasks[item.task_id]
                 paths = adopted[item.worker_id]
+                # Commit the progress projection before the recovery node can make
+                # the entire graph terminal. If the ledger write fails, the catch
+                # path can still block the run and correct this journal projection.
+                self.journal.record(
+                    item.task_id, "verified-proposal-adopted", state="completed", stage="adoption",
+                    message=self._binding(item.task_id, item.worker_id, item.task_digest, item.intent_digest, "complete"),
+                    completed_units=1, total_units=1, evidence_ref=item.receipt_path,
+                )
                 recovery_node = self.recovery_bridge.load()["nodes"][item.task_id]
                 self._record_recovery_node(
                     task_id=item.task_id, status="complete",
@@ -473,11 +486,6 @@ class GraphWorkerLifecycle:
                     worker_id=item.worker_id, workspace_id=item.workspace_id,
                     attempts=recovery_node["attempts"],
                     evidence_refs=(item.proposal.artifact_path, item.receipt_path),
-                )
-                self.journal.record(
-                    item.task_id, "verified-proposal-adopted", state="completed", stage="adoption",
-                    message=self._binding(item.task_id, item.worker_id, item.task_digest, item.intent_digest, "complete"),
-                    completed_units=1, total_units=1, evidence_ref=item.receipt_path,
                 )
                 task.status = "done"
                 results[item.worker_id] = {
@@ -496,26 +504,47 @@ class GraphWorkerLifecycle:
             except BaseException:
                 pass
             for item in prepared:
+                recovery_status = None
                 try:
                     recovery_snapshot = self.recovery_bridge.load()
                     node = recovery_snapshot["nodes"][item.task_id]
                     if node["status"] == "working":
-                        self._record_recovery_node(
-                            task_id=item.task_id, status="unknown" if adoption_applied else "failed",
-                            next_safe_action="reconcile_target_tree_and_recovery_ledger" if adoption_applied else "inspect_failed_worker_and_retry_only_after_reconciliation",
+                        node = self._record_recovery_node(
+                            task_id=item.task_id, status="unknown" if adoption_started else "failed",
+                            next_safe_action="reconcile_target_tree_and_recovery_ledger" if adoption_started else "inspect_failed_worker_and_retry_only_after_reconciliation",
                             worker_id=item.worker_id, workspace_id=item.workspace_id,
                             attempts=node["attempts"],
                             evidence_refs=(item.proposal.artifact_path, item.receipt_path),
-                        )
+                        )["nodes"][item.task_id]
+                    recovery_status = node.get("status")
                 except BaseException:
                     pass
+                # Preserve a task whose terminal evidence and recovery node already
+                # agree. For an incomplete/unknown node, never leave a completed
+                # progress projection behind after an adoption-side failure.
+                if recovery_status == "complete":
+                    continue
                 try:
-                    self.journal.record(
-                        item.task_id, "adoption-failed", state="failed", stage="recovery",
-                        message=self._binding(item.task_id, item.worker_id, item.task_digest, item.intent_digest, "reconcile_adoption")
-                        + "; error=" + type(exc).__name__,
-                        evidence_ref=item.receipt_path,
+                    progress = self.journal.snapshot(item.task_id)
+                    prior_state = progress.get("reported_state", progress.get("state"))
+                    target_state = "blocked" if adoption_started or prior_state == "completed" else "failed"
+                    message = self._binding(
+                        item.task_id, item.worker_id, item.task_digest, item.intent_digest, "reconcile_adoption"
+                    ) + "; error=" + type(exc).__name__ + (
+                        "; next_action=reconcile_target_tree_and_recovery_ledger"
+                        if adoption_started or prior_state == "completed"
+                        else "; next_action=inspect_failed_worker_and_retry_only_after_reconciliation"
                     )
+                    if prior_state in {"completed", "failed", "cancelled"}:
+                        self.journal.record_reconciliation(
+                            item.task_id, state=target_state, stage="recovery", message=message,
+                            evidence_ref=item.receipt_path, expected_sequence=progress.get("sequence", 0),
+                        )
+                    else:
+                        self.journal.record(
+                            item.task_id, "adoption-failed", state=target_state, stage="recovery",
+                            message=message, evidence_ref=item.receipt_path,
+                        )
                 except BaseException:
                     pass
             self._block_recovery_run(
