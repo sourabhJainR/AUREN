@@ -13,6 +13,7 @@ import tempfile
 import time
 from typing import Any, Callable, Mapping, Protocol
 
+from .extension_policy import invoke_extension
 from .agent_capabilities import (
     CAPABILITIES,
     Capability,
@@ -158,6 +159,13 @@ class ToolSpec:
     risk: str = "low"
     permissions: tuple[str, ...] = ()
     handler: Callable[..., Any] | None = None
+    is_extension: bool = False
+    extension_metadata: Mapping[str, Any] | None = None
+    extension_trust_granted: bool = False
+    extension_approval_granted: bool = False
+    extension_permissions: tuple[str, ...] = ()
+    extension_artifact_fresh: bool = False
+    extension_provider_id: str | None = None
 
 
 class ToolPolicy(Protocol):
@@ -215,6 +223,19 @@ class ToolRegistry:
             raise KeyError(f"unknown tool: {name}")
         if not policy.allow(tool, arguments):
             raise PermissionError(f"tool execution denied: {name}")
+        if tool.is_extension:
+            # Extension execution has a second, independent trust/approval/scope
+            # boundary. Missing metadata cannot fall back to the tool allowlist.
+            return invoke_extension(
+                tool.extension_metadata,
+                lambda: tool.handler(**dict(arguments)),  # type: ignore[misc]
+                trust_granted=tool.extension_trust_granted,
+                approval_granted=tool.extension_approval_granted,
+                requested_permissions=tool.extension_permissions,
+                artifact_fresh=tool.extension_artifact_fresh,
+                provider_id=tool.extension_provider_id,
+                require_provider_scope=tool.extension_provider_id is not None,
+            )
         return tool.handler(**dict(arguments))  # type: ignore[misc]
 
 
