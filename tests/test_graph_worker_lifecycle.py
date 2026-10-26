@@ -530,7 +530,7 @@ class GraphWorkerLifecycleTests(unittest.TestCase):
         self.assertEqual(child.returncode, 86, child.stdout + child.stderr)
         self.assertEqual(
             (self.repo / "src" / "feature.py").read_text(encoding="utf-8"),
-            "verified = True\\n",
+            "verified = True\n",
         )
 
         progress = ProgressJournal(state_root / "progress.jsonl").snapshot("write-a")
