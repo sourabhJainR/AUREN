@@ -80,6 +80,19 @@ class GraphWorkerLifecycle:
             "intent_digest": intent_digest, "stage": stage,
         }, sort_keys=True, separators=(",", ":"))
 
+    def _budget_summary(self) -> dict[str, Any]:
+        snapshot = self.runtime_guard.snapshot()
+        return {
+            "schema_version": snapshot.get("schema_version"),
+            "max_steps": snapshot.get("max_steps"),
+            "steps_used": snapshot.get("steps_used"),
+            "max_attempts": snapshot.get("max_attempts"),
+            "attempts_used": snapshot.get("attempts_used"),
+            "remaining_seconds": snapshot.get("remaining_seconds"),
+            "cancelled": snapshot.get("cancelled"),
+            "cancellation_reason": snapshot.get("cancellation_reason"),
+        }
+
     @staticmethod
     def _receipt_digest(receipt: Mapping[str, Any]) -> str:
         payload = dict(receipt)
@@ -132,15 +145,16 @@ class GraphWorkerLifecycle:
             self.journal.record(
                 task_id, "worker-started", state="running", stage="isolated_workspace",
                 message=self._binding(task_id, worker_id, plan_digest, self.intent_digest, "worker_started")
-                + "; budget=" + json.dumps(self.runtime_guard.snapshot(), sort_keys=True, separators=(",", ":")),
+                + "; budget=" + json.dumps(self._budget_summary(), sort_keys=True, separators=(",", ":")),
             )
             workspace = self.coordinator.create_worker(worker_id, owned_paths)
             self.journal.record(
                 task_id, "workspace-created", state="running", stage="isolated_workspace",
                 message=self._binding(task_id, worker_id, plan_digest, self.intent_digest, "workspace_created")
-                + "; workspace=" + str(workspace) + "; base_revision=" + self.coordinator.base_revision
+                + "; base_revision=" + self.coordinator.base_revision
                 + "; dependencies=" + json.dumps(task.dependencies, separators=(",", ":"))
                 + "; next_action=execute_worker_and_capture_proposal",
+                evidence_ref=str(workspace),
             )
             worker_context = dict(task.__dict__)
             worker_context["_auren_cancellation_event"] = self.runtime_guard.cancellation_event
