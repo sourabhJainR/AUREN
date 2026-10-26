@@ -551,6 +551,7 @@ class ProviderCliAgent:
         self.allow_workspace_writes = allow_workspace_writes
         self.timeout_seconds = timeout_seconds
         self.env_allowlist = tuple(env_allowlist)
+        self.max_response_chars = max_response_chars
         if allow_workspace_writes and self.provider != "codex":
             raise AdapterUnavailable("workspace writes require the Codex CLI workspace-write sandbox; other providers are read-only here")
 
@@ -933,9 +934,12 @@ def build_mcp_authority_dispatch(
 class MCPStdioToolAdapter:
     """Call a configured MCP stdio tool using JSON-RPC, without shell interpolation."""
 
+    _OVERSIZE_RESPONSE = "\\x00AUREN_MCP_RESPONSE_TOO_LARGE\\x00"
+
     def __init__(
         self, *, argv: Sequence[str], tool_name: str, argument_map: Mapping[str, Any] | None = None,
         timeout_seconds: int = 30, env_allowlist: Sequence[str] = (),
+        max_response_chars: int = 12000,
         requires_authority_binding: bool = True,
         trusted_workspace_root: str | Path | None = None,
         authority_dispatch: Callable[
@@ -949,6 +953,8 @@ class MCPStdioToolAdapter:
             raise ValueError("MCP tool_name is required")
         if not 1 <= timeout_seconds <= 300:
             raise ValueError("MCP timeout must be between 1 and 300 seconds")
+        if not isinstance(max_response_chars, int) or isinstance(max_response_chars, bool) or not 1 <= max_response_chars <= 1_000_000:
+            raise ValueError("MCP response limit must be between 1 and 1000000 characters")
         self.argv = tuple(argv)
         self.tool_name = tool_name
         self.argument_map = dict(argument_map or {"request": "$request"})
@@ -975,6 +981,8 @@ class MCPStdioToolAdapter:
                 line = responses.get(timeout=max(0.01, deadline - time.monotonic()))
             except queue.Empty as exc:
                 raise TimeoutError("MCP server did not respond before the configured timeout") from exc
+            if line == MCPStdioToolAdapter._OVERSIZE_RESPONSE:
+                raise AdapterUnavailable("MCP response exceeded the configured character limit")
             try:
                 message = json.loads(line)
             except json.JSONDecodeError:
@@ -1068,8 +1076,28 @@ class MCPStdioToolAdapter:
 
         def read_stdout() -> None:
             assert proc.stdout is not None
-            for line in proc.stdout:
-                responses.put(line)
+            buffer = ""
+            discarding = False
+            while True:
+                chunk = proc.stdout.read(4096)
+                if not chunk:
+                    break
+                for index, piece in enumerate(chunk.split("\\n")):
+                    has_newline = index < len(chunk.split("\\n")) - 1
+                    if discarding:
+                        if has_newline:
+                            discarding = False
+                        continue
+                    buffer += piece
+                    if len(buffer) > self.max_response_chars:
+                        responses.put(self._OVERSIZE_RESPONSE)
+                        buffer = ""
+                        discarding = not has_newline
+                    elif has_newline:
+                        responses.put(buffer)
+                        buffer = ""
+            if buffer and not discarding:
+                responses.put(buffer)
 
         def read_stderr() -> None:
             assert proc.stderr is not None
