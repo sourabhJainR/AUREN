@@ -50,7 +50,7 @@ The registry remains read-only. It does not install, enable, invoke, or grant tr
 
 The optional extension inventory now checks graph/index artifacts against a sidecar manifest named `<artifact-name>.auren-manifest.json`. The manifest binds the artifact SHA-256 to a repository snapshot SHA-256. Snapshot computation is bounded to 20,000 paths and 64 MiB of file content; an incomplete scan, missing manifest, malformed digest, changed artifact, changed repository, or path outside the repository is never marked fresh. The capability planner only exposes an extension hint when trust, freshness, availability, and approval policy all pass.
 
-The manifest builder returns data for the artifact producer to persist; it does not mutate or install extensions. Existing external graph tools do not automatically produce this manifest, so their artifacts remain unverified until an adapter writes the manifest after generation. Targeted graph-neighborhood invalidation and live task benchmarks remain open.
+The manifest builder returns data for the artifact producer to persist; it does not mutate or install extensions. Existing external graph tools do not automatically produce this manifest, so their artifacts remain unverified until an adapter writes the manifest after generation. The repository context page cache now supports replace-on-refresh: unchanged content-addressed pages are reused, stale pages for the repository domain are evicted, and unrelated memory/history domains are preserved. This is not a substitute for per-file graph-neighborhood invalidation. Live task benchmarks remain open.
 
 ## Follow-on implementation order
 
