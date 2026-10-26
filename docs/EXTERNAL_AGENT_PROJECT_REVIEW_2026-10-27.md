@@ -46,6 +46,12 @@ The optional extension inventory now reports a conservative capability manifest 
 
 The registry remains read-only. It does not install, enable, invoke, or grant trust to an extension. An extension's self-declared trust label is not evidence of independent verification. Discovered skills default to unverified, and external/MCP providers require approval by default.
 
+## Repository artifact freshness implementation slice
+
+The optional extension inventory now checks graph/index artifacts against a sidecar manifest named `<artifact-name>.auren-manifest.json`. The manifest binds the artifact SHA-256 to a repository snapshot SHA-256. Snapshot computation is bounded to 20,000 paths and 64 MiB of file content; an incomplete scan, missing manifest, malformed digest, changed artifact, changed repository, or path outside the repository is never marked fresh. The capability planner only exposes an extension hint when trust, freshness, availability, and approval policy all pass.
+
+The manifest builder returns data for the artifact producer to persist; it does not mutate or install extensions. Existing external graph tools do not automatically produce this manifest, so their artifacts remain unverified until an adapter writes the manifest after generation. Targeted graph-neighborhood invalidation and live task benchmarks remain open.
+
 ## Follow-on implementation order
 
 1. **P0 — Prove metadata enforcement:** tests that output bounds, approval, provider scope, freshness, and failure behavior are enforced at the actual invocation boundary, not merely displayed by the inventory.

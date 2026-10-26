@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import re
+
+from artifact_freshness import validate_artifact_freshness
 import shutil
 from pathlib import Path
 from typing import Any
@@ -38,7 +40,7 @@ def _discover_skill_dirs() -> list[Path]:
     return sorted(set(result))
 
 
-def _skill_metadata(path: Path) -> dict[str, str]:
+def _skill_metadata(path: Path) -> dict[str, Any]:
     text = (path / "SKILL.md").read_text(encoding="utf-8", errors="replace")[:12000]
     name = re.search(r"^name:\s*(.+)$", text, re.MULTILINE)
     description = re.search(r"^description:\s*(.+)$", text, re.MULTILINE)
@@ -52,15 +54,42 @@ def _skill_metadata(path: Path) -> dict[str, str]:
         "trust_class": "unverified",
         "evidence_types": "skill-instructions",
         "freshness": "not-checked",
+        "artifact_fresh": False,
+        "artifact_freshness_check": {"status": "not-applicable", "fresh": False, "checked": []},
         "failure_mode": "skip skill; preserve core workflow",
         "permissions": "not inferred from skill text",
         "side_effects": "not inferred from skill text",
     }
 
 
-def discover_skills() -> list[dict[str, str]]:
+def discover_skills() -> list[dict[str, Any]]:
     """Discover existing skills without deciding to invoke or install them."""
     return [_skill_metadata(path) for path in _discover_skill_dirs()]
+
+
+
+def _artifact_freshness(artifacts: list[str]) -> dict[str, Any]:
+    checks: list[dict[str, Any]] = []
+    for value in artifacts:
+        path = Path(value).expanduser()
+        if not path.is_absolute():
+            path = ROOT / path
+        if path.is_file():
+            try:
+                display_path = str(path.resolve().relative_to(ROOT.resolve()))
+            except ValueError:
+                checks.append({"path": str(path), "status": "invalid", "fresh": False, "reason": "artifact_outside_repository"})
+                continue
+            result = validate_artifact_freshness(path, ROOT)
+            checks.append({"path": display_path, **result})
+    if not checks:
+        return {"status": "unavailable", "fresh": False, "checked": checks}
+    fresh = all(item.get("fresh") is True for item in checks)
+    status = "fresh" if fresh else (
+        "stale" if any(item.get("status") == "stale" for item in checks)
+        else "unverified"
+    )
+    return {"status": status, "fresh": fresh, "checked": checks}
 
 
 def detect_extensions() -> dict[str, dict[str, Any]]:
@@ -79,6 +108,7 @@ def detect_extensions() -> dict[str, dict[str, Any]]:
         command_hits = [c for c in commands if _command_available(c)]
         marker_hits = [m for m in markers if _marker_exists(m)]
         available = bool(command_hits or marker_hits)
+        freshness_check = _artifact_freshness(spec.get("artifacts", []))
         result[name] = {
             "available": available,
             "health": "discovered" if available else "unavailable",
@@ -91,6 +121,8 @@ def detect_extensions() -> dict[str, dict[str, Any]]:
             "trust_class": spec.get("trust_class", "unverified"),
             "evidence_types": sorted(set(spec.get("evidence_types", []))),
             "freshness": spec.get("freshness", "not-checked"),
+            "artifact_fresh": freshness_check["fresh"],
+            "artifact_freshness_check": freshness_check,
             "failure_mode": spec.get("failure_mode", "skip; preserve core workflow"),
             "permissions": sorted(set(spec.get("permissions", []))),
             "side_effects": sorted(set(spec.get("side_effects", []))),
@@ -110,6 +142,8 @@ def detect_extensions() -> dict[str, dict[str, Any]]:
         "trust_class": "unverified",
         "evidence_types": ["skill-instructions"],
         "freshness": "not-checked",
+        "artifact_fresh": False,
+        "artifact_freshness_check": {"status": "not-applicable", "fresh": False, "checked": []},
         "failure_mode": "skip skill; preserve core workflow",
         "permissions": [],
         "side_effects": [],
