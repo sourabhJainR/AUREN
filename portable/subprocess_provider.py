@@ -178,7 +178,14 @@ class SubprocessProviderInvoker:
                  max_response_bytes: int = 1_000_000,
                  max_prompt_bytes: int = 1_000_000,
                  max_memory_bytes: int | None = None,
-                 max_processes: int | None = None) -> None:
+                 max_processes: int | None = None,
+                 is_extension: bool = False,
+                 extension_metadata: Mapping[str, Any] | None = None,
+                 extension_trust_granted: bool = False,
+                 extension_approval_granted: bool = False,
+                 extension_permissions: Sequence[str] = (),
+                 extension_artifact_fresh: bool = False,
+                 extension_provider_id: str | None = None) -> None:
         if isinstance(command, (str, bytes)) or not isinstance(command, Sequence) or not command:
             raise ValueError("command must be a non-empty argument sequence")
         if any(not isinstance(arg, str) or not arg or "\x00" in arg for arg in command):
@@ -213,6 +220,13 @@ class SubprocessProviderInvoker:
         self.max_prompt_bytes = max_prompt_bytes
         self.max_memory_bytes = max_memory_bytes
         self.max_processes = max_processes
+        self.is_extension = is_extension
+        self.extension_metadata = extension_metadata
+        self.extension_trust_granted = extension_trust_granted
+        self.extension_approval_granted = extension_approval_granted
+        self.extension_permissions = tuple(extension_permissions)
+        self.extension_artifact_fresh = extension_artifact_fresh
+        self.extension_provider_id = extension_provider_id
 
     @staticmethod
     def _kill(process: subprocess.Popen[bytes]) -> None:
@@ -279,7 +293,7 @@ class SubprocessProviderInvoker:
             effective_timeout = min(float(timeout_seconds), remaining)
         return self(prompt, effective_timeout, cancel_event=cancel_event)
 
-    def __call__(self, prompt: str, timeout_seconds: int | float, *, cancel_event: threading.Event | None = None) -> str:
+    def _invoke_unchecked(self, prompt: str, timeout_seconds: int | float, *, cancel_event: threading.Event | None = None) -> str:
         if not isinstance(prompt, str):
             raise TypeError("provider prompt must be text")
         if cancel_event is not None and not isinstance(cancel_event, threading.Event):
@@ -438,3 +452,19 @@ class SubprocessProviderInvoker:
             return bytes(output).decode("utf-8")
         except UnicodeDecodeError as exc:
             raise ValueError("provider response must be UTF-8 text") from exc
+
+    def __call__(self, prompt: str, timeout_seconds: int | float, *, cancel_event: threading.Event | None = None) -> str:
+        if not self.is_extension:
+            return self._invoke_unchecked(prompt, timeout_seconds, cancel_event=cancel_event)
+        # Extension providers are denied before process creation unless all
+        # trust, approval, provider-scope, freshness and output policies verify.
+        return invoke_extension(
+            self.extension_metadata,
+            lambda: self._invoke_unchecked(prompt, timeout_seconds, cancel_event=cancel_event),
+            trust_granted=self.extension_trust_granted,
+            approval_granted=self.extension_approval_granted,
+            requested_permissions=self.extension_permissions,
+            artifact_fresh=self.extension_artifact_fresh,
+            provider_id=self.extension_provider_id,
+            require_provider_scope=True,
+        )
