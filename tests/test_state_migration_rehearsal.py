@@ -73,5 +73,22 @@ class StateMigrationRehearsalEvidenceTests(unittest.TestCase):
                 )
 
 
+
+    def test_missing_sqlite_database_cannot_claim_file_copy_verification(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "legacy"
+            destination = root / "candidate"
+            source.mkdir()
+            (source / "session.txt").write_text("not enough durable-state evidence", encoding="utf-8")
+            report = capture_migration_rehearsal(
+                source=source, destination=destination, operator_id="staging-operator",
+                candidate_revision=REV_A, last_known_good_revision=REV_B, mode="apply",
+            )
+            self.assertEqual("blocked_or_incomplete", report["status"])
+            self.assertFalse(report["sqlite_integrity_passed"])
+            self.assertFalse(report["file_copy_verified"])
+            self.assertFalse(report["completion_claim_permitted"])
+
 if __name__ == "__main__":
     unittest.main()
