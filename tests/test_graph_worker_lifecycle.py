@@ -410,5 +410,41 @@ class GraphWorkerLifecycleTests(unittest.TestCase):
         self.assertEqual(snapshot["run_status"], "blocked")
 
 
+    def test_worker_failure_marks_cancelled_sibling_unknown_before_run_blocks(self):
+        plan = self.lifecycle([
+            Task("write-a", "write file a", files=["src/a.py"], metadata={"execution_mode": "mutating"}),
+            Task("write-b", "write file b", files=["src/b.py"], metadata={"execution_mode": "mutating"}),
+        ])
+
+        def write_a(workspace, _task):
+            (workspace / "src" / "a.py").write_text("a = True\\n", encoding="utf-8")
+
+        plan.prepare(
+            task_id="write-a", worker_id="worker-a", worker_identity="worker-a",
+            owned_paths=["src/a.py"], execute_in_workspace=write_a,
+            checks=self.checks("src/a.py", "a = True\\n"),
+        )
+
+        def write_b(workspace, _task):
+            (workspace / "src" / "b.py").write_text("b = False\\n", encoding="utf-8")
+
+        with self.assertRaisesRegex(Exception, "verification receipt binding mismatch"):
+            plan.prepare(
+                task_id="write-b", worker_id="worker-b", worker_identity="worker-b",
+                owned_paths=["src/b.py"], execute_in_workspace=write_b,
+                checks=self.checks("src/b.py", "b = True\\n"),
+            )
+
+        self.assertFalse((self.repo / "src" / "a.py").exists())
+        self.assertFalse((self.repo / "src" / "b.py").exists())
+        self.assertEqual(self.coordinator.worker_states()["worker-a"], "cancel_requested")
+        self.assertEqual(self.journal.snapshot("write-a")["state"], "blocked")
+        self.assertEqual(self.journal.snapshot("write-b")["state"], "failed")
+        snapshot = plan.recovery_bridge.load()
+        self.assertEqual(snapshot["nodes"]["write-a"]["status"], "unknown")
+        self.assertEqual(snapshot["nodes"]["write-b"]["status"], "failed")
+        self.assertEqual(snapshot["run_status"], "blocked")
+
+
 if __name__ == "__main__":
     unittest.main()
