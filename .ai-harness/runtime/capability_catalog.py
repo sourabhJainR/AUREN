@@ -75,7 +75,12 @@ def select_capabilities(route: dict[str, Any], *, extensions: dict[str, Any] | N
         if not isinstance(metadata, dict):
             extension_decisions[str(name)] = {"allowed": False, "reasons": ["invalid_extension_metadata"]}
             continue
-        decision = evaluate_invocation(metadata)
+        decision = evaluate_invocation(
+            metadata,
+            trust_granted=metadata.get("trust_granted") is True,
+            approval_granted=False,
+            artifact_fresh=metadata.get("artifact_fresh") is True,
+        )
         extension_decisions[str(name)] = {
             "allowed": decision["allowed"],
             "reasons": decision["reasons"],
