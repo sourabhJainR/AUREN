@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import re
 import subprocess
+from time import perf_counter
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +17,14 @@ from runtime.context_cache import ContextPageCache
 
 _STOP = {"the", "and", "for", "with", "from", "this", "that", "into", "have", "will", "task", "change", "please", "need", "make", "using"}
 _PRIORITY = (
+    ("traceback", 8.0),
+    ("exception", 7.5),
+    ("denied", 7.5),
+    ("error", 7.0),
+    ("security", 7.0),
+    ("blocked", 6.5),
+    ("timeout", 6.5),
+    ("cancelled", 6.5),
     ("critical", 6.0),
     ("acceptance", 6.0),
     ("constraint", 5.0),
@@ -24,12 +33,20 @@ _PRIORITY = (
     ("evidence", 5.0),
     ("verification", 5.0),
     ("regression", 5.0),
-    ("risk", 4.5),
     ("root cause", 4.5),
-    ("failed", 4.0),
+    ("missing", 4.5),
+    ("risk", 4.5),
+    ("failed", 4.5),
+    ("warning", 4.0),
     ("next", 3.5),
     ("changed", 3.0),
     ("file", 1.0),
+)
+_SIGNAL_MARKERS = (
+    "traceback", "exception", "denied", "error", "security", "blocked",
+    "timeout", "cancelled", "critical", "acceptance", "constraint",
+    "protected", "decision", "evidence", "verification", "regression",
+    "root cause", "missing", "risk", "failed", "warning",
 )
 
 # Process-local cache. Provider-side KV caching is intentionally left to the
@@ -183,12 +200,71 @@ def select_context(task: str, repo_map: str, memory: str, history: str, budget_c
         "cache": _PAGE_CACHE.stats(),
         "history_compression": {
             "input_chars": len(history),
-            "output_chars": len(compressed_history),
-            "ratio": round(len(compressed_history) / max(1, len(history)), 4),
+            "output_chars": len(history_text),
+            "ratio": round(len(history_text) / max(1, len(history)), 4),
+            "approx_input_tokens": (len(history) + 3) // 4,
+            "approx_output_tokens": (len(history_text) + 3) // 4,
+            "token_estimate_method": "characters-divided-by-four; not provider token usage",
+            "input_signals": sorted(
+                marker for marker in _SIGNAL_MARKERS
+                if re.search(r"\b" + re.escape(marker) + r"\b", history, re.IGNORECASE)
+            ),
+            "retained_signals": sorted(
+                marker for marker in _SIGNAL_MARKERS
+                if re.search(r"\b" + re.escape(marker) + r"\b", history, re.IGNORECASE)
+                and re.search(r"\b" + re.escape(marker) + r"\b", history_text, re.IGNORECASE)
+            ),
+            "missed_signals": sorted(
+                marker for marker in _SIGNAL_MARKERS
+                if re.search(r"\b" + re.escape(marker) + r"\b", history, re.IGNORECASE)
+                and not re.search(r"\b" + re.escape(marker) + r"\b", history_text, re.IGNORECASE)
+            ),
         },
         "strategy": "stable-prefix + content-addressed-page-cache + evidence-priority-compaction + tiled-context + relevance-ranking + bounded-evidence",
     }
     return output
+
+
+
+def benchmark_context_selection(
+    task: str,
+    repo_map: str,
+    memory: str,
+    history: str,
+    budget_chars: int = 12000,
+    *,
+    provider_token_usage: dict[str, int] | None = None,
+) -> dict[str, Any]:
+    """Measure raw versus selected context without claiming estimated tokens are exact."""
+    started = perf_counter()
+    selected = select_context(task, repo_map, memory, history, budget_chars)
+    elapsed_ms = round((perf_counter() - started) * 1000, 3)
+    raw_chars = len(repo_map) + len(memory) + len(history)
+    bounded_chars = sum(
+        len(selected[key]) for key in ("repository", "memory", "history")
+    )
+    usage: dict[str, int] | None = None
+    if provider_token_usage is not None:
+        usage = {}
+        for key in ("input_tokens", "output_tokens"):
+            value = provider_token_usage.get(key)
+            if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+                raise ValueError("provider token usage must contain non-negative integer token counts")
+            usage[key] = value
+    return {
+        "raw_chars": raw_chars,
+        "bounded_chars": bounded_chars,
+        "reduction_ratio": round(1 - bounded_chars / max(1, raw_chars), 4),
+        "approx_raw_tokens": (raw_chars + 3) // 4,
+        "approx_bounded_tokens": (bounded_chars + 3) // 4,
+        "token_estimate_method": "characters-divided-by-four; not provider token usage",
+        "provider_token_usage": usage,
+        "latency_ms": elapsed_ms,
+        "history_compression": selected["history_compression"],
+        "retained_signals": selected["history_compression"]["retained_signals"],
+        "missed_signals": selected["history_compression"]["missed_signals"],
+        "budget_chars": budget_chars,
+    }
 
 
 def flash_context_prompt(task: str, repo_map: str, memory: str, history: str, budget_chars: int = 12000) -> tuple[str, str, str, str]:

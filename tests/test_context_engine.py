@@ -51,6 +51,52 @@ class ContextEngineTests(unittest.TestCase):
         self.assertIn("Verification:", result)
         self.assertLessEqual(len(result), 280)
 
+    def test_context_metrics_report_approximate_tokens_and_preserved_failure_signals(self):
+        history = "\n".join([
+            "ERROR: provider timeout; traceback in adapter.py:42",
+            "Security denied: write scope exceeded and blocked by policy",
+            "Evidence: regression verification passed; acceptance criteria satisfied",
+            *[f"routine progress note {index}" for index in range(60)],
+        ])
+        result = self.module.select_context(
+            "provider timeout security regression",
+            "repository files: portable/adapter.py\n" * 3,
+            "memory: preserve authorization and error handling",
+            history,
+            budget_chars=4000,
+        )
+        metrics = result["history_compression"]
+        self.assertIn("approx_input_tokens", metrics)
+        self.assertIn("approx_output_tokens", metrics)
+        self.assertIn("not provider token usage", metrics["token_estimate_method"])
+        self.assertIn("error", metrics["retained_signals"])
+        self.assertIn("timeout", metrics["retained_signals"])
+        self.assertIn("security", metrics["retained_signals"])
+        self.assertIn("denied", metrics["retained_signals"])
+        self.assertEqual([], metrics["missed_signals"])
+        self.assertLessEqual(metrics["output_chars"], metrics["input_chars"])
+
+    def test_context_benchmark_records_cost_and_signal_metrics(self):
+        report = self.module.benchmark_context_selection(
+            "security timeout",
+            "repo " * 2000,
+            "memory " * 1000,
+            "ERROR: timeout; security denied\n" + ("routine note\n" * 400),
+            budget_chars=4000,
+            provider_token_usage={"input_tokens": 123, "output_tokens": 45},
+        )
+        self.assertGreater(report["raw_chars"], report["bounded_chars"])
+        self.assertGreaterEqual(report["latency_ms"], 0)
+        self.assertEqual({"input_tokens": 123, "output_tokens": 45}, report["provider_token_usage"])
+        self.assertIn("timeout", report["retained_signals"])
+        self.assertIn("security", report["retained_signals"])
+        self.assertIsInstance(report["missed_signals"], list)
+        with self.assertRaisesRegex(ValueError, "token usage"):
+            self.module.benchmark_context_selection(
+                "task", "repo", "memory", "history",
+                provider_token_usage={"input_tokens": True, "output_tokens": 1},
+            )
+
     def test_empty_history_is_empty(self):
         self.assertEqual(self.module.compact_history("", "anything", 100), "")
 
