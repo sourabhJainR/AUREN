@@ -259,7 +259,8 @@ class GraphWorkerLifecycle:
             if json.loads(persisted.read_text(encoding="utf-8")) != receipt:
                 raise PermissionError("persisted verification receipt does not match prepared result")
         try:
-            self.runtime_guard.check()\n            adopted = self.coordinator.adopt_many([item.proposal for item in prepared])
+            self.runtime_guard.check()
+            adopted = self.coordinator.adopt_many([item.proposal for item in prepared])
             for item in prepared:
                 if tuple(adopted[item.worker_id]) != tuple(sorted(item.proposal.paths)):
                     raise GraphWorkerLifecycleError("adopted paths differ from verified proposal")
