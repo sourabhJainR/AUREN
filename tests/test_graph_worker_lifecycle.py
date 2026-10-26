@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import subprocess
 import sys
+import time
 import tempfile
 import unittest
 from pathlib import Path
@@ -195,6 +196,44 @@ class GraphWorkerLifecycleTests(unittest.TestCase):
         self.assertEqual(result.state["graph_worker_adoption"]["status"], "completed")
         self.assertTrue((self.repo / "src" / "a.py").is_file())
         self.assertTrue((self.repo / "src" / "b.py").is_file())
+
+    def test_deadline_overrun_fails_worker_before_adoption(self):
+        plan = self.lifecycle([
+            Task("write-a", "write one file", files=["src/feature.py"], metadata={"execution_mode": "mutating"})
+        ])
+        def slow_write(workspace, _task):
+            (workspace / "src" / "feature.py").write_text("late = True\\n", encoding="utf-8")
+            self.guard.tighten_deadline(0.01)
+            time.sleep(0.03)
+        with self.assertRaises(ExecutionBudgetExceeded):
+            plan.run(
+                task_id="write-a", worker_id="worker-a", worker_identity="worker-a",
+                owned_paths=["src/feature.py"], execute_in_workspace=slow_write,
+                checks=self.checks("src/feature.py", "late = True\\n"),
+            )
+        self.assertFalse((self.repo / "src" / "feature.py").exists())
+        self.assertEqual(self.journal.snapshot("write-a")["state"], "failed")
+
+    def test_lost_prepared_worker_state_is_blocked_on_restart(self):
+        plan = self.lifecycle([
+            Task("write-a", "write one file", files=["src/feature.py"], metadata={"execution_mode": "mutating"})
+        ])
+        def write(workspace, _task):
+            (workspace / "src" / "feature.py").write_text("verified = True\\n", encoding="utf-8")
+        prepared = plan.prepare(
+            task_id="write-a", worker_id="worker-a", worker_identity="worker-a",
+            owned_paths=["src/feature.py"], execute_in_workspace=write,
+            checks=self.checks("src/feature.py", "verified = True\\n"),
+        )
+        node = plan.as_adoption_node(prepared_workers={}, worker_ids=("worker-a",))
+        state = {"graph_worker_prepared_worker-a": {
+            "worker_id": "worker-a", "task_id": "write-a", "status": "verified",
+            "receipt_path": prepared.receipt_path,
+        }}
+        with self.assertRaisesRegex(PermissionError, "restart reconciliation"):
+            node(state)
+        self.assertEqual(self.journal.snapshot("write-a")["state"], "blocked")
+        self.assertFalse((self.repo / "src" / "feature.py").exists())
 
     def test_shared_attempt_budget_blocks_second_worker_without_reset(self):
         tasks = [
