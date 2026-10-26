@@ -154,7 +154,7 @@ class GraphWorkerLifecycle:
             temp_path = receipt_path.with_name(receipt_path.name + ".tmp")
             if temp_path.exists() or temp_path.is_symlink():
                 raise PermissionError("temporary verification receipt path already exists or is unsafe")
-            payload = json.dumps(receipt, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8") + b"\\n"
+            payload = json.dumps(receipt, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8") + b"\n"
             fd = os.open(temp_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
             try:
                 with os.fdopen(fd, "wb") as stream:
