@@ -60,14 +60,14 @@ The manifest builder returns data for the artifact producer to persist; it does 
 
 Context benchmark reports now bind raw and selected context with SHA-256 digests, preserve provider-reported token counts separately from approximate character-based estimates, and accept an optional host-evaluator task-success result only with an evidence reference. The benchmark never infers task success from context reduction; live-provider task evaluation remains an explicit host/evaluator responsibility. Repository context entries now carry bounded per-file content fingerprints; files that exceed hashing limits or cannot be read are marked incomplete instead of being treated as fresh.
 
-## Follow-on implementation order
+## Gate status after implementation
 
-1. **P0 — Prove metadata enforcement:** tests that output bounds, approval, provider scope, freshness, and failure behavior are enforced at the actual invocation boundary, not merely displayed by the inventory.
-2. **P0 — Recovery and state:** continue exact-head crash/restart/reconciliation tests for checkpoint, journal, provider outcome, cancellation, and shared-budget boundaries. Unknown remote outcomes must remain blocked pending reconciliation.
-3. **P1 — Context economics:** benchmark raw versus bounded tool output on representative tasks. Record input/output tokens where the host exposes them, latency, retained evidence, missed errors, and task success. Keep raw artifacts accessible for audit.
-4. **P1 — Repository map freshness:** bind cached structural results to content digests and invalidate affected graph neighborhoods after edits. Preserve parse errors and omitted-file warnings.
-5. **P1 — Regression genome:** turn accepted bug fixes, review findings, and user corrections into candidate tests; promote only after deterministic regression and independent holdout evaluation.
-6. **P2 — Domain skill packs:** add UI, product, video, or career workflows only as optional, task-triggered packs with manifest, license, permissions, output limits, and tests.
+1. **P0 — Extension metadata and routing:** implemented manifest type validation, explicit privacy classes, cost/capability routing, trusted-policy grants, approval requirements for side effects and external data use, output bounds, and fail-closed fallback. The canonical action gateway remains authoritative for provider scopes; new adapters must retain boundary-level tests.
+2. **P0 — Recovery and state:** strict validation now forwards cancellation events. Deadline and cancellation regressions are covered by deterministic tests and the runtime-resilience matrix. Unknown remote outcomes remain blocked until reconciliation.
+3. **P1 — Context economics:** reports include raw/selected context digests, latency, retention/missed-signal metrics, approximate token estimates, provider-reported token usage, and optional host-evaluator task success with an evidence reference. Live-provider task-success benchmarking remains a host/evaluator responsibility; no performance gain is inferred from compression alone.
+4. **P1 — Repository freshness:** graph artifacts are trusted only when their sidecar matches the bounded repository snapshot digest. Repository context pages include bounded file-content fingerprints and stale pages are evicted on refresh. Incomplete hashing is explicitly warned. Targeted graph-neighborhood invalidation remains an optimization; full-artifact freshness checks fail closed.
+5. **P1 — Regression genome:** accepted fixes can become candidate cases. Promotion requires distinct deterministic runs, an independent holdout, verified evidence references, independent evaluator identity, and explicit human approval. The evaluator is injected by the host; no candidate is auto-promoted without it.
+6. **P2 — Domain skill packs:** manifest, license, permission, cost, privacy, approval, and output-bound controls are available. No UI/product/video/career packs are installed automatically; add them only when a task requires them and the specific pack has been reviewed.
 
 ## Verification requirements
 
