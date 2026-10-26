@@ -249,6 +249,11 @@ class GraphWorkerLifecycle:
             and "dispatch_authorized" in prior.get("message", "")
         )
         if prior.get("event_count", 0) and not reconciled_queue:
+            recovery_next_action = {
+                "adopting": "reconcile_target_tree_and_recovery_ledger",
+                "working": "reconcile_worker_workspace_and_receipt_before_resume",
+                "waiting": "inspect_prior_progress_before_redispatch",
+            }.get(recovery_node["status"], "reconcile_progress_journal_and_recovery_ledger")
             if recovery_node["status"] in {"working", "adopting"}:
                 self._record_recovery_node(
                     task_id=task_id, status="unknown",
@@ -265,7 +270,10 @@ class GraphWorkerLifecycle:
                         *([prior["evidence_ref"]] if prior.get("evidence_ref") else ()),
                     ))),
                 )
-                self._block_recovery_run("prior progress exists without an in-memory worker lease", "reconcile_worker_workspace_and_receipt_before_resume")
+                self._block_recovery_run(
+                    "prior progress exists without an in-memory worker lease",
+                    recovery_next_action,
+                )
             elif recovery_node["status"] == "waiting":
                 self._record_recovery_node(
                     task_id=task_id, status="blocked",
@@ -275,12 +283,12 @@ class GraphWorkerLifecycle:
             self.journal.record(
                 task_id, "duplicate-dispatch-blocked", state="blocked", stage="recovery",
                 message=self._binding(task_id, worker_id, plan_digest, self.intent_digest, "inspect_prior_state")
-                + "; next_action=reconcile_progress_journal_and_recovery_ledger",
+                + "; next_action=" + recovery_next_action,
                 evidence_ref=prior.get("evidence_ref"),
             )
             self._block_recovery_run(
                 "prior progress exists without a safe dispatch continuation",
-                "reconcile_progress_journal_and_recovery_ledger",
+                recovery_next_action,
             )
             raise PermissionError("durable progress already exists; reconcile prior worker state before redispatch")
         if recovery_node["status"] != "waiting":
