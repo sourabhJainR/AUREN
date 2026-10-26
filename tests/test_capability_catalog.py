@@ -40,6 +40,8 @@ class CapabilityCatalogTests(unittest.TestCase):
                 "trusted_readonly": {
                     "available": True,
                     "trust_class": "trusted",
+                    "trust_granted": True,
+                    "artifact_fresh": True,
                     "requires_approval": False,
                     "permissions": ["read-repository"],
                     "output_limit_chars": 1000,
