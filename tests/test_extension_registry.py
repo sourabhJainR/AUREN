@@ -25,6 +25,37 @@ class ExtensionRegistryTests(unittest.TestCase):
             self.assertIn("available", value)
             self.assertIn("capabilities", value)
             self.assertIn("policy", value)
+            self.assertIn("health", value)
+            self.assertIn("version", value)
+            self.assertIn("cost_class", value)
+            self.assertIn("trust_class", value)
+            self.assertIn("evidence_types", value)
+            self.assertIn("freshness", value)
+            self.assertIn("failure_mode", value)
+            self.assertIn("permissions", value)
+            self.assertIn("side_effects", value)
+            self.assertIn("requires_approval", value)
+            self.assertIn("output_limit_chars", value)
+            self.assertGreater(value["output_limit_chars"], 0)
+
+    def test_discovery_is_not_a_trust_or_health_claim(self):
+        result = extension_registry.detect_extensions()
+        for name, value in result.items():
+            if name == "discovered_skills":
+                continue
+            self.assertIn(value["trust_class"], {
+                "unverified", "local-unverified", "external-unverified"
+            })
+            self.assertIn(value["health"], {"discovered", "unavailable"})
+            self.assertEqual(value["requires_approval"], True)
+
+    def test_metadata_defaults_fail_conservatively(self):
+        result = extension_registry.detect_extensions()
+        self.assertEqual(result["mcp"]["trust_class"], "external-unverified")
+        self.assertEqual(result["mcp"]["requires_approval"], True)
+        self.assertIn("ambiguous", result["mcp"]["failure_mode"])
+        self.assertEqual(result["generic_skill"]["version"], "unknown")
+        self.assertEqual(result["generic_skill"]["cost_class"], "unknown")
 
     def test_legacy_product_name_is_not_a_core_extension(self):
         entry = extension_registry.REGISTRY.read_text(encoding="utf-8")
@@ -38,6 +69,8 @@ class ExtensionRegistryTests(unittest.TestCase):
             self.assertIn("name", skill)
             self.assertIn("description", skill)
             self.assertIn("path", skill)
+            self.assertEqual(skill["trust_class"], "unverified")
+            self.assertEqual(skill["health"], "discovered")
 
 
 if __name__ == "__main__":
