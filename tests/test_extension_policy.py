@@ -142,5 +142,46 @@ class ExtensionPolicyTests(unittest.TestCase):
         self.assertFalse(decision["allowed"])
         self.assertIn("freshness_not_verified", decision["reasons"])
 
+
+    def test_direct_tool_registry_denies_missing_extension_policy_before_handler(self):
+        from portable.agency_agent_capabilities import AllowlistedToolPolicy, ToolRegistry, ToolSpec
+
+        called = []
+        registry = ToolRegistry([
+            ToolSpec(
+                "optional-extension", "test", "execution",
+                handler=lambda: called.append("called") or "unsafe",
+                is_extension=True,
+            )
+        ])
+        with self.assertRaises(ExtensionInvocationDenied):
+            registry.execute(
+                "optional-extension", {}, AllowlistedToolPolicy(allowed_tools=frozenset({"optional-extension"}))
+            )
+        self.assertEqual([], called)
+
+    def test_direct_tool_registry_enforces_provider_scope_and_output_limit(self):
+        from portable.agency_agent_capabilities import AllowlistedToolPolicy, ToolRegistry, ToolSpec
+
+        metadata = {
+            "available": True, "manifest_valid": True, "trust_class": "trusted",
+            "requires_approval": False, "permissions": ["read-repository"],
+            "provider_ids": ["provider-a"], "artifact_fresh": True, "output_limit_chars": 6,
+        }
+        tool = ToolSpec(
+            "extension-tool", "test", "execution", handler=lambda: "0123456789",
+            is_extension=True, extension_metadata=metadata, extension_trust_granted=True,
+            extension_permissions=("read-repository",), extension_artifact_fresh=True,
+            extension_provider_id="provider-a",
+        )
+        registry = ToolRegistry([tool])
+        policy = AllowlistedToolPolicy(allowed_tools=frozenset({"extension-tool"}))
+        self.assertLessEqual(len(registry.execute("extension-tool", {}, policy)), 6)
+        denied = ToolSpec(
+            **{**tool.__dict__, "extension_provider_id": "provider-b"}
+        )
+        with self.assertRaisesRegex(PermissionError, "provider_scope_not_authorized"):
+            ToolRegistry([denied]).execute("extension-tool", {}, policy)
+
 if __name__ == "__main__":
     unittest.main()
