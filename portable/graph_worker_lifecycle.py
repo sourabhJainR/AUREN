@@ -430,7 +430,6 @@ class GraphWorkerLifecycle:
                 raise PermissionError(f"prepared worker receipts are unavailable; reconcile before adoption: {missing}")
             prepared = [self._prepared[worker_id] for worker_id in worker_ids]
         adoption_started = False
-        adoption_applied = False
         try:
             self.runtime_guard.check()
             for item in prepared:
@@ -459,7 +458,6 @@ class GraphWorkerLifecycle:
             # explicit reconciliation proves otherwise.
             adoption_started = True
             adopted = self.coordinator.adopt_many([item.proposal for item in prepared])
-            adoption_applied = True
             for item in prepared:
                 if tuple(adopted[item.worker_id]) != tuple(sorted(item.proposal.paths)):
                     raise GraphWorkerLifecycleError("adopted paths differ from verified proposal")
