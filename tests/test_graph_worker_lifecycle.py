@@ -7,6 +7,7 @@ import time
 import uuid
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 from portable.graph_workspace_adoption import GraphWorkspaceCoordinator
@@ -351,6 +352,62 @@ class GraphWorkerLifecycleTests(unittest.TestCase):
             )
         self.assertEqual(self.journal.snapshot("write-a")["state"], "blocked")
         self.assertFalse((self.repo / "src" / "feature.py").exists())
+
+
+    def test_cleanup_failure_after_apply_keeps_task_blocked_until_reconciliation(self):
+        plan = self.lifecycle([
+            Task("write-a", "write one file", files=["src/feature.py"], metadata={"execution_mode": "mutating"})
+        ])
+
+        def write(workspace, _task):
+            (workspace / "src" / "feature.py").write_text("verified = True\\n", encoding="utf-8")
+
+        prepared = plan.prepare(
+            task_id="write-a", worker_id="worker-a", worker_identity="worker-a",
+            owned_paths=["src/feature.py"], execute_in_workspace=write,
+            checks=self.checks("src/feature.py", "verified = True\\n"),
+        )
+        with patch.object(self.coordinator, "cleanup_worker", side_effect=RuntimeError("injected cleanup failure")):
+            with self.assertRaisesRegex(RuntimeError, "injected cleanup failure"):
+                plan.adopt_prepared((prepared.worker_id,))
+
+        self.assertTrue((self.repo / "src" / "feature.py").is_file())
+        self.assertEqual(plan.task_plan.tasks["write-a"].status, "pending")
+        self.assertEqual(self.journal.snapshot("write-a")["state"], "blocked")
+        snapshot = plan.recovery_bridge.load()
+        self.assertEqual(snapshot["nodes"]["write-a"]["status"], "unknown")
+        self.assertEqual(snapshot["run_status"], "blocked")
+
+    def test_recovery_commit_failure_corrects_terminal_journal_and_blocks_run(self):
+        plan = self.lifecycle([
+            Task("write-a", "write one file", files=["src/feature.py"], metadata={"execution_mode": "mutating"})
+        ])
+
+        def write(workspace, _task):
+            (workspace / "src" / "feature.py").write_text("verified = True\\n", encoding="utf-8")
+
+        prepared = plan.prepare(
+            task_id="write-a", worker_id="worker-a", worker_identity="worker-a",
+            owned_paths=["src/feature.py"], execute_in_workspace=write,
+            checks=self.checks("src/feature.py", "verified = True\\n"),
+        )
+        record_recovery_node = plan._record_recovery_node
+
+        def fail_completion_commit(**kwargs):
+            if kwargs.get("status") == "complete":
+                raise OSError("injected recovery commit failure")
+            return record_recovery_node(**kwargs)
+
+        with patch.object(plan, "_record_recovery_node", side_effect=fail_completion_commit):
+            with self.assertRaisesRegex(OSError, "injected recovery commit failure"):
+                plan.adopt_prepared((prepared.worker_id,))
+
+        self.assertTrue((self.repo / "src" / "feature.py").is_file())
+        self.assertEqual(plan.task_plan.tasks["write-a"].status, "pending")
+        self.assertEqual(self.journal.snapshot("write-a")["state"], "blocked")
+        snapshot = plan.recovery_bridge.load()
+        self.assertEqual(snapshot["nodes"]["write-a"]["status"], "unknown")
+        self.assertEqual(snapshot["run_status"], "blocked")
 
 
 if __name__ == "__main__":
