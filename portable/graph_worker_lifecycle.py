@@ -388,7 +388,25 @@ class GraphWorkerLifecycle:
                 marker = state.get("graph_worker_prepared_" + worker_id)
                 if not isinstance(marker, Mapping) or marker.get("status") != "verified":
                     raise PermissionError(f"worker {worker_id} lacks a verified graph result")
-            if any(worker_id not in prepared_workers for worker_id in ids):
+            missing = [worker_id for worker_id in ids if worker_id not in prepared_workers]
+            if missing:
+                for worker_id in missing:
+                    marker = state.get("graph_worker_prepared_" + worker_id)
+                    task_id = marker.get("task_id") if isinstance(marker, Mapping) else None
+                    if isinstance(task_id, str) and task_id in self.task_plan.tasks:
+                        try:
+                            snapshot = self.journal.snapshot(task_id)
+                            if snapshot.get("state") not in {"completed", "failed", "cancelled"}:
+                                self.journal.record(
+                                    task_id, "prepared-worker-lost", state="blocked", stage="recovery",
+                                    message=self._binding(
+                                        task_id, worker_id, self.task_plan.digest(), self.intent_digest,
+                                        "prepared_worker_lost",
+                                    ) + "; next_action=inspect_persisted_receipt_and_workspace",
+                                    evidence_ref=snapshot.get("evidence_ref"),
+                                )
+                        except BaseException:
+                            pass
                 raise PermissionError("prepared worker state was lost; restart reconciliation is required")
             return {"graph_worker_adoption": self.adopt_prepared(ids)}
         return node
