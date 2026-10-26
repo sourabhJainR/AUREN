@@ -113,6 +113,8 @@ side_effects = []
 requires_approval = true
 output_limit_chars = 12000
 policy = "discover by description and invoke only when relevant"
+source = "local skill directories"
+license = "unknown"
 
 [extensions.mcp]
 kind = "tool-provider"
