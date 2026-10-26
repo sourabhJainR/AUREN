@@ -4,8 +4,9 @@ Status: implementation contract for issue #998. This document describes required
 
 ## Canonical owners
 
-- Task dependencies: `portable.task_planner.TaskPlan`.
-- Default graph execution: `portable.adaptive_runtime.AdaptiveRuntime` and `portable.orchestration.Graph/Orchestrator`.
+- Task dependencies and stable plan identity: `portable.task_planner.TaskPlan`.
+- Graph scheduling and parallel supersteps: the existing `portable.agency_state_graph.StateGraph`, called by `.ai-harness/runtime/graph_agent_team.py`.
+- General orchestration: `portable.adaptive_runtime.AdaptiveRuntime` and `portable.orchestration.Graph/Orchestrator`.
 - Durable task lifecycle: `portable.execution_controller.ExecutionController`, supervisor recovery ledger, and progress journal.
 - Shared runtime limits: the supervisor-owned `RuntimeExecutionGuard`.
 - Specialist proposal dispatch: `portable.state_graph.GraphAgentTeam` and `portable.bounded_crew_dispatch.BoundedCrewDispatcher`.
@@ -15,9 +16,11 @@ Do not introduce a second planner, scheduler, retry ledger, evidence store, memo
 
 ## Scheduling rules
 
-1. Compute readiness from the canonical dependency graph. A node is runnable only when every prerequisite has a verified successful terminal result.
-2. Fan out only independent, read-only work. Keep shared-resource mutations, canonical memory writes, evidence finalization, and adoption serialized.
-3. Enforce one task-wide concurrency, deadline, attempt, and resource budget across nested graph and crew boundaries.
+1. Derive graph edges and prerequisite checks from the canonical `TaskPlan`; reject cycles and missing dependencies before dispatch.
+2. Bind the run to a stable TaskPlan definition digest and the exact intent digest. Resume rejects a changed digest before dispatch; task status and execution output do not alter the plan digest.
+3. Use the existing `StateGraph` scheduler for independent, read-only supersteps. Run a single eligible node inline; when duration estimates exist, fan out only if estimated savings exceed configured overhead. Do not add another scheduler or executor.
+4. Keep local commands and the learning steward out of parallel fan-out. SharedTaskMemory file writes and persistent learning-experience writes are serialized; shared-resource mutations, evidence finalization, and adoption remain serialized.
+5. Enforce one task-wide concurrency, deadline, attempt, and resource budget across nested graph and crew boundaries.
 4. If the task is narrow or sequential, execute the chain without adding parallel coordination overhead.
 5. On a hard safety failure or exhausted task budget, stop scheduling new work, request cancellation of siblings, and record any non-preemptible worker as still running/unknown until confirmed stopped.
 
@@ -45,8 +48,9 @@ Record graph topology, concurrency, model/provider, quality, regression, latency
 
 ## Required regression matrix
 
-- Independent nodes overlap; dependent nodes wait.
-- Cycles, missing prerequisites, stale digests, and failed dependencies are rejected or block downstream work.
+- Independent read-only nodes overlap in the existing StateGraph runtime; dependent nodes wait.
+- TaskPlan digest is stable across status/output changes and changes when dependencies or execution scope changes.
+- Resume rejects stale task-plan or intent digests; cycles, missing prerequisites, and failed dependencies are rejected or block downstream work.
 - Nested graphs cannot reset the shared worker, deadline, retry, or resource budget.
 - Worker failure stops new dispatch and records cancellation/termination uncertainty truthfully.
 - Separate workspaces prevent shared-file races; adoption is serialized and stale-head guarded.

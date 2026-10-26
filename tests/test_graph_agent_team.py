@@ -307,6 +307,20 @@ class GraphAgentTeamTests(unittest.TestCase):
             result = team.execute(task="X", intent_digest="intent-a", base_prompt="base", memory=memory, invoke_agent=invoke)
             self.assertTrue(result["accepted"])
             self.assertEqual(peak, 2)
+            published_agents = {row["agent"] for row in memory.snapshot()}
+            self.assertTrue({"planner", "explorer", "researcher", "builder"}.issubset(published_agents))
+
+    def test_parallel_eligibility_excludes_learning_and_local_commands(self):
+        team = GraphAgentTeam([
+            AgentSpec("reader", "reader", read_only=True),
+            AgentSpec("writer", "writer", read_only=False),
+            AgentSpec("local-reader", "reader", read_only=True, local_command=("python", "-c", "pass")),
+            AgentSpec("learning-steward", "learning", read_only=True),
+        ])
+        self.assertTrue(team._parallel_safe("reader"))
+        self.assertFalse(team._parallel_safe("writer"))
+        self.assertFalse(team._parallel_safe("local-reader"))
+        self.assertFalse(team._parallel_safe("learning-steward"))
 
     def test_checkpoint_resume_does_not_repeat_completed_agents(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -331,6 +345,65 @@ class GraphAgentTeamTests(unittest.TestCase):
             self.assertTrue(resumed["accepted"])
             self.assertEqual(calls, ["planner", "builder"])
             self.assertEqual(resumed["execution_trace"], ["planner", "builder"])
+
+    def test_resume_rejects_stale_intent_digest_without_crew_adapters(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = InMemoryCheckpointStore()
+            calls = []
+
+            def invoke(agent, prompt):
+                calls.append(agent.name)
+                return 0, agent.name, 0.01
+
+            team = GraphAgentTeam([
+                AgentSpec("planner", "planner"),
+                AgentSpec("builder", "builder", depends_on=("planner",), read_only=False),
+            ])
+            memory_a = SharedTaskMemory(Path(tmp) / "memory.jsonl", "intent-a")
+            with self.assertRaises(RuntimeError):
+                team.execute(
+                    task="X", intent_digest="intent-a", base_prompt="base", memory=memory_a,
+                    invoke_agent=invoke, checkpoint=store, run_id="stale-intent", max_steps=1,
+                )
+
+            memory_b = SharedTaskMemory(Path(tmp) / "memory.jsonl", "intent-b")
+            with self.assertRaisesRegex(ValueError, "stale checkpoint resume"):
+                team.execute(
+                    task="X", intent_digest="intent-b", base_prompt="base", memory=memory_b,
+                    invoke_agent=invoke, checkpoint=store, resume=True, run_id="stale-intent",
+                )
+            self.assertEqual(calls, ["planner"])
+
+    def test_resume_rejects_stale_task_plan_digest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = InMemoryCheckpointStore()
+            calls = []
+
+            def invoke(agent, prompt):
+                calls.append(agent.name)
+                return 0, agent.name, 0.01
+
+            original = GraphAgentTeam([
+                AgentSpec("planner", "planner"),
+                AgentSpec("builder", "builder", depends_on=("planner",), read_only=False),
+            ])
+            memory = SharedTaskMemory(Path(tmp) / "memory.jsonl", "intent-a")
+            with self.assertRaises(RuntimeError):
+                original.execute(
+                    task="X", intent_digest="intent-a", base_prompt="base", memory=memory,
+                    invoke_agent=invoke, checkpoint=store, run_id="stale-plan", max_steps=1,
+                )
+
+            changed = GraphAgentTeam([
+                AgentSpec("planner", "planner"),
+                AgentSpec("builder", "builder", read_only=False),
+            ])
+            with self.assertRaisesRegex(ValueError, "stale checkpoint resume"):
+                changed.execute(
+                    task="X", intent_digest="intent-a", base_prompt="base", memory=memory,
+                    invoke_agent=invoke, checkpoint=store, resume=True, run_id="stale-plan",
+                )
+            self.assertEqual(calls, ["planner"])
 
     def test_route_creates_builder_verifier_and_reviews(self):
         team = team_for_route({"mode": "implement", "capabilities": [], "risk": "high"})

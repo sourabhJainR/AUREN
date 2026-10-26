@@ -25,6 +25,33 @@ class TaskPlannerTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             TaskPlan([Task("1", "A", dependencies=["99"])])
 
+    def test_digest_ignores_mutable_status_and_execution_output(self) -> None:
+        plan = TaskPlan([Task("a", "A", metadata={"read_only": True})])
+        original = plan.digest()
+        plan.tasks["a"].status = "done"
+        plan.tasks["a"].metadata["execution_output"] = {"result": "verified"}
+        self.assertEqual(original, plan.digest())
+
+    def test_digest_changes_when_dependency_or_execution_scope_changes(self) -> None:
+        plan = TaskPlan([
+            Task("a", "A", metadata={"read_only": True}),
+            Task("b", "B", metadata={"read_only": False}),
+        ])
+        original = plan.digest()
+        plan.tasks["b"].dependencies = ["a"]
+        self.assertNotEqual(original, plan.digest())
+        plan.tasks["b"].dependencies = []
+        plan.tasks["a"].metadata["read_only"] = False
+        self.assertNotEqual(original, plan.digest())
+
+    def test_digest_rejects_non_json_task_definitions(self) -> None:
+        plan = TaskPlan([Task("a", "A", metadata={"unsafe": object()})])
+        with self.assertRaisesRegex(ValueError, "finite JSON-compatible"):
+            plan.digest()
+
 
 if __name__ == "__main__":
     unittest.main()
+
+# Run durable graph recovery fault tests with canonical TaskPlan regressions.
+from tests.test_engineering_recovery import GraphRunRecoveryTests
