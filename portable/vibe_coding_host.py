@@ -551,7 +551,6 @@ class ProviderCliAgent:
         self.allow_workspace_writes = allow_workspace_writes
         self.timeout_seconds = timeout_seconds
         self.env_allowlist = tuple(env_allowlist)
-        self.max_response_chars = max_response_chars
         if allow_workspace_writes and self.provider != "codex":
             raise AdapterUnavailable("workspace writes require the Codex CLI workspace-write sandbox; other providers are read-only here")
 
@@ -964,6 +963,7 @@ class MCPStdioToolAdapter:
             raise TypeError("authority_dispatch must be callable")
         self.timeout_seconds = timeout_seconds
         self.env_allowlist = tuple(env_allowlist)
+        self.max_response_chars = max_response_chars
         self.requires_authority_binding = requires_authority_binding
         self.trusted_workspace_root = (
             Path(trusted_workspace_root).expanduser().resolve()
