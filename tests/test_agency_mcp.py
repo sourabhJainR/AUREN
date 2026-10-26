@@ -87,3 +87,16 @@ def test_mcp_extension_with_missing_policy_never_falls_back_to_allowlist():
     ).as_dict()
     assert "error" in result
     assert calls == []
+
+def test_mcp_cannot_bypass_policy_by_omitting_extension_flag():
+    calls = []
+    registry = ToolRegistry([
+        ToolSpec("unmarked", "not explicitly marked", "execution",
+                 handler=lambda: calls.append("called") or "unsafe")
+    ])
+    endpoint = MCPToolEndpoint(
+        registry, AllowlistedToolPolicy(allowed_tools=frozenset({"unmarked"}))
+    )
+    result = endpoint.handle(MCPRequest(13, "tools/call", {"name": "unmarked", "arguments": {}})).as_dict()
+    assert "error" in result
+    assert calls == []
