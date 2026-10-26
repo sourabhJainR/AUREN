@@ -183,5 +183,23 @@ class ExtensionPolicyTests(unittest.TestCase):
         with self.assertRaisesRegex(PermissionError, "provider_scope_not_authorized"):
             ToolRegistry([denied]).execute("extension-tool", {}, policy)
 
+
+    def test_side_effect_and_external_data_policy_cannot_disable_approval(self):
+        for metadata in (
+            self.metadata(requires_approval=False, side_effects=["write-repository"]),
+            self.metadata(requires_approval=False, privacy_class="external"),
+        ):
+            with self.subTest(metadata=metadata):
+                decision = evaluate_invocation(
+                    metadata,
+                    trust_granted=True,
+                    requested_permissions=["read-repository"],
+                    artifact_fresh=True,
+                )
+                self.assertFalse(decision["allowed"])
+                self.assertTrue(
+                    {"side_effect_approval_required", "external_data_approval_required"} & set(decision["reasons"])
+                )
+
 if __name__ == "__main__":
     unittest.main()
