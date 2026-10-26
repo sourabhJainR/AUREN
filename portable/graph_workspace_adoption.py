@@ -255,6 +255,9 @@ class GraphWorkspaceCoordinator:
         except BaseException as exc:
             with self._lock:
                 self.cancel_siblings(f"adoption failed: {type(exc).__name__}")
+                for proposal in rows:
+                    if proposal.worker_id in self._states and self._states[proposal.worker_id] not in {"adopted", "cleaned"}:
+                        self._states[proposal.worker_id] = "failed"
             raise
 
     def cancel_siblings(self, reason: str, *, except_worker_id: str | None = None) -> dict[str, str]:
