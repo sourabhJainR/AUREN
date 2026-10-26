@@ -187,6 +187,8 @@ class SubprocessProviderInvoker:
                  extension_permissions: Sequence[str] = (),
                  extension_artifact_fresh: bool = False,
                  extension_provider_id: str | None = None) -> None:
+        if type(is_extension) is not bool:
+            raise ValueError("is_extension must be an explicit boolean")
         if isinstance(command, (str, bytes)) or not isinstance(command, Sequence) or not command:
             raise ValueError("command must be a non-empty argument sequence")
         if any(not isinstance(arg, str) or not arg or "\x00" in arg for arg in command):
