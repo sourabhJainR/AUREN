@@ -85,7 +85,7 @@ class GraphWorkerLifecycleTests(unittest.TestCase):
             checks=self.checks("src/feature.py", "verified = True\n"),
         )
         self.assertEqual(result["status"], "completed")
-        self.assertEqual(result["external_evaluator_independence"], "not_proven")
+        self.assertEqual(result["workers"]["worker-a"]["external_evaluator_independence"], "not_proven")
         self.assertEqual((self.repo / "src" / "feature.py").read_text(encoding="utf-8"), "verified = True\n")
         self.assertEqual(self.journal.snapshot("write-a")["state"], "completed")
         self.assertTrue(Path(result["receipt_path"]).is_file())
