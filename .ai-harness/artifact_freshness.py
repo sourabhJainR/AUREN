@@ -161,6 +161,7 @@ def validate_artifact_freshness(
         return {"status": "invalid", "fresh": False, "reason": "freshness_manifest_invalid"}
     if (
         not isinstance(data, dict)
+        or type(data.get("schema_version")) is not int
         or data.get("schema_version") != MANIFEST_SCHEMA
         or not isinstance(data.get("artifact_sha256"), str)
         or len(data.get("artifact_sha256", "")) != 64
