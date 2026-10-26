@@ -553,6 +553,10 @@ class GraphWorkerLifecycleTests(unittest.TestCase):
         snapshot = bridge.load()
         self.assertEqual(snapshot["run_status"], "in_progress")
         self.assertEqual(snapshot["nodes"]["write-a"]["status"], "adopting")
+        evidence_refs = snapshot["nodes"]["write-a"]["evidence_refs"]
+        self.assertEqual(len(evidence_refs), 2)
+        self.assertTrue(any(ref.endswith(".patch") for ref in evidence_refs))
+        self.assertTrue(any(ref.endswith(".verification.json") for ref in evidence_refs))
         self.assertEqual(
             snapshot["nodes"]["write-a"]["next_safe_action"],
             "reconcile_target_tree_and_recovery_ledger",
