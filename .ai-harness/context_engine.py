@@ -142,16 +142,17 @@ def build_repository_context(root: Path, task: str, limit_files: int = 180, budg
         )
         bytes_hashed += bytes_used
         if digest:
-            fingerprinted += 1
             fingerprint = f"sha256:{digest}"
         else:
-            fingerprint_warnings += 1
             fingerprint = f"digest-unavailable:{warning or 'unknown'}"
         entry = f"- {name} [{fingerprint}]"
         if used + len(entry) + 1 + status_reserve > budget_chars:
             omitted_files = len(selected) - index
-            fingerprint_warnings += omitted_files
             break
+        if digest:
+            fingerprinted += 1
+        else:
+            fingerprint_warnings += 1
         lines.append(entry)
         used += len(entry) + 1
 
