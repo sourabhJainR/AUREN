@@ -196,6 +196,9 @@ class GraphWorkspaceCoordinator:
         is allowed: the combined patch is checked before a single apply operation.
         """
         rows = tuple(proposals)
+        if any(not isinstance(proposal, WorkspaceProposal) for proposal in rows):
+            raise TypeError("all adoption inputs must be coordinator-issued WorkspaceProposal values")
+        applied = False
         try:
             with self._lock:
                 if not rows:
@@ -235,6 +238,7 @@ class GraphWorkspaceCoordinator:
                 )
                 _git(self.project_root, "apply", "--check", "--", input_bytes=combined_patch)
                 _git(self.project_root, "apply", "--", input_bytes=combined_patch)
+                applied = True
                 adopted_paths = {
                     item.decode("utf-8", errors="strict") for item in _git(
                         self.project_root, "diff", "--name-only", "-z", self.base_revision, "--"
@@ -253,11 +257,21 @@ class GraphWorkspaceCoordinator:
                     result[proposal.worker_id] = tuple(sorted(proposal.paths))
                 return result
         except BaseException as exc:
+            rollback_error = None
             with self._lock:
+                if applied:
+                    try:
+                        _git(self.project_root, "apply", "--reverse", "--", input_bytes=combined_patch)
+                        if _git(self.project_root, "status", "--porcelain", "--untracked-files=all").strip():
+                            raise RuntimeError("target checkout is still dirty after adoption rollback")
+                    except BaseException as rollback_exc:
+                        rollback_error = rollback_exc
                 self.cancel_siblings(f"adoption failed: {type(exc).__name__}")
                 for proposal in rows:
                     if proposal.worker_id in self._states and self._states[proposal.worker_id] not in {"adopted", "cleaned"}:
                         self._states[proposal.worker_id] = "failed"
+            if rollback_error is not None:
+                raise RuntimeError("adoption failed and rollback could not be verified; operator reconciliation required") from rollback_error
             raise
 
     def cancel_siblings(self, reason: str, *, except_worker_id: str | None = None) -> dict[str, str]:
