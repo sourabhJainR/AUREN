@@ -3,6 +3,7 @@ from __future__ import annotations
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 from portable.graph_workspace_adoption import GraphWorkspaceCoordinator
@@ -102,6 +103,30 @@ class GraphWorkspaceAdoptionTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "worker ids must be unique"):
             self.coordinator.adopt_many((proposal, proposal))
         self.assertFalse((self.repo / "src" / "feature.py").exists())
+
+    def test_failed_post_apply_verification_rolls_back_target(self):
+        workspace = self.coordinator.create_worker("worker-a", ["src/feature.py"])
+        (workspace / "src" / "feature.py").write_text("answer = 42\\n", encoding="utf-8")
+        proposal = self.coordinator.prepare_proposal("worker-a")
+        import portable.graph_workspace_adoption as adoption_module
+        real_git = adoption_module._git
+        applied = {"value": False}
+
+        def injected_git(root, *args, input_bytes=None):
+            if args[:2] == ("apply", "--") and "--check" not in args:
+                result = real_git(root, *args, input_bytes=input_bytes)
+                applied["value"] = True
+                return result
+            if applied["value"] and args[:2] == ("diff", "--name-only"):
+                return b"unexpected\\x00"
+            return real_git(root, *args, input_bytes=input_bytes)
+
+        with patch("portable.graph_workspace_adoption._git", side_effect=injected_git):
+            with self.assertRaisesRegex(RuntimeError, "adopted path set differs"):
+                self.coordinator.adopt(proposal)
+        self.assertFalse((self.repo / "src" / "feature.py").exists())
+        self.assertEqual(git(self.repo, "status", "--porcelain"), "")
+        self.assertEqual(self.coordinator.worker_states()["worker-a"], "failed")
 
     def test_stale_target_head_blocks_adoption(self):
         workspace = self.coordinator.create_worker("worker-a", ["src/feature.py"])
