@@ -14,8 +14,10 @@ import time
 from contextlib import contextmanager
 from dataclasses import dataclass
 from enum import Enum
+from functools import wraps
 from pathlib import Path
-from typing import Any, Iterable, Mapping, Sequence
+from threading import RLock
+from typing import Any, Callable, Iterable, Mapping, Sequence
 
 
 class RecoveryAction(str, Enum):
@@ -436,6 +438,15 @@ def _assert_budget_monotonic(previous: Mapping[str, Any], current: Mapping[str, 
             raise ValueError("runtime failure counters decreased during graph execution")
 
 
+def _serialized_graph_checkpoint(method: Callable[..., Any]) -> Callable[..., Any]:
+    """Serialize read-modify-write transitions on one shared graph checkpoint bridge."""
+    @wraps(method)
+    def wrapped(self: "GraphRunRecoveryBridge", *args: Any, **kwargs: Any) -> Any:
+        with self._lock:
+            return method(self, *args, **kwargs)
+    return wrapped
+
+
 class GraphRunRecoveryBridge:
     """Bind graph node snapshots to the existing hash-chained journal and recovery ledger."""
 
@@ -463,6 +474,7 @@ class GraphRunRecoveryBridge:
             raise TypeError("reuse the canonical EngineeringRecoveryLedger and ImprovementJournal")
         if not isinstance(plan, TaskPlan):
             raise TypeError("plan must be the canonical TaskPlan")
+        self._lock = RLock()
         self.run_id = run_id.strip()
         self.plan = plan
         self.plan_digest = self._current_plan_digest()
@@ -545,6 +557,7 @@ class GraphRunRecoveryBridge:
             self.run_id, self.PHASE, status=status, head_sha=self.source_revision, payload=payload,
         )
 
+    @_serialized_graph_checkpoint
     def start(self, *, budget_snapshot: Mapping[str, Any]) -> dict[str, Any]:
         self.ledger.start_run(self.run_id, self._immutable_intent)
         checkpoint = self.ledger.get_checkpoint(self.run_id, self.PHASE)
@@ -562,6 +575,7 @@ class GraphRunRecoveryBridge:
         self._publish_pointer(event, snapshot)
         return snapshot
 
+    @_serialized_graph_checkpoint
     def load(self) -> dict[str, Any]:
         if self._current_plan_digest() != self.plan_digest:
             raise GraphCheckpointMismatch("canonical TaskPlan changed after graph checkpoint binding")
@@ -616,6 +630,7 @@ class GraphRunRecoveryBridge:
         except ValueError:
             return named["medium"]
 
+    @_serialized_graph_checkpoint
     def dispatchable_nodes(self) -> tuple[str, ...]:
         snapshot = self.load()
         if snapshot["run_status"] != "in_progress" or snapshot["budget_snapshot"].get("cancelled") is True:
@@ -630,6 +645,7 @@ class GraphRunRecoveryBridge:
             self._priority_key(getattr(self.plan.tasks[node_id], "priority", "medium")), node_id
         )))
 
+    @_serialized_graph_checkpoint
     def record_node(
         self,
         *,
@@ -721,6 +737,7 @@ class GraphRunRecoveryBridge:
         self._publish_pointer(event, updated)
         return updated
 
+    @_serialized_graph_checkpoint
     def block_run(self, *, event_id: str, reason: str, next_safe_action: str, budget_snapshot: Mapping[str, Any]) -> dict[str, Any]:
         if not isinstance(reason, str) or not reason.strip():
             raise ValueError("blocked run requires a reason")
@@ -743,6 +760,7 @@ class GraphRunRecoveryBridge:
         self._publish_pointer(event, updated)
         return updated
 
+    @_serialized_graph_checkpoint
     def reconcile(self, *, reason: str, expected_snapshot_digest: str) -> dict[str, Any]:
         """Explicitly reconcile a journal-ahead split write; never auto-select a winner."""
         if not isinstance(reason, str) or not reason.strip():
@@ -769,6 +787,7 @@ class GraphRunRecoveryBridge:
         return self.load()
 
 
+    @_serialized_graph_checkpoint
     def cancel_run(
         self,
         *,
