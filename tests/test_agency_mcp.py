@@ -3,7 +3,17 @@ from portable.agency_mcp import MCPRequest, MCPToolEndpoint
 
 
 def test_mcp_list_and_call():
-    registry = ToolRegistry([ToolSpec("echo", "return text", "execution", handler=lambda text: text)])
+    registry = ToolRegistry([ToolSpec(
+        "echo", "return text", "execution", handler=lambda text: text,
+        is_extension=True,
+        extension_metadata={
+            "available": True, "manifest_valid": True, "trust_class": "trusted",
+            "requires_approval": False, "permissions": [], "artifact_fresh": True,
+            "output_limit_chars": 100,
+        },
+        extension_trust_granted=True,
+        extension_artifact_fresh=True,
+    )])
     endpoint = MCPToolEndpoint(registry, AllowlistedToolPolicy(allowed_tools=frozenset({"echo"})))
     listed = endpoint.handle(MCPRequest(1, "tools/list", {})).as_dict()
     assert listed["result"]["tools"][0]["name"] == "echo"
