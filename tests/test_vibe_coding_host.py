@@ -327,6 +327,22 @@ class VibeCodingHostTests(unittest.TestCase):
             },
         }
 
+    def test_mcp_response_limit_rejects_invalid_values(self):
+        with self.assertRaisesRegex(ValueError, "response limit"):
+            MCPStdioToolAdapter(
+                argv=(sys.executable, "-c", "pass"),
+                tool_name="research",
+                max_response_chars=0,
+            )
+
+    def test_mcp_oversized_response_is_rejected(self):
+        import queue
+
+        responses = queue.Queue()
+        responses.put(MCPStdioToolAdapter._OVERSIZE_RESPONSE)
+        with self.assertRaisesRegex(AdapterUnavailable, "character limit"):
+            MCPStdioToolAdapter._read_response(None, responses, 2, 0.1)
+
     def test_mcp_adapter_defaults_to_authority_binding_and_fails_before_launch(self):
         tool = MCPStdioToolAdapter(
             argv=(sys.executable, "-c", "pass"),
