@@ -562,6 +562,32 @@ class GraphWorkerLifecycleTests(unittest.TestCase):
             "reconcile_target_tree_and_recovery_ledger",
         )
         self.assertEqual(bridge.dispatchable_nodes(), ())
+
+        restarted = GraphWorkerLifecycle(
+            coordinator=self.coordinator,
+            verifier=self.verifier,
+            journal=ProgressJournal(state_root / "progress.jsonl"),
+            task_plan=task_plan,
+            intent_digest=self.intent_digest,
+            runtime_guard=RuntimeExecutionGuard(max_steps=20, max_attempts=20, deadline_seconds=60),
+            recovery_bridge=bridge,
+        )
+        with self.assertRaisesRegex(PermissionError, "durable progress already exists"):
+            restarted.prepare(
+                task_id="write-a",
+                worker_id="worker-a",
+                worker_identity="worker-a",
+                owned_paths=["src/feature.py"],
+                execute_in_workspace=lambda *_args: None,
+                checks=(),
+            )
+        recovered = bridge.load()
+        self.assertEqual(recovered["run_status"], "blocked")
+        self.assertEqual(
+            recovered["next_safe_action"],
+            "reconcile_target_tree_and_recovery_ledger",
+        )
+
         with self.assertRaisesRegex(PermissionError, "source checkout must be clean"):
             GraphWorkspaceCoordinator(
                 self.repo, workspace_root=state_root / "restart-workspaces"
