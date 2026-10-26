@@ -1,14 +1,16 @@
 """StateGraph node adapter for isolated mutation, independent verification, and durable progress.
 
 This module is a worker lifecycle adapter, not a scheduler. TaskPlan and StateGraph
-remain the only task planner and scheduler; the coordinator serializes adoption.
+remain the only task planner and scheduler; the coordinator serializes sibling adoption.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
 import hashlib
 import json
 import os
 from pathlib import Path
+from threading import RLock
 from typing import Any, Callable, Mapping, Sequence
 
 from portable.graph_workspace_adoption import GraphWorkspaceCoordinator, WorkspaceProposal
@@ -21,8 +23,19 @@ class GraphWorkerLifecycleError(RuntimeError):
     """A graph worker could not produce independently verified adoptable work."""
 
 
+@dataclass(frozen=True)
+class PreparedGraphWorker:
+    task_id: str
+    worker_id: str
+    task_digest: str
+    intent_digest: str
+    proposal: WorkspaceProposal
+    receipt: Mapping[str, Any]
+    receipt_path: str
+
+
 class GraphWorkerLifecycle:
-    """Run one mutating graph node through isolated workspace and verified adoption."""
+    """Prepare mutating worker proposals and adopt a verified sibling set once."""
 
     def __init__(
         self,
@@ -52,18 +65,28 @@ class GraphWorkerLifecycle:
         self.journal = journal
         self.task_plan = task_plan
         self.intent_digest = intent_digest
+        self._prepared: dict[str, PreparedGraphWorker] = {}
+        self._lock = RLock()
 
     @staticmethod
-    def _record_binding(task_id: str, worker_id: str, plan_digest: str, intent_digest: str, stage: str) -> str:
+    def _binding(task_id: str, worker_id: str, plan_digest: str, intent_digest: str, stage: str) -> str:
         return json.dumps({
-            "task_id": task_id,
-            "worker_id": worker_id,
-            "task_digest": plan_digest,
-            "intent_digest": intent_digest,
-            "stage": stage,
+            "task_id": task_id, "worker_id": worker_id, "task_digest": plan_digest,
+            "intent_digest": intent_digest, "stage": stage,
         }, sort_keys=True, separators=(",", ":"))
 
-    def run(
+    @staticmethod
+    def _receipt_digest(receipt: Mapping[str, Any]) -> str:
+        payload = dict(receipt)
+        supplied = payload.pop("receipt_digest", None)
+        expected = hashlib.sha256(
+            json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
+        ).hexdigest()
+        if supplied != expected:
+            raise GraphWorkerLifecycleError("verification receipt digest mismatch")
+        return expected
+
+    def prepare(
         self,
         *,
         task_id: str,
@@ -72,8 +95,8 @@ class GraphWorkerLifecycle:
         worker_identity: str,
         execute_in_workspace: Callable[[Path, Mapping[str, Any]], Any],
         checks: Sequence[Mapping[str, Any]],
-    ) -> dict[str, Any]:
-        """Execute one mutating node; never equate worker output with verified success."""
+    ) -> PreparedGraphWorker:
+        """Run a worker in its own worktree and return a digest-bound verified proposal."""
         if task_id not in self.task_plan.tasks:
             raise KeyError(f"task is not present in the canonical TaskPlan: {task_id}")
         task = self.task_plan.tasks[task_id]
@@ -83,8 +106,7 @@ class GraphWorkerLifecycle:
             raise PermissionError(f"task {task_id} has unresolved dependencies")
         if task.metadata.get("execution_mode") not in {"mutating", "write"}:
             raise PermissionError("isolated workspace lifecycle only accepts explicitly mutating TaskPlan tasks")
-        declared = set(task.files)
-        requested = set(owned_paths)
+        declared, requested = set(task.files), set(owned_paths)
         if not declared or not requested or not requested.issubset(declared):
             raise PermissionError("worker ownership must be a non-empty subset of TaskPlan-declared files")
         plan_digest = self.task_plan.digest()
@@ -92,38 +114,32 @@ class GraphWorkerLifecycle:
         if prior.get("event_count", 0):
             self.journal.record(
                 task_id, "duplicate-dispatch-blocked", state="blocked", stage="recovery",
-                message=self._record_binding(task_id, worker_id, plan_digest, self.intent_digest, "inspect_prior_state"),
+                message=self._binding(task_id, worker_id, plan_digest, self.intent_digest, "inspect_prior_state"),
                 evidence_ref=prior.get("evidence_ref"),
             )
             raise PermissionError("durable progress already exists; reconcile prior worker state before redispatch")
         self.journal.record(
             task_id, "worker-started", state="running", stage="isolated_workspace",
-            message=self._record_binding(task_id, worker_id, plan_digest, self.intent_digest, "worker_started"),
+            message=self._binding(task_id, worker_id, plan_digest, self.intent_digest, "worker_started"),
         )
-        workspace: Path | None = None
         proposal: WorkspaceProposal | None = None
         receipt_path: Path | None = None
         try:
             workspace = self.coordinator.create_worker(worker_id, owned_paths)
-            execute_in_workspace(workspace, task.__dict__.copy())
+            execute_in_workspace(workspace, dict(task.__dict__))
             proposal = self.coordinator.prepare_proposal(worker_id)
             self.journal.record(
                 task_id, "proposal-captured", state="running", stage="independent_verification",
-                message=self._record_binding(task_id, worker_id, plan_digest, self.intent_digest, "proposal_captured"),
+                message=self._binding(task_id, worker_id, plan_digest, self.intent_digest, "proposal_captured"),
                 evidence_ref=proposal.artifact_path,
             )
             receipt = self.verifier.verify(
-                proposal,
-                worker_identity=worker_identity,
-                task_digest=plan_digest,
-                intent_digest=self.intent_digest,
-                checks=checks,
+                proposal, worker_identity=worker_identity, task_digest=plan_digest,
+                intent_digest=self.intent_digest, checks=checks,
             )
             expected = {
-                "status": "passed",
-                "worker_identity": worker_identity,
-                "task_digest": plan_digest,
-                "intent_digest": self.intent_digest,
+                "status": "passed", "worker_identity": worker_identity,
+                "task_digest": plan_digest, "intent_digest": self.intent_digest,
                 "source_revision": proposal.base_revision,
                 "artifact_digest": proposal.artifact_digest,
                 "verified_paths": list(sorted(proposal.paths)),
@@ -131,16 +147,14 @@ class GraphWorkerLifecycle:
             for key, value in expected.items():
                 if receipt.get(key) != value:
                     raise GraphWorkerLifecycleError(f"verification receipt binding mismatch: {key}")
-            receipt_digest = receipt.get("receipt_digest")
-            if not isinstance(receipt_digest, str) or len(receipt_digest) != 64:
-                raise GraphWorkerLifecycleError("verification receipt digest is missing")
+            receipt_digest = self._receipt_digest(receipt)
             receipt_path = Path(proposal.artifact_path).with_suffix(".verification.json")
             if receipt_path.exists() or receipt_path.is_symlink():
                 raise PermissionError("verification receipt path already exists or is unsafe")
-            payload = json.dumps(receipt, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8") + b"\n"
             temp_path = receipt_path.with_name(receipt_path.name + ".tmp")
             if temp_path.exists() or temp_path.is_symlink():
                 raise PermissionError("temporary verification receipt path already exists or is unsafe")
+            payload = json.dumps(receipt, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8") + b"\\n"
             fd = os.open(temp_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
             try:
                 with os.fdopen(fd, "wb") as stream:
@@ -149,78 +163,147 @@ class GraphWorkerLifecycle:
                     os.fsync(stream.fileno())
                 os.replace(temp_path, receipt_path)
             except BaseException:
-                try:
-                    temp_path.unlink(missing_ok=True)
-                except OSError:
-                    pass
+                temp_path.unlink(missing_ok=True)
                 raise
-            if hashlib.sha256(receipt_path.read_bytes()).hexdigest() == "":
-                raise GraphWorkerLifecycleError("verification receipt persistence failed")
-            adopted = self.coordinator.adopt(proposal)
-            if tuple(adopted) != tuple(sorted(proposal.paths)):
-                raise GraphWorkerLifecycleError("adopted paths differ from verified proposal")
-            task.status = "done"
-            self.journal.record(
-                task_id, "verified-proposal-adopted", state="completed", stage="adoption",
-                message=self._record_binding(task_id, worker_id, plan_digest, self.intent_digest, "complete"),
-                completed_units=1, total_units=1, evidence_ref=str(receipt_path),
+            persisted = json.loads(receipt_path.read_text(encoding="utf-8"))
+            if persisted != dict(receipt) or self._receipt_digest(persisted) != receipt_digest:
+                raise GraphWorkerLifecycleError("persisted verification receipt failed read-back validation")
+            prepared = PreparedGraphWorker(
+                task_id, worker_id, plan_digest, self.intent_digest, proposal,
+                dict(receipt), str(receipt_path),
             )
-            self.coordinator.cleanup_worker(worker_id)
-            return {
-                "status": "completed",
-                "task_id": task_id,
-                "worker_id": worker_id,
-                "task_digest": plan_digest,
-                "intent_digest": self.intent_digest,
-                "source_revision": proposal.base_revision,
-                "artifact_digest": proposal.artifact_digest,
-                "receipt_digest": receipt_digest,
-                "receipt_path": str(receipt_path),
-                "adopted_paths": list(adopted),
-                "external_evaluator_independence": "not_proven",
-            }
+            with self._lock:
+                if worker_id in self._prepared:
+                    raise ValueError("worker already has a prepared proposal")
+                self._prepared[worker_id] = prepared
+            self.journal.record(
+                task_id, "proposal-independently-verified", state="running", stage="adoption",
+                message=self._binding(task_id, worker_id, plan_digest, self.intent_digest, "await_serialized_adoption"),
+                evidence_ref=str(receipt_path),
+            )
+            return prepared
         except BaseException as exc:
             try:
-                self.coordinator.cancel_siblings(
-                    f"graph worker lifecycle failed: {type(exc).__name__}",
-                )
+                self.coordinator.cancel_siblings(f"graph worker preparation failed: {type(exc).__name__}")
             except BaseException:
                 pass
             try:
                 self.journal.record(
-                    task_id, "worker-lifecycle-failed", state="failed", stage="recovery",
-                    message=self._record_binding(task_id, worker_id, plan_digest, self.intent_digest, "inspect_failed_workspace")
+                    task_id, "worker-preparation-failed", state="failed", stage="recovery",
+                    message=self._binding(task_id, worker_id, plan_digest, self.intent_digest, "inspect_failed_workspace")
                     + "; error=" + type(exc).__name__,
                     evidence_ref=str(receipt_path or (proposal.artifact_path if proposal else "")) or None,
                 )
             except BaseException:
-                # The primary failure is still raised. A damaged/unavailable journal
-                # must never be converted into successful completion.
                 pass
             raise
 
-    def as_node(
-        self,
-        *,
-        task_id: str,
-        worker_id: str,
-        owned_paths: Sequence[str],
-        worker_identity: str,
-        execute_in_workspace: Callable[[Path, Mapping[str, Any]], Any],
-        checks: Sequence[Mapping[str, Any]],
-    ) -> Callable[[Mapping[str, Any]], Mapping[str, Any]]:
-        """Return a StateGraph node callable; StateGraph remains the scheduler."""
+    def adopt_prepared(self, worker_ids: Sequence[str]) -> dict[str, Any]:
+        """Adopt all prepared siblings in one checked apply, then record truthful completion."""
+        if not worker_ids or len(set(worker_ids)) != len(worker_ids):
+            raise ValueError("a non-empty unique worker id list is required")
+        with self._lock:
+            missing = [worker_id for worker_id in worker_ids if worker_id not in self._prepared]
+            if missing:
+                raise PermissionError(f"prepared worker receipts are unavailable; reconcile before adoption: {missing}")
+            prepared = [self._prepared[worker_id] for worker_id in worker_ids]
+        for item in prepared:
+            task = self.task_plan.tasks.get(item.task_id)
+            if task is None or task.status != "pending":
+                raise PermissionError(f"task state changed before adoption: {item.task_id}")
+            if self.task_plan.digest() != item.task_digest or self.intent_digest != item.intent_digest:
+                raise PermissionError("TaskPlan or intent changed after worker verification")
+            receipt = dict(item.receipt)
+            if self._receipt_digest(receipt) != receipt.get("receipt_digest"):
+                raise PermissionError("verification receipt changed before adoption")
+            if receipt.get("status") != "passed" or receipt.get("artifact_digest") != item.proposal.artifact_digest:
+                raise PermissionError("unverified proposal cannot be adopted")
+            persisted = Path(item.receipt_path)
+            if persisted.is_symlink() or not persisted.is_file():
+                raise PermissionError("verification receipt is missing or unsafe")
+            if json.loads(persisted.read_text(encoding="utf-8")) != receipt:
+                raise PermissionError("persisted verification receipt does not match prepared result")
+        try:
+            adopted = self.coordinator.adopt_many([item.proposal for item in prepared])
+            results = {}
+            for item in prepared:
+                task = self.task_plan.tasks[item.task_id]
+                paths = adopted[item.worker_id]
+                if tuple(paths) != tuple(sorted(item.proposal.paths)):
+                    raise GraphWorkerLifecycleError("adopted paths differ from verified proposal")
+                self.coordinator.cleanup_worker(item.worker_id)
+                self.journal.record(
+                    item.task_id, "verified-proposal-adopted", state="completed", stage="adoption",
+                    message=self._binding(item.task_id, item.worker_id, item.task_digest, item.intent_digest, "complete"),
+                    completed_units=1, total_units=1, evidence_ref=item.receipt_path,
+                )
+                task.status = "done"
+                results[item.worker_id] = {
+                    "status": "completed", "task_id": item.task_id, "worker_id": item.worker_id,
+                    "task_digest": item.task_digest, "intent_digest": item.intent_digest,
+                    "source_revision": item.proposal.base_revision,
+                    "artifact_digest": item.proposal.artifact_digest,
+                    "receipt_digest": item.receipt["receipt_digest"], "receipt_path": item.receipt_path,
+                    "adopted_paths": list(paths), "external_evaluator_independence": "not_proven",
+                }
+            return {"status": "completed", "workers": results}
+        except BaseException as exc:
+            try:
+                self.coordinator.cancel_siblings(f"graph adoption lifecycle failed: {type(exc).__name__}")
+            except BaseException:
+                pass
+            for item in prepared:
+                try:
+                    self.journal.record(
+                        item.task_id, "adoption-failed", state="failed", stage="recovery",
+                        message=self._binding(item.task_id, item.worker_id, item.task_digest, item.intent_digest, "reconcile_adoption")
+                        + "; error=" + type(exc).__name__,
+                        evidence_ref=item.receipt_path,
+                    )
+                except BaseException:
+                    pass
+            raise
+
+    def run(self, **kwargs: Any) -> dict[str, Any]:
+        """Convenience for a single worker; sibling graphs should use prepare + one adoption node."""
+        prepared = self.prepare(**kwargs)
+        return self.adopt_prepared((prepared.worker_id,))
+
+    def as_prepare_node(self, *, prepared_workers: dict[str, PreparedGraphWorker], **kwargs: Any) -> Callable[[Mapping[str, Any]], Mapping[str, Any]]:
+        """Create a StateGraph worker node; the canonical graph owns scheduling."""
+        worker_id = kwargs["worker_id"]
         def node(_state: Mapping[str, Any]) -> Mapping[str, Any]:
-            result = self.run(
-                task_id=task_id,
-                worker_id=worker_id,
-                owned_paths=owned_paths,
-                worker_identity=worker_identity,
-                execute_in_workspace=execute_in_workspace,
-                checks=checks,
-            )
-            return {"graph_worker_lifecycle": result}
+            prepared = self.prepare(**kwargs)
+            prepared_workers[worker_id] = prepared
+            return {
+                "graph_worker_prepared_" + worker_id: {
+                    "worker_id": worker_id, "task_id": prepared.task_id,
+                    "task_digest": prepared.task_digest, "intent_digest": prepared.intent_digest,
+                    "artifact_digest": prepared.proposal.artifact_digest,
+                    "receipt_digest": prepared.receipt["receipt_digest"],
+                    "receipt_path": prepared.receipt_path, "status": "verified",
+                }
+            }
+        return node
+
+    def as_adoption_node(self, *, prepared_workers: dict[str, PreparedGraphWorker], worker_ids: Sequence[str]) -> Callable[[Mapping[str, Any]], Mapping[str, Any]]:
+        """Create the single serialized adoption node after all worker dependencies."""
+        ids = tuple(worker_ids)
+        def node(state: Mapping[str, Any]) -> Mapping[str, Any]:
+            for worker_id in ids:
+                marker = state.get("graph_worker_prepared_" + worker_id)
+                if not isinstance(marker, Mapping) or marker.get("status") != "verified":
+                    raise PermissionError(f"worker {worker_id} lacks a verified graph result")
+            if any(worker_id not in prepared_workers for worker_id in ids):
+                raise PermissionError("prepared worker state was lost; restart reconciliation is required")
+            return {"graph_worker_adoption": self.adopt_prepared(ids)}
+        return node
+
+    def as_node(self, **kwargs: Any) -> Callable[[Mapping[str, Any]], Mapping[str, Any]]:
+        """Return a single-worker StateGraph node; StateGraph remains the scheduler."""
+        def node(_state: Mapping[str, Any]) -> Mapping[str, Any]:
+            return {"graph_worker_lifecycle": self.run(**kwargs)}
         return node
 
 
-__all__ = ["GraphWorkerLifecycle", "GraphWorkerLifecycleError"]
+__all__ = ["GraphWorkerLifecycle", "GraphWorkerLifecycleError", "PreparedGraphWorker"]
