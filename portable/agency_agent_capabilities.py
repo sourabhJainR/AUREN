@@ -194,6 +194,8 @@ class ToolRegistry:
             self.register(tool)
 
     def register(self, tool: ToolSpec) -> None:
+        if type(tool.is_extension) is not bool:
+            raise ValueError("is_extension must be an explicit boolean")
         if not tool.name.strip() or tool.handler is None:
             raise ValueError("tool name and handler are required")
         if tool.risk not in {"low", "medium", "high", "critical"}:
