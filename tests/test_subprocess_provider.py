@@ -313,6 +313,11 @@ class SubprocessProviderInvokerTests(unittest.TestCase):
                 provider("request", 2)
             self.assertFalse(marker.exists())
 
+
+    def test_invalid_extension_provider_flag_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "explicit boolean"):
+            self.invoker("raise SystemExit('must not launch')", is_extension=0)
+
 if __name__ == "__main__":
     unittest.main()
 
