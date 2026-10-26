@@ -6,6 +6,7 @@ metadata_is_trust_grant = false
 
 [extensions.graphify]
 kind = "code-intelligence"
+privacy_class = "unknown"
 version = "unknown"
 commands = ["graphify"]
 artifacts = ["graphify-out/graph.json", ".graphify/graph.json"]
@@ -25,6 +26,7 @@ license = "Apache-2.0"
 
 [extensions.code_memory]
 kind = "code-intelligence"
+privacy_class = "unknown"
 version = "unknown"
 commands = ["codebase-memory-mcp"]
 artifacts = [".codebase-memory/graph.json"]
@@ -44,6 +46,7 @@ license = "MIT"
 
 [extensions.superpowers]
 kind = "process-skill"
+privacy_class = "unknown"
 version = "unknown"
 markers = ["~/.config/superpowers/skills", "~/.claude/plugins", ".claude-plugin"]
 capabilities = ["brainstorming", "tdd", "systematic-debugging", "planning", "execution", "skill-development"]
@@ -62,6 +65,7 @@ license = "MIT"
 
 [extensions.ponytail]
 kind = "behavior-skill"
+privacy_class = "unknown"
 version = "unknown"
 commands = []
 markers = ["~/.claude/skills/ponytail", ".claude/skills/ponytail", ".agents/skills/ponytail"]
@@ -81,6 +85,7 @@ license = "MIT"
 
 [extensions.caveman]
 kind = "context-compression"
+privacy_class = "unknown"
 version = "unknown"
 commands = ["caveman"]
 markers = ["~/.claude/skills/caveman", ".claude/skills/caveman", ".agents/skills/caveman"]
@@ -100,6 +105,7 @@ license = "MIT"
 
 [extensions.generic_skill]
 kind = "agent-skill"
+privacy_class = "unknown"
 version = "unknown"
 markers = [".agents/skills", ".claude/skills"]
 capabilities = ["task-specific-process"]
@@ -118,6 +124,7 @@ license = "unknown"
 
 [extensions.mcp]
 kind = "tool-provider"
+privacy_class = "external"
 version = "unknown"
 markers = [".mcp.json", "~/.claude.json"]
 capabilities = ["external-tools", "external-context"]

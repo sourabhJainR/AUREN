@@ -33,6 +33,8 @@ class ExtensionRegistryTests(unittest.TestCase):
             self.assertIn("version", value)
             self.assertIn("cost_class", value)
             self.assertIn("trust_class", value)
+            if name != "discovered_skills":
+                self.assertIn(value["privacy_class"], {"local-only", "external", "unknown"})
             self.assertIn("evidence_types", value)
             self.assertIn("freshness", value)
             self.assertIn("artifact_fresh", value)
@@ -57,6 +59,12 @@ class ExtensionRegistryTests(unittest.TestCase):
         errors = extension_registry.validate_registry_manifest(malformed)["mcp"]
         self.assertIn("requires_approval_must_be_boolean", errors)
         self.assertIn("output_limit_chars_out_of_range", errors)
+
+        unsafe = tomllib.loads(extension_registry.REGISTRY.read_text(encoding="utf-8"))
+        unsafe["extensions"]["mcp"]["requires_approval"] = False
+        unsafe_errors = extension_registry.validate_registry_manifest(unsafe)["mcp"]
+        self.assertIn("side_effects_require_approval", unsafe_errors)
+        self.assertIn("external_data_use_requires_approval", unsafe_errors)
 
     def test_discovery_is_not_a_trust_or_health_claim(self):
         result = extension_registry.detect_extensions()
