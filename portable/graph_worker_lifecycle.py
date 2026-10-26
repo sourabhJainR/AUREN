@@ -150,20 +150,26 @@ class GraphWorkerLifecycle:
             proposal = self.coordinator.prepare_proposal(worker_id)
             self.journal.record(
                 task_id, "proposal-captured", state="running", stage="independent_verification",
-                message=self._binding(task_id, worker_id, plan_digest, self.intent_digest, "proposal_captured"),
+                message=self._binding(task_id, worker_id, plan_digest, self.intent_digest, "proposal_captured")\n                + "; budget=" + json.dumps(self.runtime_guard.snapshot(), sort_keys=True, separators=(",", ":")),
                 evidence_ref=proposal.artifact_path,
             )
             self.runtime_guard.check()
             remaining = self.runtime_guard.snapshot().get("remaining_seconds")
-            if remaining is not None and remaining < 1.0:
-                raise ExecutionBudgetExceeded("shared task deadline leaves insufficient time for a verification command")
+            if not checks:
+                raise ValueError("independent verification checks are required")
+            per_check_budget = None
+            if remaining is not None:
+                remaining_budget = int(remaining)
+                if remaining_budget < 1 or len(checks) > remaining_budget:
+                    raise ExecutionBudgetExceeded("shared task deadline cannot cover all verification checks")
+                per_check_budget = max(1, remaining_budget // len(checks))
             bounded_checks = []
             for check in checks:
                 row = dict(check)
-                if remaining is not None:
+                if per_check_budget is not None:
                     row["timeout_seconds"] = min(
                         row.get("timeout_seconds", min(120, self.verifier.max_timeout_seconds)),
-                        max(1, int(remaining)),
+                        per_check_budget,
                     )
                 bounded_checks.append(row)
             receipt = self.verifier.verify(
@@ -212,7 +218,7 @@ class GraphWorkerLifecycle:
                 self._prepared[worker_id] = prepared
             self.journal.record(
                 task_id, "proposal-independently-verified", state="running", stage="adoption",
-                message=self._binding(task_id, worker_id, plan_digest, self.intent_digest, "await_serialized_adoption"),
+                message=self._binding(task_id, worker_id, plan_digest, self.intent_digest, "await_serialized_adoption")\n                + "; budget=" + json.dumps(self.runtime_guard.snapshot(), sort_keys=True, separators=(",", ":")),
                 evidence_ref=str(receipt_path),
             )
             return prepared
