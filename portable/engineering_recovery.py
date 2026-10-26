@@ -476,8 +476,7 @@ class GraphRunRecoveryBridge:
         }
 
     def _current_plan_digest(self) -> str:
-        from .dependency_aware_fanout import DependencyAwareFanout
-        return DependencyAwareFanout.plan_digest(self.plan)
+        return self.plan.digest()
 
     def _initial_snapshot(self, budget_snapshot: Mapping[str, Any]) -> dict[str, Any]:
         budget = _validate_budget_snapshot(budget_snapshot)
