@@ -333,6 +333,7 @@ def benchmark_context_selection(
     bounded_parts = tuple(selected[key] for key in ("repository", "memory", "history"))
     raw_chars = sum(map(len, raw_parts))
     bounded_chars = sum(map(len, bounded_parts))
+    task_digest = hashlib.sha256(task.encode("utf-8")).hexdigest()
     raw_digest = hashlib.sha256("\0".join(raw_parts).encode("utf-8")).hexdigest()
     bounded_digest = hashlib.sha256("\0".join(bounded_parts).encode("utf-8")).hexdigest()
     usage: dict[str, int] | None = None
@@ -348,6 +349,7 @@ def benchmark_context_selection(
     return {
         "raw_chars": raw_chars,
         "bounded_chars": bounded_chars,
+        "task_sha256": task_digest,
         "raw_sha256": raw_digest,
         "bounded_sha256": bounded_digest,
         "reduction_ratio": round(1 - bounded_chars / max(1, raw_chars), 4),
