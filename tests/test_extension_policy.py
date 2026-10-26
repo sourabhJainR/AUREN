@@ -201,5 +201,14 @@ class ExtensionPolicyTests(unittest.TestCase):
                     {"side_effect_approval_required", "external_data_approval_required"} & set(decision["reasons"])
                 )
 
+
+    def test_invalid_extension_registration_flag_is_rejected(self):
+        from portable.agency_agent_capabilities import ToolRegistry, ToolSpec
+
+        with self.assertRaisesRegex(ValueError, "explicit boolean"):
+            ToolRegistry([
+                ToolSpec("bad-flag", "test", "execution", handler=lambda: "unsafe", is_extension=0)
+            ])
+
 if __name__ == "__main__":
     unittest.main()
