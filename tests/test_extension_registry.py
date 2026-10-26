@@ -1,4 +1,5 @@
 import unittest
+import tomllib
 from pathlib import Path
 import sys
 
@@ -21,8 +22,11 @@ class ExtensionRegistryTests(unittest.TestCase):
         self.assertIn("ponytail", result)
         self.assertIn("caveman", result)
         self.assertIn("discovered_skills", result)
-        for value in result.values():
+        for name, value in result.items():
             self.assertIn("available", value)
+            if name != "discovered_skills":
+                self.assertTrue(value["manifest_valid"], value["manifest_errors"])
+                self.assertEqual([], value["manifest_errors"])
             self.assertIn("capabilities", value)
             self.assertIn("policy", value)
             self.assertIn("health", value)
@@ -41,6 +45,18 @@ class ExtensionRegistryTests(unittest.TestCase):
             self.assertIn("requires_approval", value)
             self.assertIn("output_limit_chars", value)
             self.assertGreater(value["output_limit_chars"], 0)
+
+    def test_manifest_schema_rejects_missing_approval_and_unbounded_output(self):
+        data = tomllib.loads(extension_registry.REGISTRY.read_text(encoding="utf-8"))
+        valid = extension_registry.validate_registry_manifest(data)
+        self.assertTrue(all(not errors for errors in valid.values()), valid)
+
+        malformed = tomllib.loads(extension_registry.REGISTRY.read_text(encoding="utf-8"))
+        malformed["extensions"]["mcp"]["requires_approval"] = "false"
+        malformed["extensions"]["mcp"]["output_limit_chars"] = 0
+        errors = extension_registry.validate_registry_manifest(malformed)["mcp"]
+        self.assertIn("requires_approval_must_be_boolean", errors)
+        self.assertIn("output_limit_chars_out_of_range", errors)
 
     def test_discovery_is_not_a_trust_or_health_claim(self):
         result = extension_registry.detect_extensions()
