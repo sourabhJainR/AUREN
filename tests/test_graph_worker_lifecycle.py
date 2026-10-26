@@ -102,6 +102,8 @@ class GraphWorkerLifecycleTests(unittest.TestCase):
         self.assertEqual(result["workers"]["worker-a"]["external_evaluator_independence"], "not_proven")
         self.assertEqual((self.repo / "src" / "feature.py").read_text(encoding="utf-8"), "verified = True\n")
         self.assertEqual(self.journal.snapshot("write-a")["state"], "completed")
+        self.assertEqual(plan.recovery_bridge.load()["nodes"]["write-a"]["status"], "complete")
+        self.assertEqual(plan.recovery_bridge.load()["run_status"], "complete")
         self.assertTrue(Path(result["workers"]["worker-a"]["receipt_path"]).is_file())
 
     def test_failed_independent_check_never_adopts_or_reports_success(self):
@@ -118,6 +120,8 @@ class GraphWorkerLifecycleTests(unittest.TestCase):
             )
         self.assertFalse((self.repo / "src" / "feature.py").exists())
         self.assertEqual(self.journal.snapshot("write-a")["state"], "failed")
+        self.assertEqual(plan.recovery_bridge.load()["nodes"]["write-a"]["status"], "failed")
+        self.assertEqual(plan.recovery_bridge.load()["run_status"], "blocked")
 
     def test_stale_plan_digest_blocks_adoption_after_verification(self):
         tasks = [Task("write-a", "write one file", files=["src/feature.py"], metadata={"execution_mode": "mutating"})]
@@ -163,6 +167,7 @@ class GraphWorkerLifecycleTests(unittest.TestCase):
         self.assertTrue((self.repo / "src" / "b.py").is_file())
         self.assertEqual(self.journal.snapshot("write-a")["state"], "completed")
         self.assertEqual(self.journal.snapshot("write-b")["state"], "completed")
+        self.assertEqual(plan.recovery_bridge.load()["run_status"], "complete")
 
     def test_state_graph_runs_worker_nodes_then_one_serialized_adoption_node(self):
         from portable.agency_state_graph import StateGraph
@@ -246,6 +251,8 @@ class GraphWorkerLifecycleTests(unittest.TestCase):
         with self.assertRaisesRegex(PermissionError, "restart reconciliation"):
             node(state)
         self.assertEqual(self.journal.snapshot("write-a")["state"], "blocked")
+        self.assertEqual(plan.recovery_bridge.load()["nodes"]["write-a"]["status"], "unknown")
+        self.assertEqual(plan.recovery_bridge.load()["run_status"], "blocked")
         self.assertFalse((self.repo / "src" / "feature.py").exists())
 
     def test_shared_attempt_budget_blocks_second_worker_without_reset(self):
@@ -287,6 +294,7 @@ class GraphWorkerLifecycleTests(unittest.TestCase):
             plan.adopt_prepared((prepared.worker_id,))
         self.assertFalse((self.repo / "src" / "feature.py").exists())
         self.assertEqual(self.journal.snapshot("write-a")["state"], "failed")
+        self.assertEqual(plan.recovery_bridge.load()["nodes"]["write-a"]["status"], "failed")
 
     def test_dependency_blocker_is_durable_and_requires_reconciliation(self):
         tasks = [
@@ -327,6 +335,8 @@ class GraphWorkerLifecycleTests(unittest.TestCase):
         )
         self.assertEqual(result["status"], "completed")
         self.assertEqual(self.journal.snapshot("child")["state"], "completed")
+        self.assertEqual(plan.recovery_bridge.load()["nodes"]["child"]["status"], "complete")
+        self.assertEqual(plan.recovery_bridge.load()["run_status"], "complete")
 
     def test_restart_or_duplicate_dispatch_fails_closed_from_durable_journal(self):
         plan = self.lifecycle([
