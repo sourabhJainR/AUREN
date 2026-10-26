@@ -297,6 +297,8 @@ def benchmark_context_selection(
     provider_token_usage: dict[str, int] | None = None,
     task_success: bool | None = None,
     evaluation_ref: str | None = None,
+    raw_artifact_ref: str | None = None,
+    bounded_artifact_ref: str | None = None,
 ) -> dict[str, Any]:
     """Measure context economics and attach evaluator-supplied success evidence when available."""
     if task_success is not None and type(task_success) is not bool:
@@ -307,6 +309,23 @@ def benchmark_context_selection(
         raise ValueError("task success requires a bounded evaluation reference")
     if task_success is None and evaluation_ref is not None:
         raise ValueError("evaluation reference requires a task success result")
+    artifact_refs = (raw_artifact_ref, bounded_artifact_ref)
+    if any(reference is not None for reference in artifact_refs) and not all(
+        isinstance(reference, str) and reference.strip() and len(reference) <= 512
+        for reference in artifact_refs
+    ):
+        raise ValueError("raw and bounded artifact references must be supplied together")
+    if task_success is not None and not all(
+        isinstance(reference, str) and reference.strip() and len(reference) <= 512
+        for reference in artifact_refs
+    ):
+        raise ValueError("task success requires raw and bounded artifact references")
+    if evaluation_ref is not None:
+        evaluation_ref = evaluation_ref.strip()
+    if raw_artifact_ref is not None:
+        raw_artifact_ref = raw_artifact_ref.strip()
+    if bounded_artifact_ref is not None:
+        bounded_artifact_ref = bounded_artifact_ref.strip()
     started = perf_counter()
     selected = select_context(task, repo_map, memory, history, budget_chars)
     elapsed_ms = round((perf_counter() - started) * 1000, 3)
@@ -338,6 +357,8 @@ def benchmark_context_selection(
         "provider_token_usage": usage,
         "task_success": task_success,
         "evaluation_ref": evaluation_ref,
+        "raw_artifact_ref": raw_artifact_ref,
+        "bounded_artifact_ref": bounded_artifact_ref,
         "task_success_source": "host-evaluator" if task_success is not None else None,
         "latency_ms": elapsed_ms,
         "history_compression": selected["history_compression"],
