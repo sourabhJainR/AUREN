@@ -139,10 +139,24 @@ class ContextEngineTests(unittest.TestCase):
             "ERROR: provider timeout",
             task_success=False,
             evaluation_ref="eval://run/42",
+            raw_artifact_ref="artifact://context/raw/42",
+            bounded_artifact_ref="artifact://context/bounded/42",
         )
         self.assertFalse(report["task_success"])
         self.assertEqual("eval://run/42", report["evaluation_ref"])
+        self.assertEqual("artifact://context/raw/42", report["raw_artifact_ref"])
+        self.assertEqual("artifact://context/bounded/42", report["bounded_artifact_ref"])
         self.assertEqual("host-evaluator", report["task_success_source"])
+        with self.assertRaisesRegex(ValueError, "raw and bounded artifact references"):
+            self.module.benchmark_context_selection(
+                "task", "repo", "memory", "history",
+                task_success=True, evaluation_ref="eval://run/44",
+            )
+        with self.assertRaisesRegex(ValueError, "supplied together"):
+            self.module.benchmark_context_selection(
+                "task", "repo", "memory", "history",
+                raw_artifact_ref="artifact://context/raw/44",
+            )
         with self.assertRaisesRegex(ValueError, "evaluation reference"):
             self.module.benchmark_context_selection(
                 "task", "repo", "memory", "history", task_success=True,
