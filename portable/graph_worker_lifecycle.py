@@ -11,9 +11,11 @@ import json
 import os
 from pathlib import Path
 from threading import RLock
+import uuid
 from typing import Any, Callable, Mapping, Sequence
 
 from portable.graph_workspace_adoption import GraphWorkspaceCoordinator, WorkspaceProposal
+from portable.engineering_recovery import GraphRunRecoveryBridge
 from portable.independent_graph_verification import IndependentGraphVerifier
 from portable.progress_journal import ProgressJournal
 from portable.runtime_recovery import ExecutionBudgetExceeded, RuntimeExecutionGuard
@@ -47,6 +49,7 @@ class GraphWorkerLifecycle:
         task_plan: TaskPlan,
         intent_digest: str,
         runtime_guard: RuntimeExecutionGuard,
+        recovery_bridge: GraphRunRecoveryBridge,
     ) -> None:
         if not isinstance(coordinator, GraphWorkspaceCoordinator):
             raise TypeError("coordinator must be the canonical GraphWorkspaceCoordinator")
@@ -58,6 +61,8 @@ class GraphWorkerLifecycle:
             raise TypeError("task_plan must be the canonical TaskPlan")
         if not isinstance(runtime_guard, RuntimeExecutionGuard):
             raise TypeError("runtime_guard must be the caller-owned shared RuntimeExecutionGuard")
+        if not isinstance(recovery_bridge, GraphRunRecoveryBridge):
+            raise TypeError("recovery_bridge must reuse the canonical GraphRunRecoveryBridge")
         if not isinstance(intent_digest, str) or len(intent_digest) != 64:
             raise ValueError("intent_digest must be a SHA-256 digest")
         try:
@@ -70,6 +75,12 @@ class GraphWorkerLifecycle:
         self.task_plan = task_plan
         self.intent_digest = intent_digest
         self.runtime_guard = runtime_guard
+        if recovery_bridge.plan.digest() != task_plan.digest():
+            raise ValueError("recovery bridge is bound to a different TaskPlan")
+        if recovery_bridge.intent_digest != intent_digest or recovery_bridge.source_revision != coordinator.base_revision:
+            raise ValueError("recovery bridge intent or source revision does not match worker lifecycle")
+        self.recovery_bridge = recovery_bridge
+        self.recovery_bridge.start(budget_snapshot=self.runtime_guard.snapshot())
         self._prepared: dict[str, PreparedGraphWorker] = {}
         self._lock = RLock()
 
