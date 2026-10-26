@@ -253,7 +253,7 @@ class GraphRunRecoveryTests(unittest.TestCase):
             )
 
     def test_expired_deadline_cannot_produce_node_completion(self):
-        deadline_guard = RuntimeExecutionGuard(max_steps=20, max_attempts=10, deadline_seconds=0.2)
+        deadline_guard = RuntimeExecutionGuard(max_steps=20, max_attempts=10, deadline_seconds=30.0)
         bridge = GraphRunRecoveryBridge(
             run_id="deadline-run", plan=self.plan,
             intent_digest=graph_sha("deadline intent"), source_revision="b" * 40,
@@ -268,7 +268,8 @@ class GraphRunRecoveryTests(unittest.TestCase):
             budget_snapshot=deadline_guard.snapshot(), worker_id="worker-root",
             workspace_id="workspace-root", attempts=1, next_safe_action="execute:root",
         )
-        time.sleep(0.25)
+        # Advance the monotonic deadline deterministically; avoid setup-time flakiness on slow CI workers.
+        deadline_guard._deadline = time.monotonic() - 1.0
         with self.assertRaisesRegex(ValueError, "expired deadline"):
             bridge.record_node(
                 event_id="late-completion", node_id="root", status="complete",
