@@ -469,7 +469,7 @@ class GraphWorkerLifecycle:
                 recovery_node = self.recovery_bridge.load()["nodes"][item.task_id]
                 self._record_recovery_node(
                     task_id=item.task_id, status="complete",
-                    next_safe_action="verify_graph_receipt_and_stop",
+                    next_safe_action="continue_dependency_ready_nodes",
                     worker_id=item.worker_id, workspace_id=item.workspace_id,
                     attempts=recovery_node["attempts"],
                     evidence_refs=(item.proposal.artifact_path, item.receipt_path),
