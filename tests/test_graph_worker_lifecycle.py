@@ -4,11 +4,14 @@ import hashlib
 import subprocess
 import sys
 import time
+import uuid
 import tempfile
 import unittest
 from pathlib import Path
 
 from portable.graph_workspace_adoption import GraphWorkspaceCoordinator
+from portable.engineering_recovery import EngineeringRecoveryLedger, GraphRunRecoveryBridge
+from portable.agency_evolution_gates import ImprovementJournal
 from portable.graph_worker_lifecycle import GraphWorkerLifecycle
 from portable.independent_graph_verification import IndependentGraphVerifier
 from portable.progress_journal import ProgressJournal
@@ -60,10 +63,20 @@ class GraphWorkerLifecycleTests(unittest.TestCase):
         self.temp.cleanup()
 
     def lifecycle(self, tasks):
+        task_plan = TaskPlan(tasks)
+        run_id = "graph-lifecycle-" + uuid.uuid4().hex
+        recovery_ledger = EngineeringRecoveryLedger(self.root / (run_id + "-recovery.sqlite"))
+        recovery_journal = ImprovementJournal(self.root / (run_id + "-recovery.jsonl"))
+        recovery_bridge = GraphRunRecoveryBridge(
+            run_id=run_id, plan=task_plan, intent_digest=self.intent_digest,
+            source_revision=self.coordinator.base_revision,
+            ledger=recovery_ledger, journal=recovery_journal,
+        )
         return GraphWorkerLifecycle(
             coordinator=self.coordinator, verifier=self.verifier,
-            journal=self.journal, task_plan=TaskPlan(tasks),
+            journal=self.journal, task_plan=task_plan,
             intent_digest=self.intent_digest, runtime_guard=self.guard,
+            recovery_bridge=recovery_bridge,
         )
 
     @staticmethod
