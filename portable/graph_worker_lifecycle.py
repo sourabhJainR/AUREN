@@ -35,6 +35,7 @@ class PreparedGraphWorker:
     proposal: WorkspaceProposal
     receipt: Mapping[str, Any]
     receipt_path: str
+    workspace_id: str
 
 
 class GraphWorkerLifecycle:
@@ -181,9 +182,17 @@ class GraphWorkerLifecycle:
             raise PermissionError(f"task {task_id} is not pending")
         plan_digest = self.task_plan.digest()
         prior = self.journal.snapshot(task_id)
+        recovery_snapshot = self.recovery_bridge.load()
+        recovery_node = recovery_snapshot["nodes"][task_id]
         blockers = [dep for dep in task.dependencies if self.task_plan.tasks[dep].status != "done"]
         if blockers:
             if not prior.get("event_count", 0):
+                if recovery_node["status"] == "waiting":
+                    self._record_recovery_node(
+                        task_id=task_id, status="blocked",
+                        next_safe_action="complete_dependencies_then_reconcile",
+                        blockers=[f"dependency:{dep}" for dep in blockers],
+                    )
                 self.journal.record(
                     task_id, "dependency-blocked", state="blocked", stage="dependency",
                     message=self._binding(task_id, worker_id, plan_digest, self.intent_digest, "dependency_blocked")
@@ -197,12 +206,28 @@ class GraphWorkerLifecycle:
             and "dispatch_authorized" in prior.get("message", "")
         )
         if prior.get("event_count", 0) and not reconciled_queue:
+            if recovery_node["status"] == "working":
+                self._record_recovery_node(
+                    task_id=task_id, status="unknown",
+                    next_safe_action="reconcile_worker_workspace_and_receipt_before_resume",
+                    worker_id=worker_id,
+                    evidence_refs=[prior["evidence_ref"]] if prior.get("evidence_ref") else (),
+                )
+                self._block_recovery_run("prior progress exists without an in-memory worker lease", "reconcile_worker_workspace_and_receipt_before_resume")
+            elif recovery_node["status"] == "waiting":
+                self._record_recovery_node(
+                    task_id=task_id, status="blocked",
+                    next_safe_action="inspect_prior_progress_before_redispatch",
+                    blockers=["prior_progress_requires_reconciliation"],
+                )
             self.journal.record(
                 task_id, "duplicate-dispatch-blocked", state="blocked", stage="recovery",
                 message=self._binding(task_id, worker_id, plan_digest, self.intent_digest, "inspect_prior_state"),
                 evidence_ref=prior.get("evidence_ref"),
             )
             raise PermissionError("durable progress already exists; reconcile prior worker state before redispatch")
+        if recovery_node["status"] != "waiting":
+            raise PermissionError(f"recovery ledger node is {recovery_node['status']}; explicit reconciliation is required")
         if task.metadata.get("execution_mode") not in {"mutating", "write"}:
             raise PermissionError("isolated workspace lifecycle only accepts explicitly mutating TaskPlan tasks")
         declared, requested = set(task.files), set(owned_paths)
@@ -210,6 +235,7 @@ class GraphWorkerLifecycle:
             raise PermissionError("worker ownership must be a non-empty subset of TaskPlan-declared files")
         proposal: WorkspaceProposal | None = None
         receipt_path: Path | None = None
+        workspace: Path | None = None
         try:
             self.runtime_guard.check()
             self.runtime_guard.charge_step()
@@ -220,6 +246,11 @@ class GraphWorkerLifecycle:
                 + "; budget=" + json.dumps(self._budget_summary(), sort_keys=True, separators=(",", ":")),
             )
             workspace = self.coordinator.create_worker(worker_id, owned_paths)
+            recovery_state = self.recovery_bridge.load()["nodes"][task_id]
+            self._record_recovery_node(
+                task_id=task_id, status="working", next_safe_action="execute_worker_and_capture_proposal",
+                worker_id=worker_id, workspace_id=str(workspace), attempts=recovery_state["attempts"] + 1,
+            )
             self.journal.record(
                 task_id, "workspace-created", state="running", stage="isolated_workspace",
                 message=self._binding(task_id, worker_id, plan_digest, self.intent_digest, "workspace_created")
@@ -297,7 +328,7 @@ class GraphWorkerLifecycle:
                 raise GraphWorkerLifecycleError("persisted verification receipt failed read-back validation")
             prepared = PreparedGraphWorker(
                 task_id, worker_id, plan_digest, self.intent_digest, proposal,
-                dict(receipt), str(receipt_path),
+                dict(receipt), str(receipt_path), str(workspace),
             )
             with self._lock:
                 if worker_id in self._prepared:
