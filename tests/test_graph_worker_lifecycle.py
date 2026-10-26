@@ -11,6 +11,7 @@ from portable.graph_workspace_adoption import GraphWorkspaceCoordinator
 from portable.graph_worker_lifecycle import GraphWorkerLifecycle
 from portable.independent_graph_verification import IndependentGraphVerifier
 from portable.progress_journal import ProgressJournal
+from portable.runtime_recovery import ExecutionBudgetExceeded, RuntimeExecutionGuard
 from portable.task_planner import Task, TaskPlan
 
 
@@ -44,6 +45,7 @@ class GraphWorkerLifecycleTests(unittest.TestCase):
         init_repo(self.repo)
         self.intent_digest = hashlib.sha256(b"intent").hexdigest()
         self.journal = ProgressJournal(self.root / "progress.jsonl")
+        self.guard = RuntimeExecutionGuard(max_steps=20, max_attempts=20, deadline_seconds=60)
         self.coordinator = GraphWorkspaceCoordinator(
             self.repo, workspace_root=self.root / "worker-workspaces"
         )
@@ -60,7 +62,7 @@ class GraphWorkerLifecycleTests(unittest.TestCase):
         return GraphWorkerLifecycle(
             coordinator=self.coordinator, verifier=self.verifier,
             journal=self.journal, task_plan=TaskPlan(tasks),
-            intent_digest=self.intent_digest,
+            intent_digest=self.intent_digest, runtime_guard=self.guard,
         )
 
     @staticmethod
@@ -193,6 +195,29 @@ class GraphWorkerLifecycleTests(unittest.TestCase):
         self.assertEqual(result.state["graph_worker_adoption"]["status"], "completed")
         self.assertTrue((self.repo / "src" / "a.py").is_file())
         self.assertTrue((self.repo / "src" / "b.py").is_file())
+
+    def test_shared_attempt_budget_blocks_second_worker_without_reset(self):
+        tasks = [
+            Task("write-a", "write file a", files=["src/a.py"], metadata={"execution_mode": "mutating"}),
+            Task("write-b", "write file b", files=["src/b.py"], metadata={"execution_mode": "mutating"}),
+        ]
+        self.guard = RuntimeExecutionGuard(max_steps=10, max_attempts=1, deadline_seconds=60)
+        plan = self.lifecycle(tasks)
+        def write_a(workspace, _task):
+            (workspace / "src" / "a.py").write_text("a = 1\\n", encoding="utf-8")
+        plan.prepare(
+            task_id="write-a", worker_id="worker-a", worker_identity="worker-a",
+            owned_paths=["src/a.py"], execute_in_workspace=write_a,
+            checks=self.checks("src/a.py", "a = 1\\n"),
+        )
+        with self.assertRaises(ExecutionBudgetExceeded):
+            plan.prepare(
+                task_id="write-b", worker_id="worker-b", worker_identity="worker-b",
+                owned_paths=["src/b.py"], execute_in_workspace=lambda *_: None,
+                checks=self.checks("src/b.py", "b = 2\\n"),
+            )
+        self.assertEqual(self.guard.snapshot()["attempts_used"], 1)
+        self.assertFalse((self.repo / "src" / "b.py").exists())
 
     def test_restart_or_duplicate_dispatch_fails_closed_from_durable_journal(self):
         plan = self.lifecycle([
