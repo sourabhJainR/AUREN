@@ -368,6 +368,14 @@ class GraphWorkerLifecycle:
         blockers = [dep for dep in task.dependencies if self.task_plan.tasks[dep].status != "done"]
         if blockers:
             raise PermissionError(f"dependencies remain incomplete: {blockers}")
+        recovery = self.recovery_bridge.load()
+        node = recovery["nodes"][task_id]
+        if node["status"] != "blocked":
+            raise PermissionError("recovery ledger has no blocked node to reconcile")
+        self._record_recovery_node(
+            task_id=task_id, status="waiting", next_safe_action="dispatch_worker",
+            attempts=node["attempts"] + 1,
+        )
         return self.journal.record_reconciliation(
             task_id, state="queued", stage="dependency_reconciliation",
             message=self._binding(task_id, "reconciled", self.task_plan.digest(), self.intent_digest, "dispatch_authorized")
