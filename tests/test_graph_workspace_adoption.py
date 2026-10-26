@@ -95,16 +95,13 @@ class GraphWorkspaceAdoptionTests(unittest.TestCase):
         self.assertEqual((self.repo / "src" / "feature_a.py").read_text(encoding="utf-8"), "answer_a = 1\\n")
         self.assertEqual((self.repo / "src" / "feature_b.py").read_text(encoding="utf-8"), "answer_b = 2\\n")
 
-    def test_batch_adoption_rejects_overlapping_changed_paths_before_apply(self):
-        workspace_a = self.coordinator.create_worker("worker-a", ["src"])
-        workspace_b = self.coordinator.create_worker("worker-b", ["src"])
-        (workspace_a / "src" / "shared.py").write_text("from_a = True\\n", encoding="utf-8")
-        (workspace_b / "src" / "shared.py").write_text("from_b = True\\n", encoding="utf-8")
-        proposal_a = self.coordinator.prepare_proposal("worker-a")
-        proposal_b = self.coordinator.prepare_proposal("worker-b")
-        with self.assertRaisesRegex(PermissionError, "overlap"):
-            self.coordinator.adopt_many((proposal_a, proposal_b))
-        self.assertFalse((self.repo / "src" / "shared.py").exists())
+    def test_batch_adoption_rejects_duplicate_proposals_before_apply(self):
+        workspace = self.coordinator.create_worker("worker-a", ["src/feature.py"])
+        (workspace / "src" / "feature.py").write_text("answer = 42\\n", encoding="utf-8")
+        proposal = self.coordinator.prepare_proposal("worker-a")
+        with self.assertRaisesRegex(ValueError, "worker ids must be unique"):
+            self.coordinator.adopt_many((proposal, proposal))
+        self.assertFalse((self.repo / "src" / "feature.py").exists())
 
     def test_stale_target_head_blocks_adoption(self):
         workspace = self.coordinator.create_worker("worker-a", ["src/feature.py"])
