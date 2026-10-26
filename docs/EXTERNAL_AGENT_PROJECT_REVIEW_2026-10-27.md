@@ -58,7 +58,7 @@ The manifest builder returns data for the artifact producer to persist; it does 
 
 ## Context benchmark evidence
 
-Context benchmark reports now bind raw and selected context with SHA-256 digests, preserve provider-reported token counts separately from approximate character-based estimates, and accept an optional host-evaluator task-success result only with an evidence reference. The benchmark never infers task success from context reduction; live-provider task evaluation remains an explicit host/evaluator responsibility. Repository context entries now carry bounded per-file content fingerprints; files that exceed hashing limits or cannot be read are marked incomplete instead of being treated as fresh.
+Context benchmark reports now bind raw and selected context with SHA-256 digests, preserve provider-reported token counts separately from approximate character-based estimates, and accept an optional host-evaluator task-success result only with an evidence reference and paired raw/bounded artifact references. The benchmark never infers task success from context reduction; live-provider task evaluation remains an explicit host/evaluator responsibility. Repository context entries now carry bounded per-file content fingerprints; files that exceed hashing limits or cannot be read are marked incomplete instead of being treated as fresh.
 
 ## Gate status after implementation
 
