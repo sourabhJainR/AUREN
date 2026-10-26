@@ -219,6 +219,23 @@ class GraphWorkerLifecycleTests(unittest.TestCase):
         self.assertEqual(self.guard.snapshot()["attempts_used"], 1)
         self.assertFalse((self.repo / "src" / "b.py").exists())
 
+    def test_tampered_persisted_receipt_blocks_adoption_and_records_failure(self):
+        plan = self.lifecycle([
+            Task("write-a", "write one file", files=["src/feature.py"], metadata={"execution_mode": "mutating"})
+        ])
+        def write(workspace, _task):
+            (workspace / "src" / "feature.py").write_text("verified = True\\n", encoding="utf-8")
+        prepared = plan.prepare(
+            task_id="write-a", worker_id="worker-a", worker_identity="worker-a",
+            owned_paths=["src/feature.py"], execute_in_workspace=write,
+            checks=self.checks("src/feature.py", "verified = True\\n"),
+        )
+        Path(prepared.receipt_path).write_text("{}\\n", encoding="utf-8")
+        with self.assertRaisesRegex(PermissionError, "persisted verification receipt"):
+            plan.adopt_prepared((prepared.worker_id,))
+        self.assertFalse((self.repo / "src" / "feature.py").exists())
+        self.assertEqual(self.journal.snapshot("write-a")["state"], "failed")
+
     def test_dependency_blocker_is_durable_and_requires_reconciliation(self):
         tasks = [
             Task("parent", "parent task"),
