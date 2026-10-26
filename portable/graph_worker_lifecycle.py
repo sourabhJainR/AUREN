@@ -120,22 +120,35 @@ class GraphWorkerLifecycle:
         task = self.task_plan.tasks[task_id]
         if task.status != "pending":
             raise PermissionError(f"task {task_id} is not pending")
-        if not all(self.task_plan.tasks[dep].status == "done" for dep in task.dependencies):
-            raise PermissionError(f"task {task_id} has unresolved dependencies")
-        if task.metadata.get("execution_mode") not in {"mutating", "write"}:
-            raise PermissionError("isolated workspace lifecycle only accepts explicitly mutating TaskPlan tasks")
-        declared, requested = set(task.files), set(owned_paths)
-        if not declared or not requested or not requested.issubset(declared):
-            raise PermissionError("worker ownership must be a non-empty subset of TaskPlan-declared files")
         plan_digest = self.task_plan.digest()
         prior = self.journal.snapshot(task_id)
-        if prior.get("event_count", 0):
+        blockers = [dep for dep in task.dependencies if self.task_plan.tasks[dep].status != "done"]
+        if blockers:
+            if not prior.get("event_count", 0):
+                self.journal.record(
+                    task_id, "dependency-blocked", state="blocked", stage="dependency",
+                    message=self._binding(task_id, worker_id, plan_digest, self.intent_digest, "dependency_blocked")
+                    + "; blocked_by=" + json.dumps(blockers, separators=(",", ":"))
+                    + "; next_action=complete_dependencies_then_reconcile",
+                )
+            raise PermissionError(f"task {task_id} has unresolved dependencies: {blockers}")
+        reconciled_queue = (
+            prior.get("state") == "queued"
+            and prior.get("stage") == "dependency_reconciliation"
+            and "dispatch_authorized" in prior.get("message", "")
+        )
+        if prior.get("event_count", 0) and not reconciled_queue:
             self.journal.record(
                 task_id, "duplicate-dispatch-blocked", state="blocked", stage="recovery",
                 message=self._binding(task_id, worker_id, plan_digest, self.intent_digest, "inspect_prior_state"),
                 evidence_ref=prior.get("evidence_ref"),
             )
             raise PermissionError("durable progress already exists; reconcile prior worker state before redispatch")
+        if task.metadata.get("execution_mode") not in {"mutating", "write"}:
+            raise PermissionError("isolated workspace lifecycle only accepts explicitly mutating TaskPlan tasks")
+        declared, requested = set(task.files), set(owned_paths)
+        if not declared or not requested or not requested.issubset(declared):
+            raise PermissionError("worker ownership must be a non-empty subset of TaskPlan-declared files")
         proposal: WorkspaceProposal | None = None
         receipt_path: Path | None = None
         try:
@@ -253,6 +266,25 @@ class GraphWorkerLifecycle:
             except BaseException:
                 pass
             raise
+
+    def reconcile_dependencies(self, task_id: str) -> dict[str, Any]:
+        """Reconcile a durable dependency blocker only after all prerequisites are done."""
+        if task_id not in self.task_plan.tasks:
+            raise KeyError(f"task is not present in the canonical TaskPlan: {task_id}")
+        task = self.task_plan.tasks[task_id]
+        prior = self.journal.snapshot(task_id)
+        if prior.get("state") != "blocked" or prior.get("stage") != "dependency" or "dependency_blocked" not in prior.get("message", ""):
+            raise PermissionError("only a recorded dependency blocker can be reconciled")
+        blockers = [dep for dep in task.dependencies if self.task_plan.tasks[dep].status != "done"]
+        if blockers:
+            raise PermissionError(f"dependencies remain incomplete: {blockers}")
+        return self.journal.record_reconciliation(
+            task_id, state="queued", stage="dependency_reconciliation",
+            message=self._binding(task_id, "reconciled", self.task_plan.digest(), self.intent_digest, "dispatch_authorized")
+            + "; next_action=dispatch_worker",
+            evidence_ref=prior.get("evidence_ref"),
+            expected_sequence=prior["sequence"],
+        ).__dict__
 
     def adopt_prepared(self, worker_ids: Sequence[str]) -> dict[str, Any]:
         """Adopt all prepared siblings in one checked apply, then record truthful completion."""
