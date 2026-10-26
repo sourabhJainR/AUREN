@@ -29,3 +29,36 @@ The migration tool never removes the legacy source. If the new runtime fails val
 ## Operational boundary
 
 This tool verifies a filesystem copy and provides a non-destructive rollback path; it does not prove application-level schema compatibility, concurrent-writer safety across processes, or a production rollback rehearsal. Those require an operator-run validation with an explicit backup, last-known-good reference, and evidence receipt.
+
+
+## Capturing a staging rehearsal record
+
+Use the helper only against an isolated staging backup and a new destination. It records file-level evidence and read-only SQLite `quick_check` results; it does not switch production configuration or claim application-level resume/rollback proof.
+
+Dry-run first:
+
+```bash
+python -m portable.state_migration_rehearsal \
+  --source /staging/legacy-state \
+  --destination /staging/auren-state-candidate \
+  --operator-id '<operator identity>' \
+  --candidate-revision '<40-character candidate commit>' \
+  --last-known-good-revision '<40-character last-known-good commit>' \
+  --mode dry-run \
+  --report /staging/evidence/migration-dry-run.json
+```
+
+After the operator approves the plan, copy into the isolated candidate root:
+
+```bash
+python -m portable.state_migration_rehearsal \
+  --source /staging/legacy-state \
+  --destination /staging/auren-state-candidate \
+  --operator-id '<operator identity>' \
+  --candidate-revision '<40-character candidate commit>' \
+  --last-known-good-revision '<40-character last-known-good commit>' \
+  --mode apply \
+  --report /staging/evidence/migration-copy.json
+```
+
+The generated report deliberately sets `completion_claim_permitted=false`. It records manifest and SQLite checks only. The operator must separately attach immutable evidence references for fresh-process runtime resume, application/evidence-ledger readability, rollback to the preserved legacy root, and post-cutover write reconciliation. Do not mark issue #534 complete until those actions have been performed in staging and independently checked.
