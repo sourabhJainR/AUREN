@@ -219,6 +219,35 @@ class GraphWorkerLifecycleTests(unittest.TestCase):
         self.assertEqual(self.guard.snapshot()["attempts_used"], 1)
         self.assertFalse((self.repo / "src" / "b.py").exists())
 
+    def test_dependency_blocker_is_durable_and_requires_reconciliation(self):
+        tasks = [
+            Task("parent", "parent task"),
+            Task("child", "child write", dependencies=["parent"], files=["src/child.py"],
+                 metadata={"execution_mode": "mutating"}),
+        ]
+        plan = self.lifecycle(tasks)
+        write = lambda workspace, _task: (workspace / "src" / "child.py").write_text("child = True\\n", encoding="utf-8")
+        with self.assertRaisesRegex(PermissionError, "unresolved dependencies"):
+            plan.prepare(
+                task_id="child", worker_id="worker-child", worker_identity="worker-child",
+                owned_paths=["src/child.py"], execute_in_workspace=write,
+                checks=self.checks("src/child.py", "child = True\\n"),
+            )
+        blocked = self.journal.snapshot("child")
+        self.assertEqual(blocked["state"], "blocked")
+        self.assertIn("blocked_by", blocked["message"])
+        tasks[0].status = "done"
+        with self.assertRaisesRegex(PermissionError, "only a recorded dependency blocker"):
+            plan.reconcile_dependencies("parent")
+        plan.reconcile_dependencies("child")
+        result = plan.run(
+            task_id="child", worker_id="worker-child", worker_identity="worker-child",
+            owned_paths=["src/child.py"], execute_in_workspace=write,
+            checks=self.checks("src/child.py", "child = True\\n"),
+        )
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(self.journal.snapshot("child")["state"], "completed")
+
     def test_restart_or_duplicate_dispatch_fails_closed_from_durable_journal(self):
         plan = self.lifecycle([
             Task("write-a", "write one file", files=["src/feature.py"], metadata={"execution_mode": "mutating"})
