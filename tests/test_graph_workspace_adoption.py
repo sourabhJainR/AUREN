@@ -118,7 +118,7 @@ class GraphWorkspaceAdoptionTests(unittest.TestCase):
                 applied["value"] = True
                 return result
             if applied["value"] and args[:2] == ("diff", "--name-only"):
-                return b"unexpected\x00
+                return b"unexpected\x00"
             return real_git(root, *args, input_bytes=input_bytes)
 
         with patch("portable.graph_workspace_adoption._git", side_effect=injected_git):
