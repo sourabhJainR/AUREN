@@ -295,24 +295,24 @@ class GraphWorkerLifecycle:
             if missing:
                 raise PermissionError(f"prepared worker receipts are unavailable; reconcile before adoption: {missing}")
             prepared = [self._prepared[worker_id] for worker_id in worker_ids]
-        self.runtime_guard.check()
-        for item in prepared:
-            task = self.task_plan.tasks.get(item.task_id)
-            if task is None or task.status != "pending":
-                raise PermissionError(f"task state changed before adoption: {item.task_id}")
-            if self.task_plan.digest() != item.task_digest or self.intent_digest != item.intent_digest:
-                raise PermissionError("TaskPlan or intent changed after worker verification")
-            receipt = dict(item.receipt)
-            if self._receipt_digest(receipt) != receipt.get("receipt_digest"):
-                raise PermissionError("verification receipt changed before adoption")
-            if receipt.get("status") != "passed" or receipt.get("artifact_digest") != item.proposal.artifact_digest:
-                raise PermissionError("unverified proposal cannot be adopted")
-            persisted = Path(item.receipt_path)
-            if persisted.is_symlink() or not persisted.is_file():
-                raise PermissionError("verification receipt is missing or unsafe")
-            if json.loads(persisted.read_text(encoding="utf-8")) != receipt:
-                raise PermissionError("persisted verification receipt does not match prepared result")
         try:
+            self.runtime_guard.check()
+            for item in prepared:
+                task = self.task_plan.tasks.get(item.task_id)
+                if task is None or task.status != "pending":
+                    raise PermissionError(f"task state changed before adoption: {item.task_id}")
+                if self.task_plan.digest() != item.task_digest or self.intent_digest != item.intent_digest:
+                    raise PermissionError("TaskPlan or intent changed after worker verification")
+                receipt = dict(item.receipt)
+                if self._receipt_digest(receipt) != receipt.get("receipt_digest"):
+                    raise PermissionError("verification receipt changed before adoption")
+                if receipt.get("status") != "passed" or receipt.get("artifact_digest") != item.proposal.artifact_digest:
+                    raise PermissionError("unverified proposal cannot be adopted")
+                persisted = Path(item.receipt_path)
+                if persisted.is_symlink() or not persisted.is_file():
+                    raise PermissionError("verification receipt is missing or unsafe")
+                if json.loads(persisted.read_text(encoding="utf-8")) != receipt:
+                    raise PermissionError("persisted verification receipt does not match prepared result")
             self.runtime_guard.check()
             adopted = self.coordinator.adopt_many([item.proposal for item in prepared])
             for item in prepared:
