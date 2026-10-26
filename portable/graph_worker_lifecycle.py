@@ -393,6 +393,7 @@ class GraphWorkerLifecycle:
             if missing:
                 raise PermissionError(f"prepared worker receipts are unavailable; reconcile before adoption: {missing}")
             prepared = [self._prepared[worker_id] for worker_id in worker_ids]
+        adoption_applied = False
         try:
             self.runtime_guard.check()
             for item in prepared:
@@ -417,6 +418,7 @@ class GraphWorkerLifecycle:
                     raise PermissionError("persisted verification receipt does not match prepared result")
             self.runtime_guard.check()
             adopted = self.coordinator.adopt_many([item.proposal for item in prepared])
+            adoption_applied = True
             for item in prepared:
                 if tuple(adopted[item.worker_id]) != tuple(sorted(item.proposal.paths)):
                     raise GraphWorkerLifecycleError("adopted paths differ from verified proposal")
@@ -428,6 +430,14 @@ class GraphWorkerLifecycle:
             for item in prepared:
                 task = self.task_plan.tasks[item.task_id]
                 paths = adopted[item.worker_id]
+                recovery_node = self.recovery_bridge.load()["nodes"][item.task_id]
+                self._record_recovery_node(
+                    task_id=item.task_id, status="complete",
+                    next_safe_action="verify_graph_receipt_and_stop",
+                    worker_id=item.worker_id, workspace_id=item.workspace_id,
+                    attempts=recovery_node["attempts"],
+                    evidence_refs=(item.proposal.artifact_path, item.receipt_path),
+                )
                 self.journal.record(
                     item.task_id, "verified-proposal-adopted", state="completed", stage="adoption",
                     message=self._binding(item.task_id, item.worker_id, item.task_digest, item.intent_digest, "complete"),
@@ -445,10 +455,24 @@ class GraphWorkerLifecycle:
             return {"status": "completed", "workers": results}
         except BaseException as exc:
             try:
+                self.runtime_guard.cancel(f"graph adoption lifecycle failed: {type(exc).__name__}")
                 self.coordinator.cancel_siblings(f"graph adoption lifecycle failed: {type(exc).__name__}")
             except BaseException:
                 pass
             for item in prepared:
+                try:
+                    recovery_snapshot = self.recovery_bridge.load()
+                    node = recovery_snapshot["nodes"][item.task_id]
+                    if node["status"] == "working":
+                        self._record_recovery_node(
+                            task_id=item.task_id, status="unknown" if adoption_applied else "failed",
+                            next_safe_action="reconcile_target_tree_and_recovery_ledger" if adoption_applied else "inspect_failed_worker_and_retry_only_after_reconciliation",
+                            worker_id=item.worker_id, workspace_id=item.workspace_id,
+                            attempts=node["attempts"],
+                            evidence_refs=(item.proposal.artifact_path, item.receipt_path),
+                        )
+                except BaseException:
+                    pass
                 try:
                     self.journal.record(
                         item.task_id, "adoption-failed", state="failed", stage="recovery",
@@ -458,6 +482,10 @@ class GraphWorkerLifecycle:
                     )
                 except BaseException:
                     pass
+            self._block_recovery_run(
+                f"graph adoption lifecycle failed: {type(exc).__name__}",
+                "reconcile_target_tree_and_recovery_ledger",
+            )
             raise
 
     def run(self, **kwargs: Any) -> dict[str, Any]:
