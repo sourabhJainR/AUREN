@@ -222,8 +222,13 @@ class GraphWorkerLifecycle:
                 )
             self.journal.record(
                 task_id, "duplicate-dispatch-blocked", state="blocked", stage="recovery",
-                message=self._binding(task_id, worker_id, plan_digest, self.intent_digest, "inspect_prior_state"),
+                message=self._binding(task_id, worker_id, plan_digest, self.intent_digest, "inspect_prior_state")
+                + "; next_action=reconcile_progress_journal_and_recovery_ledger",
                 evidence_ref=prior.get("evidence_ref"),
+            )
+            self._block_recovery_run(
+                "prior progress exists without a safe dispatch continuation",
+                "reconcile_progress_journal_and_recovery_ledger",
             )
             raise PermissionError("durable progress already exists; reconcile prior worker state before redispatch")
         if recovery_node["status"] != "waiting":
@@ -343,18 +348,49 @@ class GraphWorkerLifecycle:
             return prepared
         except BaseException as exc:
             try:
+                self.runtime_guard.cancel(f"graph worker preparation failed: {type(exc).__name__}")
                 self.coordinator.cancel_siblings(f"graph worker preparation failed: {type(exc).__name__}")
+            except BaseException:
+                pass
+            try:
+                recovery_snapshot = self.recovery_bridge.load()
+                node = recovery_snapshot["nodes"][task_id]
+                evidence_refs = tuple(
+                    value for value in (
+                        proposal.artifact_path if proposal else None,
+                        str(receipt_path) if receipt_path else None,
+                    ) if value
+                )
+                if node["status"] == "working":
+                    self._record_recovery_node(
+                        task_id=task_id, status="failed",
+                        next_safe_action="inspect_failed_worker_and_retry_only_after_reconciliation",
+                        worker_id=worker_id, workspace_id=str(workspace) if workspace else None,
+                        attempts=node["attempts"], evidence_refs=evidence_refs,
+                    )
+                elif node["status"] == "waiting":
+                    self._record_recovery_node(
+                        task_id=task_id, status="blocked",
+                        next_safe_action="reconcile_budget_or_worker_failure_before_retry",
+                        blockers=[f"worker_preparation_failed:{type(exc).__name__}"],
+                        attempts=node["attempts"],
+                    )
             except BaseException:
                 pass
             try:
                 self.journal.record(
                     task_id, "worker-preparation-failed", state="failed", stage="recovery",
                     message=self._binding(task_id, worker_id, plan_digest, self.intent_digest, "inspect_failed_workspace")
-                    + "; error=" + type(exc).__name__,
-                    evidence_ref=str(receipt_path or (proposal.artifact_path if proposal else "")) or None,
+                    + "; error=" + type(exc).__name__
+                    + "; next_action=inspect_worker_workspace_and_reconcile",
+                    evidence_ref=str(receipt_path or (proposal.artifact_path if proposal else workspace or "")) or None,
                 )
             except BaseException:
                 pass
+            self._block_recovery_run(
+                f"graph worker preparation failed: {type(exc).__name__}",
+                "inspect_worker_workspace_and_reconcile",
+            )
             raise
 
     def reconcile_dependencies(self, task_id: str) -> dict[str, Any]:
