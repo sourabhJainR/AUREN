@@ -4,6 +4,8 @@ from __future__ import annotations
 import importlib.util
 import tempfile
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -18,6 +20,35 @@ class ContextEngineTests(unittest.TestCase):
         cls.module = importlib.util.module_from_spec(spec)
         assert spec and spec.loader
         spec.loader.exec_module(cls.module)
+
+    def test_repository_context_fingerprint_changes_with_file_content(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "src").mkdir()
+            source = root / "src" / "engine.py"
+            source.write_text("def old_engine(): pass\n", encoding="utf-8")
+            listing = SimpleNamespace(returncode=0, stdout="src/engine.py\n")
+            with patch.object(self.module.subprocess, "run", return_value=listing):
+                first = self.module.build_repository_context(root, "engine", budget_chars=5000)
+                source.write_text("def new_engine(): pass\n", encoding="utf-8")
+                second = self.module.build_repository_context(root, "engine", budget_chars=5000)
+            self.assertIn("sha256:", first)
+            self.assertNotEqual(first, second)
+            self.assertIn("selected-file fingerprints complete: yes", first)
+
+    def test_repository_context_marks_unhashed_files_as_incomplete(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "large.py"
+            source.write_text("content", encoding="utf-8")
+            listing = SimpleNamespace(returncode=0, stdout="large.py\n")
+            with (
+                patch.object(self.module.subprocess, "run", return_value=listing),
+                patch.object(self.module, "_REPOSITORY_FILE_DIGEST_LIMIT_BYTES", 1),
+            ):
+                result = self.module.build_repository_context(root, "large", budget_chars=5000)
+            self.assertIn("digest-unavailable:file-size-limit", result)
+            self.assertIn("selected-file fingerprints complete: no", result)
 
     def test_context_respects_budget(self):
         result = self.module.select_context(
