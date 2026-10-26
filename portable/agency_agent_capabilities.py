@@ -217,13 +217,16 @@ class ToolRegistry:
                 ranked.append((score, tool))
         return tuple(t for _, t in sorted(ranked, key=lambda x: (-x[0], x[1].name))[:limit])
 
-    def execute(self, name: str, arguments: Mapping[str, Any], policy: ToolPolicy) -> Any:
+    def execute(
+        self, name: str, arguments: Mapping[str, Any], policy: ToolPolicy, *,
+        require_extension_policy: bool = False,
+    ) -> Any:
         tool = self._tools.get(name)
         if tool is None:
             raise KeyError(f"unknown tool: {name}")
         if not policy.allow(tool, arguments):
             raise PermissionError(f"tool execution denied: {name}")
-        if tool.is_extension:
+        if tool.is_extension or require_extension_policy:
             # Extension execution has a second, independent trust/approval/scope
             # boundary. Missing metadata cannot fall back to the tool allowlist.
             return invoke_extension(
