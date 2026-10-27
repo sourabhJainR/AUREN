@@ -62,6 +62,84 @@ class MemoryOrchestratorTests(unittest.TestCase):
         self.assertGreaterEqual(second.cache_hits, 1)
         self.assertEqual("docs", second.memories[0].source)
 
+    def test_branch_revision_scope_and_retraction_survive_restart(self):
+        revision_a = "a" * 40
+        revision_b = "b" * 40
+        saved = self.coordinator.remember(
+            "episodic", "branch-specific recovery rule", source="commit-evidence",
+            intent_digest="intent-graph-recovery", evidence_ids=("ci-run-1",),
+            confidence=0.9, verified=True, approved=True,
+            branch="feature/graph-recovery", source_revision=revision_a,
+        )
+        self.assertEqual("stored", saved.status)
+
+        # An unscoped caller must not see branch- or revision-bound facts.
+        unscoped = self.coordinator.recall(
+            "branch-specific recovery rule", kinds=("episodic",),
+            intent_digest="intent-graph-recovery", budget_chars=300,
+        )
+        self.assertNotIn(saved.memory_id, {item.memory_id for item in unscoped.memories})
+
+        matching_branch = MemoryOrchestrator(
+            self.root, "project-a", memory=self.db, context_cache=self.cache,
+        )
+        matched = matching_branch.recall(
+            "branch-specific recovery rule", kinds=("episodic",),
+            intent_digest="intent-graph-recovery", branch="feature/graph-recovery",
+            source_revision=revision_a, budget_chars=300,
+        )
+        self.assertEqual([saved.memory_id], [item.memory_id for item in matched.memories])
+        self.assertEqual("feature/graph-recovery", matched.memories[0].branch)
+        self.assertEqual(revision_a, matched.memories[0].source_revision)
+
+        stale_revision = matching_branch.recall(
+            "branch-specific recovery rule", kinds=("episodic",),
+            intent_digest="intent-graph-recovery", branch="feature/graph-recovery",
+            source_revision=revision_b, budget_chars=300,
+        )
+        other_branch = matching_branch.recall(
+            "branch-specific recovery rule", kinds=("episodic",),
+            intent_digest="intent-graph-recovery", branch="main",
+            source_revision=revision_a, budget_chars=300,
+        )
+        other_project = MemoryOrchestrator(
+            self.root, "project-b", memory=self.db, context_cache=self.cache,
+        ).recall(
+            "branch-specific recovery rule", kinds=("episodic",),
+            intent_digest="intent-graph-recovery", branch="feature/graph-recovery",
+            source_revision=revision_a, budget_chars=300,
+        )
+        self.assertEqual((), stale_revision.memories)
+        self.assertEqual((), other_branch.memories)
+        self.assertEqual((), other_project.memories)
+
+        retracted = matching_branch.retract(
+            saved.memory_id, reason="source revision superseded by reviewed change",
+        )
+        self.assertIsNotNone(retracted.retracted_at)
+        self.assertEqual("source revision superseded by reviewed change", retracted.retraction_reason)
+        node = matching_branch.graph.get_node(saved.memory_id)
+        self.assertEqual(retracted.retracted_at, node.properties["retracted_at"])
+        self.assertEqual(retracted.retraction_reason, node.properties["retraction_reason"])
+
+        # Reopening the canonical SQLite store preserves the tombstone and its reason.
+        reopened_store = PersistentMemory(self.root / "memory.sqlite3", require_approval=True)
+        reopened = MemoryOrchestrator(
+            self.root, "project-a", memory=reopened_store, context_cache=self.cache,
+        )
+        after_restart = reopened.recall(
+            "branch-specific recovery rule", kinds=("episodic",),
+            intent_digest="intent-graph-recovery", branch="feature/graph-recovery",
+            source_revision=revision_a, budget_chars=300,
+        )
+        self.assertEqual((), after_restart.memories)
+        repeated_retraction = reopened.retract(
+            saved.memory_id, reason="later reason must not rewrite the audit record",
+        )
+        self.assertEqual(retracted.retracted_at, repeated_retraction.retracted_at)
+        self.assertEqual(retracted.retraction_reason, repeated_retraction.retraction_reason)
+        self.assertEqual(1, reopened.metrics()["retractions"])
+
     def test_canonical_context_engine_packs_required_memory_from_router(self):
         result = self.coordinator.remember(
             "semantic", "verified repository uses bounded state transitions", source="architecture",
