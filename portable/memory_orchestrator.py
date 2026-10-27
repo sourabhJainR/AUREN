@@ -303,17 +303,8 @@ class MemoryOrchestrator:
         return f"memory:{kind}:{scope}"
 
     def retract(self, memory_id: str, *, reason: str) -> Any:
-        """Retract a durable record without deleting its audit/provenance history."""
+        """Retract a durable record atomically while preserving its audit/provenance history."""
         record = self.memory.retract(self.project, memory_id, reason=reason)
-        node = self.graph.get_node(record.id, branch=record.branch, source_revision=record.source_revision)
-        if node is not None:
-            properties = dict(node.properties or {})
-            properties["retracted_at"] = record.retracted_at
-            properties["retraction_reason"] = record.retraction_reason
-            self.graph.upsert_node(ContextNode(
-                node.node_id, node.kind, node.label, node.source, node.confidence,
-                properties, node.created_at,
-            ))
         self._metrics["retractions"] += 1
         return record
 
