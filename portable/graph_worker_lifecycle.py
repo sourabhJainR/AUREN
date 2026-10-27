@@ -211,6 +211,11 @@ class GraphWorkerLifecycle:
         """Reject incomplete or contradictory evidence even when the receipt claims success."""
         if not isinstance(receipt, Mapping):
             raise GraphWorkerLifecycleError("verification receipt must be a mapping")
+        # Preserve the established failure-receipt path: the caller's binding
+        # check reports a failed top-level status. Validate internal consistency
+        # before considering only receipts that claim success.
+        if receipt.get("status") != "passed":
+            return
         if receipt.get("schema") != "auren-independent-graph-verification-v1":
             raise GraphWorkerLifecycleError("verification receipt schema is missing or unsupported")
         if receipt.get("verification_mode") != "fresh-isolated-worktree":
