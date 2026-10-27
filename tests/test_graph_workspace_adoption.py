@@ -114,6 +114,27 @@ class GraphWorkspaceAdoptionTests(unittest.TestCase):
             self.coordinator.adopt_many((proposal, proposal))
         self.assertFalse((self.repo / "src" / "feature.py").exists())
 
+    def test_batch_adoption_rejects_overlapping_paths_before_apply(self):
+        shared_path = "src/shared.py"
+        # Exercise the adoption boundary independently of the earlier ownership
+        # guard: even if overlapping workers reach proposal-ready state, the
+        # batch must reject the conflict before applying either patch.
+        with patch("portable.graph_workspace_adoption._overlap", return_value=False):
+            workspace_a = self.coordinator.create_worker("worker-a", [shared_path])
+            workspace_b = self.coordinator.create_worker("worker-b", [shared_path])
+        (workspace_a / shared_path).write_text("from_a = True\n", encoding="utf-8")
+        (workspace_b / shared_path).write_text("from_b = True\n", encoding="utf-8")
+        proposal_a = self.coordinator.prepare_proposal("worker-a")
+        proposal_b = self.coordinator.prepare_proposal("worker-b")
+
+        with self.assertRaisesRegex(PermissionError, "proposals overlap changed path"):
+            self.coordinator.adopt_many((proposal_a, proposal_b))
+
+        self.assertFalse((self.repo / shared_path).exists())
+        self.assertEqual(git(self.repo, "status", "--porcelain"), "")
+        self.assertEqual(self.coordinator.worker_states()["worker-a"], "failed")
+        self.assertEqual(self.coordinator.worker_states()["worker-b"], "failed")
+
     def test_failed_post_apply_verification_rolls_back_target(self):
         workspace = self.coordinator.create_worker("worker-a", ["src/feature.py"])
         (workspace / "src" / "feature.py").write_text("answer = 42\\n", encoding="utf-8")
