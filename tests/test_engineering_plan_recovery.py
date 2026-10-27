@@ -242,5 +242,344 @@ class EngineeringPlanRecoveryBridgeTests(unittest.TestCase):
                 bridge.start(different)
 
 
+
+def _continuous_engineering_integration_handler(payload):
+    return {"success": True, "evidence": [str(payload["work_key"])]}
+
+
+def _run_integrated_harness_experiment(*, work_key, plan, ledger, guard, stop_mode=None):
+    import time
+    from portable.harness_experiments import (
+        HarnessExperimentController, HarnessExperimentManifest, canonical_digest,
+    )
+
+    base = {"tool_guidance": {"mode": "safe"}}
+    task = "verify a bounded harness improvement"
+    manifest = HarnessExperimentManifest(
+        schema_version="auren-harness-experiment-v1",
+        run_id=work_key,
+        task_digest=canonical_digest({"task": task}),
+        base_harness_digest=canonical_digest(base),
+        executor_id="integration-isolated-executor",
+        evaluator_id="integration-independent-judge",
+        seed=7,
+        max_candidates=1,
+        max_depth=0,
+        isolation_profile="integration-restricted-profile",
+        policy_digest="a" * 64,
+        environment_digest="b" * 64,
+    )
+    adopted = []
+
+    def persist(snapshot):
+        snapshot_copy = dict(snapshot)
+        if snapshot_copy.get("stage") == "complete" and snapshot_copy.get("status") == "adopted":
+            checkpoint_status = "verified"
+        elif snapshot_copy.get("status") in {"blocked", "unscored", "failed", "rejected"}:
+            checkpoint_status = "blocked"
+        else:
+            checkpoint_status = "in_progress"
+        payload = {
+            "contract": "auren-learning-checkpoint-binding-v1",
+            "work_key": work_key,
+            "plan_digest": plan.digest,
+            "source_revision": plan.source_revision,
+            "manifest_digest": manifest.digest,
+            "experiment_snapshot": snapshot_copy,
+            "next_safe_action": (
+                "advance_delivery_after_learning_evidence"
+                if checkpoint_status == "verified"
+                else "inspect_learning_evidence_and_reconcile"
+                if checkpoint_status == "blocked"
+                else "resume_same_learning_run_after_manifest_validation"
+            ),
+        }
+        if checkpoint_status == "verified":
+            payload["verified_head_sha"] = plan.source_revision
+            payload["verification_evidence"] = [
+                canonical_digest(item) for item in snapshot_copy.get("evidence", [])
+            ]
+        payload["checkpoint_digest"] = canonical_digest(payload)
+        ledger.checkpoint(
+            work_key, "harness_experiment", status=checkpoint_status,
+            head_sha=plan.source_revision, payload=payload,
+        )
+
+    def probe(candidate, _task, manifest_payload, stage):
+        if stage == "baseline" and stop_mode == "cancel":
+            guard.cancel("integration cancellation during baseline probe")
+        elif stage == "baseline" and stop_mode == "deadline":
+            guard.tighten_deadline(0.001)
+            time.sleep(0.01)
+        return {
+            "schema_version": "auren-isolation-receipt-v1",
+            "manifest_digest": manifest_payload["manifest_digest"],
+            "task_digest": manifest_payload["task_digest"],
+            "harness_digest": canonical_digest(candidate),
+            "isolation_profile": manifest_payload["isolation_profile"],
+            "isolation_enforced": True,
+            "egress_restricted": True,
+            "secrets_absent": True,
+            "workspace_digest": canonical_digest({"candidate": candidate, "stage": stage}),
+            "stage": stage,
+            "signer_id": "integration-test-operator",
+            "signer_key_id": "integration-test-key",
+            "test_signature_valid": True,
+        }
+
+    def verify_isolation(receipt, manifest_value, harness_digest):
+        return (
+            receipt.get("signer_id") == "integration-test-operator"
+            and receipt.get("signer_key_id") == "integration-test-key"
+            and receipt.get("test_signature_valid") is True
+            and receipt.get("harness_digest") == harness_digest
+            and receipt.get("manifest_digest") == manifest_value.digest
+        )
+
+    def judge(candidate, probe_receipt, manifest_payload):
+        if stop_mode == "missing-evaluator":
+            return {}
+        mode = candidate.get("tool_guidance", {}).get("mode")
+        return {
+            "schema_version": "auren-evaluation-receipt-v1",
+            "manifest_digest": manifest_payload["manifest_digest"],
+            "task_digest": manifest_payload["task_digest"],
+            "harness_digest": canonical_digest(candidate),
+            "evaluator_id": manifest_payload["evaluator_id"],
+            "independent_of_executor": True,
+            "scored": True,
+            "tests_passed": True,
+            "security_passed": True,
+            "reliability_passed": True,
+            "quality_score": 0.9 if mode == "concise" else 0.8,
+            "safety_score": 1.0,
+            "reliability_score": 1.0,
+            "cost": 1.0,
+            "latency_ms": 100.0,
+            "evidence_refs": [canonical_digest({"candidate": candidate, "probe": probe_receipt})],
+        }
+
+    controller = HarnessExperimentController(
+        guard=guard, persist=persist, verify_isolation_receipt=verify_isolation,
+        max_candidates=1, max_depth=0,
+    )
+    result = controller.run(
+        manifest=manifest,
+        active_harness=base,
+        task=task,
+        propose=lambda _base, _task, _depth, _seed: [
+            {"tool_guidance": {"mode": "concise"}}
+        ],
+        probe=probe,
+        judge=judge,
+        adopt=lambda candidate, _expected: (
+            adopted.append(canonical_digest(candidate))
+            or {"atomic": True, "active_digest": canonical_digest(candidate)}
+        ),
+        rollback=lambda expected: {"restored": True, "active_digest": expected},
+    )
+    return manifest, result, adopted
+
+
+def _start_integrated_plan(root, work_key):
+    from pathlib import Path
+
+    state_root = Path(root) / ".auren"
+    state_root.mkdir(parents=True, exist_ok=True)
+    plan = EngineeringPlan(
+        run_id=work_key,
+        goal="Integrate durable learning evidence with spec-driven delivery",
+        requirements=("Learning and delivery must share a stable work identity.",),
+        source_revision="a" * 40,
+        budget={"dispatches": 4},
+        tasks=(PlanTask(
+            "learn-and-deliver", "Verify learning evidence and delivery state",
+            ("Evidence-backed learning decision is durable",),
+            "Restore the prior plan and harness digests",
+        ),),
+    )
+    store = EngineeringPlanStore(state_root / "plans.sqlite3")
+    ledger = EngineeringRecoveryLedger(state_root / "recovery.sqlite3")
+    bridge = EngineeringPlanRecoveryBridge(store=store, ledger=ledger)
+    bridge.start(plan)
+    for status in ("ready", "running", "verifying"):
+        bridge.transition_task(
+            work_key, "learn-and-deliver", status,
+            reason="integration test transition to " + status,
+        )
+    return plan, store, ledger, bridge
+
+
+class ContinuousEngineeringIntegrationTests(unittest.TestCase):
+    def test_learning_delivery_share_identity_and_reconcile_split_write_after_restart(self):
+        import gc
+        from portable.engineering_dashboard import EngineeringDashboard
+        from portable.execution_controller import ExecutionController
+        from portable.harness_experiments import canonical_digest
+        from portable.runtime_recovery import RuntimeExecutionGuard
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            work_key = "AUREN:issue-696:continuous-engineering"
+            plan, store, ledger, bridge = _start_integrated_plan(root, work_key)
+
+            runtime = ExecutionController(root)
+            runtime.register_handler(
+                "continuous-engineering-integration",
+                _continuous_engineering_integration_handler,
+                execution_class="read_only",
+            )
+            first = runtime.submit(
+                "continuous-engineering-integration", {"work_key": work_key},
+                goal=plan.goal, work_key=work_key,
+            )
+            duplicate = runtime.submit(
+                "continuous-engineering-integration", {"work_key": work_key},
+                goal=plan.goal, work_key=work_key,
+            )
+            self.assertEqual(first.id, duplicate.id)
+            import sqlite3
+            db = sqlite3.connect(runtime.db_path)
+            try:
+                stored_key = db.execute("SELECT work_key FROM tasks WHERE id=?", (first.id,)).fetchone()
+            finally:
+                db.close()
+            self.assertEqual(stored_key, (work_key,))
+            task_id = first.id
+            runtime.run_once(task_id)
+            self.assertEqual(runtime.task(task_id).state, "completed")
+            del runtime
+            gc.collect()
+
+            manifest, result, adopted = _run_integrated_harness_experiment(
+                work_key=work_key, plan=plan, ledger=ledger,
+                guard=RuntimeExecutionGuard(max_steps=20, max_attempts=20, deadline_seconds=60),
+            )
+            self.assertTrue(result.success)
+            self.assertEqual(result.status, "adopted")
+            self.assertEqual(adopted, [result.adopted_digest])
+
+            learning_checkpoint = ledger.get_checkpoint(work_key, "harness_experiment")
+            self.assertIsNotNone(learning_checkpoint)
+            self.assertEqual(learning_checkpoint.status, "verified")
+            self.assertEqual(learning_checkpoint.payload["work_key"], work_key)
+            self.assertEqual(learning_checkpoint.payload["manifest_digest"], manifest.digest)
+            self.assertEqual(learning_checkpoint.payload["plan_digest"], plan.digest)
+            self.assertTrue(learning_checkpoint.payload["verification_evidence"])
+
+            evidence_refs = (
+                "learning://" + work_key + "/" + manifest.digest,
+                "sha256:" + canonical_digest(learning_checkpoint.payload),
+            )
+            original_checkpoint = ledger.checkpoint
+
+            def fail_plan_checkpoint(task_id, phase, **kwargs):
+                if task_id == work_key and phase == bridge.PHASE:
+                    raise OSError("injected plan-store/recovery-ledger split write")
+                return original_checkpoint(task_id, phase, **kwargs)
+
+            ledger.checkpoint = fail_plan_checkpoint
+            try:
+                with self.assertRaisesRegex(OSError, "split write"):
+                    bridge.transition_task(
+                        work_key, "learn-and-deliver", "passed",
+                        reason="learning evidence and acceptance checks verified",
+                        evidence_refs=evidence_refs,
+                    )
+            finally:
+                ledger.checkpoint = original_checkpoint
+
+            with self.assertRaisesRegex(EngineeringPlanCheckpointMismatch, "run_digest"):
+                bridge.load_verified(work_key)
+            bridge.reconcile_checkpoint(
+                work_key,
+                reason="integration test inspected the persisted plan revision and learning receipt",
+                expected_plan_digest=plan.digest,
+            )
+
+            restarted_ledger = EngineeringRecoveryLedger(root / ".auren" / "recovery.sqlite3")
+            restarted = EngineeringPlanRecoveryBridge(
+                store=EngineeringPlanStore(root / ".auren" / "plans.sqlite3"),
+                ledger=restarted_ledger,
+            )
+            loaded_plan, loaded_run = restarted.load_verified(work_key)
+            self.assertEqual(loaded_plan.digest, plan.digest)
+            self.assertEqual(loaded_run.tasks[0].status, "passed")
+            resumed_learning = restarted_ledger.get_checkpoint(work_key, "harness_experiment")
+            self.assertIsNotNone(resumed_learning)
+            self.assertEqual(resumed_learning.payload["manifest_digest"], manifest.digest)
+            self.assertEqual(resumed_learning.status, "verified")
+
+            restarted_runtime = ExecutionController(root)
+            restarted_runtime.register_handler(
+                "continuous-engineering-integration",
+                _continuous_engineering_integration_handler,
+                execution_class="read_only",
+            )
+            resumed_task = restarted_runtime.submit(
+                "continuous-engineering-integration", {"work_key": work_key},
+                goal=plan.goal, work_key=work_key,
+            )
+            self.assertEqual(resumed_task.id, task_id)
+            self.assertEqual(restarted_runtime.task(task_id).state, "completed")
+
+            dashboard = EngineeringDashboard(root)
+            dashboard.record_event(
+                run_id=work_key, event="stale-heartbeat", task_id="learn-and-deliver",
+                status="running", detail="old event projection must not override durable plan",
+            )
+            snapshot = dashboard.snapshot().as_dict()
+            plan_row = next(row for row in snapshot["plan_runs"] if row["run_id"] == work_key)
+            self.assertEqual(plan_row["status"], "completed")
+            self.assertEqual(plan_row["task_counts"], {"passed": 1})
+            self.assertGreaterEqual(plan_row["evidence_count"], 2)
+            self.assertTrue(all(row.get("run_id") != work_key for row in snapshot["executions"]))
+            del restarted_runtime
+            gc.collect()
+
+    def test_cancel_deadline_and_missing_evaluator_cannot_complete_delivery(self):
+        from portable.engineering_dashboard import EngineeringDashboard
+        from portable.harness_experiments import canonical_digest
+        from portable.runtime_recovery import RuntimeExecutionGuard
+
+        for stop_mode in ("cancel", "deadline", "missing-evaluator"):
+            with self.subTest(stop_mode=stop_mode), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                work_key = "AUREN:issue-696:continuous-engineering"
+                plan, _store, ledger, bridge = _start_integrated_plan(root, work_key)
+                manifest, result, adopted = _run_integrated_harness_experiment(
+                    work_key=work_key, plan=plan, ledger=ledger,
+                    guard=RuntimeExecutionGuard(max_steps=20, max_attempts=20, deadline_seconds=60),
+                    stop_mode=stop_mode,
+                )
+                self.assertFalse(result.success)
+                self.assertEqual(adopted, [])
+                if stop_mode == "missing-evaluator":
+                    self.assertEqual(result.status, "blocked")
+                else:
+                    self.assertEqual(result.status, "unscored")
+                checkpoint = ledger.get_checkpoint(work_key, "harness_experiment")
+                self.assertIsNotNone(checkpoint)
+                self.assertEqual(checkpoint.status, "blocked")
+                self.assertEqual(checkpoint.payload["manifest_digest"], manifest.digest)
+
+                bridge.transition_task(
+                    work_key, "learn-and-deliver", "blocked",
+                    reason="learning gate did not produce verified evidence: " + stop_mode,
+                    evidence_refs=("learning://" + work_key + "/" + manifest.digest,),
+                )
+                restarted = EngineeringPlanRecoveryBridge(
+                    store=EngineeringPlanStore(root / ".auren" / "plans.sqlite3"),
+                    ledger=EngineeringRecoveryLedger(root / ".auren" / "recovery.sqlite3"),
+                )
+                _, loaded_run = restarted.load_verified(work_key)
+                self.assertEqual(loaded_run.tasks[0].status, "blocked")
+                snapshot = EngineeringDashboard(root).snapshot().as_dict()
+                plan_row = next(row for row in snapshot["plan_runs"] if row["run_id"] == work_key)
+                self.assertEqual(plan_row["status"], "blocked")
+                self.assertNotEqual(plan_row["status"], "completed")
+                self.assertEqual(plan_row["task_counts"], {"blocked": 1})
+
+
 if __name__ == "__main__":
     unittest.main()
