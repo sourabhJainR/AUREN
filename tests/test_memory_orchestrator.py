@@ -62,6 +62,37 @@ class MemoryOrchestratorTests(unittest.TestCase):
         self.assertGreaterEqual(second.cache_hits, 1)
         self.assertEqual("docs", second.memories[0].source)
 
+    def test_legacy_memory_rows_migrate_as_unscoped_searchable_records(self):
+        import sqlite3
+
+        path = self.root / "legacy-memory.sqlite3"
+        db = sqlite3.connect(path)
+        try:
+            db.execute("""CREATE TABLE memory(
+                id TEXT PRIMARY KEY, project TEXT NOT NULL, category TEXT NOT NULL,
+                text TEXT NOT NULL, intent_digest TEXT, confidence REAL NOT NULL,
+                verified INTEGER NOT NULL, created_at TEXT NOT NULL)""")
+            db.execute(
+                "INSERT INTO memory VALUES(?,?,?,?,?,?,?,?)",
+                ("legacy-id", "project-a", "semantic", "legacy general memory",
+                 None, 0.7, 1, "2026-01-01T00:00:00+00:00"),
+            )
+            db.commit()
+        finally:
+            db.close()
+
+        migrated = PersistentMemory(path, require_approval=True)
+        found = migrated.search("project-a", "legacy general memory")
+        self.assertEqual(["legacy-id"], [record.id for record in found])
+        self.assertIsNone(found[0].branch)
+        self.assertIsNone(found[0].source_revision)
+
+        retracted = migrated.retract(
+            "project-a", "legacy-id", reason="legacy memory is no longer valid",
+        )
+        self.assertIsNotNone(retracted.retracted_at)
+        self.assertEqual([], migrated.search("project-a", "legacy general memory"))
+
     def test_branch_revision_scope_and_retraction_survive_restart(self):
         revision_a = "a" * 40
         revision_b = "b" * 40
