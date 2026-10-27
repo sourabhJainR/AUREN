@@ -2850,7 +2850,16 @@ class ExecutionController:
                     json.dumps(dict(intent), sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
                 ).hexdigest(),
             }
-            value = self._invoke_with_lease_heartbeat(task, lambda runtime_payload: handler(self._handler_payload(task, {**provider_payload, "auren_cancel_event": runtime_payload["auren_cancel_event"]})))
+            def invoke_provider_handler(runtime_payload):
+                handler_payload = {
+                    **provider_payload,
+                    "auren_cancel_event": runtime_payload["auren_cancel_event"],
+                }
+                if "auren_deadline_epoch" in runtime_payload:
+                    handler_payload["auren_deadline_epoch"] = runtime_payload["auren_deadline_epoch"]
+                return handler(self._handler_payload(task, handler_payload))
+
+            value = self._invoke_with_lease_heartbeat(task, invoke_provider_handler)
             if not isinstance(value, Mapping):
                 raise RuntimeError("consequential handlers must return a mapping receipt/result")
             intent_digest = provider_ledger.digest_payload({

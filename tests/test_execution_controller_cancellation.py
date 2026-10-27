@@ -4,7 +4,7 @@ import threading
 import time
 from pathlib import Path
 
-from portable.execution_controller import ExecutionController, TaskDeadlineExceeded
+from portable.execution_controller import ExecutionController
 
 
 _HANDLER_STARTED = threading.Event()
@@ -29,8 +29,9 @@ def supervised_child_handler(payload):
     from portable.subprocess_provider import SubprocessProviderInvoker
 
     script = (
-        "from pathlib import Path; import time\n"
+        "from pathlib import Path; import os, time\n"
         "Path('provider-started').write_text('yes', encoding='utf-8')\n"
+        "Path('provider-deadline-epoch').write_text(os.environ.get('AUREN_DEADLINE_EPOCH', 'missing'), encoding='utf-8')\n"
         "i = 0\n"
         "while True:\n"
         "    Path('provider-heartbeat').write_text(str(i), encoding='utf-8')\n"
@@ -47,9 +48,9 @@ def supervised_child_handler(payload):
     return {"success": True, "detail": output, "evidence": ["subprocess-provider:completed"]}
 
 
-def _register(controller: ExecutionController, handler) -> str:
+def _register(controller: ExecutionController, handler, *, execution_class="read_only") -> str:
     name = f"{handler.__module__}.{handler.__name__}"
-    controller.register_handler(name, handler, execution_class="read_only")
+    controller.register_handler(name, handler, execution_class=execution_class)
     return name
 
 
@@ -135,7 +136,7 @@ def test_supervisor_cancellation_kills_real_subprocess_provider_child(tmp_path: 
 
 def test_supervisor_deadline_kills_real_subprocess_provider_child(tmp_path: Path):
     controller = ExecutionController(tmp_path)
-    name = _register(controller, supervised_child_handler)
+    name = _register(controller, supervised_child_handler, execution_class="consequential")
     task = controller.submit(
         name, {"provider_cwd": str(tmp_path)}, deadline_seconds=1.5,
     )
@@ -154,14 +155,15 @@ def test_supervisor_deadline_kills_real_subprocess_provider_child(tmp_path: Path
     _wait_for_provider_start(marker, worker)
     worker.join(5)
     assert not worker.is_alive(), "provider child did not stop before the bounded test timeout"
-    # The provider timeout and supervisor deadline watcher can win the race in
-    # either order. Both paths must leave a durable failed task, never success.
-    assert len(failures) <= 1
-    if failures:
-        assert isinstance(failures[0], (TimeoutError, TaskDeadlineExceeded))
-        assert "deadline" in str(failures[0]).lower()
+    assert not failures, failures
     current = controller.task(task.id)
-    assert current is not None and current.state == "failed"
+    assert current is not None and current.state == "blocked_reconciliation"
     assert heartbeat.exists(), "provider child did not begin bounded work"
+    deadline_marker = tmp_path / "provider-deadline-epoch"
+    assert deadline_marker.is_file(), "provider child did not receive the supervisor deadline"
+    from datetime import datetime
+    propagated = float(deadline_marker.read_text(encoding="utf-8"))
+    expected = datetime.fromisoformat(task.deadline_at).timestamp()
+    assert abs(propagated - expected) < 0.5, "provider received a timeout unrelated to the supervisor deadline"
     _assert_provider_child_stopped(heartbeat)
 
