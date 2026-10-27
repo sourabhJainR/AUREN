@@ -35,8 +35,8 @@
 
 - [x] Durable execution controller, plan/run store, progress journal, and dashboard projections exist.
 - [x] Supervisor task identity and allowlisted provider lifecycle events are propagated into progress records.
-- [ ] Run a cross-store crash matrix over task state, plan/run revision, progress journal, executive receipt, and evidence index. Detect and reconcile split commits without replay.
-- [ ] Prove dashboard and CLI use canonical durable status, not generated progress text; show blocked, cancelled, timed-out, unknown, stale, and unscored states distinctly.
+- [ ] Run a cross-store crash matrix over task state, plan/run revision, progress journal, executive receipt, and evidence index. Existing tests cover plan/recovery split writes, progress/receipt disagreement, and evidence-ledger process death in separate suites; the combined matrix and no-replay proof across all stores remain open.
+- [ ] Prove dashboard and CLI use canonical durable status, not generated progress text; show blocked, cancelled, timed-out, unknown, stale, and unscored states distinctly. Tests now cover durable plan-run dashboard status despite stale events and CLI blocked status after startup reconciliation; full state parity and read-only detection of cross-store disagreement remain open.
 - [ ] Verify shared memory search across agents and branches with project scope, access control, provenance, freshness, and retraction tests.
 
 **Exit evidence:** crash/restart matrix, source-of-truth map, API/UI parity assertions, and searchable evidence references tied to exact revisions.
