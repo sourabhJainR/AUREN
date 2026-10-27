@@ -71,6 +71,10 @@ class ContextGraphTests(unittest.TestCase):
                 "branch-b", "semantic", "Branch B lesson", "memory",
                 properties={"branch": "feature/b", "source_revision": revision_b},
             ))
+            graph.upsert_node(ContextNode(
+                "branch-a-revision-b", "semantic", "Stale Branch A lesson", "memory",
+                properties={"branch": "feature/a", "source_revision": revision_b},
+            ))
             graph.link("global", "uses", "branch-a", source="test")
             graph.link("global", "uses", "branch-b", source="test")
 
@@ -87,7 +91,7 @@ class ContextGraphTests(unittest.TestCase):
             with self.assertRaisesRegex(PermissionError, "across branch scopes"):
                 graph.link("branch-a", "related_to", "branch-b", source="test")
             with self.assertRaisesRegex(PermissionError, "across source_revision scopes"):
-                graph.link("branch-a", "related_to", "global", source="test")
+                graph.link("branch-a", "related_to", "branch-a-revision-b", source="test")
             memory.close()
 
     def test_retracted_nodes_are_hidden_and_cannot_be_revived(self):
