@@ -208,6 +208,13 @@ class PersistentMemory:
                     db.execute(f"ALTER TABLE memory ADD COLUMN {column} {declaration}")
             try:
                 db.execute("CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5(id UNINDEXED, text, category, project)")
+                # Rebuild missing index rows when opening a legacy store or recovering
+                # from an interrupted migration. Existing indexed rows are untouched.
+                db.execute(
+                    "INSERT INTO memory_fts(id,text,category,project) "
+                    "SELECT m.id,m.text,m.category,m.project FROM memory AS m "
+                    "WHERE NOT EXISTS (SELECT 1 FROM memory_fts AS f WHERE f.id=m.id)"
+                )
             except sqlite3.OperationalError:
                 self._fts_available = False
             db.execute("CREATE INDEX IF NOT EXISTS idx_memory_scope ON memory(project, intent_digest, created_at)")
