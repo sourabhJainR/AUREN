@@ -437,7 +437,10 @@ class ContinuousEngineeringIntegrationTests(unittest.TestCase):
                 goal=plan.goal, work_key=work_key,
             )
             self.assertEqual(first.id, duplicate.id)
-            self.assertEqual(first.work_key, work_key)
+            import sqlite3
+            with sqlite3.connect(runtime.db_path) as db:
+                stored_key = db.execute("SELECT work_key FROM tasks WHERE id=?", (first.id,)).fetchone()
+            self.assertEqual(stored_key, (work_key,))
             runtime.run_once(first.id)
             self.assertEqual(runtime.task(first.id).state, "completed")
 
