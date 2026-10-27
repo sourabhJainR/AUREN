@@ -75,6 +75,14 @@ class ContextGraphTests(unittest.TestCase):
                 "branch-a-revision-b", "semantic", "Stale Branch A lesson", "memory",
                 properties={"branch": "feature/a", "source_revision": revision_b},
             ))
+            self.assertIsNone(graph.get_node("branch-a"))
+            self.assertEqual(
+                "Branch A lesson",
+                graph.get_node("branch-a", branch="feature/a", source_revision=revision_a).label,
+            )
+            self.assertIsNone(graph.get_node(
+                "branch-a", branch="feature/a", source_revision=revision_b,
+            ))
             graph.link("global", "uses", "branch-a", source="test")
             graph.link("global", "uses", "branch-b", source="test")
 
