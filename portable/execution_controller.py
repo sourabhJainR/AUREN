@@ -262,10 +262,13 @@ class ExecutionController:
         self._submission_reconciliation_incomplete = False
         self._terminal_reconciliation_findings: list[str] = []
         self._terminal_reconciliation_incomplete = False
+        self._graph_checkpoint_reconciliation_findings: list[str] = []
+        self._graph_checkpoint_reconciliation_incomplete = False
         self.reconcile_progress_journal()
         self.reconcile_submission_events()
         self.reconcile_terminal_events()
         self.reconcile_approval_waits()
+        self.inspect_graph_checkpoints()
 
     def register_handler(
         self,
@@ -3368,6 +3371,7 @@ class ExecutionController:
         return count
 
     def health_findings(self) -> tuple[str, ...]:
+        self.inspect_graph_checkpoints(limit=100, time_budget_seconds=0.2)
         findings = []
         with closing(sqlite3.connect(self.db_path)) as db, db:
             failed = db.execute("SELECT COUNT(*) FROM tasks WHERE state='failed'").fetchone()[0]
@@ -3410,6 +3414,15 @@ class ExecutionController:
         if self._terminal_reconciliation_incomplete:
             findings.append(
                 "terminal_evidence_reconciliation_incomplete; rerun bounded terminal evidence repair before trusting unscanned tasks"
+            )
+        if self._graph_checkpoint_reconciliation_findings:
+            findings.append(
+                f"graph_checkpoint_integrity_required={len(self._graph_checkpoint_reconciliation_findings)}; "
+                "saved supervisor graph checkpoint is corrupt or invalid; restore trusted bytes and reconcile before resume"
+            )
+        if self._graph_checkpoint_reconciliation_incomplete:
+            findings.append(
+                "graph_checkpoint_audit_incomplete; inspect unscanned graph checkpoints before trusting checkpoint health"
             )
         if self.evidence_capture.sink is not None:
             delivery = self.evidence_capture.flush_pending(limit=100)

@@ -72,6 +72,14 @@ Each classified durable registration also stores a SHA-256 digest of the handler
 
 `portable.state_graph.StateGraph` and `portable.state_graph.GraphAgentTeam` are the supervisor-facing compatibility API over `portable.orchestration.Graph` and `Orchestrator`; `ExecutionController.execute_graph()` dispatches these types. Separately, `portable.agency_state_graph.StateGraph` is a lower-level checkpointable graph runtime with explicit state, edge, interrupt and bounded-superstep semantics. These are distinct classes in distinct modules and must not be treated as interchangeable without an explicit adapter and integration tests.
 
+## Graph checkpoint startup visibility
+
+`ExecutionController` audits the supervisor-owned `graph_checkpoints` table at startup and during bounded health checks. It validates the stored envelope digest, task binding, retry-budget agreement, runtime-guard snapshot, and provider-resume digest. A corrupt or malformed checkpoint is reported as `graph_checkpoint_integrity_required`; an incomplete scan is reported separately and is not treated as a clean result.
+
+This audit is read-only. It does not reconstruct a checkpoint from current code, overwrite a damaged digest, mark a graph complete, or replay a worker. `load_graph_checkpoint()` continues to reject invalid bytes before graph resume. Restore a checkpoint only from a trusted backup and reconcile its task, evidence and provider outcome before resuming.
+
+**Rollback:** revert the audit code only. Preserve `.auren/execution.sqlite3`, the progress journal, executive work-unit receipts, and evidence databases. Do not delete or reset a damaged checkpoint to make health findings disappear.
+
 ## Recovery
 
 A failed graph execution is recorded as a supervisor failure. The existing default runtime permits bounded fresh retries through `auren_max_iterations` in the execution context, defaulting to three supervisor iterations. Each iteration has execution evidence; repeated failure should terminate rather than loop forever.
