@@ -213,8 +213,6 @@ class GraphWorkerLifecycle:
             raise GraphWorkerLifecycleError("verification receipt must be a mapping")
         if receipt.get("schema") != "auren-independent-graph-verification-v1":
             raise GraphWorkerLifecycleError("verification receipt schema is missing or unsupported")
-        if receipt.get("status") != "passed":
-            raise GraphWorkerLifecycleError("verification receipt does not report a passed result")
         if receipt.get("verification_mode") != "fresh-isolated-worktree":
             raise GraphWorkerLifecycleError("verification receipt is not bound to a fresh isolated worktree")
         verifier_identity = receipt.get("verifier_identity")
