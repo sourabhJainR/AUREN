@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import subprocess
 import sys
 import textwrap
@@ -14,7 +15,7 @@ from pathlib import Path
 from portable.graph_workspace_adoption import GraphWorkspaceCoordinator
 from portable.engineering_recovery import EngineeringRecoveryLedger, GraphRunRecoveryBridge
 from portable.agency_evolution_gates import ImprovementJournal
-from portable.graph_worker_lifecycle import GraphWorkerLifecycle
+from portable.graph_worker_lifecycle import GraphWorkerLifecycle, GraphWorkerLifecycleError
 from portable.independent_graph_verification import IndependentGraphVerifier
 from portable.progress_journal import ProgressJournal
 from portable.runtime_recovery import ExecutionBudgetExceeded, RuntimeExecutionGuard
@@ -124,6 +125,119 @@ class GraphWorkerLifecycleTests(unittest.TestCase):
         self.assertEqual(self.journal.snapshot("write-a")["state"], "failed")
         self.assertEqual(plan.recovery_bridge.load()["nodes"]["write-a"]["status"], "failed")
         self.assertEqual(plan.recovery_bridge.load()["run_status"], "blocked")
+
+    def test_contradictory_check_evidence_cannot_be_laundered_by_passed_receipt(self):
+        plan = self.lifecycle([
+            Task("write-a", "write one file", files=["src/feature.py"], metadata={"execution_mode": "mutating"})
+        ])
+
+        def write(workspace, _task):
+            (workspace / "src" / "feature.py").write_text("verified = True\\n", encoding="utf-8")
+
+        original_verify = plan.verifier.verify
+
+        def contradictory_receipt(*args, **kwargs):
+            receipt = original_verify(*args, **kwargs)
+            receipt["checks"][0]["status"] = "failed"
+            unsigned = {key: value for key, value in receipt.items() if key != "receipt_digest"}
+            receipt["receipt_digest"] = hashlib.sha256(
+                json.dumps(unsigned, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")
+            ).hexdigest()
+            return receipt
+
+        with patch.object(plan.verifier, "verify", side_effect=contradictory_receipt):
+            with self.assertRaisesRegex(GraphWorkerLifecycleError, "contradictory check evidence"):
+                plan.prepare(
+                    task_id="write-a", worker_id="worker-a", worker_identity="worker-a",
+                    owned_paths=["src/feature.py"], execute_in_workspace=write,
+                    checks=self.checks("src/feature.py", "verified = True\\n"),
+                )
+
+        self.assertFalse((self.repo / "src" / "feature.py").exists())
+        self.assertEqual(self.journal.snapshot("write-a")["state"], "failed")
+        self.assertEqual(plan.recovery_bridge.load()["nodes"]["write-a"]["status"], "failed")
+
+    def test_missing_check_evidence_cannot_be_laundered_by_passed_receipt(self):
+        plan = self.lifecycle([
+            Task("write-a", "write one file", files=["src/feature.py"], metadata={"execution_mode": "mutating"})
+        ])
+
+        def write(workspace, _task):
+            (workspace / "src" / "feature.py").write_text("verified = True\n", encoding="utf-8")
+
+        original_verify = plan.verifier.verify
+
+        def incomplete_receipt(*args, **kwargs):
+            receipt = original_verify(*args, **kwargs)
+            receipt["checks"] = receipt["checks"][:1]
+            unsigned = {key: value for key, value in receipt.items() if key != "receipt_digest"}
+            receipt["receipt_digest"] = hashlib.sha256(
+                json.dumps(unsigned, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")
+            ).hexdigest()
+            return receipt
+
+        checks = list(self.checks("src/feature.py", "verified = True\n"))
+        checks.append({**checks[0], "check_id": "content-check-secondary"})
+        with patch.object(plan.verifier, "verify", side_effect=incomplete_receipt):
+            with self.assertRaisesRegex(GraphWorkerLifecycleError, "missing required check evidence"):
+                plan.prepare(
+                    task_id="write-a", worker_id="worker-a", worker_identity="worker-a",
+                    owned_paths=["src/feature.py"], execute_in_workspace=write,
+                    checks=checks,
+                )
+
+        self.assertFalse((self.repo / "src" / "feature.py").exists())
+        self.assertEqual(self.journal.snapshot("write-a")["state"], "failed")
+        self.assertEqual(plan.recovery_bridge.load()["nodes"]["write-a"]["status"], "failed")
+
+    def test_lifecycle_rejects_recovery_checkpoint_bound_to_different_intent(self):
+        plan = self.lifecycle([
+            Task("write-a", "write one file", files=["src/feature.py"], metadata={"execution_mode": "mutating"})
+        ])
+        changed_intent = hashlib.sha256(b"changed intent").hexdigest()
+        with self.assertRaisesRegex(ValueError, "intent or source revision"):
+            GraphWorkerLifecycle(
+                coordinator=plan.coordinator,
+                verifier=plan.verifier,
+                journal=plan.journal,
+                task_plan=plan.task_plan,
+                intent_digest=changed_intent,
+                runtime_guard=plan.runtime_guard,
+                recovery_bridge=plan.recovery_bridge,
+            )
+        self.assertEqual(plan.recovery_bridge.load()["run_status"], "in_progress")
+        self.assertFalse((self.repo / "src" / "feature.py").exists())
+
+    def test_cancelled_running_node_stays_unknown_until_termination_is_confirmed(self):
+        plan = self.lifecycle([
+            Task("write-a", "write one file", files=["src/feature.py"], metadata={"execution_mode": "mutating"})
+        ])
+        self.guard.charge_step()
+        self.guard.charge_attempt("graph-worker:write-a:worker-a")
+        plan.recovery_bridge.record_node(
+            event_id="cancel-worker-started",
+            node_id="write-a",
+            status="working",
+            budget_snapshot=self.guard.snapshot(),
+            next_safe_action="execute_worker_and_capture_proposal",
+            worker_id="worker-a",
+            workspace_id="workspace-a",
+            attempts=1,
+        )
+        self.guard.cancel("cancellation requested; worker termination not confirmed")
+        snapshot = plan.recovery_bridge.cancel_run(
+            event_id="cancel-worker-run",
+            reason="cancellation requested; worker termination not confirmed",
+            next_safe_action="reconcile_worker_termination_before_resume",
+            budget_snapshot=self.guard.snapshot(),
+        )
+        self.assertEqual(snapshot["run_status"], "cancelled")
+        self.assertEqual(snapshot["nodes"]["write-a"]["status"], "unknown")
+        self.assertEqual(
+            snapshot["nodes"]["write-a"]["next_safe_action"],
+            "reconcile_worker_termination_before_resume",
+        )
+        self.assertEqual(plan.recovery_bridge.dispatchable_nodes(), ())
 
     def test_stale_plan_digest_blocks_adoption_after_verification(self):
         tasks = [Task("write-a", "write one file", files=["src/feature.py"], metadata={"execution_mode": "mutating"})]
