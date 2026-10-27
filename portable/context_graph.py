@@ -191,6 +191,7 @@ class ContextGraph:
 
     def get_node(
         self, node_id: str, *, branch: str | None = None, source_revision: str | None = None,
+        include_retracted: bool = False,
     ) -> ContextNode | None:
         node = self._get_node_unscoped(node_id)
         if node is None:
@@ -199,6 +200,8 @@ class ContextGraph:
         if properties.get("branch") is not None and properties.get("branch") != branch:
             return None
         if properties.get("source_revision") is not None and properties.get("source_revision") != source_revision:
+            return None
+        if properties.get("retracted_at") and not include_retracted:
             return None
         return node
 
