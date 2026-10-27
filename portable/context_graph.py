@@ -152,6 +152,16 @@ class ContextGraph:
                 existing = self._node(node.node_id, row)
                 if existing == node:
                     return existing
+                existing_properties = dict(existing.properties or {})
+                incoming_properties = dict(node.properties or {})
+                if existing_properties.get("retracted_at"):
+                    if not incoming_properties.get("retracted_at"):
+                        raise PermissionError("retracted context nodes cannot be revived")
+                    if (
+                        incoming_properties.get("retracted_at") != existing_properties.get("retracted_at")
+                        or incoming_properties.get("retraction_reason") != existing_properties.get("retraction_reason")
+                    ):
+                        raise PermissionError("context-node retraction audit is immutable")
                 updated = ContextNode(node.node_id, node.kind, node.label, node.source, node.confidence, node.properties, existing.created_at)
                 db.execute(
                     "UPDATE context_nodes SET kind=?,label=?,source=?,confidence=?,properties=? WHERE project=? AND node_id=?",
@@ -184,8 +194,12 @@ class ContextGraph:
             raise ValueError("relation and source are required")
         if not 0 <= confidence <= 1:
             raise ValueError("confidence must be between 0 and 1")
-        if self.get_node(source_id) is None or self.get_node(target_id) is None:
+        source_node = self.get_node(source_id)
+        target_node = self.get_node(target_id)
+        if source_node is None or target_node is None:
             raise KeyError("both graph endpoints must exist")
+        if dict(source_node.properties or {}).get("retracted_at") or dict(target_node.properties or {}).get("retracted_at"):
+            raise PermissionError("cannot link a retracted context node")
         if edge_id is None:
             seed = f"{self.project}|{source_id}|{relation}|{target_id}"
             edge_id = hashlib.sha256(seed.encode("utf-8")).hexdigest()[:24]
@@ -208,7 +222,10 @@ class ContextGraph:
     def _edge(row: Sequence[Any]) -> ContextEdge:
         return ContextEdge(row[0], row[1], row[2], row[3], row[4], float(row[5]), _properties(row[6]), row[7])
 
-    def neighbors(self, node_id: str, relation: str | None = None, *, direction: str = "out", limit: int = 50) -> tuple[ContextEdge, ...]:
+    def neighbors(
+        self, node_id: str, relation: str | None = None, *, direction: str = "out",
+        limit: int = 50, include_retracted: bool = False,
+    ) -> tuple[ContextEdge, ...]:
         if limit < 1:
             return ()
         if direction not in {"out", "in", "both"}:
@@ -236,7 +253,22 @@ class ContextGraph:
                 f"SELECT edge_id,source_id,relation,target_id,source,confidence,properties,created_at FROM context_edges WHERE project=? AND ({where}) ORDER BY relation,source_id,target_id,edge_id LIMIT ?",
                 tuple(params),
             ).fetchall()
-        return tuple(self._edge(row) for row in rows)
+            if include_retracted or not rows:
+                return tuple(self._edge(row) for row in rows)
+            node_ids = sorted({row[1] for row in rows} | {row[3] for row in rows})
+            placeholders = ",".join("?" for _ in node_ids)
+            node_rows = db.execute(
+                f"SELECT node_id,properties FROM context_nodes WHERE project=? AND node_id IN ({placeholders})",
+                (self.project, *node_ids),
+            ).fetchall()
+        node_properties = {node_id: _properties(properties) for node_id, properties in node_rows}
+        edges = tuple(self._edge(row) for row in rows)
+        return tuple(
+            edge for edge in edges
+            if edge.source_id in node_properties and edge.target_id in node_properties
+            and not node_properties[edge.source_id].get("retracted_at")
+            and not node_properties[edge.target_id].get("retracted_at")
+        )
 
     def digest(self) -> str:
         with self._connect() as db:
