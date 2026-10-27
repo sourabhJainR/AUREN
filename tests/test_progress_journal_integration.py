@@ -1,5 +1,7 @@
+import io
+import json
 import tempfile
-from contextlib import closing
+from contextlib import closing, redirect_stdout
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -116,6 +118,23 @@ class ProgressJournalRuntimeIntegrationTests(unittest.TestCase):
             self.assertEqual(snapshot["stage"], "startup-reconciliation")
             self.assertTrue(any("progress_reconciliation_required=1" in finding
                                 for finding in restarted.health_findings()))
+
+            # The read-only CLI must expose the reconciled durable state, not
+            # the pre-crash running projection or any handler-generated text.
+            from portable.auren_runtime import main as runtime_main
+            output = io.StringIO()
+            with redirect_stdout(output):
+                exit_code = runtime_main([
+                    "progress", "--project-root", str(root),
+                    "--task-id", task.id, "--json",
+                ])
+            self.assertEqual(exit_code, 0)
+            cli_payload = json.loads(output.getvalue())
+            self.assertEqual(cli_payload["status"], "ok")
+            cli_rows = [row for row in cli_payload["tasks"] if row["task_id"] == task.id]
+            self.assertEqual(len(cli_rows), 1)
+            self.assertEqual(cli_rows[0]["state"], "blocked")
+            self.assertNotEqual(cli_rows[0]["state"], "completed")
 
     def test_startup_correction_can_supersede_false_terminal_journal_event(self):
         with tempfile.TemporaryDirectory() as temp:
