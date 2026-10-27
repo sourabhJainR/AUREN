@@ -379,6 +379,61 @@ class GraphWorkerLifecycleTests(unittest.TestCase):
             plan.adopt_prepared((prepared.worker_id,))
         self.assertFalse((self.repo / "src" / "feature.py").exists())
 
+    def test_intent_change_after_verification_blocks_adoption(self):
+        plan = self.lifecycle([
+            Task("write-a", "write one file", files=["src/feature.py"], metadata={"execution_mode": "mutating"})
+        ])
+
+        def write(workspace, _task):
+            (workspace / "src" / "feature.py").write_text("verified = True\n", encoding="utf-8")
+
+        prepared = plan.prepare(
+            task_id="write-a", worker_id="worker-a", worker_identity="worker-a",
+            owned_paths=["src/feature.py"], execute_in_workspace=write,
+            checks=self.checks("src/feature.py", "verified = True\n"),
+        )
+        plan.intent_digest = hashlib.sha256(b"intent changed after verification").hexdigest()
+
+        with self.assertRaisesRegex(PermissionError, "TaskPlan or intent changed after worker verification"):
+            plan.adopt_prepared((prepared.worker_id,))
+
+        self.assertFalse((self.repo / "src" / "feature.py").exists())
+        snapshot = plan.recovery_bridge.load()
+        self.assertEqual(snapshot["nodes"]["write-a"]["status"], "failed")
+        self.assertEqual(snapshot["run_status"], "blocked")
+        self.assertEqual(self.journal.snapshot("write-a")["state"], "failed")
+
+    def test_target_head_change_after_verification_blocks_adoption(self):
+        plan = self.lifecycle([
+            Task("write-a", "write one file", files=["src/feature.py"], metadata={"execution_mode": "mutating"})
+        ])
+
+        def write(workspace, _task):
+            (workspace / "src" / "feature.py").write_text("verified = True\n", encoding="utf-8")
+
+        prepared = plan.prepare(
+            task_id="write-a", worker_id="worker-a", worker_identity="worker-a",
+            owned_paths=["src/feature.py"], execute_in_workspace=write,
+            checks=self.checks("src/feature.py", "verified = True\n"),
+        )
+        (self.repo / "README.md").write_text("# target advanced after verification\n", encoding="utf-8")
+        git(self.repo, "add", "README.md")
+        git(self.repo, "commit", "-m", "advance target while graph proposal is pending")
+        advanced_head = git(self.repo, "rev-parse", "HEAD")
+        self.assertNotEqual(advanced_head, prepared.proposal.base_revision)
+
+        with self.assertRaisesRegex(RuntimeError, "stale target HEAD"):
+            plan.adopt_prepared((prepared.worker_id,))
+
+        self.assertFalse((self.repo / "src" / "feature.py").exists())
+        self.assertEqual(git(self.repo, "rev-parse", "HEAD"), advanced_head)
+        snapshot = plan.recovery_bridge.load()
+        self.assertEqual(snapshot["nodes"]["write-a"]["status"], "unknown")
+        self.assertEqual(snapshot["run_status"], "blocked")
+        progress = self.journal.snapshot("write-a")
+        self.assertEqual(progress["state"], "blocked")
+        self.assertIn("reconcile_target_tree_and_recovery_ledger", progress["message"])
+
     def test_disjoint_verified_workers_share_one_adoption_node(self):
         tasks = [
             Task("write-a", "write file a", files=["src/a.py"], metadata={"execution_mode": "mutating"}),
