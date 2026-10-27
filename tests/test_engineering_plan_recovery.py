@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import closing
 import multiprocessing
 import os
 import tempfile
@@ -55,6 +56,23 @@ def _crash_during_bridge_checkpoint(plan_store_path: str, ledger_path: str) -> N
     )
     # The checkpoint must never return in this fixture.
     os._exit(75)
+
+
+
+def _crash_after_integrated_plan_store_commit(
+    root_path: str, work_key: str, evidence_refs: tuple[str, ...],
+) -> None:
+    """Commit the plan/run revision and terminate before its recovery checkpoint is published."""
+    state_dir = Path(root_path) / ".auren"
+    store = EngineeringPlanStore(state_dir / "plans.sqlite3")
+    plan, current = store.load(work_key)
+    advanced = current.transition_task(
+        "learn-and-deliver", "passed", plan=plan,
+        reason="fault injection: runtime, receipt, evidence, and learning records were inspected",
+        evidence_refs=evidence_refs,
+    )
+    store.save_run(work_key, advanced, expected_revision=current.revision)
+    os._exit(91)
 
 
 class EngineeringPlanRecoveryBridgeTests(unittest.TestCase):
@@ -530,7 +548,27 @@ class ContinuousEngineeringIntegrationTests(unittest.TestCase):
             )
             snapshot = dashboard.snapshot().as_dict()
             plan_row = next(row for row in snapshot["plan_runs"] if row["run_id"] == work_key)
-            self.assertEqual(plan_row["status"], "completed")
+            checkpoint_rows = []
+            for candidate in dashboard._sqlite_files():
+                try:
+                    with closing(sqlite3.connect(candidate)) as db, db:
+                        exists = db.execute(
+                            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='recovery_checkpoints'"
+                        ).fetchone()
+                        if exists:
+                            rows = db.execute(
+                                "SELECT status, head_sha, payload_json FROM recovery_checkpoints "
+                                "WHERE task_id=? AND phase='engineering_plan'",
+                                (work_key,),
+                            ).fetchall()
+                            checkpoint_rows.extend((str(candidate), row) for row in rows)
+                except sqlite3.Error:
+                    continue
+            self.assertEqual(
+                plan_row["status"], "completed",
+                f"dashboard_row={plan_row!r}; checkpoint_rows={checkpoint_rows!r}; "
+                f"plan_store={store.database_path.resolve()}",
+            )
             self.assertEqual(plan_row["task_counts"], {"passed": 1})
             self.assertGreaterEqual(plan_row["evidence_count"], 2)
             self.assertTrue(all(row.get("run_id") != work_key for row in snapshot["executions"]))
@@ -579,6 +617,134 @@ class ContinuousEngineeringIntegrationTests(unittest.TestCase):
                 self.assertEqual(plan_row["status"], "blocked")
                 self.assertNotEqual(plan_row["status"], "completed")
                 self.assertEqual(plan_row["task_counts"], {"blocked": 1})
+
+
+    def test_cross_store_process_death_blocks_plan_projection_and_never_replays_delivery(self):
+        import gc
+        import sqlite3
+        from portable.engineering_dashboard import EngineeringDashboard
+        from portable.execution_controller import ExecutionController
+        from portable.harness_experiments import canonical_digest
+        from portable.runtime_recovery import RuntimeExecutionGuard
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            work_key = "AUREN:issue-696:continuous-engineering"
+            plan, _store, ledger, _bridge = _start_integrated_plan(root, work_key)
+
+            runtime = ExecutionController(root)
+            runtime.register_handler(
+                "continuous-engineering-integration",
+                _continuous_engineering_integration_handler,
+                execution_class="read_only",
+            )
+            task = runtime.submit(
+                "continuous-engineering-integration", {"work_key": work_key},
+                goal=plan.goal, work_key=work_key,
+            )
+            runtime.run_once(task.id)
+            self.assertEqual(runtime.task(task.id).state, "completed")
+            self.assertEqual(runtime.company._state(task.work_unit_id)[0], "completed")
+            self.assertEqual(runtime.progress_journal.snapshot(task.id)["state"], "completed")
+            with closing(sqlite3.connect(runtime.evidence_capture.path)) as db, db:
+                completed_events = db.execute(
+                    "SELECT COUNT(*) FROM engineering_events WHERE task_id=? AND event_type='task_completed'",
+                    (task.id,),
+                ).fetchone()[0]
+            self.assertEqual(completed_events, 1)
+
+            manifest, result, adopted = _run_integrated_harness_experiment(
+                work_key=work_key, plan=plan, ledger=ledger,
+                guard=RuntimeExecutionGuard(max_steps=20, max_attempts=20, deadline_seconds=60),
+            )
+            self.assertTrue(result.success)
+            self.assertEqual(result.status, "adopted")
+            self.assertEqual(adopted, [result.adopted_digest])
+            learning = ledger.get_checkpoint(work_key, "harness_experiment")
+            self.assertIsNotNone(learning)
+            self.assertEqual(learning.status, "verified")
+            self.assertEqual(learning.payload["manifest_digest"], manifest.digest)
+            evidence_refs = (
+                "learning://" + work_key + "/" + manifest.digest,
+                "sha256:" + canonical_digest(learning.payload),
+                "task://" + task.id,
+                "receipt://" + task.work_unit_id,
+                "evidence://task-terminal:" + task.id + ":completed",
+            )
+            del runtime
+            gc.collect()
+
+            process = multiprocessing.get_context("spawn").Process(
+                target=_crash_after_integrated_plan_store_commit,
+                args=(str(root), work_key, evidence_refs),
+            )
+            process.start()
+            process.join(15)
+            if process.is_alive():
+                process.terminate()
+                process.join(3)
+                self.fail("cross-store crash fixture exceeded its time budget")
+            self.assertEqual(91, process.exitcode)
+
+            restarted_bridge = EngineeringPlanRecoveryBridge(
+                store=EngineeringPlanStore(root / ".auren" / "plans.sqlite3"),
+                ledger=EngineeringRecoveryLedger(root / ".auren" / "recovery.sqlite3"),
+            )
+            with self.assertRaisesRegex(EngineeringPlanCheckpointMismatch, "run_digest"):
+                restarted_bridge.load_verified(work_key)
+
+            dashboard = EngineeringDashboard(root).snapshot().as_dict()
+            plan_row = next(row for row in dashboard["plan_runs"] if row["run_id"] == work_key)
+            self.assertEqual(plan_row["status"], "unknown")
+            self.assertIn("reconciliation required", plan_row["detail"])
+            progress_rows = dashboard["tasks"]["progress"]
+            self.assertTrue(any(
+                row.get("task_id") == task.id and row.get("state") == "completed"
+                for row in progress_rows
+            ))
+
+            restarted_runtime = ExecutionController(root)
+            restarted_runtime.register_handler(
+                "continuous-engineering-integration",
+                _continuous_engineering_integration_handler,
+                execution_class="read_only",
+            )
+            duplicate = restarted_runtime.submit(
+                "continuous-engineering-integration", {"work_key": work_key},
+                goal=plan.goal, work_key=work_key,
+            )
+            self.assertEqual(duplicate.id, task.id)
+            self.assertEqual(restarted_runtime.task(task.id).state, "completed")
+            self.assertEqual(restarted_runtime.task(task.id).attempts, 1)
+            self.assertIsNone(restarted_runtime.run_once(task.id))
+            self.assertEqual(restarted_runtime.task(task.id).attempts, 1)
+            self.assertEqual(restarted_runtime.progress_journal.snapshot(task.id)["state"], "completed")
+            self.assertEqual(restarted_runtime.company._state(task.work_unit_id)[0], "completed")
+            with closing(sqlite3.connect(restarted_runtime.evidence_capture.path)) as db, db:
+                completed_events = db.execute(
+                    "SELECT COUNT(*) FROM engineering_events WHERE task_id=? AND event_type='task_completed'",
+                    (task.id,),
+                ).fetchone()[0]
+            self.assertEqual(completed_events, 1)
+            learning_after_restart = EngineeringRecoveryLedger(
+                root / ".auren" / "recovery.sqlite3"
+            ).get_checkpoint(work_key, "harness_experiment")
+            self.assertIsNotNone(learning_after_restart)
+            self.assertEqual(learning_after_restart.status, "verified")
+            self.assertEqual(learning_after_restart.payload["manifest_digest"], manifest.digest)
+
+            restarted_bridge.reconcile_checkpoint(
+                work_key,
+                reason="inspected task row, work-unit receipt, progress journal, evidence index, and learning checkpoint after process death",
+                expected_plan_digest=plan.digest,
+            )
+            loaded_plan, loaded_run = restarted_bridge.load_verified(work_key)
+            self.assertEqual(loaded_plan.digest, plan.digest)
+            self.assertEqual(loaded_run.tasks[0].status, "passed")
+            final_dashboard = EngineeringDashboard(root).snapshot().as_dict()
+            final_row = next(row for row in final_dashboard["plan_runs"] if row["run_id"] == work_key)
+            self.assertEqual(final_row["status"], "completed")
+
 
 
 if __name__ == "__main__":

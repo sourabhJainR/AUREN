@@ -224,13 +224,84 @@ class EngineeringDashboard:
     def _sum(tables: dict[str, int], needles: Iterable[str]) -> int:
         return sum(v for k, v in tables.items() if any(n in k.lower() for n in needles))
 
+
+    @staticmethod
+    def _plan_checkpoint_state(
+        paths: Iterable[Path], store_path: Path, plan: EngineeringPlan, run: EngineeringPlanRun,
+    ) -> tuple[bool, bool]:
+        """Return whether a checkpoint claims this store and whether it verifies this run."""
+        matches = []
+        expected_store_path = str(store_path.resolve())
+        for candidate in paths:
+            try:
+                uri = f"{candidate.resolve().as_uri()}?mode=ro"
+                with closing(sqlite3.connect(uri, uri=True, timeout=0.5)) as db, db:
+                    exists = db.execute(
+                        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='recovery_checkpoints'"
+                    ).fetchone()
+                    if not exists:
+                        continue
+                    row = db.execute(
+                        "SELECT status, head_sha, payload_json FROM recovery_checkpoints "
+                        "WHERE task_id=? AND phase='engineering_plan'",
+                        (plan.run_id,),
+                    ).fetchone()
+                if row is None:
+                    continue
+                try:
+                    payload = json.loads(row[2])
+                except (TypeError, json.JSONDecodeError):
+                    continue
+                if not isinstance(payload, dict):
+                    continue
+                if (
+                    payload.get("contract") != "auren-engineering-plan-checkpoint-v1"
+                    or payload.get("store_path") != expected_store_path
+                ):
+                    continue
+                matches.append((row, payload))
+            except (OSError, sqlite3.Error):
+                continue
+        if not matches:
+            return False, False
+        row, payload = matches[0]
+        # Duplicate discovery is safe only when every checkpoint bound to this
+        # store has identical status, source, and payload.
+        if any(other_row != row or other_payload != payload for other_row, other_payload in matches[1:]):
+            return True, False
+        status, head_sha, _payload_json = row
+        if status not in {"pending", "in_progress", "verified", "blocked", "rolled_back"}:
+            return True, False
+        if head_sha != plan.source_revision or status == "rolled_back":
+            return True, False
+        task_statuses = [item.status for item in run.tasks]
+        all_passed = bool(task_statuses) and all(value == "passed" for value in task_statuses)
+        any_blocked = any(value == "blocked" for value in task_statuses)
+        if status == "verified" and not all_passed:
+            return True, False
+        if status == "blocked" and not any_blocked:
+            return True, False
+        if status in {"pending", "in_progress"} and all_passed:
+            return True, False
+        verified = (
+            payload.get("plan_digest") == plan.digest
+            and payload.get("run_digest") == run.digest
+            and type(payload.get("run_revision")) is int
+            and payload.get("run_revision") == run.revision
+            and payload.get("source_revision") == plan.source_revision
+            and isinstance(payload.get("next_safe_action"), str)
+            and bool(payload.get("next_safe_action", "").strip())
+        )
+        return True, verified
+
     def _plan_runs(self, paths: Iterable[Path]) -> tuple[dict[str, Any], ...]:
         """Project persisted plan/run state without treating corrupt state as success.
 
         The dashboard is a read-only observer. It verifies the stored plan and run
-        digests before deriving status; invalid rows remain visible as ``unknown``.
+        digests and prefers only the store bound to a compatible recovery checkpoint.
         """
-        latest: dict[str, dict[str, Any]] = {}
+        paths = tuple(paths)
+        candidates: dict[str, list[dict[str, Any]]] = {}
         for path in paths:
             try:
                 uri = f"file:{path.as_posix()}?mode=ro"
@@ -248,60 +319,101 @@ class EngineeringDashboard:
                         "SELECT run_id, schema_version, plan_digest, plan_json, run_json, run_digest, updated_at "
                         "FROM engineering_plan_runs ORDER BY updated_at DESC LIMIT 100"
                     ).fetchall()
-                for row in rows:
-                    run_id = str(row[0])
-                    try:
-                        plan_payload = json.loads(row[3])
-                        run_payload = json.loads(row[4])
-                        plan = EngineeringPlan.from_dict(plan_payload)
-                        run = EngineeringPlanRun.from_dict(run_payload)
-                        if (int(row[1]) != 2 or plan.run_id != run_id or plan.digest != row[2]
-                                or run.digest != row[5] or run.plan_digest != plan.digest):
-                            raise ValueError("persisted plan/run identity or digest mismatch")
-                        run.verify_against(plan)
-                        counts: dict[str, int] = {}
-                        for progress in run.tasks:
-                            counts[progress.status] = counts.get(progress.status, 0) + 1
-                        total = len(run.tasks)
-                        passed = counts.get("passed", 0)
-                        blocked = counts.get("blocked", 0)
-                        failed = counts.get("failed", 0)
-                        cancelled = counts.get("cancelled", 0)
-                        if total and passed == total:
-                            status = "completed"
-                        elif failed:
-                            status = "failed"
-                        elif cancelled:
-                            status = "cancelled"
-                        elif blocked:
-                            status = "blocked"
-                        elif counts.get("running", 0) or counts.get("verifying", 0):
-                            status = "running"
-                        elif counts.get("ready", 0):
-                            status = "ready"
-                        else:
-                            status = "planned"
-                        detail = (f"{passed}/{total} tasks passed; {blocked} blocked; "
-                                  f"{failed} failed; revision {run.revision}")
-                        projected = {
-                            "run_id": run_id, "task_id": run_id, "goal": plan.goal,
-                            "status": status, "detail": detail, "plan_digest": plan.digest,
-                            "source_revision": plan.source_revision, "revision": run.revision,
-                            "task_counts": counts,
-                            "evidence_count": sum(len(progress.evidence_refs) for progress in run.tasks),
-                            "updated_at": row[6],
-                        }
-                    except (ValueError, TypeError, KeyError, json.JSONDecodeError, AttributeError):
-                        projected = {
-                            "run_id": run_id, "task_id": run_id, "status": "unknown",
-                            "detail": "Persisted plan/run state failed integrity validation; reconciliation required.",
-                            "plan_digest": str(row[2]), "updated_at": row[6],
-                        }
-                    prior = latest.get(run_id)
-                    if prior is None or str(projected.get("updated_at", "")) >= str(prior.get("updated_at", "")):
-                        latest[run_id] = projected
             except (OSError, sqlite3.Error):
                 continue
+            for row in rows:
+                run_id = str(row[0])
+                checkpoint_claimed = False
+                try:
+                    plan_payload = json.loads(row[3])
+                    run_payload = json.loads(row[4])
+                    plan = EngineeringPlan.from_dict(plan_payload)
+                    run = EngineeringPlanRun.from_dict(run_payload)
+                    if (int(row[1]) != 2 or plan.run_id != run_id or plan.digest != row[2]
+                            or run.digest != row[5] or run.plan_digest != plan.digest):
+                        raise ValueError("persisted plan/run identity or digest mismatch")
+                    run.verify_against(plan)
+                    checkpoint_claimed, checkpoint_verified = self._plan_checkpoint_state(paths, path, plan, run)
+                    if not checkpoint_verified:
+                        raise ValueError("canonical recovery checkpoint missing or mismatched")
+                    counts: dict[str, int] = {}
+                    for progress in run.tasks:
+                        counts[progress.status] = counts.get(progress.status, 0) + 1
+                    total = len(run.tasks)
+                    passed = counts.get("passed", 0)
+                    blocked = counts.get("blocked", 0)
+                    failed = counts.get("failed", 0)
+                    cancelled = counts.get("cancelled", 0)
+                    if total and passed == total:
+                        status = "completed"
+                    elif failed:
+                        status = "failed"
+                    elif cancelled:
+                        status = "cancelled"
+                    elif blocked:
+                        status = "blocked"
+                    elif counts.get("running", 0) or counts.get("verifying", 0):
+                        status = "running"
+                    elif counts.get("ready", 0):
+                        status = "ready"
+                    else:
+                        status = "planned"
+                    detail = (f"{passed}/{total} tasks passed; {blocked} blocked; "
+                              f"{failed} failed; revision {run.revision}")
+                    projected = {
+                        "run_id": run_id, "task_id": run_id, "goal": plan.goal,
+                        "status": status, "detail": detail, "plan_digest": plan.digest,
+                        "source_revision": plan.source_revision, "revision": run.revision,
+                        "task_counts": counts,
+                        "evidence_count": sum(len(progress.evidence_refs) for progress in run.tasks),
+                        "updated_at": row[6],
+                        "_checkpoint_claimed": checkpoint_claimed,
+                        "_checkpoint_verified": True,
+                        "_store_path": str(path.resolve()),
+                    }
+                except (ValueError, TypeError, KeyError, json.JSONDecodeError, AttributeError):
+                    projected = {
+                        "run_id": run_id, "task_id": run_id, "status": "unknown",
+                        "detail": "Persisted plan/run state failed integrity validation; reconciliation required.",
+                        "plan_digest": str(row[2]), "updated_at": row[6],
+                        "_checkpoint_claimed": checkpoint_claimed,
+                        "_checkpoint_verified": False,
+                        "_store_path": str(path.resolve()),
+                    }
+                candidates.setdefault(run_id, []).append(projected)
+        latest: dict[str, dict[str, Any]] = {}
+        for run_id, items in candidates.items():
+            claimed_paths = {item["_store_path"] for item in items if item.get("_checkpoint_claimed")}
+            if len(claimed_paths) > 1:
+                selected = {
+                    "run_id": run_id, "task_id": run_id, "status": "unknown",
+                    "detail": "Conflicting recovery checkpoints claim this plan identity; reconciliation required.",
+                    "updated_at": max((item.get("updated_at", "") for item in items), key=str),
+                }
+            else:
+                verified = [item for item in items if item.get("_checkpoint_verified")]
+                if len(verified) == 1:
+                    selected = verified[0]
+                elif len(verified) > 1:
+                    signatures = {
+                        (
+                            item.get("_store_path"), item.get("plan_digest"), item.get("revision"),
+                            item.get("status"), tuple(sorted(item.get("task_counts", {}).items())),
+                        )
+                        for item in verified
+                    }
+                    if len(signatures) == 1:
+                        selected = max(verified, key=lambda item: str(item.get("updated_at", "")))
+                    else:
+                        selected = {
+                            "run_id": run_id, "task_id": run_id, "status": "unknown",
+                            "detail": "Multiple verified plan stores disagree; reconciliation required.",
+                            "updated_at": max((item.get("updated_at", "") for item in items), key=str),
+                        }
+                else:
+                    claimed = [item for item in items if item.get("_checkpoint_claimed")]
+                    selected = max(claimed or items, key=lambda item: str(item.get("updated_at", "")))
+            latest[run_id] = {key: value for key, value in selected.items() if not key.startswith("_")}
         return tuple(sorted(latest.values(), key=lambda row: str(row.get("updated_at", "")), reverse=True)[:50])
 
     def _executions(self, events: tuple[dict[str, Any], ...], dbs: Iterable[Path],

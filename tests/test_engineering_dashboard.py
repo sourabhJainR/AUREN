@@ -114,7 +114,9 @@ def test_dashboard_reads_durable_active_engineering_episode():
 
 def _create_plan_run(root, run_id="plan-run-active"):
     from portable.engineering_plan import EngineeringPlan, PlanTask
+    from portable.engineering_plan_recovery import EngineeringPlanRecoveryBridge
     from portable.engineering_plan_store import EngineeringPlanStore
+    from portable.engineering_recovery import EngineeringRecoveryLedger
     plan = EngineeringPlan(
         run_id=run_id,
         goal="Make dashboard reflect durable plan state",
@@ -126,20 +128,22 @@ def _create_plan_run(root, run_id="plan-run-active"):
         source_revision="a" * 40,
         budget={"dispatches": 4},
     )
-    store = EngineeringPlanStore(root / ".auren" / "plans.sqlite3")
-    run = store.create(plan)
-    return plan, run, store
+    state_dir = root / ".auren"
+    store = EngineeringPlanStore(state_dir / "plans.sqlite3")
+    bridge = EngineeringPlanRecoveryBridge(
+        store=store, ledger=EngineeringRecoveryLedger(state_dir / "recovery.sqlite3"),
+    )
+    run = bridge.start(plan)
+    return plan, run, store, bridge
 
 
 def test_dashboard_projects_durable_plan_run_and_task_counts():
     from portable.engineering_plan import EngineeringPlanRun
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
-        plan, run, store = _create_plan_run(root)
-        running = run.transition_task("inspect", "ready", plan=plan, reason="dependencies satisfied")
-        store.save_run(plan.run_id, running, expected_revision=run.revision)
-        active = running.transition_task("inspect", "running", plan=plan, reason="worker claimed task")
-        store.save_run(plan.run_id, active, expected_revision=running.revision)
+        plan, run, store, bridge = _create_plan_run(root)
+        running = bridge.transition_task(plan.run_id, "inspect", "ready", reason="dependencies satisfied")
+        active = bridge.transition_task(plan.run_id, "inspect", "running", reason="worker claimed task")
 
         snapshot = EngineeringDashboard(root).snapshot().as_dict()
         row = next(item for item in snapshot["plan_runs"] if item["run_id"] == plan.run_id)
@@ -157,7 +161,7 @@ def test_dashboard_keeps_corrupt_durable_plan_visible_as_unknown_not_success():
     import sqlite3
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
-        plan, run, store = _create_plan_run(root, "plan-run-corrupt")
+        plan, run, store, _bridge = _create_plan_run(root, "plan-run-corrupt")
         with sqlite3.connect(store.database_path) as db:
             db.execute("UPDATE engineering_plan_runs SET run_json='{}' WHERE run_id=?", (plan.run_id,))
         snapshot = EngineeringDashboard(root).snapshot().as_dict()
@@ -169,16 +173,14 @@ def test_dashboard_keeps_corrupt_durable_plan_visible_as_unknown_not_success():
 def test_canonical_terminal_plan_status_suppresses_stale_running_event():
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
-        plan, run, store = _create_plan_run(root, "plan-run-terminal")
+        plan, run, store, bridge = _create_plan_run(root, "plan-run-terminal")
         current = run
         for task_id in ("inspect", "implement"):
             for status in ("ready", "running", "passed"):
-                updated = current.transition_task(
-                    task_id, status, plan=plan,
+                current = bridge.transition_task(
+                    plan.run_id, task_id, status,
                     reason=f"test canonical transition to {status}",
                 )
-                store.save_run(plan.run_id, updated, expected_revision=current.revision)
-                current = updated
 
         # Simulate an event projection that missed the terminal transition.
         dashboard = EngineeringDashboard(root)
