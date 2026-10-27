@@ -24,6 +24,29 @@ def should_not_run_handler(payload):
     raise AssertionError("cancelled task must not dispatch its handler")
 
 
+def supervised_subprocess_provider_handler(payload):
+    import sys
+    from portable.subprocess_provider import SubprocessProviderInvoker
+
+    script = (
+        "from pathlib import Path; import time\n"
+        "Path('provider-started').write_text('yes', encoding='utf-8')\n"
+        "i = 0\n"
+        "while True:\n"
+        "    Path('provider-heartbeat').write_text(str(i), encoding='utf-8')\n"
+        "    i += 1\n"
+        "    time.sleep(0.02)\n"
+    )
+    invoker = SubprocessProviderInvoker(
+        [sys.executable, "-c", script],
+        cwd=payload["provider_cwd"],
+    )
+    output = invoker.invoke_supervised(
+        "bounded supervisor integration probe", 30, execution_payload=payload,
+    )
+    return {"success": True, "detail": output, "evidence": ["subprocess-provider:completed"]}
+
+
 def _register(controller: ExecutionController, handler) -> str:
     name = f"{handler.__module__}.{handler.__name__}"
     controller.register_handler(name, handler, execution_class="read_only")
@@ -64,3 +87,75 @@ def test_cancellation_requested_before_dispatch_never_runs_handler(tmp_path: Pat
     assert result is None
     current = controller.task(task.id)
     assert current is not None and current.state == "cancelled"
+
+def _wait_for_provider_start(marker: Path, worker: threading.Thread, timeout: float = 5.0) -> None:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline and worker.is_alive() and not marker.exists():
+        time.sleep(0.01)
+    assert marker.exists(), "supervised provider child did not launch within the test budget"
+
+
+def _assert_provider_child_stopped(heartbeat: Path) -> None:
+    last_value = heartbeat.read_text(encoding="utf-8")
+    time.sleep(0.12)
+    assert heartbeat.read_text(encoding="utf-8") == last_value, "provider child continued after supervisor stop"
+
+
+def test_supervisor_cancellation_kills_real_subprocess_provider_child(tmp_path: Path):
+    controller = ExecutionController(tmp_path)
+    name = _register(controller, supervised_subprocess_provider_handler)
+    task = controller.submit(name, {"provider_cwd": str(tmp_path)})
+    failures = []
+
+    def run():
+        try:
+            controller.run_once(task.id)
+        except BaseException as exc:
+            failures.append(exc)
+
+    worker = threading.Thread(target=run, daemon=True)
+    worker.start()
+    marker = tmp_path / "provider-started"
+    heartbeat = tmp_path / "provider-heartbeat"
+    _wait_for_provider_start(marker, worker)
+    deadline = time.monotonic() + 2.0
+    while time.monotonic() < deadline and not heartbeat.exists():
+        time.sleep(0.01)
+    assert heartbeat.exists(), "provider child did not begin bounded work"
+
+    assert controller.request_cancellation(task.id, reason="cancel real supervised provider child")
+    worker.join(5)
+    assert not worker.is_alive(), "provider child did not stop after supervisor cancellation"
+    assert not failures, failures
+    current = controller.task(task.id)
+    assert current is not None and current.state == "cancelled"
+    _assert_provider_child_stopped(heartbeat)
+
+
+def test_supervisor_deadline_kills_real_subprocess_provider_child(tmp_path: Path):
+    controller = ExecutionController(tmp_path)
+    name = _register(controller, supervised_subprocess_provider_handler)
+    task = controller.submit(
+        name, {"provider_cwd": str(tmp_path)}, deadline_seconds=1.5,
+    )
+    failures = []
+
+    def run():
+        try:
+            controller.run_once(task.id)
+        except BaseException as exc:
+            failures.append(exc)
+
+    worker = threading.Thread(target=run, daemon=True)
+    worker.start()
+    marker = tmp_path / "provider-started"
+    heartbeat = tmp_path / "provider-heartbeat"
+    _wait_for_provider_start(marker, worker)
+    worker.join(5)
+    assert not worker.is_alive(), "provider child did not stop before the bounded test timeout"
+    assert not failures, failures
+    current = controller.task(task.id)
+    assert current is not None and current.state == "failed"
+    assert heartbeat.exists(), "provider child did not begin bounded work"
+    _assert_provider_child_stopped(heartbeat)
+
