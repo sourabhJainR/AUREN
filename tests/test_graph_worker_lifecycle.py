@@ -827,7 +827,7 @@ class GraphWorkerLifecycleTests(unittest.TestCase):
         progress_before = journal.snapshot("write-a")
         self.assertEqual(progress_before["state"], "completed")
         self.assertEqual(progress_before["stage"], "adoption")
-        self.assertEqual(progress_before["event_count"] >= 1, True)
+        self.assertGreaterEqual(progress_before["event_count"], 1)
 
         task_plan = TaskPlan([
             Task("write-a", "write one file", files=["src/feature.py"],

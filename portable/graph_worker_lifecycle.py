@@ -253,7 +253,16 @@ class GraphWorkerLifecycle:
             # A completed journal projection is not enough to prove completion:
             # the recovery ledger must independently agree. If both durable
             # stores agree, reject duplicate dispatch without corrupting history.
-            if prior_state == "completed" and recovery_node["status"] == "complete":
+            completion_binding = self._binding(
+                task_id, str(recovery_node.get("worker_id") or ""),
+                plan_digest, self.intent_digest, "complete",
+            )
+            if (
+                prior_state == "completed"
+                and recovery_node["status"] == "complete"
+                and prior.get("message") == completion_binding
+                and prior.get("evidence_ref") in recovery_node.get("evidence_refs", ())
+            ):
                 raise PermissionError("durable task is already complete; duplicate dispatch is blocked")
             recovery_next_action = {
                 "adopting": "reconcile_target_tree_and_recovery_ledger",
