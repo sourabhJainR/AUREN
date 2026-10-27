@@ -198,8 +198,15 @@ class ContextGraph:
         target_node = self.get_node(target_id)
         if source_node is None or target_node is None:
             raise KeyError("both graph endpoints must exist")
-        if dict(source_node.properties or {}).get("retracted_at") or dict(target_node.properties or {}).get("retracted_at"):
+        source_properties = dict(source_node.properties or {})
+        target_properties = dict(target_node.properties or {})
+        if source_properties.get("retracted_at") or target_properties.get("retracted_at"):
             raise PermissionError("cannot link a retracted context node")
+        for scope_key in ("branch", "source_revision"):
+            source_scope = source_properties.get(scope_key)
+            target_scope = target_properties.get(scope_key)
+            if source_scope is not None and target_scope is not None and source_scope != target_scope:
+                raise PermissionError(f"cannot link context nodes across {scope_key} scopes")
         if edge_id is None:
             seed = f"{self.project}|{source_id}|{relation}|{target_id}"
             edge_id = hashlib.sha256(seed.encode("utf-8")).hexdigest()[:24]
@@ -224,7 +231,8 @@ class ContextGraph:
 
     def neighbors(
         self, node_id: str, relation: str | None = None, *, direction: str = "out",
-        limit: int = 50, include_retracted: bool = False,
+        limit: int = 50, branch: str | None = None, source_revision: str | None = None,
+        include_retracted: bool = False,
     ) -> tuple[ContextEdge, ...]:
         if limit < 1:
             return ()
@@ -253,8 +261,8 @@ class ContextGraph:
                 f"SELECT edge_id,source_id,relation,target_id,source,confidence,properties,created_at FROM context_edges WHERE project=? AND ({where}) ORDER BY relation,source_id,target_id,edge_id LIMIT ?",
                 tuple(params),
             ).fetchall()
-            if include_retracted or not rows:
-                return tuple(self._edge(row) for row in rows)
+            if not rows:
+                return ()
             node_ids = sorted({row[1] for row in rows} | {row[3] for row in rows})
             placeholders = ",".join("?" for _ in node_ids)
             node_rows = db.execute(
@@ -262,12 +270,25 @@ class ContextGraph:
                 (self.project, *node_ids),
             ).fetchall()
         node_properties = {node_id: _properties(properties) for node_id, properties in node_rows}
+
+        def in_scope(properties: Mapping[str, Any]) -> bool:
+            stored_branch = properties.get("branch")
+            stored_revision = properties.get("source_revision")
+            return (
+                (stored_branch is None or stored_branch == branch)
+                and (stored_revision is None or stored_revision == source_revision)
+            )
+
         edges = tuple(self._edge(row) for row in rows)
         return tuple(
             edge for edge in edges
             if edge.source_id in node_properties and edge.target_id in node_properties
-            and not node_properties[edge.source_id].get("retracted_at")
-            and not node_properties[edge.target_id].get("retracted_at")
+            and in_scope(node_properties[edge.source_id])
+            and in_scope(node_properties[edge.target_id])
+            and (include_retracted or (
+                not node_properties[edge.source_id].get("retracted_at")
+                and not node_properties[edge.target_id].get("retracted_at")
+            ))
         )
 
     def digest(self) -> str:
