@@ -1116,5 +1116,38 @@ class GraphWorkerLifecycleTests(unittest.TestCase):
         self.assertEqual(bridge.dispatchable_nodes(), ())
 
 
+    def test_verifier_cannot_self_approve_its_own_proposal(self):
+        plan = self.lifecycle([
+            Task("write-a", "write one file", files=["src/feature.py"], metadata={"execution_mode": "mutating"})
+        ])
+        marker = self.root / "self-approval-check-ran"
+
+        def write(workspace, _task):
+            (workspace / "src" / "feature.py").write_text("verified = True\n", encoding="utf-8")
+
+        check_code = (
+            "from pathlib import Path; "
+            f"Path({str(marker)!r}).write_text('ran', encoding='utf-8')"
+        )
+        checks = ({
+            "check_id": "self-approval-must-not-run",
+            "argv": ["python", "-c", check_code],
+            "timeout_seconds": 20,
+        },)
+        with self.assertRaisesRegex(PermissionError, "worker cannot verify its own proposal"):
+            plan.prepare(
+                task_id="write-a", worker_id="worker-a", worker_identity="verifier-ci",
+                owned_paths=["src/feature.py"], execute_in_workspace=write,
+                checks=checks,
+            )
+
+        self.assertFalse(marker.exists(), "the verifier must reject self-approval before running checks")
+        self.assertFalse((self.repo / "src" / "feature.py").exists())
+        self.assertEqual(self.journal.snapshot("write-a")["state"], "failed")
+        recovery = plan.recovery_bridge.load()
+        self.assertEqual(recovery["nodes"]["write-a"]["status"], "failed")
+        self.assertEqual(recovery["run_status"], "blocked")
+
+
 if __name__ == "__main__":
     unittest.main()
