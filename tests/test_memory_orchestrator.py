@@ -160,7 +160,10 @@ class MemoryOrchestratorTests(unittest.TestCase):
         )
         self.assertIsNotNone(retracted.retracted_at)
         self.assertEqual("source revision superseded by reviewed change", retracted.retraction_reason)
-        node = matching_branch.graph.get_node(saved.memory_id)
+        node = matching_branch.graph.get_node(
+            saved.memory_id, branch="feature/graph-recovery", source_revision=revision_a,
+            include_retracted=True,
+        )
         self.assertEqual(retracted.retracted_at, node.properties["retracted_at"])
         self.assertEqual(retracted.retraction_reason, node.properties["retraction_reason"])
 
