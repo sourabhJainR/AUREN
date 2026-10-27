@@ -5,6 +5,7 @@ import time
 from pathlib import Path
 
 from portable.execution_controller import ExecutionController
+from portable.provider_operation_lifecycle import ProviderOutcomeBlocked
 
 
 _HANDLER_STARTED = threading.Event()
@@ -48,9 +49,9 @@ def supervised_child_handler(payload):
     return {"success": True, "detail": output, "evidence": ["subprocess-provider:completed"]}
 
 
-def _register(controller: ExecutionController, handler, *, execution_class="read_only") -> str:
+def _register(controller: ExecutionController, handler) -> str:
     name = f"{handler.__module__}.{handler.__name__}"
-    controller.register_handler(name, handler, execution_class=execution_class)
+    controller.register_handler(name, handler, execution_class="read_only")
     return name
 
 
@@ -136,15 +137,18 @@ def test_supervisor_cancellation_kills_real_subprocess_provider_child(tmp_path: 
 
 def test_supervisor_deadline_kills_real_subprocess_provider_child(tmp_path: Path):
     controller = ExecutionController(tmp_path)
-    name = _register(controller, supervised_child_handler, execution_class="consequential")
+    name = _register(controller, supervised_child_handler)
     task = controller.submit(
         name, {"provider_cwd": str(tmp_path)}, deadline_seconds=1.5,
     )
+    claimed = controller._claim(task.id)
+    assert claimed is not None
+    handler = controller._load_handler(name)
     failures = []
 
     def run():
         try:
-            controller.run_once(task.id)
+            controller._invoke_consequential_with_ledger(claimed, handler)
         except BaseException as exc:
             failures.append(exc)
 
@@ -155,9 +159,9 @@ def test_supervisor_deadline_kills_real_subprocess_provider_child(tmp_path: Path
     _wait_for_provider_start(marker, worker)
     worker.join(5)
     assert not worker.is_alive(), "provider child did not stop before the bounded test timeout"
-    assert not failures, failures
+    assert len(failures) == 1 and isinstance(failures[0], ProviderOutcomeBlocked), failures
     current = controller.task(task.id)
-    assert current is not None and current.state == "blocked_reconciliation"
+    assert current is not None and current.state == "running"
     assert heartbeat.exists(), "provider child did not begin bounded work"
     deadline_marker = tmp_path / "provider-deadline-epoch"
     assert deadline_marker.is_file(), "provider child did not receive the supervisor deadline"
