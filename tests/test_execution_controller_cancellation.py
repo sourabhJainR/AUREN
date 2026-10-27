@@ -24,7 +24,7 @@ def should_not_run_handler(payload):
     raise AssertionError("cancelled task must not dispatch its handler")
 
 
-def supervised_subprocess_provider_handler(payload):
+def supervised_child_handler(payload):
     import sys
     from portable.subprocess_provider import SubprocessProviderInvoker
 
@@ -88,6 +88,7 @@ def test_cancellation_requested_before_dispatch_never_runs_handler(tmp_path: Pat
     current = controller.task(task.id)
     assert current is not None and current.state == "cancelled"
 
+
 def _wait_for_provider_start(marker: Path, worker: threading.Thread, timeout: float = 5.0) -> None:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline and worker.is_alive() and not marker.exists():
@@ -103,7 +104,7 @@ def _assert_provider_child_stopped(heartbeat: Path) -> None:
 
 def test_supervisor_cancellation_kills_real_subprocess_provider_child(tmp_path: Path):
     controller = ExecutionController(tmp_path)
-    name = _register(controller, supervised_subprocess_provider_handler)
+    name = _register(controller, supervised_child_handler)
     task = controller.submit(name, {"provider_cwd": str(tmp_path)})
     failures = []
 
@@ -134,7 +135,7 @@ def test_supervisor_cancellation_kills_real_subprocess_provider_child(tmp_path: 
 
 def test_supervisor_deadline_kills_real_subprocess_provider_child(tmp_path: Path):
     controller = ExecutionController(tmp_path)
-    name = _register(controller, supervised_subprocess_provider_handler)
+    name = _register(controller, supervised_child_handler)
     task = controller.submit(
         name, {"provider_cwd": str(tmp_path)}, deadline_seconds=1.5,
     )
