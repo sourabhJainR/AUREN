@@ -143,6 +143,8 @@ class MemoryOrchestratorTests(unittest.TestCase):
         self.assertEqual((), stale_revision.memories)
         self.assertEqual((), other_branch.memories)
         self.assertEqual((), other_project.memories)
+        with self.assertRaisesRegex(KeyError, "not found in project scope"):
+            self.db.retract("project-b", saved.memory_id, reason="cross-project retraction attempt")
 
         retracted = matching_branch.retract(
             saved.memory_id, reason="source revision superseded by reviewed change",
