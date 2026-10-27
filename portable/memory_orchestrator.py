@@ -296,16 +296,11 @@ class MemoryOrchestrator:
         self._metrics["writes"] += 1
         return MemoryWriteResult("stored", kind, record.id)
 
-    @staticmethod
-    def _memory_cache_namespace(kind: str, branch: str | None, source_revision: str | None) -> str:
-        if branch is None and source_revision is None:
-            return f"memory:{kind}"
-        scope = hashlib.sha256(f"{branch or ''}\0{source_revision or ''}".encode("utf-8")).hexdigest()[:16]
+    def _memory_cache_namespace(self, kind: str, branch: str | None, source_revision: str | None) -> str:
+        scope = hashlib.sha256(
+            f"{self.project}\0{branch or ''}\0{source_revision or ''}".encode("utf-8")
+        ).hexdigest()[:16]
         return f"memory:{kind}:{scope}"
-
-    @staticmethod
-    def _kv_cache_namespace(branch: str | None, source_revision: str | None) -> str:
-        return MemoryOrchestrator._memory_cache_namespace("kv_cache", branch, source_revision)
 
     def retract(self, memory_id: str, *, reason: str) -> Any:
         """Retract a durable record without deleting its audit/provenance history."""
