@@ -141,7 +141,7 @@ class GraphWorkerLifecycleTests(unittest.TestCase):
             receipt["checks"][0]["status"] = "failed"
             unsigned = {key: value for key, value in receipt.items() if key != "receipt_digest"}
             receipt["receipt_digest"] = hashlib.sha256(
-                json.dumps(unsigned, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
+                json.dumps(unsigned, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")
             ).hexdigest()
             return receipt
 
