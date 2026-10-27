@@ -251,7 +251,7 @@ class MemoryOrchestrator:
         if not approved:
             self._metrics["denied_writes"] += 1
             return MemoryWriteResult("approval_required", kind, None, "durable memory writes require explicit approval")
-        if parent_memory_id and self.graph.get_node(parent_memory_id) is None:
+        if parent_memory_id and self.graph.get_node(parent_memory_id, branch=branch, source_revision=source_revision) is None:
             raise KeyError(f"parent memory node not found: {parent_memory_id}")
 
         callback = self.owner_callbacks.get(kind)
@@ -305,7 +305,7 @@ class MemoryOrchestrator:
     def retract(self, memory_id: str, *, reason: str) -> Any:
         """Retract a durable record without deleting its audit/provenance history."""
         record = self.memory.retract(self.project, memory_id, reason=reason)
-        node = self.graph.get_node(record.id)
+        node = self.graph.get_node(record.id, branch=record.branch, source_revision=record.source_revision)
         if node is not None:
             properties = dict(node.properties or {})
             properties["retracted_at"] = record.retracted_at
@@ -411,7 +411,7 @@ class MemoryOrchestrator:
                 for record in durable_records:
                     if record.category != kind:
                         continue
-                    node = self.graph.get_node(record.id)
+                    node = self.graph.get_node(record.id, branch=branch, source_revision=source_revision)
                     props = dict(node.properties or {}) if node else {}
                     candidates.append(MemoryEnvelope(
                         memory_id=record.id, kind=kind, text=record.text,
