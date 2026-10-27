@@ -154,7 +154,9 @@ def test_supervisor_deadline_kills_real_subprocess_provider_child(tmp_path: Path
     _wait_for_provider_start(marker, worker)
     worker.join(5)
     assert not worker.is_alive(), "provider child did not stop before the bounded test timeout"
-    assert not failures, failures
+    assert len(failures) == 1
+    assert isinstance(failures[0], TimeoutError)
+    assert "exceeded its deadline" in str(failures[0])
     current = controller.task(task.id)
     assert current is not None and current.state == "failed"
     assert heartbeat.exists(), "provider child did not begin bounded work"
