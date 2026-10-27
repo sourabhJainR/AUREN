@@ -50,6 +50,8 @@ class MemoryEnvelope:  # pragma: no cover - passive DTO; behavior is covered thr
     evidence_ids: tuple[str, ...]
     intent_digest: str | None
     created_at: str
+    branch: str | None = None
+    source_revision: str | None = None
     expires_at: float | None = None
 
 
@@ -143,7 +145,7 @@ class MemoryOrchestrator:
         self._metrics = {
             "writes": 0, "denied_writes": 0, "recalls": 0, "recall_hits": 0,
             "cache_hits": 0, "cache_misses": 0, "evictions": 0, "expired": 0,
-            "budget_omissions": 0, "owner_callback_calls": 0, "durable_searches": 0,
+            "budget_omissions": 0, "owner_callback_calls": 0, "durable_searches": 0, "retractions": 0,
         }
 
     @staticmethod
@@ -160,17 +162,21 @@ class MemoryOrchestrator:
     def _ephemeral_envelope(
         self, *, kind: str, text: str, source: str, confidence: float,
         verified: bool, evidence_ids: Iterable[str], intent_digest: str | None,
-        ttl_seconds: float | None,
+        branch: str | None, source_revision: str | None, ttl_seconds: float | None,
     ) -> MemoryEnvelope:
         now = time.time()
         evidence = tuple(sorted({str(item).strip() for item in evidence_ids if str(item).strip()}))
-        digest = hashlib.sha256(
-            f"{kind}\0{self.project}\0{source}\0{intent_digest or ''}\0{text}".encode("utf-8")
-        ).hexdigest()[:24]
+        digest_input = (
+            f"{kind}\0{self.project}\0{source}\0{intent_digest or ''}\0{branch or ''}"
+            f"\0{source_revision or ''}\0{text}"
+        )
+        digest = hashlib.sha256(digest_input.encode("utf-8")).hexdigest()[:24]
         return MemoryEnvelope(
-            digest, kind, text, source, confidence, verified, evidence, intent_digest,
-            __import__("datetime").datetime.fromtimestamp(now, timezone.utc).isoformat(),
-            now + ttl_seconds if ttl_seconds is not None else None,
+            memory_id=digest, kind=kind, text=text, source=source, confidence=confidence,
+            verified=verified, evidence_ids=evidence, intent_digest=intent_digest,
+            created_at=__import__("datetime").datetime.fromtimestamp(now, timezone.utc).isoformat(),
+            branch=branch, source_revision=source_revision,
+            expires_at=now + ttl_seconds if ttl_seconds is not None else None,
         )
 
     def remember(
@@ -187,6 +193,8 @@ class MemoryOrchestrator:
         approved: bool = False,
         ttl_seconds: float | None = None,
         parent_memory_id: str | None = None,
+        branch: str | None = None,
+        source_revision: str | None = None,
     ) -> MemoryWriteResult:
         """Write to the owner for this memory kind; durable writes require approval."""
         kind = self._validate_kind(kind)
@@ -194,6 +202,11 @@ class MemoryOrchestrator:
             raise ValueError("memory text must be non-empty")
         if not isinstance(source, str) or not source.strip():
             raise ValueError("memory source must be non-empty")
+        for name, value in (("branch", branch), ("source_revision", source_revision)):
+            if value is not None and (not isinstance(value, str) or not value.strip()):
+                raise ValueError(f"{name} must be a non-empty string when supplied")
+        branch = branch.strip() if branch is not None else None
+        source_revision = source_revision.strip() if source_revision is not None else None
         clean_text = sanitize_untrusted(text.strip())
         clean_source = redact(source.strip())
         if not 0 <= confidence <= 1:
@@ -204,7 +217,7 @@ class MemoryOrchestrator:
         if kind == "kv_cache":
             if self.cache is None:
                 return MemoryWriteResult("unavailable", kind, None, "existing context cache module unavailable")
-            page = self.cache.put("memory:kv_cache", clean_text, stable=bool(verified))
+            page = self.cache.put(self._memory_cache_namespace("kv_cache", branch, source_revision), clean_text, stable=bool(verified))
             self._metrics["writes"] += 1
             return MemoryWriteResult("cached", kind, page.page_id)
 
@@ -217,6 +230,7 @@ class MemoryOrchestrator:
             item = self._ephemeral_envelope(
                 kind=kind, text=clean_text, source=clean_source, confidence=confidence,
                 verified=verified, evidence_ids=evidence, intent_digest=intent_digest,
+                branch=branch, source_revision=source_revision,
                 ttl_seconds=ttl if kind == "sensory" or ttl_seconds is not None else None,
             )
             with self._lock:
@@ -237,17 +251,22 @@ class MemoryOrchestrator:
         if not approved:
             self._metrics["denied_writes"] += 1
             return MemoryWriteResult("approval_required", kind, None, "durable memory writes require explicit approval")
-        if parent_memory_id and self.graph.get_node(parent_memory_id) is None:
+        if parent_memory_id and self.graph.get_node(parent_memory_id, branch=branch, source_revision=source_revision) is None:
             raise KeyError(f"parent memory node not found: {parent_memory_id}")
 
         callback = self.owner_callbacks.get(kind)
         if callback is not None:
             self._metrics["owner_callback_calls"] += 1
-            outcome = callback(
-                project=self.project, text=clean_text, source=clean_source, task_id=task_id,
-                evidence_ids=evidence, intent_digest=intent_digest, confidence=confidence,
-                verified=verified, approved=approved, parent_memory_id=parent_memory_id,
-            )
+            callback_payload = {
+                "project": self.project, "text": clean_text, "source": clean_source, "task_id": task_id,
+                "evidence_ids": evidence, "intent_digest": intent_digest, "confidence": confidence,
+                "verified": verified, "approved": approved, "parent_memory_id": parent_memory_id,
+            }
+            if branch is not None:
+                callback_payload["branch"] = branch
+            if source_revision is not None:
+                callback_payload["source_revision"] = source_revision
+            outcome = callback(**callback_payload)
             self._metrics["writes"] += 1
             return MemoryWriteResult("delegated", kind, str(getattr(outcome, "id", "") or "") or None,
                                      "handled by registered canonical owner")
@@ -255,6 +274,7 @@ class MemoryOrchestrator:
         record = self.memory.remember(
             self.project, kind, clean_text, intent_digest=intent_digest,
             confidence=confidence, verified=verified, approved=True,
+            branch=branch, source_revision=source_revision,
         )
         if record is None:
             self._metrics["denied_writes"] += 1
@@ -265,6 +285,7 @@ class MemoryOrchestrator:
             properties={
                 "evidence_ids": list(evidence), "intent_digest": intent_digest,
                 "verified": bool(verified), "memory_kind": kind, "task_id": task_id,
+                "branch": branch, "source_revision": source_revision,
             },
             created_at=record.created_at,
         )
@@ -274,6 +295,18 @@ class MemoryOrchestrator:
                             properties={"memory_kind": kind, "task_id": task_id})
         self._metrics["writes"] += 1
         return MemoryWriteResult("stored", kind, record.id)
+
+    def _memory_cache_namespace(self, kind: str, branch: str | None, source_revision: str | None) -> str:
+        scope = hashlib.sha256(
+            f"{self.project}\0{branch or ''}\0{source_revision or ''}".encode("utf-8")
+        ).hexdigest()[:16]
+        return f"memory:{kind}:{scope}"
+
+    def retract(self, memory_id: str, *, reason: str) -> Any:
+        """Retract a durable record atomically while preserving its audit/provenance history."""
+        record = self.memory.retract(self.project, memory_id, reason=reason)
+        self._metrics["retractions"] += 1
+        return record
 
     def _trim_ephemeral(self, target: dict[tuple[str, str, str], MemoryEnvelope], max_entries: int,
                         max_chars: int | None) -> None:
@@ -287,7 +320,10 @@ class MemoryOrchestrator:
             del target[oldest]
             self._metrics["evictions"] += 1
 
-    def _ephemeral_recall(self, kind: str, query: str, task_id: str | None, intent_digest: str | None = None) -> list[MemoryEnvelope]:
+    def _ephemeral_recall(
+        self, kind: str, query: str, task_id: str | None, intent_digest: str | None = None,
+        branch: str | None = None, source_revision: str | None = None,
+    ) -> list[MemoryEnvelope]:
         now = time.time()
         target = self._working if kind == "working" else self._sensory
         scope = str(task_id or "default")
@@ -301,6 +337,8 @@ class MemoryOrchestrator:
                 item for (task, item_kind, _memory_id), item in target.items()
                 if item_kind == kind and task == scope
                 and (intent_digest is None or item.intent_digest == intent_digest)
+                and (item.branch is None or item.branch == branch)
+                and (item.source_revision is None or item.source_revision == source_revision)
                 and (not terms or terms.intersection(self._terms(item.text)))
             ]
         items.sort(key=lambda item: (item.verified, item.confidence, item.created_at), reverse=True)
@@ -315,6 +353,8 @@ class MemoryOrchestrator:
         intent_digest: str | None = None,
         budget_chars: int = 8_000,
         required_memory_ids: Iterable[str] = (),
+        branch: str | None = None,
+        source_revision: str | None = None,
     ) -> MemoryRecall:
         """Recall relevant memory under a hard character budget.
 
@@ -324,6 +364,11 @@ class MemoryOrchestrator:
         """
         if budget_chars < 1:
             raise ValueError("budget_chars must be positive")
+        for name, value in (("branch", branch), ("source_revision", source_revision)):
+            if value is not None and (not isinstance(value, str) or not value.strip()):
+                raise ValueError(f"{name} must be a non-empty string when supplied")
+        branch = branch.strip() if branch is not None else None
+        source_revision = source_revision.strip() if source_revision is not None else None
         before = self.cache.stats() if self.cache is not None else {"hits": 0, "misses": 0}
         kind_list = tuple(dict.fromkeys(self._validate_kind(kind) for kind in kinds))
         required_ids = set(required_memory_ids)
@@ -332,30 +377,40 @@ class MemoryOrchestrator:
         if any(kind in DURABLE_KINDS for kind in kind_list):
             # One indexed query serves every requested durable category.
             durable_records = self.memory.search(
-                self.project, query, intent_digest=intent_digest, limit=100,
+                self.project, query, intent_digest=intent_digest,
+                branch=branch, source_revision=source_revision, limit=100,
             )
             self._metrics["durable_searches"] += 1
         for kind in kind_list:
             if kind in EPHEMERAL_KINDS:
-                candidates.extend(self._ephemeral_recall(kind, query, task_id, intent_digest))
+                candidates.extend(self._ephemeral_recall(
+                    kind, query, task_id, intent_digest, branch, source_revision,
+                ))
             elif kind == "kv_cache":
                 if self.cache is not None:
-                    for page in self.cache.search("memory:kv_cache", query, budget_chars=budget_chars):
+                    for page in self.cache.search(
+                        self._memory_cache_namespace("kv_cache", branch, source_revision), query, budget_chars=budget_chars,
+                    ):
                         candidates.append(MemoryEnvelope(
-                            page.page_id, "kv_cache", page.text, "context-page-cache",
-                            0.0, False, (), intent_digest,
-                            datetime.now(timezone.utc).isoformat(),
+                            memory_id=page.page_id, kind="kv_cache", text=page.text,
+                            source="context-page-cache", confidence=0.0, verified=False,
+                            evidence_ids=(), intent_digest=intent_digest,
+                            created_at=datetime.now(timezone.utc).isoformat(),
+                            branch=branch, source_revision=source_revision,
                         ))
             elif kind in DURABLE_KINDS:
                 for record in durable_records:
                     if record.category != kind:
                         continue
-                    node = self.graph.get_node(record.id)
+                    node = self.graph.get_node(record.id, branch=branch, source_revision=source_revision)
                     props = dict(node.properties or {}) if node else {}
                     candidates.append(MemoryEnvelope(
-                        record.id, kind, record.text, node.source if node else "canonical-memory",
-                        record.confidence, record.verified, tuple(props.get("evidence_ids", ())),
-                        record.intent_digest, record.created_at,
+                        memory_id=record.id, kind=kind, text=record.text,
+                        source=node.source if node else "canonical-memory",
+                        confidence=record.confidence, verified=record.verified,
+                        evidence_ids=tuple(props.get("evidence_ids", ())),
+                        intent_digest=record.intent_digest, created_at=record.created_at,
+                        branch=record.branch, source_revision=record.source_revision,
                     ))
             elif kind == "meta_memory":
                 continue
@@ -393,7 +448,10 @@ class MemoryOrchestrator:
             for item in selected:
                 if item.kind == "kv_cache":
                     continue  # a cache hit is read-only; do not duplicate its own page
-                self.cache.put(f"memory:{item.kind}", item.text, stable=item.verified)
+                self.cache.put(
+                    self._memory_cache_namespace(item.kind, item.branch, item.source_revision),
+                    item.text, stable=item.verified,
+                )
         # Rendering always uses the selected records so the cache cannot silently omit
         # a required item due to its own independent page-selection budget.
         rendered = "\n".join(item.text for item in selected)

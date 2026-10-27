@@ -56,6 +56,79 @@ class ContextGraphTests(unittest.TestCase):
                 graph.neighbors("a", direction="sideways")
             memory.close()
 
+    def test_neighbors_respect_branch_and_source_revision_scope(self):
+        with tempfile.TemporaryDirectory() as directory:
+            memory = PersistentMemory(Path(directory) / "memory.sqlite", require_approval=False)
+            graph = ContextGraph(memory, "project")
+            revision_a = "a" * 40
+            revision_b = "b" * 40
+            graph.upsert_node(ContextNode("global", "task", "Global task", "test"))
+            graph.upsert_node(ContextNode(
+                "branch-a", "semantic", "Branch A lesson", "memory",
+                properties={"branch": "feature/a", "source_revision": revision_a},
+            ))
+            graph.upsert_node(ContextNode(
+                "branch-b", "semantic", "Branch B lesson", "memory",
+                properties={"branch": "feature/b", "source_revision": revision_b},
+            ))
+            graph.upsert_node(ContextNode(
+                "branch-a-revision-b", "semantic", "Stale Branch A lesson", "memory",
+                properties={"branch": "feature/a", "source_revision": revision_b},
+            ))
+            self.assertIsNone(graph.get_node("branch-a"))
+            self.assertEqual(
+                "Branch A lesson",
+                graph.get_node("branch-a", branch="feature/a", source_revision=revision_a).label,
+            )
+            self.assertIsNone(graph.get_node(
+                "branch-a", branch="feature/a", source_revision=revision_b,
+            ))
+            graph.link("global", "uses", "branch-a", source="test")
+            graph.link("global", "uses", "branch-b", source="test")
+
+            self.assertEqual((), graph.neighbors("global"))
+            self.assertEqual(
+                ["branch-a"],
+                [edge.target_id for edge in graph.neighbors(
+                    "global", branch="feature/a", source_revision=revision_a,
+                )],
+            )
+            self.assertEqual((), graph.neighbors(
+                "global", branch="feature/a", source_revision=revision_b,
+            ))
+            with self.assertRaisesRegex(PermissionError, "across branch scopes"):
+                graph.link("branch-a", "related_to", "branch-b", source="test")
+            with self.assertRaisesRegex(PermissionError, "across source_revision scopes"):
+                graph.link("branch-a", "related_to", "branch-a-revision-b", source="test")
+            memory.close()
+
+    def test_retracted_nodes_are_hidden_and_cannot_be_revived(self):
+        with tempfile.TemporaryDirectory() as directory:
+            memory = PersistentMemory(Path(directory) / "memory.sqlite", require_approval=False)
+            graph = ContextGraph(memory, "project")
+            graph.upsert_node(ContextNode("task", "task", "Task", "test"))
+            graph.upsert_node(ContextNode("lesson", "semantic", "Old lesson", "memory"))
+            graph.link("task", "uses", "lesson", source="test")
+
+            graph.upsert_node(ContextNode(
+                "lesson", "semantic", "Old lesson", "memory",
+                properties={"retracted_at": "2026-10-27T00:00:00+00:00",
+                            "retraction_reason": "superseded"},
+            ))
+            self.assertEqual((), graph.neighbors("task"))
+            self.assertEqual(1, len(graph.neighbors("task", include_retracted=True)))
+            with self.assertRaisesRegex(PermissionError, "cannot link a retracted context node"):
+                graph.link("task", "uses", "lesson", source="test")
+            with self.assertRaisesRegex(PermissionError, "cannot be revived"):
+                graph.upsert_node(ContextNode("lesson", "semantic", "Old lesson", "memory"))
+            with self.assertRaisesRegex(PermissionError, "audit is immutable"):
+                graph.upsert_node(ContextNode(
+                    "lesson", "semantic", "Old lesson", "memory",
+                    properties={"retracted_at": "2026-10-28T00:00:00+00:00",
+                                "retraction_reason": "rewritten"},
+                ))
+            memory.close()
+
     def test_digest_is_stable_for_same_graph(self):
         with tempfile.TemporaryDirectory() as directory:
             memory = PersistentMemory(Path(directory) / "memory.sqlite", require_approval=False)

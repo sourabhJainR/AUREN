@@ -174,6 +174,10 @@ class MemoryRecord:
     confidence: float
     verified: bool
     created_at: str
+    branch: str | None = None
+    source_revision: str | None = None
+    retracted_at: str | None = None
+    retraction_reason: str | None = None
 
 
 class PersistentMemory:
@@ -193,12 +197,28 @@ class PersistentMemory:
             db.execute("""CREATE TABLE IF NOT EXISTS memory(
                 id TEXT PRIMARY KEY, project TEXT NOT NULL, category TEXT NOT NULL,
                 text TEXT NOT NULL, intent_digest TEXT, confidence REAL NOT NULL,
-                verified INTEGER NOT NULL, created_at TEXT NOT NULL)""")
+                verified INTEGER NOT NULL, created_at TEXT NOT NULL,
+                branch TEXT, source_revision TEXT, retracted_at TEXT, retraction_reason TEXT)""")
+            columns = {row[1] for row in db.execute("PRAGMA table_info(memory)").fetchall()}
+            for column, declaration in (
+                ("branch", "TEXT"), ("source_revision", "TEXT"),
+                ("retracted_at", "TEXT"), ("retraction_reason", "TEXT"),
+            ):
+                if column not in columns:
+                    db.execute(f"ALTER TABLE memory ADD COLUMN {column} {declaration}")
             try:
                 db.execute("CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5(id UNINDEXED, text, category, project)")
+                # Rebuild missing index rows when opening a legacy store or recovering
+                # from an interrupted migration. Existing indexed rows are untouched.
+                db.execute(
+                    "INSERT INTO memory_fts(id,text,category,project) "
+                    "SELECT m.id,m.text,m.category,m.project FROM memory AS m "
+                    "WHERE NOT EXISTS (SELECT 1 FROM memory_fts AS f WHERE f.id=m.id)"
+                )
             except sqlite3.OperationalError:
                 self._fts_available = False
             db.execute("CREATE INDEX IF NOT EXISTS idx_memory_scope ON memory(project, intent_digest, created_at)")
+            db.execute("CREATE INDEX IF NOT EXISTS idx_memory_revision_scope ON memory(project, branch, source_revision, retracted_at)")
 
     def _connect(self) -> sqlite3.Connection:
         return sqlite3.connect(self.path, timeout=10)
@@ -215,41 +235,74 @@ class PersistentMemory:
 
     def remember(self, project: str, category: str, text: str | None = None, *,
                  intent_digest: str | None = None, confidence: float = 0.0,
-                 verified: bool = False, approved: bool = False) -> MemoryRecord | None:
+                 verified: bool = False, approved: bool = False,
+                 branch: str | None = None, source_revision: str | None = None) -> MemoryRecord | None:
         if text is None:
             text, category, project = category, project, "default"
         if self.require_approval and not approved:
             return None
         if not 0 <= confidence <= 1:
             raise ValueError("confidence must be between 0 and 1")
+        for name, value in (("branch", branch), ("source_revision", source_revision)):
+            if value is not None and (not isinstance(value, str) or not value.strip()):
+                raise ValueError(f"{name} must be a non-empty string when supplied")
+        branch = branch.strip() if branch is not None else None
+        source_revision = source_revision.strip() if source_revision is not None else None
         clean = sanitize_untrusted(text)
         with self._lock, self._connection() as db:
-            used = db.execute("SELECT COALESCE(SUM(length(text)),0) FROM memory WHERE project=?", (project,)).fetchone()[0]
+            used = db.execute(
+                "SELECT COALESCE(SUM(length(text)),0) FROM memory WHERE project=? AND retracted_at IS NULL",
+                (project,),
+            ).fetchone()[0]
             if used + len(clean) > self.max_chars:
                 raise ValueError("memory budget exceeded; consolidate or remove stale memories")
             duplicate = db.execute(
-                "SELECT id,project,category,text,intent_digest,confidence,verified,created_at FROM memory "
-                "WHERE project=? AND category=? AND text=? AND COALESCE(intent_digest,'')=COALESCE(?, '')",
-                (project, category, clean, intent_digest),
+                "SELECT id,project,category,text,intent_digest,confidence,verified,created_at,"
+                "branch,source_revision,retracted_at,retraction_reason FROM memory "
+                "WHERE project=? AND category=? AND text=? "
+                "AND COALESCE(intent_digest,'')=COALESCE(?, '') "
+                "AND COALESCE(branch,'')=COALESCE(?, '') "
+                "AND COALESCE(source_revision,'')=COALESCE(?, '') AND retracted_at IS NULL",
+                (project, category, clean, intent_digest, branch, source_revision),
             ).fetchone()
             if duplicate:
                 return self._record(duplicate)
-            record = MemoryRecord(uuid.uuid4().hex, project, category, clean, intent_digest, confidence, verified, _utc().isoformat())
-            db.execute("INSERT INTO memory VALUES(?,?,?,?,?,?,?,?)", (record.id, record.project, record.category, record.text, record.intent_digest, record.confidence, int(record.verified), record.created_at))
+            record = MemoryRecord(
+                uuid.uuid4().hex, project, category, clean, intent_digest, confidence,
+                verified, _utc().isoformat(), branch, source_revision,
+            )
+            db.execute(
+                "INSERT INTO memory (id,project,category,text,intent_digest,confidence,verified,created_at,"
+                "branch,source_revision,retracted_at,retraction_reason) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                (record.id, record.project, record.category, record.text, record.intent_digest,
+                 record.confidence, int(record.verified), record.created_at, record.branch,
+                 record.source_revision, record.retracted_at, record.retraction_reason),
+            )
             if self._fts_available:
                 db.execute("INSERT INTO memory_fts(id,text,category,project) VALUES(?,?,?,?)", (record.id, record.text, record.category, record.project))
             return record
 
     @staticmethod
     def _record(row: Sequence[Any]) -> MemoryRecord:
-        return MemoryRecord(row[0], row[1], row[2], row[3], row[4], float(row[5]), bool(row[6]), row[7])
+        return MemoryRecord(
+            row[0], row[1], row[2], row[3], row[4], float(row[5]), bool(row[6]), row[7],
+            row[8], row[9], row[10], row[11],
+        )
 
     def search(self, project: str, query: str | None = None, *, intent_digest: str | None = None,
+               branch: str | None = None, source_revision: str | None = None,
                limit: int = 20) -> list[MemoryRecord]:
         if query is None:
             query, project = project, "default"
         if not query.strip():
             return []
+        for name, value in (("branch", branch), ("source_revision", source_revision)):
+            if value is not None and (not isinstance(value, str) or not value.strip()):
+                raise ValueError(f"{name} must be a non-empty string when supplied")
+        branch = branch.strip() if branch is not None else None
+        source_revision = source_revision.strip() if source_revision is not None else None
+        if type(limit) is not int or limit < 1:
+            raise ValueError("limit must be a positive integer")
         tokens = _unicode_search_tokens(query)
         if not tokens:
             return []
@@ -261,18 +314,88 @@ class PersistentMemory:
         unicode_query = not query.isascii()
         with self._lock, self._connection() as db:
             if self._fts_available and not unicode_query:
-                rows = db.execute("""SELECT m.id,m.project,m.category,m.text,m.intent_digest,m.confidence,m.verified,m.created_at
+                rows = db.execute("""SELECT m.id,m.project,m.category,m.text,m.intent_digest,m.confidence,m.verified,m.created_at,
+                    m.branch,m.source_revision,m.retracted_at,m.retraction_reason
                     FROM memory AS m JOIN memory_fts AS f ON f.id=m.id
                     WHERE m.project=? AND memory_fts MATCH ? AND (? IS NULL OR m.intent_digest=?)
+                    AND (m.branch IS NULL OR (? IS NOT NULL AND m.branch=?))
+                    AND (m.source_revision IS NULL OR (? IS NOT NULL AND m.source_revision=?))
+                    AND m.retracted_at IS NULL
                     ORDER BY m.verified DESC,m.confidence DESC,m.created_at DESC LIMIT ?""",
-                    (project, fts_terms, intent_digest, intent_digest, limit)).fetchall()
+                    (project, fts_terms, intent_digest, intent_digest, branch, branch,
+                     source_revision, source_revision, limit)).fetchall()
             else:
-                rows = db.execute("""SELECT id,project,category,text,intent_digest,confidence,verified,created_at
+                rows = db.execute("""SELECT id,project,category,text,intent_digest,confidence,verified,created_at,
+                    branch,source_revision,retracted_at,retraction_reason
                     FROM memory WHERE project=? AND (text LIKE ? OR category LIKE ? OR project LIKE ?)
                     AND (? IS NULL OR intent_digest=?)
+                    AND (branch IS NULL OR (? IS NOT NULL AND branch=?))
+                    AND (source_revision IS NULL OR (? IS NOT NULL AND source_revision=?))
+                    AND retracted_at IS NULL
                     ORDER BY verified DESC,confidence DESC,created_at DESC LIMIT ?""",
-                    (project, like, like, like, intent_digest, intent_digest, limit)).fetchall()
+                    (project, like, like, like, intent_digest, intent_digest, branch, branch,
+                     source_revision, source_revision, limit)).fetchall()
         return [self._record(r) for r in rows]
+
+    def retract(self, project: str, memory_id: str, *, reason: str) -> MemoryRecord:
+        if not isinstance(project, str) or not project.strip():
+            raise ValueError("project is required")
+        if not isinstance(memory_id, str) or not memory_id.strip():
+            raise ValueError("memory_id is required")
+        if not isinstance(reason, str) or not reason.strip():
+            raise ValueError("retraction reason is required")
+        clean_reason = redact(reason.strip())
+        columns = (
+            "id,project,category,text,intent_digest,confidence,verified,created_at,"
+            "branch,source_revision,retracted_at,retraction_reason"
+        )
+        with self._lock, self._connection() as db:
+            # Retraction and the graph projection share one SQLite transaction so
+            # a crash cannot leave a searchable node after its canonical tombstone.
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute(
+                f"SELECT {columns} FROM memory WHERE project=? AND id=?",
+                (project.strip(), memory_id.strip()),
+            ).fetchone()
+            if row is None:
+                raise KeyError(f"memory record not found in project scope: {memory_id}")
+            record = self._record(row)
+            if record.retracted_at is not None:
+                return record
+            retracted_at = _utc().isoformat()
+            db.execute(
+                "UPDATE memory SET retracted_at=?,retraction_reason=? "
+                "WHERE project=? AND id=? AND retracted_at IS NULL",
+                (retracted_at, clean_reason, project.strip(), memory_id.strip()),
+            )
+            node_table = db.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='context_nodes'"
+            ).fetchone()
+            if node_table:
+                node_row = db.execute(
+                    "SELECT properties FROM context_nodes WHERE project=? AND node_id=?",
+                    (project.strip(), memory_id.strip()),
+                ).fetchone()
+                if node_row:
+                    properties = json.loads(node_row[0])
+                    if not isinstance(properties, dict):
+                        raise ValueError("context graph properties must decode to an object")
+                    properties["branch"] = record.branch
+                    properties["source_revision"] = record.source_revision
+                    properties["retracted_at"] = retracted_at
+                    properties["retraction_reason"] = clean_reason
+                    db.execute(
+                        "UPDATE context_nodes SET properties=? WHERE project=? AND node_id=?",
+                        (json.dumps(properties, sort_keys=True, separators=(",", ":"), ensure_ascii=True),
+                         project.strip(), memory_id.strip()),
+                    )
+            updated = db.execute(
+                f"SELECT {columns} FROM memory WHERE project=? AND id=?",
+                (project.strip(), memory_id.strip()),
+            ).fetchone()
+            if updated is None:
+                raise KeyError(f"memory record disappeared during retraction: {memory_id}")
+            return self._record(updated)
 
     def close(self) -> None:
         return None
