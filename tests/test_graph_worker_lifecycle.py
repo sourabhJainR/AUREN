@@ -132,7 +132,7 @@ class GraphWorkerLifecycleTests(unittest.TestCase):
         ])
 
         def write(workspace, _task):
-            (workspace / "src" / "feature.py").write_text("verified = True\n", encoding="utf-8")
+            (workspace / "src" / "feature.py").write_text("verified = True\\n", encoding="utf-8")
 
         original_verify = plan.verifier.verify
 
@@ -150,7 +150,7 @@ class GraphWorkerLifecycleTests(unittest.TestCase):
                 plan.prepare(
                     task_id="write-a", worker_id="worker-a", worker_identity="worker-a",
                     owned_paths=["src/feature.py"], execute_in_workspace=write,
-                    checks=self.checks("src/feature.py", "verified = True\n"),
+                    checks=self.checks("src/feature.py", "verified = True\\n"),
                 )
 
         self.assertFalse((self.repo / "src" / "feature.py").exists())
