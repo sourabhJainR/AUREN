@@ -181,7 +181,7 @@ class ContextGraph:
     def _node(node_id: str, row: Sequence[Any]) -> ContextNode:
         return ContextNode(node_id, row[0], row[1], row[2], float(row[3]), _properties(row[4]), row[5])
 
-    def get_node(self, node_id: str) -> ContextNode | None:
+    def _get_node_unscoped(self, node_id: str) -> ContextNode | None:
         with self._connect() as db:
             row = db.execute(
                 "SELECT kind,label,source,confidence,properties,created_at FROM context_nodes WHERE project=? AND node_id=?",
@@ -189,13 +189,26 @@ class ContextGraph:
             ).fetchone()
         return self._node(node_id, row) if row else None
 
+    def get_node(
+        self, node_id: str, *, branch: str | None = None, source_revision: str | None = None,
+    ) -> ContextNode | None:
+        node = self._get_node_unscoped(node_id)
+        if node is None:
+            return None
+        properties = dict(node.properties or {})
+        if properties.get("branch") is not None and properties.get("branch") != branch:
+            return None
+        if properties.get("source_revision") is not None and properties.get("source_revision") != source_revision:
+            return None
+        return node
+
     def link(self, source_id: str, relation: str, target_id: str, *, source: str, confidence: float = 1.0, properties: Mapping[str, Any] | None = None, edge_id: str | None = None) -> ContextEdge:
         if not relation.strip() or not source.strip():
             raise ValueError("relation and source are required")
         if not 0 <= confidence <= 1:
             raise ValueError("confidence must be between 0 and 1")
-        source_node = self.get_node(source_id)
-        target_node = self.get_node(target_id)
+        source_node = self._get_node_unscoped(source_id)
+        target_node = self._get_node_unscoped(target_id)
         if source_node is None or target_node is None:
             raise KeyError("both graph endpoints must exist")
         source_properties = dict(source_node.properties or {})
