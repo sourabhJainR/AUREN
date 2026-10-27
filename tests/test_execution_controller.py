@@ -805,6 +805,46 @@ def test_supervisor_checkpoint_round_trips_and_detects_tampering(tmp_path: Path)
         controller.save_graph_checkpoint("task-checkpoint", envelope)
 
 
+
+def test_startup_surfaces_corrupt_graph_checkpoint_without_repair(tmp_path: Path):
+    import sqlite3
+    import pytest
+
+    controller = ExecutionController(tmp_path)
+    task_id = "checkpoint-audit-corrupt"
+    controller.save_graph_checkpoint(task_id, _supervisor_checkpoint_envelope(task_id))
+    with sqlite3.connect(controller.db_path) as db:
+        db.execute(
+            "UPDATE graph_checkpoints SET envelope_digest=? WHERE task_id=?",
+            ("0" * 64, task_id),
+        )
+
+    restarted = ExecutionController(tmp_path)
+    findings = restarted.health_findings()
+    assert any("graph_checkpoint_integrity_required=1" in item for item in findings)
+    with pytest.raises(ValueError, match="digest mismatch"):
+        restarted.load_graph_checkpoint(task_id)
+    with sqlite3.connect(restarted.db_path) as db:
+        stored_digest = db.execute(
+            "SELECT envelope_digest FROM graph_checkpoints WHERE task_id=?",
+            (task_id,),
+        ).fetchone()[0]
+    assert stored_digest == "0" * 64
+
+
+def test_graph_checkpoint_audit_reports_bounded_incomplete_scan(tmp_path: Path):
+    controller = ExecutionController(tmp_path)
+    controller.save_graph_checkpoint("checkpoint-a", _supervisor_checkpoint_envelope("checkpoint-a"))
+    controller.save_graph_checkpoint("checkpoint-b", _supervisor_checkpoint_envelope("checkpoint-b"))
+
+    result = controller.inspect_graph_checkpoints(limit=1, time_budget_seconds=0.2)
+    assert result["scanned"] == 1
+    assert result["valid"] == 1
+    assert result["incomplete"] is True
+    assert result["next_action"] is not None
+    assert "unscanned checkpoints" in result["next_action"]
+
+
 def test_execute_graph_owns_durable_checkpoint_and_ignores_caller_checkpoint(tmp_path: Path, monkeypatch):
     from portable.state_graph import GraphAgentTeam
 
