@@ -239,6 +239,131 @@ class GraphWorkerLifecycleTests(unittest.TestCase):
         )
         self.assertEqual(plan.recovery_bridge.dispatchable_nodes(), ())
 
+    def test_process_restart_after_cancellation_keeps_unconfirmed_worker_unknown(self):
+        state_root = self.root / "cancel-crash-state"
+        state_root.mkdir()
+        source_revision = git(self.repo, "rev-parse", "HEAD")
+        script = textwrap.dedent("""\
+            import hashlib
+            import os
+            import sys
+            from pathlib import Path
+            from portable.agency_evolution_gates import ImprovementJournal
+            from portable.engineering_recovery import EngineeringRecoveryLedger, GraphRunRecoveryBridge
+            from portable.graph_worker_lifecycle import GraphWorkerLifecycle
+            from portable.graph_workspace_adoption import GraphWorkspaceCoordinator
+            from portable.independent_graph_verification import IndependentGraphVerifier
+            from portable.progress_journal import ProgressJournal
+            from portable.runtime_recovery import RuntimeExecutionGuard
+            from portable.task_planner import Task, TaskPlan
+
+            repo = Path(sys.argv[1])
+            state_root = Path(sys.argv[2])
+            source_revision = sys.argv[3]
+            run_id = "graph-cancel-crash-boundary"
+            intent_digest = hashlib.sha256(b"cancel-intent").hexdigest()
+            task_plan = TaskPlan([
+                Task("write-a", "write one file", files=["src/feature.py"],
+                     metadata={"execution_mode": "mutating"})
+            ])
+            progress = ProgressJournal(state_root / "progress.jsonl")
+            guard = RuntimeExecutionGuard(max_steps=20, max_attempts=20, deadline_seconds=60)
+            coordinator = GraphWorkspaceCoordinator(
+                repo, workspace_root=state_root / "worker-workspaces"
+            )
+            verifier = IndependentGraphVerifier(
+                repo, verifier_identity="verifier-ci", trusted_verifier_ids=("verifier-ci",),
+                worktree_root=state_root / "verification-workspaces",
+            )
+            ledger = EngineeringRecoveryLedger(state_root / "recovery.sqlite")
+            recovery_journal = ImprovementJournal(state_root / "recovery.jsonl")
+            bridge = GraphRunRecoveryBridge(
+                run_id=run_id, plan=task_plan, intent_digest=intent_digest,
+                source_revision=source_revision, ledger=ledger, journal=recovery_journal,
+            )
+            GraphWorkerLifecycle(
+                coordinator=coordinator, verifier=verifier, journal=progress,
+                task_plan=task_plan, intent_digest=intent_digest,
+                runtime_guard=guard, recovery_bridge=bridge,
+            )
+            guard.charge_step()
+            guard.charge_attempt("graph-worker:write-a:worker-a")
+            progress.record(
+                "write-a", "worker-started", state="running", stage="isolated_workspace",
+                message="worker lease started before cancellation",
+            )
+            bridge.record_node(
+                event_id="cancel-worker-started", node_id="write-a", status="working",
+                budget_snapshot=guard.snapshot(),
+                next_safe_action="execute_worker_and_capture_proposal",
+                worker_id="worker-a", workspace_id="workspace-a", attempts=1,
+            )
+            guard.cancel("cancel requested; child termination not confirmed")
+            bridge.cancel_run(
+                event_id="cancel-worker-run",
+                reason="cancel requested; child termination not confirmed",
+                next_safe_action="reconcile_worker_termination_before_resume",
+                budget_snapshot=guard.snapshot(),
+            )
+            os._exit(87)
+        """)
+        child = subprocess.run(
+            [sys.executable, "-c", script, str(self.repo), str(state_root), source_revision],
+            cwd=Path(__file__).resolve().parents[1],
+            capture_output=True, text=True, check=False, timeout=60,
+        )
+        self.assertEqual(child.returncode, 87, child.stdout + child.stderr)
+
+        run_id = "graph-cancel-crash-boundary"
+        task_plan = TaskPlan([
+            Task("write-a", "write one file", files=["src/feature.py"],
+                 metadata={"execution_mode": "mutating"})
+        ])
+        bridge = GraphRunRecoveryBridge(
+            run_id=run_id, plan=task_plan, intent_digest=hashlib.sha256(b"cancel-intent").hexdigest(),
+            source_revision=source_revision,
+            ledger=EngineeringRecoveryLedger(state_root / "recovery.sqlite"),
+            journal=ImprovementJournal(state_root / "recovery.jsonl"),
+        )
+        snapshot = bridge.load()
+        self.assertEqual(snapshot["run_status"], "cancelled")
+        self.assertEqual(snapshot["nodes"]["write-a"]["status"], "unknown")
+        self.assertEqual(
+            snapshot["nodes"]["write-a"]["next_safe_action"],
+            "reconcile_worker_termination_before_resume",
+        )
+        self.assertEqual(bridge.dispatchable_nodes(), ())
+
+        coordinator = GraphWorkspaceCoordinator(
+            self.repo, workspace_root=state_root / "restart-worker-workspaces"
+        )
+        verifier = IndependentGraphVerifier(
+            self.repo, verifier_identity="verifier-ci", trusted_verifier_ids=("verifier-ci",),
+            worktree_root=state_root / "restart-verification-workspaces",
+        )
+        restarted = GraphWorkerLifecycle(
+            coordinator=coordinator, verifier=verifier,
+            journal=ProgressJournal(state_root / "progress.jsonl"),
+            task_plan=task_plan,
+            intent_digest=hashlib.sha256(b"cancel-intent").hexdigest(),
+            runtime_guard=RuntimeExecutionGuard.resume(snapshot["budget_snapshot"]),
+            recovery_bridge=bridge,
+        )
+        dispatches = []
+        with self.assertRaisesRegex(PermissionError, "durable progress already exists"):
+            restarted.prepare(
+                task_id="write-a", worker_id="worker-a-retry", worker_identity="worker-a-retry",
+                owned_paths=["src/feature.py"],
+                execute_in_workspace=lambda *_args: dispatches.append(True),
+                checks=(),
+            )
+        self.assertEqual(dispatches, [])
+        recovered = bridge.load()
+        self.assertEqual(recovered["run_status"], "cancelled")
+        self.assertEqual(recovered["nodes"]["write-a"]["status"], "unknown")
+        self.assertEqual(bridge.dispatchable_nodes(), ())
+        self.assertFalse((self.repo / "src" / "feature.py").exists())
+
     def test_stale_plan_digest_blocks_adoption_after_verification(self):
         tasks = [Task("write-a", "write one file", files=["src/feature.py"], metadata={"execution_mode": "mutating"})]
         plan = self.lifecycle(tasks)
