@@ -3392,11 +3392,10 @@ class ExecutionController:
         deadline = started + float(time_budget_seconds)
         try:
             with closing(sqlite3.connect(self.db_path, timeout=5)) as db, db:
-                total = int(db.execute("SELECT COUNT(*) FROM graph_checkpoints").fetchone()[0])
                 rows = db.execute(
                     "SELECT task_id,envelope_json,envelope_digest FROM graph_checkpoints "
                     "ORDER BY updated_at DESC,task_id LIMIT ?",
-                    (limit,),
+                    (limit + 1,),
                 ).fetchall()
         except Exception as exc:
             self._graph_checkpoint_reconciliation_findings = ["checkpoint-store-unreadable"]
@@ -3410,7 +3409,8 @@ class ExecutionController:
 
         scanned = 0
         findings: list[dict[str, str]] = []
-        incomplete = total > len(rows)
+        incomplete = len(rows) > limit
+        rows = rows[:limit]
         for task_id, encoded, supplied_digest in rows:
             if time.monotonic() >= deadline:
                 incomplete = True

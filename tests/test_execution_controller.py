@@ -844,6 +844,7 @@ def test_graph_checkpoint_audit_reports_bounded_incomplete_scan(tmp_path: Path):
     assert result["next_action"] is not None
     assert "unscanned checkpoints" in result["next_action"]
 
+
 def test_execute_graph_owns_durable_checkpoint_and_ignores_caller_checkpoint(tmp_path: Path, monkeypatch):
     from portable.state_graph import GraphAgentTeam
 
