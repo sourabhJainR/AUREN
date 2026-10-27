@@ -350,6 +350,9 @@ class PersistentMemory:
             "branch,source_revision,retracted_at,retraction_reason"
         )
         with self._lock, self._connection() as db:
+            # Retraction and the graph projection share one SQLite transaction so
+            # a crash cannot leave a searchable node after its canonical tombstone.
+            db.execute("BEGIN IMMEDIATE")
             row = db.execute(
                 f"SELECT {columns} FROM memory WHERE project=? AND id=?",
                 (project.strip(), memory_id.strip()),
@@ -359,11 +362,33 @@ class PersistentMemory:
             record = self._record(row)
             if record.retracted_at is not None:
                 return record
+            retracted_at = _utc().isoformat()
             db.execute(
                 "UPDATE memory SET retracted_at=?,retraction_reason=? "
                 "WHERE project=? AND id=? AND retracted_at IS NULL",
-                (_utc().isoformat(), clean_reason, project.strip(), memory_id.strip()),
+                (retracted_at, clean_reason, project.strip(), memory_id.strip()),
             )
+            node_table = db.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='context_nodes'"
+            ).fetchone()
+            if node_table:
+                node_row = db.execute(
+                    "SELECT properties FROM context_nodes WHERE project=? AND node_id=?",
+                    (project.strip(), memory_id.strip()),
+                ).fetchone()
+                if node_row:
+                    properties = json.loads(node_row[0])
+                    if not isinstance(properties, dict):
+                        raise ValueError("context graph properties must decode to an object")
+                    properties["branch"] = record.branch
+                    properties["source_revision"] = record.source_revision
+                    properties["retracted_at"] = retracted_at
+                    properties["retraction_reason"] = clean_reason
+                    db.execute(
+                        "UPDATE context_nodes SET properties=? WHERE project=? AND node_id=?",
+                        (json.dumps(properties, sort_keys=True, separators=(",", ":"), ensure_ascii=True),
+                         project.strip(), memory_id.strip()),
+                    )
             updated = db.execute(
                 f"SELECT {columns} FROM memory WHERE project=? AND id=?",
                 (project.strip(), memory_id.strip()),
