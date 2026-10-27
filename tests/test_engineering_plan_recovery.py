@@ -75,6 +75,45 @@ def _crash_after_integrated_plan_store_commit(
     os._exit(91)
 
 
+def _continuous_engineering_marker_handler(payload):
+    marker = Path(payload["marker_path"])
+    with marker.open("a", encoding="utf-8") as stream:
+        stream.write("called\n")
+    return {"success": True, "evidence": [str(payload["work_key"])]}
+
+
+def _crash_after_integrated_terminal_receipt_before_evidence(
+    root_path: str, work_key: str, goal: str,
+) -> None:
+    """Exit after task and work-unit receipt commit but before terminal evidence capture."""
+    from portable.execution_controller import ExecutionController
+
+    root = Path(root_path)
+    payload = {
+        "work_key": work_key,
+        "marker_path": str(root / "handler-calls.log"),
+    }
+    controller = ExecutionController(root)
+    controller.register_handler(
+        "continuous-engineering-marker",
+        _continuous_engineering_marker_handler,
+        execution_class="read_only",
+    )
+    task = controller.submit(
+        "continuous-engineering-marker", payload, goal=goal, work_key=work_key,
+    )
+    original_capture = controller._capture_event
+
+    def crash_before_terminal_evidence(event_type, *args, **kwargs):
+        if event_type == "task_completed":
+            os._exit(93)
+        return original_capture(event_type, *args, **kwargs)
+
+    controller._capture_event = crash_before_terminal_evidence
+    controller.run_once(task.id)
+    os._exit(94)
+
+
 class EngineeringPlanRecoveryBridgeTests(unittest.TestCase):
     def make_bridge(self, root: Path) -> EngineeringPlanRecoveryBridge:
         return EngineeringPlanRecoveryBridge(
@@ -744,6 +783,139 @@ class ContinuousEngineeringIntegrationTests(unittest.TestCase):
             final_dashboard = EngineeringDashboard(root).snapshot().as_dict()
             final_row = next(row for row in final_dashboard["plan_runs"] if row["run_id"] == work_key)
             self.assertEqual(final_row["status"], "completed")
+
+
+    def test_integrated_terminal_receipt_crash_repairs_evidence_without_replay(self):
+        import gc
+        import sqlite3
+        from portable.engineering_dashboard import EngineeringDashboard
+        from portable.execution_controller import ExecutionController
+        from portable.harness_experiments import canonical_digest
+        from portable.runtime_recovery import RuntimeExecutionGuard
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            work_key = "AUREN:issue-696:continuous-engineering"
+            plan, _store, ledger, bridge = _start_integrated_plan(root, work_key)
+            manifest, result, adopted = _run_integrated_harness_experiment(
+                work_key=work_key,
+                plan=plan,
+                ledger=ledger,
+                guard=RuntimeExecutionGuard(max_steps=20, max_attempts=20, deadline_seconds=60),
+            )
+            self.assertTrue(result.success)
+            self.assertEqual(result.status, "adopted")
+            self.assertEqual(adopted, [result.adopted_digest])
+            learning = ledger.get_checkpoint(work_key, "harness_experiment")
+            self.assertIsNotNone(learning)
+            self.assertEqual(learning.status, "verified")
+            self.assertEqual(learning.payload["manifest_digest"], manifest.digest)
+
+            payload = {
+                "work_key": work_key,
+                "marker_path": str(root / "handler-calls.log"),
+            }
+            runtime = ExecutionController(root)
+            runtime.register_handler(
+                "continuous-engineering-marker",
+                _continuous_engineering_marker_handler,
+                execution_class="read_only",
+            )
+            task = runtime.submit(
+                "continuous-engineering-marker", payload,
+                goal=plan.goal, work_key=work_key,
+            )
+            evidence_path = runtime.evidence_capture.path
+            del runtime
+            gc.collect()
+
+            process = multiprocessing.get_context("spawn").Process(
+                target=_crash_after_integrated_terminal_receipt_before_evidence,
+                args=(str(root), work_key, plan.goal),
+            )
+            process.start()
+            process.join(15)
+            if process.is_alive():
+                process.terminate()
+                process.join(3)
+                self.fail("integrated terminal-receipt crash fixture exceeded its time budget")
+            self.assertEqual(93, process.exitcode)
+            marker = root / "handler-calls.log"
+            self.assertEqual(["called"], marker.read_text(encoding="utf-8").splitlines())
+
+            with closing(sqlite3.connect(evidence_path)) as db, db:
+                self.assertEqual(
+                    0,
+                    db.execute(
+                        "SELECT COUNT(*) FROM engineering_events WHERE task_id=? "
+                        "AND event_type='task_completed'",
+                        (task.id,),
+                    ).fetchone()[0],
+                )
+
+            restarted = ExecutionController(root)
+            restarted.register_handler(
+                "continuous-engineering-marker",
+                _continuous_engineering_marker_handler,
+                execution_class="read_only",
+            )
+            self.assertEqual(restarted.task(task.id).state, "completed")
+            self.assertEqual(restarted.task(task.id).attempts, 1)
+            self.assertEqual(restarted.company._state(task.work_unit_id)[0], "completed")
+            self.assertEqual(restarted.progress_journal.snapshot(task.id)["state"], "completed")
+            self.assertIsNone(restarted.run_once(task.id))
+            self.assertEqual(["called"], marker.read_text(encoding="utf-8").splitlines())
+
+            with closing(sqlite3.connect(restarted.evidence_capture.path)) as db, db:
+                events = db.execute(
+                    "SELECT event_id, work_unit_id, status FROM engineering_events "
+                    "WHERE task_id=? AND event_type='task_completed'",
+                    (task.id,),
+                ).fetchall()
+            self.assertEqual(
+                [(f"task-terminal:{task.id}:completed", task.work_unit_id, "completed")],
+                events,
+            )
+            self.assertEqual(0, restarted.reconcile_terminal_events()["repaired"])
+            self.assertFalse(any(
+                "terminal_evidence_reconciliation_required" in finding
+                for finding in restarted.health_findings()
+            ))
+
+            evidence_refs = (
+                "learning://" + work_key + "/" + manifest.digest,
+                "sha256:" + canonical_digest(learning.payload),
+                "task://" + task.id,
+                "receipt://" + task.work_unit_id,
+                "evidence://task-terminal:" + task.id + ":completed",
+            )
+            bridge.transition_task(
+                work_key, "learn-and-deliver", "passed",
+                reason=(
+                    "terminal receipt, repaired evidence index, and "
+                    "verified learning checkpoint agree"
+                ),
+                evidence_refs=evidence_refs,
+            )
+            resumed_bridge = EngineeringPlanRecoveryBridge(
+                store=EngineeringPlanStore(root / ".auren" / "plans.sqlite3"),
+                ledger=EngineeringRecoveryLedger(root / ".auren" / "recovery.sqlite3"),
+            )
+            loaded_plan, loaded_run = resumed_bridge.load_verified(work_key)
+            self.assertEqual(plan.digest, loaded_plan.digest)
+            self.assertEqual("passed", loaded_run.tasks[0].status)
+            self.assertEqual("verified", resumed_bridge.ledger.get_checkpoint(
+                work_key, "harness_experiment"
+            ).status)
+
+            snapshot = EngineeringDashboard(root).snapshot().as_dict()
+            plan_row = next(row for row in snapshot["plan_runs"] if row["run_id"] == work_key)
+            self.assertEqual("completed", plan_row["status"])
+            self.assertEqual({"passed": 1}, plan_row["task_counts"])
+            self.assertGreaterEqual(plan_row["evidence_count"], 2)
+            del restarted
+            gc.collect()
+
 
 
 
