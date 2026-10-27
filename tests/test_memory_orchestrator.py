@@ -96,6 +96,10 @@ class MemoryOrchestratorTests(unittest.TestCase):
     def test_branch_revision_scope_and_retraction_survive_restart(self):
         revision_a = "a" * 40
         revision_b = "b" * 40
+        shared = self.coordinator.remember(
+            "semantic", "shared verified engineering contract", source="approved-policy",
+            confidence=0.95, verified=True, approved=True,
+        )
         saved = self.coordinator.remember(
             "episodic", "branch-specific recovery rule", source="commit-evidence",
             intent_digest="intent-graph-recovery", evidence_ids=("ci-run-1",),
@@ -122,6 +126,11 @@ class MemoryOrchestratorTests(unittest.TestCase):
         self.assertEqual([saved.memory_id], [item.memory_id for item in matched.memories])
         self.assertEqual("feature/graph-recovery", matched.memories[0].branch)
         self.assertEqual(revision_a, matched.memories[0].source_revision)
+        shared_across_branch = matching_branch.recall(
+            "shared verified engineering contract", kinds=("semantic",),
+            branch="main", source_revision=revision_b, budget_chars=300,
+        )
+        self.assertEqual([shared.memory_id], [item.memory_id for item in shared_across_branch.memories])
 
         stale_revision = matching_branch.recall(
             "branch-specific recovery rule", kinds=("episodic",),
