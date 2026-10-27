@@ -216,7 +216,7 @@ class MemoryOrchestrator:
         if kind == "kv_cache":
             if self.cache is None:
                 return MemoryWriteResult("unavailable", kind, None, "existing context cache module unavailable")
-            page = self.cache.put(self._kv_cache_namespace(branch, source_revision), clean_text, stable=bool(verified))
+            page = self.cache.put(self._memory_cache_namespace("kv_cache", branch, source_revision), clean_text, stable=bool(verified))
             self._metrics["writes"] += 1
             return MemoryWriteResult("cached", kind, page.page_id)
 
@@ -296,11 +296,15 @@ class MemoryOrchestrator:
         return MemoryWriteResult("stored", kind, record.id)
 
     @staticmethod
-    def _kv_cache_namespace(branch: str | None, source_revision: str | None) -> str:
+    def _memory_cache_namespace(kind: str, branch: str | None, source_revision: str | None) -> str:
         if branch is None and source_revision is None:
-            return "memory:kv_cache"
+            return f"memory:{kind}"
         scope = hashlib.sha256(f"{branch or ''}\0{source_revision or ''}".encode("utf-8")).hexdigest()[:16]
-        return "memory:kv_cache:" + scope
+        return f"memory:{kind}:{scope}"
+
+    @staticmethod
+    def _kv_cache_namespace(branch: str | None, source_revision: str | None) -> str:
+        return MemoryOrchestrator._memory_cache_namespace("kv_cache", branch, source_revision)
 
     def retract(self, memory_id: str, *, reason: str) -> Any:
         """Retract a durable record without deleting its audit/provenance history."""
@@ -398,7 +402,7 @@ class MemoryOrchestrator:
             elif kind == "kv_cache":
                 if self.cache is not None:
                     for page in self.cache.search(
-                        self._kv_cache_namespace(branch, source_revision), query, budget_chars=budget_chars,
+                        self._memory_cache_namespace("kv_cache", branch, source_revision), query, budget_chars=budget_chars,
                     ):
                         candidates.append(MemoryEnvelope(
                             memory_id=page.page_id, kind="kv_cache", text=page.text,
@@ -457,7 +461,10 @@ class MemoryOrchestrator:
             for item in selected:
                 if item.kind == "kv_cache":
                     continue  # a cache hit is read-only; do not duplicate its own page
-                self.cache.put(f"memory:{item.kind}", item.text, stable=item.verified)
+                self.cache.put(
+                    self._memory_cache_namespace(item.kind, item.branch, item.source_revision),
+                    item.text, stable=item.verified,
+                )
         # Rendering always uses the selected records so the cache cannot silently omit
         # a required item due to its own independent page-selection budget.
         rendered = "\n".join(item.text for item in selected)
