@@ -3370,6 +3370,92 @@ class ExecutionController:
             count += 1
         return count
 
+    def inspect_graph_checkpoints(
+        self, *, limit: int = 1000, time_budget_seconds: float = 2.0
+    ) -> dict[str, Any]:
+        """Audit saved graph checkpoints without repairing or replacing damaged bytes.
+
+        Checkpoint corruption must be visible before resume. This scan is bounded
+        and read-only: an invalid checkpoint remains unusable until an operator
+        restores trusted bytes and reconciles the associated task/evidence.
+        """
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 10000:
+            raise ValueError("checkpoint audit limit must be an integer from 1 to 10000")
+        if (
+            isinstance(time_budget_seconds, bool)
+            or not isinstance(time_budget_seconds, (int, float))
+            or not math.isfinite(time_budget_seconds)
+            or not 0.05 <= time_budget_seconds <= 30.0
+        ):
+            raise ValueError("checkpoint audit time budget must be between 0.05 and 30 seconds")
+        started = time.monotonic()
+        deadline = started + float(time_budget_seconds)
+        try:
+            with closing(sqlite3.connect(self.db_path, timeout=5)) as db, db:
+                total = int(db.execute("SELECT COUNT(*) FROM graph_checkpoints").fetchone()[0])
+                rows = db.execute(
+                    "SELECT task_id,envelope_json,envelope_digest FROM graph_checkpoints "
+                    "ORDER BY updated_at DESC,task_id LIMIT ?",
+                    (limit,),
+                ).fetchall()
+        except Exception as exc:
+            self._graph_checkpoint_reconciliation_findings = ["checkpoint-store-unreadable"]
+            self._graph_checkpoint_reconciliation_incomplete = True
+            return {
+                "scanned": 0, "valid": 0,
+                "findings": [{"task_id": None, "reason": type(exc).__name__}],
+                "incomplete": True,
+                "next_action": "restore checkpoint-store access, then rerun the bounded audit; do not resume graph tasks while the store is unreadable",
+            }
+
+        scanned = 0
+        findings: list[dict[str, str]] = []
+        incomplete = total > len(rows)
+        for task_id, encoded, supplied_digest in rows:
+            if time.monotonic() >= deadline:
+                incomplete = True
+                break
+            scanned += 1
+            try:
+                if (
+                    not isinstance(encoded, str)
+                    or not isinstance(supplied_digest, str)
+                    or hashlib.sha256(encoded.encode("utf-8")).hexdigest() != supplied_digest
+                ):
+                    raise ValueError("stored graph checkpoint digest mismatch")
+                envelope = json.loads(encoded)
+                self._validate_graph_checkpoint_envelope(str(task_id), envelope)
+            except Exception as exc:
+                reason = (
+                    "digest_mismatch"
+                    if "digest mismatch" in str(exc).lower()
+                    else type(exc).__name__
+                )
+                findings.append({"task_id": str(task_id), "reason": reason})
+
+        if scanned < len(rows):
+            incomplete = True
+        self._graph_checkpoint_reconciliation_findings = [
+            f"{item['task_id']}:{item['reason']}" for item in findings
+        ]
+        self._graph_checkpoint_reconciliation_incomplete = incomplete
+        actions = []
+        if findings:
+            actions.append(
+                "restore each affected checkpoint from trusted bytes and reconcile its task/evidence; do not replay the graph"
+            )
+        if incomplete:
+            actions.append(
+                "rerun inspect_graph_checkpoints with a larger bounded limit or time budget before trusting unscanned checkpoints"
+            )
+        return {
+            "scanned": scanned,
+            "valid": scanned - len(findings),
+            "findings": findings,
+            "incomplete": incomplete,
+            "next_action": "; ".join(actions) if actions else None,
+        }
+
     def health_findings(self) -> tuple[str, ...]:
         self.inspect_graph_checkpoints(limit=100, time_budget_seconds=0.2)
         findings = []
