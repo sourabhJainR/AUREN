@@ -166,10 +166,11 @@ class MemoryOrchestrator:
     ) -> MemoryEnvelope:
         now = time.time()
         evidence = tuple(sorted({str(item).strip() for item in evidence_ids if str(item).strip()}))
-        digest = hashlib.sha256(
+        digest_input = (
             f"{kind}\0{self.project}\0{source}\0{intent_digest or ''}\0{branch or ''}"
-            f"\0{source_revision or ''}\0{text}".encode("utf-8")
-        ).hexdigest()[:24]
+            f"\0{source_revision or ''}\0{text}"
+        )
+        digest = hashlib.sha256(digest_input.encode("utf-8")).hexdigest()[:24]
         return MemoryEnvelope(
             memory_id=digest, kind=kind, text=text, source=source, confidence=confidence,
             verified=verified, evidence_ids=evidence, intent_digest=intent_digest,
