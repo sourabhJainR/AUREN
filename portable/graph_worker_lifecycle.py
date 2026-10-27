@@ -207,6 +207,79 @@ class GraphWorkerLifecycle:
             raise GraphWorkerLifecycleError("verification receipt digest mismatch")
         return expected
 
+    def _validate_verification_receipt(
+        self, receipt: Any, *, worker_identity: str,
+        expected_checks: Sequence[Mapping[str, Any]],
+    ) -> None:
+        """Reject incomplete or contradictory evidence even when the receipt claims success."""
+        if not isinstance(receipt, Mapping):
+            raise GraphWorkerLifecycleError("verification receipt must be a mapping")
+        # Preserve the established failure-receipt path: the caller's binding
+        # check reports a failed top-level status. Validate internal consistency
+        # before considering only receipts that claim success.
+        if receipt.get("status") != "passed":
+            return
+        if receipt.get("schema") != "auren-independent-graph-verification-v1":
+            raise GraphWorkerLifecycleError("verification receipt schema is missing or unsupported")
+        if receipt.get("verification_mode") != "fresh-isolated-worktree":
+            raise GraphWorkerLifecycleError("verification receipt is not bound to a fresh isolated worktree")
+        verifier_identity = receipt.get("verifier_identity")
+        if (
+            verifier_identity != self.verifier.verifier_identity
+            or verifier_identity == worker_identity
+            or verifier_identity not in self.verifier.trusted_verifier_ids
+        ):
+            raise GraphWorkerLifecycleError("verification receipt verifier identity is missing or untrusted")
+        if receipt.get("external_evaluator_independence") != "not_proven":
+            raise GraphWorkerLifecycleError("internal verification cannot attest external evaluator independence")
+        if receipt.get("cleanup_status") != "passed":
+            raise GraphWorkerLifecycleError("verification receipt cleanup is incomplete")
+        checks = receipt.get("checks")
+        if not isinstance(checks, list) or not checks or len(checks) > self.verifier.max_checks:
+            raise GraphWorkerLifecycleError("verification receipt has missing or out-of-bound check evidence")
+        expected_by_id: dict[str, list[str]] = {}
+        for expected in expected_checks:
+            if not isinstance(expected, Mapping):
+                raise GraphWorkerLifecycleError("requested verification check is malformed")
+            expected_id, expected_argv = expected.get("check_id"), expected.get("argv")
+            if (
+                not isinstance(expected_id, str) or not expected_id.strip()
+                or expected_id.strip() in expected_by_id
+            ):
+                raise GraphWorkerLifecycleError("requested verification check identities are missing or duplicated")
+            if (
+                not isinstance(expected_argv, (list, tuple)) or not expected_argv
+                or any(not isinstance(arg, str) or not arg for arg in expected_argv)
+            ):
+                raise GraphWorkerLifecycleError("requested verification check provenance is incomplete")
+            expected_by_id[expected_id.strip()] = list(expected_argv)
+        if len(checks) != len(expected_by_id):
+            raise GraphWorkerLifecycleError("verification receipt is missing required check evidence")
+        seen_ids: set[str] = set()
+        for check in checks:
+            if not isinstance(check, Mapping):
+                raise GraphWorkerLifecycleError("verification receipt contains malformed check evidence")
+            check_id = check.get("check_id")
+            if not isinstance(check_id, str) or not check_id.strip() or check_id in seen_ids:
+                raise GraphWorkerLifecycleError("verification receipt contains missing or duplicate check identity")
+            seen_ids.add(check_id)
+            if check_id not in expected_by_id:
+                raise GraphWorkerLifecycleError("verification receipt contains unexpected check evidence")
+            if check.get("status") != "passed" or type(check.get("return_code")) is not int or check.get("return_code") != 0:
+                raise GraphWorkerLifecycleError("verification receipt contains missing or contradictory check evidence")
+            argv = check.get("argv")
+            if not isinstance(argv, list) or not argv or any(not isinstance(arg, str) or not arg for arg in argv):
+                raise GraphWorkerLifecycleError("verification receipt contains incomplete check provenance")
+            if argv != expected_by_id[check_id]:
+                raise GraphWorkerLifecycleError("verification receipt check provenance differs from requested check")
+            output_digest = check.get("output_digest")
+            if (
+                not isinstance(output_digest, str)
+                or len(output_digest) != 64
+                or any(char not in "0123456789abcdef" for char in output_digest)
+            ):
+                raise GraphWorkerLifecycleError("verification receipt contains invalid check output digest")
+
     def prepare(
         self,
         *,
@@ -385,6 +458,9 @@ class GraphWorkerLifecycle:
             receipt = self.verifier.verify(
                 proposal, worker_identity=worker_identity, task_digest=plan_digest,
                 intent_digest=self.intent_digest, checks=bounded_checks,
+            )
+            self._validate_verification_receipt(
+                receipt, worker_identity=worker_identity, expected_checks=bounded_checks,
             )
             self.runtime_guard.check()
             expected = {
