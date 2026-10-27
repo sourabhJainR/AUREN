@@ -132,7 +132,7 @@ class GraphWorkerLifecycleTests(unittest.TestCase):
         ])
 
         def write(workspace, _task):
-            (workspace / "src" / "feature.py").write_text("verified = True\\n", encoding="utf-8")
+            (workspace / "src" / "feature.py").write_text("verified = True\n", encoding="utf-8")
 
         original_verify = plan.verifier.verify
 
