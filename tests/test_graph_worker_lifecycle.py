@@ -157,6 +157,39 @@ class GraphWorkerLifecycleTests(unittest.TestCase):
         self.assertEqual(self.journal.snapshot("write-a")["state"], "failed")
         self.assertEqual(plan.recovery_bridge.load()["nodes"]["write-a"]["status"], "failed")
 
+    def test_missing_check_evidence_cannot_be_laundered_by_passed_receipt(self):
+        plan = self.lifecycle([
+            Task("write-a", "write one file", files=["src/feature.py"], metadata={"execution_mode": "mutating"})
+        ])
+
+        def write(workspace, _task):
+            (workspace / "src" / "feature.py").write_text("verified = True\n", encoding="utf-8")
+
+        original_verify = plan.verifier.verify
+
+        def incomplete_receipt(*args, **kwargs):
+            receipt = original_verify(*args, **kwargs)
+            receipt["checks"] = receipt["checks"][:1]
+            unsigned = {key: value for key, value in receipt.items() if key != "receipt_digest"}
+            receipt["receipt_digest"] = hashlib.sha256(
+                json.dumps(unsigned, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")
+            ).hexdigest()
+            return receipt
+
+        checks = list(self.checks("src/feature.py", "verified = True\n"))
+        checks.append({**checks[0], "check_id": "content-check-secondary"})
+        with patch.object(plan.verifier, "verify", side_effect=incomplete_receipt):
+            with self.assertRaisesRegex(GraphWorkerLifecycleError, "missing required check evidence"):
+                plan.prepare(
+                    task_id="write-a", worker_id="worker-a", worker_identity="worker-a",
+                    owned_paths=["src/feature.py"], execute_in_workspace=write,
+                    checks=checks,
+                )
+
+        self.assertFalse((self.repo / "src" / "feature.py").exists())
+        self.assertEqual(self.journal.snapshot("write-a")["state"], "failed")
+        self.assertEqual(plan.recovery_bridge.load()["nodes"]["write-a"]["status"], "failed")
+
     def test_lifecycle_rejects_recovery_checkpoint_bound_to_different_intent(self):
         plan = self.lifecycle([
             Task("write-a", "write one file", files=["src/feature.py"], metadata={"execution_mode": "mutating"})
