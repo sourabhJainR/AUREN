@@ -412,6 +412,7 @@ def _start_integrated_plan(root, work_key):
 
 class ContinuousEngineeringIntegrationTests(unittest.TestCase):
     def test_learning_delivery_share_identity_and_reconcile_split_write_after_restart(self):
+        import gc
         from portable.engineering_dashboard import EngineeringDashboard
         from portable.execution_controller import ExecutionController
         from portable.harness_experiments import canonical_digest
@@ -441,8 +442,11 @@ class ContinuousEngineeringIntegrationTests(unittest.TestCase):
             with sqlite3.connect(runtime.db_path) as db:
                 stored_key = db.execute("SELECT work_key FROM tasks WHERE id=?", (first.id,)).fetchone()
             self.assertEqual(stored_key, (work_key,))
-            runtime.run_once(first.id)
-            self.assertEqual(runtime.task(first.id).state, "completed")
+            task_id = first.id
+            runtime.run_once(task_id)
+            self.assertEqual(runtime.task(task_id).state, "completed")
+            del runtime
+            gc.collect()
 
             manifest, result, adopted = _run_integrated_harness_experiment(
                 work_key=work_key, plan=plan, ledger=ledger,
@@ -513,8 +517,8 @@ class ContinuousEngineeringIntegrationTests(unittest.TestCase):
                 "continuous-engineering-integration", {"work_key": work_key},
                 goal=plan.goal, work_key=work_key,
             )
-            self.assertEqual(resumed_task.id, first.id)
-            self.assertEqual(restarted_runtime.task(first.id).state, "completed")
+            self.assertEqual(resumed_task.id, task_id)
+            self.assertEqual(restarted_runtime.task(task_id).state, "completed")
 
             dashboard = EngineeringDashboard(root)
             dashboard.record_event(
@@ -527,6 +531,8 @@ class ContinuousEngineeringIntegrationTests(unittest.TestCase):
             self.assertEqual(plan_row["task_counts"], {"passed": 1})
             self.assertGreaterEqual(plan_row["evidence_count"], 2)
             self.assertTrue(all(row.get("run_id") != work_key for row in snapshot["executions"]))
+            del restarted_runtime
+            gc.collect()
 
     def test_cancel_deadline_and_missing_evaluator_cannot_complete_delivery(self):
         from portable.engineering_dashboard import EngineeringDashboard
