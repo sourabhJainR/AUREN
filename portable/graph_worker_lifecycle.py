@@ -249,6 +249,12 @@ class GraphWorkerLifecycle:
             and "dispatch_authorized" in prior.get("message", "")
         )
         if prior.get("event_count", 0) and not reconciled_queue:
+            prior_state = prior.get("reported_state", prior.get("state"))
+            # A completed journal projection is not enough to prove completion:
+            # the recovery ledger must independently agree. If both durable
+            # stores agree, reject duplicate dispatch without corrupting history.
+            if prior_state == "completed" and recovery_node["status"] == "complete":
+                raise PermissionError("durable task is already complete; duplicate dispatch is blocked")
             recovery_next_action = {
                 "adopting": "reconcile_target_tree_and_recovery_ledger",
                 "working": "reconcile_worker_workspace_and_receipt_before_resume",
@@ -280,12 +286,24 @@ class GraphWorkerLifecycle:
                     next_safe_action="inspect_prior_progress_before_redispatch",
                     blockers=["prior_progress_requires_reconciliation"],
                 )
-            self.journal.record(
-                task_id, "duplicate-dispatch-blocked", state="blocked", stage="recovery",
-                message=self._binding(task_id, worker_id, plan_digest, self.intent_digest, "inspect_prior_state")
-                + "; next_action=" + recovery_next_action,
-                evidence_ref=prior.get("evidence_ref"),
+            message = (
+                self._binding(task_id, worker_id, plan_digest, self.intent_digest, "inspect_prior_state")
+                + "; next_action=" + recovery_next_action
             )
+            if prior_state in {"completed", "failed", "cancelled"}:
+                # Process death can occur after the journal fsync but before the
+                # recovery-ledger commit. Correct the terminal projection through
+                # the explicit, sequence-fenced reconciliation API only.
+                self.journal.record_reconciliation(
+                    task_id, state="blocked", stage="recovery", message=message,
+                    evidence_ref=prior.get("evidence_ref"),
+                    expected_sequence=prior.get("sequence", 0),
+                )
+            else:
+                self.journal.record(
+                    task_id, "duplicate-dispatch-blocked", state="blocked", stage="recovery",
+                    message=message, evidence_ref=prior.get("evidence_ref"),
+                )
             self._block_recovery_run(
                 "prior progress exists without a safe dispatch continuation",
                 recovery_next_action,

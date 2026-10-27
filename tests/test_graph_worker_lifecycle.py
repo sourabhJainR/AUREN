@@ -733,5 +733,149 @@ class GraphWorkerLifecycleTests(unittest.TestCase):
         self.assertFalse((self.repo / "src" / "feature.py").exists())
 
 
+    def test_process_crash_after_terminal_progress_before_recovery_commit_blocks_restart(self):
+        state_root = self.root / "terminal-progress-crash-state"
+        state_root.mkdir()
+        script = textwrap.dedent("""\
+            import hashlib
+            import os
+            import sys
+            from pathlib import Path
+            from portable.agency_evolution_gates import ImprovementJournal
+            from portable.engineering_recovery import EngineeringRecoveryLedger, GraphRunRecoveryBridge
+            from portable.graph_worker_lifecycle import GraphWorkerLifecycle
+            from portable.graph_workspace_adoption import GraphWorkspaceCoordinator
+            from portable.independent_graph_verification import IndependentGraphVerifier
+            from portable.progress_journal import ProgressJournal
+            from portable.runtime_recovery import RuntimeExecutionGuard
+            from portable.task_planner import Task, TaskPlan
+
+            repo = Path(sys.argv[1])
+            state_root = Path(sys.argv[2])
+            intent_digest = hashlib.sha256(b"intent").hexdigest()
+            task_plan = TaskPlan([
+                Task("write-a", "write one file", files=["src/feature.py"],
+                     metadata={"execution_mode": "mutating"})
+            ])
+            journal = ProgressJournal(state_root / "progress.jsonl")
+            guard = RuntimeExecutionGuard(max_steps=20, max_attempts=20, deadline_seconds=60)
+            coordinator = GraphWorkspaceCoordinator(
+                repo, workspace_root=state_root / "worker-workspaces"
+            )
+            verifier = IndependentGraphVerifier(
+                repo, verifier_identity="verifier-ci", trusted_verifier_ids=("verifier-ci",),
+                worktree_root=state_root / "verification-workspaces",
+            )
+            ledger = EngineeringRecoveryLedger(state_root / "recovery.sqlite")
+            recovery_journal = ImprovementJournal(state_root / "recovery.jsonl")
+            bridge = GraphRunRecoveryBridge(
+                run_id="graph-terminal-progress-crash", plan=task_plan,
+                intent_digest=intent_digest, source_revision=coordinator.base_revision,
+                ledger=ledger, journal=recovery_journal,
+            )
+            lifecycle = GraphWorkerLifecycle(
+                coordinator=coordinator, verifier=verifier, journal=journal,
+                task_plan=task_plan, intent_digest=intent_digest,
+                runtime_guard=guard, recovery_bridge=bridge,
+            )
+
+            def write(workspace, _task):
+                (workspace / "src" / "feature.py").write_text(
+                    "verified = True\\n", encoding="utf-8"
+                )
+
+            check_code = (
+                "from pathlib import Path; "
+                "assert Path('src/feature.py').read_text(encoding='utf-8') == "
+                + repr("verified = True\\n")
+            )
+            prepared = lifecycle.prepare(
+                task_id="write-a", worker_id="worker-a", worker_identity="worker-a",
+                owned_paths=["src/feature.py"], execute_in_workspace=write,
+                checks=({
+                    "check_id": "content-check",
+                    "argv": [sys.executable, "-c", check_code],
+                    "timeout_seconds": 20,
+                },),
+            )
+            original_record = journal.record
+
+            def crash_after_terminal_progress(task_id, event, **kwargs):
+                result = original_record(task_id, event, **kwargs)
+                if event == "verified-proposal-adopted":
+                    # Simulate process death after the terminal journal fsync,
+                    # but before the recovery ledger can commit node completion.
+                    os._exit(84)
+                return result
+
+            journal.record = crash_after_terminal_progress
+            lifecycle.adopt_prepared((prepared.worker_id,))
+            os._exit(87)
+        """)
+        child = subprocess.run(
+            [sys.executable, "-c", script, str(self.repo), str(state_root)],
+            cwd=Path(__file__).resolve().parents[1],
+            capture_output=True, text=True, check=False, timeout=90,
+        )
+        self.assertEqual(child.returncode, 84, child.stdout + child.stderr)
+        self.assertEqual(
+            (self.repo / "src" / "feature.py").read_text(encoding="utf-8"),
+            "verified = True\n",
+        )
+
+        journal = ProgressJournal(state_root / "progress.jsonl")
+        progress_before = journal.snapshot("write-a")
+        self.assertEqual(progress_before["state"], "completed")
+        self.assertEqual(progress_before["stage"], "adoption")
+        self.assertEqual(progress_before["event_count"] >= 1, True)
+
+        task_plan = TaskPlan([
+            Task("write-a", "write one file", files=["src/feature.py"],
+                 metadata={"execution_mode": "mutating"})
+        ])
+        ledger = EngineeringRecoveryLedger(state_root / "recovery.sqlite")
+        recovery_journal = ImprovementJournal(state_root / "recovery.jsonl")
+        bridge = GraphRunRecoveryBridge(
+            run_id="graph-terminal-progress-crash", plan=task_plan,
+            intent_digest=self.intent_digest, source_revision=self.coordinator.base_revision,
+            ledger=ledger, journal=recovery_journal,
+        )
+        snapshot = bridge.load()
+        self.assertEqual(snapshot["run_status"], "in_progress")
+        self.assertEqual(snapshot["nodes"]["write-a"]["status"], "adopting")
+        self.assertEqual(
+            snapshot["nodes"]["write-a"]["next_safe_action"],
+            "reconcile_target_tree_and_recovery_ledger",
+        )
+
+        restarted = GraphWorkerLifecycle(
+            coordinator=self.coordinator,
+            verifier=self.verifier,
+            journal=journal,
+            task_plan=task_plan,
+            intent_digest=self.intent_digest,
+            runtime_guard=RuntimeExecutionGuard.resume(snapshot["budget_snapshot"]),
+            recovery_bridge=bridge,
+        )
+
+        def must_not_redispatch(*_args):
+            raise AssertionError("a crashed worker must not be replayed automatically")
+
+        with self.assertRaisesRegex(PermissionError, "durable progress already exists"):
+            restarted.prepare(
+                task_id="write-a", worker_id="worker-a", worker_identity="worker-a",
+                owned_paths=["src/feature.py"], execute_in_workspace=must_not_redispatch,
+                checks=(),
+            )
+
+        reconciled = journal.snapshot("write-a")
+        self.assertEqual(reconciled["state"], "blocked")
+        self.assertEqual(reconciled["reported_state"], "blocked")
+        self.assertIn("reconcile_target_tree_and_recovery_ledger", reconciled["message"])
+        self.assertEqual(bridge.load()["nodes"]["write-a"]["status"], "unknown")
+        self.assertEqual(bridge.load()["run_status"], "blocked")
+        self.assertEqual(bridge.dispatchable_nodes(), ())
+
+
 if __name__ == "__main__":
     unittest.main()
