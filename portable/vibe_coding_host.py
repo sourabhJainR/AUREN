@@ -930,6 +930,20 @@ def build_mcp_authority_dispatch(
     return dispatch
 
 
+def _read_bounded_mcp_stdout_frame(stream: Any, max_chars: int) -> tuple[str | None, bool]:
+    """Read one bounded protocol frame without draining an oversized child stream.
+
+    Returns (frame, oversized). An oversized frame is fatal: the caller must
+    terminate the child instead of waiting for an untrusted newline.
+    """
+    line = stream.readline(max_chars + 1)
+    if not line:
+        return None, False
+    if len(line) > max_chars:
+        return None, True
+    return line.rstrip("\n"), False
+
+
 class MCPStdioToolAdapter:
     """Call a configured MCP stdio tool using JSON-RPC, without shell interpolation."""
 
@@ -1114,18 +1128,19 @@ class MCPStdioToolAdapter:
         def read_stdout() -> None:
             assert proc.stdout is not None
             while True:
-                line = proc.stdout.readline(self.max_response_chars + 1)
-                if not line:
-                    break
-                if len(line) > self.max_response_chars:
-                    # Drain this frame in bounded chunks, then stop reading. The caller
-                    # receives a fatal marker and tears down the process tree.
-                    while line and not line.endswith("\n"):
-                        line = proc.stdout.readline(4096)
+                frame, oversized = _read_bounded_mcp_stdout_frame(
+                    proc.stdout, self.max_response_chars,
+                )
+                if oversized:
+                    # Never drain an untrusted oversized frame: it may be an
+                    # endless stream with no newline. Signal fatal immediately;
+                    # the caller will terminate the child process tree.
                     signal_fatal(self._OVERSIZE_RESPONSE)
                     return
+                if frame is None:
+                    break
                 try:
-                    responses.put_nowait(line.rstrip("\n"))
+                    responses.put_nowait(frame)
                 except queue.Full:
                     signal_fatal(self._QUEUE_OVERFLOW_RESPONSE)
                     return
