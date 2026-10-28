@@ -60,8 +60,8 @@ def validate_agent_assignment_for_dispatch(
 
     Unassigned legacy tasks retain existing behavior. If the reserved assignment
     field exists, malformed metadata fails closed. Resource scope is mandatory
-    for assigned work and must match an explicit path or an allowed directory
-    prefix from the assignment. This does not prove host identity or confine
+    for assigned work and must match an exact normalized relative path from
+    the assignment. This does not prove host identity or confine
     handler internals; those require host authorization and operation-level checks.
     Assigned work also requires a trusted, persisted handler action class. The
     assignment cannot select or change the action class at dispatch time.
