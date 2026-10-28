@@ -6,24 +6,21 @@ from portable.provider_operation_lifecycle import stable_provider_operation_id
 
 
 class ProviderOperationIdentityEncodingTests(unittest.TestCase):
-    def test_operation_and_provider_delimiter_text_cannot_collide(self):
+    def test_reserved_delimiter_is_rejected_without_changing_legacy_operation_ids(self):
         intent = {"target": "staging", "revision": "release-42"}
 
-        # These pairs produce the same bytes when fields are joined using the
-        # literal "\\0" delimiter. Structured canonical encoding must keep
-        # the operation key and provider identity unambiguous.
-        first = stable_provider_operation_id(
-            "tenant\\0deploy", "provider", intent,
-        )
-        second = stable_provider_operation_id(
-            "tenant", "deploy\\0provider", intent,
+        # Existing durable operation IDs must remain stable across upgrades.
+        # Reserve the legacy delimiter rather than changing the hash format.
+        expected = stable_provider_operation_id("tenant-deploy", "provider", intent)
+        self.assertEqual(
+            expected,
+            stable_provider_operation_id("tenant-deploy", "provider", intent),
         )
 
-        self.assertNotEqual(first, second)
-        self.assertEqual(
-            first,
-            stable_provider_operation_id("tenant\\0deploy", "provider", intent),
-        )
+        with self.assertRaisesRegex(ValueError, "reserved"):
+            stable_provider_operation_id("tenant\\0deploy", "provider", intent)
+        with self.assertRaisesRegex(ValueError, "reserved"):
+            stable_provider_operation_id("tenant", "deploy\\0provider", intent)
 
 
 if __name__ == "__main__":
