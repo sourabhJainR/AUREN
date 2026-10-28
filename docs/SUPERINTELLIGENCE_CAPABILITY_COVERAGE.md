@@ -23,7 +23,7 @@ AUREN maintainers can implement protocol and regression coverage, but cannot sel
 
 ## Current repository evidence snapshot — 2026-10-28
 
-Reviewed against baseline `main` SHA `da9517e4946313215c477694988f1fb5f6bba052`. Its current-main check set was terminal with 22 successes, 3 skipped checks, zero failures, and no pending checks; all six push-triggered workflows completed successfully. The portable bundle and checksum artifacts were downloaded from [workflow run 40624079442](https://github.com/sourabhJainR/AUREN/actions/runs/40624079442) and verified: outer bundle artifact SHA-256 `a374cd0c1eaebcdc9867e02277d7a98279f8bd2ccc505d4f23e5c2897119d2e6`, outer checksum artifact SHA-256 `d11f620576d9e31482a12c4621845423ffe85fcb1b3c758c71c16ee286df917f`, embedded ZIP SHA-256 `f477069e369f09b5d72cd5afc5647fbc76fd82d7cce9719824cfe247d6f2b154`, and 508 manifest entries verified with no size/hash mismatches. The manifest pins this SHA, version `1.0.6`, and `target_repository_mutation=false`.
+Reviewed against baseline `main` SHA `5b3e3858d85d558945f2a4ccf65a18fe9b323ba7`. Its current-main check set is terminal: 28 successes, zero skipped checks, zero failures, and zero pending checks; all six push-triggered workflows completed successfully. The portable bundle and checksum artifacts were downloaded from [workflow run 40627642859](https://github.com/sourabhJainR/AUREN/actions/runs/40627642859) and verified: outer bundle artifact SHA-256 `f87dbad0bc9e6de7da9ea7c21226d4710e5281d797a8e3f0c289eb4d42ef56d8`, outer checksum artifact SHA-256 `9c3d195fed261c858d1475b7f4ba12977e32da9a24107da535c7ec6a7be989e0`, embedded ZIP SHA-256 `7772704781caf23c3b329d7fc5e76ee4492a9f8fd4a88b49140bbe61c1972be9`, and 508 manifest entries verified with no size/hash mismatches. The manifest pins this SHA, version `1.0.6`, and `target_repository_mutation=false`.
 
 These results verify repository CI and artifact integrity only. Three checks were skipped and are not passes. Deployment behavior, independently controlled evaluator/oracle identity, sealed holdout custody, production host isolation, and external benchmark campaigns remain **not verified / blocked**. No AGI/SI or broad-generalization claim is supported. The graph recovery and runtime/learning/delivery regressions are internal evidence, not independent Arena results.
 
@@ -34,7 +34,7 @@ There is no numeric “superintelligence score” in this matrix. AUREN is being
 
 ## Living capability radar refresh — 2026-10-28
 
-**Baseline under review:** `main` at `697e3bca1eceabf423b31a3ef4e0d6c38876589e` (PR #1045). The portable bundle and checksum artifacts are retained for this revision; the remaining post-merge runtime checks were still active when this section was drafted. The evidence snapshot below must be refreshed after all current-main checks and push workflows are terminal. No local checkout was available for a local test run.
+**Verified baseline:** `main` at `5b3e3858d85d558945f2a4ccf65a18fe9b323ba7` after PR #1046. All 28 current-main check-runs are terminal-successful and all six post-merge push workflows succeeded. The portable bundle and checksum artifacts are retained and their outer/inner digests plus all 508 manifest entries were verified. No local checkout was available for a local test run.
 
 ### External signals mapped to AUREN owners
 
