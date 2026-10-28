@@ -70,7 +70,7 @@
       ],
       "evidence_status": {
         "implementation": "not implemented",
-        "repository_ci": "CI-verified for listed internal contracts only",
+        "repository_ci": "CI-verified for sandbox/custody scaffolding only; modality-specific benchmark not run",
         "deployment": "not verified",
         "independent_evaluation": "not verified; external gate blocked",
         "reviewed_main_sha": "da9517e4946313215c477694988f1fb5f6bba052"
@@ -129,7 +129,7 @@
       ],
       "evidence_status": {
         "implementation": "partial",
-        "repository_ci": "CI-verified for listed internal contracts only",
+        "repository_ci": "CI-verified for supervisor/recovery contracts only; external environment suite not run",
         "deployment": "not verified",
         "independent_evaluation": "not verified; external gate blocked",
         "reviewed_main_sha": "da9517e4946313215c477694988f1fb5f6bba052"
@@ -190,7 +190,7 @@
       ],
       "evidence_status": {
         "implementation": "partial",
-        "repository_ci": "CI-verified for listed internal contracts only",
+        "repository_ci": "CI-verified for selected recovery and side-effect contracts only; long-duration benchmark not run",
         "deployment": "not verified",
         "independent_evaluation": "not verified; external gate blocked",
         "reviewed_main_sha": "da9517e4946313215c477694988f1fb5f6bba052"
@@ -251,7 +251,7 @@
       ],
       "evidence_status": {
         "implementation": "implemented locally",
-        "repository_ci": "CI-verified for listed internal contracts only",
+        "repository_ci": "CI-verified for lineage/attestation protocol tests only; external target domain not run",
         "deployment": "not verified",
         "independent_evaluation": "not verified; external gate blocked",
         "reviewed_main_sha": "da9517e4946313215c477694988f1fb5f6bba052"
@@ -310,7 +310,7 @@
       ],
       "evidence_status": {
         "implementation": "partial",
-        "repository_ci": "CI-verified for listed internal contracts only",
+        "repository_ci": "CI-verified for causal attribution/promotion-gate contracts only; independent replication not run",
         "deployment": "not verified",
         "independent_evaluation": "not verified; external gate blocked",
         "reviewed_main_sha": "da9517e4946313215c477694988f1fb5f6bba052"
@@ -368,7 +368,7 @@
       ],
       "evidence_status": {
         "implementation": "partial",
-        "repository_ci": "CI-verified for listed internal contracts only",
+        "repository_ci": "CI-verified for memory/provenance and selected learning integration only; longitudinal suite not run",
         "deployment": "not verified",
         "independent_evaluation": "not verified; external gate blocked",
         "reviewed_main_sha": "da9517e4946313215c477694988f1fb5f6bba052"
@@ -429,7 +429,7 @@
       ],
       "evidence_status": {
         "implementation": "partial",
-        "repository_ci": "CI-verified for listed internal contracts only",
+        "repository_ci": "CI-verified for graph/runtime contracts only; independent multi-crew benchmark not run",
         "deployment": "not verified",
         "independent_evaluation": "not verified; external gate blocked",
         "reviewed_main_sha": "da9517e4946313215c477694988f1fb5f6bba052"
@@ -492,7 +492,7 @@
       ],
       "evidence_status": {
         "implementation": "partial",
-        "repository_ci": "CI-verified for listed internal contracts only",
+        "repository_ci": "CI-verified for protocol/security tests only; external red-team suite not run",
         "deployment": "not verified",
         "independent_evaluation": "not verified; external gate blocked",
         "reviewed_main_sha": "da9517e4946313215c477694988f1fb5f6bba052"
@@ -560,7 +560,7 @@
       ],
       "evidence_status": {
         "implementation": "implemented locally",
-        "repository_ci": "CI-verified for listed internal contracts only",
+        "repository_ci": "CI-verified for custody/evaluator protocol only; independent campaign not run",
         "deployment": "not verified",
         "independent_evaluation": "not verified; external gate blocked",
         "reviewed_main_sha": "da9517e4946313215c477694988f1fb5f6bba052"
