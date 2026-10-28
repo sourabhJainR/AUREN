@@ -24,7 +24,7 @@ _RULES: tuple[tuple[str, tuple[str, ...], bool], ...] = (
     ("portable/agent_execution_guard.py", ("tests.test_agent_execution_guard", "tests.test_agent_org_runtime", "tests.test_execution_controller_guard_policy"), True),
     ("tests/test_agent_execution_guard.py", ("tests.test_agent_execution_guard",), True),
     ("portable/agency_observability_ops.py", ("tests.test_agency_observability_ops", "tests.test_agency_observability"), True),
-    ("portable/guarded_filesystem.py", ("tests.test_guarded_filesystem", "tests.test_vibe_coding_host", "tests.test_execution_boundary"), True),
+    ("portable/guarded_filesystem.py", ("tests.test_guarded_filesystem", "tests.test_agent_execution_guard", "tests.test_vibe_coding_host", "tests.test_execution_boundary"), True),
     ("portable/guarded_network.py", ("tests.test_guarded_network", "tests.test_execution_boundary", "tests.test_organization_guard"), True),
     ("portable/docker_isolated_evaluator.py", ("tests.test_docker_isolated_evaluator", "tests.test_execution_boundary"), True),
     ("scripts/verify_docker_isolation.py", ("tests.test_docker_isolated_evaluator", "tests.test_execution_boundary"), True),
