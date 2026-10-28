@@ -148,8 +148,8 @@ class ProgressJournal:
                stage: str = "execution", message: str = "",
                completed_units: int | None = None, total_units: int | None = None,
                evidence_ref: str | None = None, timestamp: str | None = None,
-               priority: int = 0, parent_task_id: str | None = None,
-               decision_required: bool = False) -> ProgressEvent:
+               priority: int | None = None, parent_task_id: str | None = None,
+               decision_required: bool | None = None) -> ProgressEvent:
         return self._record(
             task_id, event, state=state, stage=stage, message=message,
             completed_units=completed_units, total_units=total_units,
@@ -163,11 +163,11 @@ class ProgressJournal:
                          decision_required: bool = False,
                          timestamp: str | None = None) -> ProgressEvent:
         """Durably enqueue an interruption without mutating the interrupted task."""
-        if isinstance(priority, bool) or not isinstance(priority, int) or not 0 <= priority <= 100:
+        if priority is not None and (isinstance(priority, bool) or not isinstance(priority, int) or not 0 <= priority <= 100):
             raise ValueError("priority must be an integer from 0 to 100")
         if parent_task_id is not None and (not isinstance(parent_task_id, str) or not parent_task_id.strip()):
             raise ValueError("parent_task_id must be a non-empty string when supplied")
-        if not isinstance(decision_required, bool):
+        if decision_required is not None and not isinstance(decision_required, bool):
             raise ValueError("decision_required must be a boolean")
         return self.record(
             task_id, "interrupt_received", state="blocked" if decision_required else "queued",
@@ -197,8 +197,8 @@ class ProgressJournal:
                 stage: str = "execution", message: str = "",
                 completed_units: int | None = None, total_units: int | None = None,
                 evidence_ref: str | None = None, timestamp: str | None = None,
-                priority: int = 0, parent_task_id: str | None = None,
-                decision_required: bool = False, expected_sequence: int | None = None,
+                priority: int | None = None, parent_task_id: str | None = None,
+                decision_required: bool | None = None, expected_sequence: int | None = None,
                 allow_terminal_correction: bool = False) -> ProgressEvent:
         if not task_id or not task_id.strip():
             raise ValueError("task_id must be non-empty")
@@ -233,14 +233,18 @@ class ProgressJournal:
                         raise RuntimeError("progress journal changed during reconciliation; retry")
                 if task_rows and task_rows[-1]["state"] in TERMINAL and not allow_terminal_correction:
                     raise ValueError("cannot append progress to a terminal task")
+                previous = task_rows[-1] if task_rows else {}
+                effective_priority = previous.get("priority", 0) if priority is None else priority
+                effective_parent = previous.get("parent_task_id") if parent_task_id is None else parent_task_id
+                effective_decision = previous.get("decision_required", False) if decision_required is None else decision_required
                 row = ProgressEvent(
                     sequence=task_rows[-1]["sequence"] + 1 if task_rows else 1,
                     task_id=task_id, event=_safe(event, 80), state=state,
                     stage=_safe(stage, 120), message=_safe(message),
                     timestamp=timestamp or _now(), completed_units=completed_units,
                     total_units=total_units, evidence_ref=_safe(evidence_ref, 1000) if evidence_ref else None,
-                    priority=priority, parent_task_id=_safe(parent_task_id, 200) if parent_task_id else None,
-                    decision_required=decision_required,
+                    priority=effective_priority, parent_task_id=_safe(effective_parent, 200) if effective_parent else None,
+                    decision_required=effective_decision,
                 )
                 self.path.parent.mkdir(parents=True, exist_ok=True)
                 with self.path.open("a", encoding="utf-8") as stream:
