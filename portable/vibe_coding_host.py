@@ -968,6 +968,14 @@ def _read_bounded_mcp_stdout_frame(
     return None, True, None
 
 
+def _drain_bounded_mcp_stderr_line(stream: Any, line: str, chunk_chars: int = 4096) -> None:
+    """Finish only an oversized diagnostic line, never consume the next line."""
+    if type(chunk_chars) is not int or isinstance(chunk_chars, bool) or chunk_chars < 1:
+        raise ValueError("MCP stderr chunk size must be a positive integer")
+    while line and not line.endswith("\n") and len(line) >= chunk_chars:
+        line = stream.readline(chunk_chars)
+
+
 class MCPStdioToolAdapter:
     """Call a configured MCP stdio tool using JSON-RPC, without shell interpolation."""
 
@@ -1221,8 +1229,7 @@ class MCPStdioToolAdapter:
                     stderr_chunks.append(line[:500])
                 # Drain any oversized diagnostic line in fixed-size chunks. Never
                 # let an untrusted child force Python to allocate an unbounded line.
-                while line and not line.endswith("\\n") and len(line) >= 4096:
-                    line = proc.stderr.readline(4096)
+                _drain_bounded_mcp_stderr_line(proc.stderr, line, 4096)
 
         out_thread = threading.Thread(target=read_stdout, daemon=True)
         err_thread = threading.Thread(target=read_stderr, daemon=True)
