@@ -971,6 +971,7 @@ class MCPStdioToolAdapter:
             [Mapping[str, Any], MCPToolCallBinding, Callable[[], Mapping[str, Any]]],
             Mapping[str, Any],
         ] | None = None,
+        read_only_response_reducer: Callable[[Mapping[str, Any]], Mapping[str, Any]] | None = None,
     ) -> None:
         if not argv or any(not isinstance(x, str) or not x for x in argv):
             raise ValueError("MCP command must be a non-empty argv array")
@@ -987,6 +988,11 @@ class MCPStdioToolAdapter:
             raise TypeError("requires_authority_binding must be a boolean")
         if authority_dispatch is not None and not callable(authority_dispatch):
             raise TypeError("authority_dispatch must be callable")
+        if read_only_response_reducer is not None and not callable(read_only_response_reducer):
+            raise TypeError("read_only_response_reducer must be callable")
+        if read_only_response_reducer is not None and requires_authority_binding:
+            raise ValueError("adaptive oversized-response recovery is only allowed for operator-declared read-only MCP tools")
+        self.read_only_response_reducer = read_only_response_reducer
         self.timeout_seconds = timeout_seconds
         self.env_allowlist = tuple(env_allowlist)
         self.max_response_chars = max_response_chars
@@ -1058,7 +1064,30 @@ class MCPStdioToolAdapter:
         if not isinstance(request, Mapping):
             raise ValueError("MCP request must be a mapping")
         if not self.requires_authority_binding:
-            return self._invoke_unchecked(request)
+            arguments = self._arguments_for_request(request)
+            try:
+                return self._invoke_unchecked(request, arguments=arguments)
+            except AdapterUnavailable as exc:
+                # Only an operator-declared read-only tool may be retried, and only
+                # once, after a frame-size failure. The reducer can lower page size,
+                # select fields, sample records, or request a smaller batch. It must
+                # return a different, JSON-safe argument mapping; the hard frame cap
+                # remains in force on the retry.
+                if self.read_only_response_reducer is None or "exceeded the configured character limit" not in str(exc):
+                    raise
+                try:
+                    reduced = self.read_only_response_reducer(dict(arguments))
+                    if not isinstance(reduced, Mapping):
+                        raise TypeError("response reducer must return a mapping")
+                    reduced_snapshot = json.loads(json.dumps(dict(reduced), ensure_ascii=False, allow_nan=False))
+                    if not isinstance(reduced_snapshot, dict) or reduced_snapshot == arguments:
+                        raise ValueError("response reducer must return different JSON-safe arguments")
+                    return self._invoke_unchecked(request, arguments=reduced_snapshot)
+                except Exception as recovery_error:
+                    raise AdapterUnavailable(
+                        "MCP oversized response recovery failed after one bounded read-only reduction; "
+                        "keep the frame cap and narrow the query further"
+                    ) from recovery_error
         if self.authority_dispatch is None:
             raise AdapterUnavailable(
                 f"MCP tool {self.tool_name} requires a trusted execution authority resolver before dispatch"
