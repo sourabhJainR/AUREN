@@ -129,6 +129,15 @@ def validate_policy(value: Mapping[str, Any]) -> dict[str, Any]:
     return {"schema_version": POLICY_VERSION, "default_effect": default_effect, "rules": normalized}
 
 
+def guard_policy_fingerprint(policy: Mapping[str, Any] | None) -> str:
+    """Return the stable digest of the effective Guard policy, including defaults."""
+    normalized = (
+        {"schema_version": POLICY_VERSION, "default_effect": "allow", "rules": []}
+        if policy is None else validate_policy(policy)
+    )
+    return hashlib.sha256(_canonical(normalized).encode("utf-8")).hexdigest()
+
+
 def load_guard_policy(path: str | Path) -> dict[str, Any] | None:
     """Load organization policy. Missing is distinct from malformed or unsafe."""
     target = Path(path).expanduser()
@@ -245,5 +254,5 @@ def evaluate_guard_policy(
 
 __all__ = [
     "POLICY_VERSION", "GuardDecision", "GuardPolicyError", "evaluate_guard_policy",
-    "load_guard_policy", "validate_policy",
+    "guard_policy_fingerprint", "load_guard_policy", "validate_policy",
 ]
