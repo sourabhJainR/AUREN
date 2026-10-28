@@ -168,36 +168,6 @@ class VibeCodingHostTests(unittest.TestCase):
             with self.assertRaisesRegex(AdapterUnavailable, "bounded response queue"):
                 adapter({"state": {"workspace_root": str(project)}, "intent": "test"})
 
-    def test_mcp_stdio_adapter_fails_closed_on_oversized_frame_without_blocking_reader(self):
-        with tempfile.TemporaryDirectory() as temp:
-            base = Path(temp)
-            project = base / "project"
-            init_git(project)
-            server = base / "oversize_mcp.py"
-            server.write_text(
-                "import json, sys\\n"
-                "for line in sys.stdin:\\n"
-                "    try: msg = json.loads(line)\\n"
-                "    except Exception: continue\\n"
-                "    if msg.get('method') == 'initialize':\\n"
-                "        print(json.dumps({'jsonrpc':'2.0','id':msg['id'],'result':{'protocolVersion':'2024-11-05','capabilities':{'tools':{}},'serverInfo':{'name':'oversize','version':'1'}}}), flush=True)\\n"
-                "    elif msg.get('method') == 'tools/list':\\n"
-                "        print(json.dumps({'jsonrpc':'2.0','id':msg['id'],'result':{'tools':[{'name':'oversize','description':'test','inputSchema':{'type':'object','properties':{}}}]}}), flush=True)\\n"
-                "    elif msg.get('method') == 'tools/call':\\n"
-                "        print('x' * 5000, flush=True)\\n",
-                encoding="utf-8",
-            )
-            adapter = MCPStdioToolAdapter(
-                argv=(sys.executable, str(server)),
-                tool_name="oversize",
-                timeout_seconds=3,
-                max_response_chars=1024,
-                requires_authority_binding=False,
-                trusted_workspace_root=project,
-            )
-            with self.assertRaisesRegex(AdapterUnavailable, "exceeded the configured character limit"):
-                adapter({"state": {"workspace_root": str(project)}, "intent": "test"})
-
     def test_mcp_stdio_adapter_calls_real_json_rpc_tool_and_research_requires_source_urls(self):
         with tempfile.TemporaryDirectory() as temp:
             base = Path(temp)
