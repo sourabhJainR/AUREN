@@ -170,16 +170,16 @@ class VibeCodingHostTests(unittest.TestCase):
             init_git(project)
             server = base / "adaptive_mcp.py"
             server.write_text(
-                "import json, sys\\n"
-                "for line in sys.stdin:\\n"
-                "    try: msg = json.loads(line)\\n"
-                "    except Exception: continue\\n"
-                "    if msg.get('method') == 'initialize':\\n"
-                "        print(json.dumps({'jsonrpc':'2.0','id':msg['id'],'result':{'protocolVersion':'2024-11-05','capabilities':{},'serverInfo':{'name':'adaptive','version':'1'}}}), flush=True)\\n"
-                "    elif msg.get('method') == 'tools/call':\\n"
-                "        limit = msg.get('params',{}).get('arguments',{}).get('limit',100)\\n"
-                "        payload = {'items':['ok']} if limit <= 1 else {'items':['x' * 500]}\\n"
-                "        print(json.dumps({'jsonrpc':'2.0','id':msg['id'],'result':{'structuredContent':payload}}), flush=True)\\n",
+                "import json, sys\n"
+                "for line in sys.stdin:\n"
+                "    try: msg = json.loads(line)\n"
+                "    except Exception: continue\n"
+                "    if msg.get('method') == 'initialize':\n"
+                "        print(json.dumps({'jsonrpc':'2.0','id':msg['id'],'result':{'protocolVersion':'2024-11-05','capabilities':{},'serverInfo':{'name':'adaptive','version':'1'}}}), flush=True)\n"
+                "    elif msg.get('method') == 'tools/call':\n"
+                "        limit = msg.get('params',{}).get('arguments',{}).get('limit',100)\n"
+                "        payload = {'items':['ok']} if limit <= 1 else {'items':['x' * 500]}\n"
+                "        print(json.dumps({'jsonrpc':'2.0','id':msg['id'],'result':{'structuredContent':payload}}), flush=True)\n",
                 encoding="utf-8",
             )
             reductions = []
@@ -218,11 +218,12 @@ class VibeCodingHostTests(unittest.TestCase):
                 self.read_sizes.append(size)
                 return "x" * size
 
-        frame, oversized, metadata = _read_bounded_mcp_stdout_frame(OversizedWithoutNewline(), 9000)
+        stream = OversizedWithoutNewline()
+        frame, oversized, metadata = _read_bounded_mcp_stdout_frame(stream, 9000)
         self.assertIsNone(frame)
         self.assertTrue(oversized)
         self.assertEqual(metadata["observed_chars_at_least"], 9001)
-        self.assertEqual([4096, 4096, 809], [4096, 4096, 809])
+        self.assertEqual(stream.read_sizes, [4096, 4096, 809])
 
     def test_mcp_stdio_adapter_fails_closed_on_response_queue_flood(self):
         with tempfile.TemporaryDirectory() as temp:
