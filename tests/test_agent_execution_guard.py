@@ -65,7 +65,9 @@ class AgentExecutionGuardTests(unittest.TestCase):
         payload = self._payload()
         payload["_auren_agent_assignment"]["registry_digest"] = "0" * 64
         with self.assertRaisesRegex(AgentAssignmentScopeDenied, "registry digest is stale"):
-            validate_agent_assignment_for_dispatch(payload, resource="portable/api.py")
+            validate_agent_assignment_for_dispatch(
+                payload, resource="portable/api.py", authorization_verifier=lambda _request: True
+            )
 
     def test_malformed_reserved_envelope_is_denied(self):
         with self.assertRaises(AgentAssignmentScopeDenied):
