@@ -32,8 +32,10 @@ class ProviderConformanceTests(unittest.TestCase):
         )
         self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
         report = json.loads(completed.stdout)
-        self.assertTrue(report["release_ready"])
+        self.assertFalse(report["release_ready"], "static checks must not claim live provider readiness")
         self.assertEqual(report["mode"], "static")
+        self.assertEqual(report["static_contract"]["status"], "pass")
+        self.assertTrue(all(provider["status"] == "pass" for provider in report["providers"]))
 
     def test_live_mode_is_explicit(self):
         source = SCRIPT.read_text(encoding="utf-8")
