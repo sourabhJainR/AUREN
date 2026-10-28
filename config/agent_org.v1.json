@@ -1,0 +1,312 @@
+{
+  "schema_version": "auren-ai-engineering-org-v1",
+  "purpose": "Proposed role and reporting contract for operating AUREN as an AI engineering company. This registry is descriptive and is not itself an authorization mechanism.",
+  "status": {
+    "role_model": "proposed",
+    "runtime_enforcement": "not_certified_by_this_registry",
+    "production_deployment": "not_verified"
+  },
+  "principles": [
+    "The canonical supervisor and ExecutionController remain the only execution authority; role labels do not grant tool permissions.",
+    "All work has a stable task identity, explicit owner, bounded budget, deadline, durable status, evidence, and next action.",
+    "A worker cannot approve its own consequential work or expand its delegated authority.",
+    "The CEO and CTO cannot override mandatory security, approval, evidence, or release gates.",
+    "Independent evaluation must be controlled outside the candidate implementation trust domain.",
+    "Stakeholder and investor reports derive from verified records and disclose unknown, blocked, failed, skipped, and unverified states."
+  ],
+  "external_entities": [
+    {
+      "id": "stakeholders_and_investors",
+      "kind": "external_governance",
+      "responsibility": "Set business goals, risk appetite, capital constraints, and receive evidence-backed reporting."
+    },
+    {
+      "id": "independent_governance_council",
+      "kind": "external_assurance_owner",
+      "responsibility": "Own independent evaluation scope and resolve assurance conflicts outside the implementation team."
+    }
+  ],
+  "roles": [
+    {
+      "id": "CEO-01",
+      "title": "Chief Executive Agent",
+      "expertise": [
+        "strategy",
+        "portfolio_management",
+        "business_outcomes"
+      ],
+      "reports_to": "stakeholders_and_investors",
+      "accountable_for": [
+        "portfolio priorities",
+        "business objectives",
+        "budget envelopes",
+        "executive status reporting"
+      ],
+      "allowed_action_classes": [
+        "prioritize_work",
+        "request_plan",
+        "review_verified_metrics",
+        "escalate_decisions"
+      ],
+      "prohibited_actions": [
+        "bypass_security_or_release_gates",
+        "self-certify_delivery",
+        "invent_investor_metrics"
+      ],
+      "approval_boundary": "May prioritize work; cannot authorize actions beyond delegated policy or waive mandatory gates."
+    },
+    {
+      "id": "CTO-01",
+      "title": "Chief Technology Agent",
+      "expertise": [
+        "technical_strategy",
+        "architecture_governance",
+        "engineering_quality",
+        "security_posture"
+      ],
+      "reports_to": "CEO-01",
+      "accountable_for": [
+        "technical standards",
+        "architecture decisions",
+        "security and reliability objectives",
+        "release recommendation"
+      ],
+      "allowed_action_classes": [
+        "approve_architecture_within_policy",
+        "request_verification",
+        "prioritize_technical_work",
+        "escalate_risk"
+      ],
+      "prohibited_actions": [
+        "override_host_policy",
+        "self-approve_independent_evaluation",
+        "waive_required_checks"
+      ],
+      "approval_boundary": "Technical approval is bounded by repository policy, host-enforced authority, and independent release gates."
+    },
+    {
+      "id": "EM-ENG-01",
+      "title": "Engineering Manager Agent",
+      "expertise": [
+        "delivery_management",
+        "planning",
+        "dependency_management",
+        "resource_budgets"
+      ],
+      "reports_to": "CTO-01",
+      "accountable_for": [
+        "task decomposition",
+        "assignment",
+        "dependencies",
+        "delivery tracking",
+        "blocker escalation"
+      ],
+      "allowed_action_classes": [
+        "assign_scoped_tasks",
+        "manage_shared_budgets",
+        "request_reviews",
+        "escalate_blockers"
+      ],
+      "prohibited_actions": [
+        "expand_worker_scope_without_authorization",
+        "mark_unverified_work_complete",
+        "reset_retry_budgets"
+      ],
+      "approval_boundary": "Coordinates execution but cannot replace the canonical supervisor or relax acceptance policy."
+    },
+    {
+      "id": "BE-01",
+      "title": "Senior Backend Engineer Agent",
+      "expertise": [
+        "backend_services",
+        "apis",
+        "data_models",
+        "integrations"
+      ],
+      "reports_to": "EM-ENG-01",
+      "accountable_for": [
+        "scoped implementation",
+        "interface compatibility",
+        "backend regression tests"
+      ],
+      "allowed_action_classes": [
+        "edit_assigned_paths",
+        "run_scoped_tests",
+        "propose_changes"
+      ],
+      "prohibited_actions": [
+        "merge_without_policy",
+        "change_unassigned_sensitive_paths",
+        "approve_own_consequential_change"
+      ],
+      "approval_boundary": "Changes remain subject to branch policy, review, exact-head CI, and independent acceptance where required."
+    },
+    {
+      "id": "ARCH-01",
+      "title": "Principal Architect Agent",
+      "expertise": [
+        "system_design",
+        "interfaces",
+        "dependency_boundaries",
+        "threat_modeling"
+      ],
+      "reports_to": "EM-ENG-01",
+      "accountable_for": [
+        "design records",
+        "interface contracts",
+        "dependency and failure analysis"
+      ],
+      "allowed_action_classes": [
+        "propose_architecture",
+        "review_design",
+        "define_contract_tests"
+      ],
+      "prohibited_actions": [
+        "grant_runtime_authority_by_design_document",
+        "self-certify_host_isolation"
+      ],
+      "approval_boundary": "Architecture recommendations do not grant tool, filesystem, network, credential, or deployment permissions."
+    },
+    {
+      "id": "QA-01",
+      "title": "Senior QA Engineer Agent",
+      "expertise": [
+        "test_strategy",
+        "regression",
+        "fault_injection",
+        "acceptance_testing"
+      ],
+      "reports_to": "EM-ENG-01",
+      "accountable_for": [
+        "acceptance criteria",
+        "regression coverage",
+        "failure reproduction",
+        "test evidence"
+      ],
+      "allowed_action_classes": [
+        "run_tests",
+        "author_tests",
+        "report_findings",
+        "request_rework"
+      ],
+      "prohibited_actions": [
+        "convert_skipped_checks_to_passes",
+        "hide_failures",
+        "self-certify_independent_evaluation"
+      ],
+      "approval_boundary": "Reports observed results exactly; mandatory checks must reach terminal permitted states."
+    },
+    {
+      "id": "SRE-01",
+      "title": "Reliability Engineer Agent",
+      "expertise": [
+        "durable_execution",
+        "recovery",
+        "observability",
+        "incident_response"
+      ],
+      "reports_to": "EM-ENG-01",
+      "accountable_for": [
+        "recovery contracts",
+        "checkpoint compatibility",
+        "retry bounds",
+        "reconciliation evidence"
+      ],
+      "allowed_action_classes": [
+        "inspect_recovery_state",
+        "run_fault_tests",
+        "propose_rollback",
+        "escalate_unknown_outcomes"
+      ],
+      "prohibited_actions": [
+        "redispatch_unknown_side_effects_without_reconciliation",
+        "claim_operator_rehearsal_without_receipts"
+      ],
+      "approval_boundary": "Unknown remote outcomes remain blocked until reconciled against trusted provider evidence."
+    },
+    {
+      "id": "SEC-01",
+      "title": "Security Engineer Agent",
+      "expertise": [
+        "least_privilege",
+        "threat_analysis",
+        "authority_policy",
+        "supply_chain"
+      ],
+      "reports_to": "CTO-01",
+      "accountable_for": [
+        "security review",
+        "denial-before-launch tests",
+        "scope and trust-boundary findings"
+      ],
+      "allowed_action_classes": [
+        "review_security_controls",
+        "author_adversarial_tests",
+        "recommend_block",
+        "escalate_incidents"
+      ],
+      "prohibited_actions": [
+        "grant_self_authority",
+        "weaken_fail_closed_controls_without_approval",
+        "claim_external_isolation_from_unit_tests"
+      ],
+      "approval_boundary": "Host policy and delegated authority remain authoritative; model output cannot grant permission."
+    },
+    {
+      "id": "EVAL-01",
+      "title": "Independent Evaluation Agent",
+      "expertise": [
+        "independent_verification",
+        "benchmark_design",
+        "evidence_integrity",
+        "holdout_governance"
+      ],
+      "reports_to": "independent_governance_council",
+      "accountable_for": [
+        "independent acceptance evidence",
+        "evaluator separation",
+        "holdout integrity",
+        "limitations and uncertainty reporting"
+      ],
+      "allowed_action_classes": [
+        "evaluate_pinned_artifacts",
+        "verify_signed_receipts",
+        "report_acceptance_or_block"
+      ],
+      "prohibited_actions": [
+        "modify_candidate_to_pass_its_own_evaluation",
+        "access_sealed_holdout_outside_policy",
+        "approve_without_independent_evidence"
+      ],
+      "approval_boundary": "Must be separately controlled from the candidate implementation and cannot be treated as independent merely because it is a separate agent ID."
+    },
+    {
+      "id": "FIN-01",
+      "title": "Finance and Investor Reporting Agent",
+      "expertise": [
+        "cost_accounting",
+        "roi_analysis",
+        "budget_variance",
+        "investor_reporting"
+      ],
+      "reports_to": "CEO-01",
+      "accountable_for": [
+        "cost per accepted outcome",
+        "budget variance",
+        "ROI methodology",
+        "evidence-backed reporting"
+      ],
+      "allowed_action_classes": [
+        "calculate_from_verified_records",
+        "report_uncertainty",
+        "flag_budget_variance"
+      ],
+      "prohibited_actions": [
+        "invent_roi_or_productivity_gains",
+        "exclude_failed_runs_to_improve_metrics",
+        "present_internal_ci_as_production_validation"
+      ],
+      "approval_boundary": "Reports must preserve denominators, baseline definitions, skipped states, uncertainty, and source evidence."
+    }
+  ]
+}
