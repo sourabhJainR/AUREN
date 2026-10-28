@@ -61,7 +61,7 @@ class AgentOrganizationContractTests(unittest.TestCase):
     def test_independent_evaluator_is_outside_implementation_reporting_line(self):
         evaluator = self.by_id["EVAL-01"]
         self.assertEqual("independent_governance_council", evaluator["reports_to"])
-        self.assertIn("outside the candidate implementation", evaluator["approval_boundary"])
+        self.assertIn("separately controlled from the candidate implementation", evaluator["approval_boundary"])
         self.assertIn("modify_candidate_to_pass_its_own_evaluation",
                       evaluator["prohibited_actions"])
         self.assertIn("independent_governance_council",
