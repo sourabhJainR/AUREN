@@ -73,8 +73,6 @@ def validate_agent_assignment_for_dispatch(
         raise AgentAssignmentScopeDenied("agent assignment schema is invalid")
     if envelope.get("authorization") != "host_authorized_before_submission":
         raise AgentAssignmentScopeDenied("agent assignment authorization marker is invalid")
-    if not callable(authorization_verifier):
-        raise AgentAssignmentScopeDenied("host-owned assignment authorization verifier is required")
     role_id, manager_id, action_class = (
         envelope.get("role_id"), envelope.get("manager_id"), envelope.get("action_class")
     )
@@ -111,6 +109,8 @@ def validate_agent_assignment_for_dispatch(
         raise AgentAssignmentScopeDenied("agent assignment digest does not match its contents")
     if envelope.get("assignment_id") != "auren-assignment-" + digest:
         raise AgentAssignmentScopeDenied("agent assignment ID does not match its digest")
+    if not callable(authorization_verifier):
+        raise AgentAssignmentScopeDenied("host-owned assignment authorization verifier is required")
     verification_request = MappingProxyType({
         "schema_version": _SCHEMA,
         "assignment_id": envelope["assignment_id"],
