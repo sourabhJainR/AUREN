@@ -188,7 +188,7 @@ class VibeCodingHostTests(unittest.TestCase):
                 argv=(sys.executable, str(server)),
                 tool_name="bounded",
                 timeout_seconds=3,
-                max_response_chars=256,
+                max_response_chars=1024,
                 requires_authority_binding=False,
                 trusted_workspace_root=project,
             )
