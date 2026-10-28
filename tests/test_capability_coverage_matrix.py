@@ -96,6 +96,19 @@ class CapabilityCoverageMatrixTests(unittest.TestCase):
         self.assertIn("not verified", {s["deployment_status"] for s in radar["signals"]})
         self.assertIn("blocked", {s["independent_evaluation_status"] for s in radar["signals"]})
 
+    def test_scientific_discovery_radar_tracks_recent_lifecycle_reviews(self):
+        matrix = json.loads(MATRIX_PATH.read_text(encoding="utf-8"))
+        signal = next(item for item in matrix["radar_refresh"]["signals"]
+                      if item["id"] == "scientific_discovery")
+        sources = set(signal["sources"])
+        self.assertIn("https://www.nature.com/articles/s43586-026-00534-y", sources)
+        self.assertIn("https://www.mdpi.com/3043-0097/1/2/8", sources)
+        self.assertIn("https://openai.com/index/introducing-the-agents-api/",
+                      {url for item in matrix["radar_refresh"]["signals"]
+                       if item["id"] == "long_running_host_sandbox" for url in item["sources"]})
+        self.assertIn("independent replication", signal["benchmark"].lower())
+        self.assertIn("not validation", signal["acceptance_threshold"].lower())
+
     def test_matrix_does_not_define_a_numeric_superintelligence_score(self):
         matrix = json.loads(MATRIX_PATH.read_text(encoding="utf-8"))
         self.assertNotIn("superintelligence_score", matrix)
