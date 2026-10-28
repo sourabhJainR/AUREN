@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from portable.organization_guard import POLICY_VERSION, guard_policy_fingerprint
 from portable.agent_org_runtime import (
     AgentAssignmentDenied,
     authorize_agent_assignment,
@@ -48,7 +49,29 @@ class AgentOrgRuntimeTests(unittest.TestCase):
         self.assertEqual(assignment.manager_id, "EM-ENG-01")
         self.assertEqual(assignment.scope, ("portable/example.py", "tests/test_example.py"))
         self.assertEqual(assignment.assignment_digest, calls[0]["assignment_digest"])
+        self.assertEqual(assignment.policy_version, POLICY_VERSION)
+        self.assertEqual(assignment.policy_digest, guard_policy_fingerprint(None))
+        self.assertEqual(calls[0]["policy_version"], POLICY_VERSION)
+        self.assertEqual(calls[0]["policy_digest"], assignment.policy_digest)
         self.assertEqual(assignment.as_payload()["authorization"], "host_authorized_before_submission")
+
+    def test_policy_file_is_bound_to_assignment_digest(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "guard_policy.json"
+            path.write_text(json.dumps({
+                "schema_version": POLICY_VERSION,
+                "default_effect": "deny",
+                "rules": [],
+            }), encoding="utf-8")
+            assignment = authorize_agent_assignment(
+                role_id="BE-01", manager_id="EM-ENG-01",
+                action_class="edit_assigned_paths", scope=["portable/example.py"],
+                authorizer=lambda _request: True, registry_path=REGISTRY, policy_path=path,
+            )
+            self.assertEqual(assignment.policy_digest, guard_policy_fingerprint({
+                "schema_version": POLICY_VERSION, "default_effect": "deny", "rules": [],
+            }))
+            self.assertNotEqual(assignment.policy_digest, guard_policy_fingerprint(None))
 
     def test_authorizer_cannot_mutate_the_assignment_after_digest_calculation(self):
         def attempted_mutation(request):
@@ -119,7 +142,9 @@ class AgentOrgRuntimeTests(unittest.TestCase):
         envelope = result["payload"]["_auren_agent_assignment"]
         self.assertEqual(envelope["role_id"], "BE-01")
         self.assertEqual(envelope["scope"], ["portable/api.py"])
-        self.assertEqual(envelope["schema_version"], "auren-agent-assignment-v1")
+        self.assertEqual(envelope["schema_version"], "auren-agent-assignment-v2")
+        self.assertEqual(envelope["policy_version"], POLICY_VERSION)
+        self.assertEqual(envelope["policy_digest"], guard_policy_fingerprint(None))
         self.assertEqual(result["work_key"], "AUREN:test:agent-assignment")
         self.assertEqual(result["deadline_seconds"], 30)
 
