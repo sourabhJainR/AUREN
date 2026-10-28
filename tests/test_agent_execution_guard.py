@@ -410,7 +410,10 @@ class AgentExecutionGuardTests(unittest.TestCase):
                 return receipt
 
             controller._capture_event = change_policy_after_dispatch_receipt
-            controller.run_once(task.id)
+            with self.assertRaisesRegex(
+                RuntimeError, "organization Guard could not be verified at the final handler boundary"
+            ):
+                controller.run_once(task.id)
 
             self.assertTrue(changed, "dispatch decision receipt was not persisted")
             self.assertNotEqual(controller.task(task.id).state, "completed")
