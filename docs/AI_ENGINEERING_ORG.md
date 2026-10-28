@@ -80,3 +80,14 @@ Regression coverage: `tests/test_agent_org_runtime.py`. It covers wrong manager,
 This is a first runtime assignment boundary, not full production organization enforcement. The remaining integration gate is to bind authenticated role identity and allowed resource scopes to the actual execution/tool authorization boundary and verify it after process restart. No local tests were run in the connector-only environment; exact-head CI must validate the change.
 
 Rollback: revert the assignment module and its tests, then remove this section if the contract conflicts with the current runtime. The existing task submission path remains unchanged for callers that do not opt into assigned-agent submission.
+
+
+## Dispatch-time assignment scope enforcement — 2026-10-28
+
+portable/agent_execution_guard.py validates every assigned task at the controller's Guard preflight: schema, exact assignment digest and ID, current registry digest, reporting parent, action class, normalized relative resource path, and exact path membership. Assigned work without a resource selector fails closed. Tampered or stale envelopes and path traversal attempts are rejected before handler dispatch. Unassigned legacy tasks retain their existing behavior.
+
+Regression coverage: tests/test_agent_execution_guard.py. The controller revalidates the envelope after restart because it is persisted in the durable task payload. Scope strings currently mean exact relative paths, not directories or glob patterns.
+
+This is dispatch-boundary enforcement, not an OS sandbox. It does not authenticate the original manager again after restart and cannot constrain a handler that accesses undeclared resources internally or launches a bypass path. Production use still requires a host-owned authorization/receipt verifier and operation-level enforcement in filesystem, subprocess, provider, MCP, and other tool adapters. Do not claim full organization enforcement or production isolation until those boundaries are covered and independently tested.
+
+Rollback: revert the controller import/call, portable/agent_execution_guard.py, tests/test_agent_execution_guard.py, and this section together. Existing unassigned task behavior is unchanged; assigned tasks must not be silently downgraded to unassigned to work around a denial.
