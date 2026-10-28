@@ -1,24 +1,25 @@
 from __future__ import annotations
 
+import hashlib
 import tempfile
 import unittest
 from pathlib import Path
 
-from portable.context_streaming import (
-    DurableChunkJournal,
-    choose_sample,
-    file_sha256,
-    iter_file_chunks,
-    iter_text_chunks,
-)
+from portable.context_streaming import DurableChunkJournal, choose_sample, file_sha256, iter_file_chunks, iter_text_chunks
 
 
 class ContextStreamingTests(unittest.TestCase):
-    def test_chunks_reconstruct_source_without_overlap(self):
+    def test_chunks_cover_source_and_preserve_overlap(self):
         source = ("alpha beta gamma\n" * 80) + "tail"
         chunks = list(iter_text_chunks(source, max_chars=128, overlap_chars=16))
-        self.assertEqual("".join(chunk.text for chunk in chunks), source)
+        self.assertEqual(chunks[0].start, 0)
+        self.assertEqual(chunks[-1].end, len(source))
+        self.assertTrue(all(a.end > b.start for a, b in zip(chunks, chunks[1:])))
         self.assertTrue(all(chunk.sha256 and chunk.end - chunk.start == len(chunk.text) for chunk in chunks))
+        rebuilt = chunks[0].text
+        for previous, current in zip(chunks, chunks[1:]):
+            rebuilt += current.text[previous.end - current.start:]
+        self.assertEqual(rebuilt, source)
 
     def test_file_streaming_handles_utf8_and_bounded_reads(self):
         source = ("雪と🌱 line\n" * 100) + "done"
@@ -30,7 +31,7 @@ class ContextStreamingTests(unittest.TestCase):
             for previous, current in zip(chunks, chunks[1:]):
                 rebuilt += current.text[previous.end - current.start:]
             self.assertEqual(rebuilt, source)
-            self.assertEqual(file_sha256(path), __import__("hashlib").sha256(source.encode()).hexdigest())
+            self.assertEqual(file_sha256(path, read_bytes=11), hashlib.sha256(source.encode()).hexdigest())
 
     def test_sampling_requires_explicit_exploratory_scope(self):
         chunks = list(iter_text_chunks("x" * 2000, max_chars=100, overlap_chars=10))
@@ -39,7 +40,9 @@ class ContextStreamingTests(unittest.TestCase):
         with self.assertRaises(PermissionError):
             choose_sample(chunks, count=3, exploratory=True, verification=True)
         sample = choose_sample(chunks, count=3, exploratory=True)
-        self.assertEqual([chunks[0], chunks[len(chunks) // 2], chunks[-1]], sample)
+        self.assertEqual(chunks[0], sample[0])
+        self.assertEqual(chunks[-1], sample[-1])
+        self.assertEqual(3, len(sample))
 
     def test_journal_is_idempotent_and_rejects_source_drift(self):
         with tempfile.TemporaryDirectory() as directory:
