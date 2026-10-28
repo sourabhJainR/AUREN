@@ -3053,6 +3053,8 @@ class ExecutionController:
             # Persist the exact final policy decision before the handler can act.
             # Evidence failure raises here and therefore prevents dispatch.
             dispatch_action = infer_delivery_action(task.handler, {}) or self._handler_guard_action(task.handler)
+            if role_scope is not None:
+                dispatch_action = role_scope["action_class"]
             self._capture_event(
                 "guard_dispatch_decision",
                 task,
