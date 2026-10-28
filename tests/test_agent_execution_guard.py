@@ -13,6 +13,7 @@ from portable.agent_execution_guard import (
     validate_agent_assignment_for_dispatch,
 )
 from portable.agent_org_runtime import REGISTRY_PATH, authorize_agent_assignment
+from portable.organization_guard import POLICY_VERSION, guard_policy_fingerprint
 
 
 def assigned_filesystem_handler(payload):
@@ -34,9 +35,19 @@ class AgentExecutionGuardTests(unittest.TestCase):
         )
         return {"path": scope[0], "_auren_agent_assignment": assignment.as_payload()}
 
+    def _validate(self, payload, **kwargs):
+        expected_policy_version = kwargs.pop("expected_policy_version", POLICY_VERSION)
+        expected_policy_digest = kwargs.pop("expected_policy_digest", guard_policy_fingerprint(None))
+        return validate_agent_assignment_for_dispatch(
+            payload,
+            expected_policy_version=expected_policy_version,
+            expected_policy_digest=expected_policy_digest,
+            **kwargs,
+        )
+
     def test_assigned_resource_within_scope_passes(self):
         payload = self._payload()
-        validate_agent_assignment_for_dispatch(
+        self._validate(
             payload, expected_action_class="edit_assigned_paths", resource=payload["path"],
             authorization_verifier=lambda _request: True,
         )
@@ -44,7 +55,7 @@ class AgentExecutionGuardTests(unittest.TestCase):
     def test_assigned_resource_outside_scope_fails_closed(self):
         payload = self._payload()
         with self.assertRaisesRegex(AgentAssignmentScopeDenied, "outside the assigned scope"):
-            validate_agent_assignment_for_dispatch(
+            self._validate(
                 payload, expected_action_class="edit_assigned_paths", resource="portable/secrets.py",
                 authorization_verifier=lambda _request: True,
             )
@@ -52,7 +63,7 @@ class AgentExecutionGuardTests(unittest.TestCase):
     def test_missing_resource_fails_closed_for_assigned_task(self):
         payload = self._payload()
         with self.assertRaises(AgentAssignmentScopeDenied):
-            validate_agent_assignment_for_dispatch(
+            self._validate(
                 payload, expected_action_class="edit_assigned_paths", resource="",
                 authorization_verifier=lambda _request: True,
             )
@@ -61,7 +72,7 @@ class AgentExecutionGuardTests(unittest.TestCase):
         payload = self._payload()
         for path in ("../secrets.py", "/etc/passwd", "portable/../secrets.py", r"portable\secrets.py"):
             with self.subTest(path=path), self.assertRaises(AgentAssignmentScopeDenied):
-                validate_agent_assignment_for_dispatch(
+                self._validate(
                     payload, expected_action_class="edit_assigned_paths", resource=path,
                     authorization_verifier=lambda _request: True,
                 )
@@ -71,7 +82,7 @@ class AgentExecutionGuardTests(unittest.TestCase):
             payload = self._payload()
             payload["_auren_agent_assignment"][field] = value
             with self.subTest(field=field), self.assertRaises(AgentAssignmentScopeDenied):
-                validate_agent_assignment_for_dispatch(
+                self._validate(
                     payload, expected_action_class="edit_assigned_paths", resource="portable/api.py",
                     authorization_verifier=lambda _request: True,
                 )
@@ -80,20 +91,20 @@ class AgentExecutionGuardTests(unittest.TestCase):
         payload = self._payload()
         payload["_auren_agent_assignment"]["registry_digest"] = "0" * 64
         with self.assertRaisesRegex(AgentAssignmentScopeDenied, "registry digest is stale"):
-            validate_agent_assignment_for_dispatch(
+            self._validate(
                 payload, expected_action_class="edit_assigned_paths", resource="portable/api.py", authorization_verifier=lambda _request: True
             )
 
     def test_malformed_reserved_envelope_is_denied(self):
         with self.assertRaises(AgentAssignmentScopeDenied):
-            validate_agent_assignment_for_dispatch(
+            self._validate(
                 {"_auren_agent_assignment": {"role_id": "BE-01"}}, resource="portable/api.py"
             )
 
     def test_assigned_task_requires_host_owned_verifier(self):
         payload = self._payload()
         with self.assertRaisesRegex(AgentAssignmentScopeDenied, "verifier is required"):
-            validate_agent_assignment_for_dispatch(
+            self._validate(
                 payload, expected_action_class="edit_assigned_paths", resource="portable/api.py",
             )
 
@@ -103,7 +114,7 @@ class AgentExecutionGuardTests(unittest.TestCase):
             raise RuntimeError("offline")
         for verifier in (lambda _request: False, lambda _request: 1, broken):
             with self.subTest(verifier=verifier), self.assertRaises(AgentAssignmentScopeDenied):
-                validate_agent_assignment_for_dispatch(
+                self._validate(
                     payload, expected_action_class="edit_assigned_paths", resource="portable/api.py",
                     authorization_verifier=verifier,
                 )
@@ -116,7 +127,7 @@ class AgentExecutionGuardTests(unittest.TestCase):
             with self.assertRaises(TypeError):
                 request["scope"] = ("portable/other.py",)
             return True
-        validate_agent_assignment_for_dispatch(
+        self._validate(
             payload, expected_action_class="edit_assigned_paths", resource="portable/api.py",
             authorization_verifier=verifier,
         )
@@ -124,16 +135,16 @@ class AgentExecutionGuardTests(unittest.TestCase):
         self.assertEqual(seen[0]["scope"], ("portable/api.py",))
 
     def test_unassigned_tasks_keep_existing_behavior(self):
-        validate_agent_assignment_for_dispatch({"path": "portable/other.py"}, resource="portable/other.py")
+        self._validate({"path": "portable/other.py"}, resource="portable/other.py")
 
     def test_scope_requires_exact_path_and_denies_descendants(self):
         payload = self._payload(("portable/api.py",))
-        validate_agent_assignment_for_dispatch(
+        self._validate(
             payload, expected_action_class="edit_assigned_paths", resource="portable/api.py",
             authorization_verifier=lambda _request: True,
         )
         with self.assertRaises(AgentAssignmentScopeDenied):
-            validate_agent_assignment_for_dispatch(
+            self._validate(
                 payload, expected_action_class="edit_assigned_paths", resource="portable/api.py/routes.py",
                 authorization_verifier=lambda _request: True,
             )
@@ -199,6 +210,54 @@ class AgentExecutionGuardTests(unittest.TestCase):
                     "resource": "allowed.txt", "path": "allowed.txt",
                     "workspace_root": str(root), "content": "must not write",
                     "_auren_agent_assignment": assignment,
+                },
+            )
+            controller.run_once(task.id)
+            self.assertNotEqual(controller.task(task.id).state, "completed")
+            self.assertFalse((root / "allowed.txt").exists())
+
+    def test_stale_policy_version_or_digest_fails_closed(self):
+        payload = self._payload()
+        with self.assertRaisesRegex(AgentAssignmentScopeDenied, "policy version is stale"):
+            self._validate(
+                payload, expected_policy_version="auren-guard-v0",
+                resource="portable/api.py", authorization_verifier=lambda _request: True,
+            )
+        with self.assertRaisesRegex(AgentAssignmentScopeDenied, "policy digest is stale"):
+            self._validate(
+                payload, expected_policy_digest="0" * 64,
+                resource="portable/api.py", authorization_verifier=lambda _request: True,
+            )
+
+    def test_stale_policy_change_blocks_assigned_handler_before_dispatch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            policy_dir = root / ".auren"
+            policy_dir.mkdir()
+            (policy_dir / "guard_policy.json").write_text(
+                json.dumps({
+                    "schema_version": POLICY_VERSION,
+                    "default_effect": "deny",
+                    "rules": [],
+                }),
+                encoding="utf-8",
+            )
+            controller = ExecutionController(root, agent_assignment_verifier=lambda _request: True)
+            controller.register_handler(
+                "tests.test_agent_execution_guard.assigned_filesystem_handler",
+                assigned_filesystem_handler,
+                execution_class="read_only",
+                agent_action_class="edit_assigned_paths",
+            )
+            payload = self._payload(("allowed.txt",))
+            task = controller.submit(
+                "tests.test_agent_execution_guard.assigned_filesystem_handler",
+                {
+                    "resource": "allowed.txt",
+                    "path": "allowed.txt",
+                    "workspace_root": str(root),
+                    "content": "must not write",
+                    "_auren_agent_assignment": payload["_auren_agent_assignment"],
                 },
             )
             controller.run_once(task.id)
