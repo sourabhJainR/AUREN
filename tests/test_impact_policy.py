@@ -104,6 +104,8 @@ class ImpactPolicyTests(unittest.TestCase):
         self.assertIsNotNone(match, "runtime resilience workflow must expose its changed-path policy")
         patterns = ast.literal_eval(match.group(1))
         required_paths = (
+            "portable/sdk.py",
+            "tests/test_auren_sdk.py",
             "portable/provider_operation_lifecycle.py",
             "tests/test_provider_operation_lifecycle.py",
             "portable/action_governance.py",
