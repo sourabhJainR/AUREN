@@ -11,9 +11,10 @@ import errno
 import os
 import stat
 from pathlib import Path, PurePosixPath
-from typing import BinaryIO, TextIO
+from typing import BinaryIO, Iterator, TextIO
 
 from .agent_execution_guard import enforce_agent_resource_scope
+from .context_streaming import InputChunk, iter_stream_chunks
 
 
 def _relative_parts(relative_path: str | Path) -> tuple[str, ...]:
@@ -130,6 +131,25 @@ def read_workspace_text(root: str | Path, relative_path: str | Path) -> str:
         return stream.read()
 
 
+
+def iter_workspace_text_chunks(
+    root: str | Path,
+    relative_path: str | Path,
+    *,
+    max_chars: int = 12_000,
+    overlap_chars: int = 300,
+    read_chars: int = 16_384,
+) -> Iterator[InputChunk]:
+    """Stream a workspace file through the same root-confined open boundary.
+
+    The open descriptor is retained for the duration of iteration, so callers
+    never resolve an untrusted workspace path and then reopen it by pathname.
+    """
+    with open_workspace_file(root, relative_path, "r") as stream:
+        yield from iter_stream_chunks(stream, max_chars=max_chars, overlap_chars=overlap_chars,
+                                      read_chars=read_chars)
+
+
 def read_workspace_bytes(root: str | Path, relative_path: str | Path) -> bytes:
     with open_workspace_file(root, relative_path, "rb") as stream:
         return stream.read()
@@ -147,6 +167,7 @@ def write_workspace_text(root: str | Path, relative_path: str | Path, content: s
 
 
 __all__ = [
+    "iter_workspace_text_chunks",
     "open_workspace_file",
     "read_workspace_bytes",
     "read_workspace_text",

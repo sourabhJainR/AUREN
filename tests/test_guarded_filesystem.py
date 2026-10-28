@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 
 from portable.guarded_filesystem import (
+    iter_workspace_text_chunks,
     read_workspace_bytes,
     read_workspace_text,
     resolve_workspace_path,
@@ -28,6 +29,21 @@ class GuardedFilesystemTests(unittest.TestCase):
         self.assertIn(read_workspace_bytes(self.root, "docs/design/brief.md"), (b"safe\n", b"safe\r\n"))
         self.assertTrue(target.is_file())
         self.assertTrue(self.root.resolve() in target.resolve().parents)
+
+    def test_streaming_large_workspace_file_preserves_unicode_and_bounds(self):
+        source = ("雪と🌱 context\n" * 100) + "end"
+        write_workspace_text(self.root, "large.txt", source)
+        chunks = list(iter_workspace_text_chunks(self.root, "large.txt", max_chars=96,
+                                                  overlap_chars=8, read_chars=37))
+        rebuilt = chunks[0].text if chunks else ""
+        for previous, current in zip(chunks, chunks[1:]):
+            rebuilt += current.text[previous.end - current.start:]
+        self.assertEqual(source, rebuilt)
+        self.assertTrue(all(len(chunk.text) <= 96 for chunk in chunks))
+
+    def test_streaming_rejects_workspace_traversal(self):
+        with self.assertRaises(PermissionError):
+            list(iter_workspace_text_chunks(self.root, "../outside/secret.txt"))
 
     def test_traversal_and_absolute_paths_are_rejected(self):
         for path in ("../outside/secret.txt", "docs/../../outside/secret.txt", "/tmp/outside.txt", "C:\\temp\\outside.txt", ""):
