@@ -51,6 +51,8 @@ class ContextStreamingTests(unittest.TestCase):
             journal.begin("job-1", "source-v1")
             journal.record("job-1", chunk, "verified result")
             journal.record("job-1", chunk, "verified result")
+            with self.assertRaises(ValueError):
+                journal.finish("job-1", expected_chunks=2)
             self.assertEqual(journal.completed("job-1")[0], (chunk.sha256, "verified result"))
             with self.assertRaises(ValueError):
                 journal.record("job-1", chunk, "conflicting result")
@@ -63,6 +65,8 @@ class ContextStreamingTests(unittest.TestCase):
             journal.finish("job-1", blocked=True)
             with self.assertRaises(ValueError):
                 journal.record("job-1", chunk, "late result")
+            with self.assertRaises(ValueError):
+                journal.begin("job-1", "source-v1")
 
 
 if __name__ == "__main__":
