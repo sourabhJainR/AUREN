@@ -526,7 +526,8 @@ class ConsequentialRunOnceRecoveryTests(unittest.TestCase):
         self.assertEqual("executing", ledger.get("provider-operation:" + outer_key)["state"])
         self.assertEqual(["accepted:abc123"], marker.read_text(encoding="utf-8").splitlines())
         self.assertEqual([], _PROVIDER_CALLS)
-        self.assertIsNone(restarted.run_once(task_id))
+        with patch.dict(os.environ, {"AUREN_TEST_CRASH_AFTER_ACCEPT": "0"}):
+            self.assertIsNone(restarted.run_once(task_id))
         self.assertEqual(["accepted:abc123"], marker.read_text(encoding="utf-8").splitlines())
 
 if __name__ == "__main__":
