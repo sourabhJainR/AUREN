@@ -239,3 +239,34 @@ with uncertain outcomes require provider-native lookup and reconciliation first.
 
 Rollback: revert the diagnostic metadata, tests, and this note together. Keep bounded
 reads, immediate fail-closed signaling, and process-tree cleanup.
+
+## Bounded MCP response recovery (2026-10-28)
+
+The MCP stdio adapter keeps the configured per-frame character ceiling as a hard
+limit. It never accepts truncated JSON, raises the ceiling automatically, or
+replays a consequential call to recover output. For operator-declared read-only
+tools only, an optional adapter-owned `read_only_response_reducer` may make one
+recovery attempt after an oversized response: reduce page/batch size, project
+only needed fields, request a bounded sample, or narrow the query. The reduced
+arguments must be JSON-safe and different from the original; the normal frame
+cap and timeout apply unchanged on the retry. A second oversized response fails
+closed.
+
+This is a controlled adaptation hook, not a universal MCP pagination protocol.
+Each configured reducer must match that tool's documented argument schema and
+must preserve the question's meaning. Sampling must be labeled as a sample;
+it cannot be used as complete evidence for security, evaluation, or release
+gates. Batch splitting and streaming belong in tool-specific adapters when the
+provider exposes cursors/chunks. Merge partial results only when ordering,
+deduplication, completeness, and provenance are defined. If a tool has no safe
+reduction mechanism, narrow the request explicitly or leave the action blocked.
+
+Regression coverage proves that a read-only oversized response can be retried
+once with smaller arguments and that the recovery hook is rejected for
+authority-bound/consequential tools. This is not permission to bypass output
+limits, resource controls, authorization, or independent-evaluation gates.
+
+Rollback: remove the optional reducer wiring and its tests; retain bounded
+frame reads, immediate termination on oversized frames, queue bounds, and
+fail-closed behavior. Do not increase the default response ceiling to mask
+oversized payloads.
