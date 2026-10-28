@@ -270,3 +270,10 @@ Rollback: remove the optional reducer wiring and its tests; retain bounded
 frame reads, immediate termination on oversized frames, queue bounds, and
 fail-closed behavior. Do not increase the default response ceiling to mask
 oversized payloads.
+
+
+## MCP stderr chunk-drain correctness (2026-10-28)
+
+The stderr reader drains an oversized diagnostic line in fixed-size chunks and stops at that line's newline. It must not consume the next diagnostic line or wait on it because an escaped newline was compared as literal backslash-plus-n. Stdout frame limits, queue limits, and the one-shot read-only reducer remain unchanged.
+
+Regression coverage verifies that a long line already ending in newline triggers no additional read, and that an unterminated oversized line is drained only with bounded reads until its terminator. Rollback: revert the helper, call-site, tests, and this note together; do not remove the bounded read limits.
