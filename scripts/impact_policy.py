@@ -143,7 +143,6 @@ _RULES: tuple[tuple[str, tuple[str, ...], bool], ...] = (
     ("tests/test_execution_controls.py", ("tests.test_execution_controls",), True),
     ("tests/test_state_root_rollback_rehearsal.py", ("tests.test_state_root_rollback_rehearsal",), True),
     ("tests/test_provider_operation_lifecycle.py", ("tests.test_provider_operation_lifecycle",), True),
-    ("tests/test_provider_operation_identity_encoding.py", ("tests.test_provider_operation_identity_encoding", "tests.test_provider_operation_lifecycle"), True),
     ("tests/test_side_effect_ledger.py", ("tests.test_side_effect_ledger",), True),
     ("tests/test_durable_approval.py", ("tests.test_durable_approval", "tests.test_side_effect_ledger_crash_fault_injection"), True),
     ("tests/test_continuous_execution_cli.py", ("tests.test_continuous_execution_cli",), True),
