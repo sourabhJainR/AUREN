@@ -11,6 +11,7 @@ from dataclasses import dataclass
 import hashlib
 import json
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any, Callable, Mapping, Sequence
 
 
@@ -163,7 +164,7 @@ def authorize_agent_assignment(
         "registry_digest": registry_digest,
     }
     assignment_digest = hashlib.sha256(_canonical(body)).hexdigest()
-    request = {**body, "assignment_digest": assignment_digest}
+    request = MappingProxyType({**body, "scope": tuple(clean_scope), "assignment_digest": assignment_digest})
     try:
         approved = authorizer(request)
     except Exception as exc:
