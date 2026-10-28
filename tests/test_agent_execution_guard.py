@@ -365,7 +365,7 @@ class AgentExecutionGuardTests(unittest.TestCase):
             self.assertNotEqual(restarted.task(task.id).state, "running")
             self.assertFalse((root / "allowed.txt").exists())
 
-    def test_policy_change_after_initial_preflight_is_rejected_before_handler_entry(self):
+    def test_policy_change_after_dispatch_decision_is_rejected_before_handler_entry(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             policy_dir = root / ".auren"
@@ -398,22 +398,24 @@ class AgentExecutionGuardTests(unittest.TestCase):
             })
 
             original_preflight = controller._evaluate_guard_for_task
+            preflight_calls = 0
             changed = False
 
-            def change_policy_after_preflight(current_task):
-                nonlocal changed
+            def change_policy_after_dispatch_decision(current_task):
+                nonlocal preflight_calls, changed
                 decision = original_preflight(current_task)
-                if not changed:
+                preflight_calls += 1
+                if preflight_calls == 2:
+                    # Call 1 is the preflight gate; call 2 is the dispatch
+                    # decision whose receipt is persisted before final recheck.
                     changed = True
                     write_policy("deny")
                 return decision
 
-            # Simulate a policy update in the gap between the first controller
-            # preflight and the final validation immediately before handler entry.
-            controller._evaluate_guard_for_task = change_policy_after_preflight
+            controller._evaluate_guard_for_task = change_policy_after_dispatch_decision
             controller.run_once(task.id)
 
-            self.assertTrue(changed, "initial Guard preflight was not exercised")
+            self.assertTrue(changed, "dispatch decision boundary was not exercised")
             self.assertNotEqual(controller.task(task.id).state, "completed")
             self.assertFalse((root / "allowed.txt").exists())
 
