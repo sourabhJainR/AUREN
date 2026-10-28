@@ -342,8 +342,12 @@ class ExecutionController:
             }
             if agent_action_class not in allowed_agent_action_classes:
                 raise ValueError("agent_action_class is not declared by any organization role")
-            if (infer_delivery_action(name, {}) is not None
-                    or infer_delivery_action(str(getattr(resolved_handler, "__qualname__", "")), {}) is not None):
+            delivery_guard_tokens = set(re.findall(r"[a-z0-9]+", (guard_action or "").lower()))
+            if (
+                infer_delivery_action(name, {}) is not None
+                or infer_delivery_action(str(getattr(resolved_handler, "__qualname__", "")), {}) is not None
+                or delivery_guard_tokens & {"commit", "push", "pull", "merge", "release", "deploy", "publish", "approve", "promote"}
+            ):
                 raise ValueError("delivery handlers cannot be assigned a non-delivery role action class")
 
         name_tokens = _handler_tokens(name)
