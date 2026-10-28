@@ -1,7 +1,7 @@
 # Standalone Readiness and Important-Gap Matrix
 
-**Reviewed:** 2026-10-21 14:20 UTC  
-**Product version:** 1.0.5 (no release created by this review)  
+**Reviewed:** 2026-10-28  
+**Product version:** 1.0.6 (no release created by this review)  
 **Status vocabulary:** implemented locally, repository-verified, deployment-verified, externally verified, or open. A merged PR or green CI does not establish external isolation or independent evaluation.
 
 ## Product boundaries
@@ -22,11 +22,12 @@
 - [x] Shared bounded provider-call wait with a global cap on hung provider workers.
 - [x] Provider timeout progress events identify the task and block implicit retry while a late result remains possible.
 - [x] Durable execution and progress-journal recovery have regression coverage for selected commit boundaries.
-- [ ] Extend fault injection to every external side-effect boundary: intent persisted, dispatch started, provider accepted, remote operation completed, receipt persisted, terminal state persisted.
+- [x] Add repository regression coverage for selected local split-write boundaries across plan/run, recovery checkpoint, progress journal, executive receipt, evidence index, learning checkpoint, and dashboard state (PRs #1034, #1037, #1042).
+- [ ] Extend fault injection to every external side-effect boundary: intent persisted, dispatch started, provider accepted, remote operation completed, receipt persisted, terminal state persisted. The selected tests do not prove every real provider's native idempotency or authoritative lookup.
 - [x] Add a command-backed provider invoker that terminates a timed-out child process and has regression tests for timeout, environment isolation, output limits, and error redaction. This is a bounded process adapter, not a full sandbox.
 - [x] Verify hard termination and process-tree termination: implementation is present for the tested platforms: POSIX uses process-group termination, and Windows uses a kill-on-close Job Object. The descendant-process regression passed on main SHA `2ece3959991ac41f9b104242e25a4e1f8153e85e`.
 - [ ] Apply OS/container memory limits for untrusted provider execution. Byte-bounded output capture limits retained output, but does not enforce a process memory quota.
-- [ ] Prove cancellation and absolute deadlines propagate end-to-end through supervisor, graph nodes, provider/model adapters, child processes, and validation commands.
+- [ ] Complete end-to-end proof that cancellation and absolute deadlines propagate through every supervisor, graph node, provider/model adapter, child process, and validation command. Selected live-handler and subprocess tests exist; universal adapter coverage and deployment evidence remain open.
 - [ ] Prove unknown remote outcomes reconcile by idempotency key or authoritative operation lookup before retry. Never automatically replay an uncertain operation.
 
 **Exit evidence:** bounded wall-clock tests, platform-specific process-tree termination, durable checkpoint snapshots, duplicate-side-effect counters, restart/reconciliation tests, and no false-success assertions.
@@ -35,8 +36,10 @@
 
 - [x] Durable execution controller, plan/run store, progress journal, and dashboard projections exist.
 - [x] Supervisor task identity and allowlisted provider lifecycle events are propagated into progress records.
-- [ ] Run a cross-store crash matrix over task state, plan/run revision, progress journal, executive receipt, and evidence index. Existing tests cover plan/recovery split writes, progress/receipt disagreement, and evidence-ledger process death in separate suites; the combined matrix and no-replay proof across all stores remain open.
-- [ ] Prove dashboard and CLI use canonical durable status, not generated progress text; show blocked, cancelled, timed-out, unknown, stale, and unscored states distinctly. Tests now cover durable plan-run dashboard status despite stale events and CLI blocked status after startup reconciliation; full state parity and read-only detection of cross-store disagreement remain open.
+- [x] Add a combined repository regression slice for selected cross-store boundaries over task state, plan/run revision, recovery checkpoint, progress journal, executive receipt, evidence index, learning checkpoint, and dashboard projection. Tests require blocked/unknown state on disagreement and no handler replay (PRs #1034, #1037, #1042).
+- [ ] Complete the remaining crash matrix across every provider-side-effect boundary and deployed store combination; repository fixtures do not prove real provider behavior or production recovery.
+- [x] Verify selected dashboard projections use durable plan/run checkpoints, ignore stale progress events, and remain blocked on split-write disagreement; CLI worker-state tests preserve blocked state after reconciliation.
+- [ ] Complete full dashboard/API/CLI parity for blocked, cancelled, timed-out, unknown, stale, and unscored states across deployed multi-session restart and partial-write scenarios.
 - [ ] Verify shared memory search across agents and branches with project scope, access control, provenance, freshness, and retraction tests.
 
 **Exit evidence:** crash/restart matrix, source-of-truth map, API/UI parity assertions, and searchable evidence references tied to exact revisions.
@@ -83,10 +86,10 @@
 - [ ] Keep `site/index.html` and `docs/index.html` byte-identical; run consistency tests and verify Pages deployment on the exact merged SHA.
 - [ ] Publish a release-readiness matrix with limitations, skipped checks, open external gates, install/rollback instructions, and a source/artifact digest.
 
-## Governance verification — 2026-10-23
+## Governance verification — 2026-10-28
 
 - [x] The `mainBranchRule` ruleset is active and blocks branch deletion and non-fast-forward updates.
-- [ ] Required status checks are **not configured** in that ruleset as inspected on 2026-10-23. The current ruleset contains only `deletion` and `non_fast_forward`; green CI is therefore not enforced by this ruleset as a merge prerequisite. A repository owner/admin must add the required check names (including the final status aggregator and the relevant runtime, architecture, hardening, harness, and portable-bundle checks) and verify the saved ruleset. This connector can inspect the ruleset but cannot modify repository administration settings.
+- [ ] The active `mainBranchRule` ruleset currently contains only `deletion` and `non_fast_forward`; it has no required-status-check rule. The branch-protection endpoint was not readable through the connected GitHub integration, so its separate settings could not be verified. A repository owner/admin must configure and verify effective required checks, including the final status aggregator and relevant runtime, architecture, hardening, harness, and portable-bundle checks. This integration cannot change repository administration settings.
 
 ## Merge and release rules
 
@@ -144,3 +147,16 @@
 - [x] Keep schema v1 readable for historical compatibility but explicitly report that it lacks the new uncertainty acceptance evidence.
 - [ ] Run exact-head CI and adversarial regression checks.
 - [ ] Obtain externally controlled signed v2 campaign evidence. Local schema tests do not close issue #404 or prove independent custody, signer identity, or an actual campaign run.
+
+
+## Verified engineering snapshot — 2026-10-28
+
+**Review baseline main SHA:** `da9517e4946313215c477694988f1fb5f6bba052` (the current main before this documentation-only update).
+
+- Current-main check-runs were terminal: 22 successful, 3 skipped, zero failed, zero pending. Skipped checks remain skipped, not passed.
+- All six post-merge push workflows completed successfully: AI Harness Check, AUREN Portable Bundle, Runtime Resilience Matrix, Architecture Integrity, Production AI Harness Hardening, and Agent Capability Runtime.
+- Portable artifacts from [run 40624079442](https://github.com/sourabhJainR/AUREN/actions/runs/40624079442) were downloaded and verified. Outer bundle artifact SHA-256: `a374cd0c1eaebcdc9867e02277d7a98279f8bd2ccc505d4f23e5c2897119d2e6`. Outer checksum artifact SHA-256: `d11f620576d9e31482a12c4621845423ffe85fcb1b3c758c71c16ee286df917f`. Embedded ZIP SHA-256: `f477069e369f09b5d72cd5afc5647fbc76fd82d7cce9719824cfe247d6f2b154`. All 508 manifest entries match their recorded sizes and hashes; the manifest pins this SHA, version `1.0.6`, and `target_repository_mutation=false`.
+- Repository tests now cover selected #692/#694 shared identity, evidence-gated learning, cross-store split writes, fresh-process reconciliation, no replay, cancellation/deadline blocking, and dashboard status derived from durable state. No local test run is claimed for this review because no AUREN checkout/runtime was available; the evidence is from the recorded GitHub CI runs.
+- #998 repository-level graph recovery and independent-verifier code gates are recorded as complete; external production isolation and independent evaluator/holdout custody remain blocked. #534 remains open until operator-controlled staging migration, fresh-process resume, rollback, and post-cutover reconciliation receipts are attached and independently checked.
+
+This snapshot does not prove deployment readiness, independent evaluation, sealed-holdout custody, production isolation, or AGI/SI. A documentation rollback is a revert of this change; no runtime behavior or product version is changed.
