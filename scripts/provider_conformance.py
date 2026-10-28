@@ -153,7 +153,7 @@ def run(live: bool = False, write_report: bool = False) -> dict[str, Any]:
         "mode": "live" if live else "static",
         "static_contract": {"status": "pass" if static_pass else "fail", "checks": [asdict(c) for c in static]},
         "providers": [asdict(p) for p in providers],
-        "release_ready": static_pass and all(p.status == "pass" for p in providers),
+        "release_ready": live and static_pass and all(p.status == "pass" for p in providers) and all(check.status == "pass" for provider in providers for check in provider.checks if check.id == "live-probe"),
     }
     if write_report:
         REPORT.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
@@ -177,7 +177,7 @@ def main() -> int:
             for check in provider["checks"]:
                 print(f"  {check['status'].upper():11} {check['id']}: {check['detail']}")
         print("RELEASE READY" if report["release_ready"] else "NOT RELEASE READY")
-    return 0 if report["release_ready"] else 1
+    return 0 if (report["release_ready"] if args.live else report["static_contract"]["status"] == "pass" and all(p.get("status") == "pass" for p in report["providers"])) else 1
 
 
 if __name__ == "__main__":
