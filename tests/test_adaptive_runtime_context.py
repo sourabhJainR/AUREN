@@ -151,5 +151,50 @@ class AdaptiveRuntimeContextTests(unittest.TestCase):
             scheduler.close()
 
 
+    def test_runtime_streams_canonical_memory_in_bounded_evidence_chunks(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            graph = Graph([Node("agent", NodeKind.AGENT, lambda context: "ok", critical=True, risk="low")])
+            runtime, memory, scheduler = self._runtime(root, graph)
+            orchestrator = runtime.memory_orchestrator(root)
+            saved = orchestrator.remember(
+                "semantic", "preserve exact engineering evidence " * 90,
+                source="test", approved=True, verified=True,
+            )
+            chunks = runtime.pack_memory_context_chunks(
+                root, "preserve exact engineering evidence",
+                required_memory_ids=(saved.memory_id,), chunk_chars=256,
+                recall_budget_chars=10_000,
+            )
+            self.assertGreater(len(chunks), 1)
+            self.assertTrue(all(len(chunk.text) <= 256 for chunk in chunks))
+            self.assertEqual({saved.memory_id}, {rid for chunk in chunks for rid in chunk.record_ids})
+            self.assertTrue(all(chunk.source_digest for chunk in chunks))
+            scheduler.close()
+            memory.close()
+
+    def test_runtime_memory_chunking_fails_closed_when_recall_omits_candidates(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            graph = Graph([Node("agent", NodeKind.AGENT, lambda context: "ok", critical=True, risk="low")])
+            runtime, memory, scheduler = self._runtime(root, graph)
+            orchestrator = runtime.memory_orchestrator(root)
+            required = orchestrator.remember(
+                "semantic", "bounded memory recall", source="test", approved=True, verified=True,
+            )
+            orchestrator.remember(
+                "semantic", "bounded memory recall " + ("large payload " * 1000),
+                source="test", approved=True, verified=False,
+            )
+            with self.assertRaisesRegex(ValueError, "recall omitted"):
+                runtime.pack_memory_context_chunks(
+                    root, "bounded memory recall",
+                    required_memory_ids=(required.memory_id,), chunk_chars=256,
+                    recall_budget_chars=100,
+                )
+            scheduler.close()
+            memory.close()
+
+
 if __name__ == "__main__":
     unittest.main()
