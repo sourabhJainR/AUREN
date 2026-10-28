@@ -114,7 +114,8 @@ class RuntimeExecutionGuardTests(unittest.TestCase):
     def test_tighten_deadline_never_extends_shared_budget(self):
         guard = RuntimeExecutionGuard(max_steps=4, max_attempts=4)
         first_remaining = guard.tighten_deadline(0.5)
-        self.assertLessEqual(first_remaining, 0.5)
+        # Allow one nanosecond for binary floating-point rounding, not budget growth.
+        self.assertLessEqual(first_remaining, 0.5 + 1e-9)
         shortened_remaining = guard.snapshot()["remaining_seconds"]
         guard.tighten_deadline(10)
         self.assertLessEqual(guard.snapshot()["remaining_seconds"], shortened_remaining)
@@ -141,7 +142,7 @@ class RuntimeExecutionGuardTests(unittest.TestCase):
         )
         self.assertIs(guard, captured["guard"])
         self.assertIs(guard.cancellation_event, cancellation)
-        self.assertLessEqual(guard.snapshot()["remaining_seconds"], 0.5)
+        self.assertLessEqual(guard.snapshot()["remaining_seconds"], 0.5 + 1e-9)
         cancellation.set()
         with self.assertRaises(ExecutionBudgetExceeded):
             guard.check()
