@@ -215,3 +215,8 @@ Rollback: revert the `MCPStdioToolAdapter` Job Object integration, its Windows d
 ## MCP stdio response-memory bound (2026-10-28)
 
 MCP stdout protocol buffering now uses a fixed-capacity response queue. If an untrusted server floods notifications faster than the caller can consume them, the adapter fails closed with a queue-overflow error instead of accumulating an unbounded number of strings. Stderr is consumed in fixed-size reads and only a bounded number of redacted diagnostic fragments are retained. Oversized protocol frames remain rejected. This limits application-side queue and diagnostic retention; it is not a full OS memory sandbox, and the child process still requires timeout/process-tree containment. Roll back the queue/reader changes together with the flood regression if compatibility issues are demonstrated; do not restore unbounded buffering.
+
+
+## Fatal MCP reader paths remain nonblocking (2026-10-28)
+
+Oversized frames and response-queue floods now share a fail-closed signaling path: buffered notifications are discarded, a bounded failure marker is inserted without blocking, and the caller tears down the process tree. This prevents a full queue from delaying delivery of an oversized-frame error. The regression suite covers both queue flooding and oversized-frame rejection. These controls bound protocol buffering; they do not claim OS-level memory isolation.
