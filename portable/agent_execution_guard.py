@@ -8,9 +8,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+from contextlib import contextmanager
+from contextvars import ContextVar, Token
 from pathlib import PurePosixPath
 from types import MappingProxyType
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Iterator, Mapping
 
 from .agent_org_runtime import REGISTRY_PATH, load_agent_org_registry
 
@@ -18,6 +20,9 @@ _SCHEMA = "auren-agent-assignment-v1"
 _ASSIGNMENT_KEY = "_auren_agent_assignment"
 _MAX_SCOPE_ITEMS = 100
 _MAX_SCOPE_LENGTH = 512
+_ACTIVE_ASSIGNMENT_SCOPE: ContextVar[tuple[str, ...] | None] = ContextVar(
+    "auren_active_agent_assignment_scope", default=None
+)
 
 
 class AgentAssignmentScopeDenied(PermissionError):
@@ -49,7 +54,7 @@ def validate_agent_assignment_for_dispatch(
     resource: str | None,
     registry_path: str = str(REGISTRY_PATH),
     authorization_verifier: Callable[[Mapping[str, Any]], Any] | None = None,
-) -> None:
+) -> tuple[str, ...] | None:
     """Validate an optional assignment envelope before any handler dispatch.
 
     Unassigned legacy tasks retain existing behavior. If the reserved assignment
@@ -61,7 +66,7 @@ def validate_agent_assignment_for_dispatch(
     if not isinstance(payload, Mapping):
         raise AgentAssignmentScopeDenied("task payload must be a mapping")
     if _ASSIGNMENT_KEY not in payload:
-        return
+        return None
     envelope = payload.get(_ASSIGNMENT_KEY)
     if not isinstance(envelope, Mapping):
         raise AgentAssignmentScopeDenied("agent assignment envelope is malformed")
@@ -131,6 +136,30 @@ def validate_agent_assignment_for_dispatch(
     allowed = target in clean_scope
     if not allowed:
         raise AgentAssignmentScopeDenied("task resource is outside the assigned scope")
+    return tuple(clean_scope)
 
 
-__all__ = ["AgentAssignmentScopeDenied", "validate_agent_assignment_for_dispatch"]
+@contextmanager
+def agent_assignment_scope(scope: tuple[str, ...] | None) -> Iterator[None]:
+    """Bind verified exact-path scope to synchronous adapter calls in this context."""
+    token: Token[tuple[str, ...] | None] = _ACTIVE_ASSIGNMENT_SCOPE.set(scope)
+    try:
+        yield
+    finally:
+        _ACTIVE_ASSIGNMENT_SCOPE.reset(token)
+
+
+def enforce_agent_resource_scope(relative_path: Any) -> None:
+    """Deny guarded filesystem access outside the current verified assignment."""
+    active = _ACTIVE_ASSIGNMENT_SCOPE.get()
+    if active is None:
+        return
+    target = _safe_relative_resource(relative_path, field="filesystem resource")
+    if target not in active:
+        raise AgentAssignmentScopeDenied("filesystem resource is outside the assigned scope")
+
+
+__all__ = [
+    "AgentAssignmentScopeDenied", "agent_assignment_scope",
+    "enforce_agent_resource_scope", "validate_agent_assignment_for_dispatch",
+]

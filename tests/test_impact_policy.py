@@ -128,6 +128,8 @@ class ImpactPolicyTests(unittest.TestCase):
             "tests/test_agent_org_runtime.py",
             "portable/agent_execution_guard.py",
             "tests/test_agent_execution_guard.py",
+            "portable/guarded_filesystem.py",
+            "tests/test_guarded_filesystem.py",
             "portable/execution_controller.py",
             "tests/test_execution_controller_restart.py",
             "tests/test_consequential_outer_receipt_crash.py",
@@ -154,6 +156,7 @@ class ImpactPolicyTests(unittest.TestCase):
         filesystem = classify_path("portable/guarded_filesystem.py")
         self.assertTrue(filesystem.hardening_required)
         self.assertIn("tests.test_guarded_filesystem", filesystem.required_suites)
+        self.assertIn("tests.test_agent_execution_guard", filesystem.required_suites)
         network = classify_path("portable/guarded_network.py")
         self.assertTrue(network.hardening_required)
         self.assertIn("tests.test_guarded_network", network.required_suites)

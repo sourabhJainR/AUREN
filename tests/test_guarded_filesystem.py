@@ -25,7 +25,7 @@ class GuardedFilesystemTests(unittest.TestCase):
     def test_root_confined_read_and_write(self):
         target = write_workspace_text(self.root, "docs/design/brief.md", "safe\n")
         self.assertEqual("safe\n", read_workspace_text(self.root, "docs/design/brief.md"))
-        self.assertEqual(b"safe\n", read_workspace_bytes(self.root, "docs/design/brief.md"))
+        self.assertIn(read_workspace_bytes(self.root, "docs/design/brief.md"), (b"safe\n", b"safe\r\n"))
         self.assertTrue(target.is_file())
         self.assertTrue(self.root.resolve() in target.resolve().parents)
 

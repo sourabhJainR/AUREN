@@ -13,6 +13,8 @@ import stat
 from pathlib import Path, PurePosixPath
 from typing import BinaryIO, TextIO
 
+from .agent_execution_guard import enforce_agent_resource_scope
+
 
 def _relative_parts(relative_path: str | Path) -> tuple[str, ...]:
     if not isinstance(relative_path, (str, Path)):
@@ -36,6 +38,7 @@ def resolve_workspace_path(root: str | Path, relative_path: str | Path) -> Path:
     if not workspace.is_dir():
         raise NotADirectoryError("workspace root must be a directory")
     parts = _relative_parts(relative_path)
+    enforce_agent_resource_scope(PurePosixPath(*parts).as_posix())
     current = workspace
     for index, part in enumerate(parts):
         current = current / part
@@ -106,6 +109,7 @@ def open_workspace_file(
     if not workspace.is_dir():
         raise NotADirectoryError("workspace root must be a directory")
     parts = _relative_parts(relative_path)
+    enforce_agent_resource_scope(PurePosixPath(*parts).as_posix())
     if os.name == "posix":
         try:
             descriptor = _open_posix(workspace, parts, mode, create_parents)

@@ -5,11 +5,21 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from portable.execution_controller import ExecutionController
+from portable.guarded_filesystem import write_workspace_text
+
 from portable.agent_execution_guard import (
     AgentAssignmentScopeDenied,
     validate_agent_assignment_for_dispatch,
 )
 from portable.agent_org_runtime import REGISTRY_PATH, authorize_agent_assignment
+
+
+def assigned_filesystem_handler(payload):
+    target = write_workspace_text(
+        payload["workspace_root"], payload["path"], payload["content"]
+    )
+    return {"success": True, "evidence": ["filesystem-scope-test"], "target": str(target)}
 
 
 class AgentExecutionGuardTests(unittest.TestCase):
@@ -100,6 +110,41 @@ class AgentExecutionGuardTests(unittest.TestCase):
         validate_agent_assignment_for_dispatch(payload, resource="portable/api.py", authorization_verifier=lambda _request: True)
         with self.assertRaises(AgentAssignmentScopeDenied):
             validate_agent_assignment_for_dispatch(payload, resource="portable/api.py/routes.py", authorization_verifier=lambda _request: True)
+
+    def test_execution_controller_enforces_scope_inside_guarded_filesystem(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            controller = ExecutionController(
+                root, agent_assignment_verifier=lambda _request: True
+            )
+            controller.register_handler(
+                "tests.test_agent_execution_guard.assigned_filesystem_handler",
+                assigned_filesystem_handler,
+                execution_class="read_only",
+            )
+            assignment_payload = self._payload(("allowed.txt",))["_auren_agent_assignment"]
+            blocked = controller.submit("tests.test_agent_execution_guard.assigned_filesystem_handler", {
+                "resource": "allowed.txt",
+                "path": "blocked.txt",
+                "workspace_root": str(root),
+                "content": "must not write",
+                "_auren_agent_assignment": assignment_payload,
+            })
+            with self.assertRaises(AgentAssignmentScopeDenied):
+                controller.run_once(blocked.id)
+            self.assertNotEqual(controller.task(blocked.id).state, "completed")
+            self.assertFalse((root / "blocked.txt").exists())
+
+            allowed = controller.submit("tests.test_agent_execution_guard.assigned_filesystem_handler", {
+                "resource": "allowed.txt",
+                "path": "allowed.txt",
+                "workspace_root": str(root),
+                "content": "allowed",
+                "_auren_agent_assignment": assignment_payload,
+            })
+            controller.run_once(allowed.id)
+            self.assertEqual(controller.task(allowed.id).state, "completed")
+            self.assertEqual((root / "allowed.txt").read_text(encoding="utf-8"), "allowed")
 
 
 if __name__ == "__main__":
