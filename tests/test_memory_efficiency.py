@@ -49,9 +49,9 @@ class MemoryEfficiencyTests(unittest.TestCase):
             {"id": "critical", "category": "security", "text": "DO NOT weaken policy. " * 100, "verified": True, "confidence": 1.0},
             {"id": "unicode", "category": "requirement", "text": "東京🙂" * 80, "verified": True, "confidence": 0.9},
         ]
-        chunks = chunk_memory_context(rows, max_chars=180)
+        chunks = chunk_memory_context(rows, max_chars=256)
         self.assertTrue(chunks)
-        self.assertTrue(all(len(chunk.text) <= 180 for chunk in chunks))
+        self.assertTrue(all(len(chunk.text) <= 256 for chunk in chunks))
         emitted = [rid for chunk in chunks for rid in chunk.record_ids]
         self.assertEqual(set(emitted), {"optional", "critical", "unicode"})
         self.assertGreaterEqual(len(emitted), len(rows))
