@@ -21,6 +21,12 @@ No track is promoted based on self-reported capability, code presence, a green i
 
 AUREN maintainers can implement protocol and regression coverage, but cannot self-certify independent custody. Completion of the external campaign requires an independent operator to retain the sealed corpus/oracle and private signing key outside the candidate trust domain, run the evaluator on separately administered infrastructure, and publish signed aggregate results, baselines, uncertainty, failures, and limitations. Host isolation, organizational independence, and semantic novelty require operational evidence—not just signatures.
 
+## Current repository evidence snapshot — 2026-10-28
+
+Reviewed against baseline `main` SHA `da9517e4946313215c477694988f1fb5f6bba052`. Its current-main check set was terminal with 22 successes, 3 skipped checks, zero failures, and no pending checks; all six push-triggered workflows completed successfully. The portable bundle and checksum artifacts were downloaded from [workflow run 40624079442](https://github.com/sourabhJainR/AUREN/actions/runs/40624079442) and verified: outer bundle artifact SHA-256 `a374cd0c1eaebcdc9867e02277d7a98279f8bd2ccc505d4f23e5c2897119d2e6`, outer checksum artifact SHA-256 `d11f620576d9e31482a12c4621845423ffe85fcb1b3c758c71c16ee286df917f`, embedded ZIP SHA-256 `f477069e369f09b5d72cd5afc5647fbc76fd82d7cce9719824cfe247d6f2b154`, and 508 manifest entries verified with no size/hash mismatches. The manifest pins this SHA, version `1.0.6`, and `target_repository_mutation=false`.
+
+These results verify repository CI and artifact integrity only. Three checks were skipped and are not passes. Deployment behavior, independently controlled evaluator/oracle identity, sealed holdout custody, production host isolation, and external benchmark campaigns remain **not verified / blocked**. No AGI/SI or broad-generalization claim is supported. The graph recovery and runtime/learning/delivery regressions are internal evidence, not independent Arena results.
+
 ## Explicit non-claim
 
 There is no numeric “superintelligence score” in this matrix. AUREN is being made compatible with rigorous evaluation, learning governance, transfer testing, and rollback. Whether it achieves broadly general or superintelligent performance remains an empirical question requiring independent validation.
