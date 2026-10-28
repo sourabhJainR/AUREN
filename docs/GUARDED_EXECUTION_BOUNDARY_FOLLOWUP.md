@@ -217,6 +217,31 @@ Rollback: revert the `MCPStdioToolAdapter` Job Object integration, its Windows d
 MCP stdout protocol buffering now uses a fixed-capacity response queue. If an untrusted server floods notifications faster than the caller can consume them, the adapter fails closed with a queue-overflow error instead of accumulating an unbounded number of strings. Stderr is consumed in fixed-size reads and only a bounded number of redacted diagnostic fragments are retained. Oversized protocol frames remain rejected. This limits application-side queue and diagnostic retention; it is not a full OS memory sandbox, and the child process still requires timeout/process-tree containment. Roll back the queue/reader changes together with the flood regression if compatibility issues are demonstrated; do not restore unbounded buffering.
 
 
+## Bounded MCP response recovery (2026-10-28)
+
+The MCP stdio adapter keeps the configured per-frame character ceiling as a hard
+limit. It never accepts truncated JSON, raises the ceiling automatically, or
+replays a consequential call to recover output. For operator-declared read-only
+tools only, an optional adapter-owned `read_only_response_reducer` may make one
+recovery attempt after an oversized response: reduce page/batch size, project
+only needed fields, request a bounded sample, or narrow the query. The reduced
+arguments must be JSON-safe and different from the original; the normal frame
+cap and timeout apply unchanged on retry. A second oversized response fails
+closed.
+
+This is a controlled adaptation hook, not a universal MCP pagination protocol.
+Each configured reducer must match that tool's documented argument schema and
+preserve the question's meaning. Sampling must be labeled as a sample; it cannot
+be used as complete evidence for security, evaluation, or release gates. Batch
+splitting and streaming belong in tool-specific adapters when the provider
+exposes cursors/chunks. Merge partial results only when ordering, deduplication,
+completeness, and provenance are defined. If no safe reduction exists, narrow
+the request explicitly or leave the action blocked.
+
+Rollback: remove the optional reducer wiring and tests; retain bounded frame
+reads, immediate termination on oversized frames, queue bounds, and fail-closed
+behavior. Do not increase the default response ceiling to mask oversized payloads.
+
 ## Fatal MCP reader paths remain nonblocking (2026-10-28)
 
 Oversized frames and response-queue floods now share a fail-closed signaling path: buffered notifications are discarded, a bounded failure marker is inserted without blocking, and the caller tears down the process tree. This prevents a full queue from delaying delivery of an oversized-frame error. The existing queue-flood regression covers nonblocking overflow signaling; the configured frame limit remains enforced for oversized protocol frames. These controls bound protocol buffering; they do not claim OS-level memory isolation.
