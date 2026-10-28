@@ -404,6 +404,30 @@ class VibeCodingHostTests(unittest.TestCase):
         with self.assertRaisesRegex(AdapterUnavailable, "character limit"):
             MCPStdioToolAdapter._read_response(None, responses, 2, 0.1)
 
+    def test_mcp_oversized_frame_is_chunk_drained_and_fingerprinted_without_acceptance(self):
+        import hashlib
+        import io
+        import json
+        import queue
+
+        frame = "prefix-" + ("x" * 250) + "-suffix\\n"
+        stream = io.StringIO(frame)
+        first = stream.readline(33)
+        metadata = MCPStdioToolAdapter._drain_oversized_frame(
+            stream, first, chunk_size=17, sample_chars=12,
+        )
+        self.assertEqual(metadata["characters"], len(frame))
+        self.assertEqual(metadata["sha256"], hashlib.sha256(frame.encode()).hexdigest())
+        self.assertEqual(metadata["prefix_sample"], frame[:12])
+        self.assertEqual(metadata["suffix_sample"], frame[-12:])
+        self.assertLessEqual(len(metadata["prefix_sample"]), 12)
+        self.assertLessEqual(len(metadata["suffix_sample"]), 12)
+
+        responses = queue.Queue()
+        responses.put(MCPStdioToolAdapter._OVERSIZE_RESPONSE + ":" + json.dumps(metadata))
+        with self.assertRaisesRegex(AdapterUnavailable, "observed_chars=.*sha256="):
+            MCPStdioToolAdapter._read_response(None, responses, 2, 0.1)
+
     def test_mcp_adapter_rejects_oversized_tool_result_before_acceptance(self):
         with tempfile.TemporaryDirectory() as temp:
             project = Path(temp) / "project"
