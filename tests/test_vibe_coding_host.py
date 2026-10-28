@@ -1150,7 +1150,7 @@ print(json.dumps({"type": "item.completed", "item": {"type": "agent_message", "t
                     marker = "report="
                     report_path = str(exc).split(marker, 1)[1] if marker in str(exc) else ""
                     detail = Path(report_path).read_text(encoding="utf-8") if report_path and Path(report_path).is_file() else "no report file"
-                    self.fail(f"{exc}\nReport: {detail}")
+                    self.fail(f"{exc}\\nReport: {detail}")
             finally:
                 os.environ["PATH"] = previous_path
                 if previous_pythonpath is None:
