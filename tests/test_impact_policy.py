@@ -154,6 +154,7 @@ class ImpactPolicyTests(unittest.TestCase):
         filesystem = classify_path("portable/guarded_filesystem.py")
         self.assertTrue(filesystem.hardening_required)
         self.assertIn("tests.test_guarded_filesystem", filesystem.required_suites)
+        self.assertIn("tests.test_agent_execution_guard", filesystem.required_suites)
         network = classify_path("portable/guarded_network.py")
         self.assertTrue(network.hardening_required)
         self.assertIn("tests.test_guarded_network", network.required_suites)
