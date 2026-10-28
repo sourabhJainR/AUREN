@@ -130,7 +130,8 @@ class AgentExecutionGuardTests(unittest.TestCase):
                 "content": "must not write",
                 "_auren_agent_assignment": assignment_payload,
             })
-            controller.run_once(blocked.id)
+            with self.assertRaises(AgentAssignmentScopeDenied):
+                controller.run_once(blocked.id)
             self.assertNotEqual(controller.task(blocked.id).state, "completed")
             self.assertFalse((root / "blocked.txt").exists())
 
