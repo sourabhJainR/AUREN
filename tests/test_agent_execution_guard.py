@@ -66,11 +66,11 @@ class AgentExecutionGuardTests(unittest.TestCase):
     def test_unassigned_tasks_keep_existing_behavior(self):
         validate_agent_assignment_for_dispatch({"path": "portable/other.py"}, resource="portable/other.py")
 
-    def test_directory_scope_allows_descendants_but_not_siblings(self):
-        payload = self._payload(("portable/api",))
-        validate_agent_assignment_for_dispatch(payload, resource="portable/api/routes.py")
+    def test_scope_requires_exact_path_and_denies_descendants(self):
+        payload = self._payload(("portable/api.py",))
+        validate_agent_assignment_for_dispatch(payload, resource="portable/api.py")
         with self.assertRaises(AgentAssignmentScopeDenied):
-            validate_agent_assignment_for_dispatch(payload, resource="portable/apis/routes.py")
+            validate_agent_assignment_for_dispatch(payload, resource="portable/api.py/routes.py")
 
 
 if __name__ == "__main__":
