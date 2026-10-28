@@ -7,6 +7,7 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -326,6 +327,37 @@ class VibeCodingHostTests(unittest.TestCase):
                 "adapter_version": "v1",
             },
         }
+
+    @unittest.skipUnless(os.name == "nt", "Windows Job Object process-tree enforcement")
+    def test_mcp_stdio_kills_descendant_processes_on_return(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            marker = root / "descendant-survived.txt"
+            server = root / "mcp_server.py"
+            server.write_text(
+                "import json, subprocess, sys\\n"
+                "marker = sys.argv[1]\\n"
+                "for line in sys.stdin:\\n"
+                " msg = json.loads(line)\\n"
+                " if msg.get('method') == 'initialize':\\n"
+                "  print(json.dumps({'jsonrpc':'2.0','id':msg['id'],'result':{'protocolVersion':'2024-11-05','capabilities':{},'serverInfo':{'name':'tree-test','version':'1'}}}), flush=True)\\n"
+                " elif msg.get('method') == 'tools/call':\\n"
+                "  code = 'import pathlib,time; time.sleep(1.5); pathlib.Path(' + repr(marker) + ').write_text(\"survived\")'\\n"
+                "  subprocess.Popen([sys.executable, '-c', code], close_fds=True)\\n"
+                "  print(json.dumps({'jsonrpc':'2.0','id':msg['id'],'result':{'structuredContent':{'ok':True}}}), flush=True)\\n",
+                encoding="utf-8",
+            )
+            tool = MCPStdioToolAdapter(
+                argv=(sys.executable, str(server), str(marker)),
+                tool_name="tree_test",
+                timeout_seconds=5,
+                requires_authority_binding=False,
+                trusted_workspace_root=root,
+            )
+            result = tool({"stage": "research", "intent": "terminate descendants", "state": {"workspace_root": str(root)}})
+            self.assertTrue(result["ok"])
+            time.sleep(2)
+            self.assertFalse(marker.exists(), "MCP descendants must not survive adapter cleanup")
 
     def test_mcp_response_limit_rejects_invalid_values(self):
         with self.assertRaisesRegex(ValueError, "response limit"):
