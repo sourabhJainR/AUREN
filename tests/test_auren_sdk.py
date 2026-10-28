@@ -68,7 +68,7 @@ class AurenClientTests(unittest.TestCase):
                 client.run_once(task.id)
                 self.assertEqual("completed", client.task(task.id).state)
                 self.assertGreaterEqual(len(verified), 2)
-                self.assertEqual("auren-agent-assignment-v1", verified[0]["schema_version"])
+                self.assertEqual("auren-agent-assignment-v2", verified[0]["schema_version"])
             finally:
                 client.close()
 
