@@ -23,15 +23,13 @@ def ambiguous_provider_action(payload):
     raise TimeoutError("provider accepted request but response was lost")
 
 
-
-
 def crash_after_provider_accept(payload):
     """Simulate a remote acceptance followed by hard worker death before receipt commit."""
     import os
 
     marker_path = Path(payload["provider_acceptance_marker"])
     with marker_path.open("a", encoding="utf-8") as stream:
-        stream.write(f"accepted:{payload['revision']}\\n")
+        stream.write(f"accepted:{payload['revision']}\n")
         stream.flush()
         os.fsync(stream.fileno())
     # No Python cleanup/finalizer runs after this injected crash boundary.
@@ -464,8 +462,6 @@ class ConsequentialRunOnceRecoveryTests(unittest.TestCase):
             "consequential-idempotency:run-recovery-1:deploy:staging"
         )
         self.assertEqual("reconcile_required", record["state"])
-
-
 
     def test_process_death_after_provider_acceptance_blocks_restart_redispatch(self):
         import multiprocessing
