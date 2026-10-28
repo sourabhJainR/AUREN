@@ -44,7 +44,7 @@ from .vibe_coding_adapters import (
 )
 from .orchestration import Orchestrator, RunStatus
 from .side_effect_ledger import DurableSideEffectLedger
-from .guarded_filesystem import read_workspace_bytes, read_workspace_text, resolve_workspace_path, write_workspace_text
+from .guarded_filesystem import iter_workspace_text_chunks, read_workspace_bytes, resolve_workspace_path, write_workspace_text
 
 _CONFIG_SCHEMA = "auren-vibe-host-config-v1"
 _CHECKPOINT_SCHEMA = "auren-vibe-host-checkpoint-v1"
@@ -1655,13 +1655,15 @@ class LocalAccessibilityTool:
         findings = []
         for item in paths:
             try:
-                path = resolve_workspace_path(self.root, str(item))
-                text = read_workspace_text(self.root, str(item)).lower()
+                present = set()
+                for chunk in iter_workspace_text_chunks(self.root, str(item)):
+                    lowered = chunk.text.lower()
+                    present.update(term for term in ("keyboard", "focus", "labels", "contrast", "error") if term in lowered)
             except (OSError, ValueError, PermissionError):
                 findings.append({"severity": "high", "finding": "design artifact missing or outside workspace", "path": str(item)})
                 continue
             for term in ("keyboard", "focus", "labels", "contrast", "error"):
-                if term not in text:
+                if term not in present:
                     findings.append({"severity": "medium", "finding": f"design brief missing accessibility topic: {term}", "path": str(item)})
         status = "passed" if not any(item["severity"] == "high" for item in findings) else "failed"
         return {"accessibility_findings": findings, "accessibility_status": status, "evidence": [{"source": "local-accessibility-check", "locator": "check://design-accessibility-baseline"}]}
