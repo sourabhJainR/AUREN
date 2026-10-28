@@ -190,7 +190,7 @@ class VibeCodingHostTests(unittest.TestCase):
                     "state": {"workspace_root": str(root)},
                 })
 
-            self.assertEqual(result.get("structuredContent"), {"ok": True})
+            self.assertEqual(result, {"ok": True})
 
     def test_isolated_worktree_never_mutates_source_checkout_and_rollback_requires_authority(self):
         with tempfile.TemporaryDirectory() as temp:
