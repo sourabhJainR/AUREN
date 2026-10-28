@@ -108,7 +108,7 @@ def validate_agent_assignment_for_dispatch(
     if envelope.get("assignment_id") != "auren-assignment-" + digest:
         raise AgentAssignmentScopeDenied("agent assignment ID does not match its digest")
     target = _safe_relative_resource(resource, field="resource selector")
-    allowed = any(target == item or target.startswith(item.rstrip("/") + "/") for item in clean_scope)
+    allowed = target in clean_scope
     if not allowed:
         raise AgentAssignmentScopeDenied("task resource is outside the assigned scope")
 
