@@ -930,18 +930,28 @@ def build_mcp_authority_dispatch(
     return dispatch
 
 
-def _read_bounded_mcp_stdout_frame(stream: Any, max_chars: int) -> tuple[str | None, bool]:
-    """Read one bounded protocol frame without draining an oversized child stream.
+def _read_bounded_mcp_stdout_frame(
+    stream: Any, max_chars: int,
+) -> tuple[str | None, bool, dict[str, Any] | None]:
+    """Read a bounded frame; sample only the observed prefix when it is oversized.
 
-    Returns (frame, oversized). An oversized frame is fatal: the caller must
-    terminate the child instead of waiting for an untrusted newline.
+    Never drain an untrusted stream after the limit is crossed: it may be infinite.
+    Oversize diagnostics describe only the bounded prefix read, not the full frame.
     """
     line = stream.readline(max_chars + 1)
     if not line:
-        return None, False
+        return None, False, None
     if len(line) > max_chars:
-        return None, True
-    return line.rstrip("\n"), False
+        sample_window = line[:4096]
+        metadata = {
+            "observed_chars_at_least": len(line),
+            "observed_prefix_sha256": hashlib.sha256(line.encode("utf-8", errors="replace")).hexdigest(),
+            "sample_prefix": sample_window[:96],
+            "sample_suffix": sample_window[-96:],
+            "frame_complete": line.endswith("\n"),
+        }
+        return None, True, metadata
+    return line.rstrip("\n"), False, None
 
 
 class MCPStdioToolAdapter:
@@ -997,8 +1007,20 @@ class MCPStdioToolAdapter:
                 line = responses.get(timeout=max(0.01, deadline - time.monotonic()))
             except queue.Empty as exc:
                 raise TimeoutError("MCP server did not respond before the configured timeout") from exc
-            if line == MCPStdioToolAdapter._OVERSIZE_RESPONSE:
-                raise AdapterUnavailable("MCP response exceeded the configured character limit")
+            if line == MCPStdioToolAdapter._OVERSIZE_RESPONSE or line.startswith(MCPStdioToolAdapter._OVERSIZE_RESPONSE + ":"):
+                detail = ""
+                if ":" in line:
+                    try:
+                        metadata = json.loads(line.split(":", 1)[1])
+                        detail = (
+                            f" (observed_chars_at_least={metadata.get('observed_chars_at_least', 'unknown')}, "
+                            f"observed_prefix_sha256={metadata.get('observed_prefix_sha256', 'unknown')})"
+                        )
+                    except (TypeError, ValueError, json.JSONDecodeError):
+                        detail = ""
+                raise AdapterUnavailable(
+                    "MCP response exceeded the configured character limit" + detail
+                )
             if line == MCPStdioToolAdapter._QUEUE_OVERFLOW_RESPONSE:
                 raise AdapterUnavailable("MCP server exceeded the bounded response queue; dispatch aborted")
             try:
@@ -1128,14 +1150,15 @@ class MCPStdioToolAdapter:
         def read_stdout() -> None:
             assert proc.stdout is not None
             while True:
-                frame, oversized = _read_bounded_mcp_stdout_frame(
+                frame, oversized, metadata = _read_bounded_mcp_stdout_frame(
                     proc.stdout, self.max_response_chars,
                 )
                 if oversized:
                     # Never drain an untrusted oversized frame: it may be an
-                    # endless stream with no newline. Signal fatal immediately;
-                    # the caller will terminate the child process tree.
-                    signal_fatal(self._OVERSIZE_RESPONSE)
+                    # endless stream with no newline. Pass only bounded diagnostics;
+                    # the caller will terminate the child process tree immediately.
+                    marker = self._OVERSIZE_RESPONSE + ":" + json.dumps(metadata or {}, separators=(",", ":"))
+                    signal_fatal(marker)
                     return
                 if frame is None:
                     break

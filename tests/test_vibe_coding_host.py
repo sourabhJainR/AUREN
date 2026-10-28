@@ -153,10 +153,15 @@ class VibeCodingHostTests(unittest.TestCase):
                 raise AssertionError("oversized frame reader must not wait for a newline")
 
         stream = OversizedWithoutNewline()
-        frame, oversized = _read_bounded_mcp_stdout_frame(stream, 10)
+        frame, oversized, metadata = _read_bounded_mcp_stdout_frame(stream, 10)
         self.assertIsNone(frame)
         self.assertTrue(oversized)
         self.assertEqual(stream.read_sizes, [11])
+        self.assertEqual(metadata["observed_chars_at_least"], 11)
+        self.assertEqual(len(metadata["sample_prefix"]), 11)
+        self.assertEqual(metadata["sample_suffix"], metadata["sample_prefix"])
+        self.assertEqual(len(metadata["observed_prefix_sha256"]), 64)
+        self.assertFalse(metadata["frame_complete"])
 
     def test_mcp_stdio_adapter_fails_closed_on_response_queue_flood(self):
         with tempfile.TemporaryDirectory() as temp:
