@@ -1080,29 +1080,39 @@ class MCPStdioToolAdapter:
             raise ValueError("MCP request must be a mapping")
         if not self.requires_authority_binding:
             arguments = self._arguments_for_request(request)
-            try:
-                return self._invoke_unchecked(request, arguments=arguments)
-            except AdapterUnavailable as exc:
-                # Only an operator-declared read-only tool may be retried, and only
-                # once, after a frame-size failure. The reducer can lower page size,
-                # select fields, sample records, or request a smaller batch. It must
-                # return a different, JSON-safe argument mapping; the hard frame cap
-                # remains in force on the retry.
-                if self.read_only_response_reducer is None or "exceeded the configured character limit" not in str(exc):
-                    raise
+            # At most three total calls (initial + two reductions), and only for an
+            # explicitly configured read-only tool. Each reducer must make a real,
+            # JSON-safe change; the hard response-frame cap is never raised.
+            for attempt in range(3):
                 try:
-                    reduced = self.read_only_response_reducer(dict(arguments))
-                    if not isinstance(reduced, Mapping):
-                        raise TypeError("response reducer must return a mapping")
-                    reduced_snapshot = json.loads(json.dumps(dict(reduced), ensure_ascii=False, allow_nan=False))
-                    if not isinstance(reduced_snapshot, dict) or reduced_snapshot == arguments:
-                        raise ValueError("response reducer must return different JSON-safe arguments")
-                    return self._invoke_unchecked(request, arguments=reduced_snapshot)
-                except Exception as recovery_error:
-                    raise AdapterUnavailable(
-                        "MCP oversized response recovery failed after one bounded read-only reduction; "
-                        "keep the frame cap and narrow the query further"
-                    ) from recovery_error
+                    return self._invoke_unchecked(request, arguments=arguments)
+                except AdapterUnavailable as exc:
+                    if (
+                        self.read_only_response_reducer is None
+                        or "exceeded the configured character limit" not in str(exc)
+                    ):
+                        raise
+                    if attempt == 2:
+                        raise AdapterUnavailable(
+                            "MCP oversized response remains above the frame cap after two bounded "
+                            "read-only reductions; split the query or narrow fields further"
+                        ) from exc
+                    try:
+                        reduced = self.read_only_response_reducer(dict(arguments))
+                        if not isinstance(reduced, Mapping):
+                            raise TypeError("response reducer must return a mapping")
+                        reduced_snapshot = json.loads(
+                            json.dumps(dict(reduced), ensure_ascii=False, allow_nan=False)
+                        )
+                        if not isinstance(reduced_snapshot, dict) or reduced_snapshot == arguments:
+                            raise ValueError("response reducer must return different JSON-safe arguments")
+                        arguments = reduced_snapshot
+                    except Exception as recovery_error:
+                        raise AdapterUnavailable(
+                            "MCP oversized response recovery failed during bounded read-only reduction; "
+                            "keep the frame cap and narrow the query further"
+                        ) from recovery_error
+            raise AdapterUnavailable("MCP read-only adaptation exhausted its bounded attempt budget")
         if self.authority_dispatch is None:
             raise AdapterUnavailable(
                 f"MCP tool {self.tool_name} requires a trusted execution authority resolver before dispatch"
