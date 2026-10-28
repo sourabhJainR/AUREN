@@ -1066,11 +1066,34 @@ class MCPStdioToolAdapter:
                 raise AdapterUnavailable("trusted MCP workspace root is missing or not a directory")
             if cwd != trusted_root and trusted_root not in cwd.parents:
                 raise AdapterUnavailable("MCP working directory escapes the trusted workspace root")
-        proc = subprocess.Popen(
-            list(self.argv), cwd=str(cwd), stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            text=True, bufsize=1, shell=False, env=_safe_env(self.env_allowlist),
-            start_new_session=(os.name != "nt"),
-        )
+        windows_job = None
+        launch_options: dict[str, Any] = {
+            "cwd": str(cwd), "stdin": subprocess.PIPE, "stdout": subprocess.PIPE,
+            "stderr": subprocess.PIPE, "text": True, "bufsize": 1, "shell": False,
+            "env": _safe_env(self.env_allowlist),
+        }
+        if os.name == "nt":
+            # Do not let an MCP server spawn descendants before Job Object
+            # containment is established. Failure to establish the job is fatal.
+            from .windows_kill_job import CREATE_SUSPENDED, WindowsKillJob
+            launch_options["creationflags"] = (
+                getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | CREATE_SUSPENDED
+            )
+        else:
+            launch_options["start_new_session"] = True
+        proc = subprocess.Popen(list(self.argv), **launch_options)
+        if os.name == "nt":
+            try:
+                windows_job = WindowsKillJob(proc)
+            except BaseException as exc:
+                try:
+                    proc.kill()
+                    proc.wait(timeout=2)
+                except (OSError, subprocess.TimeoutExpired):
+                    pass
+                raise AdapterUnavailable(
+                    "MCP process could not be placed in a kill-on-close Windows Job Object; dispatch blocked"
+                ) from exc
         responses: queue.Queue[str] = queue.Queue()
         stderr_chunks: list[str] = []
 
@@ -1140,20 +1163,35 @@ class MCPStdioToolAdapter:
             try:
                 if proc.stdin:
                     proc.stdin.close()
-                if os.name != "nt":
-                    os.killpg(proc.pid, signal.SIGTERM)
+                if windows_job is not None:
+                    # Terminate the entire contained process tree, not only the
+                    # stdio parent; closing the job is a final kill-on-close fence.
+                    try:
+                        windows_job.terminate()
+                    finally:
+                        windows_job.close()
+                    proc.wait(timeout=2)
                 else:
-                    proc.terminate()
-                proc.wait(timeout=2)
+                    os.killpg(proc.pid, signal.SIGTERM)
+                    proc.wait(timeout=2)
             except (OSError, subprocess.TimeoutExpired):
                 try:
-                    if os.name != "nt":
-                        os.killpg(proc.pid, signal.SIGKILL)
+                    if windows_job is not None:
+                        try:
+                            windows_job.terminate()
+                        finally:
+                            windows_job.close()
                     else:
-                        proc.kill()
+                        os.killpg(proc.pid, signal.SIGKILL)
                 except OSError:
+                    try:
+                        proc.kill()
+                    except OSError:
+                        pass
+                try:
+                    proc.wait(timeout=2)
+                except subprocess.TimeoutExpired:
                     pass
-                proc.wait(timeout=2)
             for stream in (proc.stdout, proc.stderr):
                 if stream is not None:
                     try:
