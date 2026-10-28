@@ -1494,5 +1494,86 @@ print(json.dumps({"type": "item.completed", "item": {"type": "agent_message", "t
             self.assertFalse(loaded.browser_qa_required)
 
 
+
+    def test_mcp_read_only_oversized_response_chunks_and_merges_without_raising_frame_cap(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            project = base / "project"
+            init_git(project)
+            server = base / "chunked_mcp.py"
+            server.write_text(
+                "import json, sys\n"
+                "for line in sys.stdin:\n"
+                "    try: msg = json.loads(line)\n"
+                "    except Exception: continue\n"
+                "    if msg.get('method') == 'initialize':\n"
+                "        print(json.dumps({'jsonrpc':'2.0','id':msg['id'],'result':{'protocolVersion':'2024-11-05','capabilities':{},'serverInfo':{'name':'chunked','version':'1'}}}), flush=True)\n"
+                "    elif msg.get('method') == 'tools/call':\n"
+                "        args = msg.get('params',{}).get('arguments',{})\n"
+                "        payload = {'items':['x' * 500]} if args.get('limit', 100) > 1 else {'items':[args.get('offset')]}\n"
+                "        print(json.dumps({'jsonrpc':'2.0','id':msg['id'],'result':{'structuredContent':payload}}), flush=True)\n",
+                encoding="utf-8",
+            )
+            planned = []
+            def chunker(arguments):
+                planned.append(dict(arguments))
+                return [{"limit": 1, "offset": 0}, {"limit": 1, "offset": 1}]
+            adapter = MCPStdioToolAdapter(
+                argv=(sys.executable, str(server)),
+                tool_name="bounded",
+                argument_map={"limit": "$limit", "offset": "$offset"},
+                timeout_seconds=3,
+                max_response_chars=260,
+                requires_authority_binding=False,
+                trusted_workspace_root=project,
+                read_only_response_chunker=chunker,
+                read_only_response_merger=lambda results: {
+                    "items": [item for result in results for item in result["items"]],
+                },
+            )
+            result = adapter({"limit": 100, "offset": None, "state": {"workspace_root": str(project)}})
+            self.assertEqual(result, {"items": [0, 1]})
+            self.assertEqual(planned, [{"limit": 100, "offset": None}])
+            self.assertEqual(adapter.max_response_chars, 260)
+
+    def test_mcp_read_only_chunk_recovery_rejects_unbounded_or_duplicate_plans(self):
+        with tempfile.TemporaryDirectory() as temp:
+            project = Path(temp) / "project"
+            project.mkdir()
+            adapter = MCPStdioToolAdapter(
+                argv=(sys.executable, "-c", "pass"),
+                tool_name="bounded",
+                argument_map={"limit": "$limit"},
+                timeout_seconds=3,
+                max_response_chars=220,
+                requires_authority_binding=False,
+                trusted_workspace_root=project,
+                read_only_response_chunker=lambda arguments: [{"limit": index} for index in range(9)],
+                read_only_response_merger=lambda results: {"items": []},
+            )
+            with patch.object(
+                adapter, "_invoke_unchecked",
+                side_effect=AdapterUnavailable("MCP response exceeded the configured character limit"),
+            ):
+                with self.assertRaisesRegex(AdapterUnavailable, "bounded, valid read-only chunk plan"):
+                    adapter({"limit": 100, "state": {"workspace_root": str(project)}})
+
+    def test_mcp_chunk_recovery_requires_read_only_authority_and_both_callbacks(self):
+        with self.assertRaisesRegex(ValueError, "both a chunker and a merger"):
+            MCPStdioToolAdapter(
+                argv=(sys.executable, "-c", "pass"),
+                tool_name="bounded",
+                requires_authority_binding=False,
+                trusted_workspace_root=Path.cwd(),
+                read_only_response_chunker=lambda arguments: [{"limit": 1}, {"limit": 2}],
+            )
+        with self.assertRaisesRegex(ValueError, "only allowed for operator-declared read-only"):
+            MCPStdioToolAdapter(
+                argv=(sys.executable, "-c", "pass"),
+                tool_name="consequential",
+                read_only_response_chunker=lambda arguments: [{"limit": 1}, {"limit": 2}],
+                read_only_response_merger=lambda results: {"items": []},
+            )
+
 if __name__ == "__main__":
     unittest.main()
