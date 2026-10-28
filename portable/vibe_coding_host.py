@@ -959,7 +959,7 @@ def _read_bounded_mcp_stdout_frame(
                 "observed_chars_at_least": total,
                 "observed_prefix_sha256": hashlib.sha256(observed.encode("utf-8", errors="replace")).hexdigest(),
                 "sample_prefix": sample_window[:96],
-                "sample_suffix": sample_window[-96:],
+                "sample_suffix": observed[-96:],
                 "frame_complete": observed.endswith("\n"),
             }
             return None, True, metadata
