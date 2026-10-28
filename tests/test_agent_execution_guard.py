@@ -312,5 +312,110 @@ class AgentExecutionGuardTests(unittest.TestCase):
                     agent_action_class="review_verified_metrics",
                 )
 
+
+    def test_stale_assignment_policy_after_restart_blocks_before_handler_entry(self):
+        import gc
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            policy_dir = root / ".auren"
+            policy_dir.mkdir()
+            policy_path = policy_dir / "guard_policy.json"
+
+            def write_policy(default_effect):
+                policy_path.write_text(json.dumps({
+                    "schema_version": POLICY_VERSION,
+                    "default_effect": default_effect,
+                    "rules": [],
+                }), encoding="utf-8")
+
+            write_policy("allow")
+            handler_name = "tests.test_agent_execution_guard.assigned_filesystem_handler"
+            controller = ExecutionController(
+                root, agent_assignment_verifier=lambda _request: True
+            )
+            controller.register_handler(
+                handler_name, assigned_filesystem_handler,
+                execution_class="read_only", agent_action_class="edit_assigned_paths",
+            )
+            assignment = self._payload(("allowed.txt",))["_auren_agent_assignment"]
+            task = controller.submit(handler_name, {
+                "resource": "allowed.txt",
+                "path": "allowed.txt",
+                "workspace_root": str(root),
+                "content": "must not write after stale policy",
+                "_auren_agent_assignment": assignment,
+            })
+            del controller
+            gc.collect()
+
+            # The task and its assignment survive restart, but the effective
+            # Guard policy changed while the task was pending.
+            write_policy("deny")
+            restarted = ExecutionController(
+                root, agent_assignment_verifier=lambda _request: True
+            )
+            restarted.register_handler(
+                handler_name, assigned_filesystem_handler,
+                execution_class="read_only", agent_action_class="edit_assigned_paths",
+            )
+            restarted.run_once(task.id)
+
+            self.assertNotEqual(restarted.task(task.id).state, "completed")
+            self.assertNotEqual(restarted.task(task.id).state, "running")
+            self.assertFalse((root / "allowed.txt").exists())
+
+    def test_policy_change_after_initial_preflight_is_rejected_before_handler_entry(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            policy_dir = root / ".auren"
+            policy_dir.mkdir()
+            policy_path = policy_dir / "guard_policy.json"
+
+            def write_policy(default_effect):
+                policy_path.write_text(json.dumps({
+                    "schema_version": POLICY_VERSION,
+                    "default_effect": default_effect,
+                    "rules": [],
+                }), encoding="utf-8")
+
+            write_policy("allow")
+            handler_name = "tests.test_agent_execution_guard.assigned_filesystem_handler"
+            controller = ExecutionController(
+                root, agent_assignment_verifier=lambda _request: True
+            )
+            controller.register_handler(
+                handler_name, assigned_filesystem_handler,
+                execution_class="read_only", agent_action_class="edit_assigned_paths",
+            )
+            assignment = self._payload(("allowed.txt",))["_auren_agent_assignment"]
+            task = controller.submit(handler_name, {
+                "resource": "allowed.txt",
+                "path": "allowed.txt",
+                "workspace_root": str(root),
+                "content": "must not write after policy drift",
+                "_auren_agent_assignment": assignment,
+            })
+
+            original_preflight = controller._evaluate_guard_for_task
+            changed = False
+
+            def change_policy_after_preflight(current_task):
+                nonlocal changed
+                decision = original_preflight(current_task)
+                if not changed:
+                    changed = True
+                    write_policy("deny")
+                return decision
+
+            # Simulate a policy update in the gap between the first controller
+            # preflight and the final validation immediately before handler entry.
+            controller._evaluate_guard_for_task = change_policy_after_preflight
+            controller.run_once(task.id)
+
+            self.assertTrue(changed, "initial Guard preflight was not exercised")
+            self.assertNotEqual(controller.task(task.id).state, "completed")
+            self.assertFalse((root / "allowed.txt").exists())
+
 if __name__ == "__main__":
     unittest.main()
