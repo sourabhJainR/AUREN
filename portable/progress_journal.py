@@ -172,11 +172,11 @@ class ProgressJournal:
                          decision_required: bool = False,
                          timestamp: str | None = None) -> ProgressEvent:
         """Durably enqueue an interruption without mutating the interrupted task."""
-        if priority is not None and (isinstance(priority, bool) or not isinstance(priority, int) or not 0 <= priority <= 100):
+        if isinstance(priority, bool) or not isinstance(priority, int) or not 0 <= priority <= 100:
             raise ValueError("priority must be an integer from 0 to 100")
         if parent_task_id is not None and (not isinstance(parent_task_id, str) or not parent_task_id.strip()):
             raise ValueError("parent_task_id must be a non-empty string when supplied")
-        if decision_required is not None and not isinstance(decision_required, bool):
+        if not isinstance(decision_required, bool):
             raise ValueError("decision_required must be a boolean")
         return self.record(
             task_id, "interrupt_received", state="blocked" if decision_required else "queued",
@@ -213,11 +213,11 @@ class ProgressJournal:
             raise ValueError("task_id must be non-empty")
         if state not in STATES:
             raise ValueError(f"unsupported state: {state}")
-        if isinstance(priority, bool) or not isinstance(priority, int) or not 0 <= priority <= 100:
+        if priority is not None and (isinstance(priority, bool) or not isinstance(priority, int) or not 0 <= priority <= 100):
             raise ValueError("priority must be an integer from 0 to 100")
         if parent_task_id is not None and (not isinstance(parent_task_id, str) or not parent_task_id.strip()):
             raise ValueError("parent_task_id must be a non-empty string when supplied")
-        if not isinstance(decision_required, bool):
+        if decision_required is not None and not isinstance(decision_required, bool):
             raise ValueError("decision_required must be a boolean")
         if completed_units is not None and completed_units < 0:
             raise ValueError("completed_units cannot be negative")
