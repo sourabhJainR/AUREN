@@ -72,3 +72,12 @@ Three additional host-policy and lifecycle signals sharpen the same gates:
 - [Copilot CLI local-model discovery](https://github.blog/changelog/2026-10-07-discover-local-models-in-github-copilot-cli/) is discovery, not installation or trust. Check tool-calling/streaming capability, endpoint policy and health before routing; do not install or authorize local runtimes automatically.
 
 Add targeted tests for permission spoofing, forbidden path/network access, retired model IDs, tool-schema mismatch, fallback-loop termination, and preservation of authority, privacy and shared budgets. These remain benchmark gates, not claims of deployed or independently verified behavior.
+
+
+### Research literature update — 2026-10-28
+
+- [Agentic AI systems for scientific discovery — Nature Reviews Methods Primers](https://www.nature.com/articles/s43586-026-00534-y) surveys agentic research across the scientific lifecycle. Treat this as a benchmark-design input, not a capability result: require provenance for raw outputs, reproducible experiment manifests, fresh independent replication, uncertainty reporting, and domain review.
+- [Large Language Model Agents for Autonomous Scientific Research: A Lifecycle Survey of Methods, Systems, Benchmarks, and Risks — Journal of Superintelligence, 2026-10-17](https://www.mdpi.com/3043-0097/1/2/8) describes uneven evidence maturity, with stronger repeatability in retrieval-grounded research and ML engineering than open-ended ideation and end-to-end discovery. Prioritize contamination-resistant holdouts, negative-result retention, and explicit reporting of failures.
+- [OpenAI Agents API — 2026-09-10](https://openai.com/index/introducing-the-agents-api/) highlights durable sessions, context management, subagent coordination, and sandboxed execution. Map these concepts to AUREN's existing ExecutionController, StateGraph, recovery ledger, and provider adapters; do not add a competing orchestrator.
+
+These sources update the research radar only. They do not establish AUREN's scientific-discovery, deployment, or superintelligence capability. External evaluation and production-isolation gates remain blocked until independently verifiable evidence exists.
