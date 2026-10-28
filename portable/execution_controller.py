@@ -301,7 +301,9 @@ class ExecutionController:
         as read_only, context_provider, ci_gated, consequential, or approval_gated. Unknown legacy
         registrations fail closed until reclassified. Consequential handlers
         require both trusted decision-record and exact-head CI gates. Context
-        providers are internal-only and cannot be submitted as tasks.
+        providers are internal-only and cannot be submitted as tasks. For assigned
+        work, `agent_action_class` is an operator-owned handler contract and must
+        match the assignment exactly; it never replaces Guard or approval gates.
         """
         if not isinstance(name, str) or not name.strip():
             raise ValueError("handler name is required")
