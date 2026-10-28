@@ -569,11 +569,11 @@
   ],
   "review_snapshot": {
     "reviewed_at": "2026-10-28",
-    "baseline_main_sha": "da9517e4946313215c477694988f1fb5f6bba052",
+    "baseline_main_sha": "5b3e3858d85d558945f2a4ccf65a18fe9b323ba7",
     "current_main_check_runs": {
-      "total": 25,
-      "success": 22,
-      "skipped": 3,
+      "total": 28,
+      "success": 28,
+      "skipped": 0,
       "failed": 0,
       "pending": 0
     },
@@ -581,21 +581,59 @@
       "total": 6,
       "success": 6,
       "failed": 0,
-      "pending": 0
+      "pending": 0,
+      "runs": [
+        {
+          "name": "AI Harness Check",
+          "run_id": 40627642942,
+          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/40627642942",
+          "conclusion": "success"
+        },
+        {
+          "name": "AUREN Portable Bundle",
+          "run_id": 40627642859,
+          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/40627642859",
+          "conclusion": "success"
+        },
+        {
+          "name": "Runtime Resilience Matrix",
+          "run_id": 40627642902,
+          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/40627642902",
+          "conclusion": "success"
+        },
+        {
+          "name": "Architecture Integrity",
+          "run_id": 40627642850,
+          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/40627642850",
+          "conclusion": "success"
+        },
+        {
+          "name": "Production AI Harness Hardening",
+          "run_id": 40627642868,
+          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/40627642868",
+          "conclusion": "success"
+        },
+        {
+          "name": "Agent Capability Runtime",
+          "run_id": 40627642995,
+          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/40627642995",
+          "conclusion": "success"
+        }
+      ]
     },
     "portable_bundle": {
-      "workflow_run_id": 40624079442,
-      "bundle_artifact_id": 12788736379,
-      "checksum_artifact_id": 12788841455,
-      "outer_bundle_artifact_sha256": "a374cd0c1eaebcdc9867e02277d7a98279f8bd2ccc505d4f23e5c2897119d2e6",
-      "outer_checksum_artifact_sha256": "d11f620576d9e31482a12c4621845423ffe85fcb1b3c758c71c16ee286df917f",
-      "inner_bundle_sha256": "f477069e369f09b5d72cd5afc5647fbc76fd82d7cce9719824cfe247d6f2b154",
+      "workflow_run_id": 40627642859,
+      "bundle_artifact_id": 12789962839,
+      "checksum_artifact_id": 12790017606,
+      "outer_bundle_artifact_sha256": "f87dbad0bc9e6de7da9ea7c21226d4710e5281d797a8e3f0c289eb4d42ef56d8",
+      "outer_checksum_artifact_sha256": "9c3d195fed261c858d1475b7f4ba12977e32da9a24107da535c7ec6a7be989e0",
+      "inner_bundle_sha256": "7772704781caf23c3b329d7fc5e76ee4492a9f8fd4a88b49140bbe61c1972be9",
       "manifest_file_count": 508,
       "manifest_hash_or_size_mismatches": 0,
-      "source_commit": "da9517e4946313215c477694988f1fb5f6bba052",
+      "source_commit": "5b3e3858d85d558945f2a4ccf65a18fe9b323ba7",
       "version": "1.0.6",
       "target_repository_mutation": false,
-      "artifacts_expire_at": "2026-11-27T02:59:45Z"
+      "artifacts_expire_at": "2026-11-27T03:36:47Z"
     },
     "deployment_status": "not independently verified",
     "independent_evaluation_status": "blocked; independent evaluator/oracle identity, sealed holdout custody, production isolation, and external campaign receipts are not available in this repository snapshot",
@@ -604,7 +642,7 @@
   "radar_refresh": {
     "reviewed_at": "2026-10-28",
     "baseline_main_sha": "5b3e3858d85d558945f2a4ccf65a18fe9b323ba7",
-    "status": "candidate signals only; current-main post-merge verification pending",
+    "status": "candidate signals only; latest main CI and post-merge workflows are terminal-successful; deployment and independent-evaluation gates remain blocked",
     "policy": "External announcements and benchmark reports are leads, not proof of equivalent AUREN capability. Keep adapters opt-in; no runtime framework dependency; no default pack promotion without paired value, independent evaluation, and rollback.",
     "status_vocabulary": {
       "implementation": "Code path exists; does not imply tests or deployment.",
