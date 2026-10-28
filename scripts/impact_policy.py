@@ -118,6 +118,7 @@ _RULES: tuple[tuple[str, tuple[str, ...], bool], ...] = (
     ("tests/test_agency_evolution_runtime.py", ("tests.test_agency_evolution_runtime",), True),
     ("portable/vibe_coding_adapters.py", ("tests.test_vibe_coding_adapters", "tests.test_provider_operation_lifecycle", "tests.test_side_effect_ledger"), True),
     ("portable/vibe_coding_host.py", ("tests.test_vibe_coding_host", "tests.test_vibe_coding_adapters"), True),
+    ("tests/test_mcp_oversized_response_recovery.py", ("tests.test_mcp_oversized_response_recovery", "tests.test_vibe_coding_host"), True),
     ("tests/test_vibe_coding_host.py", ("tests.test_vibe_coding_host",), True),
     ("tests/test_vibe_coding_adapters.py", ("tests.test_vibe_coding_adapters",), True),
     ("portable/engineering_evidence_capture.py", ("tests.test_engineering_evidence_capture", "tests.test_execution_controller_evidence_capture", "tests.test_execution_controller_guard_policy"), True),
