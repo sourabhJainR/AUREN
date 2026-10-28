@@ -37,6 +37,7 @@ from .durable_approval import ApprovalPending, InvalidApprovalTransition
 from .workflow_profile import WorkflowProfile, delivery_mode_allows, infer_delivery_action, resolve_profile
 from .workflow_profile_store import load_profile
 from .organization_guard import GuardDecision, GuardPolicyError, evaluate_guard_policy, load_guard_policy
+from .agent_role_scope import ROLE_SCOPE_KEY, RoleScopeError, effective_role_deadline, validate_role_scope
 
 Handler = Callable[[Mapping[str, Any]], Any]
 
@@ -152,10 +153,26 @@ class ExecutionController:
         evidence_signer: Callable[[bytes], Mapping[str, str]] | None = None,
         provider_resume_authorizer: Callable[[str, str, str, str], bool] | None = None,
         workflow_profile_path: str | Path | None = None,
+        role_scope_authorizer: Callable[[str, Mapping[str, Any]], bool] | None = None,
+        require_role_scope: bool = False,
+        role_registry_path: str | Path | None = None,
     ) -> None:
         if provider_resume_authorizer is not None and not callable(provider_resume_authorizer):
             raise TypeError("provider_resume_authorizer must be callable")
+        if role_scope_authorizer is not None and not callable(role_scope_authorizer):
+            raise TypeError("role_scope_authorizer must be callable")
+        if type(require_role_scope) is not bool:
+            raise TypeError("require_role_scope must be a boolean")
+        if require_role_scope and role_scope_authorizer is None:
+            raise ValueError("require_role_scope needs a trusted host role_scope_authorizer")
         self._provider_resume_authorizer = provider_resume_authorizer
+        self._role_scope_authorizer = role_scope_authorizer
+        self.require_role_scope = require_role_scope
+        self.role_registry_path = (
+            Path(role_registry_path).expanduser().resolve()
+            if role_registry_path is not None
+            else Path(__file__).resolve().parents[1] / "config" / "agent_org.v1.json"
+        )
         self.root = Path(root).expanduser().resolve()
         self.company = company or AutonomousCompany(self.root)
         self.db_path = self.root / ".auren" / "execution.sqlite3"
@@ -518,6 +535,53 @@ class ExecutionController:
         value = row[0]
         return value if isinstance(value, str) else ""
 
+    def _prepare_role_scope(
+        self,
+        role_scope: Mapping[str, Any] | None,
+        handler: str,
+        payload: Mapping[str, Any],
+        *,
+        deadline_seconds: float | None = None,
+    ) -> tuple[dict[str, Any] | None, str | None]:
+        """Validate trusted role metadata before it enters an immutable task intent."""
+        if role_scope is None:
+            if self.require_role_scope:
+                raise RoleScopeError("role scope is required by the supervisor policy")
+            return None, None
+        normalized = validate_role_scope(
+            role_scope,
+            registry_path=self.role_registry_path,
+            execution_class=self._handler_execution_class(handler),
+            delivery_action=infer_delivery_action(handler, payload),
+            payload=payload,
+            authorizer=self._role_scope_authorizer,
+        )
+        return normalized, effective_role_deadline(normalized, deadline_seconds)
+
+    def _verify_role_scope(self, task: DurableTask) -> dict[str, Any] | None:
+        """Revalidate policy, task binding, expiry and delegation immediately before dispatch."""
+        scope = task.payload.get(ROLE_SCOPE_KEY)
+        if scope is None:
+            if self.require_role_scope:
+                raise RoleScopeError("durable task has no role scope; dispatch denied")
+            return None
+        with closing(sqlite3.connect(self.db_path)) as db, db:
+            row = db.execute("SELECT created_at FROM tasks WHERE id=?", (task.id,)).fetchone()
+        if row is None:
+            raise RoleScopeError("durable task creation record is missing")
+        return validate_role_scope(
+            scope,
+            registry_path=self.role_registry_path,
+            execution_class=self._handler_execution_class(task.handler),
+            delivery_action=infer_delivery_action(task.handler, task.payload),
+            payload=task.payload,
+            task_id=task.id,
+            task_deadline_at=task.deadline_at,
+            task_created_at=row[0],
+            task_attempts=task.attempts,
+            authorizer=self._role_scope_authorizer,
+        )
+
     def _evaluate_guard_for_task(self, task: DurableTask) -> GuardDecision:
         """Evaluate current organization policy using trusted handler registration context."""
         policy = load_guard_policy(self.root / ".auren" / "guard_policy.json")
@@ -527,6 +591,10 @@ class ExecutionController:
         if resource is not None and not isinstance(resource, str):
             raise GuardPolicyError("Guard resource selector must be a string")
         organization_id = __import__("os").environ.get("AUREN_ORGANIZATION_ID", "")
+        role_scope = task.payload.get(ROLE_SCOPE_KEY)
+        agent_id = role_scope.get("role_id") if isinstance(role_scope, Mapping) else task.handler
+        if isinstance(role_scope, Mapping) and isinstance(role_scope.get("action_class"), str):
+            action = role_scope["action_class"]
         approval_policy = self._handler_approval_gate_policy(task.handler)
         return evaluate_guard_policy(
             policy,
@@ -535,7 +603,7 @@ class ExecutionController:
                 "tool": task.handler,
                 "resource": resource if isinstance(resource, str) else "",
                 "organization_id": organization_id,
-                "agent_id": task.handler,
+                "agent_id": agent_id,
                 "risk": "high" if execution_class in {"consequential", "approval_gated"} else "standard",
             },
             mandatory_authorized=True,
@@ -740,6 +808,17 @@ class ExecutionController:
                 return False, "internal context providers cannot be executed as task handlers", ("handler-class:rejected",)
             if execution_class not in {"read_only", "ci_gated", "consequential", "approval_gated"}:
                 return False, "unclassified legacy handler fails closed", ("handler-class:unclassified",)
+            role_scope = self._verify_role_scope(task)
+            if role_scope is not None:
+                evidence.extend((
+                    "role-scope:authorized",
+                    "role-id:" + role_scope["role_id"],
+                    "role-policy:" + role_scope["policy_digest"],
+                    "role-action:" + role_scope["action_class"],
+                    "delegation-evidence-digest:" + hashlib.sha256(
+                        role_scope["delegation_evidence_ref"].encode("utf-8")
+                    ).hexdigest(),
+                ))
             profile = WorkflowProfile.from_mapping(task.payload["_auren_workflow_profile"])
             delivery_action = infer_delivery_action(task.handler, task.payload)
             # Organization policy adds restrictions before dispatch. It is not an
@@ -1512,6 +1591,7 @@ class ExecutionController:
         payload: Mapping[str, Any] | None = None,
         goal: str | None = None,
         recovery_bridge: Any | None = None,
+        role_scope: Mapping[str, Any] | None = None,
     ) -> DurableTask:
         """Dispatch one plan task through the same durable queue this controller owns.
 
@@ -1532,6 +1612,7 @@ class ExecutionController:
             packet=packet,
             payload=payload,
             goal=goal,
+            role_scope=role_scope,
         )
 
     def register_provider_operation_adapter(self, handler_name: str, adapter: Any) -> None:
@@ -1750,6 +1831,7 @@ class ExecutionController:
     def _handler_payload(self, task: DurableTask, base_payload: Mapping[str, Any] | None = None) -> dict[str, Any]:
         """Inject supervisor identity only for explicitly approval-aware handlers."""
         payload = dict(base_payload if base_payload is not None else task.payload)
+        payload.pop(ROLE_SCOPE_KEY, None)
         payload.pop("_auren_execution_context", None)
         if payload.get("auren_approval_aware") is True:
             payload["_auren_execution_context"] = {
@@ -1933,6 +2015,7 @@ class ExecutionController:
         goal: str | None = None,
         work_key: str | None = None,
         deadline_seconds: float | None = None,
+        role_scope: Mapping[str, Any] | None = None,
     ) -> DurableTask:
         if deadline_seconds is not None and (
             isinstance(deadline_seconds, bool)
@@ -1959,6 +2042,14 @@ class ExecutionController:
                 raise ValueError("approval-gated handler has no trusted gateway/ledger policy")
         self._load_handler(handler)
         payload_copy = dict(payload)
+        if ROLE_SCOPE_KEY in payload_copy:
+            raise ValueError("payload key '_auren_role_scope' is reserved for trusted supervisor metadata")
+        normalized_role_scope, role_deadline_at = self._prepare_role_scope(
+            role_scope, handler, payload_copy, deadline_seconds=deadline_seconds,
+        )
+        if normalized_role_scope is not None:
+            payload_copy[ROLE_SCOPE_KEY] = normalized_role_scope
+            requested_deadline_at = role_deadline_at
         # Never trust caller-supplied supervisor-owned profile fields. A public
         # workflow_profile may override saved preferences for this task only.
         task_profile = payload_copy.pop("workflow_profile", None)
@@ -2933,6 +3024,20 @@ class ExecutionController:
             )
             handler = self._load_handler(task.handler)
             execution_class = self._handler_execution_class(task.handler)
+            role_scope = self._verify_role_scope(task)
+            if role_scope is not None:
+                self._capture_event(
+                    "role_scope_dispatch_decision", task, status="allowed",
+                    metadata={
+                        "role_id": role_scope["role_id"],
+                        "action_class": role_scope["action_class"],
+                        "policy_digest": role_scope["policy_digest"],
+                        "resource_scope_digest": hashlib.sha256(
+                            json.dumps(role_scope["resource_scope"], sort_keys=True, separators=(",", ":")).encode("utf-8")
+                        ).hexdigest(),
+                    },
+                    event_id=f"role-scope-dispatch:{task.id}:{task.attempts}:{role_scope['policy_digest']}",
+                )
             # Close the preflight-to-dispatch policy-change window for every
             # registered handler, not only consequential provider operations.
             try:
