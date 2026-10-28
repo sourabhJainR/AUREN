@@ -246,6 +246,12 @@ class AgentExecutionGuardTests(unittest.TestCase):
                     "untrusted-agent-action", assigned_filesystem_handler,
                     execution_class="read_only", agent_action_class="waive_required_checks",
                 )
+            with self.assertRaisesRegex(ValueError, "delivery handlers"):
+                controller.register_handler(
+                    "safe-named-handler", assigned_filesystem_handler,
+                    execution_class="read_only", guard_action="merge",
+                    agent_action_class="review_verified_metrics",
+                )
 
 if __name__ == "__main__":
     unittest.main()
