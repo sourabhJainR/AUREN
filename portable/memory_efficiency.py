@@ -147,7 +147,10 @@ def chunk_memory_context(
         if current:
             chunks.append((current, current_ids))
             current, current_ids = "", []
-        prefix = f"[MEMORY_PART id={rid} sha256={digest} "
+        category = str(row.get("category", "unknown"))
+        verified = "true" if row.get("verified") is True else "false"
+        revision = row.get("source_revision") or "unbound"
+        prefix = f"[MEMORY_PART id={rid} sha256={digest} category={category} verified={verified} revision={revision} "
         suffix = "]\n"
         body = str(row.get("text", ""))
         footer = "\n[/MEMORY_PART]\n"
