@@ -10,7 +10,7 @@ import hashlib
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Iterator
+from typing import Iterable, Iterator, TextIO
 
 
 @dataclass(frozen=True)
@@ -56,10 +56,17 @@ def iter_text_chunks(text: str, *, max_chars: int = 12_000, overlap_chars: int =
 
 def iter_file_chunks(path: str | Path, *, max_chars: int = 12_000, overlap_chars: int = 300,
                      read_chars: int = 16_384) -> Iterator[InputChunk]:
-    """Stream a UTF-8 file without loading the whole file into memory.
+    """Stream a UTF-8 file without loading the whole file into memory."""
+    with Path(path).open("r", encoding="utf-8", errors="strict", newline="") as stream:
+        yield from iter_stream_chunks(stream, max_chars=max_chars, overlap_chars=overlap_chars,
+                                      read_chars=read_chars)
 
-    Memory use is bounded by approximately max_chars + read_chars + overlap_chars.
-    Offsets are Unicode character offsets, not byte offsets.
+
+def iter_stream_chunks(stream: TextIO, *, max_chars: int = 12_000, overlap_chars: int = 300,
+                       read_chars: int = 16_384) -> Iterator[InputChunk]:
+    """Chunk an already-open text stream with bounded reads and overlap.
+
+    Offsets count decoded Unicode characters. The caller owns and closes stream.
     """
     _validate_limits(max_chars, overlap_chars)
     if read_chars < 1:
@@ -67,28 +74,26 @@ def iter_file_chunks(path: str | Path, *, max_chars: int = 12_000, overlap_chars
     buffer = ""
     base = 0
     index = 0
-    with Path(path).open("r", encoding="utf-8", errors="strict", newline="") as stream:
-        eof = False
-        while not eof:
-            block = stream.read(read_chars)
-            eof = block == ""
-            buffer += block
-            while len(buffer) > max_chars or (eof and buffer):
-                limit = min(max_chars, len(buffer))
-                cut = _cut_at_boundary(buffer, limit) if len(buffer) > limit else limit
-                piece = buffer[:cut]
-                if not piece:
-                    raise RuntimeError("chunker failed to make forward progress")
-                yield InputChunk(index, base, base + len(piece), piece, _digest(piece))
-                index += 1
-                if cut >= len(buffer):
-                    base += cut
-                    buffer = ""
-                    break
-                keep_from = max(0, cut - overlap_chars)
-                base += keep_from
-                buffer = buffer[keep_from:]
-
+    eof = False
+    while not eof:
+        block = stream.read(read_chars)
+        eof = block == ""
+        buffer += block
+        while len(buffer) > max_chars or (eof and buffer):
+            limit = min(max_chars, len(buffer))
+            cut = _cut_at_boundary(buffer, limit) if len(buffer) > limit else limit
+            piece = buffer[:cut]
+            if not piece:
+                raise RuntimeError("chunker failed to make forward progress")
+            yield InputChunk(index, base, base + len(piece), piece, _digest(piece))
+            index += 1
+            if cut >= len(buffer):
+                base += cut
+                buffer = ""
+                break
+            keep_from = max(0, cut - overlap_chars)
+            base += keep_from
+            buffer = buffer[keep_from:]
 
 def _validate_limits(max_chars: int, overlap_chars: int) -> None:
     if max_chars < 32:
