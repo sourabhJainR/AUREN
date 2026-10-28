@@ -987,6 +987,8 @@ class MCPStdioToolAdapter:
                 raise AdapterUnavailable("MCP response exceeded the configured character limit")
             if line == MCPStdioToolAdapter._QUEUE_OVERFLOW_RESPONSE:
                 raise AdapterUnavailable("MCP server exceeded the bounded response queue; dispatch aborted")
+            if line == MCPStdioToolAdapter._QUEUE_OVERFLOW_RESPONSE:
+                raise AdapterUnavailable("MCP server exceeded the bounded response queue; dispatch aborted")
             try:
                 message = json.loads(line)
             except json.JSONDecodeError:
@@ -1113,7 +1115,17 @@ class MCPStdioToolAdapter:
                     while line and not line.endswith("\n"):
                         line = proc.stdout.readline(4096)
                     continue
-                responses.put(line.rstrip("\n"))
+                try:
+                    responses.put_nowait(line.rstrip("\n"))
+                except queue.Full:
+                    # Fail closed instead of buffering an unbounded notification flood.
+                    while True:
+                        try:
+                            responses.get_nowait()
+                        except queue.Empty:
+                            break
+                    responses.put_nowait(self._QUEUE_OVERFLOW_RESPONSE)
+                    return
 
         def read_stderr() -> None:
             assert proc.stderr is not None
