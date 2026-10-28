@@ -653,11 +653,12 @@
     "signals": [
       {
         "id": "long_running_host_sandbox",
-        "source_date": "2026-10-07; 2026-09-24; 2026-10-27",
+        "source_date": "2026-09-10; 2026-09-24; 2026-10-07; 2026-10-27",
         "sources": [
           "https://www.docker.com/press-release/cloud-sandboxes-extending-secure-ai-agent-isolation-beyond-the-laptop/",
           "https://www.akamai.com/newsroom/press-release/akamai-launches-ai-inference-service-and-agent-execution-environment",
-          "https://github.blog/changelog/2026-10-07-local-sandboxing-for-github-copilot-now-generally-available/"
+          "https://github.blog/changelog/2026-10-07-local-sandboxing-for-github-copilot-now-generally-available/",
+          "https://openai.com/index/introducing-the-agents-api/"
         ],
         "owner": [
           "portable.execution_controller.ExecutionController",
@@ -777,9 +778,11 @@
       },
       {
         "id": "scientific_discovery",
-        "source_date": "2026-10-16",
+        "source_date": "2026-10-16; 2026-10-17; 2026-10-22",
         "sources": [
-          "https://www.anthropic.com/science"
+          "https://www.anthropic.com/science",
+          "https://www.nature.com/articles/s43586-026-00534-y",
+          "https://www.mdpi.com/3043-0097/1/2/8"
         ],
         "owner": [
           "LearningSteward",
@@ -793,9 +796,9 @@
         "ci_status": "CI verifies selected causal attribution/promotion contracts only.",
         "deployment_status": "not verified",
         "independent_evaluation_status": "blocked",
-        "measured_gap": "Hypothesis validity, constraint satisfaction, reproducibility, negative-result retention, calibration and transfer to fresh scientific tasks.",
-        "benchmark": "Pinned hypotheses, simulations/code, seeds, model/tool versions and raw outputs; independent replication on fresh tasks, with domain review and physical validation where applicable.",
-        "acceptance_threshold": "Reproducible independent outcomes, explicit uncertainty and negative results, no source-domain regression, and rollback-ready promotion decision.",
+        "measured_gap": "Hypothesis validity, constraint satisfaction, reproducibility, negative-result retention, calibration, transfer to fresh scientific tasks, and reliability of generated reports. Recent lifecycle reviews describe uneven maturity and continuing replication/reporting failures.",
+        "benchmark": "Pinned hypotheses, simulations/code, seeds, model/tool versions and raw outputs; independent replication on fresh tasks; report replication rate, constraint satisfaction, calibration, uncertainty and negative results, with domain review and physical validation where applicable.",
+        "acceptance_threshold": "Reproducible independent outcomes, explicit uncertainty and negative results, source-domain regression limits, and rollback-ready promotion. Literature synthesis or an automated judge score alone is not validation.",
         "rollback": "Do not promote the lesson or harness; retain lineage and restore the prior digest."
       },
       {
