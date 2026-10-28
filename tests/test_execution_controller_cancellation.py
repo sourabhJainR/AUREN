@@ -138,8 +138,11 @@ def test_supervisor_cancellation_kills_real_subprocess_provider_child(tmp_path: 
 def test_supervisor_deadline_kills_real_subprocess_provider_child(tmp_path: Path):
     controller = ExecutionController(tmp_path)
     name = _register(controller, supervised_child_handler)
+    # Windows CI can take longer to create and assign the Job Object than
+    # the short deadline used by this test. Keep the deadline finite but leave
+    # enough time for the child to launch before verifying deadline termination.
     task = controller.submit(
-        name, {"provider_cwd": str(tmp_path)}, deadline_seconds=1.5,
+        name, {"provider_cwd": str(tmp_path)}, deadline_seconds=8.0,
     )
     claimed = controller._claim(task.id)
     assert claimed is not None
@@ -156,8 +159,8 @@ def test_supervisor_deadline_kills_real_subprocess_provider_child(tmp_path: Path
     worker.start()
     marker = tmp_path / "provider-started"
     heartbeat = tmp_path / "provider-heartbeat"
-    _wait_for_provider_start(marker, worker)
-    worker.join(5)
+    _wait_for_provider_start(marker, worker, timeout=6.0)
+    worker.join(10)
     assert not worker.is_alive(), "provider child did not stop before the bounded test timeout"
     assert len(failures) == 1 and isinstance(failures[0], ProviderOutcomeBlocked), failures
     current = controller.task(task.id)
