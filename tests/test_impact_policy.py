@@ -10,6 +10,10 @@ from scripts.impact_policy import classify_changes, classify_path, final_status
 class ImpactPolicyTests(unittest.TestCase):
     def test_every_recovery_sensitive_source_has_mandatory_test_suites(self):
         expected = {
+            "portable/agent_org_runtime.py": {"tests.test_agent_org_runtime", "tests.test_agent_execution_guard"},
+            "tests/test_agent_org_runtime.py": {"tests.test_agent_org_runtime"},
+            "portable/agent_execution_guard.py": {"tests.test_agent_execution_guard", "tests.test_agent_org_runtime"},
+            "tests/test_agent_execution_guard.py": {"tests.test_agent_execution_guard"},
             ".ai-harness/runtime/canary_evaluator.py": {"tests.test_canary_evaluator", "tests.test_production_evaluator_trust"},
             "portable/external_evaluation_campaign.py": {"tests.test_external_evaluation_campaign", "tests.test_external_evaluator_gateway"},
             "portable/independent_evaluation_attestation.py": {"tests.test_independent_evaluation_attestation", "tests.test_sealed_arena_boundary"},
@@ -120,6 +124,10 @@ class ImpactPolicyTests(unittest.TestCase):
             "portable/engineering_recovery.py",
             "tests/test_engineering_recovery.py",
             "tests/test_engineering_recovery_fault_matrix.py",
+            "portable/agent_org_runtime.py",
+            "tests/test_agent_org_runtime.py",
+            "portable/agent_execution_guard.py",
+            "tests/test_agent_execution_guard.py",
             "portable/execution_controller.py",
             "tests/test_execution_controller_restart.py",
             "tests/test_consequential_outer_receipt_crash.py",

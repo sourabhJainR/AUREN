@@ -37,6 +37,7 @@ from .durable_approval import ApprovalPending, InvalidApprovalTransition
 from .workflow_profile import WorkflowProfile, delivery_mode_allows, infer_delivery_action, resolve_profile
 from .workflow_profile_store import load_profile
 from .organization_guard import GuardDecision, GuardPolicyError, evaluate_guard_policy, load_guard_policy
+from .agent_execution_guard import validate_agent_assignment_for_dispatch
 
 Handler = Callable[[Mapping[str, Any]], Any]
 
@@ -151,11 +152,18 @@ class ExecutionController:
         self, root: str | Path, *, company: AutonomousCompany | None = None,
         evidence_signer: Callable[[bytes], Mapping[str, str]] | None = None,
         provider_resume_authorizer: Callable[[str, str, str, str], bool] | None = None,
+        agent_assignment_verifier: Callable[[Mapping[str, Any]], Any] | None = None,
         workflow_profile_path: str | Path | None = None,
     ) -> None:
         if provider_resume_authorizer is not None and not callable(provider_resume_authorizer):
             raise TypeError("provider_resume_authorizer must be callable")
         self._provider_resume_authorizer = provider_resume_authorizer
+        if agent_assignment_verifier is not None and not callable(agent_assignment_verifier):
+            raise TypeError("agent_assignment_verifier must be callable")
+        # Host-owned verifier is injected by trusted bootstrap and re-used after restart.
+        # It must authenticate the assignment from host-controlled identity/policy,
+        # not trust the persisted authorization marker or digest alone.
+        self._agent_assignment_verifier = agent_assignment_verifier
         self.root = Path(root).expanduser().resolve()
         self.company = company or AutonomousCompany(self.root)
         self.db_path = self.root / ".auren" / "execution.sqlite3"
@@ -526,6 +534,15 @@ class ExecutionController:
         resource = task.payload.get("resource", task.payload.get("resource_id", task.payload.get("path", "")))
         if resource is not None and not isinstance(resource, str):
             raise GuardPolicyError("Guard resource selector must be a string")
+        # Assignment envelopes are untrusted durable data. Re-validate their
+        # digest, current registry contract, action class, and resource scope
+        # on every dispatch, including after restart. A role label alone never
+        # grants permission; handlers must still enforce scope at their actual
+        # filesystem/tool boundary.
+        validate_agent_assignment_for_dispatch(
+            task.payload, resource=resource,
+            authorization_verifier=self._agent_assignment_verifier,
+        )
         organization_id = __import__("os").environ.get("AUREN_ORGANIZATION_ID", "")
         approval_policy = self._handler_approval_gate_policy(task.handler)
         return evaluate_guard_policy(

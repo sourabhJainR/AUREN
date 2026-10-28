@@ -80,3 +80,16 @@ Regression coverage: `tests/test_agent_org_runtime.py`. It covers wrong manager,
 This is a first runtime assignment boundary, not full production organization enforcement. The remaining integration gate is to bind authenticated role identity and allowed resource scopes to the actual execution/tool authorization boundary and verify it after process restart. No local tests were run in the connector-only environment; exact-head CI must validate the change.
 
 Rollback: revert the assignment module and its tests, then remove this section if the contract conflicts with the current runtime. The existing task submission path remains unchanged for callers that do not opt into assigned-agent submission.
+
+
+## Dispatch-time assignment scope enforcement — 2026-10-28
+
+portable/agent_execution_guard.py validates every assigned task at the controller's Guard preflight: schema, exact assignment digest and ID, current registry digest, reporting parent, action class, normalized relative resource path, and exact path membership. Assigned work without a resource selector fails closed. Tampered or stale envelopes and path traversal attempts are rejected before handler dispatch. Unassigned legacy tasks retain their existing behavior.
+
+The persisted marker and SHA-256 digest are integrity fields, not proof of manager identity. ExecutionController therefore accepts an optional trusted-bootstrap `agent_assignment_verifier` callback and passes it the immutable, digest-bound assignment after restart. If an assignment is present and no verifier is configured, the verifier raises, returns anything other than literal `True`, or cannot reach its trusted identity/policy source, dispatch is denied. Production bootstrap must provide a verifier that reauthenticates the manager and checks current assignment policy from host-controlled data; never implement it by trusting the task payload or the marker alone. Unassigned legacy tasks do not require this callback.
+
+Regression coverage: `tests/test_agent_execution_guard.py` covers missing, denying, failing, and immutable-request verifier behavior. Scope strings mean exact normalized relative paths, not directories or glob patterns.
+
+This is dispatch-boundary enforcement, not an OS sandbox. It cannot constrain a handler that accesses undeclared resources internally or launches a bypass path. Production use still requires operation-level enforcement in filesystem, subprocess, provider, MCP, and other tool adapters. Do not claim full organization enforcement or production isolation until those boundaries are covered and independently tested.
+
+Rollback: revert the controller verifier injection, dispatch guard, tests, impact-policy/workflow updates, and this section together. Existing unassigned task behavior is unchanged; assigned tasks must not be silently downgraded to unassigned to work around a denial.
