@@ -59,3 +59,16 @@ AUREN's graph execution, durable journaling/recovery, evidence-linked verificati
 ### Promotion and rollback rule
 
 Do not enable a new provider, computer-use adapter, skill pack, model route, or extension by default. Require a paired baseline/candidate run, task success and safety metrics, resource cost and latency, regression/transfer results, independent evaluation where promotion risk requires it, a pinned last-known-good digest, and a rehearsed rollback. Missing or stale evidence is not a pass. No AGI/SI or broad-generalization claim follows from this radar or internal CI.
+
+
+### Latest signal update — 2026-10-28
+
+Three additional host-policy and lifecycle signals sharpen the same gates:
+
+- [GitHub local sandboxing reached general availability on 2026-10-07](https://github.blog/changelog/2026-10-07-local-sandboxing-for-github-copilot-now-generally-available/). Treat the local sandbox as a candidate host adapter; test denial-before-launch for filesystem, network, credential and local-tool access. Do not infer equivalent isolation from an API surface or policy file.
+- [Assisted permissions reached general availability on 2026-10-26](https://github.blog/changelog/2026-10-26-github-copilot-assisted-permissions-generally-available/). Model-based risk classification may help UX, but it must never grant authority. AUREN's host policy, delegated scope, explicit approval and durable action receipt remain authoritative.
+- [GPT-6.1 Terra became available on 2026-10-26](https://github.blog/changelog/2026-10-26-gpt-6-1-terra-in-github-copilot/), while another retirement wave is scheduled for [2026-11-16](https://github.blog/changelog/2026-10-15-upcoming-deprecation-of-selected-github-copilot-models-in-mid-november/). Model catalogs must detect missing/retired IDs and keep fallback bounded.
+- [Centralized Copilot feature defaults are rolling out through 2026-10-26](https://github.blog/changelog/2026-10-22-global-default-for-copilot-features-generally-available/). This does not justify auto-enabling AUREN adapters or packs. Keep them opt-in unless paired value and independent evaluation support promotion.
+- [Copilot CLI local-model discovery](https://github.blog/changelog/2026-10-07-discover-local-models-in-github-copilot-cli/) is discovery, not installation or trust. Check tool-calling/streaming capability, endpoint policy and health before routing; do not install or authorize local runtimes automatically.
+
+Add targeted tests for permission spoofing, forbidden path/network access, retired model IDs, tool-schema mismatch, fallback-loop termination, and preservation of authority, privacy and shared budgets. These remain benchmark gates, not claims of deployed or independently verified behavior.
