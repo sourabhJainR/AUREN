@@ -80,3 +80,32 @@ Context benchmark reports now bind task identity, raw context, and selected cont
 ## Limits
 
 This is a design and repository implementation review, not an independent security audit of the listed projects. Availability detection is not a health check, a manifest is not proof of trust, and local parsing does not by itself prove sandbox isolation. External benchmark claims are not adopted as AUREN performance claims.
+
+
+## Freshness addendum — 2026-10-28
+
+This addendum refreshes the review against the living radar in [#1038](https://github.com/sourabhJainR/AUREN/issues/1038). It does not change the decision to keep AUREN's existing runtime and authority boundaries canonical.
+
+### New signals to test, not copy
+
+- **Long-running isolated work:** Docker announced Cloud Sandboxes on 2026-09-24, and Akamai announced Agent Sandbox plus managed inference on 2026-10-27. These are candidates for adapter evaluation, not new runtime dependencies. AUREN must independently verify host-enforced filesystem/network/credential boundaries and preserve its own recovery ledger, approvals, and operation identity.
+- **Dynamic workflows and computer use:** GitHub documented code-defined dynamic workflows on 2026-10-01 and computer-use/model-selection updates on 2026-10-02. Map the concepts to AUREN's TaskPlan, StateGraph, ExecutionController, ProgressJournal, and dashboard. Do not add a second orchestrator.
+- **Model lifecycle:** GitHub's selected Copilot model retirements took effect on 2026-10-19; current catalogs continue to evolve. Route against authoritative availability/deprecation data, measured task fit, privacy, permissions, quality, latency, cost, and health. Fallback must preserve budget, authority, and data scope.
+- **Evaluation realism:** WildToolBench (ICLR 2026) reports low session accuracy on realistic multi-step tool-use tasks; an October 2026 customer-support skill benchmark reports non-trivial disagreement among evaluators. AUREN's benchmark design should include end-state checks, tool-trace auditing, judge agreement, uncertainty, and retained failures. Internal fixtures cannot substitute for independent evaluator and sealed-holdout custody.
+- **Coordination and oversight:** measure the benefit of multi-agent execution against a deterministic or single-agent baseline. Track redundant work, conflicts, communication cost, escalation delay, unauthorized actions, and review defects. Agent messages are untrusted; consequential adoption remains serialized and independently verified.
+- **Scientific discovery:** Anthropic's science index includes a 2026-10-16 quantum-circuit design study with an automated evaluator. Treat this as a benchmark lead only. Require pinned experiments, negative-result retention, fresh replication, domain review, and appropriate physical validation before making scientific capability claims.
+
+### Acceptance gates
+
+For each lane, the machine-readable radar now records an existing AUREN owner, current implementation/evidence status, measured gap, benchmark, acceptance gate, external dependency, and rollback. New adapters remain opt-in. Promotion requires paired measured value and independent evaluation when applicable; missing evidence blocks promotion. No new runtime framework dependency, no Ardisa dependency, and no AGI/SI claim are introduced by this review.
+
+### Source links
+
+- [Docker Cloud Sandboxes — 2026-09-24](https://www.docker.com/press-release/cloud-sandboxes-extending-secure-ai-agent-isolation-beyond-the-laptop/)
+- [Akamai Agent Sandbox and Inference — 2026-10-27](https://www.akamai.com/newsroom/press-release/akamai-launches-ai-inference-service-and-agent-execution-environment)
+- [GitHub dynamic workflows — 2026-10-01](https://github.blog/changelog/2026-10-01-dynamic-workflows-in-copilot-cli-and-the-copilot-app/)
+- [GitHub Copilot releases and model selection — 2026-10-02](https://github.blog/changelog/2026-10-02-github-copilot-weekly-releases-september-28/)
+- [GitHub model deprecations — 2026-09-18, effective 2026-10-19](https://github.blog/changelog/2026-09-18-upcoming-deprecation-of-selected-github-copilot-models-in-mid-october/)
+- [WildToolBench — ICLR 2026](https://yupeijei1997.github.io/WildToolBench/)
+- [Agentic customer-support skill evaluation — 2026-10-09](https://arxiv.org/abs/2610.14346)
+- [Anthropic science research index](https://www.anthropic.com/science)
