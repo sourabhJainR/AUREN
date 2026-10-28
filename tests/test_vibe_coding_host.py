@@ -39,6 +39,7 @@ from portable.vibe_coding_host import (
     fingerprint_worktree,
     load_host_config,
     _build_provider_operation_lookups,
+    _read_bounded_mcp_stdout_frame,
 )
 
 
@@ -139,6 +140,23 @@ class VibeCodingHostTests(unittest.TestCase):
             self.assertEqual(test_result["tests_run"][0]["returncode"], 0)
             self.assertTrue(test_result["evidence"][0]["locator"].startswith("command://"))
 
+
+    def test_oversized_mcp_stdout_frame_is_rejected_without_draining_child_stream(self):
+        class OversizedWithoutNewline:
+            def __init__(self):
+                self.read_sizes = []
+
+            def readline(self, size):
+                self.read_sizes.append(size)
+                if len(self.read_sizes) == 1:
+                    return "x" * size
+                raise AssertionError("oversized frame reader must not wait for a newline")
+
+        stream = OversizedWithoutNewline()
+        frame, oversized = _read_bounded_mcp_stdout_frame(stream, 10)
+        self.assertIsNone(frame)
+        self.assertTrue(oversized)
+        self.assertEqual(stream.read_sizes, [11])
 
     def test_mcp_stdio_adapter_fails_closed_on_response_queue_flood(self):
         with tempfile.TemporaryDirectory() as temp:
