@@ -43,4 +43,4 @@ The live probe is deliberately narrow. It must not edit files, install packages,
 
 ## CI policy
 
-The deterministic static harness is part of the normal AUREN release gate. Live provider tests are opt-in because CI environments may not have provider credentials, network access, or licensed CLIs.
+The deterministic static harness is part of the normal AUREN release gate and exits successfully when the declared cross-provider contract is valid. Static success does **not** set `release_ready`; that field remains false unless `--live` is requested and every supported local CLI probe succeeds. Live provider tests are opt-in because CI environments may not have provider credentials, network access, or licensed CLIs. A live local-CLI report does not independently validate the ChatGPT app/MCP surface or production provider-side-effect guarantees.
