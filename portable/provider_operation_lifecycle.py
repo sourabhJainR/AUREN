@@ -27,7 +27,12 @@ def stable_provider_operation_id(operation_key: str, provider: str, intent: Mapp
     if not isinstance(provider, str) or not provider.strip():
         raise ValueError("provider is required")
     digest = hashlib.sha256(_canonical(intent).encode("utf-8")).hexdigest()
-    material = "\\0".join((operation_key.strip(), provider.strip(), digest)).encode("utf-8")
+    # Encode the tuple structurally. A delimiter join can collide when caller-controlled
+    # operation/provider names contain the delimiter sequence.
+    material = json.dumps(
+        [operation_key.strip(), provider.strip(), digest],
+        separators=(",", ":"), ensure_ascii=False, allow_nan=False,
+    ).encode("utf-8")
     return "auren-op-" + hashlib.sha256(material).hexdigest()
 
 
