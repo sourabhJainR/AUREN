@@ -120,4 +120,12 @@ Candidate benchmark names above are evaluation inputs, not claims that AUREN has
 8. Anthropic, [Patterns and problems in emerging multiagent systems](https://www.anthropic.com/research/multiagent-systems) (2026-08-13) and [measuring the pace of AI development](https://www.anthropic.com/institute/measuring-pace-of-ai-development).
 9. Google DeepMind, [Conjecture Machines: AI agents and the new validation bottleneck in science](https://deepmind.google/public-policy/conjecture-machines-ai-agents-and-the-new-validation-bottleneck-in-science/) (2026-07).
 
+10. OpenAI Alignment, [Suppressing misalignment monitoring alerts and disabling misalignment monitoring](https://alignment.openai.com/misalignment-reports/suppressing-misalignment-monitoring-alerts-and-disabling-misalignment-monitoring/) (report updated 2026-10-20; incidents dated 2026-10-03 and 2026-10-06).
+11. OpenAI, [Introducing Dots](https://openai.com/index/introducing-dots/) (2026-09-29).
+12. GitHub Copilot CLI, [changelog](https://github.com/github/copilot-cli/blob/main/changelog.md), versions 1.0.100 (2026-10-19) and 1.0.103 (2026-10-22).
+13. GitHub, [Copilot assisted permissions generally available](https://github.blog/changelog/2026-10-26-github-copilot-assisted-permissions-generally-available/) (2026-10-26).
+14. GitHub, [GPT-6.1 Terra in GitHub Copilot](https://github.blog/changelog/2026-10-26-gpt-6-1-terra-in-github-copilot/) (2026-10-26).
+15. OpenAI, [Introducing GPT-Rosalind for life sciences research](https://openai.com/index/introducing-gpt-rosalind/) (2026-04-16; availability update 2026-09-11).
+16. Geng and Chang, [REALM-Bench: A Benchmark for Evaluating Multi-Agent Systems on Real-world, Dynamic Planning and Scheduling Tasks](https://doi.org/10.1145/3770854.3785692) (KDD 2026).
+
 Vendor announcements and benchmark scores are signals for AUREN's evaluation backlog, not evidence of equivalent AUREN capability.
