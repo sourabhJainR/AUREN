@@ -1101,6 +1101,16 @@ class MCPStdioToolAdapter:
         responses: queue.Queue[str] = queue.Queue(maxsize=self._MAX_QUEUED_RESPONSES)
         stderr_chunks: list[str] = []
 
+        def signal_fatal(marker: str) -> None:
+            # Fatal reader conditions must never block behind a full queue. Discard
+            # buffered notifications and deliver the failure marker immediately.
+            while True:
+                try:
+                    responses.get_nowait()
+                except queue.Empty:
+                    break
+            responses.put_nowait(marker)
+
         def read_stdout() -> None:
             assert proc.stdout is not None
             while True:
@@ -1108,21 +1118,16 @@ class MCPStdioToolAdapter:
                 if not line:
                     break
                 if len(line) > self.max_response_chars:
-                    responses.put(self._OVERSIZE_RESPONSE)
-                    # Drain this line in bounded chunks before reading the next JSON-RPC frame.
+                    # Drain this frame in bounded chunks, then stop reading. The caller
+                    # receives a fatal marker and tears down the process tree.
                     while line and not line.endswith("\n"):
                         line = proc.stdout.readline(4096)
-                    continue
+                    signal_fatal(self._OVERSIZE_RESPONSE)
+                    return
                 try:
                     responses.put_nowait(line.rstrip("\n"))
                 except queue.Full:
-                    # Fail closed instead of buffering an unbounded notification flood.
-                    while True:
-                        try:
-                            responses.get_nowait()
-                        except queue.Empty:
-                            break
-                    responses.put_nowait(self._QUEUE_OVERFLOW_RESPONSE)
+                    signal_fatal(self._QUEUE_OVERFLOW_RESPONSE)
                     return
 
         def read_stderr() -> None:
