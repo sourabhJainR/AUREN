@@ -794,13 +794,15 @@
       },
       {
         "id": "scientific_discovery",
-        "source_date": "2026-10-13; 2026-10-16; 2026-10-17; 2026-10-22",
+        "source_date": "2026-10-12; 2026-10-13; 2026-10-16; 2026-10-17; 2026-10-20; 2026-10-22",
         "sources": [
           "https://www.anthropic.com/science",
           "https://www.nature.com/articles/s43586-026-00534-y",
           "https://www.mdpi.com/3043-0097/1/2/8",
           "https://arxiv.org/abs/2610.19159",
-          "https://arxiv.org/abs/2610.23845"
+          "https://arxiv.org/abs/2610.23845",
+          "https://arxiv.org/abs/2610.28763",
+          "https://www.nature.com/articles/s44386-026-00075-0"
         ],
         "owner": [
           "LearningSteward",
@@ -814,8 +816,8 @@
         "ci_status": "CI verifies selected causal attribution/promotion contracts only.",
         "deployment_status": "not verified",
         "independent_evaluation_status": "blocked",
-        "measured_gap": "Hypothesis validity, expert-condition satisfaction, reproducibility, analytical robustness, negative-result retention, calibration, transfer to fresh scientific tasks, and report integrity. Into the Unknown reports 0 of 135 submissions satisfying all conditions and 114 integrity failures; SEER-Repro reproduces 77.4% of 2,190 atomic claims and flags potentially consequential analysis choices in 9.5% of fully reproduced findings.",
-        "benchmark": "Pinned hypotheses, expert-authored constraints, simulations/code, seeds, model/tool versions and raw outputs; measure condition satisfaction and executable reproduction, run sensitivity analyses, then require independent replication on fresh tasks; report calibration, uncertainty and negative results with domain review.",
+        "measured_gap": "Hypothesis validity, expert-condition satisfaction, reproducibility, analytical robustness, negative-result retention, calibration, transfer to fresh scientific tasks, and report integrity. Into the Unknown reports 0 of 135 submissions satisfying all conditions and 114 integrity failures. Agent4Sci spans 20 scientific-ML benchmarks across 11 domains: frontier agents improve published baselines, but trajectory analysis attributes most gains to ML-engineering heuristics rather than research-level insight; plug-in skills improve measured progress but need independent transfer evaluation. SEER-Repro reproduces 77.4% of 2,190 atomic claims and flags potentially consequential analysis choices in 9.5% of fully reproduced findings.",
+        "benchmark": "Pinned hypotheses, expert-authored constraints, simulations/code, seeds, model/tool versions and raw outputs; measure condition satisfaction and executable reproduction, run sensitivity analyses, then require independent replication on fresh tasks. Pair each skill/curriculum candidate with an unmodified baseline across 20 benchmarks/11 domains where applicable; report task-level gain, novelty, cost, reproducibility, calibration, uncertainty and negative results. Keep held-out tasks outside worker and judge context; require domain review.",
         "acceptance_threshold": "Reproducible independent outcomes, explicit uncertainty and negative results, source-domain regression limits, and rollback-ready promotion. Literature synthesis or an automated judge score alone is not validation.",
         "rollback": "Do not promote the lesson or harness; retain lineage and restore the prior digest."
       },
