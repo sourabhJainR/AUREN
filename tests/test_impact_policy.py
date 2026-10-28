@@ -39,6 +39,7 @@ class ImpactPolicyTests(unittest.TestCase):
             "tests/test_execution_boundary.py": {"tests.test_execution_boundary", "tests.test_durable_approval", "tests.test_side_effect_ledger"},
             "portable/durable_approval.py": {"tests.test_durable_approval", "tests.test_side_effect_ledger", "tests.test_execution_controller"},
             "portable/provider_operation_lifecycle.py": {"tests.test_provider_operation_lifecycle", "tests.test_side_effect_ledger"},
+            "tests/test_provider_operation_identity_encoding.py": {"tests.test_provider_operation_identity_encoding", "tests.test_provider_operation_lifecycle"},
             "portable/subprocess_provider.py": {"tests.test_subprocess_provider", "tests.test_bounded_subprocess_fault_injection"},
             "tests/test_subprocess_provider.py": {"tests.test_subprocess_provider"},
             "portable/ci_repair_watchdog.py": {"tests.test_ci_repair_watchdog", "tests.test_engineering_recovery"},
