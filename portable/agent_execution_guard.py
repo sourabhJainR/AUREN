@@ -159,7 +159,25 @@ def enforce_agent_resource_scope(relative_path: Any) -> None:
         raise AgentAssignmentScopeDenied("filesystem resource is outside the assigned scope")
 
 
+def enforce_agent_request_scope(request: Mapping[str, Any]) -> None:
+    """Check every explicit resource selector before an assigned adapter can dispatch."""
+    if not isinstance(request, Mapping):
+        raise AgentAssignmentScopeDenied("assigned adapter request must be a mapping")
+    state = request.get("state", {})
+    selectors: list[Any] = []
+    for source in (request, state if isinstance(state, Mapping) else {}):
+        for key in ("resource", "path", "file_path"):
+            if key in source and source[key] is not None:
+                selectors.append(source[key])
+    if selectors:
+        for selector in selectors:
+            enforce_agent_resource_scope(selector)
+    else:
+        enforce_agent_resource_scope(None)
+
+
 __all__ = [
     "AgentAssignmentScopeDenied", "agent_assignment_scope",
-    "enforce_agent_resource_scope", "validate_agent_assignment_for_dispatch",
+    "enforce_agent_request_scope", "enforce_agent_resource_scope",
+    "validate_agent_assignment_for_dispatch",
 ]

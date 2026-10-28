@@ -78,8 +78,14 @@ EXECUTION_SURFACE_INVENTORY: tuple[ExecutionSurface, ...] = (
     ExecutionSurface(
         "mcp-tool-dispatch", "Configured MCP stdio calls that can execute external tools",
         "portable/vibe_coding_host.py:MCPStdioToolAdapter",
-        "MCPStdioToolAdapter defaults to authority-bound mode; consequential calls require host-derived context and execute_bound_action before Popen, with provider-operation identity, exact request/tool/argv/argument digests, environment allowlist, timeout, revision, worktree digest, and task budget bound to the action",
-        "Assigned-agent scope is checked before adapter dispatch when explicit resource/path selectors are present; missing or conflicting selectors fail closed. The resolver still needs trusted identity/repository context, this application boundary is not OS isolation, and remote outcomes require provider-native reconciliation",
+        "MCPStdioToolAdapter defaults to authority-bound mode; consequential calls require host-derived context and execute_bound_action before Popen, with provider-operation identity, exact request/tool/argv/argument digests, environment allowlist, timeout, revision, worktree digest, and task budget bound to the action; assigned calls check all explicit resource selectors before authority resolution",
+        "Request-level scope validation is an application precondition, not OS isolation; the resolver still needs trusted identity/repository context, and remote outcomes require provider-native reconciliation",
+    ),
+    ExecutionSurface(
+        "subprocess-agent-dispatch", "Provider CLI, local test, repository and security helper subprocess adapters",
+        "portable/vibe_coding_host.py:ProviderCliAgent, LocalTestExecutionTool, LocalProjectTool, LocalSecurityTool",
+        "Provider/test/security adapters validate active assignment selectors before command launch; LocalProjectTool checks every changed path and LocalSecurityTool checks each path before direct reads",
+        "Request selectors do not confine a provider/test process to individual files; raw Git fingerprint/worktree helpers and OS/network isolation remain separate gates",
     ),
     ExecutionSurface(
         "runtime-budget-and-cancellation", "Bounded steps, attempts, deadlines and repeated-failure stop",
@@ -156,6 +162,7 @@ def execution_surface_audit() -> dict[str, Any]:
             "task_identity": "partial",
             "action_authority": "present_with_caller_enforcement",
             "mcp_tool_dispatch": "authority_bound_by_default_with_explicit_read_only_opt_out",
+            "subprocess_agent_dispatch": "request_scope_checked_at_adapter_entry_but_process_not_confined",
             "budget_and_cancellation": "present_with_cooperative_cancellation",
             "durable_recovery": "present_with_persistence_dependency",
             "trusted_isolation": "not_proven_by_repository_inventory",

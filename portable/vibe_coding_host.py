@@ -29,7 +29,7 @@ from typing import Any, Callable, Mapping, Sequence
 from urllib.parse import urlparse
 
 from .action_governance import ActionGovernanceGateway, ActionRequest, ApprovalReceipt
-from .agent_execution_guard import enforce_agent_resource_scope
+from .agent_execution_guard import enforce_agent_request_scope, enforce_agent_resource_scope
 from .execution_boundary import ExecutionAuthorityBinding, execute_bound_action
 from .runtime_recovery import RuntimeExecutionGuard
 from .provider_fabric import ProviderFabric
@@ -557,6 +557,7 @@ class ProviderCliAgent:
             raise AdapterUnavailable("workspace writes require the Codex CLI workspace-write sandbox; other providers are read-only here")
 
     def __call__(self, request: Mapping[str, Any]) -> Mapping[str, Any]:
+        enforce_agent_request_scope(request)
         stage = VibeStage(str(request.get("stage", "")))
         state = request.get("state", {})
         root_value = state.get("workspace_root") or state.get("project_root") if isinstance(state, Mapping) else None
@@ -1088,20 +1089,8 @@ class MCPStdioToolAdapter:
         if not isinstance(request, Mapping):
             raise ValueError("MCP request must be a mapping")
 
-        # Assigned-agent scope is enforced before authority resolution or process
-        # launch. Check every explicit selector so an allowed declaration cannot
-        # mask a different path that the same call targets.
-        state = request.get("state", {})
-        selectors: list[Any] = []
-        for source in (request, state if isinstance(state, Mapping) else {}):
-            for key in ("resource", "path", "file_path"):
-                if key in source and source[key] is not None:
-                    selectors.append(source[key])
-        if selectors:
-            for selector in selectors:
-                enforce_agent_resource_scope(selector)
-        else:
-            enforce_agent_resource_scope(None)
+        # Enforce the active assignment before authority resolution or process launch.
+        enforce_agent_request_scope(request)
         if not self.requires_authority_binding:
             arguments = self._arguments_for_request(request)
             # At most three total calls (initial + two reductions), and only for an
@@ -1456,9 +1445,13 @@ class LocalProjectTool:
     def _files(self) -> list[str]:
         tracked = self._git("diff", "--name-only", self.base_revision)
         untracked = self._git("ls-files", "--others", "--exclude-standard")
-        return sorted({line.strip() for line in (tracked + "\n" + untracked).splitlines() if line.strip()})
+        paths = sorted({line.strip() for line in (tracked + "\n" + untracked).splitlines() if line.strip()})
+        for relative in paths:
+            enforce_agent_resource_scope(relative)
+        return paths
 
     def __call__(self, request: Mapping[str, Any]) -> Mapping[str, Any]:
+        enforce_agent_request_scope(request)
         stage = VibeStage(str(request.get("stage", "")))
         capability = str(request.get("capability", "repository"))
         if capability == "environment":
@@ -1692,6 +1685,7 @@ class LocalTestExecutionTool:
         return results, True
 
     def __call__(self, request: Mapping[str, Any]) -> Mapping[str, Any]:
+        enforce_agent_request_scope(request)
         stage = VibeStage(str(request.get("stage", "")))
         results, passed = self._execute()
         evidence = [{"source": "test-command", "locator": f"command://{item['output_digest']}", "returncode": item["returncode"]} for item in results]
@@ -1711,12 +1705,14 @@ class LocalSecurityTool:
         self.allow_workspace_writes = allow_workspace_writes
 
     def __call__(self, request: Mapping[str, Any]) -> Mapping[str, Any]:
+        enforce_agent_request_scope(request)
         repository = LocalProjectTool(self.root, str(request.get("state", {}).get("base_revision", "HEAD")), allow_workspace_writes=self.allow_workspace_writes)
         files = repository._files()
         findings: list[dict[str, Any]] = []
         scanned = []
         secret_pattern = re.compile(r"(?i)(api[_-]?key|secret|token|password)\s*[:=]\s*['\"][^'\"]{8,}['\"]")
         for relative in files:
+            enforce_agent_resource_scope(relative)
             target = (self.root / relative).resolve()
             if self.root not in target.parents or not target.is_file():
                 continue

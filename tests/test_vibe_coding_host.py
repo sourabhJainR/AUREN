@@ -11,6 +11,7 @@ import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+from types import SimpleNamespace
 
 from portable.action_governance import ActionGovernanceGateway, ActionPolicy, ActionRequest
 from portable.agent_execution_guard import AgentAssignmentScopeDenied, agent_assignment_scope
@@ -23,7 +24,9 @@ from portable.vibe_coding_host import (
     DurableVibeCheckpointStore,
     IsolatedGitWorktree,
     LocalProjectTool,
+    LocalSecurityTool,
     LocalTestExecutionTool,
+    ProviderCliAgent,
     LocalVibeCodingHost,
     MCPExecutionAuthorization,
     MCPStdioToolAdapter,
@@ -191,6 +194,53 @@ class VibeCodingHostTests(unittest.TestCase):
                 })
 
             self.assertEqual(result, {"ok": True})
+
+    def test_assigned_provider_cli_and_test_runner_deny_before_subprocess_launch(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            provider = ProviderCliAgent.__new__(ProviderCliAgent)
+            provider.provider = "claude"
+            provider.capability = SimpleNamespace(command=(sys.executable, "-c", "raise SystemExit(0)"))
+            provider.allow_workspace_writes = False
+            provider.timeout_seconds = 5
+            provider.env_allowlist = ()
+            test_runner = LocalTestExecutionTool(
+                root, ((sys.executable, "-c", "raise SystemExit(0)"),),
+            )
+            provider_request = {
+                "stage": VibeStage.CODE_REVIEW.value,
+                "resource": "blocked.txt",
+                "state": {"workspace_root": str(root)},
+            }
+            test_request = {
+                "stage": VibeStage.TESTING.value,
+                "resource": "blocked.txt",
+                "state": {"workspace_root": str(root)},
+            }
+
+            with agent_assignment_scope(("allowed.txt",)):
+                with patch("portable.vibe_coding_host._run") as run:
+                    with self.assertRaises(AgentAssignmentScopeDenied):
+                        provider(provider_request)
+                    with self.assertRaises(AgentAssignmentScopeDenied):
+                        test_runner(test_request)
+                    run.assert_not_called()
+
+    def test_assigned_security_scan_rejects_changed_files_outside_scope_before_read(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            base_revision = init_git(root)
+            (root / "README.md").write_text("# changed outside scope\n", encoding="utf-8")
+            scanner = LocalSecurityTool(root, allow_workspace_writes=False)
+            request = {
+                "resource": "allowed.txt",
+                "state": {"workspace_root": str(root), "base_revision": base_revision},
+            }
+
+            with agent_assignment_scope(("allowed.txt",)):
+                with patch.object(Path, "read_text", side_effect=AssertionError("out-of-scope file must not be read")):
+                    with self.assertRaises(AgentAssignmentScopeDenied):
+                        scanner(request)
 
     def test_isolated_worktree_never_mutates_source_checkout_and_rollback_requires_authority(self):
         with tempfile.TemporaryDirectory() as temp:

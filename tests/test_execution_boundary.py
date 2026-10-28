@@ -83,6 +83,14 @@ class ExecutionBoundaryTests(unittest.TestCase):
             first["coverage"]["mcp_tool_dispatch"],
             "authority_bound_by_default_with_explicit_read_only_opt_out",
         )
+        subprocess_surface = next(surface for surface in first["surfaces"] if surface["name"] == "subprocess-agent-dispatch")
+        self.assertIn("ProviderCliAgent", subprocess_surface["implementation"])
+        self.assertIn("before command launch", subprocess_surface["existing_control"])
+        self.assertIn("not confine", subprocess_surface["remaining_gap"])
+        self.assertEqual(
+            first["coverage"]["subprocess_agent_dispatch"],
+            "request_scope_checked_at_adapter_entry_but_process_not_confined",
+        )
 
     def test_p0_every_direct_gateway_execute_callsite_is_explicitly_reviewed(self):
         root = Path(__file__).resolve().parents[1]
