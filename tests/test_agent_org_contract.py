@@ -22,7 +22,7 @@ class AgentOrganizationContractTests(unittest.TestCase):
 
     def test_registry_is_descriptive_not_an_authority_grant(self):
         self.assertEqual("auren-ai-engineering-org-v1", self.registry["schema_version"])
-        self.assertIn("not an authorization mechanism", self.registry["purpose"])
+        self.assertIn("not itself an authorization mechanism", self.registry["purpose"])
         self.assertEqual("not_certified_by_this_registry",
                          self.registry["status"]["runtime_enforcement"])
         self.assertEqual("not_verified", self.registry["status"]["production_deployment"])
