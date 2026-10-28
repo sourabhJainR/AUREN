@@ -987,8 +987,6 @@ class MCPStdioToolAdapter:
                 raise AdapterUnavailable("MCP response exceeded the configured character limit")
             if line == MCPStdioToolAdapter._QUEUE_OVERFLOW_RESPONSE:
                 raise AdapterUnavailable("MCP server exceeded the bounded response queue; dispatch aborted")
-            if line == MCPStdioToolAdapter._QUEUE_OVERFLOW_RESPONSE:
-                raise AdapterUnavailable("MCP server exceeded the bounded response queue; dispatch aborted")
             try:
                 message = json.loads(line)
             except json.JSONDecodeError:
