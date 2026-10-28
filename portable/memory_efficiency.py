@@ -150,14 +150,15 @@ def chunk_memory_context(
         prefix = f"[MEMORY_PART id={rid} sha256={digest} "
         suffix = "]\n"
         body = str(row.get("text", ""))
-        fixed = len(prefix) + len("part=999999/999999") + len(suffix)
+        footer = "\n[/MEMORY_PART]\n"
+        fixed = len(prefix) + len("part=999999/999999") + len(suffix) + len(footer)
         width = max_chars - fixed
         if width < 1:
             raise MemoryBudgetExceeded("context budget is too small for a memory chunk header")
         pieces = [body[i:i + width] for i in range(0, len(body), width)] or [""]
         total = len(pieces)
         for part_index, piece in enumerate(pieces, 1):
-            text = f"{prefix}part={part_index}/{total}{suffix}{piece}\n[/MEMORY_PART]\n"
+            text = f"{prefix}part={part_index}/{total}{suffix}{piece}{footer}"
             if len(text) > max_chars:
                 raise MemoryBudgetExceeded("context budget cannot fit a memory chunk header")
             chunks.append((text, [rid]))
