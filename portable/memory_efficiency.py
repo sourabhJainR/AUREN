@@ -136,7 +136,7 @@ def chunk_memory_context(
         rid = str(row.get("id", ""))
         digest = hashlib.sha256(json.dumps(row, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")).hexdigest()
         # Keep normal records together when possible. For a large record, emit
-        # explicit numbered fragments that can be reassembled without guessing.
+        # explicit numbered fragments that remain bound to the canonical source record.
         if len(capsule) <= max_chars:
             if current and len(current) + len(capsule) > max_chars:
                 chunks.append((current, current_ids))
