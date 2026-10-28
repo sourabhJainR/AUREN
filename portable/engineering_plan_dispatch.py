@@ -16,6 +16,7 @@ from uuid import uuid4
 from .engineering_context_packet import EngineeringContextPacket
 from .engineering_plan import EngineeringPlan, EngineeringPlanRun
 from .engineering_plan_store import EngineeringPlanStore
+from .agent_role_scope import ROLE_SCOPE_KEY
 
 
 class DispatchConflict(RuntimeError):
@@ -159,6 +160,7 @@ class EngineeringPlanDispatch:
         packet: EngineeringContextPacket,
         payload: Mapping[str, Any] | None = None,
         goal: str | None = None,
+        role_scope: Mapping[str, Any] | None = None,
     ):
         """Persist an idempotent dispatch intent before the handler can run.
 
@@ -181,6 +183,13 @@ class EngineeringPlanDispatch:
         safe_payload = dict(payload or {})
         if "auren_dispatch" in safe_payload:
             raise ValueError("payload key 'auren_dispatch' is reserved for trusted dispatch metadata")
+        if ROLE_SCOPE_KEY in safe_payload:
+            raise ValueError("payload key '_auren_role_scope' is reserved for trusted supervisor metadata")
+        normalized_role_scope, role_deadline_at = self.controller._prepare_role_scope(
+            role_scope, handler_name, safe_payload,
+        )
+        if normalized_role_scope is not None:
+            safe_payload[ROLE_SCOPE_KEY] = normalized_role_scope
         self._validate_payload_keys(safe_payload)
         encoded_payload = json.dumps(safe_payload, sort_keys=True, separators=(",", ":"), allow_nan=False)
         with sqlite3.connect(self.database_path, timeout=10) as db:
@@ -219,6 +228,15 @@ class EngineeringPlanDispatch:
         if payload is not None and not isinstance(payload, Mapping):
             raise ValueError("dispatch payload must be a mapping")
         safe_payload = dict(payload or {})
+        if "auren_dispatch" in safe_payload:
+            raise ValueError("payload key 'auren_dispatch' is reserved for trusted dispatch metadata")
+        if ROLE_SCOPE_KEY in safe_payload:
+            raise ValueError("payload key '_auren_role_scope' is reserved for trusted supervisor metadata")
+        normalized_role_scope, role_deadline_at = self.controller._prepare_role_scope(
+            role_scope, handler_name, safe_payload,
+        )
+        if normalized_role_scope is not None:
+            safe_payload[ROLE_SCOPE_KEY] = normalized_role_scope
         self._validate_payload_keys(safe_payload)
         encoded_payload = json.dumps(safe_payload, sort_keys=True, separators=(",", ":"), allow_nan=False)
         binding = {
@@ -309,10 +327,10 @@ class EngineeringPlanDispatch:
                 # the committed intent before it can create an orphan work unit.
                 work = self.controller.company.start(goal or f"engineering plan {run_id}: {task_id}")
                 db.execute(
-                    "INSERT INTO tasks(id,handler,payload,state,attempts,work_unit_id,created_at,updated_at,heartbeat_at,lease_until) "
-                    "VALUES(?,?,?,?,?,?,?,?,?,?)",
+                    "INSERT INTO tasks(id,handler,payload,state,attempts,work_unit_id,created_at,updated_at,heartbeat_at,lease_until,deadline_at) "
+                    "VALUES(?,?,?,?,?,?,?,?,?,?,?)",
                     (task_identifier, handler_name, task_json, "pending", 0, work.id,
-                     timestamp, timestamp, timestamp, timestamp),
+                     timestamp, timestamp, timestamp, timestamp, role_deadline_at),
                 )
                 db.execute(
                     "INSERT INTO engineering_dispatch_intents "
