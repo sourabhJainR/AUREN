@@ -73,7 +73,7 @@
         "repository_ci": "CI-verified for sandbox/custody scaffolding only; modality-specific benchmark not run",
         "deployment": "not verified",
         "independent_evaluation": "not verified; external gate blocked",
-        "reviewed_main_sha": "da9517e4946313215c477694988f1fb5f6bba052"
+        "reviewed_main_sha": "5b3e3858d85d558945f2a4ccf65a18fe9b323ba7"
       }
     },
     {
@@ -132,7 +132,7 @@
         "repository_ci": "CI-verified for supervisor/recovery contracts only; external environment suite not run",
         "deployment": "not verified",
         "independent_evaluation": "not verified; external gate blocked",
-        "reviewed_main_sha": "da9517e4946313215c477694988f1fb5f6bba052"
+        "reviewed_main_sha": "5b3e3858d85d558945f2a4ccf65a18fe9b323ba7"
       }
     },
     {
@@ -164,7 +164,7 @@
       },
       "baseline": {
         "status": "internal_regression_only",
-        "source": "Repository regression evidence on baseline main da9517e4946313215c477694988f1fb5f6bba052 includes selected shared runtime/learning/delivery split-write and no-replay tests (PRs #1034, #1037, #1042); no independent multi-hour/day completion baseline is retained."
+        "source": "Repository regression evidence on baseline main 5b3e3858d85d558945f2a4ccf65a18fe9b323ba7 includes selected shared runtime/learning/delivery split-write and no-replay tests (PRs #1034, #1037, #1042); no independent multi-hour/day completion baseline is retained."
       },
       "held_out_plan": "Use a separate operator to issue unseen task graphs, kill/restart processes at randomized checkpoints, and retain signed completion evidence.",
       "threat_model": [
@@ -193,7 +193,7 @@
         "repository_ci": "CI-verified for selected recovery and side-effect contracts only; long-duration benchmark not run",
         "deployment": "not verified",
         "independent_evaluation": "not verified; external gate blocked",
-        "reviewed_main_sha": "da9517e4946313215c477694988f1fb5f6bba052"
+        "reviewed_main_sha": "5b3e3858d85d558945f2a4ccf65a18fe9b323ba7"
       }
     },
     {
@@ -254,7 +254,7 @@
         "repository_ci": "CI-verified for lineage/attestation protocol tests only; external target domain not run",
         "deployment": "not verified",
         "independent_evaluation": "not verified; external gate blocked",
-        "reviewed_main_sha": "da9517e4946313215c477694988f1fb5f6bba052"
+        "reviewed_main_sha": "5b3e3858d85d558945f2a4ccf65a18fe9b323ba7"
       }
     },
     {
@@ -313,7 +313,7 @@
         "repository_ci": "CI-verified for causal attribution/promotion-gate contracts only; independent replication not run",
         "deployment": "not verified",
         "independent_evaluation": "not verified; external gate blocked",
-        "reviewed_main_sha": "da9517e4946313215c477694988f1fb5f6bba052"
+        "reviewed_main_sha": "5b3e3858d85d558945f2a4ccf65a18fe9b323ba7"
       }
     },
     {
@@ -371,7 +371,7 @@
         "repository_ci": "CI-verified for memory/provenance and selected learning integration only; longitudinal suite not run",
         "deployment": "not verified",
         "independent_evaluation": "not verified; external gate blocked",
-        "reviewed_main_sha": "da9517e4946313215c477694988f1fb5f6bba052"
+        "reviewed_main_sha": "5b3e3858d85d558945f2a4ccf65a18fe9b323ba7"
       }
     },
     {
@@ -404,7 +404,7 @@
       },
       "baseline": {
         "status": "internal_regression_only",
-        "source": "Graph/decision gate and shared runtime/learning/delivery regressions are CI-verified on baseline main da9517e4946313215c477694988f1fb5f6bba052; PRs #1008–#1037 cover selected dependency, adoption, verification, and split-write cases. No independently scored multi-crew benchmark is retained."
+        "source": "Graph/decision gate and shared runtime/learning/delivery regressions are CI-verified on baseline main 5b3e3858d85d558945f2a4ccf65a18fe9b323ba7; PRs #1008–#1037 cover selected dependency, adoption, verification, and split-write cases. No independently scored multi-crew benchmark is retained."
       },
       "held_out_plan": "Separate tool server from candidate; hide acceptance oracle; independently score handoffs, denied actions, and recovery.",
       "threat_model": [
@@ -432,7 +432,7 @@
         "repository_ci": "CI-verified for graph/runtime contracts only; independent multi-crew benchmark not run",
         "deployment": "not verified",
         "independent_evaluation": "not verified; external gate blocked",
-        "reviewed_main_sha": "da9517e4946313215c477694988f1fb5f6bba052"
+        "reviewed_main_sha": "5b3e3858d85d558945f2a4ccf65a18fe9b323ba7"
       }
     },
     {
@@ -495,7 +495,7 @@
         "repository_ci": "CI-verified for protocol/security tests only; external red-team suite not run",
         "deployment": "not verified",
         "independent_evaluation": "not verified; external gate blocked",
-        "reviewed_main_sha": "da9517e4946313215c477694988f1fb5f6bba052"
+        "reviewed_main_sha": "5b3e3858d85d558945f2a4ccf65a18fe9b323ba7"
       }
     },
     {
@@ -563,7 +563,7 @@
         "repository_ci": "CI-verified for custody/evaluator protocol only; independent campaign not run",
         "deployment": "not verified",
         "independent_evaluation": "not verified; external gate blocked",
-        "reviewed_main_sha": "da9517e4946313215c477694988f1fb5f6bba052"
+        "reviewed_main_sha": "5b3e3858d85d558945f2a4ccf65a18fe9b323ba7"
       }
     }
   ],
