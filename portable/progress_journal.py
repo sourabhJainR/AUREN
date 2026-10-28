@@ -133,6 +133,15 @@ class ProgressJournal:
                         or not isinstance(row.get("stage"), str)
                         or not isinstance(row.get("message"), str)
                         or not isinstance(row.get("timestamp"), str)
+                        or ("priority" in row and (
+                            isinstance(row.get("priority"), bool)
+                            or not isinstance(row.get("priority"), int)
+                            or not 0 <= row["priority"] <= 100
+                        ))
+                        or ("parent_task_id" in row and row["parent_task_id"] is not None and (
+                            not isinstance(row["parent_task_id"], str) or not row["parent_task_id"].strip()
+                        ))
+                        or ("decision_required" in row and not isinstance(row["decision_required"], bool))
                     ):
                         raise ProgressJournalCorruption(
                             f"progress journal has invalid field values at line {line_number}; writes and snapshots are blocked"
