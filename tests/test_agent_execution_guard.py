@@ -312,7 +312,6 @@ class AgentExecutionGuardTests(unittest.TestCase):
                     agent_action_class="review_verified_metrics",
                 )
 
-
     def test_stale_assignment_policy_after_restart_blocks_before_handler_entry(self):
         import gc
 
