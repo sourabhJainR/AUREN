@@ -27,7 +27,7 @@
 - [x] Add a command-backed provider invoker that terminates a timed-out child process and has regression tests for timeout, environment isolation, output limits, and error redaction. This is a bounded process adapter, not a full sandbox.
 - [x] Verify hard termination and process-tree termination: implementation is present for the tested platforms: POSIX uses process-group termination, and Windows uses a kill-on-close Job Object. The descendant-process regression passed on main SHA `2ece3959991ac41f9b104242e25a4e1f8153e85e`.
 - [ ] Apply OS/container memory limits for untrusted provider execution. Byte-bounded output capture limits retained output, but does not enforce a process memory quota.
-- [ ] Complete end-to-end proof that cancellation and absolute deadlines propagate through every supervisor, graph node, provider/model adapter, child process, and validation command. Selected live-handler and subprocess tests exist; universal adapter coverage and deployment evidence remain open.
+- [ ] Prove cancellation and absolute deadlines propagate end-to-end through every supervisor, graph node, provider/model adapter, child process, and validation command. Selected live-handler and subprocess tests exist; universal adapter coverage and deployment evidence remain open.
 - [ ] Prove unknown remote outcomes reconcile by idempotency key or authoritative operation lookup before retry. Never automatically replay an uncertain operation.
 
 **Exit evidence:** bounded wall-clock tests, platform-specific process-tree termination, durable checkpoint snapshots, duplicate-side-effect counters, restart/reconciliation tests, and no false-success assertions.
