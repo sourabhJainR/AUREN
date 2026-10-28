@@ -54,6 +54,10 @@ class ContextStreamingTests(unittest.TestCase):
             self.assertEqual(journal.completed("job-1")[0], (chunk.sha256, "verified result"))
             with self.assertRaises(ValueError):
                 journal.record("job-1", chunk, "conflicting result")
+            bounded = DurableChunkJournal(Path(directory) / "bounded.sqlite", max_result_chars=4)
+            bounded.begin("job-bounded", "source-v1")
+            with self.assertRaises(ValueError):
+                bounded.record("job-bounded", chunk, "too long")
             with self.assertRaises(ValueError):
                 journal.begin("job-1", "source-v2")
             journal.finish("job-1", blocked=True)
