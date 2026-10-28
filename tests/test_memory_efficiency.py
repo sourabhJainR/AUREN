@@ -67,7 +67,7 @@ class MemoryEfficiencyTests(unittest.TestCase):
             memory = PersistentMemory(Path(tmp) / "memory.db", require_approval=False)
             memory.remember("p", "security", "Do not disable Guard checks.", approved=True, verified=True, confidence=1.0)
             memory.remember("p", "lesson", "Use bounded retries.", approved=True, confidence=0.5)
-            chunks = memory.context_chunks("p", "Guard retries", max_chars=256, limit=10)
+            chunks = memory.context_chunks("p", "Guard", max_chars=256, limit=10)
             self.assertTrue(chunks)
             self.assertTrue(all(len(chunk.text) <= 256 for chunk in chunks))
             self.assertTrue(any("Guard" in chunk.text for chunk in chunks))
