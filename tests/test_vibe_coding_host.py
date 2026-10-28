@@ -13,6 +13,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from portable.action_governance import ActionGovernanceGateway, ActionPolicy, ActionRequest
+from portable.agent_execution_guard import AgentAssignmentScopeDenied, agent_assignment_scope
 from portable.execution_boundary import ExecutionAuthorityBinding
 from portable.runtime_recovery import RuntimeExecutionGuard
 from portable.side_effect_ledger import DurableSideEffectLedger
@@ -126,6 +127,71 @@ for line in sys.stdin:
 
 
 class VibeCodingHostTests(unittest.TestCase):
+    def test_assigned_mcp_resource_scope_denies_before_process_launch(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            marker = root / "launched.txt"
+            script = "from pathlib import Path; Path(" + repr(str(marker)) + ").write_text('launched')"
+            tool = MCPStdioToolAdapter(
+                argv=(sys.executable, "-c", script),
+                tool_name="scope-probe",
+                timeout_seconds=2,
+                requires_authority_binding=False,
+                trusted_workspace_root=root,
+            )
+
+            with agent_assignment_scope(("allowed.txt",)):
+                with self.assertRaises(AgentAssignmentScopeDenied):
+                    tool({"resource": "blocked.txt", "state": {"workspace_root": str(root)}})
+
+            self.assertFalse(marker.exists(), "out-of-scope MCP call must be denied before Popen")
+
+    def test_assigned_mcp_scope_rejects_missing_or_conflicting_resource_selectors(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            marker = root / "launched.txt"
+            script = "from pathlib import Path; Path(" + repr(str(marker)) + ").write_text('launched')"
+            tool = MCPStdioToolAdapter(
+                argv=(sys.executable, "-c", script),
+                tool_name="scope-probe",
+                timeout_seconds=2,
+                requires_authority_binding=False,
+                trusted_workspace_root=root,
+            )
+
+            with agent_assignment_scope(("allowed.txt",)):
+                with self.assertRaises(AgentAssignmentScopeDenied):
+                    tool({"state": {"workspace_root": str(root)}})
+                with self.assertRaises(AgentAssignmentScopeDenied):
+                    tool({
+                        "resource": "allowed.txt",
+                        "path": "blocked.txt",
+                        "state": {"workspace_root": str(root)},
+                    })
+
+            self.assertFalse(marker.exists(), "invalid assignment selectors must be denied before Popen")
+
+    def test_assigned_mcp_resource_inside_scope_can_dispatch(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            server = root / "fake_mcp.py"
+            fake_mcp_server(server, structured={"ok": True})
+            tool = MCPStdioToolAdapter(
+                argv=(sys.executable, str(server)),
+                tool_name="scope-probe",
+                timeout_seconds=3,
+                requires_authority_binding=False,
+                trusted_workspace_root=root,
+            )
+
+            with agent_assignment_scope(("allowed.txt",)):
+                result = tool({
+                    "resource": "allowed.txt",
+                    "state": {"workspace_root": str(root)},
+                })
+
+            self.assertEqual(result.get("structuredContent"), {"ok": True})
+
     def test_isolated_worktree_never_mutates_source_checkout_and_rollback_requires_authority(self):
         with tempfile.TemporaryDirectory() as temp:
             base = Path(temp)
