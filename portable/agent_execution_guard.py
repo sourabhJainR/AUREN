@@ -9,7 +9,8 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import PurePosixPath
-from typing import Any, Mapping
+from types import MappingProxyType
+from typing import Any, Callable, Mapping
 
 from .agent_org_runtime import REGISTRY_PATH, load_agent_org_registry
 
@@ -47,6 +48,7 @@ def validate_agent_assignment_for_dispatch(
     *,
     resource: str | None,
     registry_path: str = str(REGISTRY_PATH),
+    authorization_verifier: Callable[[Mapping[str, Any]], Any] | None = None,
 ) -> None:
     """Validate an optional assignment envelope before any handler dispatch.
 
@@ -71,6 +73,8 @@ def validate_agent_assignment_for_dispatch(
         raise AgentAssignmentScopeDenied("agent assignment schema is invalid")
     if envelope.get("authorization") != "host_authorized_before_submission":
         raise AgentAssignmentScopeDenied("agent assignment authorization marker is invalid")
+    if not callable(authorization_verifier):
+        raise AgentAssignmentScopeDenied("host-owned assignment authorization verifier is required")
     role_id, manager_id, action_class = (
         envelope.get("role_id"), envelope.get("manager_id"), envelope.get("action_class")
     )
@@ -107,6 +111,22 @@ def validate_agent_assignment_for_dispatch(
         raise AgentAssignmentScopeDenied("agent assignment digest does not match its contents")
     if envelope.get("assignment_id") != "auren-assignment-" + digest:
         raise AgentAssignmentScopeDenied("agent assignment ID does not match its digest")
+    verification_request = MappingProxyType({
+        "schema_version": _SCHEMA,
+        "assignment_id": envelope["assignment_id"],
+        "role_id": role_id,
+        "manager_id": manager_id,
+        "action_class": action_class,
+        "scope": tuple(clean_scope),
+        "registry_digest": registry_digest,
+        "assignment_digest": digest,
+    })
+    try:
+        authorized = authorization_verifier(verification_request)
+    except Exception as exc:
+        raise AgentAssignmentScopeDenied("host-owned assignment authorization verification failed") from exc
+    if authorized is not True:
+        raise AgentAssignmentScopeDenied("host-owned assignment authorization verifier denied the assignment")
     target = _safe_relative_resource(resource, field="resource selector")
     allowed = target in clean_scope
     if not allowed:
