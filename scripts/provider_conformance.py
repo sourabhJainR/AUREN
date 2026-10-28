@@ -177,7 +177,7 @@ def main() -> int:
             for check in provider["checks"]:
                 print(f"  {check['status'].upper():11} {check['id']}: {check['detail']}")
         print("RELEASE READY" if report["release_ready"] else "NOT RELEASE READY")
-    return 0 if (report["release_ready"] if args.live else report["static_contract"]["status"] == "pass" and all(p.status == "pass" for p in report["providers"])) else 1
+    return 0 if (report["release_ready"] if args.live else report["static_contract"]["status"] == "pass" and all(p.get("status") == "pass" for p in report["providers"])) else 1
 
 
 if __name__ == "__main__":
