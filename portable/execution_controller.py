@@ -37,7 +37,7 @@ from .durable_approval import ApprovalPending, InvalidApprovalTransition
 from .workflow_profile import WorkflowProfile, delivery_mode_allows, infer_delivery_action, resolve_profile
 from .workflow_profile_store import load_profile
 from .organization_guard import GuardDecision, GuardPolicyError, evaluate_guard_policy, load_guard_policy
-from .agent_execution_guard import validate_agent_assignment_for_dispatch
+from .agent_execution_guard import agent_assignment_scope, validate_agent_assignment_for_dispatch
 
 Handler = Callable[[Mapping[str, Any]], Any]
 
@@ -2278,8 +2278,16 @@ class ExecutionController:
             payload["auren_cancel_event"] = cancel
             if task.deadline_at is not None:
                 payload["auren_deadline_epoch"] = datetime.fromisoformat(task.deadline_at).timestamp()
+            # Revalidate the durable assignment immediately before entering the
+            # handler and bind its verified exact-path scope to guarded adapters.
+            resource = payload.get("resource", payload.get("resource_id", payload.get("path", "")))
+            assignment_scope = validate_agent_assignment_for_dispatch(
+                payload, resource=resource,
+                authorization_verifier=self._agent_assignment_verifier,
+            )
             handler_started = True
-            result = handler(payload)
+            with agent_assignment_scope(assignment_scope):
+                result = handler(payload)
         except BaseException as exc:
             handler_error = exc
         finally:
