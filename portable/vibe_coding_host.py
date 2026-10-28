@@ -931,17 +931,35 @@ def build_mcp_authority_dispatch(
 
 
 def _read_bounded_mcp_stdout_frame(stream: Any, max_chars: int) -> tuple[str | None, bool]:
-    """Read one bounded protocol frame without draining an oversized child stream.
+    """Read one protocol frame in bounded chunks without draining oversize input.
 
-    Returns (frame, oversized). An oversized frame is fatal: the caller must
-    terminate the child instead of waiting for an untrusted newline.
+    The accumulator never accepts more than max_chars characters. Reads are
+    capped at 4096 characters (or the remaining budget plus one), so a caller
+    configured with a large frame limit does not issue one correspondingly
+    large readline allocation. The first character beyond the limit is fatal:
+    the caller must terminate the child instead of waiting for an untrusted
+    newline or attempting an unsafe retry of an unknown operation.
+
+    Returns (frame, oversized).
     """
-    line = stream.readline(max_chars + 1)
-    if not line:
-        return None, False
-    if len(line) > max_chars:
-        return None, True
-    return line.rstrip("\n"), False
+    if type(max_chars) is not int or isinstance(max_chars, bool) or max_chars < 1:
+        raise ValueError("MCP frame character limit must be a positive integer")
+    chunks: list[str] = []
+    total = 0
+    while total <= max_chars:
+        size = min(4096, max_chars - total + 1)
+        part = stream.readline(size)
+        if not part:
+            if not chunks:
+                return None, False
+            return "".join(chunks).rstrip("\n"), False
+        total += len(part)
+        if total > max_chars:
+            return None, True
+        chunks.append(part)
+        if part.endswith("\n"):
+            return "".join(chunks).rstrip("\n"), False
+    return None, True
 
 
 class MCPStdioToolAdapter:
