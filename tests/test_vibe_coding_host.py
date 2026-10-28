@@ -147,15 +147,15 @@ class VibeCodingHostTests(unittest.TestCase):
             init_git(project)
             server = base / "flood_mcp.py"
             server.write_text(
-                "import json, sys\\n"
-                "for line in sys.stdin:\\n"
-                "    try: msg = json.loads(line)\\n"
-                "    except Exception: continue\\n"
-                "    if msg.get('method') == 'initialize':\\n"
-                "        print(json.dumps({'jsonrpc':'2.0','id':msg['id'],'result':{'protocolVersion':'2024-11-05','capabilities':{},'serverInfo':{'name':'flood','version':'1'}}}), flush=True)\\n"
-                "        for n in range(1000): print(json.dumps({'jsonrpc':'2.0','method':'notifications/progress','params':{'n':n}}), flush=True)\\n"
-                "    elif msg.get('method') == 'tools/call':\\n"
-                "        print(json.dumps({'jsonrpc':'2.0','id':msg['id'],'result':{'structuredContent':{'ok':True}}}), flush=True)\\n",
+                "import json, sys\n"
+                "for line in sys.stdin:\n"
+                "    try: msg = json.loads(line)\n"
+                "    except Exception: continue\n"
+                "    if msg.get('method') == 'initialize':\n"
+                "        print(json.dumps({'jsonrpc':'2.0','id':msg['id'],'result':{'protocolVersion':'2024-11-05','capabilities':{},'serverInfo':{'name':'flood','version':'1'}}}), flush=True)\n"
+                "        for n in range(1000): print(json.dumps({'jsonrpc':'2.0','method':'notifications/progress','params':{'n':n}}), flush=True)\n"
+                "    elif msg.get('method') == 'tools/call':\n"
+                "        print(json.dumps({'jsonrpc':'2.0','id':msg['id'],'result':{'structuredContent':{'ok':True}}}), flush=True)\n",
                 encoding="utf-8",
             )
             adapter = MCPStdioToolAdapter(
