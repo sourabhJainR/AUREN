@@ -2327,10 +2327,13 @@ class ExecutionController:
             # Revalidate the durable assignment immediately before entering the
             # handler and bind its verified exact-path scope to guarded adapters.
             resource = payload.get("resource", payload.get("resource_id", payload.get("path", "")))
+            current_policy = load_guard_policy(self.root / ".auren" / "guard_policy.json")
             assignment_scope = validate_agent_assignment_for_dispatch(
                 payload, resource=resource,
                 authorization_verifier=self._agent_assignment_verifier,
                 expected_action_class=self._handler_agent_action_class(task.handler),
+                expected_policy_version=POLICY_VERSION,
+                expected_policy_digest=guard_policy_fingerprint(current_policy),
             )
             handler_started = True
             with agent_assignment_scope(assignment_scope):
