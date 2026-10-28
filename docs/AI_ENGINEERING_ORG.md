@@ -90,6 +90,8 @@ The persisted marker and SHA-256 digest are integrity fields, not proof of manag
 
 Regression coverage: `tests/test_agent_execution_guard.py` covers missing, denying, failing, and immutable-request verifier behavior. Scope strings mean exact normalized relative paths, not directories or glob patterns.
 
-This is dispatch-boundary enforcement, not an OS sandbox. It cannot constrain a handler that accesses undeclared resources internally or launches a bypass path. Production use still requires operation-level enforcement in filesystem, subprocess, provider, MCP, and other tool adapters. Do not claim full organization enforcement or production isolation until those boundaries are covered and independently tested.
+The next operation-boundary slice binds the verified exact-path scope to the synchronous handler context and makes `portable/guarded_filesystem.py` reject reads, writes, and path resolution outside that scope. A controller integration regression proves that a handler cannot declare one resource for preflight and write a different path through the guarded filesystem.
+
+This is not an OS sandbox. Context-local scope enforcement does not constrain code that bypasses the guarded adapter, starts an unpropagated thread/process, or uses direct filesystem APIs. Subprocess, provider, MCP, network, nested-tool and process-isolation enforcement remain separate gates. Do not claim full organization enforcement or production isolation until those boundaries are covered and independently tested.
 
 Rollback: revert the controller verifier injection, dispatch guard, tests, impact-policy/workflow updates, and this section together. Existing unassigned task behavior is unchanged; assigned tasks must not be silently downgraded to unassigned to work around a denial.
