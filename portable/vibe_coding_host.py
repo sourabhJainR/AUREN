@@ -934,6 +934,8 @@ class MCPStdioToolAdapter:
     """Call a configured MCP stdio tool using JSON-RPC, without shell interpolation."""
 
     _OVERSIZE_RESPONSE = "\\x00AUREN_MCP_RESPONSE_TOO_LARGE\\x00"
+    _QUEUE_OVERFLOW_RESPONSE = "\\x00AUREN_MCP_RESPONSE_QUEUE_OVERFLOW\\x00"
+    _MAX_QUEUED_RESPONSES = 32
 
     def __init__(
         self, *, argv: Sequence[str], tool_name: str, argument_map: Mapping[str, Any] | None = None,
@@ -983,6 +985,8 @@ class MCPStdioToolAdapter:
                 raise TimeoutError("MCP server did not respond before the configured timeout") from exc
             if line == MCPStdioToolAdapter._OVERSIZE_RESPONSE:
                 raise AdapterUnavailable("MCP response exceeded the configured character limit")
+            if line == MCPStdioToolAdapter._QUEUE_OVERFLOW_RESPONSE:
+                raise AdapterUnavailable("MCP server exceeded the bounded response queue; dispatch aborted")
             try:
                 message = json.loads(line)
             except json.JSONDecodeError:
@@ -1094,7 +1098,7 @@ class MCPStdioToolAdapter:
                 raise AdapterUnavailable(
                     "MCP process could not be placed in a kill-on-close Windows Job Object; dispatch blocked"
                 ) from exc
-        responses: queue.Queue[str] = queue.Queue()
+        responses: queue.Queue[str] = queue.Queue(maxsize=self._MAX_QUEUED_RESPONSES)
         stderr_chunks: list[str] = []
 
         def read_stdout() -> None:
@@ -1109,13 +1113,30 @@ class MCPStdioToolAdapter:
                     while line and not line.endswith("\n"):
                         line = proc.stdout.readline(4096)
                     continue
-                responses.put(line.rstrip("\n"))
+                try:
+                    responses.put_nowait(line.rstrip("\n"))
+                except queue.Full:
+                    # Fail closed instead of buffering an unbounded notification flood.
+                    while True:
+                        try:
+                            responses.get_nowait()
+                        except queue.Empty:
+                            break
+                    responses.put_nowait(self._QUEUE_OVERFLOW_RESPONSE)
+                    return
 
         def read_stderr() -> None:
             assert proc.stderr is not None
-            for line in proc.stderr:
+            while True:
+                line = proc.stderr.readline(4096)
+                if not line:
+                    break
                 if len(stderr_chunks) < 100:
                     stderr_chunks.append(line[:500])
+                # Drain any oversized diagnostic line in fixed-size chunks. Never
+                # let an untrusted child force Python to allocate an unbounded line.
+                while line and not line.endswith("\\n") and len(line) >= 4096:
+                    line = proc.stderr.readline(4096)
 
         out_thread = threading.Thread(target=read_stdout, daemon=True)
         err_thread = threading.Thread(target=read_stderr, daemon=True)

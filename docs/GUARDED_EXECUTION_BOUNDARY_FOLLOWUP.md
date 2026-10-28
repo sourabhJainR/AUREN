@@ -210,3 +210,8 @@ On Windows, `MCPStdioToolAdapter` now starts the MCP server suspended and assign
 The Windows regression starts a descendant that would leave a marker after the MCP request returns; the test asserts the marker is never written. This covers the adapter's process-tree cleanup contract, not arbitrary host filesystem/network containment or every direct subprocess callsite.
 
 Rollback: revert the `MCPStdioToolAdapter` Job Object integration, its Windows descendant regression, and this note together. Do not fall back to direct-child-only termination for MCP tools that may spawn descendants; block the affected adapter until a supported containment path is available.
+
+
+## MCP stdio response-memory bound (2026-10-28)
+
+MCP stdout protocol buffering now uses a fixed-capacity response queue. If an untrusted server floods notifications faster than the caller can consume them, the adapter fails closed with a queue-overflow error instead of accumulating an unbounded number of strings. Stderr is consumed in fixed-size reads and only a bounded number of redacted diagnostic fragments are retained. Oversized protocol frames remain rejected. This limits application-side queue and diagnostic retention; it is not a full OS memory sandbox, and the child process still requires timeout/process-tree containment. Roll back the queue/reader changes together with the flood regression if compatibility issues are demonstrated; do not restore unbounded buffering.
