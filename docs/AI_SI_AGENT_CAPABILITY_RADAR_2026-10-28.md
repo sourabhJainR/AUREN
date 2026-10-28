@@ -1,6 +1,6 @@
 # AI / SI Agent Capability Radar — 2026-10-28
 
-**Baseline:** `cb0848f71e66dd3ca3ad6157cd2633d4d85b40e6`  
+**Baseline:** `b9a632bf8c9d90855a81a3f5225ae7bbc360c682`  
 **Tracking issue:** [#1038](https://github.com/sourabhJainR/AUREN/issues/1038)  
 **Purpose:** keep AUREN's implementation and evaluation priorities current. This is a research and gap-tracking document, not a capability certification.
 
