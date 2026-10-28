@@ -139,6 +139,35 @@ class VibeCodingHostTests(unittest.TestCase):
             self.assertEqual(test_result["tests_run"][0]["returncode"], 0)
             self.assertTrue(test_result["evidence"][0]["locator"].startswith("command://"))
 
+
+    def test_mcp_stdio_adapter_fails_closed_on_response_queue_flood(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            project = base / "project"
+            init_git(project)
+            server = base / "flood_mcp.py"
+            server.write_text(
+                "import json, sys\\n"
+                "for line in sys.stdin:\\n"
+                "    try: msg = json.loads(line)\\n"
+                "    except Exception: continue\\n"
+                "    if msg.get('method') == 'initialize':\\n"
+                "        print(json.dumps({'jsonrpc':'2.0','id':msg['id'],'result':{'protocolVersion':'2024-11-05','capabilities':{},'serverInfo':{'name':'flood','version':'1'}}}), flush=True)\\n"
+                "        for n in range(1000): print(json.dumps({'jsonrpc':'2.0','method':'notifications/progress','params':{'n':n}}), flush=True)\\n"
+                "    elif msg.get('method') == 'tools/call':\\n"
+                "        print(json.dumps({'jsonrpc':'2.0','id':msg['id'],'result':{'structuredContent':{'ok':True}}}), flush=True)\\n",
+                encoding="utf-8",
+            )
+            adapter = MCPStdioToolAdapter(
+                argv=(sys.executable, str(server)),
+                tool_name="bounded",
+                timeout_seconds=3,
+                requires_authority_binding=False,
+                trusted_workspace_root=project,
+            )
+            with self.assertRaisesRegex(AdapterUnavailable, "bounded response queue"):
+                adapter({"state": {"workspace_root": str(project)}, "intent": "test"})
+
     def test_mcp_stdio_adapter_calls_real_json_rpc_tool_and_research_requires_source_urls(self):
         with tempfile.TemporaryDirectory() as temp:
             base = Path(temp)
