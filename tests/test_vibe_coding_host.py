@@ -342,8 +342,8 @@ class VibeCodingHostTests(unittest.TestCase):
                 " if msg.get('method') == 'initialize':\n"
                 "  print(json.dumps({'jsonrpc':'2.0','id':msg['id'],'result':{'protocolVersion':'2024-11-05','capabilities':{},'serverInfo':{'name':'tree-test','version':'1'}}}), flush=True)\n"
                 " elif msg.get('method') == 'tools/call':\n"
-                "  code = 'import pathlib,time; time.sleep(1.5); pathlib.Path(' + repr(str(marker)) + ').write_text(\\"survived\\")'\n"
-                "  subprocess.Popen([sys.executable, '-c', code], close_fds=True)\n"
+                "  code = 'import pathlib,time,sys; time.sleep(1.5); pathlib.Path(sys.argv[1]).write_text(chr(115)+chr(117)+chr(114)+chr(118)+chr(105)+chr(118)+chr(101)+chr(100))'\\n"
+                "  subprocess.Popen([sys.executable, '-c', code, marker], close_fds=True)\\n"
                 "  print(json.dumps({'jsonrpc':'2.0','id':msg['id'],'result':{'structuredContent':{'ok':True}}}), flush=True)\n",
                 encoding="utf-8",
             )
