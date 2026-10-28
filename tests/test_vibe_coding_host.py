@@ -163,6 +163,92 @@ class VibeCodingHostTests(unittest.TestCase):
         self.assertEqual(len(metadata["observed_prefix_sha256"]), 64)
         self.assertFalse(metadata["frame_complete"])
 
+    def test_mcp_read_only_oversized_response_reduces_batch_once_without_raising_frame_cap(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            project = base / "project"
+            init_git(project)
+            server = base / "adaptive_mcp.py"
+            server.write_text(
+                "import json, sys\n"
+                "for line in sys.stdin:\n"
+                "    try: msg = json.loads(line)\n"
+                "    except Exception: continue\n"
+                "    if msg.get('method') == 'initialize':\n"
+                "        print(json.dumps({'jsonrpc':'2.0','id':msg['id'],'result':{'protocolVersion':'2024-11-05','capabilities':{},'serverInfo':{'name':'adaptive','version':'1'}}}), flush=True)\n"
+                "    elif msg.get('method') == 'tools/call':\n"
+                "        limit = msg.get('params',{}).get('arguments',{}).get('limit',100)\n"
+                "        payload = {'items':['ok']} if limit <= 1 else {'items':['x' * 500]}\n"
+                "        print(json.dumps({'jsonrpc':'2.0','id':msg['id'],'result':{'structuredContent':payload}}), flush=True)\n",
+                encoding="utf-8",
+            )
+            reductions = []
+            def reduce_batch(arguments):
+                reductions.append(dict(arguments))
+                return {**arguments, "limit": 1}
+
+            adapter = MCPStdioToolAdapter(
+                argv=(sys.executable, str(server)),
+                tool_name="bounded",
+                argument_map={"limit": "$limit"},
+                timeout_seconds=3,
+                max_response_chars=300,
+                requires_authority_binding=False,
+                trusted_workspace_root=project,
+                read_only_response_reducer=reduce_batch,
+            )
+            result = adapter({"limit": 100, "state": {"workspace_root": str(project)}})
+            self.assertEqual(result, {"items": ["ok"]})
+            self.assertEqual(reductions, [{"limit": 100}])
+
+    def test_mcp_response_reducer_is_rejected_for_authority_bound_tools(self):
+        with self.assertRaisesRegex(ValueError, "only allowed for operator-declared read-only"):
+            MCPStdioToolAdapter(
+                argv=(sys.executable, "-c", "pass"),
+                tool_name="consequential",
+                read_only_response_reducer=lambda arguments: arguments,
+            )
+
+    def test_oversized_mcp_stdout_frame_uses_bounded_chunk_reads(self):
+        class OversizedWithoutNewline:
+            def __init__(self):
+                self.read_sizes = []
+
+            def readline(self, size):
+                self.read_sizes.append(size)
+                return "x" * size
+
+        stream = OversizedWithoutNewline()
+        frame, oversized, metadata = _read_bounded_mcp_stdout_frame(stream, 9000)
+        self.assertIsNone(frame)
+        self.assertTrue(oversized)
+        self.assertEqual(metadata["observed_chars_at_least"], 9001)
+        self.assertEqual(stream.read_sizes, [4096, 4096, 809])
+
+    def test_mcp_stdout_frame_is_reassembled_from_bounded_chunks(self):
+        class ChunkedLine:
+            def __init__(self, data):
+                self.data = data
+                self.read_sizes = []
+
+            def readline(self, size):
+                self.read_sizes.append(size)
+                if not self.data:
+                    return ""
+                newline = self.data.find("\n")
+                take = min(size, newline + 1 if newline >= 0 else len(self.data))
+                part, self.data = self.data[:take], self.data[take:]
+                return part
+
+        expected = "x" * 9000
+        stream = ChunkedLine(expected + "\n")
+        frame, oversized, metadata = _read_bounded_mcp_stdout_frame(stream, 10000)
+        self.assertEqual(frame, expected)
+        self.assertFalse(oversized)
+        self.assertIsNone(metadata)
+        self.assertGreater(len(stream.read_sizes), 1)
+        self.assertLessEqual(max(stream.read_sizes), 4096)
+
     def test_mcp_stdio_adapter_fails_closed_on_response_queue_flood(self):
         with tempfile.TemporaryDirectory() as temp:
             base = Path(temp)
