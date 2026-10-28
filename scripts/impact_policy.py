@@ -19,6 +19,10 @@ class Impact:
 # Order is stable for deterministic evidence. Every sensitive source path has
 # a mandatory focused suite; recovery changes also require production hardening.
 _RULES: tuple[tuple[str, tuple[str, ...], bool], ...] = (
+    ("portable/agent_org_runtime.py", ("tests.test_agent_org_runtime", "tests.test_agent_execution_guard", "tests.test_execution_controller_guard_policy"), True),
+    ("tests/test_agent_org_runtime.py", ("tests.test_agent_org_runtime",), True),
+    ("portable/agent_execution_guard.py", ("tests.test_agent_execution_guard", "tests.test_agent_org_runtime", "tests.test_execution_controller_guard_policy"), True),
+    ("tests/test_agent_execution_guard.py", ("tests.test_agent_execution_guard",), True),
     ("portable/agent_execution_guard.py", ("tests.test_agent_execution_guard", "tests.test_agent_org_runtime", "tests.test_execution_controller_guard_policy"), True),
     ("tests/test_agent_execution_guard.py", ("tests.test_agent_execution_guard",), True),
     ("portable/agency_observability_ops.py", ("tests.test_agency_observability_ops", "tests.test_agency_observability"), True),
