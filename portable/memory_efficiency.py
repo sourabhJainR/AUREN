@@ -113,7 +113,7 @@ def chunk_memory_context(
     """Pack every retrieved record into bounded chunks without loss or silent omission.
 
     Long records are split only at Unicode code-point boundaries. Their record ID,
-    source digest, and part marker are retained in each chunk for exact reassembly.
+    source digest, and part marker are retained in each chunk for source binding; the canonical record remains authoritative.
     """
     if type(max_chars) is not int or max_chars < 128:
         raise ValueError("max_chars must be an integer >= 128")
