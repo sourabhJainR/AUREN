@@ -4,6 +4,9 @@ import json
 import subprocess
 import sys
 import unittest
+from unittest.mock import patch
+
+from scripts import provider_conformance
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -42,6 +45,35 @@ class ProviderConformanceTests(unittest.TestCase):
         self.assertIn("--live", source)
         self.assertIn("read-only", source)
         self.assertIn("AER_CONFORMANCE_OK", source)
+
+    def test_static_mode_never_invokes_live_provider_probes(self):
+        with patch.object(
+            provider_conformance,
+            "live_probe",
+            side_effect=AssertionError("static mode must not invoke live provider probes"),
+        ):
+            report = provider_conformance.run(live=False)
+        self.assertEqual("static", report["mode"])
+        self.assertEqual("pass", report["static_contract"]["status"])
+        self.assertFalse(report["release_ready"])
+
+    def test_live_readiness_fails_closed_when_any_probe_is_not_pass(self):
+        for unavailable_status in ("unsupported", "unavailable", "fail", "timeout"):
+            with self.subTest(status=unavailable_status):
+                def probe(provider):
+                    status = unavailable_status if provider == "chatgpt" else "pass"
+                    return provider_conformance.Check(
+                        "live-probe", status, "test-only status fixture", {}
+                    )
+
+                with patch.object(provider_conformance, "live_probe", side_effect=probe):
+                    report = provider_conformance.run(live=True)
+                self.assertEqual("live", report["mode"])
+                self.assertEqual("pass", report["static_contract"]["status"])
+                self.assertFalse(
+                    report["release_ready"],
+                    f"non-passing probe status {unavailable_status!r} must not imply readiness",
+                )
 
 
 if __name__ == "__main__":
