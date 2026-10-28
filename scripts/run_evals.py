@@ -101,9 +101,14 @@ def policy_checks():
             failures.append("provider conformance harness failed static contract checks")
         else:
             try:
-                if not json.loads(p.stdout).get("release_ready"):
-                    failures.append("provider conformance harness is not release-ready")
-            except json.JSONDecodeError:
+                report = json.loads(p.stdout)
+                static_ok = report.get("static_contract", {}).get("status") == "pass"
+                surfaces_ok = bool(report.get("providers")) and all(
+                    provider.get("status") == "pass" for provider in report["providers"]
+                )
+                if not static_ok or not surfaces_ok:
+                    failures.append("provider conformance harness failed static surface checks")
+            except (json.JSONDecodeError, AttributeError, TypeError):
                 failures.append("provider conformance harness did not emit valid JSON")
     for path, label in (
         (BEHAVIORAL_HARNESS, "behavioral conformance harness"),
