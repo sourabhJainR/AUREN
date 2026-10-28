@@ -65,6 +65,37 @@ class CapabilityCoverageMatrixTests(unittest.TestCase):
                 for module in modules:
                     self.assertTrue((ROOT / "tests" / module.removeprefix("tests/")).is_file(), module)
 
+    def test_living_radar_signals_are_actionable_and_fail_closed(self):
+        matrix = json.loads(MATRIX_PATH.read_text(encoding="utf-8"))
+        radar = matrix["radar_refresh"]
+        self.assertTrue(radar["reviewed_at"])
+        self.assertTrue(radar["baseline_main_sha"])
+        self.assertIn("candidate signals only", radar["status"])
+        self.assertGreaterEqual(len(radar["signals"]), 7)
+        required = {
+            "id", "source_date", "sources", "owner", "status",
+            "implementation_status", "ci_status", "deployment_status",
+            "independent_evaluation_status", "measured_gap", "benchmark",
+            "acceptance_threshold", "rollback",
+        }
+        signal_ids = []
+        for signal in radar["signals"]:
+            with self.subTest(signal=signal.get("id")):
+                self.assertTrue(required <= set(signal))
+                signal_ids.append(signal["id"])
+                self.assertTrue(signal["owner"])
+                self.assertTrue(signal["sources"])
+                self.assertTrue(all(url.startswith("https://") for url in signal["sources"]))
+                self.assertTrue(signal["measured_gap"].strip())
+                self.assertTrue(signal["benchmark"].strip())
+                self.assertTrue(signal["acceptance_threshold"].strip())
+                self.assertTrue(signal["rollback"].strip())
+                self.assertTrue(signal["deployment_status"].strip())
+                self.assertTrue(signal["independent_evaluation_status"].strip())
+        self.assertEqual(len(signal_ids), len(set(signal_ids)))
+        self.assertIn("not verified", {s["deployment_status"] for s in radar["signals"]})
+        self.assertIn("blocked", {s["independent_evaluation_status"] for s in radar["signals"]})
+
     def test_matrix_does_not_define_a_numeric_superintelligence_score(self):
         matrix = json.loads(MATRIX_PATH.read_text(encoding="utf-8"))
         self.assertNotIn("superintelligence_score", matrix)
