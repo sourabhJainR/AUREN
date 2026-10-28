@@ -16,7 +16,7 @@ from typing import Any, Callable, Iterator, Mapping
 
 from .agent_org_runtime import REGISTRY_PATH, load_agent_org_registry
 
-_SCHEMA = "auren-agent-assignment-v1"
+_SCHEMA = "auren-agent-assignment-v2"
 _ASSIGNMENT_KEY = "_auren_agent_assignment"
 _MAX_SCOPE_ITEMS = 100
 _MAX_SCOPE_LENGTH = 512
@@ -55,6 +55,8 @@ def validate_agent_assignment_for_dispatch(
     registry_path: str = str(REGISTRY_PATH),
     authorization_verifier: Callable[[Mapping[str, Any]], Any] | None = None,
     expected_action_class: str | None = None,
+    expected_policy_version: str | None = None,
+    expected_policy_digest: str | None = None,
 ) -> tuple[str, ...] | None:
     """Validate an optional assignment envelope before any handler dispatch.
 
@@ -73,9 +75,14 @@ def validate_agent_assignment_for_dispatch(
     envelope = payload.get(_ASSIGNMENT_KEY)
     if not isinstance(envelope, Mapping):
         raise AgentAssignmentScopeDenied("agent assignment envelope is malformed")
+    if envelope.get("schema_version") == "auren-agent-assignment-v1":
+        raise AgentAssignmentScopeDenied(
+            "legacy agent assignment requires reauthorization under the current Guard policy"
+        )
     required = {
         "schema_version", "assignment_id", "role_id", "manager_id", "action_class",
-        "scope", "registry_digest", "assignment_digest", "authorization",
+        "scope", "registry_digest", "policy_version", "policy_digest",
+        "assignment_digest", "authorization",
     }
     if set(envelope) != required or envelope.get("schema_version") != _SCHEMA:
         raise AgentAssignmentScopeDenied("agent assignment schema is invalid")
@@ -104,6 +111,18 @@ def validate_agent_assignment_for_dispatch(
         raise AgentAssignmentScopeDenied("agent assignment role or manager no longer matches registry")
     if action_class not in role.get("allowed_action_classes", []):
         raise AgentAssignmentScopeDenied("agent assignment action class is no longer permitted")
+    policy_version = envelope.get("policy_version")
+    policy_digest = envelope.get("policy_digest")
+    if not isinstance(policy_version, str) or not policy_version:
+        raise AgentAssignmentScopeDenied("agent assignment Guard policy version is missing")
+    if (not isinstance(policy_digest, str) or len(policy_digest) != 64
+            or any(char not in "0123456789abcdef" for char in policy_digest)):
+        raise AgentAssignmentScopeDenied("agent assignment Guard policy digest is malformed")
+    if not isinstance(expected_policy_version, str) or policy_version != expected_policy_version:
+        raise AgentAssignmentScopeDenied("agent assignment Guard policy version is stale")
+    if (not isinstance(expected_policy_digest, str)
+            or policy_digest != expected_policy_digest):
+        raise AgentAssignmentScopeDenied("agent assignment Guard policy digest is stale")
     if not isinstance(expected_action_class, str) or not expected_action_class:
         raise AgentAssignmentScopeDenied("assigned work requires a trusted handler action class")
     if action_class != expected_action_class:
@@ -115,6 +134,8 @@ def validate_agent_assignment_for_dispatch(
         "action_class": action_class,
         "scope": clean_scope,
         "registry_digest": registry_digest,
+        "policy_version": policy_version,
+        "policy_digest": policy_digest,
     }
     digest = hashlib.sha256(_canonical(body)).hexdigest()
     if envelope.get("assignment_digest") != digest:
@@ -131,6 +152,8 @@ def validate_agent_assignment_for_dispatch(
         "action_class": action_class,
         "scope": tuple(clean_scope),
         "registry_digest": registry_digest,
+        "policy_version": policy_version,
+        "policy_digest": policy_digest,
         "assignment_digest": digest,
     })
     try:
