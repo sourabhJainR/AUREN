@@ -49,7 +49,8 @@ class AurenClientTests(unittest.TestCase):
             )
             try:
                 client.register_handler(
-                    "sdk-assigned", sdk_assigned_handler, execution_class="read_only"
+                    "sdk-assigned", sdk_assigned_handler, execution_class="read_only",
+                    agent_action_class="edit_assigned_paths",
                 )
                 assignment = authorize_agent_assignment(
                     role_id="BE-01",

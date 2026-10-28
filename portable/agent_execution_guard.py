@@ -54,14 +54,17 @@ def validate_agent_assignment_for_dispatch(
     resource: str | None,
     registry_path: str = str(REGISTRY_PATH),
     authorization_verifier: Callable[[Mapping[str, Any]], Any] | None = None,
+    expected_action_class: str | None = None,
 ) -> tuple[str, ...] | None:
     """Validate an optional assignment envelope before any handler dispatch.
 
     Unassigned legacy tasks retain existing behavior. If the reserved assignment
     field exists, malformed metadata fails closed. Resource scope is mandatory
-    for assigned work and must match an explicit path or an allowed directory
-    prefix from the assignment. This does not prove host identity or confine
+    for assigned work and must match an exact normalized relative path from
+    the assignment. This does not prove host identity or confine
     handler internals; those require host authorization and operation-level checks.
+    Assigned work also requires a trusted, persisted handler action class. The
+    assignment cannot select or change the action class at dispatch time.
     """
     if not isinstance(payload, Mapping):
         raise AgentAssignmentScopeDenied("task payload must be a mapping")
@@ -101,6 +104,10 @@ def validate_agent_assignment_for_dispatch(
         raise AgentAssignmentScopeDenied("agent assignment role or manager no longer matches registry")
     if action_class not in role.get("allowed_action_classes", []):
         raise AgentAssignmentScopeDenied("agent assignment action class is no longer permitted")
+    if not isinstance(expected_action_class, str) or not expected_action_class:
+        raise AgentAssignmentScopeDenied("assigned work requires a trusted handler action class")
+    if action_class != expected_action_class:
+        raise AgentAssignmentScopeDenied("assignment action class does not match the registered handler")
     body = {
         "schema_version": _SCHEMA,
         "role_id": role_id,

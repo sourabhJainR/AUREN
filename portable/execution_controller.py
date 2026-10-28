@@ -38,6 +38,7 @@ from .workflow_profile import WorkflowProfile, delivery_mode_allows, infer_deliv
 from .workflow_profile_store import load_profile
 from .organization_guard import GuardDecision, GuardPolicyError, evaluate_guard_policy, load_guard_policy
 from .agent_execution_guard import agent_assignment_scope, validate_agent_assignment_for_dispatch
+from .agent_org_runtime import load_agent_org_registry
 
 Handler = Callable[[Mapping[str, Any]], Any]
 
@@ -188,7 +189,8 @@ class ExecutionController:
               approval_gate_policy_json TEXT NOT NULL DEFAULT '{}',
               execution_class TEXT NOT NULL DEFAULT 'unclassified',
               implementation_digest TEXT NOT NULL DEFAULT '',
-              guard_action TEXT NOT NULL DEFAULT '');
+              guard_action TEXT NOT NULL DEFAULT '',
+              agent_action_class TEXT NOT NULL DEFAULT '');
             CREATE TABLE IF NOT EXISTS tasks(
               id TEXT PRIMARY KEY, handler TEXT NOT NULL, payload TEXT NOT NULL,
               state TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0,
@@ -216,6 +218,8 @@ class ExecutionController:
                 db.execute("ALTER TABLE handlers ADD COLUMN implementation_digest TEXT NOT NULL DEFAULT ''")
             if "guard_action" not in handler_columns:
                 db.execute("ALTER TABLE handlers ADD COLUMN guard_action TEXT NOT NULL DEFAULT ''")
+            if "agent_action_class" not in handler_columns:
+                db.execute("ALTER TABLE handlers ADD COLUMN agent_action_class TEXT NOT NULL DEFAULT ''")
             columns = {row[1] for row in db.execute("PRAGMA table_info(tasks)").fetchall()}
             for column in ("heartbeat_at", "lease_until"):
                 if column not in columns:
@@ -288,6 +292,7 @@ class ExecutionController:
         approval_gate_policy: Mapping[str, Any] | None = None,
         execution_class: str | None = None,
         guard_action: str | None = None,
+        agent_action_class: str | None = None,
     ) -> str:
         """Register a durable handler and trusted, operator-owned gate policies.
 
@@ -296,7 +301,9 @@ class ExecutionController:
         as read_only, context_provider, ci_gated, consequential, or approval_gated. Unknown legacy
         registrations fail closed until reclassified. Consequential handlers
         require both trusted decision-record and exact-head CI gates. Context
-        providers are internal-only and cannot be submitted as tasks.
+        providers are internal-only and cannot be submitted as tasks. For assigned
+        work, `agent_action_class` is an operator-owned handler contract and must
+        match the assignment exactly; it never replaces Guard or approval gates.
         """
         if not isinstance(name, str) or not name.strip():
             raise ValueError("handler name is required")
@@ -320,6 +327,28 @@ class ExecutionController:
             inferred_delivery_action = infer_delivery_action(name, {})
             if inferred_delivery_action is not None and guard_action != inferred_delivery_action:
                 raise ValueError("guard_action cannot contradict the handler's delivery action")
+        if agent_action_class is not None:
+            if (not isinstance(agent_action_class, str)
+                    or not re.fullmatch(r"[a-z][a-z0-9_-]{0,63}", agent_action_class)):
+                raise ValueError("agent_action_class must be a lowercase trusted action class")
+            try:
+                organization_registry, _ = load_agent_org_registry()
+            except Exception as exc:
+                raise ValueError("agent action classes require a valid organization registry") from exc
+            allowed_agent_action_classes = {
+                action_class
+                for role in organization_registry["roles"]
+                for action_class in role["allowed_action_classes"]
+            }
+            if agent_action_class not in allowed_agent_action_classes:
+                raise ValueError("agent_action_class is not declared by any organization role")
+            delivery_guard_tokens = set(re.findall(r"[a-z0-9]+", (guard_action or "").lower()))
+            if (
+                infer_delivery_action(name, {}) is not None
+                or infer_delivery_action(str(getattr(resolved_handler, "__qualname__", "")), {}) is not None
+                or delivery_guard_tokens & {"commit", "push", "pull", "merge", "release", "deploy", "publish", "approve", "promote"}
+            ):
+                raise ValueError("delivery handlers cannot be assigned a non-delivery role action class")
 
         name_tokens = _handler_tokens(name)
         if isinstance(handler, str):
@@ -483,14 +512,19 @@ class ExecutionController:
 
         with closing(sqlite3.connect(self.db_path)) as db, db:
             prior = db.execute(
-                "SELECT ci_gate_policy_json,promotion_gate_policy_json,guard_action FROM handlers WHERE name=?",
+                "SELECT ci_gate_policy_json,promotion_gate_policy_json,guard_action,agent_action_class FROM handlers WHERE name=?",
                 (name,),
             ).fetchone()
             prior_guard_action = str(prior[2] or "") if prior else ""
+            prior_agent_action_class = str(prior[3] or "") if prior else ""
             if guard_action is None:
                 guard_action = prior_guard_action
             elif prior_guard_action and guard_action != prior_guard_action:
                 raise ValueError("registered guard_action is immutable; use a new handler identity for a different action")
+            if agent_action_class is None:
+                agent_action_class = prior_agent_action_class or None
+            elif prior_agent_action_class and agent_action_class != prior_agent_action_class:
+                raise ValueError("registered agent_action_class is immutable; use a new handler identity for a different action class")
             # Re-registering a handler after restart must not silently remove
             # either trusted gate when the caller omits or empties its policy.
             if not ci_policy and prior:
@@ -503,18 +537,19 @@ class ExecutionController:
             if not approval_policy and prior_approval_policy:
                 approval_policy = json.loads(prior_approval_policy[0] or "{}")
             db.execute(
-                "INSERT INTO handlers(name,reference,updated_at,ci_gate_policy_json,promotion_gate_policy_json,approval_gate_policy_json,execution_class,implementation_digest,guard_action) "
-                "VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(name) DO UPDATE SET "
+                "INSERT INTO handlers(name,reference,updated_at,ci_gate_policy_json,promotion_gate_policy_json,approval_gate_policy_json,execution_class,implementation_digest,guard_action,agent_action_class) "
+                "VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(name) DO UPDATE SET "
                 "reference=excluded.reference,updated_at=excluded.updated_at,"
                 "ci_gate_policy_json=excluded.ci_gate_policy_json,"
                 "promotion_gate_policy_json=excluded.promotion_gate_policy_json,"
                 "approval_gate_policy_json=excluded.approval_gate_policy_json,"
                 "execution_class=excluded.execution_class,"
                 "implementation_digest=excluded.implementation_digest,"
-                "guard_action=excluded.guard_action",
+                "guard_action=excluded.guard_action,"
+                "agent_action_class=excluded.agent_action_class",
                 (name, reference, _now(), json.dumps(ci_policy, sort_keys=True),
                  json.dumps(promotion_policy, sort_keys=True), json.dumps(approval_policy, sort_keys=True),
-                 execution_class, implementation_digest, guard_action or ""),
+                 execution_class, implementation_digest, guard_action or "", agent_action_class or ""),
             )
         return reference
 
@@ -525,6 +560,14 @@ class ExecutionController:
             raise KeyError(f"unknown durable handler: {name}")
         value = row[0]
         return value if isinstance(value, str) else ""
+
+    def _handler_agent_action_class(self, name: str) -> str | None:
+        with closing(sqlite3.connect(self.db_path)) as db, db:
+            row = db.execute("SELECT agent_action_class FROM handlers WHERE name=?", (name,)).fetchone()
+        if not row:
+            raise KeyError(f"unknown durable handler: {name}")
+        value = row[0]
+        return value if isinstance(value, str) and value else None
 
     def _evaluate_guard_for_task(self, task: DurableTask) -> GuardDecision:
         """Evaluate current organization policy using trusted handler registration context."""
@@ -542,6 +585,7 @@ class ExecutionController:
         validate_agent_assignment_for_dispatch(
             task.payload, resource=resource,
             authorization_verifier=self._agent_assignment_verifier,
+            expected_action_class=self._handler_agent_action_class(task.handler),
         )
         organization_id = __import__("os").environ.get("AUREN_ORGANIZATION_ID", "")
         approval_policy = self._handler_approval_gate_policy(task.handler)
@@ -2284,6 +2328,7 @@ class ExecutionController:
             assignment_scope = validate_agent_assignment_for_dispatch(
                 payload, resource=resource,
                 authorization_verifier=self._agent_assignment_verifier,
+                expected_action_class=self._handler_agent_action_class(task.handler),
             )
             handler_started = True
             with agent_assignment_scope(assignment_scope):

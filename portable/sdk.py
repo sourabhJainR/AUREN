@@ -51,6 +51,7 @@ class AurenClient:
         execution_class: str,
         ci_gate_policy: Mapping[str, Any] | None = None,
         promotion_gate_policy: Mapping[str, Any] | None = None,
+        agent_action_class: str | None = None,
     ) -> str:
         """Register an importable durable handler with an explicit risk class."""
         if execution_class not in EXECUTION_CLASSES:
@@ -63,6 +64,7 @@ class AurenClient:
             execution_class=execution_class,
             ci_gate_policy=ci_gate_policy,
             promotion_gate_policy=promotion_gate_policy,
+            agent_action_class=agent_action_class,
         )
 
     def submit(
