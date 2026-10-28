@@ -97,9 +97,9 @@ class AgentExecutionGuardTests(unittest.TestCase):
 
     def test_scope_requires_exact_path_and_denies_descendants(self):
         payload = self._payload(("portable/api.py",))
-        validate_agent_assignment_for_dispatch(payload, resource="portable/api.py")
+        validate_agent_assignment_for_dispatch(payload, resource="portable/api.py", authorization_verifier=lambda _request: True)
         with self.assertRaises(AgentAssignmentScopeDenied):
-            validate_agent_assignment_for_dispatch(payload, resource="portable/api.py/routes.py")
+            validate_agent_assignment_for_dispatch(payload, resource="portable/api.py/routes.py", authorization_verifier=lambda _request: True)
 
 
 if __name__ == "__main__":
