@@ -165,16 +165,16 @@ class VibeCodingHostTests(unittest.TestCase):
             init_git(project)
             server = base / "adaptive_mcp.py"
             server.write_text(
-                "import json, sys\\n"
-                "for line in sys.stdin:\\n"
-                "    try: msg = json.loads(line)\\n"
-                "    except Exception: continue\\n"
-                "    if msg.get('method') == 'initialize':\\n"
-                "        print(json.dumps({'jsonrpc':'2.0','id':msg['id'],'result':{'protocolVersion':'2024-11-05','capabilities':{},'serverInfo':{'name':'adaptive','version':'1'}}}), flush=True)\\n"
-                "    elif msg.get('method') == 'tools/call':\\n"
-                "        limit = msg.get('params',{}).get('arguments',{}).get('limit',100)\\n"
-                "        payload = {'items':['ok']} if limit <= 1 else {'items':['x' * 500]}\\n"
-                "        print(json.dumps({'jsonrpc':'2.0','id':msg['id'],'result':{'structuredContent':payload}}), flush=True)\\n",
+                "import json, sys\n"
+                "for line in sys.stdin:\n"
+                "    try: msg = json.loads(line)\n"
+                "    except Exception: continue\n"
+                "    if msg.get('method') == 'initialize':\n"
+                "        print(json.dumps({'jsonrpc':'2.0','id':msg['id'],'result':{'protocolVersion':'2024-11-05','capabilities':{},'serverInfo':{'name':'adaptive','version':'1'}}}), flush=True)\n"
+                "    elif msg.get('method') == 'tools/call':\n"
+                "        limit = msg.get('params',{}).get('arguments',{}).get('limit',100)\n"
+                "        payload = {'items':['ok']} if limit <= 1 else {'items':['x' * 500]}\n"
+                "        print(json.dumps({'jsonrpc':'2.0','id':msg['id'],'result':{'structuredContent':payload}}), flush=True)\n",
                 encoding="utf-8",
             )
             reductions = []
@@ -1150,7 +1150,7 @@ print(json.dumps({"type": "item.completed", "item": {"type": "agent_message", "t
                     marker = "report="
                     report_path = str(exc).split(marker, 1)[1] if marker in str(exc) else ""
                     detail = Path(report_path).read_text(encoding="utf-8") if report_path and Path(report_path).is_file() else "no report file"
-                    self.fail(f"{exc}\\nReport: {detail}")
+                    self.fail(f"{exc}\nReport: {detail}")
             finally:
                 os.environ["PATH"] = previous_path
                 if previous_pythonpath is None:
