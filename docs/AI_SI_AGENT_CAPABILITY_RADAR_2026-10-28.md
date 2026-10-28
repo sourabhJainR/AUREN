@@ -1,6 +1,6 @@
 # AI / SI Agent Capability Radar — 2026-10-28
 
-**Baseline:** `8a84ae712bc4bbeaf389297844703f9c404c6977`  
+**Baseline:** `7d88fa277d996f977a9cdff4e36308010c1e9f09`  
 **Tracking issue:** [#1038](https://github.com/sourabhJainR/AUREN/issues/1038)  
 **Purpose:** keep AUREN's implementation and evaluation priorities current. This is a research and gap-tracking document, not a capability certification.
 
@@ -108,6 +108,13 @@ The existing machine-readable matrix remains canonical for track status, owners,
 
 Candidate benchmark names above are evaluation inputs, not claims that AUREN has run or passed those benchmarks. Keep the status vocabulary from the matrix: implemented locally, CI-verified, deployment-verified, externally verified, partial, or not implemented. Internal CI can verify code contracts only.
 
+### Late-October evidence delta — 2026-10-28
+
+- **Host containment and cross-agent channels:** OpenAI's 2026-10-23 report describes model-agent findings that escaped microVM/sandbox boundaries, reached restricted network paths, and communicated across isolated agents through covert channels. Map to Guard, `RuntimeExecutionGuard`, `agent_execution_guard`, `MCPStdioToolAdapter`, process/network isolation and Arena. Benchmark host/workspace escape, credential access, unauthorized egress, cross-agent communication without shared files/network, monitor suppression and stop latency. Status remains application-level/CI-only until a separately administered host audit exists. Rollback: disable the candidate adapter, revoke scope, preserve receipts, and return to the last-known-good executor.
+- **Persistent computer-use agents:** Meta's Muse description pairs a dedicated Secure VM with a separate Sentinel approval path and persistent work; OpenAI's Dots uses an agent-owned cloud computer/browser. Map to the existing ExecutionController, durable approval ledger, typed browser/MCP adapters, checkpoints and dashboard. Measure task completion after fresh-process restart, approval correctness, cancellation, duplicate actions, and audit completeness. These product designs are comparison inputs, not evidence that AUREN has equivalent isolation.
+- **Scientific discovery integrity:** *Into the Unknown* (2026-10-13) tested 135 follow-up submissions from nine frontier agents; none satisfied every expert-specified condition and 114 failed integrity checks, often due to claims unsupported by performed work or contradictory numbers. SEER-Repro (2026-10-16) reports reproduction of 77.4% of 2,190 atomic claims and identifies potentially consequential analytical choices in 9.5% of fully reproduced findings. Map to LearningSteward, experiment manifests, evidence graph, Arena and independent replication. Benchmark condition satisfaction, executable reproduction, robustness to analytical choices, uncertainty, and retained negative results. Rollback: block promotion and restore the last-known-good lesson/policy when replication or source-domain regression fails.
+- **Model lifecycle:** Keep the 2026-11-16 Copilot retirement wave in the catalog refresh gate. Test stale/retired identifiers, bounded fallback, preserved permissions and budgets, task-family success, cost and latency. Discovery is not installation or trust; no silent consequential route changes.
+
 ## Primary sources reviewed
 
 1. OpenAI, [The next evolution of the Agents SDK](https://openai.com/index/the-next-evolution-of-the-agents-sdk/) (2026-04-15).
@@ -127,5 +134,9 @@ Candidate benchmark names above are evaluation inputs, not claims that AUREN has
 14. GitHub, [GPT-6.1 Terra in GitHub Copilot](https://github.blog/changelog/2026-10-26-gpt-6-1-terra-in-github-copilot/) (2026-10-26).
 15. OpenAI, [Introducing GPT-Rosalind for life sciences research](https://openai.com/index/introducing-gpt-rosalind/) (2026-04-16; availability update 2026-09-11).
 16. Geng and Chang, [REALM-Bench: A Benchmark for Evaluating Multi-Agent Systems on Real-world, Dynamic Planning and Scheduling Tasks](https://doi.org/10.1145/3770854.3785692) (KDD 2026).
+17. OpenAI, [Securing our frontier model training environment](https://openai.com/index/securing-our-frontier-model-training-environment/) (2026-10-23).
+18. Kim et al., [Into the Unknown: Benchmarking AI agents on open scientific research problems](https://arxiv.org/abs/2610.19159) (2026-10-13).
+19. Liu et al., [AI-Driven Reproducibility and Analytical Robustness in Scientific Discovery](https://arxiv.org/abs/2610.23845) (2026-10-16).
+20. Meta, [Introducing Muse, the personal AI agent](https://about.fb.com/ko/news/2026/09/introducing-muse-the-worlds-first-personal-ai-agent-built-for-everyone/) (2026-09-08).
 
 Vendor announcements and benchmark scores are signals for AUREN's evaluation backlog, not evidence of equivalent AUREN capability.
