@@ -1,5 +1,6 @@
 """End-to-end consequential recovery checks through ExecutionController.run_once."""
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 
@@ -7,6 +8,43 @@ from portable.execution_controller import ExecutionController
 
 
 _PROVIDER_CALLS = []
+
+_CANCEL_LIFECYCLE_STARTED = threading.Event()
+_CANCEL_LIFECYCLE_CALLS = []
+_DEADLINE_LIFECYCLE_STARTED = threading.Event()
+_DEADLINE_LIFECYCLE_CALLS = []
+
+
+def cancel_lifecycle_provider_action(payload):
+    provider_binding = payload.get("auren_provider_operation")
+    cancel_event = payload.get("auren_cancel_event")
+    _CANCEL_LIFECYCLE_CALLS.append(
+        dict(provider_binding) if isinstance(provider_binding, dict) else {}
+    )
+    _CANCEL_LIFECYCLE_STARTED.set()
+    if cancel_event is None:
+        raise AssertionError("provider lifecycle did not propagate cancellation")
+    if not cancel_event.wait(timeout=8):
+        raise TimeoutError("cancellation did not reach the dispatched provider handler")
+    raise InterruptedError("provider was interrupted after dispatch; remote outcome is unknown")
+
+
+def deadline_lifecycle_provider_action(payload):
+    import time
+
+    provider_binding = payload.get("auren_provider_operation")
+    cancel_event = payload.get("auren_cancel_event")
+    deadline_epoch = payload.get("auren_deadline_epoch")
+    _DEADLINE_LIFECYCLE_CALLS.append({
+        "provider": dict(provider_binding) if isinstance(provider_binding, dict) else {},
+        "deadline_epoch": deadline_epoch,
+    })
+    _DEADLINE_LIFECYCLE_STARTED.set()
+    if cancel_event is None or not isinstance(deadline_epoch, (int, float)):
+        raise AssertionError("provider lifecycle did not propagate cancellation and deadline")
+    while time.time() < deadline_epoch and not cancel_event.is_set():
+        time.sleep(0.01)
+    raise TimeoutError("deadline expired after provider dispatch; remote outcome is unknown")
 
 
 def recovery_context_provider(request):
@@ -531,6 +569,131 @@ class ConsequentialRunOnceRecoveryTests(unittest.TestCase):
         with patch.dict(os.environ, {"AUREN_TEST_CRASH_AFTER_ACCEPT": "0"}):
             self.assertIsNone(restarted.run_once(task_id))
         self.assertEqual(["accepted:abc123"], marker.read_text(encoding="utf-8").splitlines())
+
+
+    def test_full_provider_lifecycle_cancellation_blocks_and_survives_restart(self):
+        from portable.side_effect_ledger import DurableSideEffectLedger
+
+        _CANCEL_LIFECYCLE_STARTED.clear()
+        _CANCEL_LIFECYCLE_CALLS.clear()
+        started = _CANCEL_LIFECYCLE_STARTED
+        calls = _CANCEL_LIFECYCLE_CALLS
+        name = "tests.test_consequential_run_once_recovery.cancel_lifecycle_provider_action"
+        handler = cancel_lifecycle_provider_action
+
+        self.controller.register_handler(
+            name,
+            handler,
+            promotion_gate_policy={"context_handler": "recovery-context-provider"},
+            ci_gate_policy={
+                "expected_head_sha": "a" * 40,
+                "required_checks": ["required-ci"],
+                "evidence_handler": "recovery-ci-provider",
+            },
+            execution_class="consequential",
+        )
+        payload = {
+            **self._payload(),
+            "auren_idempotency": {"key": "cancel-lifecycle:deploy:staging"},
+        }
+        work_key = "AUREN:issue-696:continuous-engineering"
+        task = self.controller.submit(
+            name, payload, goal="Exercise cancellation through the canonical provider lifecycle",
+            work_key=work_key,
+        )
+        outcomes = []
+        worker = threading.Thread(
+            target=lambda: outcomes.append(self.controller.run_once(task.id)),
+            daemon=True,
+        )
+        worker.start()
+        self.assertTrue(started.wait(timeout=5), "provider handler did not start")
+        self.assertTrue(self.controller.request_cancellation(task.id, reason="cancel after provider dispatch"))
+        worker.join(timeout=10)
+        self.assertFalse(worker.is_alive(), "provider handler did not stop after cancellation")
+        self.assertEqual([None], outcomes)
+        self.assertEqual("blocked_reconciliation", self.controller.task(task.id).state)
+        self.assertEqual(1, len(calls))
+
+        outer_key = "consequential-idempotency:cancel-lifecycle:deploy:staging"
+        provider_key = "provider-operation:" + outer_key
+        self.assertTrue(calls[0].get("operation_id", "").startswith("auren-op-"))
+        self.assertEqual(provider_key, calls[0].get("idempotency_key"))
+        ledger = DurableSideEffectLedger(self.controller.db_path)
+        self.assertEqual("reconcile_required", ledger.get(provider_key)["state"])
+
+        restarted = ExecutionController(self.root)
+        self._register(restarted)
+        restarted.register_handler(
+            name,
+            handler,
+            promotion_gate_policy={"context_handler": "recovery-context-provider"},
+            ci_gate_policy={
+                "expected_head_sha": "a" * 40,
+                "required_checks": ["required-ci"],
+                "evidence_handler": "recovery-ci-provider",
+            },
+            execution_class="consequential",
+        )
+        resumed = restarted.submit(
+            name, payload, goal="Exercise cancellation through the canonical provider lifecycle",
+            work_key=work_key,
+        )
+        self.assertEqual(task.id, resumed.id)
+        self.assertIsNone(restarted.run_once(resumed.id))
+        self.assertEqual(1, len(calls), "restart must not redispatch an uncertain provider operation")
+        self.assertEqual("blocked_reconciliation", restarted.task(task.id).state)
+
+    def test_full_provider_lifecycle_deadline_is_propagated_and_outcome_stays_unknown(self):
+        from portable.side_effect_ledger import DurableSideEffectLedger
+
+        _DEADLINE_LIFECYCLE_STARTED.clear()
+        _DEADLINE_LIFECYCLE_CALLS.clear()
+        started = _DEADLINE_LIFECYCLE_STARTED
+        calls = _DEADLINE_LIFECYCLE_CALLS
+        name = "tests.test_consequential_run_once_recovery.deadline_lifecycle_provider_action"
+        handler = deadline_lifecycle_provider_action
+
+        self.controller.register_handler(
+            name,
+            handler,
+            promotion_gate_policy={"context_handler": "recovery-context-provider"},
+            ci_gate_policy={
+                "expected_head_sha": "a" * 40,
+                "required_checks": ["required-ci"],
+                "evidence_handler": "recovery-ci-provider",
+            },
+            execution_class="consequential",
+        )
+        payload = {
+            **self._payload(),
+            "auren_idempotency": {"key": "deadline-lifecycle:deploy:staging"},
+        }
+        task = self.controller.submit(
+            name, payload, goal="Exercise deadline propagation through the canonical provider lifecycle",
+            work_key="AUREN:issue-696:continuous-engineering",
+            deadline_seconds=3.0,
+        )
+        outcomes = []
+        worker = threading.Thread(
+            target=lambda: outcomes.append(self.controller.run_once(task.id)),
+            daemon=True,
+        )
+        worker.start()
+        self.assertTrue(started.wait(timeout=5), "provider handler did not start before the deadline")
+        worker.join(timeout=10)
+        self.assertFalse(worker.is_alive(), "provider handler did not stop at the deadline")
+        self.assertEqual([None], outcomes)
+        self.assertEqual("blocked_reconciliation", self.controller.task(task.id).state)
+        self.assertEqual(1, len(calls))
+        self.assertIsInstance(calls[0]["deadline_epoch"], (int, float))
+        self.assertTrue(calls[0]["provider"].get("operation_id", "").startswith("auren-op-"))
+
+        outer_key = "consequential-idempotency:deadline-lifecycle:deploy:staging"
+        provider_key = "provider-operation:" + outer_key
+        ledger = DurableSideEffectLedger(self.controller.db_path)
+        self.assertEqual("reconcile_required", ledger.get(provider_key)["state"])
+        self.assertEqual(1, len(calls), "deadline expiry must not cause a provider retry")
 
 if __name__ == "__main__":
     unittest.main()
