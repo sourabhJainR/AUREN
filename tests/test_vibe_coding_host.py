@@ -40,7 +40,31 @@ from portable.vibe_coding_host import (
     load_host_config,
     _build_provider_operation_lookups,
     _read_bounded_mcp_stdout_frame,
+    _drain_bounded_mcp_stderr_line,
 )
+
+class BoundedMCPStderrDrainTests(unittest.TestCase):
+    def test_long_stderr_line_ending_in_newline_does_not_consume_next_line(self):
+        class NoExtraRead:
+            def readline(self, size):
+                raise AssertionError("stderr drain must stop at the line terminator")
+
+        _drain_bounded_mcp_stderr_line(NoExtraRead(), "x" * 4095 + "\n", 4096)
+
+    def test_oversized_stderr_line_is_drained_in_bounded_chunks(self):
+        class ChunkedStream:
+            def __init__(self):
+                self.parts = ["x" * 4096, "y" * 10 + "\n"]
+                self.sizes = []
+
+            def readline(self, size):
+                self.sizes.append(size)
+                return self.parts.pop(0) if self.parts else ""
+
+        stream = ChunkedStream()
+        _drain_bounded_mcp_stderr_line(stream, "x" * 4096, 4096)
+        self.assertEqual(stream.sizes, [4096, 4096])
+
 
 
 def init_git(root: Path) -> str:
