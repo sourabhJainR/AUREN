@@ -28,7 +28,8 @@ from .information_planner import InformationAction
 from .lifecycle_hooks import HookBus, HookPhase, HookedExecution
 from .orchestration import Graph, OrchestrationRun, Orchestrator, execution_strategy
 from .output_quality import OutputQualityGate, QualityResult
-from .persistent_memory import PersistentMemory
+from .persistent_memory import PersistentMemory, MemoryChunk
+from .memory_efficiency import chunk_memory_context
 from .provider_fabric import CapabilityRequest, ProviderFabric, RoutingDecision
 from .session_state import SessionCheckpoint, SessionStore
 from .trigger_runtime import TriggerEvent, TriggerRuntime
@@ -183,6 +184,62 @@ class AdaptiveRuntime:
         if any(text not in packed for text in required):
             raise ValueError("required memory would be lost during ContextEngine packing")
         return packed
+
+    def pack_memory_context_chunks(
+        self,
+        project_root: Path | str,
+        task: str,
+        *,
+        task_id: str | None = None,
+        required_memory_ids: Sequence[str] = (),
+        chunk_chars: int = 4_200,
+        recall_budget_chars: int = 100_000,
+        require_all: bool = True,
+    ) -> list[MemoryChunk]:
+        """Retrieve through the canonical MemoryOrchestrator and stream bounded chunks.
+
+        Chunking is a presentation strategy, not a second memory store. The
+        canonical record IDs, evidence IDs, intent and source revision remain
+        attached to each chunk. If the recall budget omitted candidates, the
+        default behavior fails closed rather than pretending the context is
+        complete; callers may explicitly opt into a partial recall for low-risk
+        exploratory work.
+        """
+        if type(chunk_chars) is not int or chunk_chars < 128:
+            raise ValueError("chunk_chars must be an integer >= 128")
+        if type(recall_budget_chars) is not int or recall_budget_chars < 1:
+            raise ValueError("recall_budget_chars must be a positive integer")
+        orchestrator = self.memory_orchestrator(project_root)
+        recall = orchestrator.recall(
+            task,
+            task_id=task_id,
+            budget_chars=recall_budget_chars,
+            required_memory_ids=required_memory_ids,
+        )
+        if require_all and recall.omitted:
+            raise ValueError(
+                f"memory recall omitted {recall.omitted} candidate(s); increase the bounded recall budget or explicitly allow partial recall"
+            )
+        rows = [
+            {
+                "id": item.memory_id,
+                "category": item.kind,
+                "text": item.text,
+                "verified": item.verified,
+                "confidence": item.confidence,
+                "created_at": item.created_at,
+                "source_revision": item.source_revision,
+                "intent_digest": item.intent_digest,
+                "source": item.source,
+                "evidence_ids": list(item.evidence_ids),
+            }
+            for item in recall.memories
+        ]
+        chunks = chunk_memory_context(rows, max_chars=chunk_chars)
+        emitted_ids = {record_id for chunk in chunks for record_id in chunk.record_ids}
+        if set(required_memory_ids) - emitted_ids:
+            raise ValueError("required memory would be lost during chunk assembly")
+        return chunks
 
     def resolve_context(self, project_root: Path | str, task: str, *, node_id: str | None = None,
                         workspace_id: str | None = None, required: Sequence[str] = (),
