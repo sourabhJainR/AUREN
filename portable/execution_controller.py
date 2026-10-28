@@ -37,6 +37,7 @@ from .durable_approval import ApprovalPending, InvalidApprovalTransition
 from .workflow_profile import WorkflowProfile, delivery_mode_allows, infer_delivery_action, resolve_profile
 from .workflow_profile_store import load_profile
 from .organization_guard import GuardDecision, GuardPolicyError, evaluate_guard_policy, load_guard_policy
+from .agent_execution_guard import validate_agent_assignment_for_dispatch
 
 Handler = Callable[[Mapping[str, Any]], Any]
 
@@ -526,6 +527,12 @@ class ExecutionController:
         resource = task.payload.get("resource", task.payload.get("resource_id", task.payload.get("path", "")))
         if resource is not None and not isinstance(resource, str):
             raise GuardPolicyError("Guard resource selector must be a string")
+        # Assignment envelopes are untrusted durable data. Re-validate their
+        # digest, current registry contract, action class, and resource scope
+        # on every dispatch, including after restart. A role label alone never
+        # grants permission; handlers must still enforce scope at their actual
+        # filesystem/tool boundary.
+        validate_agent_assignment_for_dispatch(task.payload, resource=resource)
         organization_id = __import__("os").environ.get("AUREN_ORGANIZATION_ID", "")
         approval_policy = self._handler_approval_gate_policy(task.handler)
         return evaluate_guard_policy(
