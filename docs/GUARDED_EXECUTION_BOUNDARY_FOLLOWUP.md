@@ -220,3 +220,24 @@ MCP stdout protocol buffering now uses a fixed-capacity response queue. If an un
 ## Fatal MCP reader paths remain nonblocking (2026-10-28)
 
 Oversized frames and response-queue floods now share a fail-closed signaling path: buffered notifications are discarded, a bounded failure marker is inserted without blocking, and the caller tears down the process tree. This prevents a full queue from delaying delivery of an oversized-frame error. The existing queue-flood regression covers nonblocking overflow signaling; the configured frame limit remains enforced for oversized protocol frames. These controls bound protocol buffering; they do not claim OS-level memory isolation.
+
+
+## Oversized MCP frame diagnosis and safe recovery (2026-10-28)
+
+The MCP stdio reader now drains oversized protocol lines in fixed-size chunks while
+computing a SHA-256 digest, total character count, and bounded prefix/suffix samples.
+The samples are not copied into exception text or ordinary logs. The adapter still
+rejects the entire oversized frame and terminates the child process; diagnostic
+fingerprinting is not permission to parse a truncated JSON-RPC response or to report
+success.
+
+When the caller can safely reformulate a read-only request, it may use these diagnostics
+to choose a smaller page, narrower query, or batch size on a *new, explicitly safe*
+attempt. The adapter does not automatically replay calls: consequential operations with
+unknown outcomes remain blocked until provider-native lookup/reconciliation establishes
+their status. Queue capacity, frame limits, process deadlines, and process-tree cleanup
+remain enforced.
+
+Rollback: revert the helper, marker metadata handling, test, and this note together.
+Keep bounded chunk reads, fail-closed oversized-frame handling, and nonblocking fatal
+signaling; never restore unbounded line buffering or accept partial frames.
