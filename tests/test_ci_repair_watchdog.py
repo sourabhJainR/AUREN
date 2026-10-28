@@ -91,6 +91,20 @@ class CIRepairWatchdogTests(unittest.TestCase):
         findings = self.watchdog.stale_tasks(stale_after_seconds=10, now=500)
         self.assertEqual(1, len(findings))
         self.assertEqual("stale_heartbeat_or_expired_lease", findings[0]["reason"])
+        self.assertEqual("verify_queue_claim_and_worker_capacity", findings[0]["next_action"])
+        self.assertFalse(findings[0]["automatic_replay_allowed"])
+        self.assertTrue(findings[0]["heartbeat_stale"])
+        self.assertGreater(findings[0]["heartbeat_age_seconds"], 10)
+
+    def test_expired_running_lease_requires_reconciliation_before_resume(self):
+        self.controller.submit("worker", {}, goal="expired-lease")
+        with sqlite3.connect(self.controller.db_path) as db:
+            db.execute("UPDATE tasks SET state='running',heartbeat_at=499,lease_until=400 WHERE id='task-1'")
+        findings = self.watchdog.stale_tasks(stale_after_seconds=1000, now=500)
+        self.assertEqual(1, len(findings))
+        self.assertTrue(findings[0]["lease_expired"])
+        self.assertEqual("reconcile_task_receipts_and_lease_before_resume", findings[0]["next_action"])
+        self.assertFalse(findings[0]["automatic_replay_allowed"])
 
 
 if __name__ == "__main__":

@@ -178,9 +178,32 @@ class CIRepairWatchdog:
                     return None
 
         for task_id, state, heartbeat, lease_until, updated in rows:
-            stamp = epoch(heartbeat) or epoch(updated)
+            heartbeat_stamp = epoch(heartbeat)
+            stamp = heartbeat_stamp or epoch(updated)
             lease = epoch(lease_until)
-            if (stamp is not None and current - stamp >= stale_after_seconds) or (lease is not None and lease < current):
-                findings.append({"task_id": task_id, "state": state, "heartbeat_at": heartbeat,
-                                 "lease_until": lease_until, "reason": "stale_heartbeat_or_expired_lease"})
+            heartbeat_age = max(0.0, current - stamp) if stamp is not None else None
+            lease_expired = lease is not None and lease < current
+            heartbeat_stale = heartbeat_age is not None and heartbeat_age >= stale_after_seconds
+            if not (heartbeat_stale or lease_expired):
+                continue
+            if state == "running" and lease_expired:
+                next_action = "reconcile_task_receipts_and_lease_before_resume"
+            elif state == "recovering":
+                next_action = "inspect_recovery_checkpoint_and_reconcile_before_resume"
+            elif state == "pending":
+                next_action = "verify_queue_claim_and_worker_capacity"
+            else:
+                next_action = "check_worker_heartbeat_and_deadline_before_recovery"
+            findings.append({
+                "task_id": task_id,
+                "state": state,
+                "heartbeat_at": heartbeat,
+                "heartbeat_age_seconds": heartbeat_age,
+                "lease_until": lease_until,
+                "lease_expired": lease_expired,
+                "heartbeat_stale": heartbeat_stale,
+                "reason": "stale_heartbeat_or_expired_lease",
+                "next_action": next_action,
+                "automatic_replay_allowed": False,
+            })
         return findings
