@@ -24,26 +24,22 @@ def ambiguous_provider_action(payload):
 
 
 def crash_after_provider_accept(payload):
-    """Simulate a remote acceptance followed by hard worker death before receipt commit."""
+    """Crash after a simulated acceptance only in the fault-injection worker."""
     import os
 
-    marker_path = Path(payload["provider_acceptance_marker"])
-    with marker_path.open("a", encoding="utf-8") as stream:
-        stream.write(f"accepted:{payload['revision']}\n")
-        stream.flush()
-        os.fsync(stream.fileno())
-    # No Python cleanup/finalizer runs after this injected crash boundary.
-    os._exit(97)
+    if os.environ.get("AUREN_TEST_CRASH_AFTER_ACCEPT") == "1":
+        marker_path = Path(payload["provider_acceptance_marker"])
+        with marker_path.open("a", encoding="utf-8") as stream:
+            stream.write(f"accepted:{payload['revision']}\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        # No Python cleanup/finalizer runs after this injected crash boundary.
+        os._exit(97)
+    _PROVIDER_CALLS.append(payload["revision"])
+    return {"success": True, "detail": "unexpected redispatch", "evidence": []}
 
 
-def _crash_provider_worker(root_path, marker_path, task_id_path):
-    """Child-process target; exits after the provider acceptance marker is durable."""
-    import os
-
-    controller = ExecutionController(
-        Path(root_path),
-        provider_resume_authorizer=lambda *_args: True,
-    )
+def _register_crash_provider_handler(controller):
     controller.register_handler(
         "recovery-context-provider", recovery_context_provider,
         execution_class="context_provider",
@@ -64,6 +60,18 @@ def _crash_provider_worker(root_path, marker_path, task_id_path):
         execution_class="consequential",
     )
     controller._preflight_gates = lambda task: (True, "test gate passed", [])
+
+
+def _crash_provider_worker(root_path, marker_path, task_id_path):
+    """Child-process target; exits after the provider acceptance marker is durable."""
+    import os
+
+    os.environ["AUREN_TEST_CRASH_AFTER_ACCEPT"] = "1"
+    controller = ExecutionController(
+        Path(root_path),
+        provider_resume_authorizer=lambda *_args: True,
+    )
+    _register_crash_provider_handler(controller)
     task = controller.submit(
         "consequential-recovery-action",
         {
@@ -465,7 +473,9 @@ class ConsequentialRunOnceRecoveryTests(unittest.TestCase):
 
     def test_process_death_after_provider_acceptance_blocks_restart_redispatch(self):
         import multiprocessing
+        import os
         import sqlite3
+        from unittest.mock import patch
         from portable.side_effect_ledger import DurableSideEffectLedger
 
         marker = self.root / "provider-acceptance.log"
@@ -475,8 +485,9 @@ class ConsequentialRunOnceRecoveryTests(unittest.TestCase):
             target=_crash_provider_worker,
             args=(str(self.root), str(marker), str(task_id_path)),
         )
-        worker.start()
-        worker.join(timeout=20)
+        with patch.dict(os.environ, {"AUREN_TEST_CRASH_AFTER_ACCEPT": "0"}):
+            worker.start()
+            worker.join(timeout=20)
         if worker.is_alive():
             worker.terminate()
             worker.join(timeout=5)
@@ -495,7 +506,7 @@ class ConsequentialRunOnceRecoveryTests(unittest.TestCase):
                 operator in {"operator-7", "operator-8"} and bool(reason.strip())
             ),
         )
-        self._register(restarted)
+        _register_crash_provider_handler(restarted)
         stale = "2000-01-01T00:00:00+00:00"
         with sqlite3.connect(restarted.db_path) as db:
             db.execute(
@@ -503,7 +514,8 @@ class ConsequentialRunOnceRecoveryTests(unittest.TestCase):
                 (stale, stale, task_id),
             )
 
-        self.assertIsNone(restarted.run_once(task_id))
+        with patch.dict(os.environ, {"AUREN_TEST_CRASH_AFTER_ACCEPT": "0"}):
+            self.assertIsNone(restarted.run_once(task_id))
         self.assertEqual("blocked_reconciliation", restarted.task(task_id).state)
         self.assertEqual("waiting_external", restarted.company._state(
             restarted.task(task_id).work_unit_id
