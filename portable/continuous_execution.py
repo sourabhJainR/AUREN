@@ -350,17 +350,25 @@ class ContinuousExecutionSupervisor:
     def status(self, *, event_limit: int = 20) -> dict[str, Any]:
         if type(event_limit) is not int or not 1 <= event_limit <= 100:
             raise ValueError("event_limit must be between 1 and 100")
+        # Supervisor lifecycle and its audit chain live in the supervisor DB.
+        # Durable task state is owned by ExecutionController and must be read
+        # from that canonical task store, not inferred from the supervisor DB.
         with sqlite3.connect(self.path) as db:
             row = db.execute(
                 "SELECT state,owner_id,lease_until,cycle_count,last_cycle_at,stop_reason,updated_at FROM control WHERE id=1"
             ).fetchone()
-            counts = {str(state): int(count) for state, count in db.execute(
+            events = db.execute(
+                "SELECT sequence,event_type,payload_json,digest,created_at FROM events ORDER BY sequence DESC LIMIT ?",
+                (event_limit,),
+            ).fetchall()
+        with sqlite3.connect(self.controller.db_path) as task_db:
+            counts = {str(state): int(count) for state, count in task_db.execute(
                 "SELECT state,COUNT(*) FROM tasks GROUP BY state"
-            ).fetchall()} if self._table_exists(db, "tasks") else {}
+            ).fetchall()} if self._table_exists(task_db, "tasks") else {}
             pending_tasks = []
             recent_terminal_tasks = []
-            if self._table_exists(db, "tasks"):
-                columns = {item[1] for item in db.execute("PRAGMA table_info(tasks)").fetchall()}
+            if self._table_exists(task_db, "tasks"):
+                columns = {item[1] for item in task_db.execute("PRAGMA table_info(tasks)").fetchall()}
                 optional = lambda column: column if column in columns else "NULL AS " + column
                 query = (
                     "SELECT id,handler,state,attempts,work_unit_id,updated_at,"
@@ -368,23 +376,19 @@ class ContinuousExecutionSupervisor:
                     + " FROM tasks WHERE state NOT IN ('completed','failed','cancelled') ORDER BY updated_at LIMIT 100"
                 )
                 pending_tasks = [
-                    {"task_id": row[0], "handler": row[1], "state": row[2], "attempts": int(row[3]),
-                     "work_unit_id": row[4], "updated_at": row[5], "next_retry_at": row[6], "quota_blocked": row[7]}
-                    for row in db.execute(query).fetchall()
+                    {"task_id": task_row[0], "handler": task_row[1], "state": task_row[2], "attempts": int(task_row[3]),
+                     "work_unit_id": task_row[4], "updated_at": task_row[5], "next_retry_at": task_row[6], "quota_blocked": task_row[7]}
+                    for task_row in task_db.execute(query).fetchall()
                 ]
                 terminal_query = (
                     "SELECT id,handler,state,attempts,work_unit_id,updated_at FROM tasks "
                     "WHERE state IN ('completed','failed','cancelled') ORDER BY updated_at DESC LIMIT 20"
                 )
                 recent_terminal_tasks = [
-                    {"task_id": row[0], "handler": row[1], "state": row[2], "attempts": int(row[3]),
-                     "work_unit_id": row[4], "updated_at": row[5]}
-                    for row in db.execute(terminal_query).fetchall()
+                    {"task_id": task_row[0], "handler": task_row[1], "state": task_row[2], "attempts": int(task_row[3]),
+                     "work_unit_id": task_row[4], "updated_at": task_row[5]}
+                    for task_row in task_db.execute(terminal_query).fetchall()
                 ]
-            events = db.execute(
-                "SELECT sequence,event_type,payload_json,digest,created_at FROM events ORDER BY sequence DESC LIMIT ?",
-                (event_limit,),
-            ).fetchall()
         return {
             "state": row[0], "owner_id": row[1], "lease_until": row[2], "cycle_count": int(row[3]),
             "last_cycle_at": row[4], "stop_reason": row[5], "updated_at": row[6],
