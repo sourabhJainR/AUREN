@@ -29,6 +29,7 @@ from typing import Any, Callable, Mapping, Sequence
 from urllib.parse import urlparse
 
 from .action_governance import ActionGovernanceGateway, ActionRequest, ApprovalReceipt
+from .agent_execution_guard import enforce_agent_resource_scope
 from .execution_boundary import ExecutionAuthorityBinding, execute_bound_action
 from .runtime_recovery import RuntimeExecutionGuard
 from .provider_fabric import ProviderFabric
@@ -1086,6 +1087,21 @@ class MCPStdioToolAdapter:
     def __call__(self, request: Mapping[str, Any]) -> Mapping[str, Any]:
         if not isinstance(request, Mapping):
             raise ValueError("MCP request must be a mapping")
+
+        # Assigned-agent scope is enforced before authority resolution or process
+        # launch. Check every explicit selector so an allowed declaration cannot
+        # mask a different path that the same call targets.
+        state = request.get("state", {})
+        selectors: list[Any] = []
+        for source in (request, state if isinstance(state, Mapping) else {}):
+            for key in ("resource", "path", "file_path"):
+                if key in source and source[key] is not None:
+                    selectors.append(source[key])
+        if selectors:
+            for selector in selectors:
+                enforce_agent_resource_scope(selector)
+        else:
+            enforce_agent_resource_scope(None)
         if not self.requires_authority_binding:
             arguments = self._arguments_for_request(request)
             # At most three total calls (initial + two reductions), and only for an
