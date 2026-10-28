@@ -6,7 +6,8 @@
     "Internal fixtures are not independent benchmarks; missing external evidence blocks promotion.",
     "Every accepted campaign must bind exact runtime, evaluator, corpus, oracle, configuration, run nonce, outcomes, and timestamped signed receipt.",
     "Negative results and source-domain regressions must be retained; successful promotion requires fresh independent holdout retesting.",
-    "No aggregate superintelligence score or AGI/SI label is defined by this matrix."
+    "No aggregate superintelligence score or AGI/SI label is defined by this matrix.",
+    "Every track must distinguish implementation status, repository-CI status, deployment verification, and independent external evaluation. Internal CI does not count as deployment or independent verification."
   ],
   "required_ci": [
     "Architecture Integrity",
@@ -66,7 +67,14 @@
         "independent evaluator and oracle",
         "operator-managed signing keys",
         "safe modality environment"
-      ]
+      ],
+      "evidence_status": {
+        "implementation": "not implemented",
+        "repository_ci": "CI-verified for listed internal contracts only",
+        "deployment": "not verified",
+        "independent_evaluation": "not verified; external gate blocked",
+        "reviewed_main_sha": "da9517e4946313215c477694988f1fb5f6bba052"
+      }
     },
     {
       "id": "open_ended_environment_learning",
@@ -118,7 +126,14 @@
         "external environment host",
         "sealed goal/oracle set",
         "independent run receipt retention"
-      ]
+      ],
+      "evidence_status": {
+        "implementation": "partial",
+        "repository_ci": "CI-verified for listed internal contracts only",
+        "deployment": "not verified",
+        "independent_evaluation": "not verified; external gate blocked",
+        "reviewed_main_sha": "da9517e4946313215c477694988f1fb5f6bba052"
+      }
     },
     {
       "id": "long_horizon_autonomy",
@@ -144,12 +159,12 @@
       ],
       "test_protocol": {
         "status": "partial",
-        "command": "python -m unittest tests.test_adaptive_runtime_recovery_integration tests.test_execution_controller_promotion_gate tests.test_decision_gate -v",
-        "additional_required": "Run process-death and multi-hour/day operator-controlled tasks; fresh-instance unit tests are not equivalent to real process-death acceptance."
+        "command": "python -m unittest tests.test_adaptive_runtime_recovery_integration tests.test_engineering_plan_recovery tests.test_execution_controller_cancellation tests.test_execution_controller_promotion_gate tests.test_consequential_run_once_recovery tests.test_decision_gate -v",
+        "additional_required": "Internal tests cover selected process-death, cross-store reconciliation, duplicate-dispatch, cancellation and subprocess-deadline boundaries. Still required: operator-controlled multi-hour/day runs, provider-specific authoritative lookup/idempotency proof, independent completion oracle, and rollback rehearsal."
       },
       "baseline": {
         "status": "internal_regression_only",
-        "source": "Recovery/controller tests; live long-horizon completion has not been independently measured."
+        "source": "Repository regression evidence on baseline main da9517e4946313215c477694988f1fb5f6bba052 includes selected shared runtime/learning/delivery split-write and no-replay tests (PRs #1034, #1037, #1042); no independent multi-hour/day completion baseline is retained."
       },
       "held_out_plan": "Use a separate operator to issue unseen task graphs, kill/restart processes at randomized checkpoints, and retain signed completion evidence.",
       "threat_model": [
@@ -172,7 +187,14 @@
         "operator-managed runner",
         "representative long-duration workload",
         "independent state/completion oracle"
-      ]
+      ],
+      "evidence_status": {
+        "implementation": "partial",
+        "repository_ci": "CI-verified for listed internal contracts only",
+        "deployment": "not verified",
+        "independent_evaluation": "not verified; external gate blocked",
+        "reviewed_main_sha": "da9517e4946313215c477694988f1fb5f6bba052"
+      }
     },
     {
       "id": "cross_domain_transfer",
@@ -226,7 +248,14 @@
         "out-of-band trusted public keyring",
         "sealed corpus and oracle",
         "signed campaign artifacts"
-      ]
+      ],
+      "evidence_status": {
+        "implementation": "implemented locally",
+        "repository_ci": "CI-verified for listed internal contracts only",
+        "deployment": "not verified",
+        "independent_evaluation": "not verified; external gate blocked",
+        "reviewed_main_sha": "da9517e4946313215c477694988f1fb5f6bba052"
+      }
     },
     {
       "id": "causal_scientific_discovery",
@@ -278,7 +307,14 @@
         "independent domain scientists",
         "controlled experiment environment",
         "independent replication data and review"
-      ]
+      ],
+      "evidence_status": {
+        "implementation": "partial",
+        "repository_ci": "CI-verified for listed internal contracts only",
+        "deployment": "not verified",
+        "independent_evaluation": "not verified; external gate blocked",
+        "reviewed_main_sha": "da9517e4946313215c477694988f1fb5f6bba052"
+      }
     },
     {
       "id": "memory_continual_learning",
@@ -303,12 +339,12 @@
       ],
       "test_protocol": {
         "status": "partial",
-        "command": "python -m unittest tests.test_persistent_evidence_graph tests.test_evidence_to_learning_intervention tests.test_adaptive_runtime_context -v",
-        "additional_required": "Add independent longitudinal recall/forgetting and privacy leakage tasks across repeated updates."
+        "command": "python -m unittest tests.test_persistent_evidence_graph tests.test_evidence_to_learning_intervention tests.test_adaptive_runtime_context tests.test_engineering_plan_recovery -v",
+        "additional_required": "Internal tests cover provenance, retraction, and evidence-gated learning across selected restart boundaries. Independent longitudinal recall/forgetting, privacy leakage, harmful-update detection, and measured rollback remain required."
       },
       "baseline": {
         "status": "internal_regression_only",
-        "source": "Memory/evidence graph regression tests; no independent longitudinal capability baseline."
+        "source": "Memory/evidence graph regression tests plus shared plan/learning/delivery integration (PRs #1034, #1037, #1042) are repository evidence only; no independent longitudinal capability baseline is retained."
       },
       "held_out_plan": "Operator holds back recall probes and sensitive synthetic canaries; evaluate before and after learning and after rollback.",
       "threat_model": [
@@ -329,7 +365,14 @@
         "privacy-reviewed evaluation corpus",
         "independent longitudinal evaluator",
         "operator-controlled backup and rollback rehearsal"
-      ]
+      ],
+      "evidence_status": {
+        "implementation": "partial",
+        "repository_ci": "CI-verified for listed internal contracts only",
+        "deployment": "not verified",
+        "independent_evaluation": "not verified; external gate blocked",
+        "reviewed_main_sha": "da9517e4946313215c477694988f1fb5f6bba052"
+      }
     },
     {
       "id": "planning_tools_collaboration",
@@ -357,11 +400,11 @@
       "test_protocol": {
         "status": "partial",
         "command": "python -m unittest tests.test_execution_controller_promotion_gate tests.test_graph_agent_evidence_decision tests.test_decision_gate -v",
-        "additional_required": "Exercise real approved-tool adapters and independent reviewer paths against external hidden acceptance tests."
+        "additional_required": "Internal regression tests cover dependency-aware execution, stale/overlapping adoption, verifier self-approval rejection, shared durable identity, and selected cross-store recovery. Independently scored multi-agent success, coordination cost, and conflict-rate baselines remain missing."
       },
       "baseline": {
         "status": "internal_regression_only",
-        "source": "Graph/decision gate tests; no independently scored multi-crew benchmark."
+        "source": "Graph/decision gate and shared runtime/learning/delivery regressions are CI-verified on baseline main da9517e4946313215c477694988f1fb5f6bba052; PRs #1008–#1037 cover selected dependency, adoption, verification, and split-write cases. No independently scored multi-crew benchmark is retained."
       },
       "held_out_plan": "Separate tool server from candidate; hide acceptance oracle; independently score handoffs, denied actions, and recovery.",
       "threat_model": [
@@ -383,7 +426,14 @@
         "approved tool sandbox",
         "independent QA/evaluator",
         "operator-owned acceptance oracle"
-      ]
+      ],
+      "evidence_status": {
+        "implementation": "partial",
+        "repository_ci": "CI-verified for listed internal contracts only",
+        "deployment": "not verified",
+        "independent_evaluation": "not verified; external gate blocked",
+        "reviewed_main_sha": "da9517e4946313215c477694988f1fb5f6bba052"
+      }
     },
     {
       "id": "calibration_robustness_adversarial",
@@ -439,7 +489,14 @@
         "sealed attack corpus",
         "trusted outcome signer",
         "safety review"
-      ]
+      ],
+      "evidence_status": {
+        "implementation": "partial",
+        "repository_ci": "CI-verified for listed internal contracts only",
+        "deployment": "not verified",
+        "independent_evaluation": "not verified; external gate blocked",
+        "reviewed_main_sha": "da9517e4946313215c477694988f1fb5f6bba052"
+      }
     },
     {
       "id": "independent_evaluation_governance",
@@ -500,7 +557,48 @@
         "sealed corpus/oracle",
         "external baseline",
         "signed raw artifacts"
-      ]
+      ],
+      "evidence_status": {
+        "implementation": "implemented locally",
+        "repository_ci": "CI-verified for listed internal contracts only",
+        "deployment": "not verified",
+        "independent_evaluation": "not verified; external gate blocked",
+        "reviewed_main_sha": "da9517e4946313215c477694988f1fb5f6bba052"
+      }
     }
-  ]
+  ],
+  "review_snapshot": {
+    "reviewed_at": "2026-10-28",
+    "baseline_main_sha": "da9517e4946313215c477694988f1fb5f6bba052",
+    "current_main_check_runs": {
+      "total": 25,
+      "success": 22,
+      "skipped": 3,
+      "failed": 0,
+      "pending": 0
+    },
+    "post_merge_push_workflows": {
+      "total": 6,
+      "success": 6,
+      "failed": 0,
+      "pending": 0
+    },
+    "portable_bundle": {
+      "workflow_run_id": 40624079442,
+      "bundle_artifact_id": 12788736379,
+      "checksum_artifact_id": 12788841455,
+      "outer_bundle_artifact_sha256": "a374cd0c1eaebcdc9867e02277d7a98279f8bd2ccc505d4f23e5c2897119d2e6",
+      "outer_checksum_artifact_sha256": "d11f620576d9e31482a12c4621845423ffe85fcb1b3c758c71c16ee286df917f",
+      "inner_bundle_sha256": "f477069e369f09b5d72cd5afc5647fbc76fd82d7cce9719824cfe247d6f2b154",
+      "manifest_file_count": 508,
+      "manifest_hash_or_size_mismatches": 0,
+      "source_commit": "da9517e4946313215c477694988f1fb5f6bba052",
+      "version": "1.0.6",
+      "target_repository_mutation": false,
+      "artifacts_expire_at": "2026-11-27T02:59:45Z"
+    },
+    "deployment_status": "not independently verified",
+    "independent_evaluation_status": "blocked; independent evaluator/oracle identity, sealed holdout custody, production isolation, and external campaign receipts are not available in this repository snapshot",
+    "capability_claim": "No AGI/SI or broad-generalization claim is supported by this snapshot; repository CI verifies internal contracts only."
+  }
 }
