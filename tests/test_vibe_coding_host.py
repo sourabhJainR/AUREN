@@ -201,6 +201,46 @@ class VibeCodingHostTests(unittest.TestCase):
             self.assertEqual(result, {"items": ["ok"]})
             self.assertEqual(reductions, [{"limit": 100}])
 
+    def test_mcp_read_only_oversized_response_can_reduce_twice_with_fixed_frame_cap(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            project = base / "project"
+            init_git(project)
+            server = base / "adaptive_twice_mcp.py"
+            server.write_text(
+                "import json, sys\\n"
+                "for line in sys.stdin:\\n"
+                "    try: msg = json.loads(line)\\n"
+                "    except Exception: continue\\n"
+                "    if msg.get('method') == 'initialize':\\n"
+                "        print(json.dumps({'jsonrpc':'2.0','id':msg['id'],'result':{'protocolVersion':'2024-11-05','capabilities':{},'serverInfo':{'name':'adaptive-twice','version':'1'}}}), flush=True)\\n"
+                "    elif msg.get('method') == 'tools/call':\\n"
+                "        limit = msg.get('params',{}).get('arguments',{}).get('limit',100)\\n"
+                "        payload = {'items':['ok']} if limit <= 1 else {'items':['x' * (150 if limit <= 10 else 500)]}\\n"
+                "        print(json.dumps({'jsonrpc':'2.0','id':msg['id'],'result':{'structuredContent':payload}}), flush=True)\\n",
+                encoding="utf-8",
+            )
+            reductions = []
+            def reduce_batch(arguments):
+                reductions.append(dict(arguments))
+                limit = arguments.get("limit", 100)
+                return {**arguments, "limit": 10 if limit > 10 else 1}
+
+            adapter = MCPStdioToolAdapter(
+                argv=(sys.executable, str(server)),
+                tool_name="bounded",
+                argument_map={"limit": "$limit"},
+                timeout_seconds=3,
+                max_response_chars=220,
+                requires_authority_binding=False,
+                trusted_workspace_root=project,
+                read_only_response_reducer=reduce_batch,
+            )
+            result = adapter({"limit": 100, "state": {"workspace_root": str(project)}})
+            self.assertEqual(result, {"items": ["ok"]})
+            self.assertEqual(reductions, [{"limit": 100}, {"limit": 10}])
+            self.assertEqual(adapter.max_response_chars, 220)
+
     def test_mcp_response_reducer_is_rejected_for_authority_bound_tools(self):
         with self.assertRaisesRegex(ValueError, "only allowed for operator-declared read-only"):
             MCPStdioToolAdapter(
