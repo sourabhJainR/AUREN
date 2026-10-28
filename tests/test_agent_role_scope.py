@@ -13,6 +13,7 @@ from portable.agent_role_scope import (
     ROLE_SCOPE_SCHEMA_VERSION,
     RoleScopeError,
     role_policy_digest,
+    validate_role_scope,
 )
 from portable.execution_controller import ExecutionController
 from portable.engineering_context_packet import build_context_packet
@@ -110,6 +111,26 @@ class AgentRoleScopeIntegrationTests(unittest.TestCase):
                     HANDLER_NAME,
                     {"path": "tests/test_agent_role_scope.py", ROLE_SCOPE_KEY: make_scope()},
                 )
+
+    def test_missing_scope_and_independent_evaluator_cannot_execute_consequential_action(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            controller = make_controller(Path(tmp))
+            with self.assertRaisesRegex(RoleScopeError, "role scope is required"):
+                controller.submit(HANDLER_NAME, {"path": "tests/test_agent_role_scope.py"})
+
+        evaluator_scope = make_scope(
+            role_id="EVAL-01",
+            manager_role_id="independent_governance_council",
+            action_class="evaluate_pinned_artifacts",
+            approval_evidence_ref="approval://test/evaluator",
+        )
+        with self.assertRaisesRegex(RoleScopeError, "independent evaluator identity"):
+            validate_role_scope(
+                evaluator_scope,
+                execution_class="consequential",
+                payload={"path": "tests/test_agent_role_scope.py"},
+                authorizer=lambda _task_id, _scope: True,
+            )
 
     def test_role_scope_survives_restart_and_is_removed_from_handler_payload(self):
         with tempfile.TemporaryDirectory() as tmp:
