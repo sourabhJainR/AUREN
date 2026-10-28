@@ -869,7 +869,12 @@ class ProviderOperationLifecycleTests(unittest.TestCase):
 
         # Existing durable operation IDs must remain stable across upgrades.
         # Reserve the legacy delimiter rather than changing the hash format.
-        expected = stable_provider_operation_id("tenant-deploy", "provider", intent)
+        # Golden value protects the persisted operation-ID format across upgrades.
+        expected = "auren-op-613317c618b6cad9b1d5d0f00f4ffad59f2378decda12c336d68670a3a120792"
+        self.assertEqual(
+            expected,
+            stable_provider_operation_id("tenant-deploy", "provider", intent),
+        )
         self.assertEqual(
             expected,
             stable_provider_operation_id("tenant-deploy", "provider", intent),
