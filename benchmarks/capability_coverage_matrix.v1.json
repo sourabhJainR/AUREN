@@ -600,5 +600,189 @@
     "deployment_status": "not independently verified",
     "independent_evaluation_status": "blocked; independent evaluator/oracle identity, sealed holdout custody, production isolation, and external campaign receipts are not available in this repository snapshot",
     "capability_claim": "No AGI/SI or broad-generalization claim is supported by this snapshot; repository CI verifies internal contracts only."
+  },
+  "radar_refresh": {
+    "reviewed_at": "2026-10-28",
+    "baseline_main_sha": "5b3e3858d85d558945f2a4ccf65a18fe9b323ba7",
+    "status": "candidate signals only; current-main post-merge verification pending",
+    "policy": "External announcements and benchmark reports are leads, not proof of equivalent AUREN capability. Keep adapters opt-in; no runtime framework dependency; no default pack promotion without paired value, independent evaluation, and rollback.",
+    "status_vocabulary": {
+      "implementation": "Code path exists; does not imply tests or deployment.",
+      "repository_ci": "Exact-revision repository tests for named contracts; skipped checks remain skipped.",
+      "deployment": "Requires retained operational evidence from the intended host/deployment.",
+      "independent_evaluation": "Requires separately controlled evaluator/corpus or host audit and verifiable receipts."
+    },
+    "signals": [
+      {
+        "id": "long_running_host_sandbox",
+        "source_date": "2026-10-07; 2026-09-24; 2026-10-27",
+        "sources": [
+          "https://www.docker.com/press-release/cloud-sandboxes-extending-secure-ai-agent-isolation-beyond-the-laptop/",
+          "https://www.akamai.com/newsroom/press-release/akamai-launches-ai-inference-service-and-agent-execution-environment",
+          "https://github.blog/changelog/2026-10-07-local-sandboxing-for-github-copilot-now-generally-available/"
+        ],
+        "owner": [
+          "portable.execution_controller.ExecutionController",
+          "portable.runtime_recovery.RuntimeExecutionGuard",
+          "provider/workspace lifecycle adapters"
+        ],
+        "status": "candidate_adapter_only",
+        "implementation_status": "Existing durable execution and subprocess boundaries; no external production isolation equivalence claimed.",
+        "ci_status": "Selected local crash, cancellation, deadline and side-effect recovery contracts are covered; not an independent host-isolation audit.",
+        "deployment_status": "not verified",
+        "independent_evaluation_status": "blocked",
+        "measured_gap": "Host-enforced filesystem/network/credential boundary, operation identity, cleanup, and recovery behavior for any new sandbox adapter. Compare with host-enforced local sandbox policy, including network and credential boundaries.",
+        "benchmark": "Paired pinned long-running tasks with crash/restart, cancellation, unauthorized path/network/secret attempts, cleanup, latency, cost and duplicate-operation checks.",
+        "acceptance_threshold": "Zero unauthorized access in the tested suite; unknown remote outcomes block; resume does not duplicate consequential actions; separately administered isolation evidence required.",
+        "rollback": "Disable candidate adapter, route to last-known-good approved executor, preserve receipts/checkpoints, and reconcile unknown outcomes."
+      },
+      {
+        "id": "dynamic_workflows_computer_use",
+        "source_date": "2026-10-01; 2026-10-02; 2026-10-26",
+        "sources": [
+          "https://github.blog/changelog/2026-10-01-dynamic-workflows-in-copilot-cli-and-the-copilot-app/",
+          "https://github.blog/changelog/2026-10-02-github-copilot-weekly-releases-september-28/",
+          "https://github.blog/changelog/2026-10-26-github-copilot-assisted-permissions-generally-available/"
+        ],
+        "owner": [
+          "portable.task_planner.TaskPlan",
+          "portable.agency_state_graph.StateGraph",
+          "portable.execution_controller.ExecutionController",
+          "portable.progress_journal.ProgressJournal",
+          "portable.engineering_dashboard.EngineeringDashboard"
+        ],
+        "status": "canonical_owners_exist_adapter_gaps_open",
+        "implementation_status": "Canonical graph/plan/checkpoint and dashboard owners exist; external desktop/computer-use equivalence not implemented or claimed.",
+        "ci_status": "Repository integration tests cover selected durable identity, split-write recovery, cancellation/deadline and dashboard projection.",
+        "deployment_status": "not verified",
+        "independent_evaluation_status": "blocked",
+        "measured_gap": "Long-horizon action correctness, handoff loss, approval enforcement, restart/resume, and computer-use-specific action boundaries. Model-based permission classification must remain advisory and cannot grant authority.",
+        "benchmark": "Paired deterministic/single-agent baseline against candidate workflow on pinned tasks; inject stale checkpoints, duplicate dispatch, cancellation, uncertain actions and approval denial.",
+        "acceptance_threshold": "No unauthorized consequential action; durable status after restart; zero false-green or implicit replay; report task success, missed signals, latency and cost.",
+        "rollback": "Disable the new adapter/workflow and return to the prior canonical graph path; reconcile uncertain actions."
+      },
+      {
+        "id": "adaptive_model_lifecycle",
+        "source_date": "2026-10-07; 2026-10-15; 2026-10-22; 2026-10-26",
+        "sources": [
+          "https://github.blog/changelog/2026-09-18-upcoming-deprecation-of-selected-github-copilot-models-in-mid-october/",
+          "https://github.blog/changelog/2026-10-02-github-copilot-weekly-releases-september-28/",
+          "https://www.anthropic.com/news/models",
+          "https://github.blog/changelog/2026-10-26-gpt-6-1-terra-in-github-copilot/",
+          "https://github.blog/changelog/2026-10-15-upcoming-deprecation-of-selected-github-copilot-models-in-mid-november/",
+          "https://github.blog/changelog/2026-10-22-global-default-for-copilot-features-generally-available/",
+          "https://github.blog/changelog/2026-10-07-discover-local-models-in-github-copilot-cli/"
+        ],
+        "owner": [
+          "portable.agent_capabilities.CapabilityFabric",
+          "portable.adaptive_runtime.AdaptiveRuntime",
+          "provider health/lifecycle adapters"
+        ],
+        "status": "routing_foundation_present_catalog_freshness_gate_open",
+        "implementation_status": "Capability-aware routing foundation exists; provider catalogs/deprecation freshness must remain authoritative and bounded.",
+        "ci_status": "Repository CI covers routing and policy contracts; no live-provider quality comparison is claimed.",
+        "deployment_status": "not verified",
+        "independent_evaluation_status": "not verified",
+        "measured_gap": "Retired model detection, route quality by task family, privacy and permission parity, fallback loops and budget preservation. Include the 2026-11-16 retirement wave and distinguish discovery from installation/trust.",
+        "benchmark": "Pinned task-family matrix with retired/missing model IDs, rate limits, schema drift, provider loss, bounded fallback, measured latency/cost and task success.",
+        "acceptance_threshold": "Stale IDs never dispatch; fallback cannot widen data scope or reset budgets; paired outcomes and regression data required before changing defaults.",
+        "rollback": "Pin last-known-good approved route, disable stale IDs and use deterministic/native fallback."
+      },
+      {
+        "id": "realistic_agent_evaluation",
+        "source_date": "2026; 2026-10-09",
+        "sources": [
+          "https://yupeijei1997.github.io/WildToolBench/",
+          "https://arxiv.org/abs/2610.14346",
+          "https://research.ibm.com/publications/a-survey-on-evaluation-of-llm-based-agents"
+        ],
+        "owner": [
+          "Arena",
+          "external evaluator gateway",
+          "evidence envelope",
+          "issue #692 learning/promotion gate"
+        ],
+        "status": "benchmark_design_and_external_campaign_required",
+        "implementation_status": "Evaluation and evidence protocol exists; realistic external campaign not run.",
+        "ci_status": "CI verifies internal protocol/regression fixtures only.",
+        "deployment_status": "not verified",
+        "independent_evaluation_status": "blocked",
+        "measured_gap": "Multi-turn tool correctness, judge agreement, cost/safety trade-offs, holdout contamination and real task distribution.",
+        "benchmark": "Pinned multi-turn tasks with deterministic final-state and tool-trace checks; report per-domain success, unauthorized calls, missed signals, judge agreement, uncertainty, cost and latency.",
+        "acceptance_threshold": "Independent evaluator and sealed holdout; bounded uncertainty and regression limits; no promotion from internal CI or self-judging alone.",
+        "rollback": "Reject promotion, retain negative/unscored results, restore last-known-good component digest and rerun regression."
+      },
+      {
+        "id": "agent_coordination_action_oversight",
+        "source_date": "2026-10-01; prior research tracked in #1038",
+        "sources": [
+          "https://github.blog/changelog/2026-10-01-dynamic-workflows-in-copilot-cli-and-the-copilot-app/",
+          "https://www.anthropic.com/research/multiagent-systems",
+          "https://www.anthropic.com/institute/measuring-pace-of-ai-development"
+        ],
+        "owner": [
+          "portable.agency_state_graph.StateGraph",
+          "GraphAgentTeam",
+          "RuntimeExecutionGuard",
+          "identity/authority policy",
+          "independent verifier"
+        ],
+        "status": "canonical_owners_exist_benchmark_gap_open",
+        "implementation_status": "Graph/team and authority owners exist; comparative coordination benefit is not established.",
+        "ci_status": "Selected graph concurrency, adoption conflict, verifier separation and cancellation contracts are repository-tested.",
+        "deployment_status": "not verified",
+        "independent_evaluation_status": "blocked",
+        "measured_gap": "Coordination overhead, duplicate work, communication cost, conflict rate, resource contention, escalation latency and unauthorized action rate.",
+        "benchmark": "Paired single-agent/deterministic versus multi-agent runs on the same pinned task distribution with trace-level action audit.",
+        "acceptance_threshold": "Measured net value without safety/reliability regression; serialized adoption; no worker self-approval; shared budgets cannot be reset.",
+        "rollback": "Disable fan-out for the affected task class and use the sequential canonical path."
+      },
+      {
+        "id": "scientific_discovery",
+        "source_date": "2026-10-16",
+        "sources": [
+          "https://www.anthropic.com/science"
+        ],
+        "owner": [
+          "LearningSteward",
+          "causal attribution",
+          "experiment manifest",
+          "Arena",
+          "independent replication owner"
+        ],
+        "status": "research_signal_only_external_replication_required",
+        "implementation_status": "Causal/learning and evaluation protocol foundations exist; no broad scientific-discovery capability claim.",
+        "ci_status": "CI verifies selected causal attribution/promotion contracts only.",
+        "deployment_status": "not verified",
+        "independent_evaluation_status": "blocked",
+        "measured_gap": "Hypothesis validity, constraint satisfaction, reproducibility, negative-result retention, calibration and transfer to fresh scientific tasks.",
+        "benchmark": "Pinned hypotheses, simulations/code, seeds, model/tool versions and raw outputs; independent replication on fresh tasks, with domain review and physical validation where applicable.",
+        "acceptance_threshold": "Reproducible independent outcomes, explicit uncertainty and negative results, no source-domain regression, and rollback-ready promotion decision.",
+        "rollback": "Do not promote the lesson or harness; retain lineage and restore the prior digest."
+      },
+      {
+        "id": "host_policy_assisted_permissions",
+        "source_date": "2026-10-07; 2026-10-26",
+        "sources": [
+          "https://github.blog/changelog/2026-10-07-local-sandboxing-for-github-copilot-now-generally-available/",
+          "https://github.blog/changelog/2026-10-26-github-copilot-assisted-permissions-generally-available/"
+        ],
+        "owner": [
+          "portable.runtime_recovery.RuntimeExecutionGuard",
+          "delegated authority policy",
+          "provider lifecycle adapters",
+          "durable approval/action receipt"
+        ],
+        "status": "host_policy_boundary_required",
+        "implementation_status": "AUREN has host-policy and approval owners; external sandbox equivalence is not established.",
+        "ci_status": "Repository tests cover selected denial-before-launch, authority, cancellation and receipt contracts; they do not prove host isolation.",
+        "deployment_status": "not verified",
+        "independent_evaluation_status": "blocked",
+        "measured_gap": "Ensure model-based permission classification cannot grant authority; enforce filesystem, network, credential and local-tool boundaries at the host.",
+        "benchmark": "Attempt forbidden paths, URLs, credentials and local tools under read-only/write-scoped policies; spoof model 'safe' outputs; restart between approval and action; verify action receipt and denial-before-launch.",
+        "acceptance_threshold": "Zero unauthorized actions in the tested suite; explicit policy/approval is required; missing/stale receipts block; independently administered host isolation evidence is required for deployment claims.",
+        "rollback": "Disable the adapter and return to the last-known-good executor; revoke its route and preserve evidence for reconciliation."
+      }
+    ]
   }
 }
