@@ -170,16 +170,16 @@ class VibeCodingHostTests(unittest.TestCase):
             init_git(project)
             server = base / "adaptive_mcp.py"
             server.write_text(
-                "import json, sys\\n"
-                "for line in sys.stdin:\\n"
-                "    try: msg = json.loads(line)\\n"
-                "    except Exception: continue\\n"
-                "    if msg.get('method') == 'initialize':\\n"
-                "        print(json.dumps({'jsonrpc':'2.0','id':msg['id'],'result':{'protocolVersion':'2024-11-05','capabilities':{},'serverInfo':{'name':'adaptive','version':'1'}}}), flush=True)\\n"
-                "    elif msg.get('method') == 'tools/call':\\n"
-                "        limit = msg.get('params',{}).get('arguments',{}).get('limit',100)\\n"
-                "        payload = {'items':['ok']} if limit <= 1 else {'items':['x' * 500]}\\n"
-                "        print(json.dumps({'jsonrpc':'2.0','id':msg['id'],'result':{'structuredContent':payload}}), flush=True)\\n",
+                "import json, sys\n"
+                "for line in sys.stdin:\n"
+                "    try: msg = json.loads(line)\n"
+                "    except Exception: continue\n"
+                "    if msg.get('method') == 'initialize':\n"
+                "        print(json.dumps({'jsonrpc':'2.0','id':msg['id'],'result':{'protocolVersion':'2024-11-05','capabilities':{},'serverInfo':{'name':'adaptive','version':'1'}}}), flush=True)\n"
+                "    elif msg.get('method') == 'tools/call':\n"
+                "        limit = msg.get('params',{}).get('arguments',{}).get('limit',100)\n"
+                "        payload = {'items':['ok']} if limit <= 1 else {'items':['x' * 500]}\n"
+                "        print(json.dumps({'jsonrpc':'2.0','id':msg['id'],'result':{'structuredContent':payload}}), flush=True)\n",
                 encoding="utf-8",
             )
             reductions = []
