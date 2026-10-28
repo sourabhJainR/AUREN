@@ -37,6 +37,10 @@ The evaluator is deliberately outside the implementation reporting line. A separ
 
 ## Runtime requirements before enabling this hierarchy
 
+The canonical controller supports an opt-in role-scope envelope for direct and plan-backed dispatch. The envelope binds role ID, direct manager, allowed action class, resource scope, policy digest, bounded attempts/duration, expiry, and delegation evidence into the durable task intent. A host-injected `role_scope_authorizer` must verify the task-bound delegation and any required approval evidence. It is a read-only verifier and is called before dispatch and again at the final handler boundary. Missing authorizer, stale registry digest, unknown role, manager mismatch, out-of-scope resources, expired scope, or budget violations block execution. Role metadata is removed before the handler receives its business payload.
+
+This enforcement is opt-in for compatibility. A deployment must supply an independently controlled authorizer and enable `require_role_scope=True` before claiming all tasks are role-scoped. Repository tests do not prove deployment identity, approval custody, production isolation, or independent evaluator control.
+
 - Keep the canonical supervisor, `StateGraph`, and `ExecutionController` as the only execution authority. Do not create a competing orchestrator.
 - Bind every task to a stable ID, role ID, manager, explicit scope, delegated authority, shared budget, deadline, checkpoint, durable status and next action.
 - Enforce permissions at the real execution boundary. A role title, prompt, manager message, model confidence score or registry entry cannot grant access.
