@@ -26,30 +26,30 @@ class AgentExecutionGuardTests(unittest.TestCase):
 
     def test_assigned_resource_within_scope_passes(self):
         payload = self._payload()
-        validate_agent_assignment_for_dispatch(payload, resource=payload["path"])
+        validate_agent_assignment_for_dispatch(payload, resource=payload["path"], authorization_verifier=lambda _request: True)
 
     def test_assigned_resource_outside_scope_fails_closed(self):
         payload = self._payload()
         with self.assertRaisesRegex(AgentAssignmentScopeDenied, "outside the assigned scope"):
-            validate_agent_assignment_for_dispatch(payload, resource="portable/secrets.py")
+            validate_agent_assignment_for_dispatch(payload, resource="portable/secrets.py", authorization_verifier=lambda _request: True)
 
     def test_missing_resource_fails_closed_for_assigned_task(self):
         payload = self._payload()
         with self.assertRaises(AgentAssignmentScopeDenied):
-            validate_agent_assignment_for_dispatch(payload, resource="")
+            validate_agent_assignment_for_dispatch(payload, resource="", authorization_verifier=lambda _request: True)
 
     def test_path_traversal_and_absolute_resource_are_denied(self):
         payload = self._payload()
         for path in ("../secrets.py", "/etc/passwd", "portable/../secrets.py", r"portable\secrets.py"):
             with self.subTest(path=path), self.assertRaises(AgentAssignmentScopeDenied):
-                validate_agent_assignment_for_dispatch(payload, resource=path)
+                validate_agent_assignment_for_dispatch(payload, resource=path, authorization_verifier=lambda _request: True)
 
     def test_tampered_scope_digest_and_assignment_id_are_denied(self):
         for field, value in (("scope", ["portable/other.py"]), ("assignment_id", "forged")):
             payload = self._payload()
             payload["_auren_agent_assignment"][field] = value
             with self.subTest(field=field), self.assertRaises(AgentAssignmentScopeDenied):
-                validate_agent_assignment_for_dispatch(payload, resource="portable/api.py")
+                validate_agent_assignment_for_dispatch(payload, resource="portable/api.py", authorization_verifier=lambda _request: True)
 
     def test_stale_registry_digest_is_denied(self):
         payload = self._payload()
@@ -62,6 +62,35 @@ class AgentExecutionGuardTests(unittest.TestCase):
             validate_agent_assignment_for_dispatch(
                 {"_auren_agent_assignment": {"role_id": "BE-01"}}, resource="portable/api.py"
             )
+
+    def test_assigned_task_requires_host_owned_verifier(self):
+        payload = self._payload()
+        with self.assertRaisesRegex(AgentAssignmentScopeDenied, "verifier is required"):
+            validate_agent_assignment_for_dispatch(payload, resource="portable/api.py")
+
+    def test_host_verifier_denial_and_exception_fail_closed(self):
+        payload = self._payload()
+        def broken(_request):
+            raise RuntimeError("offline")
+        for verifier in (lambda _request: False, lambda _request: 1, broken):
+            with self.subTest(verifier=verifier), self.assertRaises(AgentAssignmentScopeDenied):
+                validate_agent_assignment_for_dispatch(
+                    payload, resource="portable/api.py", authorization_verifier=verifier
+                )
+
+    def test_host_verifier_receives_immutable_digest_bound_assignment(self):
+        payload = self._payload()
+        seen = []
+        def verifier(request):
+            seen.append(request)
+            with self.assertRaises(TypeError):
+                request["scope"] = ("portable/other.py",)
+            return True
+        validate_agent_assignment_for_dispatch(
+            payload, resource="portable/api.py", authorization_verifier=verifier
+        )
+        self.assertEqual(seen[0]["assignment_id"], payload["_auren_agent_assignment"]["assignment_id"])
+        self.assertEqual(seen[0]["scope"], ("portable/api.py",))
 
     def test_unassigned_tasks_keep_existing_behavior(self):
         validate_agent_assignment_for_dispatch({"path": "portable/other.py"}, resource="portable/other.py")
