@@ -115,6 +115,15 @@ Candidate benchmark names above are evaluation inputs, not claims that AUREN has
 - **Scientific discovery integrity:** *Into the Unknown* (2026-10-13) tested 135 follow-up submissions from nine frontier agents; none satisfied every expert-specified condition and 114 failed integrity checks, often due to claims unsupported by performed work or contradictory numbers. SEER-Repro (2026-10-16) reports reproduction of 77.4% of 2,190 atomic claims and identifies potentially consequential analytical choices in 9.5% of fully reproduced findings. Map to LearningSteward, experiment manifests, evidence graph, Arena and independent replication. Benchmark condition satisfaction, executable reproduction, robustness to analytical choices, uncertainty, and retained negative results. Rollback: block promotion and restore the last-known-good lesson/policy when replication or source-domain regression fails.
 - **Model lifecycle:** Keep the 2026-11-16 Copilot retirement wave in the catalog refresh gate. Test stale/retired identifiers, bounded fallback, preserved permissions and budgets, task-family success, cost and latency. Discovery is not installation or trust; no silent consequential route changes.
 
+
+### Current long-horizon and live-tool evidence — 2026-10-28
+
+- **Interactive software engineering:** [UserSWE](https://arxiv.org/abs/2610.29822) evaluates repository coding through dynamic multi-turn user interactions and tests after each turn. Reported rankings change with the allowed interaction budget. Map to `TaskPlan`, `StateGraph`, `ExecutionController`, `ProgressJournal`, and `EngineeringDashboard`. Benchmark completion by turn budget, clarification quality, handoff loss, restart/resume, and regression rate. Roll back to the last-known-good canonical graph path on regression.
+- **Stateful tool execution:** [DynamicMCPBench](https://aclanthology.org/2026.emnlp-industry.202/) scores observed effects on live MCP servers, not only final answers or fixed tool-call lists. Its published results report sharp degradation on longer tool chains and use three independent attempts for a strict pass. Map to provider lifecycle adapters, evidence envelope, Arena, and #692. Benchmark pinned server states, effect assertions, duplicate/unauthorized actions, recovery, latency, and cost; keep the external evaluator and held-out tasks separately controlled.
+- **Host-enforced agent sandbox:** [Akamai Agent Sandbox](https://www.akamai.com/products/akamai-agent-sandbox) is a current comparison point for nested WebAssembly execution, resource limits, and outbound access blocked by default. Map to `ExecutionController`, `RuntimeExecutionGuard`, provider/workspace lifecycle, and Arena. Benchmark host escape, egress, credential access, peer isolation, cancellation, and cleanup. Do not claim AUREN equivalence without independently administered host evidence.
+
+These sources refine benchmark design only. Current AUREN repository tests are internal contract evidence; deployment and independent-evaluation status remain blocked. No new adapter or extension is enabled by default, and no promotion is allowed without paired measured value, independent evaluation, and rollback readiness.
+
 ## Primary sources reviewed
 
 1. OpenAI, [The next evolution of the Agents SDK](https://openai.com/index/the-next-evolution-of-the-agents-sdk/) (2026-04-15).
@@ -138,5 +147,8 @@ Candidate benchmark names above are evaluation inputs, not claims that AUREN has
 18. Kim et al., [Into the Unknown: Benchmarking AI agents on open scientific research problems](https://arxiv.org/abs/2610.19159) (2026-10-13).
 19. Liu et al., [AI-Driven Reproducibility and Analytical Robustness in Scientific Discovery](https://arxiv.org/abs/2610.23845) (2026-10-16).
 20. Meta, [Introducing Muse, the personal AI agent](https://about.fb.com/ko/news/2026/09/introducing-muse-the-worlds-first-personal-ai-agent-built-for-everyone/) (2026-09-08).
+21. Akamai, [Akamai Agent Sandbox](https://www.akamai.com/products/akamai-agent-sandbox) and [AI Inference and Agent Execution Environment](https://www.akamai.com/newsroom/press-release/akamai-launches-ai-inference-service-and-agent-execution-environment) (2026-10-27).
+22. Wu et al., [UserSWE: Evaluating Coding Agents in Multi-Turn Conversations with Dynamic Users](https://arxiv.org/abs/2610.29822) (2026-10-21).
+23. Kamiński et al., [DynamicMCPBench: A Trace-Grounded, Effect-Scored Benchmark for LLM Agents over Live MCP Servers](https://aclanthology.org/2026.emnlp-industry.202/) (EMNLP 2026 Industry Track).
 
 Vendor announcements and benchmark scores are signals for AUREN's evaluation backlog, not evidence of equivalent AUREN capability.
