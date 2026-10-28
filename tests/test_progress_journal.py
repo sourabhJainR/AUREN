@@ -135,5 +135,50 @@ class ProgressJournalTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 ProgressJournal(Path(temp) / "p.jsonl").record("f", "bad", completed_units=4, total_units=3)
 
+    def test_priority_stack_keeps_interruptions_durable_and_orders_by_priority_fifo(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "progress.jsonl"
+            journal = ProgressJournal(path)
+            journal.record("active", "started", state="running", timestamp="2026-01-01T00:00:00+00:00")
+            journal.record_interrupt("low", priority=20, message="low priority", parent_task_id="active",
+                                     timestamp="2026-01-01T00:00:01+00:00")
+            journal.record_interrupt("high", priority=90, message="urgent", parent_task_id="active",
+                                     timestamp="2026-01-01T00:00:02+00:00")
+            restarted = ProgressJournal(path)
+            stack = restarted.priority_stack()
+            self.assertEqual([item["task_id"] for item in stack], ["high", "low", "active"])
+            self.assertEqual(restarted.next_ready()["task_id"], "high")
+            self.assertEqual(restarted.snapshot("low")["parent_task_id"], "active")
+
+    def test_tradeoff_waits_for_human_without_blocking_unrelated_work(self):
+        with tempfile.TemporaryDirectory() as temp:
+            journal = ProgressJournal(Path(temp) / "progress.jsonl")
+            journal.record_interrupt("needs-confirmation", priority=100, message="material trade-off",
+                                     decision_required=True)
+            journal.record_interrupt("independent", priority=50, message="safe independent action")
+            self.assertEqual(journal.snapshot("needs-confirmation")["state"], "blocked")
+            self.assertTrue(journal.snapshot("needs-confirmation")["decision_required"])
+            self.assertEqual(journal.next_ready()["task_id"], "independent")
+            self.assertEqual(len(journal.priority_stack()), 2)
+
+    def test_priority_validation_rejects_invalid_values(self):
+        with tempfile.TemporaryDirectory() as temp:
+            journal = ProgressJournal(Path(temp) / "progress.jsonl")
+            for value in (-1, 101, True, 1.5):
+                with self.assertRaises(ValueError):
+                    journal.record_interrupt("bad", priority=value, message="invalid")
+
+    def test_priority_and_confirmation_metadata_survive_later_events(self):
+        with tempfile.TemporaryDirectory() as temp:
+            journal = ProgressJournal(Path(temp) / "progress.jsonl")
+            journal.record_interrupt("task", priority=80, message="review trade-off",
+                                     decision_required=True)
+            journal.record("task", "waiting", state="blocked", stage="approval")
+            restarted = ProgressJournal(journal.path)
+            snapshot = restarted.snapshot("task")
+            self.assertEqual(snapshot["priority"], 80)
+            self.assertTrue(snapshot["decision_required"])
+            self.assertEqual(snapshot["stage"], "approval")
+
 if __name__ == "__main__":
     unittest.main()
