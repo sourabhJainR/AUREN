@@ -7,7 +7,6 @@ in a journal. Sampling is opt-in and explicitly forbidden for verification work.
 from __future__ import annotations
 
 import hashlib
-import json
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
@@ -29,7 +28,7 @@ def _digest(text: str) -> str:
 
 def _cut_at_boundary(text: str, limit: int) -> int:
     """Choose a stable cut near limit without sacrificing forward progress."""
-    if len(text) <= limit:
+    if len(text) < limit:
         return len(text)
     floor = max(1, limit * 3 // 4)
     candidates = [text.rfind(mark, floor, limit) for mark in ("\n", ". ", "; ", " ", "\t")]
@@ -43,9 +42,8 @@ def iter_text_chunks(text: str, *, max_chars: int = 12_000, overlap_chars: int =
     offset = 0
     index = 0
     while offset < len(text):
-        end = min(len(text), offset + max_chars)
-        if end < len(text):
-            end = offset + _cut_at_boundary(text[offset:offset + max_chars], max_chars)
+        remaining = text[offset:]
+        end = offset + (len(remaining) if len(remaining) <= max_chars else _cut_at_boundary(remaining, max_chars))
         piece = text[offset:end]
         if not piece:
             raise RuntimeError("chunker failed to make forward progress")
@@ -90,8 +88,6 @@ def iter_file_chunks(path: str | Path, *, max_chars: int = 12_000, overlap_chars
                 keep_from = max(0, cut - overlap_chars)
                 base += keep_from
                 buffer = buffer[keep_from:]
-            # If the remaining tail is exactly max_chars, wait for more data so
-            # a boundary can be chosen consistently rather than splitting early.
 
 
 def _validate_limits(max_chars: int, overlap_chars: int) -> None:
