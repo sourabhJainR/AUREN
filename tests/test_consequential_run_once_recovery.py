@@ -1,5 +1,6 @@
 """End-to-end consequential recovery checks through ExecutionController.run_once."""
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 
@@ -7,6 +8,43 @@ from portable.execution_controller import ExecutionController
 
 
 _PROVIDER_CALLS = []
+
+_CANCEL_LIFECYCLE_STARTED = threading.Event()
+_CANCEL_LIFECYCLE_CALLS = []
+_DEADLINE_LIFECYCLE_STARTED = threading.Event()
+_DEADLINE_LIFECYCLE_CALLS = []
+
+
+def cancel_lifecycle_provider_action(payload):
+    provider_binding = payload.get("auren_provider_operation")
+    cancel_event = payload.get("auren_cancel_event")
+    _CANCEL_LIFECYCLE_CALLS.append(
+        dict(provider_binding) if isinstance(provider_binding, dict) else {}
+    )
+    _CANCEL_LIFECYCLE_STARTED.set()
+    if cancel_event is None:
+        raise AssertionError("provider lifecycle did not propagate cancellation")
+    if not cancel_event.wait(timeout=8):
+        raise TimeoutError("cancellation did not reach the dispatched provider handler")
+    raise InterruptedError("provider was interrupted after dispatch; remote outcome is unknown")
+
+
+def deadline_lifecycle_provider_action(payload):
+    import time
+
+    provider_binding = payload.get("auren_provider_operation")
+    cancel_event = payload.get("auren_cancel_event")
+    deadline_epoch = payload.get("auren_deadline_epoch")
+    _DEADLINE_LIFECYCLE_CALLS.append({
+        "provider": dict(provider_binding) if isinstance(provider_binding, dict) else {},
+        "deadline_epoch": deadline_epoch,
+    })
+    _DEADLINE_LIFECYCLE_STARTED.set()
+    if cancel_event is None or not isinstance(deadline_epoch, (int, float)):
+        raise AssertionError("provider lifecycle did not propagate cancellation and deadline")
+    while time.time() < deadline_epoch and not cancel_event.is_set():
+        time.sleep(0.01)
+    raise TimeoutError("deadline expired after provider dispatch; remote outcome is unknown")
 
 
 def recovery_context_provider(request):
@@ -534,23 +572,14 @@ class ConsequentialRunOnceRecoveryTests(unittest.TestCase):
 
 
     def test_full_provider_lifecycle_cancellation_blocks_and_survives_restart(self):
-        import threading
         from portable.side_effect_ledger import DurableSideEffectLedger
 
-        started = threading.Event()
-        calls = []
-        name = "consequential-cancel-lifecycle-action"
-
-        def handler(payload):
-            provider_binding = payload.get("auren_provider_operation")
-            cancel_event = payload.get("auren_cancel_event")
-            calls.append(dict(provider_binding) if isinstance(provider_binding, dict) else {})
-            started.set()
-            if cancel_event is None:
-                raise AssertionError("provider lifecycle did not propagate cancellation")
-            if not cancel_event.wait(timeout=8):
-                raise TimeoutError("cancellation did not reach the dispatched provider handler")
-            raise InterruptedError("provider was interrupted after dispatch; remote outcome is unknown")
+        _CANCEL_LIFECYCLE_STARTED.clear()
+        _CANCEL_LIFECYCLE_CALLS.clear()
+        started = _CANCEL_LIFECYCLE_STARTED
+        calls = _CANCEL_LIFECYCLE_CALLS
+        name = "tests.test_consequential_run_once_recovery.cancel_lifecycle_provider_action"
+        handler = cancel_lifecycle_provider_action
 
         self.controller.register_handler(
             name,
@@ -616,28 +645,14 @@ class ConsequentialRunOnceRecoveryTests(unittest.TestCase):
         self.assertEqual("blocked_reconciliation", restarted.task(task.id).state)
 
     def test_full_provider_lifecycle_deadline_is_propagated_and_outcome_stays_unknown(self):
-        import threading
-        import time
         from portable.side_effect_ledger import DurableSideEffectLedger
 
-        started = threading.Event()
-        calls = []
-        name = "consequential-deadline-lifecycle-action"
-
-        def handler(payload):
-            provider_binding = payload.get("auren_provider_operation")
-            cancel_event = payload.get("auren_cancel_event")
-            deadline_epoch = payload.get("auren_deadline_epoch")
-            calls.append({
-                "provider": dict(provider_binding) if isinstance(provider_binding, dict) else {},
-                "deadline_epoch": deadline_epoch,
-            })
-            started.set()
-            if cancel_event is None or not isinstance(deadline_epoch, (int, float)):
-                raise AssertionError("provider lifecycle did not propagate cancellation and deadline")
-            while time.time() < deadline_epoch and not cancel_event.is_set():
-                time.sleep(0.01)
-            raise TimeoutError("deadline expired after provider dispatch; remote outcome is unknown")
+        _DEADLINE_LIFECYCLE_STARTED.clear()
+        _DEADLINE_LIFECYCLE_CALLS.clear()
+        started = _DEADLINE_LIFECYCLE_STARTED
+        calls = _DEADLINE_LIFECYCLE_CALLS
+        name = "tests.test_consequential_run_once_recovery.deadline_lifecycle_provider_action"
+        handler = deadline_lifecycle_provider_action
 
         self.controller.register_handler(
             name,
