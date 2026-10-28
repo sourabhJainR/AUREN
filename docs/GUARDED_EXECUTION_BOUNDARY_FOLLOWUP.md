@@ -201,3 +201,12 @@ approved OpenShell policy before making OpenShell-specific claims.
 Rollback: if Docker is unavailable or the digest cannot be verified, the job
 must fail or block; do not replace this gate with unit tests or application
 Guard decisions.
+
+
+## MCP stdio process-tree containment (2026-10-28)
+
+On Windows, `MCPStdioToolAdapter` now starts the MCP server suspended and assigns it to a kill-on-close `WindowsKillJob` before resuming it. If Job Object setup fails, the adapter kills the suspended direct child and fails closed rather than launching an uncontained server. Cleanup terminates the job so descendants cannot outlive the stdio parent. POSIX continues to use a dedicated process group and group termination.
+
+The Windows regression starts a descendant that would leave a marker after the MCP request returns; the test asserts the marker is never written. This covers the adapter's process-tree cleanup contract, not arbitrary host filesystem/network containment or every direct subprocess callsite.
+
+Rollback: revert the `MCPStdioToolAdapter` Job Object integration, its Windows descendant regression, and this note together. Do not fall back to direct-child-only termination for MCP tools that may spawn descendants; block the affected adapter until a supported containment path is available.
