@@ -36,7 +36,7 @@ from .provider_operation_lifecycle import ProviderOutcomeBlocked
 from .durable_approval import ApprovalPending, InvalidApprovalTransition
 from .workflow_profile import WorkflowProfile, delivery_mode_allows, infer_delivery_action, resolve_profile
 from .workflow_profile_store import load_profile
-from .organization_guard import GuardDecision, GuardPolicyError, evaluate_guard_policy, load_guard_policy
+from .organization_guard import POLICY_VERSION, GuardDecision, GuardPolicyError, evaluate_guard_policy, guard_policy_fingerprint, load_guard_policy
 from .agent_execution_guard import agent_assignment_scope, validate_agent_assignment_for_dispatch
 from .agent_org_runtime import load_agent_org_registry
 
@@ -586,6 +586,8 @@ class ExecutionController:
             task.payload, resource=resource,
             authorization_verifier=self._agent_assignment_verifier,
             expected_action_class=self._handler_agent_action_class(task.handler),
+            expected_policy_version=POLICY_VERSION,
+            expected_policy_digest=guard_policy_fingerprint(policy),
         )
         organization_id = __import__("os").environ.get("AUREN_ORGANIZATION_ID", "")
         approval_policy = self._handler_approval_gate_policy(task.handler)
