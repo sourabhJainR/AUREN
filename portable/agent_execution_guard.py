@@ -54,7 +54,7 @@ def validate_agent_assignment_for_dispatch(
     resource: str | None,
     registry_path: str = str(REGISTRY_PATH),
     authorization_verifier: Callable[[Mapping[str, Any]], Any] | None = None,
- ) -> tuple[str, ...] | None:
+) -> tuple[str, ...] | None:
     """Validate an optional assignment envelope before any handler dispatch.
 
     Unassigned legacy tasks retain existing behavior. If the reserved assignment
@@ -149,7 +149,7 @@ def agent_assignment_scope(scope: tuple[str, ...] | None) -> Iterator[None]:
         _ACTIVE_ASSIGNMENT_SCOPE.reset(token)
 
 
-def enforce_agent_resource_scope(relative_path: str | Any) -> None:
+def enforce_agent_resource_scope(relative_path: Any) -> None:
     """Deny guarded filesystem access outside the current verified assignment."""
     active = _ACTIVE_ASSIGNMENT_SCOPE.get()
     if active is None:
