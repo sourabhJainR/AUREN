@@ -10,6 +10,8 @@ from scripts.impact_policy import classify_changes, classify_path, final_status
 class ImpactPolicyTests(unittest.TestCase):
     def test_every_recovery_sensitive_source_has_mandatory_test_suites(self):
         expected = {
+            "portable/sdk.py": {"tests.test_auren_sdk", "tests.test_agent_execution_guard", "tests.test_execution_controller_guard_policy"},
+            "tests/test_auren_sdk.py": {"tests.test_auren_sdk"},
             "portable/agent_org_runtime.py": {"tests.test_agent_org_runtime", "tests.test_agent_execution_guard"},
             "tests/test_agent_org_runtime.py": {"tests.test_agent_org_runtime"},
             "portable/agent_execution_guard.py": {"tests.test_agent_execution_guard", "tests.test_agent_org_runtime"},
@@ -128,6 +130,8 @@ class ImpactPolicyTests(unittest.TestCase):
             "tests/test_agent_org_runtime.py",
             "portable/agent_execution_guard.py",
             "tests/test_agent_execution_guard.py",
+            "portable/sdk.py",
+            "tests/test_auren_sdk.py",
             "portable/guarded_filesystem.py",
             "tests/test_guarded_filesystem.py",
             "portable/execution_controller.py",
