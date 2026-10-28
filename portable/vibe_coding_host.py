@@ -933,25 +933,39 @@ def build_mcp_authority_dispatch(
 def _read_bounded_mcp_stdout_frame(
     stream: Any, max_chars: int,
 ) -> tuple[str | None, bool, dict[str, Any] | None]:
-    """Read a bounded frame; sample only the observed prefix when it is oversized.
+    """Read a bounded frame in chunks; sample only observed bytes if oversized.
 
+    Reads are capped at 4096 characters and total buffering at max_chars + 1.
     Never drain an untrusted stream after the limit is crossed: it may be infinite.
     Oversize diagnostics describe only the bounded prefix read, not the full frame.
     """
-    line = stream.readline(max_chars + 1)
-    if not line:
-        return None, False, None
-    if len(line) > max_chars:
-        sample_window = line[:4096]
-        metadata = {
-            "observed_chars_at_least": len(line),
-            "observed_prefix_sha256": hashlib.sha256(line.encode("utf-8", errors="replace")).hexdigest(),
-            "sample_prefix": sample_window[:96],
-            "sample_suffix": sample_window[-96:],
-            "frame_complete": line.endswith("\n"),
-        }
-        return None, True, metadata
-    return line.rstrip("\n"), False, None
+    if type(max_chars) is not int or isinstance(max_chars, bool) or max_chars < 1:
+        raise ValueError("MCP frame character limit must be a positive integer")
+    chunks: list[str] = []
+    total = 0
+    while total <= max_chars:
+        size = min(4096, max_chars - total + 1)
+        part = stream.readline(size)
+        if not part:
+            if not chunks:
+                return None, False, None
+            return "".join(chunks).rstrip("\n"), False, None
+        total += len(part)
+        chunks.append(part)
+        if total > max_chars:
+            observed = "".join(chunks)
+            sample_window = observed[:4096]
+            metadata = {
+                "observed_chars_at_least": total,
+                "observed_prefix_sha256": hashlib.sha256(observed.encode("utf-8", errors="replace")).hexdigest(),
+                "sample_prefix": sample_window[:96],
+                "sample_suffix": sample_window[-96:],
+                "frame_complete": observed.endswith("\n"),
+            }
+            return None, True, metadata
+        if part.endswith("\n"):
+            return "".join(chunks).rstrip("\n"), False, None
+    return None, True, None
 
 
 class MCPStdioToolAdapter:
@@ -971,6 +985,7 @@ class MCPStdioToolAdapter:
             [Mapping[str, Any], MCPToolCallBinding, Callable[[], Mapping[str, Any]]],
             Mapping[str, Any],
         ] | None = None,
+        read_only_response_reducer: Callable[[Mapping[str, Any]], Mapping[str, Any]] | None = None,
     ) -> None:
         if not argv or any(not isinstance(x, str) or not x for x in argv):
             raise ValueError("MCP command must be a non-empty argv array")
@@ -987,6 +1002,11 @@ class MCPStdioToolAdapter:
             raise TypeError("requires_authority_binding must be a boolean")
         if authority_dispatch is not None and not callable(authority_dispatch):
             raise TypeError("authority_dispatch must be callable")
+        if read_only_response_reducer is not None and not callable(read_only_response_reducer):
+            raise TypeError("read_only_response_reducer must be callable")
+        if read_only_response_reducer is not None and requires_authority_binding:
+            raise ValueError("adaptive oversized-response recovery is only allowed for operator-declared read-only MCP tools")
+        self.read_only_response_reducer = read_only_response_reducer
         self.timeout_seconds = timeout_seconds
         self.env_allowlist = tuple(env_allowlist)
         self.max_response_chars = max_response_chars
@@ -1058,7 +1078,27 @@ class MCPStdioToolAdapter:
         if not isinstance(request, Mapping):
             raise ValueError("MCP request must be a mapping")
         if not self.requires_authority_binding:
-            return self._invoke_unchecked(request)
+            arguments = self._arguments_for_request(request)
+            try:
+                return self._invoke_unchecked(request, arguments=arguments)
+            except AdapterUnavailable as exc:
+                # A reducer is explicitly configured only for an operator-declared
+                # read-only tool. Retry once, and only when the hard frame cap was hit.
+                if self.read_only_response_reducer is None or "exceeded the configured character limit" not in str(exc):
+                    raise
+                try:
+                    reduced = self.read_only_response_reducer(dict(arguments))
+                    if not isinstance(reduced, Mapping):
+                        raise TypeError("response reducer must return a mapping")
+                    reduced_snapshot = json.loads(json.dumps(dict(reduced), ensure_ascii=False, allow_nan=False))
+                    if not isinstance(reduced_snapshot, dict) or reduced_snapshot == arguments:
+                        raise ValueError("response reducer must return different JSON-safe arguments")
+                    return self._invoke_unchecked(request, arguments=reduced_snapshot)
+                except Exception as recovery_error:
+                    raise AdapterUnavailable(
+                        "MCP oversized response recovery failed after one bounded read-only reduction; "
+                        "keep the frame cap and narrow the query further"
+                    ) from recovery_error
         if self.authority_dispatch is None:
             raise AdapterUnavailable(
                 f"MCP tool {self.tool_name} requires a trusted execution authority resolver before dispatch"
