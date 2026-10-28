@@ -59,14 +59,34 @@ Record graph topology, concurrency, model/provider, quality, regression, latency
 - Exact-head required CI passes; skipped checks are reported as skipped, not passed.
 - Production isolation and independently controlled evaluator/holdout custody remain open until external evidence is supplied.
 
-## Status
+## Status — repository audit 2026-10-28
 
-- Gate 1 is merged in PR #1008. The exact PR head passed all 11 workflows, including architecture, runtime resilience, Windows/Linux, production hardening, and the integration guard.
-- Gates 2–3 have existing isolated-worktree and fresh-worktree verifier primitives. PR #1009 merged at `eb53cd77554a74d31ad54c3b7202957f2e07d465`; its exact reviewed head passed all eight PR workflows and all eight post-merge workflows passed on main. The slice adds a StateGraph node adapter, one serialized sibling-adoption boundary, receipt persistence, and progress-journal integration.
-- Gate 4 remains partial. The shared RuntimeExecutionGuard, checkpoints, recovery ledger, and ProgressJournal block duplicate dispatch after ambiguous prior state. This follow-up adds a durable `adopting` state before filesystem application and a subprocess crash regression for the apply-to-finalization boundary. Cleanup-failure, recovery-commit, sibling-cancellation, and crash recovery are repository-level contracts; supervisor reconciliation and external isolation evidence remain outstanding.
+Audit baseline: `main` at `cb0848f71e66dd3ca3ad6157cd2633d4d85b40e6`, including the merged graph recovery and shared runtime/learning/delivery regressions. This is a repository/CI status, not a production or independent-evaluator certification.
 
-- Gate 5 is merged in PR #1006. Its fixed safety gates and pinned-baseline comparison remain authoritative; learning is advisory only.
-- The fresh-worktree verifier proves reproducible checks in a separate worktree, not external evaluator custody or OS sandbox resistance. Those claims remain open until independent operator-controlled evidence is supplied.
+- **Gate 1 — dependency-aware scheduling:** complete at repository level in [PR #1008](https://github.com/sourabhJainR/AUREN/pull/1008). The canonical TaskPlan/StateGraph path remains the only scheduler.
+- **Gates 2–3 — isolation, adoption and verification:** implementation and regression coverage are merged in [PR #1009](https://github.com/sourabhJainR/AUREN/pull/1009), [PR #1010](https://github.com/sourabhJainR/AUREN/pull/1010), [PR #1011](https://github.com/sourabhJainR/AUREN/pull/1011), [PR #1026](https://github.com/sourabhJainR/AUREN/pull/1026), and [PR #1033](https://github.com/sourabhJainR/AUREN/pull/1033). Tests reject contradictory receipts and verifier self-approval before adoption or test-command execution.
+- **Gate 4 — durable recovery matrix:** repository-level crash/restart and uncertainty cases are covered:
+  - checkpoint committed before progress-journal append: [PR #1011](https://github.com/sourabhJainR/AUREN/pull/1011);
+  - terminal journal event before recovery-ledger completion: [PR #1024](https://github.com/sourabhJainR/AUREN/pull/1024);
+  - bounded, read-only checkpoint integrity audit: [PR #1025](https://github.com/sourabhJainR/AUREN/pull/1025);
+  - contradictory verifier evidence: [PR #1026](https://github.com/sourabhJainR/AUREN/pull/1026);
+  - process death after apply but before finalization: [PR #1029](https://github.com/sourabhJainR/AUREN/pull/1029);
+  - cancellation and uncertain worker termination across restart: [PR #1030](https://github.com/sourabhJainR/AUREN/pull/1030);
+  - verifier self-approval rejection: [PR #1033](https://github.com/sourabhJainR/AUREN/pull/1033);
+  - stale intent/target HEAD and overlapping adoption rejection: [PR #1035](https://github.com/sourabhJainR/AUREN/pull/1035) and [PR #1036](https://github.com/sourabhJainR/AUREN/pull/1036).
+- **Gate 5 — evidence-gated learning:** merged in [PR #1006](https://github.com/sourabhJainR/AUREN/pull/1006). Learning remains advisory; it cannot change authority, evidence thresholds or rollback policy.
+- **Cross-store completion and duplicate dispatch:** the shared-runtime integration and terminal-receipt crash regressions are merged in [PR #1034](https://github.com/sourabhJainR/AUREN/pull/1034) and [PR #1037](https://github.com/sourabhJainR/AUREN/pull/1037). They bind the stable work key `AUREN:issue-696:continuous-engineering`, require reconciliation before a completed dashboard projection, and prevent replay after ambiguous split writes.
+
+### Current-main verification snapshot
+
+- Main SHA: `cb0848f71e66dd3ca3ad6157cd2633d4d85b40e6`.
+- Current-main check-runs: 28 completed successfully. Six push workflows are completed successfully; this status does not convert any path-filtered skip on a historical PR head into a pass.
+- Retained portable artifacts from [run 40552519697](https://github.com/sourabhJainR/AUREN/actions/runs/40552519697) expire on 2026-11-26. GitHub outer digests matched the downloaded archives: bundle archive `c857cf81e5ffca7592f5845d76bf5dee774191b8fa29f6004310e2f752152bf5`; checksum archive `d23f06546b5c025171ea72b7e30b8aa5bf351a5517bd8c874008e68d330f11bc`. The embedded portable ZIP SHA-256 `2f40bf4aa96e6ba61d5ed8d6a47b6c8e0faba09f8c77813b6fe0c845c99cb495` matches `auren-portable.sha256`; all 508 manifest entries match their sizes and SHA-256 values. The manifest pins the audited main SHA, version `1.0.6`, and `target_repository_mutation=false`.
+- No local test run is claimed because this environment has no AUREN checkout. Verification here uses merged PR records, current-main check-runs, push workflow records and downloaded artifact hashes.
+
+### Explicitly unverified external gates
+
+Repository-level implementation and CI do **not** prove production OS/network/credential isolation, independent evaluator identity, sealed-holdout custody, provider-native idempotency or real staging rollback. Those remain blocked until genuine operator-controlled or independently verifiable evidence is attached to their owning issues. Do not describe the graph worker's fresh worktree as a host sandbox.
 
 ### Adoption failure recovery and rollback
 
