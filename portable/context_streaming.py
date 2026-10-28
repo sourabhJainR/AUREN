@@ -116,8 +116,11 @@ def choose_sample(items: Iterable[InputChunk], *, count: int, exploratory: bool 
 class DurableChunkJournal:
     """SQLite journal for resumable chunk work; source changes invalidate resume."""
 
-    def __init__(self, database: str | Path) -> None:
+    def __init__(self, database: str | Path, *, max_result_chars: int = 16_384) -> None:
+        if max_result_chars < 1:
+            raise ValueError("max_result_chars must be positive")
         self.database = str(database)
+        self.max_result_chars = max_result_chars
         Path(self.database).parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as db:
             db.execute("PRAGMA journal_mode=WAL")
@@ -164,6 +167,8 @@ class DurableChunkJournal:
         return {int(i): (str(digest), str(result)) for i, digest, result in rows}
 
     def record(self, job_id: str, chunk: InputChunk, result: str) -> None:
+        if len(result) > self.max_result_chars:
+            raise ValueError("chunk result exceeds the configured journal bound; store a digest-addressed artifact instead")
         with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
             job = db.execute("SELECT state FROM context_jobs WHERE job_id=?", (job_id,)).fetchone()
