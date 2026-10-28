@@ -235,13 +235,13 @@ class VibeCodingHostTests(unittest.TestCase):
                 self.read_sizes.append(size)
                 if not self.data:
                     return ""
-                newline = self.data.find("\\n")
+                newline = self.data.find("\n")
                 take = min(size, newline + 1 if newline >= 0 else len(self.data))
                 part, self.data = self.data[:take], self.data[take:]
                 return part
 
         expected = "x" * 9000
-        stream = ChunkedLine(expected + "\\n")
+        stream = ChunkedLine(expected + "\n")
         frame, oversized, metadata = _read_bounded_mcp_stdout_frame(stream, 10000)
         self.assertEqual(frame, expected)
         self.assertFalse(oversized)
