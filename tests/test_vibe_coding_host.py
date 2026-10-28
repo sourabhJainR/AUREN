@@ -180,13 +180,16 @@ class VibeCodingHostTests(unittest.TestCase):
                 "    try: msg = json.loads(line)\\n"
                 "    except Exception: continue\\n"
                 "    if msg.get('method') == 'initialize':\\n"
-                "        print(json.dumps({'jsonrpc':'2.0','id':msg['id'],'result':{'protocolVersion':'2024-11-05','capabilities':{},'serverInfo':{'name':'oversize','version':'1'}}}), flush=True)\\n"
+                "        print(json.dumps({'jsonrpc':'2.0','id':msg['id'],'result':{'protocolVersion':'2024-11-05','capabilities':{'tools':{}},'serverInfo':{'name':'oversize','version':'1'}}}), flush=True)\\n"
+                "    elif msg.get('method') == 'tools/list':\\n"
+                "        print(json.dumps({'jsonrpc':'2.0','id':msg['id'],'result':{'tools':[{'name':'oversize','description':'test','inputSchema':{'type':'object','properties':{}}}]}}), flush=True)\\n"
+                "    elif msg.get('method') == 'tools/call':\\n"
                 "        print('x' * 5000, flush=True)\\n",
                 encoding="utf-8",
             )
             adapter = MCPStdioToolAdapter(
                 argv=(sys.executable, str(server)),
-                tool_name="bounded",
+                tool_name="oversize",
                 timeout_seconds=3,
                 max_response_chars=1024,
                 requires_authority_binding=False,
