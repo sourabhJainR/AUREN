@@ -1231,7 +1231,6 @@ class MCPStdioToolAdapter:
                 # Drain any oversized diagnostic line in fixed-size chunks. Never
                 # let an untrusted child force Python to allocate an unbounded line.
                 _drain_bounded_mcp_stderr_line(proc.stderr, line, 4096)
-                    line = proc.stderr.readline(4096)
 
         out_thread = threading.Thread(target=read_stdout, daemon=True)
         err_thread = threading.Thread(target=read_stderr, daemon=True)
