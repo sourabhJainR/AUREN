@@ -335,16 +335,16 @@ class VibeCodingHostTests(unittest.TestCase):
             marker = root / "descendant-survived.txt"
             server = root / "mcp_server.py"
             server.write_text(
-                "import json, subprocess, sys\\n"
-                "marker = sys.argv[1]\\n"
-                "for line in sys.stdin:\\n"
-                " msg = json.loads(line)\\n"
-                " if msg.get('method') == 'initialize':\\n"
-                "  print(json.dumps({'jsonrpc':'2.0','id':msg['id'],'result':{'protocolVersion':'2024-11-05','capabilities':{},'serverInfo':{'name':'tree-test','version':'1'}}}), flush=True)\\n"
-                " elif msg.get('method') == 'tools/call':\\n"
-                "  code = 'import pathlib,time; time.sleep(1.5); pathlib.Path(' + repr(str(marker)) + ').write_text(\"survived\")'\\n"
-                "  subprocess.Popen([sys.executable, '-c', code], close_fds=True)\\n"
-                "  print(json.dumps({'jsonrpc':'2.0','id':msg['id'],'result':{'structuredContent':{'ok':True}}}), flush=True)\\n",
+                "import json, subprocess, sys\n"
+                "marker = sys.argv[1]\n"
+                "for line in sys.stdin:\n"
+                " msg = json.loads(line)\n"
+                " if msg.get('method') == 'initialize':\n"
+                "  print(json.dumps({'jsonrpc':'2.0','id':msg['id'],'result':{'protocolVersion':'2024-11-05','capabilities':{},'serverInfo':{'name':'tree-test','version':'1'}}}), flush=True)\n"
+                " elif msg.get('method') == 'tools/call':\n"
+                "  code = 'import pathlib,time; time.sleep(1.5); pathlib.Path(' + repr(str(marker)) + ').write_text(\"survived\")'\n"
+                "  subprocess.Popen([sys.executable, '-c', code], close_fds=True)\n"
+                "  print(json.dumps({'jsonrpc':'2.0','id':msg['id'],'result':{'structuredContent':{'ok':True}}}), flush=True)\n",
                 encoding="utf-8",
             )
             tool = MCPStdioToolAdapter(
@@ -1057,7 +1057,7 @@ print(json.dumps({"type": "item.completed", "item": {"type": "agent_message", "t
                     marker = "report="
                     report_path = str(exc).split(marker, 1)[1] if marker in str(exc) else ""
                     detail = Path(report_path).read_text(encoding="utf-8") if report_path and Path(report_path).is_file() else "no report file"
-                    self.fail(f"{exc}\\nReport: {detail}")
+                    self.fail(f"{exc}\nReport: {detail}")
             finally:
                 os.environ["PATH"] = previous_path
                 if previous_pythonpath is None:
