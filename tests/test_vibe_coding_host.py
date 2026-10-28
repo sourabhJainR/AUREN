@@ -158,6 +158,45 @@ class VibeCodingHostTests(unittest.TestCase):
         self.assertTrue(oversized)
         self.assertEqual(stream.read_sizes, [11])
 
+    def test_oversized_mcp_stdout_frame_is_rejected_after_bounded_chunk_reads(self):
+        class OversizedWithoutNewline:
+            def __init__(self):
+                self.read_sizes = []
+
+            def readline(self, size):
+                self.read_sizes.append(size)
+                return "x" * size
+
+        stream = OversizedWithoutNewline()
+        frame, oversized = _read_bounded_mcp_stdout_frame(stream, 9000)
+        self.assertIsNone(frame)
+        self.assertTrue(oversized)
+        self.assertEqual(stream.read_sizes, [4096, 4096, 809])
+        self.assertLessEqual(max(stream.read_sizes), 4096)
+
+    def test_mcp_stdout_frame_is_reassembled_from_bounded_chunks(self):
+        class ChunkedLine:
+            def __init__(self, data):
+                self.data = data
+                self.read_sizes = []
+
+            def readline(self, size):
+                self.read_sizes.append(size)
+                if not self.data:
+                    return ""
+                newline = self.data.find("\\n")
+                take = min(size, newline + 1 if newline >= 0 else len(self.data))
+                part, self.data = self.data[:take], self.data[take:]
+                return part
+
+        expected = "x" * 9000
+        stream = ChunkedLine(expected + "\\n")
+        frame, oversized = _read_bounded_mcp_stdout_frame(stream, 10000)
+        self.assertEqual(frame, expected)
+        self.assertFalse(oversized)
+        self.assertGreater(len(stream.read_sizes), 1)
+        self.assertLessEqual(max(stream.read_sizes), 4096)
+
     def test_mcp_stdio_adapter_fails_closed_on_response_queue_flood(self):
         with tempfile.TemporaryDirectory() as temp:
             base = Path(temp)
