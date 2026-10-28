@@ -67,3 +67,16 @@ This first slice is additive documentation and a descriptive registry. Revert th
 - **Independently verified:** separate evaluator or operator produced authenticated evidence.
 
 No agent count, hierarchy diagram, green internal CI result, or role label establishes autonomous-company readiness by itself.
+
+
+## Host-authorized assignment implementation — 2026-10-28
+
+`portable/agent_org_runtime.py` adds an assignment preflight for the descriptive registry. It validates the registry digest and reporting graph, checks the requested role's direct reporting parent and declared action class, bounds and canonicalizes scope, and requires a host-owned authorizer to return literal `True` for the exact assignment digest. `submit_agent_task` persists the resulting immutable assignment envelope in the durable task payload through the existing `ExecutionController.submit` path.
+
+The assignment envelope is not a tool permission. The host authorizer must authenticate the manager and enforce organization policy. ExecutionController remains responsible for handler classification, Guard policy, approvals, deadlines, cancellation, provider reconciliation, and evidence-required completion. Handlers must project only the task fields they need into provider prompts; assignment metadata must not be treated as user instructions or authority.
+
+Regression coverage: `tests/test_agent_org_runtime.py`. It covers wrong manager, unknown role, disallowed action class, false/truthy/non-boolean authorization, authorizer exceptions, malformed scopes, duplicate registry keys, reserved metadata, and durable payload binding.
+
+This is a first runtime assignment boundary, not full production organization enforcement. The remaining integration gate is to bind authenticated role identity and allowed resource scopes to the actual execution/tool authorization boundary and verify it after process restart. No local tests were run in the connector-only environment; exact-head CI must validate the change.
+
+Rollback: revert the assignment module and its tests, then remove this section if the contract conflicts with the current runtime. The existing task submission path remains unchanged for callers that do not opt into assigned-agent submission.
