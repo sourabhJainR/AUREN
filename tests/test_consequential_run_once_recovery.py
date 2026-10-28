@@ -23,6 +23,69 @@ def ambiguous_provider_action(payload):
     raise TimeoutError("provider accepted request but response was lost")
 
 
+
+
+def crash_after_provider_accept(payload):
+    """Simulate a remote acceptance followed by hard worker death before receipt commit."""
+    import os
+
+    marker_path = Path(payload["provider_acceptance_marker"])
+    with marker_path.open("a", encoding="utf-8") as stream:
+        stream.write(f"accepted:{payload['revision']}\\n")
+        stream.flush()
+        os.fsync(stream.fileno())
+    # No Python cleanup/finalizer runs after this injected crash boundary.
+    os._exit(97)
+
+
+def _crash_provider_worker(root_path, marker_path, task_id_path):
+    """Child-process target; exits after the provider acceptance marker is durable."""
+    import os
+
+    controller = ExecutionController(
+        Path(root_path),
+        provider_resume_authorizer=lambda *_args: True,
+    )
+    controller.register_handler(
+        "recovery-context-provider", recovery_context_provider,
+        execution_class="context_provider",
+    )
+    controller.register_handler(
+        "recovery-ci-provider", recovery_ci_provider,
+        execution_class="context_provider",
+    )
+    controller.register_handler(
+        "consequential-recovery-action",
+        crash_after_provider_accept,
+        promotion_gate_policy={"context_handler": "recovery-context-provider"},
+        ci_gate_policy={
+            "expected_head_sha": "a" * 40,
+            "required_checks": ["required-ci"],
+            "evidence_handler": "recovery-ci-provider",
+        },
+        execution_class="consequential",
+    )
+    controller._preflight_gates = lambda task: (True, "test gate passed", [])
+    task = controller.submit(
+        "consequential-recovery-action",
+        {
+            "target": "staging",
+            "revision": "abc123",
+            "provider_acceptance_marker": marker_path,
+            "auren_idempotency": {"key": "process-crash:deploy:staging"},
+        },
+        goal="Recover one simulated provider acceptance after worker death",
+        work_key="AUREN:issue-696:continuous-engineering",
+    )
+    with Path(task_id_path).open("w", encoding="utf-8") as stream:
+        stream.write(task.id)
+        stream.flush()
+        os.fsync(stream.fileno())
+    controller.run_once(task.id)
+    # Reaching here means the handler did not trigger the intended crash.
+    os._exit(98)
+
+
 class ConsequentialRunOnceRecoveryTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -402,6 +465,61 @@ class ConsequentialRunOnceRecoveryTests(unittest.TestCase):
         )
         self.assertEqual("reconcile_required", record["state"])
 
+
+
+    def test_process_death_after_provider_acceptance_blocks_restart_redispatch(self):
+        import multiprocessing
+        import sqlite3
+        from portable.side_effect_ledger import DurableSideEffectLedger
+
+        marker = self.root / "provider-acceptance.log"
+        task_id_path = self.root / "crashed-task-id.txt"
+        context = multiprocessing.get_context("spawn")
+        worker = context.Process(
+            target=_crash_provider_worker,
+            args=(str(self.root), str(marker), str(task_id_path)),
+        )
+        worker.start()
+        worker.join(timeout=20)
+        if worker.is_alive():
+            worker.terminate()
+            worker.join(timeout=5)
+            self.fail("injected provider worker did not terminate at the acceptance boundary")
+
+        self.assertEqual(97, worker.exitcode, "worker must die after acceptance and before receipt finalization")
+        self.assertEqual(["accepted:abc123"], marker.read_text(encoding="utf-8").splitlines())
+        task_id = task_id_path.read_text(encoding="utf-8").strip()
+        self.assertTrue(task_id)
+
+        # A fresh controller sees a stale lease. Reclaiming it must consult the
+        # durable outer ledger and block; it must not call the handler again.
+        restarted = ExecutionController(
+            self.root,
+            provider_resume_authorizer=lambda _task, _clarification, operator, reason: (
+                operator in {"operator-7", "operator-8"} and bool(reason.strip())
+            ),
+        )
+        self._register(restarted)
+        stale = "2000-01-01T00:00:00+00:00"
+        with sqlite3.connect(restarted.db_path) as db:
+            db.execute(
+                "UPDATE tasks SET heartbeat_at=?,lease_until=? WHERE id=?",
+                (stale, stale, task_id),
+            )
+
+        self.assertIsNone(restarted.run_once(task_id))
+        self.assertEqual("blocked_reconciliation", restarted.task(task_id).state)
+        self.assertEqual("waiting_external", restarted.company._state(
+            restarted.task(task_id).work_unit_id
+        )[0])
+        outer_key = "consequential-idempotency:process-crash:deploy:staging"
+        ledger = DurableSideEffectLedger(restarted.db_path)
+        self.assertEqual("reconcile_required", ledger.get(outer_key)["state"])
+        self.assertEqual("executing", ledger.get("provider-operation:" + outer_key)["state"])
+        self.assertEqual(["accepted:abc123"], marker.read_text(encoding="utf-8").splitlines())
+        self.assertEqual([], _PROVIDER_CALLS)
+        self.assertIsNone(restarted.run_once(task_id))
+        self.assertEqual(["accepted:abc123"], marker.read_text(encoding="utf-8").splitlines())
 
 if __name__ == "__main__":
     unittest.main()
