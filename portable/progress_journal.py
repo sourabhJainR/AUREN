@@ -82,6 +82,9 @@ class ProgressEvent:
     completed_units: int | None = None
     total_units: int | None = None
     evidence_ref: str | None = None
+    priority: int = 0
+    parent_task_id: str | None = None
+    decision_required: bool = False
 
 class ProgressJournalCorruption(RuntimeError):
     """The append-only progress journal contains data that cannot be trusted."""
@@ -144,12 +147,33 @@ class ProgressJournal:
     def record(self, task_id: str, event: str, *, state: str = "running",
                stage: str = "execution", message: str = "",
                completed_units: int | None = None, total_units: int | None = None,
-               evidence_ref: str | None = None, timestamp: str | None = None) -> ProgressEvent:
+               evidence_ref: str | None = None, timestamp: str | None = None,
+               priority: int = 0, parent_task_id: str | None = None,
+               decision_required: bool = False) -> ProgressEvent:
         return self._record(
             task_id, event, state=state, stage=stage, message=message,
             completed_units=completed_units, total_units=total_units,
-            evidence_ref=evidence_ref, timestamp=timestamp,
+            evidence_ref=evidence_ref, timestamp=timestamp, priority=priority,
+            parent_task_id=parent_task_id, decision_required=decision_required,
             allow_terminal_correction=False,
+        )
+
+    def record_interrupt(self, task_id: str, *, priority: int, message: str,
+                         parent_task_id: str | None = None,
+                         decision_required: bool = False,
+                         timestamp: str | None = None) -> ProgressEvent:
+        """Durably enqueue an interruption without mutating the interrupted task."""
+        if isinstance(priority, bool) or not isinstance(priority, int) or not 0 <= priority <= 100:
+            raise ValueError("priority must be an integer from 0 to 100")
+        if parent_task_id is not None and (not isinstance(parent_task_id, str) or not parent_task_id.strip()):
+            raise ValueError("parent_task_id must be a non-empty string when supplied")
+        if not isinstance(decision_required, bool):
+            raise ValueError("decision_required must be a boolean")
+        return self.record(
+            task_id, "interrupt_received", state="blocked" if decision_required else "queued",
+            stage="priority-stack", message=message, timestamp=timestamp,
+            priority=priority, parent_task_id=parent_task_id,
+            decision_required=decision_required,
         )
 
     def record_reconciliation(
@@ -173,12 +197,19 @@ class ProgressJournal:
                 stage: str = "execution", message: str = "",
                 completed_units: int | None = None, total_units: int | None = None,
                 evidence_ref: str | None = None, timestamp: str | None = None,
-                expected_sequence: int | None = None,
+                priority: int = 0, parent_task_id: str | None = None,
+                decision_required: bool = False, expected_sequence: int | None = None,
                 allow_terminal_correction: bool = False) -> ProgressEvent:
         if not task_id or not task_id.strip():
             raise ValueError("task_id must be non-empty")
         if state not in STATES:
             raise ValueError(f"unsupported state: {state}")
+        if isinstance(priority, bool) or not isinstance(priority, int) or not 0 <= priority <= 100:
+            raise ValueError("priority must be an integer from 0 to 100")
+        if parent_task_id is not None and (not isinstance(parent_task_id, str) or not parent_task_id.strip()):
+            raise ValueError("parent_task_id must be a non-empty string when supplied")
+        if not isinstance(decision_required, bool):
+            raise ValueError("decision_required must be a boolean")
         if completed_units is not None and completed_units < 0:
             raise ValueError("completed_units cannot be negative")
         if total_units is not None and total_units < 0:
@@ -208,6 +239,8 @@ class ProgressJournal:
                     stage=_safe(stage, 120), message=_safe(message),
                     timestamp=timestamp or _now(), completed_units=completed_units,
                     total_units=total_units, evidence_ref=_safe(evidence_ref, 1000) if evidence_ref else None,
+                    priority=priority, parent_task_id=_safe(parent_task_id, 200) if parent_task_id else None,
+                    decision_required=decision_required,
                 )
                 self.path.parent.mkdir(parents=True, exist_ok=True)
                 with self.path.open("a", encoding="utf-8") as stream:
@@ -283,10 +316,30 @@ class ProgressJournal:
             "last_update": latest["timestamp"], "seconds_since_update": round(age, 1),
             "stale": stale, "progress_percent": percent, "completed_units": done,
             "total_units": total, "evidence_ref": latest.get("evidence_ref"),
-            "event_count": len(rows),
-            "next_action": "inspect worker health and deadline; recover or fail visibly" if stale else None,
+            "event_count": len(rows), "priority": latest.get("priority", 0),
+            "parent_task_id": latest.get("parent_task_id"),
+            "decision_required": latest.get("decision_required", False),
+            "next_action": (
+                "obtain authorized human decision before this task can proceed"
+                if latest.get("decision_required", False) else
+                "inspect worker health and deadline; recover or fail visibly" if stale else None
+            ),
         }
 
     def list_snapshots(self, *, now: datetime | None = None, stale_after_seconds: int = 60) -> list[dict[str, Any]]:
         ids = list(dict.fromkeys(r["task_id"] for r in self._events()))
         return [self.snapshot(task_id, now=now, stale_after_seconds=stale_after_seconds) for task_id in ids]
+
+    def priority_stack(self, *, now: datetime | None = None, stale_after_seconds: int = 60) -> list[dict[str, Any]]:
+        """Return all non-terminal tasks in stable priority/FIFO order."""
+        pending = [item for item in self.list_snapshots(now=now, stale_after_seconds=stale_after_seconds)
+                   if item.get("reported_state", item.get("state")) not in TERMINAL]
+        return sorted(pending, key=lambda item: (-item.get("priority", 0), item.get("last_update", ""), item["task_id"]))
+
+    def next_ready(self, *, now: datetime | None = None, stale_after_seconds: int = 60) -> dict[str, Any] | None:
+        """Select the highest-priority ready item without bypassing human gates."""
+        for item in self.priority_stack(now=now, stale_after_seconds=stale_after_seconds):
+            state = item.get("reported_state", item.get("state"))
+            if state in {"queued", "recovering"} and not item.get("decision_required", False):
+                return item
+        return None
