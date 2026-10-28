@@ -50,6 +50,19 @@ class AgentOrgRuntimeTests(unittest.TestCase):
         self.assertEqual(assignment.assignment_digest, calls[0]["assignment_digest"])
         self.assertEqual(assignment.as_payload()["authorization"], "host_authorized_before_submission")
 
+    def test_authorizer_cannot_mutate_the_assignment_after_digest_calculation(self):
+        def attempted_mutation(request):
+            with self.assertRaises(TypeError):
+                request["scope"] = ("portable/unauthorized.py",)
+            with self.assertRaises(AttributeError):
+                request["scope"].append("portable/unauthorized.py")
+            return True
+        assignment = authorize_agent_assignment(
+            role_id="BE-01", manager_id="EM-ENG-01", action_class="edit_assigned_paths",
+            scope=["portable/allowed.py"], authorizer=attempted_mutation, registry_path=REGISTRY,
+        )
+        self.assertEqual(("portable/allowed.py",), assignment.scope)
+
     def test_wrong_manager_unknown_role_and_unpermitted_action_fail_closed(self):
         base = dict(
             role_id="BE-01", manager_id="CTO-01", action_class="edit_assigned_paths",
