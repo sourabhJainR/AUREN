@@ -933,25 +933,39 @@ def build_mcp_authority_dispatch(
 def _read_bounded_mcp_stdout_frame(
     stream: Any, max_chars: int,
 ) -> tuple[str | None, bool, dict[str, Any] | None]:
-    """Read a bounded frame; sample only the observed prefix when it is oversized.
+    """Read a bounded frame in chunks; sample only observed characters if oversized.
 
+    Reads are capped at 4096 characters and total buffering at max_chars + 1.
     Never drain an untrusted stream after the limit is crossed: it may be infinite.
     Oversize diagnostics describe only the bounded prefix read, not the full frame.
     """
-    line = stream.readline(max_chars + 1)
-    if not line:
-        return None, False, None
-    if len(line) > max_chars:
-        sample_window = line[:4096]
-        metadata = {
-            "observed_chars_at_least": len(line),
-            "observed_prefix_sha256": hashlib.sha256(line.encode("utf-8", errors="replace")).hexdigest(),
-            "sample_prefix": sample_window[:96],
-            "sample_suffix": sample_window[-96:],
-            "frame_complete": line.endswith("\n"),
-        }
-        return None, True, metadata
-    return line.rstrip("\n"), False, None
+    if type(max_chars) is not int or isinstance(max_chars, bool) or max_chars < 1:
+        raise ValueError("MCP frame character limit must be a positive integer")
+    chunks: list[str] = []
+    total = 0
+    while total <= max_chars:
+        size = min(4096, max_chars - total + 1)
+        part = stream.readline(size)
+        if not part:
+            if not chunks:
+                return None, False, None
+            return "".join(chunks).rstrip("\n"), False, None
+        total += len(part)
+        chunks.append(part)
+        if total > max_chars:
+            observed = "".join(chunks)
+            sample_window = observed[:4096]
+            metadata = {
+                "observed_chars_at_least": total,
+                "observed_prefix_sha256": hashlib.sha256(observed.encode("utf-8", errors="replace")).hexdigest(),
+                "sample_prefix": sample_window[:96],
+                "sample_suffix": observed[-96:],
+                "frame_complete": observed.endswith("\n"),
+            }
+            return None, True, metadata
+        if part.endswith("\n"):
+            return "".join(chunks).rstrip("\n"), False, None
+    return None, True, None
 
 
 class MCPStdioToolAdapter:
