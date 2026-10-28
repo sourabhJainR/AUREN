@@ -219,4 +219,4 @@ MCP stdout protocol buffering now uses a fixed-capacity response queue. If an un
 
 ## Fatal MCP reader paths remain nonblocking (2026-10-28)
 
-Oversized frames and response-queue floods now share a fail-closed signaling path: buffered notifications are discarded, a bounded failure marker is inserted without blocking, and the caller tears down the process tree. This prevents a full queue from delaying delivery of an oversized-frame error. The regression suite covers both queue flooding and oversized-frame rejection. These controls bound protocol buffering; they do not claim OS-level memory isolation.
+Oversized frames and response-queue floods now share a fail-closed signaling path: buffered notifications are discarded, a bounded failure marker is inserted without blocking, and the caller tears down the process tree. This prevents a full queue from delaying delivery of an oversized-frame error. The existing queue-flood regression covers nonblocking overflow signaling; the configured frame limit remains enforced for oversized protocol frames. These controls bound protocol buffering; they do not claim OS-level memory isolation.
