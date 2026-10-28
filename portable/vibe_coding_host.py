@@ -976,6 +976,39 @@ class MCPStdioToolAdapter:
         self.authority_dispatch = authority_dispatch
 
     @staticmethod
+    def _drain_oversized_frame(
+        stream: Any, first_chunk: str, *, chunk_size: int = 4096, sample_chars: int = 96,
+    ) -> dict[str, Any]:
+        """Drain one oversized JSON-RPC line in bounded chunks and return safe diagnostics.
+
+        Samples are retained only in the short-lived in-process marker and never included
+        in the raised exception. The frame is always rejected; diagnostics never make a
+        partial JSON-RPC message eligible for acceptance.
+        """
+        if chunk_size < 1 or sample_chars < 1:
+            raise ValueError("chunk_size and sample_chars must be positive")
+        digest = hashlib.sha256()
+        total_chars = 0
+        prefix = ""
+        suffix = ""
+        chunk = first_chunk
+        while chunk:
+            digest.update(chunk.encode("utf-8", errors="replace"))
+            total_chars += len(chunk)
+            if len(prefix) < sample_chars:
+                prefix = (prefix + chunk)[:sample_chars]
+            suffix = (suffix + chunk)[-sample_chars:]
+            if chunk.endswith("\n"):
+                break
+            chunk = stream.readline(chunk_size)
+        return {
+            "characters": total_chars,
+            "sha256": digest.hexdigest(),
+            "prefix_sample": prefix,
+            "suffix_sample": suffix,
+        }
+
+    @staticmethod
     def _read_response(stream: Any, responses: queue.Queue[str], request_id: int, timeout: float) -> dict[str, Any]:
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
@@ -983,8 +1016,20 @@ class MCPStdioToolAdapter:
                 line = responses.get(timeout=max(0.01, deadline - time.monotonic()))
             except queue.Empty as exc:
                 raise TimeoutError("MCP server did not respond before the configured timeout") from exc
-            if line == MCPStdioToolAdapter._OVERSIZE_RESPONSE:
-                raise AdapterUnavailable("MCP response exceeded the configured character limit")
+            if line == MCPStdioToolAdapter._OVERSIZE_RESPONSE or line.startswith(MCPStdioToolAdapter._OVERSIZE_RESPONSE + ":"):
+                detail = ""
+                if ":" in line:
+                    try:
+                        metadata = json.loads(line.split(":", 1)[1])
+                        detail = (
+                            f" (observed_chars={metadata.get('characters', 'unknown')}, "
+                            f"sha256={metadata.get('sha256', 'unknown')})"
+                        )
+                    except (TypeError, ValueError, json.JSONDecodeError):
+                        detail = ""
+                raise AdapterUnavailable(
+                    "MCP response exceeded the configured character limit" + detail
+                )
             if line == MCPStdioToolAdapter._QUEUE_OVERFLOW_RESPONSE:
                 raise AdapterUnavailable("MCP server exceeded the bounded response queue; dispatch aborted")
             try:
@@ -1118,16 +1163,11 @@ class MCPStdioToolAdapter:
                 if not line:
                     break
                 if len(line) > self.max_response_chars:
-                    # Drain this frame in bounded chunks, then stop reading. The caller
-                    # receives a fatal marker and tears down the process tree.
-                    while line and not line.endswith("\n"):
-                        line = proc.stdout.readline(4096)
-                    signal_fatal(self._OVERSIZE_RESPONSE)
-                    return
-                try:
-                    responses.put_nowait(line.rstrip("\n"))
-                except queue.Full:
-                    signal_fatal(self._QUEUE_OVERFLOW_RESPONSE)
+                    # Stream the remainder in fixed chunks, retaining only bounded
+                    # samples and a digest. Never parse or accept a partial frame.
+                    metadata = self._drain_oversized_frame(proc.stdout, line)
+                    marker = self._OVERSIZE_RESPONSE + ":" + json.dumps(metadata, separators=(",", ":"))
+                    signal_fatal(marker)
                     return
 
         def read_stderr() -> None:
