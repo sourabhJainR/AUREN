@@ -77,6 +77,8 @@ jobs:
           python -m pytest -q tests/test_workflow_profile.py tests/test_workflow_profile_integration.py tests/test_pr_integration_guard.py
       - name: Verify durable progress journal corruption handling and supervisor reconciliation
         run: python -m unittest tests.test_progress_journal tests.test_progress_journal_integration tests.test_autonomous_company tests.test_engineering_evidence_capture -v
+      - name: Verify agent assignment and guarded filesystem scope
+        run: python -m unittest tests.test_agent_execution_guard tests.test_guarded_filesystem -v
       - name: Verify durable approval state, binding, and restart safety
         run: python -m unittest tests.test_durable_approval tests.test_execution_boundary tests.test_governed_sandbox_execution tests.test_ai_coding_agency_bridge tests.test_agency_team_orchestrator tests.test_impact_policy -v
       - name: Verify supervisor cancellation, durable deadlines, and late-result rejection
