@@ -864,6 +864,27 @@ class ProviderOperationLifecycleTests(unittest.TestCase):
         self.assertEqual("pending", finished[-1]["span"]["output"]["provider_status"])
         self.assertEqual("reconcile_required", self.ledger().get(operation_key)["state"])
 
+    def test_reserved_delimiter_is_rejected_without_changing_legacy_operation_ids(self):
+        intent = {"target": "staging", "revision": "release-42"}
+
+        # Existing durable operation IDs must remain stable across upgrades.
+        # Reserve the legacy delimiter rather than changing the hash format.
+        # Golden value protects the persisted operation-ID format across upgrades.
+        expected = "auren-op-613317c618b6cad9b1d5d0f00f4ffad59f2378decda12c336d68670a3a120792"
+        self.assertEqual(
+            expected,
+            stable_provider_operation_id("tenant-deploy", "provider", intent),
+        )
+        self.assertEqual(
+            expected,
+            stable_provider_operation_id("tenant-deploy", "provider", intent),
+        )
+
+        with self.assertRaisesRegex(ValueError, "reserved"):
+            stable_provider_operation_id("tenant\\0deploy", "provider", intent)
+        with self.assertRaisesRegex(ValueError, "reserved"):
+            stable_provider_operation_id("tenant", "deploy\\0provider", intent)
+
 
 if __name__ == "__main__":
     unittest.main()
