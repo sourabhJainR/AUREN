@@ -109,3 +109,12 @@ For each lane, the machine-readable radar now records an existing AUREN owner, c
 - [WildToolBench — ICLR 2026](https://yupeijei1997.github.io/WildToolBench/)
 - [Agentic customer-support skill evaluation — 2026-10-09](https://arxiv.org/abs/2610.14346)
 - [Anthropic science research index](https://www.anthropic.com/science)
+
+
+### Latest host-policy and model-lifecycle signals — 2026-10-28
+
+- [Local sandboxing GA, 2026-10-07](https://github.blog/changelog/2026-10-07-local-sandboxing-for-github-copilot-now-generally-available/) provides a concrete comparison point for filesystem, network, credential and tool boundaries. Evaluate AUREN adapters against denial-before-launch and host-side enforcement; do not infer security from model behavior.
+- [Assisted permissions GA, 2026-10-26](https://github.blog/changelog/2026-10-26-github-copilot-assisted-permissions-generally-available/) adds model-based classification of some command/path/URL requests. Keep the model advisory. AUREN's host policy, delegated scope, explicit approval and durable action receipt remain the authority.
+- [GPT-6.1 Terra, 2026-10-26](https://github.blog/changelog/2026-10-26-gpt-6-1-terra-in-github-copilot/) and [model retirements scheduled for 2026-11-16](https://github.blog/changelog/2026-10-15-upcoming-deprecation-of-selected-github-copilot-models-in-mid-november/) reinforce the need for bounded catalog freshness, stale-ID rejection and policy-preserving fallback.
+- [Centralized feature defaults, rollout through 2026-10-26](https://github.blog/changelog/2026-10-22-global-default-for-copilot-features-generally-available/) is not a reason to default-enable AUREN packs or adapters. Keep opt-in and require measured value plus independent evaluation.
+- [Local-model discovery in Copilot CLI, 2026-10-07](https://github.blog/changelog/2026-10-07-discover-local-models-in-github-copilot-cli/) is discovery only; it does not install or validate a runtime. Require capability, endpoint, permission and health checks before any AUREN route is eligible.
