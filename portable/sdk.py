@@ -27,11 +27,14 @@ class AurenClient:
         *,
         memory_path: str | Path | None = None,
         dashboard_enabled: bool = True,
+        agent_assignment_verifier: Callable[[Mapping[str, Any]], Any] | None = None,
     ) -> None:
         self.project_root = Path(project_root).expanduser().resolve()
         if not self.project_root.exists() or not self.project_root.is_dir():
             raise ValueError("project_root must be an existing directory")
-        self.controller = ExecutionController(self.project_root)
+        self.controller = ExecutionController(
+            self.project_root, agent_assignment_verifier=agent_assignment_verifier
+        )
         resolved_memory_path = (
             Path(memory_path).expanduser().resolve()
             if memory_path is not None
