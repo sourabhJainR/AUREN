@@ -14,9 +14,11 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Callable, Mapping, Sequence
 
+from .organization_guard import POLICY_VERSION, guard_policy_fingerprint, load_guard_policy
+
 
 REGISTRY_PATH = Path(__file__).resolve().parents[1] / "config" / "agent_org.v1.json"
-_SCHEMA = "auren-agent-assignment-v1"
+_SCHEMA = "auren-agent-assignment-v2"
 _MAX_REGISTRY_BYTES = 256 * 1024
 _MAX_SCOPE_ITEMS = 100
 _MAX_SCOPE_LENGTH = 512
@@ -50,6 +52,8 @@ class AuthorizedAgentAssignment:
     action_class: str
     scope: tuple[str, ...]
     registry_digest: str
+    policy_version: str
+    policy_digest: str
     assignment_digest: str
 
     def as_payload(self) -> dict[str, Any]:
@@ -62,6 +66,8 @@ class AuthorizedAgentAssignment:
             "action_class": self.action_class,
             "scope": list(self.scope),
             "registry_digest": self.registry_digest,
+            "policy_version": self.policy_version,
+            "policy_digest": self.policy_digest,
             "assignment_digest": self.assignment_digest,
             "authorization": "host_authorized_before_submission",
         }
@@ -122,6 +128,7 @@ def authorize_agent_assignment(
     scope: Sequence[str],
     authorizer: Callable[[Mapping[str, Any]], Any],
     registry_path: str | Path = REGISTRY_PATH,
+    policy_path: str | Path | None = None,
 ) -> AuthorizedAgentAssignment:
     """Validate the role hierarchy and require host authorization of exact inputs.
 
@@ -147,6 +154,12 @@ def authorize_agent_assignment(
         raise ValueError("assignment scope items must be unique")
 
     registry, registry_digest = load_agent_org_registry(registry_path)
+    try:
+        configured_policy = load_guard_policy(policy_path) if policy_path is not None else None
+        policy_version = POLICY_VERSION
+        policy_digest = guard_policy_fingerprint(configured_policy)
+    except Exception as exc:
+        raise AgentAssignmentDenied("configured Guard policy cannot be verified") from exc
     role = next((item for item in registry["roles"] if item["id"] == role_id.strip()), None)
     if role is None:
         raise AgentAssignmentDenied("unknown agent role")
@@ -162,6 +175,8 @@ def authorize_agent_assignment(
         "action_class": action_class.strip(),
         "scope": clean_scope,
         "registry_digest": registry_digest,
+        "policy_version": policy_version,
+        "policy_digest": policy_digest,
     }
     assignment_digest = hashlib.sha256(_canonical(body)).hexdigest()
     request = MappingProxyType({**body, "scope": tuple(clean_scope), "assignment_digest": assignment_digest})
@@ -178,6 +193,8 @@ def authorize_agent_assignment(
         action_class=body["action_class"],
         scope=tuple(clean_scope),
         registry_digest=registry_digest,
+        policy_version=policy_version,
+        policy_digest=policy_digest,
         assignment_digest=assignment_digest,
     )
 
@@ -207,9 +224,15 @@ def submit_agent_task(
         raise TypeError("task payload must be a mapping")
     if "_auren_agent_assignment" in payload:
         raise ValueError("payload key '_auren_agent_assignment' is reserved")
+    controller_root = getattr(controller, "root", None)
+    policy_path = (
+        Path(controller_root) / ".auren" / "guard_policy.json"
+        if isinstance(controller_root, (str, Path)) else None
+    )
     assignment = authorize_agent_assignment(
         role_id=role_id, manager_id=manager_id, action_class=action_class,
         scope=scope, authorizer=authorizer, registry_path=registry_path,
+        policy_path=policy_path,
     )
     durable_payload = dict(payload)
     durable_payload["_auren_agent_assignment"] = assignment.as_payload()
