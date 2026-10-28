@@ -152,9 +152,11 @@ class DurableChunkJournal:
             raise ValueError("job_id and source_digest are required")
         with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
-            row = db.execute("SELECT source_digest FROM context_jobs WHERE job_id=?", (job_id,)).fetchone()
+            row = db.execute("SELECT source_digest,state FROM context_jobs WHERE job_id=?", (job_id,)).fetchone()
             if row and row[0] != source_digest:
                 raise ValueError("source digest changed; start a new job ID instead of resuming stale work")
+            if row and row[1] != "working":
+                raise ValueError("terminal or blocked job cannot be resumed in place; create a new job ID")
             db.execute("INSERT OR IGNORE INTO context_jobs(job_id,source_digest,state) VALUES(?,?,'working')",
                        (job_id, source_digest))
 
@@ -185,9 +187,17 @@ class DurableChunkJournal:
             db.execute("INSERT INTO context_chunks(job_id,chunk_index,chunk_digest,result) VALUES(?,?,?,?)",
                        (job_id, chunk.index, chunk.sha256, result))
 
-    def finish(self, job_id: str, *, blocked: bool = False) -> None:
+    def finish(self, job_id: str, *, expected_chunks: int | None = None, blocked: bool = False) -> None:
+        if not blocked and (expected_chunks is None or expected_chunks < 0):
+            raise ValueError("successful completion requires an expected chunk count")
         with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
+            if not blocked:
+                rows = db.execute("SELECT chunk_index FROM context_chunks WHERE job_id=? ORDER BY chunk_index",
+                                  (job_id,)).fetchall()
+                indices = [int(row[0]) for row in rows]
+                if indices != list(range(expected_chunks or 0)):
+                    raise ValueError("cannot complete: chunk journal has missing or non-contiguous results")
             state = "blocked" if blocked else "complete"
             changed = db.execute("UPDATE context_jobs SET state=? WHERE job_id=? AND state='working'",
                                  (state, job_id)).rowcount
