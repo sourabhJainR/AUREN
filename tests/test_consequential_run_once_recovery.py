@@ -478,12 +478,14 @@ class ConsequentialRunOnceRecoveryTests(unittest.TestCase):
         from unittest.mock import patch
         from portable.side_effect_ledger import DurableSideEffectLedger
 
-        marker = self.root / "provider-acceptance.log"
-        task_id_path = self.root / "crashed-task-id.txt"
+        crash_root = self.root / "process-crash-root"
+        crash_root.mkdir(parents=True, exist_ok=True)
+        marker = crash_root / "provider-acceptance.log"
+        task_id_path = crash_root / "crashed-task-id.txt"
         context = multiprocessing.get_context("spawn")
         worker = context.Process(
             target=_crash_provider_worker,
-            args=(str(self.root), str(marker), str(task_id_path)),
+            args=(str(crash_root), str(marker), str(task_id_path)),
         )
         with patch.dict(os.environ, {"AUREN_TEST_CRASH_AFTER_ACCEPT": "0"}):
             worker.start()
@@ -501,7 +503,7 @@ class ConsequentialRunOnceRecoveryTests(unittest.TestCase):
         # A fresh controller sees a stale lease. Reclaiming it must consult the
         # durable outer ledger and block; it must not call the handler again.
         restarted = ExecutionController(
-            self.root,
+            crash_root,
             provider_resume_authorizer=lambda _task, _clarification, operator, reason: (
                 operator in {"operator-7", "operator-8"} and bool(reason.strip())
             ),
