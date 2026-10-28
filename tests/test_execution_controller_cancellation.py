@@ -174,3 +174,201 @@ def test_supervisor_deadline_kills_real_subprocess_provider_child(tmp_path: Path
     assert abs(propagated - expected) < 0.5, "provider received a timeout unrelated to the supervisor deadline"
     _assert_provider_child_stopped(heartbeat)
 
+
+
+# End-to-end supervisor -> GraphAgentTeam -> model-router probe. These are local
+# stubbed inference calls; they prove control propagation, not a real provider outcome.
+_GRAPH_ROUTER_STARTED = threading.Event()
+_GRAPH_ROUTER_REQUESTS = []
+_GRAPH_ROUTER_RESULTS = []
+_GRAPH_ROUTER_GUARD_IDENTITIES = []
+_GRAPH_ROUTER_GUARD_REMAINING = []
+_GRAPH_ROUTER_DEADLINES = []
+
+
+class _EmptyModelDiscovery:
+    base_url = "http://127.0.0.1:11434"
+
+    def discover(self):
+        return {"available": False, "models": []}
+
+
+class _SupervisedRouterAgent:
+    configuration_digest = "test-only-router-adapter-v1"
+    implementation_version = "test-only"
+
+    def __init__(self, execution_payload):
+        self.execution_payload = execution_payload
+
+    def propose_with_execution_guard(self, request, *, execution_guard, execution_guard_persist=None):
+        from portable.hybrid_model_router import HybridModelRouter, TaskRouteRequest
+
+        cancellation = self.execution_payload.get("auren_cancel_event")
+        if not isinstance(cancellation, threading.Event):
+            raise AssertionError("controller cancellation event was not propagated to the graph agent")
+        _GRAPH_ROUTER_GUARD_IDENTITIES.append(execution_guard.cancellation_event is cancellation)
+        guard_snapshot = execution_guard.snapshot()
+        _GRAPH_ROUTER_GUARD_REMAINING.append(guard_snapshot.get("remaining_seconds"))
+        _GRAPH_ROUTER_DEADLINES.append(self.execution_payload.get("auren_deadline_epoch"))
+
+        def remote_executor(route_request):
+            _GRAPH_ROUTER_REQUESTS.append(route_request)
+            _GRAPH_ROUTER_STARTED.set()
+            cancellation.wait(timeout=20)
+            return "late provider result after supervisor stop"
+
+        router = HybridModelRouter(
+            discovery=_EmptyModelDiscovery(),
+            remote_executor=remote_executor,
+            resource_reader=lambda: {},
+        )
+        result = router.route_supervised(
+            TaskRouteRequest(
+                request["task"], "general", privacy="public",
+                max_attempts=3, timeout_seconds=30,
+            ),
+            execution_payload=self.execution_payload,
+            execution_guard=execution_guard,
+            execution_guard_persist=execution_guard_persist,
+        )
+        _GRAPH_ROUTER_RESULTS.append(result)
+        accepted = bool(result.success)
+        return {
+            "schema_version": "auren-crew-proposal-v1",
+            "recommendation": "model route completed" if accepted else "model route blocked after supervisor stop",
+            "artifacts": [],
+            "evidence_refs": ["test://model-router/result"] if accepted else [],
+            "uncertainty": [] if accepted else ["late model result rejected by shared execution guard"],
+            "blockers": [] if accepted else ["supervisor cancellation/deadline"],
+            "acceptance_check_results": {
+                "route_checked": {
+                    "status": "pass" if accepted else "blocked",
+                    "evidence_refs": ["test://model-router/result"] if accepted else [],
+                }
+            },
+        }
+
+
+def _dispatch_graph_router_from_state(state):
+    dispatch = state.get("auren_crew_dispatch")
+    if not callable(dispatch):
+        raise AssertionError("GraphAgentTeam did not bind its canonical crew dispatcher")
+    return {
+        "router_dispatch": dispatch(
+            "model_router", "public model router integration request", {},
+        )
+    }
+
+
+def supervised_graph_router_handler(payload):
+    from portable.orchestration import Node, NodeKind
+    from portable.state_graph import CrewDefinition, GraphAgentTeam, StateGraph
+
+    graph = StateGraph.from_nodes([
+        Node("route", NodeKind.DETERMINISTIC, _dispatch_graph_router_from_state),
+    ])
+    crew = CrewDefinition(
+        crew_id="model_router",
+        specialty="model routing",
+        triggers=("model router",),
+        instructions="Route one public inference request and return a structured proposal.",
+        required_artifacts=(),
+        allowed_authorities=("propose",),
+        acceptance_checks=("route_checked",),
+        always_on=True,
+    )
+    team = GraphAgentTeam(
+        graph,
+        agents={"model_router": _SupervisedRouterAgent(payload)},
+        crews={"model_router": crew},
+    )
+    work_key = payload.get("work_key") or "AUREN:issue-696:continuous-engineering"
+    result = team.run_supervised(
+        str(work_key), "model router integration", {},
+        execution_payload=payload,
+    )
+    return {
+        "success": getattr(result.status, "value", "") == "accepted",
+        "status": getattr(result.status, "value", "unknown"),
+    }
+
+
+def _reset_graph_router_probe():
+    _GRAPH_ROUTER_STARTED.clear()
+    _GRAPH_ROUTER_REQUESTS.clear()
+    _GRAPH_ROUTER_RESULTS.clear()
+    _GRAPH_ROUTER_GUARD_IDENTITIES.clear()
+    _GRAPH_ROUTER_GUARD_REMAINING.clear()
+    _GRAPH_ROUTER_DEADLINES.clear()
+
+
+def test_durable_cancellation_flows_through_graph_team_and_model_router(tmp_path: Path):
+    _reset_graph_router_probe()
+    controller = ExecutionController(tmp_path)
+    name = _register(controller, supervised_graph_router_handler)
+    task = controller.submit(
+        name,
+        {"work_key": "AUREN:issue-696:continuous-engineering", "scenario": "graph-router-cancellation"},
+        work_key="AUREN:issue-696:continuous-engineering",
+    )
+    failures = []
+
+    def run():
+        try:
+            controller.run_once(task.id)
+        except BaseException as exc:
+            failures.append(exc)
+
+    worker = threading.Thread(target=run, daemon=True)
+    worker.start()
+    assert _GRAPH_ROUTER_STARTED.wait(6), "model router was not reached through the supervised graph"
+    assert controller.request_cancellation(task.id, reason="cancel integrated graph/model-router request")
+    worker.join(8)
+    assert not worker.is_alive(), "graph/model-router execution ignored durable cancellation"
+    assert not failures, failures
+    current = controller.task(task.id)
+    assert current is not None and current.state == "cancelled"
+    assert len(_GRAPH_ROUTER_REQUESTS) == 1, "cancellation must not redispatch the provider route"
+    assert len(_GRAPH_ROUTER_RESULTS) == 1 and not _GRAPH_ROUTER_RESULTS[0].success
+    assert _GRAPH_ROUTER_GUARD_IDENTITIES == [True], "graph and router must share the controller cancellation Event"
+    assert _GRAPH_ROUTER_DEADLINES == [None]
+
+
+def test_absolute_deadline_flows_through_graph_team_and_model_router(tmp_path: Path):
+    from datetime import datetime
+
+    _reset_graph_router_probe()
+    controller = ExecutionController(tmp_path)
+    name = _register(controller, supervised_graph_router_handler)
+    task = controller.submit(
+        name,
+        {"work_key": "AUREN:issue-696:continuous-engineering", "scenario": "graph-router-deadline"},
+        work_key="AUREN:issue-696:continuous-engineering",
+        deadline_seconds=8.0,
+    )
+    failures = []
+
+    def run():
+        try:
+            controller.run_once(task.id)
+        except BaseException as exc:
+            failures.append(exc)
+
+    worker = threading.Thread(target=run, daemon=True)
+    worker.start()
+    assert _GRAPH_ROUTER_STARTED.wait(6), "model router was not reached before the bounded deadline"
+    worker.join(10)
+    assert not worker.is_alive(), "graph/model-router execution exceeded the absolute supervisor deadline"
+    assert not failures, failures
+    current = controller.task(task.id)
+    assert current is not None and current.state == "failed"
+    assert len(_GRAPH_ROUTER_REQUESTS) == 1, "deadline expiry must not redispatch the provider route"
+    assert len(_GRAPH_ROUTER_RESULTS) == 1 and not _GRAPH_ROUTER_RESULTS[0].success
+    assert _GRAPH_ROUTER_GUARD_IDENTITIES == [True], "graph and router must share the controller cancellation Event"
+    assert len(_GRAPH_ROUTER_DEADLINES) == 1 and _GRAPH_ROUTER_DEADLINES[0] is not None
+    propagated = float(_GRAPH_ROUTER_DEADLINES[0])
+    expected = datetime.fromisoformat(task.deadline_at).timestamp()
+    assert abs(propagated - expected) < 0.5, "graph/router deadline must match the durable controller deadline"
+    remaining = _GRAPH_ROUTER_GUARD_REMAINING[0]
+    assert isinstance(remaining, (int, float)) and 0 < remaining <= 8.0
+    assert 0 < _GRAPH_ROUTER_REQUESTS[0].timeout_seconds < 8.0, "model request timeout must be capped by the shared absolute deadline"
