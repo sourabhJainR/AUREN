@@ -168,5 +168,17 @@ class ProgressJournalTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     journal.record_interrupt("bad", priority=value, message="invalid")
 
+    def test_priority_and_confirmation_metadata_survive_later_events(self):
+        with tempfile.TemporaryDirectory() as temp:
+            journal = ProgressJournal(Path(temp) / "progress.jsonl")
+            journal.record_interrupt("task", priority=80, message="review trade-off",
+                                     decision_required=True)
+            journal.record("task", "waiting", state="blocked", stage="approval")
+            restarted = ProgressJournal(journal.path)
+            snapshot = restarted.snapshot("task")
+            self.assertEqual(snapshot["priority"], 80)
+            self.assertTrue(snapshot["decision_required"])
+            self.assertEqual(snapshot["stage"], "approval")
+
 if __name__ == "__main__":
     unittest.main()
