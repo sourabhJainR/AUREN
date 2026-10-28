@@ -114,6 +114,40 @@ def _crash_after_integrated_terminal_receipt_before_evidence(
     os._exit(94)
 
 
+def _crash_after_integrated_task_terminal_before_work_unit_receipt(
+    root_path: str, work_key: str, goal: str,
+) -> None:
+    """Exit after the task row commits terminal state but before its work-unit receipt."""
+    from portable.execution_controller import ExecutionController
+
+    root = Path(root_path)
+    payload = {
+        "work_key": work_key,
+        "marker_path": str(root / "handler-calls.log"),
+    }
+    controller = ExecutionController(root)
+    controller.register_handler(
+        "continuous-engineering-marker",
+        _continuous_engineering_marker_handler,
+        execution_class="read_only",
+    )
+    task = controller.submit(
+        "continuous-engineering-marker", payload, goal=goal, work_key=work_key,
+    )
+    original_record = controller.company.record
+
+    def crash_before_receipt(work_unit_id, stage, status, *args, **kwargs):
+        if stage == "execution" and status == "completed":
+            # The task row has committed; kill the process before the separate
+            # executive work-unit receipt can commit.
+            os._exit(95)
+        return original_record(work_unit_id, stage, status, *args, **kwargs)
+
+    controller.company.record = crash_before_receipt
+    controller.run_once(task.id)
+    os._exit(96)
+
+
 class EngineeringPlanRecoveryBridgeTests(unittest.TestCase):
     def make_bridge(self, root: Path) -> EngineeringPlanRecoveryBridge:
         return EngineeringPlanRecoveryBridge(
@@ -916,6 +950,142 @@ class ContinuousEngineeringIntegrationTests(unittest.TestCase):
             del restarted
             gc.collect()
 
+
+
+    def test_integrated_task_row_receipt_split_blocks_plan_dashboard_and_never_replays(self):
+        import gc
+        import sqlite3
+        from portable.engineering_dashboard import EngineeringDashboard
+        from portable.execution_controller import ExecutionController
+        from portable.runtime_recovery import RuntimeExecutionGuard
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            work_key = "AUREN:issue-696:continuous-engineering"
+            plan, _store, ledger, bridge = _start_integrated_plan(root, work_key)
+            manifest, result, adopted = _run_integrated_harness_experiment(
+                work_key=work_key,
+                plan=plan,
+                ledger=ledger,
+                guard=RuntimeExecutionGuard(max_steps=20, max_attempts=20, deadline_seconds=60),
+            )
+            self.assertTrue(result.success)
+            self.assertEqual("adopted", result.status)
+            self.assertEqual([result.adopted_digest], adopted)
+            learning = ledger.get_checkpoint(work_key, "harness_experiment")
+            self.assertIsNotNone(learning)
+            self.assertEqual("verified", learning.status)
+            self.assertEqual(manifest.digest, learning.payload["manifest_digest"])
+
+            runtime = ExecutionController(root)
+            runtime.register_handler(
+                "continuous-engineering-marker",
+                _continuous_engineering_marker_handler,
+                execution_class="read_only",
+            )
+            process = multiprocessing.get_context("spawn").Process(
+                target=_crash_after_integrated_task_terminal_before_work_unit_receipt,
+                args=(str(root), work_key, plan.goal),
+            )
+            process.start()
+            process.join(15)
+            if process.is_alive():
+                process.terminate()
+                process.join(3)
+                self.fail("integrated task/receipt crash fixture exceeded its time budget")
+            self.assertEqual(95, process.exitcode)
+            marker = root / "handler-calls.log"
+            self.assertEqual(["called"], marker.read_text(encoding="utf-8").splitlines())
+
+            with closing(sqlite3.connect(runtime.db_path)) as db:
+                task_rows = db.execute(
+                    "SELECT id,state,attempts,work_unit_id FROM tasks WHERE work_key=?",
+                    (work_key,),
+                ).fetchall()
+            self.assertEqual(1, len(task_rows))
+            task_id, task_state, attempts, work_unit_id = task_rows[0]
+            self.assertEqual("completed", task_state)
+            self.assertEqual(1, attempts)
+            self.assertEqual("running", runtime.company._state(work_unit_id)[0])
+            with closing(sqlite3.connect(runtime.evidence_capture.path)) as db:
+                self.assertEqual(
+                    0,
+                    db.execute(
+                        "SELECT COUNT(*) FROM engineering_events WHERE task_id=? "
+                        "AND event_type IN ('task_completed','task_failed')",
+                        (task_id,),
+                    ).fetchone()[0],
+                )
+            del runtime
+            gc.collect()
+
+            restarted = ExecutionController(root)
+            restarted.register_handler(
+                "continuous-engineering-marker",
+                _continuous_engineering_marker_handler,
+                execution_class="read_only",
+            )
+            self.assertEqual("blocked", restarted.task(task_id).state)
+            self.assertEqual(1, restarted.task(task_id).attempts)
+            duplicate = restarted.submit(
+                "continuous-engineering-marker",
+                {"work_key": work_key, "marker_path": str(marker)},
+                goal=plan.goal,
+                work_key=work_key,
+            )
+            self.assertEqual(task_id, duplicate.id)
+            self.assertEqual(work_unit_id, duplicate.work_unit_id)
+            self.assertIsNone(restarted.run_once(task_id))
+            self.assertEqual(["called"], marker.read_text(encoding="utf-8").splitlines())
+            self.assertEqual("running", restarted.company._state(work_unit_id)[0])
+            with restarted.company._db() as db:
+                self.assertEqual(
+                    1,
+                    db.execute(
+                        "SELECT COUNT(*) FROM work_units WHERE work_key=?", (work_key,),
+                    ).fetchone()[0],
+                )
+            self.assertTrue(any(
+                "progress_reconciliation_required" in finding
+                for finding in restarted.health_findings()
+            ))
+
+            bridge.transition_task(
+                work_key,
+                "learn-and-deliver",
+                "blocked",
+                reason=(
+                    "task row is terminal but the work-unit receipt is still running; "
+                    "keep delivery blocked until explicit receipt reconciliation"
+                ),
+                next_safe_action="inspect_task_receipt_split_and_reconcile",
+            )
+            loaded_plan, loaded_run = bridge.load_verified(work_key)
+            self.assertEqual(plan.digest, loaded_plan.digest)
+            self.assertEqual("blocked", loaded_run.tasks[0].status)
+            phase_checkpoint = ledger.get_checkpoint(work_key, bridge.PHASE)
+            self.assertEqual("in_progress", phase_checkpoint.status)
+            self.assertEqual(
+                "inspect_task_receipt_split_and_reconcile",
+                phase_checkpoint.payload["next_safe_action"],
+            )
+            self.assertEqual("verified", ledger.get_checkpoint(work_key, "harness_experiment").status)
+
+            dashboard = EngineeringDashboard(root).snapshot().as_dict()
+            plan_row = next(row for row in dashboard["plan_runs"] if row["run_id"] == work_key)
+            self.assertEqual("blocked", plan_row["status"])
+            self.assertEqual({"blocked": 1}, plan_row["task_counts"])
+            self.assertNotEqual("completed", plan_row["status"])
+            self.assertIsNone(restarted.run_once(task_id))
+            with closing(sqlite3.connect(restarted.evidence_capture.path)) as db:
+                self.assertEqual(
+                    0,
+                    db.execute(
+                        "SELECT COUNT(*) FROM engineering_events WHERE task_id=? "
+                        "AND event_type IN ('task_completed','task_failed')",
+                        (task_id,),
+                    ).fetchone()[0],
+                )
 
 
 
