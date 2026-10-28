@@ -1027,9 +1027,24 @@ class ContinuousEngineeringIntegrationTests(unittest.TestCase):
             )
             self.assertEqual("blocked", restarted.task(task_id).state)
             self.assertEqual(1, restarted.task(task_id).attempts)
+            duplicate = restarted.submit(
+                "continuous-engineering-marker",
+                {"work_key": work_key, "marker_path": str(marker)},
+                goal=plan.goal,
+                work_key=work_key,
+            )
+            self.assertEqual(task_id, duplicate.id)
+            self.assertEqual(work_unit_id, duplicate.work_unit_id)
             self.assertIsNone(restarted.run_once(task_id))
             self.assertEqual(["called"], marker.read_text(encoding="utf-8").splitlines())
             self.assertEqual("running", restarted.company._state(work_unit_id)[0])
+            with restarted.company._db() as db:
+                self.assertEqual(
+                    1,
+                    db.execute(
+                        "SELECT COUNT(*) FROM work_units WHERE work_key=?", (work_key,),
+                    ).fetchone()[0],
+                )
             self.assertTrue(any(
                 "progress_reconciliation_required" in finding
                 for finding in restarted.health_findings()
@@ -1043,11 +1058,17 @@ class ContinuousEngineeringIntegrationTests(unittest.TestCase):
                     "task row is terminal but the work-unit receipt is still running; "
                     "keep delivery blocked until explicit receipt reconciliation"
                 ),
+                next_safe_action="inspect_task_receipt_split_and_reconcile",
             )
             loaded_plan, loaded_run = bridge.load_verified(work_key)
             self.assertEqual(plan.digest, loaded_plan.digest)
             self.assertEqual("blocked", loaded_run.tasks[0].status)
-            self.assertEqual("blocked", ledger.get_checkpoint(work_key, bridge.PHASE).status)
+            phase_checkpoint = ledger.get_checkpoint(work_key, bridge.PHASE)
+            self.assertEqual("in_progress", phase_checkpoint.status)
+            self.assertEqual(
+                "inspect_task_receipt_split_and_reconcile",
+                phase_checkpoint.payload["next_safe_action"],
+            )
             self.assertEqual("verified", ledger.get_checkpoint(work_key, "harness_experiment").status)
 
             dashboard = EngineeringDashboard(root).snapshot().as_dict()
