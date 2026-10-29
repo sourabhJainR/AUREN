@@ -283,3 +283,26 @@ oversized payloads.
 The stderr reader drains an oversized diagnostic line in fixed-size chunks and stops at that line's newline. It must not consume the next diagnostic line or wait on it because an escaped newline was compared as literal backslash-plus-n. Stdout frame limits, queue limits, and the one-shot read-only reducer remain unchanged.
 
 Regression coverage verifies that a long line already ending in newline triggers no additional read, and that an unterminated oversized line is drained only with bounded reads until its terminator. Rollback: revert the helper, call-site, tests, and this note together; do not remove the bounded read limits.
+
+## Assigned-agent MCP process boundary (2026-10-29)
+
+A valid task resource selector and trusted working directory do not confine an MCP
+server process to the assigned agent's scope. The MCP adapter therefore checks the
+active assignment scope before authority resolution and before `Popen`. Assigned
+agents cannot launch this adapter until a host-enforced, assignment-aware sandbox
+covers filesystem, network, and credential access and has independent boundary
+tests. Unassigned workflows retain existing adapter behavior.
+
+This is deliberately a capability blocker, not a prompt-level restriction. Do not
+allow a manager, role label, read-only declaration, or model output to waive it.
+Route eligible work through an independently verified scoped executor when one is
+available; otherwise record the blocked action and next step. This prevents the
+resource-selector check from being mistaken for process isolation.
+
+Regression: under an active assignment scope, a matching resource selector still
+must fail before process creation. The test patches `subprocess.Popen` and asserts
+it is never called.
+
+Rollback: do not revert to launching unconfined MCP children for assigned tasks.
+Any replacement must prove host-enforced scope, network and credential boundaries,
+cancellation/cleanup, and denial-before-launch under fault injection before use.
