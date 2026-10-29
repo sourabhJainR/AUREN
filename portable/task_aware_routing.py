@@ -105,7 +105,7 @@ def classify_task(task: str, explicit_type: str | None = None) -> tuple[str, str
         return kind, "explicit task type"
     normalized = task.casefold()
     for kind, markers in _TASK_MARKERS:
-        if any(re.search(r"(?<!\\w)" + re.escape(marker) + r"(?!\\w)", normalized) for marker in markers):
+        if any(re.search(r"(?<!\w)" + re.escape(marker) + r"(?!\w)", normalized) for marker in markers):
             return kind, f"matched {kind} task markers"
     return "conversation", "safe default for unclassified task"
 
