@@ -1230,7 +1230,7 @@ class MCPStdioToolAdapter:
                 except AdapterUnavailable as exc:
                     if (
                         self.read_only_response_reducer is None
-                        or "exceeded the configured character limit or UTF-8 byte limit" not in str(exc)
+                        or "MCP response exceeded the configured" not in str(exc)
                     ):
                         raise
                     if attempt == 2:
