@@ -1164,12 +1164,27 @@ class MCPStdioToolAdapter:
 
         if not self.requires_authority_binding:
             arguments = self._arguments_for_request(request)
+            adaptive_deadline = (
+                time.monotonic() + min(300.0, float(self.timeout_seconds * 3))
+                if self.read_only_response_reducer is not None or self.read_only_response_chunker is not None
+                else None
+            )
+
+            def invoke_adaptive(call_arguments: Mapping[str, Any]) -> Mapping[str, Any]:
+                if adaptive_deadline is not None and time.monotonic() >= adaptive_deadline:
+                    raise AdapterUnavailable(
+                        "MCP adaptive recovery exceeded its overall deadline; no partial result accepted"
+                    )
+                return self._invoke_unchecked(
+                    request, arguments=call_arguments, deadline=adaptive_deadline,
+                )
+
             # Chunk recovery is tool-specific: callers define stable page/chunk
             # boundaries and an explicit merge contract. Never guess pagination
             # fields or return a partial page as if it were the complete result.
             if self.read_only_response_chunker is not None:
                 try:
-                    return self._invoke_unchecked(request, arguments=arguments)
+                    return invoke_adaptive(arguments)
                 except AdapterUnavailable as exc:
                     if "MCP response exceeded the configured" not in str(exc):
                         raise
@@ -1202,7 +1217,7 @@ class MCPStdioToolAdapter:
                 # of decoded chunk results as well: individually safe chunks must
                 # not bypass the memory budget when combined.
                 for chunk in chunks:
-                    chunk_result = self._invoke_unchecked(request, arguments=chunk)
+                    chunk_result = invoke_adaptive(chunk)
                     try:
                         chunk_snapshot = json.loads(
                             json.dumps(dict(chunk_result), ensure_ascii=False, allow_nan=False)
@@ -1243,7 +1258,7 @@ class MCPStdioToolAdapter:
             # chunker+merger contract above instead of narrowing result scope.
             for attempt in range(3):
                 try:
-                    return self._invoke_unchecked(request, arguments=arguments)
+                    return invoke_adaptive(arguments)
                 except AdapterUnavailable as exc:
                     if (
                         self.read_only_response_reducer is None
@@ -1304,6 +1319,7 @@ class MCPStdioToolAdapter:
 
     def _invoke_unchecked(
         self, request: Mapping[str, Any], *, arguments: Mapping[str, Any] | None = None,
+        deadline: float | None = None,
     ) -> Mapping[str, Any]:
         state = request.get("state", {})
         if not isinstance(state, Mapping):
@@ -1318,6 +1334,19 @@ class MCPStdioToolAdapter:
                 raise AdapterUnavailable("trusted MCP workspace root is missing or not a directory")
             if cwd != trusted_root and trusted_root not in cwd.parents:
                 raise AdapterUnavailable("MCP working directory escapes the trusted workspace root")
+        if deadline is not None and time.monotonic() >= deadline:
+            raise AdapterUnavailable(
+                "MCP adaptive recovery exceeded its overall deadline; no partial result accepted"
+            )
+
+        def response_timeout() -> float:
+            remaining = None if deadline is None else deadline - time.monotonic()
+            if remaining is not None and remaining <= 0:
+                raise AdapterUnavailable(
+                    "MCP adaptive recovery exceeded its overall deadline; no partial result accepted"
+                )
+            return min(float(self.timeout_seconds), remaining) if remaining is not None else float(self.timeout_seconds)
+
         windows_job = None
         launch_options: dict[str, Any] = {
             "cwd": str(cwd), "stdin": subprocess.PIPE, "stdout": subprocess.PIPE,
@@ -1408,7 +1437,7 @@ class MCPStdioToolAdapter:
             }
             proc.stdin.write(json.dumps(initialize) + "\n")
             proc.stdin.flush()
-            self._read_response(proc.stdout, responses, 1, self.timeout_seconds)
+            self._read_response(proc.stdout, responses, 1, response_timeout())
             proc.stdin.write(json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}}) + "\n")
             proc.stdin.flush()
             args = dict(arguments) if arguments is not None else self._arguments_for_request(request)
@@ -1417,7 +1446,7 @@ class MCPStdioToolAdapter:
                 "params": {"name": self.tool_name, "arguments": args},
             }, ensure_ascii=False) + "\n")
             proc.stdin.flush()
-            result = self._read_response(proc.stdout, responses, 2, self.timeout_seconds)
+            result = self._read_response(proc.stdout, responses, 2, response_timeout())
             if result.get("isError") is True:
                 raise AdapterUnavailable(f"MCP tool reported an error: {result.get('content', [])}")
             structured = result.get("structuredContent")
