@@ -236,6 +236,7 @@ class ExecutionController:
                 ("work_key", "TEXT"), ("intent_digest", "TEXT"),
                 ("cancel_requested", "INTEGER NOT NULL DEFAULT 0"),
                 ("cancel_reason_digest", "TEXT"), ("deadline_at", "TEXT"),
+                ("deadline_seconds", "REAL"),
             ):
                 if column not in columns:
                     db.execute(f"ALTER TABLE tasks ADD COLUMN {column} {declaration}")
@@ -2054,16 +2055,34 @@ class ExecutionController:
             # resumed handlers can identify the canonical work unit.
             payload_copy["work_key"] = stable_work_key
         goal_text = goal or f"execute durable handler: {handler}"
+        normalized_deadline_seconds = (
+            float(deadline_seconds) if deadline_seconds is not None else None
+        )
         try:
             payload_json = json.dumps(
                 payload_copy, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False,
             )
-            intent_json = json.dumps(
+            # Keep a legacy digest for safe reuse of pre-v2 tasks that had no
+            # durable deadline policy. New task identity binds the relative
+            # deadline policy, while the absolute deadline remains fixed at the
+            # first successful submission and is never reset on replay.
+            legacy_intent_json = json.dumps(
                 {"handler": handler, "goal": goal_text, "payload": payload_copy},
+                sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False,
+            )
+            intent_json = json.dumps(
+                {
+                    "schema_version": "auren-task-intent-v2",
+                    "handler": handler,
+                    "goal": goal_text,
+                    "payload": payload_copy,
+                    "deadline_policy_seconds": normalized_deadline_seconds,
+                },
                 sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False,
             )
         except (TypeError, ValueError) as exc:
             raise ValueError("durable task payload and intent must be JSON-safe") from exc
+        legacy_intent_digest = hashlib.sha256(legacy_intent_json.encode("utf-8")).hexdigest()
         intent_digest = hashlib.sha256(intent_json.encode("utf-8")).hexdigest()
 
         # Hold a SQLite write reservation across lookup, work-unit creation, and task
@@ -2076,14 +2095,36 @@ class ExecutionController:
                 existing = None
                 if stable_work_key is not None:
                     existing = db.execute(
-                        "SELECT id,handler,payload,state,attempts,work_unit_id,lease_generation,lease_token,intent_digest,deadline_at "
+                        "SELECT id,handler,payload,state,attempts,work_unit_id,lease_generation,lease_token,intent_digest,deadline_at,deadline_seconds "
                         "FROM tasks WHERE work_key=?",
                         (stable_work_key,),
                     ).fetchone()
                 if existing is not None:
-                    if existing[8] != intent_digest:
+                    stored_deadline_seconds = None
+                    if existing[10] is not None:
+                        try:
+                            stored_deadline_seconds = float(existing[10])
+                        except (TypeError, ValueError, OverflowError):
+                            stored_deadline_seconds = float("nan")
+                    deadline_policy_matches = (
+                        stored_deadline_seconds is None and normalized_deadline_seconds is None
+                    ) or (
+                        stored_deadline_seconds is not None
+                        and normalized_deadline_seconds is not None
+                        and math.isfinite(stored_deadline_seconds)
+                        and stored_deadline_seconds == normalized_deadline_seconds
+                    )
+                    legacy_reuse_is_safe = (
+                        existing[8] == legacy_intent_digest
+                        and stored_deadline_seconds is None
+                        and normalized_deadline_seconds is None
+                    )
+                    if not (
+                        (existing[8] == intent_digest and deadline_policy_matches)
+                        or legacy_reuse_is_safe
+                    ):
                         raise WorkKeyConflict(
-                            "work_key already belongs to a different handler, payload, or goal"
+                            "work_key already belongs to a different handler, payload, or goal; deadline policy must also match"
                         )
                     task = DurableTask(
                         existing[0], existing[1], json.loads(existing[2]), existing[3],
@@ -2096,10 +2137,11 @@ class ExecutionController:
                     now = _now()
                     db.execute(
                         "INSERT INTO tasks(id,handler,payload,state,attempts,work_unit_id,created_at,updated_at,"
-                        "heartbeat_at,lease_until,work_key,intent_digest,deadline_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                        "heartbeat_at,lease_until,work_key,intent_digest,deadline_at,deadline_seconds) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                         (
                             task.id, task.handler, payload_json, task.state, task.attempts, task.work_unit_id,
                             now, now, now, now, stable_work_key, intent_digest, requested_deadline_at,
+                            normalized_deadline_seconds,
                         ),
                     )
                     db.commit()
