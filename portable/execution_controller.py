@@ -2054,6 +2054,23 @@ class ExecutionController:
             # Keep the key visible in the durable task envelope so operators and
             # resumed handlers can identify the canonical work unit.
             payload_copy["work_key"] = stable_work_key
+        # Assigned work must be host-authorized before its durable task intent
+        # is created, not only when a worker later attempts dispatch. Keep the
+        # same validation at dispatch time because registry or policy can change
+        # between submission, restart, and execution.
+        if "_auren_agent_assignment" in payload_copy:
+            current_guard_policy = load_guard_policy(self.root / ".auren" / "guard_policy.json")
+            assigned_resource = payload_copy.get(
+                "resource", payload_copy.get("resource_id", payload_copy.get("path", ""))
+            )
+            validate_agent_assignment_for_dispatch(
+                payload_copy,
+                resource=assigned_resource,
+                authorization_verifier=self._agent_assignment_verifier,
+                expected_action_class=self._handler_agent_action_class(handler),
+                expected_policy_version=POLICY_VERSION,
+                expected_policy_digest=guard_policy_fingerprint(current_guard_policy),
+            )
         goal_text = goal or f"execute durable handler: {handler}"
         normalized_deadline_seconds = (
             float(deadline_seconds) if deadline_seconds is not None else None
