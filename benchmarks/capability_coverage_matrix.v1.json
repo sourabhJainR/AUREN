@@ -73,7 +73,7 @@
         "repository_ci": "CI-verified for sandbox/custody scaffolding only; modality-specific benchmark not run",
         "deployment": "not verified",
         "independent_evaluation": "not verified; external gate blocked",
-        "reviewed_main_sha": "5b3e3858d85d558945f2a4ccf65a18fe9b323ba7"
+        "reviewed_main_sha": "7d88fa277d996f977a9cdff4e36308010c1e9f09"
       }
     },
     {
@@ -132,7 +132,7 @@
         "repository_ci": "CI-verified for supervisor/recovery contracts only; external environment suite not run",
         "deployment": "not verified",
         "independent_evaluation": "not verified; external gate blocked",
-        "reviewed_main_sha": "5b3e3858d85d558945f2a4ccf65a18fe9b323ba7"
+        "reviewed_main_sha": "7d88fa277d996f977a9cdff4e36308010c1e9f09"
       }
     },
     {
@@ -164,7 +164,7 @@
       },
       "baseline": {
         "status": "internal_regression_only",
-        "source": "Repository regression evidence on baseline main 5b3e3858d85d558945f2a4ccf65a18fe9b323ba7 includes selected shared runtime/learning/delivery split-write and no-replay tests (PRs #1034, #1037, #1042); no independent multi-hour/day completion baseline is retained."
+        "source": "Repository regression evidence on baseline main 7d88fa277d996f977a9cdff4e36308010c1e9f09 includes selected shared runtime/learning/delivery split-write and no-replay tests (PRs #1034, #1037, #1042); no independent multi-hour/day completion baseline is retained."
       },
       "held_out_plan": "Use a separate operator to issue unseen task graphs, kill/restart processes at randomized checkpoints, and retain signed completion evidence.",
       "threat_model": [
@@ -193,7 +193,7 @@
         "repository_ci": "CI-verified for selected recovery and side-effect contracts only; long-duration benchmark not run",
         "deployment": "not verified",
         "independent_evaluation": "not verified; external gate blocked",
-        "reviewed_main_sha": "5b3e3858d85d558945f2a4ccf65a18fe9b323ba7"
+        "reviewed_main_sha": "7d88fa277d996f977a9cdff4e36308010c1e9f09"
       }
     },
     {
@@ -254,7 +254,7 @@
         "repository_ci": "CI-verified for lineage/attestation protocol tests only; external target domain not run",
         "deployment": "not verified",
         "independent_evaluation": "not verified; external gate blocked",
-        "reviewed_main_sha": "5b3e3858d85d558945f2a4ccf65a18fe9b323ba7"
+        "reviewed_main_sha": "7d88fa277d996f977a9cdff4e36308010c1e9f09"
       }
     },
     {
@@ -313,7 +313,7 @@
         "repository_ci": "CI-verified for causal attribution/promotion-gate contracts only; independent replication not run",
         "deployment": "not verified",
         "independent_evaluation": "not verified; external gate blocked",
-        "reviewed_main_sha": "5b3e3858d85d558945f2a4ccf65a18fe9b323ba7"
+        "reviewed_main_sha": "7d88fa277d996f977a9cdff4e36308010c1e9f09"
       }
     },
     {
@@ -371,7 +371,7 @@
         "repository_ci": "CI-verified for memory/provenance and selected learning integration only; longitudinal suite not run",
         "deployment": "not verified",
         "independent_evaluation": "not verified; external gate blocked",
-        "reviewed_main_sha": "5b3e3858d85d558945f2a4ccf65a18fe9b323ba7"
+        "reviewed_main_sha": "7d88fa277d996f977a9cdff4e36308010c1e9f09"
       }
     },
     {
@@ -404,7 +404,7 @@
       },
       "baseline": {
         "status": "internal_regression_only",
-        "source": "Graph/decision gate and shared runtime/learning/delivery regressions are CI-verified on baseline main 5b3e3858d85d558945f2a4ccf65a18fe9b323ba7; PRs #1008–#1037 cover selected dependency, adoption, verification, and split-write cases. No independently scored multi-crew benchmark is retained."
+        "source": "Graph/decision gate and shared runtime/learning/delivery regressions are CI-verified on baseline main 7d88fa277d996f977a9cdff4e36308010c1e9f09; PRs #1008–#1037 cover selected dependency, adoption, verification, and split-write cases. No independently scored multi-crew benchmark is retained."
       },
       "held_out_plan": "Separate tool server from candidate; hide acceptance oracle; independently score handoffs, denied actions, and recovery.",
       "threat_model": [
@@ -432,7 +432,7 @@
         "repository_ci": "CI-verified for graph/runtime contracts only; independent multi-crew benchmark not run",
         "deployment": "not verified",
         "independent_evaluation": "not verified; external gate blocked",
-        "reviewed_main_sha": "5b3e3858d85d558945f2a4ccf65a18fe9b323ba7"
+        "reviewed_main_sha": "7d88fa277d996f977a9cdff4e36308010c1e9f09"
       }
     },
     {
@@ -495,7 +495,7 @@
         "repository_ci": "CI-verified for protocol/security tests only; external red-team suite not run",
         "deployment": "not verified",
         "independent_evaluation": "not verified; external gate blocked",
-        "reviewed_main_sha": "5b3e3858d85d558945f2a4ccf65a18fe9b323ba7"
+        "reviewed_main_sha": "7d88fa277d996f977a9cdff4e36308010c1e9f09"
       }
     },
     {
@@ -563,13 +563,13 @@
         "repository_ci": "CI-verified for custody/evaluator protocol only; independent campaign not run",
         "deployment": "not verified",
         "independent_evaluation": "not verified; external gate blocked",
-        "reviewed_main_sha": "5b3e3858d85d558945f2a4ccf65a18fe9b323ba7"
+        "reviewed_main_sha": "7d88fa277d996f977a9cdff4e36308010c1e9f09"
       }
     }
   ],
   "review_snapshot": {
     "reviewed_at": "2026-10-28",
-    "baseline_main_sha": "5b3e3858d85d558945f2a4ccf65a18fe9b323ba7",
+    "baseline_main_sha": "7d88fa277d996f977a9cdff4e36308010c1e9f09",
     "current_main_check_runs": {
       "total": 28,
       "success": 28,
@@ -584,56 +584,56 @@
       "pending": 0,
       "runs": [
         {
-          "name": "AI Harness Check",
-          "run_id": 40627642942,
-          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/40627642942",
-          "conclusion": "success"
-        },
-        {
-          "name": "AUREN Portable Bundle",
-          "run_id": 40627642859,
-          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/40627642859",
-          "conclusion": "success"
-        },
-        {
-          "name": "Runtime Resilience Matrix",
-          "run_id": 40627642902,
-          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/40627642902",
+          "name": "Agent Capability Runtime",
+          "run_id": 40705525429,
+          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/40705525429",
           "conclusion": "success"
         },
         {
           "name": "Architecture Integrity",
-          "run_id": 40627642850,
-          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/40627642850",
+          "run_id": 40705525517,
+          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/40705525517",
+          "conclusion": "success"
+        },
+        {
+          "name": "AI Harness Check",
+          "run_id": 40705525533,
+          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/40705525533",
           "conclusion": "success"
         },
         {
           "name": "Production AI Harness Hardening",
-          "run_id": 40627642868,
-          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/40627642868",
+          "run_id": 40705525552,
+          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/40705525552",
           "conclusion": "success"
         },
         {
-          "name": "Agent Capability Runtime",
-          "run_id": 40627642995,
-          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/40627642995",
+          "name": "Runtime Resilience Matrix",
+          "run_id": 40705525433,
+          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/40705525433",
+          "conclusion": "success"
+        },
+        {
+          "name": "AUREN Portable Bundle",
+          "run_id": 40705525434,
+          "url": "https://github.com/sourabhJainR/AUREN/actions/runs/40705525434",
           "conclusion": "success"
         }
       ]
     },
     "portable_bundle": {
-      "workflow_run_id": 40627642859,
-      "bundle_artifact_id": 12789962839,
-      "checksum_artifact_id": 12790017606,
-      "outer_bundle_artifact_sha256": "f87dbad0bc9e6de7da9ea7c21226d4710e5281d797a8e3f0c289eb4d42ef56d8",
-      "outer_checksum_artifact_sha256": "9c3d195fed261c858d1475b7f4ba12977e32da9a24107da535c7ec6a7be989e0",
-      "inner_bundle_sha256": "7772704781caf23c3b329d7fc5e76ee4492a9f8fd4a88b49140bbe61c1972be9",
-      "manifest_file_count": 508,
+      "workflow_run_id": 40705525434,
+      "bundle_artifact_id": 12823472118,
+      "checksum_artifact_id": 12822549768,
+      "outer_bundle_artifact_sha256": "7ab14977950856a4156d46c6ee16499db508db7e4379cabb129081927d43cd63",
+      "outer_checksum_artifact_sha256": "77ea584c111e616e66b7c4065b370207de1c5e85fe1621286e32a3420306e74e",
+      "inner_bundle_sha256": "3ddf192d2e8b436654a3daac310e9a3ee667815ce5e911f7a5e38cd4726b454a",
+      "manifest_file_count": 511,
       "manifest_hash_or_size_mismatches": 0,
-      "source_commit": "5b3e3858d85d558945f2a4ccf65a18fe9b323ba7",
+      "source_commit": "7d88fa277d996f977a9cdff4e36308010c1e9f09",
       "version": "1.0.6",
       "target_repository_mutation": false,
-      "artifacts_expire_at": "2026-11-27T03:36:47Z"
+      "artifacts_expire_at": "2026-11-27T14:24:25Z"
     },
     "deployment_status": "not independently verified",
     "independent_evaluation_status": "blocked; independent evaluator/oracle identity, sealed holdout custody, production isolation, and external campaign receipts are not available in this repository snapshot",
@@ -641,8 +641,8 @@
   },
   "radar_refresh": {
     "reviewed_at": "2026-10-28",
-    "baseline_main_sha": "5b3e3858d85d558945f2a4ccf65a18fe9b323ba7",
-    "status": "candidate signals only; latest main CI and post-merge workflows are terminal-successful; deployment and independent-evaluation gates remain blocked",
+    "baseline_main_sha": "7d88fa277d996f977a9cdff4e36308010c1e9f09",
+    "status": "Research refresh adds current long-horizon and live-tool evaluation signals; current-main post-merge verification and exact-head CI must be recorded separately. Deployment and independent-evaluation gates remain blocked.",
     "policy": "External announcements and benchmark reports are leads, not proof of equivalent AUREN capability. Keep adapters opt-in; no runtime framework dependency; no default pack promotion without paired value, independent evaluation, and rollback.",
     "status_vocabulary": {
       "implementation": "Code path exists; does not imply tests or deployment.",
@@ -653,35 +653,45 @@
     "signals": [
       {
         "id": "long_running_host_sandbox",
-        "source_date": "2026-09-10; 2026-09-24; 2026-10-07; 2026-10-27",
+        "source_date": "2026-09-10; 2026-09-24; 2026-10-07; 2026-10-20; 2026-10-21; 2026-10-23; 2026-10-27",
         "sources": [
           "https://www.docker.com/press-release/cloud-sandboxes-extending-secure-ai-agent-isolation-beyond-the-laptop/",
           "https://www.akamai.com/newsroom/press-release/akamai-launches-ai-inference-service-and-agent-execution-environment",
           "https://github.blog/changelog/2026-10-07-local-sandboxing-for-github-copilot-now-generally-available/",
-          "https://openai.com/index/introducing-the-agents-api/"
+          "https://openai.com/index/introducing-the-agents-api/",
+          "https://openai.com/index/securing-our-frontier-model-training-environment/",
+          "https://alignment.openai.com/misalignment-reports/suppressing-misalignment-monitoring-alerts-and-disabling-misalignment-monitoring/",
+          "https://www.reuters.com/world/china/deepseek-ai-model-shows-safety-gaps-in-independent-tests-2026-10-27/",
+          "https://www.akamai.com/products/akamai-agent-sandbox"
         ],
         "owner": [
           "portable.execution_controller.ExecutionController",
           "portable.runtime_recovery.RuntimeExecutionGuard",
-          "provider/workspace lifecycle adapters"
+          "provider/workspace lifecycle adapters",
+          "portable.agent_execution_guard.agent_assignment_scope",
+          "portable.vibe_coding_host.MCPStdioToolAdapter"
         ],
         "status": "candidate_adapter_only",
         "implementation_status": "Existing durable execution and subprocess boundaries; no external production isolation equivalence claimed.",
         "ci_status": "Selected local crash, cancellation, deadline and side-effect recovery contracts are covered; not an independent host-isolation audit.",
         "deployment_status": "not verified",
         "independent_evaluation_status": "blocked",
-        "measured_gap": "Host-enforced filesystem/network/credential boundary, operation identity, cleanup, and recovery behavior for any new sandbox adapter. Compare with host-enforced local sandbox policy, including network and credential boundaries.",
-        "benchmark": "Paired pinned long-running tasks with crash/restart, cancellation, unauthorized path/network/secret attempts, cleanup, latency, cost and duplicate-operation checks.",
-        "acceptance_threshold": "Zero unauthorized access in the tested suite; unknown remote outcomes block; resume does not duplicate consequential actions; separately administered isolation evidence required.",
+        "measured_gap": "Host-enforced filesystem/network/credential boundary, operation identity, cleanup, and recovery for any sandbox adapter. Akamai Agent Sandbox describes nested WebAssembly isolation, resource limits, and outbound access blocked by default; treat this as a comparison target, not AUREN deployment evidence. OpenAI's 2026-10-23 report describes agent-found microVM escapes, restricted network paths, and cross-agent covert channels. AUREN application checks do not establish production isolation.",
+        "benchmark": "Paired pinned long-running tasks with crash/restart, explicit stop versus ambiguous shutdown warning, deadline/cancellation, confirmed versus uncertain process termination, unauthorized path/network/secret attempts, host/workspace escape, monitor suppression, peer-agent interference, cleanup, latency, cost, and duplicate-operation checks. Require host-administered evidence for any sandbox equivalence claim.",
+        "acceptance_threshold": "Zero unauthorized access, monitor tampering, or cross-boundary communication in the tested suite; explicit stop requests must be honored; unconfirmed termination and unknown remote outcomes remain blocked; resume does not duplicate consequential actions; a separately administered isolation audit is required.",
         "rollback": "Disable candidate adapter, route to last-known-good approved executor, preserve receipts/checkpoints, and reconcile unknown outcomes."
       },
       {
         "id": "dynamic_workflows_computer_use",
-        "source_date": "2026-10-01; 2026-10-02; 2026-10-26",
+        "source_date": "2026-09-08; 2026-09-29; 2026-10-01; 2026-10-02; 2026-10-21; 2026-10-26",
         "sources": [
           "https://github.blog/changelog/2026-10-01-dynamic-workflows-in-copilot-cli-and-the-copilot-app/",
           "https://github.blog/changelog/2026-10-02-github-copilot-weekly-releases-september-28/",
-          "https://github.blog/changelog/2026-10-26-github-copilot-assisted-permissions-generally-available/"
+          "https://github.blog/changelog/2026-10-26-github-copilot-assisted-permissions-generally-available/",
+          "https://openai.com/index/introducing-dots/",
+          "https://about.fb.com/ko/news/2026/09/introducing-muse-the-worlds-first-personal-ai-agent-built-for-everyone/",
+          "https://arxiv.org/abs/2610.29822",
+          "https://aclanthology.org/2026.emnlp-industry.202/"
         ],
         "owner": [
           "portable.task_planner.TaskPlan",
@@ -695,8 +705,8 @@
         "ci_status": "Repository integration tests cover selected durable identity, split-write recovery, cancellation/deadline and dashboard projection.",
         "deployment_status": "not verified",
         "independent_evaluation_status": "blocked",
-        "measured_gap": "Long-horizon action correctness, handoff loss, approval enforcement, restart/resume, and computer-use-specific action boundaries. Model-based permission classification must remain advisory and cannot grant authority.",
-        "benchmark": "Paired deterministic/single-agent baseline against candidate workflow on pinned tasks; inject stale checkpoints, duplicate dispatch, cancellation, uncertain actions and approval denial.",
+        "measured_gap": "Long-horizon action correctness, dynamic user clarification, per-turn verification, handoff loss, approval enforcement, restart/resume, and computer-use boundaries. UserSWE evaluates 11 agents on 72 tasks from 42 repositories and reports that rankings change with interaction budget. DynamicMCPBench evaluates 24 models over 121 servers and 750 tasks; reported success drops from 39% on shortest tool chains to 13% on longest, and 31% of tasks are solved by no evaluated model. These are external benchmark results, not AUREN measurements.",
+        "benchmark": "Paired deterministic/single-agent baseline against candidate workflow on pinned tasks; use dynamic-user multi-turn repository tasks with tests after each turn and live-MCP tasks scored by path-agnostic state/effect checkpoints. Inject stale checkpoints, duplicate dispatch, cancellation, uncertain actions, approval denial, and restart between approval and action. Measure per-turn correctness, task completion by turn budget, effect success across three repeats, unauthorized calls, latency, and cost.",
         "acceptance_threshold": "No unauthorized consequential action; durable status after restart; zero false-green or implicit replay; report task success, missed signals, latency and cost.",
         "rollback": "Disable the new adapter/workflow and return to the prior canonical graph path; reconcile uncertain actions."
       },
@@ -729,11 +739,13 @@
       },
       {
         "id": "realistic_agent_evaluation",
-        "source_date": "2026; 2026-10-09",
+        "source_date": "2026; 2026-10-09; 2026-10-21; 2026-10",
         "sources": [
           "https://yupeijei1997.github.io/WildToolBench/",
           "https://arxiv.org/abs/2610.14346",
-          "https://research.ibm.com/publications/a-survey-on-evaluation-of-llm-based-agents"
+          "https://research.ibm.com/publications/a-survey-on-evaluation-of-llm-based-agents",
+          "https://arxiv.org/abs/2610.29822",
+          "https://aclanthology.org/2026.emnlp-industry.202/"
         ],
         "owner": [
           "Arena",
@@ -746,18 +758,22 @@
         "ci_status": "CI verifies internal protocol/regression fixtures only.",
         "deployment_status": "not verified",
         "independent_evaluation_status": "blocked",
-        "measured_gap": "Multi-turn tool correctness, judge agreement, cost/safety trade-offs, holdout contamination and real task distribution.",
-        "benchmark": "Pinned multi-turn tasks with deterministic final-state and tool-trace checks; report per-domain success, unauthorized calls, missed signals, judge agreement, uncertainty, cost and latency.",
+        "measured_gap": "Multi-turn tool correctness, state/effect fidelity, judge agreement, cost/safety trade-offs, holdout contamination, and real task distribution. UserSWE reports rank shifts across turn budgets on 72 tasks/42 repositories. DynamicMCPBench reports only about half of tasks solved by its strongest evaluated agents, 31% unsolved by any model, and 39%-to-13% success as tool chains grow; its human validation reports 0.76 chance-corrected agreement. Treat these as external benchmark findings, not AUREN capability evidence.",
+        "benchmark": "Use pinned multi-turn tasks with deterministic final-state and tool-trace checks; run dynamic-user repository tasks with tests after every turn, and live MCP tasks with path-agnostic effect checkpoints across three independent attempts. Report per-domain success, unauthorized calls, missed signals, judge-human agreement, uncertainty, cost and latency. Keep held-out tasks outside worker and judge context.",
         "acceptance_threshold": "Independent evaluator and sealed holdout; bounded uncertainty and regression limits; no promotion from internal CI or self-judging alone.",
         "rollback": "Reject promotion, retain negative/unscored results, restore last-known-good component digest and rerun regression."
       },
       {
         "id": "agent_coordination_action_oversight",
-        "source_date": "2026-10-01; prior research tracked in #1038",
+        "source_date": "2026-10-01; 2026-10-20; 2026-10-21; 2026-10-23; 2026-10-27; prior research tracked in #1038",
         "sources": [
           "https://github.blog/changelog/2026-10-01-dynamic-workflows-in-copilot-cli-and-the-copilot-app/",
           "https://www.anthropic.com/research/multiagent-systems",
-          "https://www.anthropic.com/institute/measuring-pace-of-ai-development"
+          "https://www.anthropic.com/institute/measuring-pace-of-ai-development",
+          "https://openai.com/index/securing-our-frontier-model-training-environment/",
+          "https://alignment.openai.com/misalignment-reports/suppressing-misalignment-monitoring-alerts-and-disabling-misalignment-monitoring/",
+          "https://www.reuters.com/world/china/deepseek-ai-model-shows-safety-gaps-in-independent-tests-2026-10-27/",
+          "https://aclanthology.org/2026.emnlp-industry.202/"
         ],
         "owner": [
           "portable.agency_state_graph.StateGraph",
@@ -771,18 +787,22 @@
         "ci_status": "Selected graph concurrency, adoption conflict, verifier separation and cancellation contracts are repository-tested.",
         "deployment_status": "not verified",
         "independent_evaluation_status": "blocked",
-        "measured_gap": "Coordination overhead, duplicate work, communication cost, conflict rate, resource contention, escalation latency and unauthorized action rate.",
-        "benchmark": "Paired single-agent/deterministic versus multi-agent runs on the same pinned task distribution with trace-level action audit.",
-        "acceptance_threshold": "Measured net value without safety/reliability regression; serialized adoption; no worker self-approval; shared budgets cannot be reset.",
+        "measured_gap": "Coordination overhead, duplicate work, communication cost, conflict rate, resource contention, escalation latency, unauthorized-action rate, and cross-boundary covert communication. Recent independent API tests also report stop-compliance gaps after ambiguous shutdown warnings and interference with a peer agent; behavior changed when stop intent was explicit, and evaluation awareness limits generalization.",
+        "benchmark": "Paired single-agent/deterministic versus multi-agent runs on the same pinned task distribution with trace-level action audit; test explicit stop versus warning-only language, monitor tampering, sibling-process interference, confirmed termination, cross-boundary signaling without network/shared writable files, and tool-chain length effects. Report coordination overhead, duplicate work, action coverage, and outcome success.",
+        "acceptance_threshold": "Measured net value without safety/reliability regression; explicit stop intent is honored; worker termination is confirmed before reporting stopped; serialized adoption; no worker self-approval; shared budgets cannot be reset; zero unauthorized cross-boundary communication in the tested suite.",
         "rollback": "Disable fan-out for the affected task class and use the sequential canonical path."
       },
       {
         "id": "scientific_discovery",
-        "source_date": "2026-10-16; 2026-10-17; 2026-10-22",
+        "source_date": "2026-10-12; 2026-10-13; 2026-10-16; 2026-10-17; 2026-10-20; 2026-10-22",
         "sources": [
           "https://www.anthropic.com/science",
           "https://www.nature.com/articles/s43586-026-00534-y",
-          "https://www.mdpi.com/3043-0097/1/2/8"
+          "https://www.mdpi.com/3043-0097/1/2/8",
+          "https://arxiv.org/abs/2610.19159",
+          "https://arxiv.org/abs/2610.23845",
+          "https://arxiv.org/abs/2610.28763",
+          "https://www.nature.com/articles/s44386-026-00075-0"
         ],
         "owner": [
           "LearningSteward",
@@ -796,17 +816,18 @@
         "ci_status": "CI verifies selected causal attribution/promotion contracts only.",
         "deployment_status": "not verified",
         "independent_evaluation_status": "blocked",
-        "measured_gap": "Hypothesis validity, constraint satisfaction, reproducibility, negative-result retention, calibration, transfer to fresh scientific tasks, and reliability of generated reports. Recent lifecycle reviews describe uneven maturity and continuing replication/reporting failures.",
-        "benchmark": "Pinned hypotheses, simulations/code, seeds, model/tool versions and raw outputs; independent replication on fresh tasks; report replication rate, constraint satisfaction, calibration, uncertainty and negative results, with domain review and physical validation where applicable.",
+        "measured_gap": "Hypothesis validity, expert-condition satisfaction, reproducibility, analytical robustness, negative-result retention, calibration, transfer to fresh scientific tasks, and report integrity. Into the Unknown reports 0 of 135 submissions satisfying all conditions and 114 integrity failures. Agent4Sci spans 20 scientific-ML benchmarks across 11 domains: frontier agents improve published baselines, but trajectory analysis attributes most gains to ML-engineering heuristics rather than research-level insight; plug-in skills improve measured progress but need independent transfer evaluation. SEER-Repro reproduces 77.4% of 2,190 atomic claims and flags potentially consequential analysis choices in 9.5% of fully reproduced findings.",
+        "benchmark": "Pinned hypotheses, expert-authored constraints, simulations/code, seeds, model/tool versions and raw outputs; measure condition satisfaction and executable reproduction, run sensitivity analyses, then require independent replication on fresh tasks. Pair each skill/curriculum candidate with an unmodified baseline across 20 benchmarks/11 domains where applicable; report task-level gain, novelty, cost, reproducibility, calibration, uncertainty and negative results. Keep held-out tasks outside worker and judge context; require domain review.",
         "acceptance_threshold": "Reproducible independent outcomes, explicit uncertainty and negative results, source-domain regression limits, and rollback-ready promotion. Literature synthesis or an automated judge score alone is not validation.",
         "rollback": "Do not promote the lesson or harness; retain lineage and restore the prior digest."
       },
       {
         "id": "host_policy_assisted_permissions",
-        "source_date": "2026-10-07; 2026-10-26",
+        "source_date": "2026-10-07; 2026-10-23; 2026-10-26",
         "sources": [
           "https://github.blog/changelog/2026-10-07-local-sandboxing-for-github-copilot-now-generally-available/",
-          "https://github.blog/changelog/2026-10-26-github-copilot-assisted-permissions-generally-available/"
+          "https://github.blog/changelog/2026-10-26-github-copilot-assisted-permissions-generally-available/",
+          "https://openai.com/index/securing-our-frontier-model-training-environment/"
         ],
         "owner": [
           "portable.runtime_recovery.RuntimeExecutionGuard",
@@ -819,8 +840,8 @@
         "ci_status": "Repository tests cover selected denial-before-launch, authority, cancellation and receipt contracts; they do not prove host isolation.",
         "deployment_status": "not verified",
         "independent_evaluation_status": "blocked",
-        "measured_gap": "Ensure model-based permission classification cannot grant authority; enforce filesystem, network, credential and local-tool boundaries at the host.",
-        "benchmark": "Attempt forbidden paths, URLs, credentials and local tools under read-only/write-scoped policies; spoof model 'safe' outputs; restart between approval and action; verify action receipt and denial-before-launch.",
+        "measured_gap": "Ensure model-based permission classification cannot grant authority; enforce filesystem, process, network and credential boundaries at the host, including egress after a sandbox escape and cross-agent communication through shared-resource side channels.",
+        "benchmark": "Attempt forbidden paths, URLs, credentials, local tools, host escape, and cross-agent signaling under read-only/write-scoped policies; spoof model 'safe' outputs; restart between approval and action; verify action receipt, monitoring, and denial-before-launch.",
         "acceptance_threshold": "Zero unauthorized actions in the tested suite; explicit policy/approval is required; missing/stale receipts block; independently administered host isolation evidence is required for deployment claims.",
         "rollback": "Disable the adapter and return to the last-known-good executor; revoke its route and preserve evidence for reconciliation."
       }
