@@ -58,6 +58,18 @@ class TaskAwareRoutingTests(unittest.TestCase):
         self.assertIn(saved.memory_id, [item.memory_id for item in recall.memories])
         self.assertIn("operation status is known", recall.text)
 
+    def test_required_memory_kind_is_not_hidden_by_task_defaults(self):
+        saved = self.orchestrator.remember(
+            "procedural", "required procedural recovery note",
+            source="approved-run", approved=True, verified=True,
+        )
+        plan, recall = recall_for_task(
+            self.orchestrator, "hello", task_type="conversation",
+            required_memory_ids=(saved.memory_id,), budget_chars=300,
+        )
+        self.assertIn("procedural", plan.kinds)
+        self.assertIn(saved.memory_id, [item.memory_id for item in recall.memories])
+
     def test_required_memory_budget_failure_is_not_silently_downgraded(self):
         saved = self.orchestrator.remember(
             "semantic", "critical policy context must not be truncated",
