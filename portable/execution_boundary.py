@@ -79,7 +79,7 @@ EXECUTION_SURFACE_INVENTORY: tuple[ExecutionSurface, ...] = (
         "mcp-tool-dispatch", "Configured MCP stdio calls that can execute external tools",
         "portable/vibe_coding_host.py:MCPStdioToolAdapter",
         "MCPStdioToolAdapter defaults to authority-bound mode; consequential calls require host-derived context and execute_bound_action before Popen, with provider-operation identity, exact request/tool/argv/argument digests, environment allowlist, timeout, revision, worktree digest, and task budget bound to the action",
-        "Assigned-agent scope is checked before adapter dispatch when explicit resource/path selectors are present; missing or conflicting selectors fail closed. The resolver still needs trusted identity/repository context, this application boundary is not OS isolation, and remote outcomes require provider-native reconciliation",
+        "Assigned-agent resource selectors are validated before adapter dispatch; missing or conflicting selectors fail closed. Any active assignment scope also blocks MCP child-process launch before authority resolution because a matching path and cwd do not prove process confinement. An independently verified host sandbox remains required to enable assigned MCP calls. Remote outcomes still require provider-native reconciliation",
     ),
     ExecutionSurface(
         "runtime-budget-and-cancellation", "Bounded steps, attempts, deadlines and repeated-failure stop",
