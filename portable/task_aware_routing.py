@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 import hashlib
 import json
 import math
+import re
 from typing import Any, Iterable, Mapping, Sequence
 
 from .memory_orchestrator import MEMORY_KINDS, MemoryOrchestrator, MemoryRecall
@@ -26,8 +27,8 @@ _TASK_KINDS: dict[str, tuple[str, ...]] = {
     "review": ("working", "episodic", "procedural", "semantic", "hierarchical"),
 }
 _TASK_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
-    ("debugging", ("debug", "bug", "failure", "traceback", "incident", "regression", "crash")),
-    ("coding", ("implement", "refactor", "code", "function", "class", "compile", "feature", "patch")),
+    ("debugging", ("debug", "debugging", "bug", "failure", "traceback", "incident", "regression", "crash")),
+    ("coding", ("implement", "implementation", "refactor", "code", "function", "class", "compile", "feature", "patch")),
     ("review", ("review", "audit", "verify", "quality gate", "security check", "regression test")),
     ("research", ("research", "investigate", "compare", "look up", "sources", "benchmark")),
     ("planning", ("plan", "roadmap", "sequence", "break down", "milestone", "delegate")),
@@ -104,7 +105,7 @@ def classify_task(task: str, explicit_type: str | None = None) -> tuple[str, str
         return kind, "explicit task type"
     normalized = task.casefold()
     for kind, markers in _TASK_MARKERS:
-        if any(marker in normalized for marker in markers):
+        if any(re.search(r"(?<!\\w)" + re.escape(marker) + r"(?!\\w)", normalized) for marker in markers):
             return kind, f"matched {kind} task markers"
     return "conversation", "safe default for unclassified task"
 
