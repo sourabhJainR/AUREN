@@ -3,7 +3,7 @@ import sqlite3
 from datetime import datetime, timedelta, timezone
 import json
 import hashlib
-import pytest
+from contextlib import contextmanager
 import os
 import subprocess
 import time
@@ -12,6 +12,16 @@ from threading import Event, Thread
 
 from portable.execution_controller import ExecutionController, LeaseLostError, WorkKeyConflict
 from portable.provider_operation_lifecycle import ProviderOutcomeBlocked
+
+
+@contextmanager
+def assert_work_key_conflict():
+    try:
+        yield
+    except WorkKeyConflict as exc:
+        assert "deadline policy" in str(exc)
+    else:
+        raise AssertionError("expected WorkKeyConflict mentioning deadline policy")
 
 def test_process_death_running_task_recovers_in_fresh_process(tmp_path: Path):
     repo_root = Path(__file__).resolve().parents[1]
@@ -355,11 +365,11 @@ def test_deadline_validation_and_stable_work_key_deadline_replay(tmp_path: Path)
     )
     assert replay.id == first.id
     assert replay.deadline_at == first.deadline_at
-    with pytest.raises(WorkKeyConflict, match="deadline policy"):
+    with assert_work_key_conflict():
         controller.submit(
             name, {"id": "deadline-idempotency"}, work_key="test:deadline-idempotency", deadline_seconds=60,
         )
-    with pytest.raises(WorkKeyConflict, match="deadline policy"):
+    with assert_work_key_conflict():
         controller.submit(name, {"id": "deadline-idempotency"}, work_key="test:deadline-idempotency")
     restarted = ExecutionController(tmp_path)
     restored = restarted.task(first.id)
@@ -398,7 +408,7 @@ def test_legacy_work_key_without_deadline_policy_remains_compatible(tmp_path: Pa
     )
     assert replay.id == task.id
     assert replay.deadline_at is None
-    with pytest.raises(WorkKeyConflict, match="deadline policy"):
+    with assert_work_key_conflict():
         restarted.submit(
             name, {"id": "legacy-deadline"}, work_key="test:legacy-deadline", deadline_seconds=30,
         )
