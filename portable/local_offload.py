@@ -22,6 +22,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Iterable, Sequence
 
+from .agent_execution_guard import AgentAssignmentScopeDenied, deny_unscoped_subprocess_for_assigned_agent
+
 _SECRET_ENV = re.compile(r"(?i)(token|secret|password|api[_-]?key|private[_-]?key|credential|auth)")
 _BLOCKED_COMMANDS = {"rm", "rmdir", "del", "format", "shutdown", "reboot"}
 _BLOCKED_GIT = {"push", "reset", "clean", "checkout", "switch", "merge", "rebase", "branch"}
@@ -151,6 +153,14 @@ class LocalOffloadBroker:
 
     def run(self, job: OffloadJob) -> OffloadResult:
         started = time.monotonic()
+        try:
+            deny_unscoped_subprocess_for_assigned_agent()
+        except AgentAssignmentScopeDenied as exc:
+            with self._state_lock:
+                self._completed_jobs += 1
+            return OffloadResult(
+                job.job_id, "rejected", None, time.monotonic() - started, "", str(exc)
+            )
         with self._state_lock:
             self._queued_jobs += 1
         workspace: Path | None = None
@@ -217,6 +227,18 @@ class LocalOffloadBroker:
             return []
         if len(jobs) > self.budget.max_workers * 8:
             raise ValueError("offload batch exceeds bounded queue capacity")
+        try:
+            # Context variables do not automatically flow into ThreadPoolExecutor
+            # workers. Enforce the assignment boundary in the caller before any
+            # worker thread can lose that context.
+            deny_unscoped_subprocess_for_assigned_agent()
+        except AgentAssignmentScopeDenied as exc:
+            with self._state_lock:
+                self._completed_jobs += len(jobs)
+            return [
+                OffloadResult(job.job_id, "rejected", None, 0.0, "", str(exc))
+                for job in jobs
+            ]
         with concurrent.futures.ThreadPoolExecutor(
             max_workers=self.budget.max_workers, thread_name_prefix="auren-offload"
         ) as pool:
