@@ -12,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / ".ai-harness"))
 
 from safe_provider import _bounded_process_output, _provider_total_budget_seconds, _run_resilient
+from portable.agent_execution_guard import AgentAssignmentScopeDenied, agent_assignment_scope
 
 
 class SafeProviderBoundTests(unittest.TestCase):
@@ -21,6 +22,13 @@ class SafeProviderBoundTests(unittest.TestCase):
             cwd=ROOT, env=dict(os.environ), output_sink=kwargs.pop("output_sink", lambda _chunk: None),
             **kwargs,
         )
+
+    def test_assigned_scope_denies_direct_streaming_provider_before_popen(self):
+        with agent_assignment_scope(("allowed.txt",)):
+            with patch("safe_provider.subprocess.Popen") as popen:
+                with self.assertRaisesRegex(AgentAssignmentScopeDenied, "assigned agent subprocess launch is blocked"):
+                    self.run_command("print('must-not-run')", timeout_seconds=2, max_output_bytes=1024)
+                popen.assert_not_called()
 
     def test_output_is_streamed_and_returned_within_limit(self):
         seen = []
