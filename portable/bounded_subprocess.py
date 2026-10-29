@@ -4,6 +4,7 @@ from dataclasses import dataclass
 import math, os, signal, subprocess, threading, time
 from typing import Mapping, Sequence
 from .bounded_capture import BoundedStreamCapture
+from .agent_execution_guard import deny_unscoped_subprocess_for_assigned_agent
 
 @dataclass(frozen=True, slots=True)
 class BoundedCommandResult:
@@ -71,6 +72,9 @@ def run_bounded_command(
     poll_interval_seconds: float = 0.02,
 ) -> BoundedCommandResult:
     """Run argv without a shell; inherit parent deadline and bound output."""
+    # This is a direct Popen primitive; apply the assignment guard here as well.
+    # No cwd or output limit proves the child is confined to delegated scope.
+    deny_unscoped_subprocess_for_assigned_agent()
     if isinstance(argv, (str, bytes)) or not isinstance(argv, Sequence) or not argv:
         raise ValueError("argv must be a non-empty argument sequence; shell strings are rejected")
     if any(not isinstance(part, str) or not part for part in argv):
