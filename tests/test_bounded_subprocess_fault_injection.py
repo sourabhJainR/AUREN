@@ -2,8 +2,17 @@ from __future__ import annotations
 import os, sys, tempfile, threading, time, unittest
 from pathlib import Path
 from portable.bounded_subprocess import run_bounded_command
+from portable.agent_execution_guard import AgentAssignmentScopeDenied, agent_assignment_scope
+from unittest.mock import patch
 
 class BoundedSubprocessFaultInjectionTests(unittest.TestCase):
+    def test_assigned_scope_denies_bounded_subprocess_before_popen(self):
+        with agent_assignment_scope(("portable/allowed.py",)):
+            with patch("portable.bounded_subprocess.subprocess.Popen") as popen:
+                with self.assertRaisesRegex(AgentAssignmentScopeDenied, "assigned agent subprocess launch is blocked"):
+                    run_bounded_command([sys.executable, "-c", "print('must-not-run')"], timeout_seconds=1)
+                popen.assert_not_called()
+
     def test_hung_command_is_terminated_within_budget_and_not_success(self):
         start=time.monotonic()
         result=run_bounded_command([sys.executable,"-c","import time; time.sleep(30)"],timeout_seconds=0.2,terminate_grace_seconds=0.1)
