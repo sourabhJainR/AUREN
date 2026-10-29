@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 import tempfile
+from contextlib import closing
 import unittest
 from pathlib import Path
 
@@ -191,7 +193,34 @@ class AgentExecutionGuardTests(unittest.TestCase):
             self.assertEqual((root / "allowed.txt").read_text(encoding="utf-8"), "allowed")
 
 
-    def test_assignment_action_class_must_match_registered_handler_before_dispatch(self):
+    def test_direct_controller_submission_requires_host_verifier_before_persistence(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            controller = ExecutionController(root)
+            controller.register_handler(
+                "tests.test_agent_execution_guard.assigned_filesystem_handler",
+                assigned_filesystem_handler,
+                execution_class="read_only",
+                agent_action_class="edit_assigned_paths",
+            )
+            assignment = self._payload(("allowed.txt",))["_auren_agent_assignment"]
+            with self.assertRaisesRegex(
+                AgentAssignmentScopeDenied, "host-owned assignment authorization verifier is required"
+            ):
+                controller.submit(
+                    "tests.test_agent_execution_guard.assigned_filesystem_handler",
+                    {
+                        "resource": "allowed.txt", "path": "allowed.txt",
+                        "workspace_root": str(root), "content": "must not write",
+                        "_auren_agent_assignment": assignment,
+                    },
+                )
+            with closing(sqlite3.connect(controller.db_path)) as db, db:
+                count = db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0]
+            self.assertEqual(count, 0)
+            self.assertFalse((root / "allowed.txt").exists())
+
+    def test_assignment_action_class_must_match_registered_handler_before_submission(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             controller = ExecutionController(root, agent_assignment_verifier=lambda _request: True)
@@ -204,16 +233,15 @@ class AgentExecutionGuardTests(unittest.TestCase):
             assignment = self._payload(
                 ("allowed.txt",), action_class="run_scoped_tests"
             )["_auren_agent_assignment"]
-            task = controller.submit(
-                "tests.test_agent_execution_guard.assigned_filesystem_handler",
-                {
-                    "resource": "allowed.txt", "path": "allowed.txt",
-                    "workspace_root": str(root), "content": "must not write",
-                    "_auren_agent_assignment": assignment,
-                },
-            )
-            controller.run_once(task.id)
-            self.assertNotEqual(controller.task(task.id).state, "completed")
+            with self.assertRaisesRegex(AgentAssignmentScopeDenied, "does not match the registered handler"):
+                controller.submit(
+                    "tests.test_agent_execution_guard.assigned_filesystem_handler",
+                    {
+                        "resource": "allowed.txt", "path": "allowed.txt",
+                        "workspace_root": str(root), "content": "must not write",
+                        "_auren_agent_assignment": assignment,
+                    },
+                )
             self.assertFalse((root / "allowed.txt").exists())
 
     def test_stale_policy_version_or_digest_fails_closed(self):
@@ -229,7 +257,7 @@ class AgentExecutionGuardTests(unittest.TestCase):
                 resource="portable/api.py", authorization_verifier=lambda _request: True,
             )
 
-    def test_stale_policy_change_blocks_assigned_handler_before_dispatch(self):
+    def test_stale_policy_change_is_rejected_before_assigned_task_persistence(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             policy_dir = root / ".auren"
@@ -249,22 +277,21 @@ class AgentExecutionGuardTests(unittest.TestCase):
                 execution_class="read_only",
                 agent_action_class="edit_assigned_paths",
             )
-            payload = self._payload(("allowed.txt",))
-            task = controller.submit(
-                "tests.test_agent_execution_guard.assigned_filesystem_handler",
-                {
-                    "resource": "allowed.txt",
-                    "path": "allowed.txt",
-                    "workspace_root": str(root),
-                    "content": "must not write",
-                    "_auren_agent_assignment": payload["_auren_agent_assignment"],
-                },
-            )
-            controller.run_once(task.id)
-            self.assertNotEqual(controller.task(task.id).state, "completed")
+            assignment = self._payload(("allowed.txt",))["_auren_agent_assignment"]
+            with self.assertRaisesRegex(AgentAssignmentScopeDenied, "policy digest is stale"):
+                controller.submit(
+                    "tests.test_agent_execution_guard.assigned_filesystem_handler",
+                    {
+                        "resource": "allowed.txt",
+                        "path": "allowed.txt",
+                        "workspace_root": str(root),
+                        "content": "must not write",
+                        "_auren_agent_assignment": assignment,
+                    },
+                )
             self.assertFalse((root / "allowed.txt").exists())
 
-    def test_assigned_work_without_handler_action_class_fails_closed(self):
+    def test_assigned_work_without_handler_action_class_fails_before_submission(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             controller = ExecutionController(root, agent_assignment_verifier=lambda _request: True)
@@ -274,16 +301,18 @@ class AgentExecutionGuardTests(unittest.TestCase):
                 execution_class="read_only",
             )
             assignment = self._payload(("allowed.txt",))["_auren_agent_assignment"]
-            task = controller.submit(
-                "tests.test_agent_execution_guard.assigned_filesystem_handler",
-                {
-                    "resource": "allowed.txt", "path": "allowed.txt",
-                    "workspace_root": str(root), "content": "must not write",
-                    "_auren_agent_assignment": assignment,
-                },
-            )
-            controller.run_once(task.id)
-            self.assertNotEqual(controller.task(task.id).state, "completed")
+            with self.assertRaisesRegex(AgentAssignmentScopeDenied, "trusted handler action class"):
+                controller.submit(
+                    "tests.test_agent_execution_guard.assigned_filesystem_handler",
+                    {
+                        "resource": "allowed.txt", "path": "allowed.txt",
+                        "workspace_root": str(root), "content": "must not write",
+                        "_auren_agent_assignment": assignment,
+                    },
+                )
+            with closing(sqlite3.connect(controller.db_path)) as db, db:
+                count = db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0]
+            self.assertEqual(count, 0)
             self.assertFalse((root / "allowed.txt").exists())
 
     def test_handler_action_class_is_immutable_and_unknown_classes_are_rejected(self):
