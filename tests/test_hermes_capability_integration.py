@@ -17,9 +17,11 @@ class CapabilityFabricTests(unittest.TestCase):
         self.assertTrue(found["terminal"].requires_sandbox)
         self.assertTrue(found["browser"].requires_network)
 
-    def test_network_required_capability_uses_safe_fallback(self):
+    def test_network_denied_capability_rejects_network_dependent_fallback(self):
         fabric = CapabilityFabric.default()
-        self.assertEqual(fabric.plan(["browser"], network_allowed=False)[0].name, "web_search")
+        # browser -> web_search is not a safe fallback when both require network.
+        with self.assertRaisesRegex(RuntimeError, "fallback still requires network"):
+            fabric.plan(["browser"], network_allowed=False)
         self.assertEqual(fabric.plan(["browser"], network_allowed=True)[0].name, "browser")
 
 
