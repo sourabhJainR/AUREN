@@ -9,8 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import hashlib
 import json
-import re
-from typing import Any, Callable, Iterable, Mapping, Sequence
+import math
+from typing import Any, Iterable, Mapping, Sequence
 
 from .memory_orchestrator import MEMORY_KINDS, MemoryOrchestrator, MemoryRecall
 
@@ -192,18 +192,29 @@ def select_resources(
     rejected: list[tuple[str, str]] = []
     seen: set[str] = set()
     for candidate in candidates:
-        if candidate.name in seen:
-            rejected.append((candidate.name, "duplicate candidate name"))
+        if not isinstance(candidate, ResourceCandidate):
+            rejected.append(("<invalid-candidate>", "invalid candidate descriptor type"))
             continue
-        seen.add(candidate.name)
+        name = candidate.name if isinstance(candidate.name, str) else "<invalid-candidate>"
+        if name in seen:
+            rejected.append((name, "duplicate candidate name"))
+            continue
+        seen.add(name)
         reason = ""
-        if not candidate.name.strip() or not candidate.source.strip():
+        flags = (
+            candidate.available, candidate.permission_granted, candidate.privacy_compatible,
+            candidate.network_required, candidate.network_allowed,
+            candidate.sandbox_required, candidate.sandbox_available,
+        )
+        if not isinstance(candidate.name, str) or not candidate.name.strip() or not isinstance(candidate.source, str) or not candidate.source.strip():
             reason = "missing identity or source"
+        elif any(type(flag) is not bool for flag in flags):
+            reason = "invalid boolean policy metadata"
         elif not candidate.available:
             reason = "unavailable"
-        elif not candidate.permission_granted:
+        elif candidate.permission_granted is not True:
             reason = "permission not granted"
-        elif not candidate.privacy_compatible:
+        elif candidate.privacy_compatible is not True:
             reason = "privacy constraints not satisfied"
         elif candidate.risk not in risk_order or risk_order[candidate.risk] > risk_order[max_risk]:
             reason = "risk exceeds policy"
@@ -211,17 +222,32 @@ def select_resources(
             reason = "network not allowed"
         elif candidate.sandbox_required and not candidate.sandbox_available:
             reason = "required sandbox unavailable"
-        elif not required.issubset({x.lower() for x in candidate.capabilities}):
+        elif not isinstance(candidate.capabilities, (set, frozenset, tuple, list)) or not required.issubset({str(x).lower() for x in candidate.capabilities}):
             reason = "required capabilities missing"
+        elif candidate.estimated_cost is not None and (
+            isinstance(candidate.estimated_cost, bool) or not isinstance(candidate.estimated_cost, (int, float))
+            or not math.isfinite(candidate.estimated_cost) or candidate.estimated_cost < 0
+        ):
+            reason = "invalid cost measurement"
+        elif candidate.estimated_latency_ms is not None and (
+            type(candidate.estimated_latency_ms) is not int or candidate.estimated_latency_ms < 0
+        ):
+            reason = "invalid latency measurement"
         elif max_cost is not None and (candidate.estimated_cost is None or candidate.estimated_cost > max_cost):
             reason = "cost unknown or exceeds budget"
         elif max_latency_ms is not None and (candidate.estimated_latency_ms is None or candidate.estimated_latency_ms > max_latency_ms):
             reason = "latency unknown or exceeds budget"
         elif require_measured_quality and candidate.measured_quality is None:
             reason = "measured quality unavailable"
-        elif candidate.measured_quality is not None and not 0 <= candidate.measured_quality <= 1:
+        elif candidate.measured_quality is not None and (
+            isinstance(candidate.measured_quality, bool) or not isinstance(candidate.measured_quality, (int, float))
+            or not math.isfinite(candidate.measured_quality) or not 0 <= candidate.measured_quality <= 1
+        ):
             reason = "invalid quality measurement"
-        elif candidate.failure_rate is not None and not 0 <= candidate.failure_rate <= 1:
+        elif candidate.failure_rate is not None and (
+            isinstance(candidate.failure_rate, bool) or not isinstance(candidate.failure_rate, (int, float))
+            or not math.isfinite(candidate.failure_rate) or not 0 <= candidate.failure_rate <= 1
+        ):
             reason = "invalid failure-rate measurement"
         if reason:
             rejected.append((candidate.name, reason))
