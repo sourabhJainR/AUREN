@@ -131,11 +131,15 @@ def plan_memory(
         kinds.append("sensory")
     if include_reflective:
         kinds.append("reflective")
+    required = tuple(dict.fromkeys(str(item).strip() for item in required_memory_ids if str(item).strip()))
+    if required:
+        # Required IDs may belong to a different memory kind than the task default.
+        # Search all kinds so required context is resolved or fails closed, never hidden by routing.
+        kinds.extend(MEMORY_KINDS)
     # Stable deduplication and explicit validation protect the recall boundary.
     selected = tuple(dict.fromkeys(kinds))
     if any(kind not in MEMORY_KINDS for kind in selected):
         raise ValueError("memory plan contains an unsupported memory kind")
-    required = tuple(dict.fromkeys(str(item).strip() for item in required_memory_ids if str(item).strip()))
     return MemoryPlan(
         task_type=resolved, kinds=selected, budget_chars=budget_chars, task_id=task_id,
         intent_digest=intent_digest, branch=branch, source_revision=source_revision,
