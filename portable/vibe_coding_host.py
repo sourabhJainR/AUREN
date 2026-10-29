@@ -1002,6 +1002,20 @@ def _drain_bounded_mcp_stderr_line(stream: Any, line: str, chunk_chars: int = 40
         line = stream.readline(chunk_chars)
 
 
+def _signal_mcp_fatal_response(responses: queue.Queue[str], marker: str) -> None:
+    """Deliver a fatal reader marker without blocking behind buffered frames."""
+    if not isinstance(marker, str) or not marker:
+        raise ValueError("MCP fatal response marker must be a non-empty string")
+    while True:
+        try:
+            responses.get_nowait()
+        except queue.Empty:
+            break
+    # The reader thread is the sole producer; after draining, this insertion is
+    # nonblocking and guarantees the waiting caller observes the fatal condition.
+    responses.put_nowait(marker)
+
+
 class MCPStdioToolAdapter:
     """Call a configured MCP stdio tool using JSON-RPC, without shell interpolation."""
 
@@ -1403,14 +1417,7 @@ class MCPStdioToolAdapter:
         stderr_chunks: list[str] = []
 
         def signal_fatal(marker: str) -> None:
-            # Fatal reader conditions must never block behind a full queue. Discard
-            # buffered notifications and deliver the failure marker immediately.
-            while True:
-                try:
-                    responses.get_nowait()
-                except queue.Empty:
-                    break
-            responses.put_nowait(marker)
+            _signal_mcp_fatal_response(responses, marker)
 
         def read_stdout() -> None:
             assert proc.stdout is not None
