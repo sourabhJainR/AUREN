@@ -21,6 +21,7 @@ from runtime.feedback_loop import FeedbackLoop
 from portable.local_llm import LocalLLMError, enabled as local_llm_enabled, fallback_allowed as local_llm_fallback_allowed, generate as local_llm_generate
 from portable.identity_compat import get_auren_env
 from portable.subprocess_provider import SubprocessProviderInvoker, _close_windows_job, _windows_job
+from portable.agent_execution_guard import deny_unscoped_subprocess_for_assigned_agent
 
 _TRANSIENT_MARKERS = (
     "response stopped arriving", "response stopped", "api error", "connection reset",
@@ -149,6 +150,9 @@ def _bounded_process_output(command: list[str], *, cwd: Path, env: dict[str, str
     are bounded; a single giant line cannot force an unbounded readline allocation.
     The provider tree is terminated on timeout, overflow, and normal parent exit.
     """
+    # This entry point owns its own Popen call; enforce assignment scope here too.
+    # Do not rely on the shared invoker because this adapter intentionally streams output.
+    deny_unscoped_subprocess_for_assigned_agent()
     if not 0.05 <= timeout_seconds <= 3600:
         raise ValueError("timeout_seconds must be between 0.05 and 3600")
     if type(max_output_bytes) is not int or not 1024 <= max_output_bytes <= 16000000:
