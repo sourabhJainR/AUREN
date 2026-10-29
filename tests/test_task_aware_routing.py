@@ -70,6 +70,17 @@ class TaskAwareRoutingTests(unittest.TestCase):
         self.assertIn("procedural", plan.kinds)
         self.assertIn(saved.memory_id, [item.memory_id for item in recall.memories])
 
+    def test_required_ephemeral_memory_is_recalled_by_id_within_task_scope(self):
+        saved = self.orchestrator.remember(
+            "working", "ephemeral checkpoint for active task",
+            source="active-run", task_id="task-7", approved=True, verified=True,
+        )
+        _, recall = recall_for_task(
+            self.orchestrator, "unrelated query", task_type="conversation",
+            task_id="task-7", required_memory_ids=(saved.memory_id,), budget_chars=300,
+        )
+        self.assertIn(saved.memory_id, [item.memory_id for item in recall.memories])
+
     def test_required_memory_respects_branch_scope_even_when_id_is_known(self):
         saved = self.orchestrator.remember(
             "procedural", "release procedure from feature branch",
