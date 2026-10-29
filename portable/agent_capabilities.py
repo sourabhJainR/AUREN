@@ -350,8 +350,8 @@ class PersistentMemory:
         """
         if not isinstance(project, str) or not project.strip():
             raise ValueError("project is required")
-        if type(limit) is not int or not 1 <= limit <= 1000:
-            raise ValueError("limit must be an integer between 1 and 1000")
+        if type(limit) is not int or not 1 <= limit <= 500:
+            raise ValueError("limit must be an integer between 1 and 500")
         ids = tuple(dict.fromkeys(
             item.strip() for item in memory_ids
             if isinstance(item, str) and item.strip()
