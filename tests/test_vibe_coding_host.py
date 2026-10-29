@@ -253,6 +253,48 @@ class VibeCodingHostTests(unittest.TestCase):
         self.assertEqual(len(metadata["observed_prefix_sha256"]), 64)
         self.assertFalse(metadata["frame_complete"])
 
+    def test_mcp_chunk_recovery_enforces_aggregate_budget_before_merge(self):
+        with tempfile.TemporaryDirectory() as temp:
+            project = Path(temp) / "project"
+            project.mkdir()
+            adapter = MCPStdioToolAdapter(
+                argv=(sys.executable, "-c", "pass"),
+                tool_name="read-only-bounded",
+                argument_map={"page": "$page"},
+                timeout_seconds=3,
+                max_response_chars=100,
+                max_aggregate_response_chars=120,
+                requires_authority_binding=False,
+                trusted_workspace_root=project,
+                read_only_response_chunker=lambda _args: [{"page": 1}, {"page": 2}],
+                read_only_response_merger=lambda results: {"items": list(results)},
+            )
+            with patch.object(
+                adapter,
+                "_invoke_unchecked",
+                side_effect=[
+                    AdapterUnavailable("MCP response exceeded the configured character limit"),
+                    {"data": "x" * 60},
+                    {"data": "y" * 60},
+                ],
+            ) as invoke:
+                with self.assertRaisesRegex(AdapterUnavailable, "aggregate response budget"):
+                    adapter({"page": 0, "state": {"workspace_root": str(project)}})
+            self.assertEqual(invoke.call_count, 3)
+
+    def test_mcp_aggregate_response_limit_must_not_be_below_frame_limit(self):
+        with tempfile.TemporaryDirectory() as temp:
+            with self.assertRaisesRegex(ValueError, "at least the frame limit"):
+                MCPStdioToolAdapter(
+                    argv=(sys.executable, "-c", "pass"),
+                    tool_name="read-only-bounded",
+                    timeout_seconds=3,
+                    max_response_chars=100,
+                    max_aggregate_response_chars=99,
+                    requires_authority_binding=False,
+                    trusted_workspace_root=Path(temp),
+                )
+
     def test_mcp_read_only_oversized_response_reduces_batch_once_without_raising_frame_cap(self):
         with tempfile.TemporaryDirectory() as temp:
             base = Path(temp)
