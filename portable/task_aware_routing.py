@@ -17,6 +17,7 @@ from .memory_orchestrator import MEMORY_KINDS, MemoryOrchestrator, MemoryRecall
 
 
 _TASK_KINDS: dict[str, tuple[str, ...]] = {
+    "security": ("working", "episodic", "procedural", "semantic", "hierarchical", "prospective"),
     "conversation": ("working", "episodic", "semantic"),
     "coding": ("working", "episodic", "procedural", "semantic", "hierarchical", "prospective"),
     "debugging": ("working", "episodic", "procedural", "semantic", "hierarchical"),
@@ -27,6 +28,7 @@ _TASK_KINDS: dict[str, tuple[str, ...]] = {
     "review": ("working", "episodic", "procedural", "semantic", "hierarchical"),
 }
 _TASK_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("security", ("security", "guardrail", "authorization", "permission", "credential", "sandbox", "secret", "threat model", "policy enforcement")),
     ("debugging", ("debug", "debugging", "bug", "failure", "traceback", "incident", "regression", "crash")),
     ("coding", ("implement", "implementation", "refactor", "code", "function", "class", "compile", "feature", "patch")),
     ("review", ("review", "audit", "verify", "quality gate", "security check", "regression test")),
@@ -48,6 +50,10 @@ class MemoryPlan:
     source_revision: str | None = None
     required_memory_ids: tuple[str, ...] = ()
     reason: str = ""
+    sensitivity: str = "normal"
+    freshness: str = "project-scoped"
+    sampling_allowed: bool = False
+    full_coverage: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,6 +98,9 @@ class RoutingReceipt:
     resource_names: tuple[str, ...] = ()
     rejected_resources: tuple[tuple[str, str], ...] = ()
     policy_digest: str = ""
+    sensitivity: str = "normal"
+    freshness: str = "project-scoped"
+    sampling_allowed: bool = False
 
 
 def classify_task(task: str, explicit_type: str | None = None) -> tuple[str, str]:
@@ -122,10 +131,25 @@ def plan_memory(
     required_memory_ids: Iterable[str] = (),
     include_sensory: bool = False,
     include_reflective: bool = False,
+    allow_sampling: bool = False,
+    requires_full_coverage: bool = True,
 ) -> MemoryPlan:
-    if type(budget_chars) is not int or budget_chars < 1:
+    if type(budget_chars) is not int or isinstance(budget_chars, bool) or budget_chars < 1:
         raise ValueError("budget_chars must be a positive integer")
+    if type(allow_sampling) is not bool or type(requires_full_coverage) is not bool:
+        raise TypeError("sampling and full-coverage controls must be booleans")
     resolved, reason = classify_task(task, task_type)
+    normalized = task.casefold()
+    security_sensitive = resolved == "security" or any(
+        marker in normalized for marker in ("security", "guardrail", "authorization", "permission", "credential", "sandbox", "secret", "policy enforcement")
+    )
+    delivery_sensitive = any(
+        marker in normalized for marker in ("release", "deploy", "production", "migration", "rollback", "incident response", "acceptance", "holdout", "evaluator")
+    )
+    full_coverage = requires_full_coverage or security_sensitive or delivery_sensitive or resolved == "operations"
+    sensitivity = "high" if security_sensitive or delivery_sensitive else "normal"
+    sampling_allowed = allow_sampling and not full_coverage
+    freshness = "branch-and-revision" if branch or source_revision else ("intent-scoped" if intent_digest else "project-scoped")
     kinds = list(_TASK_KINDS[resolved])
     if include_sensory:
         kinds.append("sensory")
@@ -144,6 +168,8 @@ def plan_memory(
         task_type=resolved, kinds=selected, budget_chars=budget_chars, task_id=task_id,
         intent_digest=intent_digest, branch=branch, source_revision=source_revision,
         required_memory_ids=required, reason=reason,
+        sensitivity=sensitivity, freshness=freshness,
+        sampling_allowed=sampling_allowed, full_coverage=full_coverage,
     )
 
 
@@ -152,6 +178,7 @@ def recall_for_task(orchestrator: MemoryOrchestrator, task: str, **options: Any)
     allowed = {
         "task_type", "budget_chars", "task_id", "intent_digest", "branch",
         "source_revision", "required_memory_ids", "include_sensory", "include_reflective",
+        "allow_sampling", "requires_full_coverage",
     }
     unknown = set(options) - allowed
     if unknown:
@@ -288,4 +315,6 @@ def make_receipt(task: str, plan: MemoryPlan, recall: MemoryRecall,
         resource_names=resources.selected if resources else (),
         rejected_resources=resources.rejected if resources else (),
         policy_digest=resources.policy_digest if resources else "",
+        sensitivity=plan.sensitivity, freshness=plan.freshness,
+        sampling_allowed=plan.sampling_allowed,
     )
