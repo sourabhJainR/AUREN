@@ -11,6 +11,7 @@ import hashlib
 import json
 import math
 import re
+import time
 from typing import Any, Iterable, Mapping, Sequence
 
 from .memory_orchestrator import MEMORY_KINDS, MemoryOrchestrator, MemoryRecall
@@ -74,6 +75,7 @@ class ResourceCandidate:
     estimated_latency_ms: int | None = None
     measured_quality: float | None = None
     metadata_version: str | None = None
+    metadata_observed_at: float | None = None
     failure_rate: float | None = None
     tags: frozenset[str] = frozenset()
 
@@ -201,6 +203,9 @@ def select_resources(
     max_latency_ms: int | None = None,
     max_candidates: int = 3,
     require_measured_quality: bool = False,
+    require_fresh_metadata: bool = False,
+    max_metadata_age_seconds: int = 900,
+    now_epoch: float | None = None,
     policy_context: Mapping[str, Any] | None = None,
 ) -> ResourceDecision:
     """Rank only eligible advertised resources; never execute or authorize them."""
@@ -216,13 +221,23 @@ def select_resources(
         type(max_latency_ms) is not int or max_latency_ms < 0
     ):
         raise ValueError("max_latency_ms must be a non-negative integer")
-    if type(max_candidates) is not int or max_candidates < 1:
+    if type(max_candidates) is not int or isinstance(max_candidates, bool) or max_candidates < 1:
         raise ValueError("max_candidates must be a positive integer")
+    if type(require_fresh_metadata) is not bool:
+        raise TypeError("require_fresh_metadata must be a boolean")
+    if type(max_metadata_age_seconds) is not int or isinstance(max_metadata_age_seconds, bool) or max_metadata_age_seconds < 1:
+        raise ValueError("max_metadata_age_seconds must be a positive integer")
+    current_time = time.time() if now_epoch is None else now_epoch
+    if isinstance(current_time, bool) or not isinstance(current_time, (int, float)) or not math.isfinite(current_time) or current_time < 0:
+        raise ValueError("now_epoch must be a finite non-negative timestamp")
     required = frozenset(str(item).strip().lower() for item in required_capabilities if str(item).strip())
     policy = {
         "required": sorted(required), "max_risk": max_risk, "max_cost": max_cost,
         "max_latency_ms": max_latency_ms, "max_candidates": max_candidates,
-        "require_measured_quality": require_measured_quality, "context": dict(policy_context or {}),
+        "require_measured_quality": require_measured_quality,
+        "require_fresh_metadata": require_fresh_metadata,
+        "max_metadata_age_seconds": max_metadata_age_seconds,
+        "context": dict(policy_context or {}),
     }
     policy_digest = hashlib.sha256(json.dumps(policy, sort_keys=True, separators=(",", ":"), default=str).encode()).hexdigest()
     eligible: list[tuple[tuple[float, ...], ResourceCandidate]] = []
@@ -283,6 +298,18 @@ def select_resources(
             or not math.isfinite(candidate.measured_quality) or not 0 <= candidate.measured_quality <= 1
         ):
             reason = "invalid quality measurement"
+        elif candidate.metadata_observed_at is not None and (
+            isinstance(candidate.metadata_observed_at, bool)
+            or not isinstance(candidate.metadata_observed_at, (int, float))
+            or not math.isfinite(candidate.metadata_observed_at)
+            or candidate.metadata_observed_at < 0
+            or candidate.metadata_observed_at > current_time
+        ):
+            reason = "invalid metadata timestamp"
+        elif require_fresh_metadata and candidate.metadata_observed_at is None:
+            reason = "metadata freshness unknown"
+        elif require_fresh_metadata and current_time - candidate.metadata_observed_at > max_metadata_age_seconds:
+            reason = "metadata stale"
         elif candidate.failure_rate is not None and (
             isinstance(candidate.failure_rate, bool) or not isinstance(candidate.failure_rate, (int, float))
             or not math.isfinite(candidate.failure_rate) or not 0 <= candidate.failure_rate <= 1
