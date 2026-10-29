@@ -306,3 +306,23 @@ it is never called.
 Rollback: do not revert to launching unconfined MCP children for assigned tasks.
 Any replacement must prove host-enforced scope, network and credential boundaries,
 cancellation/cleanup, and denial-before-launch under fault injection before use.
+
+## Assigned-agent provider and local-offload subprocess boundaries (2026-10-29)
+
+The same process-isolation rule now covers the local offload broker and the two
+standalone provider launchers (`.ai-harness/provider.py` and
+`.ai-harness/resilient_provider.py`). They deny an active assignment scope before
+provider validation side effects, thread-pool dispatch, or child-process creation.
+The local-offload batch path checks in the caller because Python context variables
+do not automatically propagate into `ThreadPoolExecutor` workers; direct single-job
+calls also check their own boundary.
+
+Blocked jobs return an explicit `rejected` result where the API returns job results,
+and provider CLIs return a security-gate exit code. No automatic retry, larger output
+limit, or trusted working directory overrides this decision. The runtime-resilience
+workflow now includes the regression file and treats these launchers as runtime
+sensitive paths.
+
+Rollback: do not remove the checks until the execution host propagates an
+authenticated assignment envelope into a verified OS sandbox and independently
+tests filesystem, network, credential, cancellation, and process-tree containment.
