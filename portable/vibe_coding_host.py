@@ -996,6 +996,8 @@ class MCPStdioToolAdapter:
             Mapping[str, Any],
         ] | None = None,
         read_only_response_reducer: Callable[[Mapping[str, Any]], Mapping[str, Any]] | None = None,
+        read_only_response_chunker: Callable[[Mapping[str, Any]], Sequence[Mapping[str, Any]]] | None = None,
+        read_only_response_merger: Callable[[Sequence[Mapping[str, Any]]], Mapping[str, Any]] | None = None,
     ) -> None:
         if not argv or any(not isinstance(x, str) or not x for x in argv):
             raise ValueError("MCP command must be a non-empty argv array")
@@ -1014,9 +1016,17 @@ class MCPStdioToolAdapter:
             raise TypeError("authority_dispatch must be callable")
         if read_only_response_reducer is not None and not callable(read_only_response_reducer):
             raise TypeError("read_only_response_reducer must be callable")
-        if read_only_response_reducer is not None and requires_authority_binding:
+        if (read_only_response_chunker is None) != (read_only_response_merger is None):
+            raise ValueError("read-only chunk recovery requires both a chunker and a merger")
+        if read_only_response_chunker is not None and not callable(read_only_response_chunker):
+            raise TypeError("read_only_response_chunker must be callable")
+        if read_only_response_merger is not None and not callable(read_only_response_merger):
+            raise TypeError("read_only_response_merger must be callable")
+        if (read_only_response_reducer is not None or read_only_response_chunker is not None) and requires_authority_binding:
             raise ValueError("adaptive oversized-response recovery is only allowed for operator-declared read-only MCP tools")
         self.read_only_response_reducer = read_only_response_reducer
+        self.read_only_response_chunker = read_only_response_chunker
+        self.read_only_response_merger = read_only_response_merger
         self.timeout_seconds = timeout_seconds
         self.env_allowlist = tuple(env_allowlist)
         self.max_response_chars = max_response_chars
@@ -1104,9 +1114,59 @@ class MCPStdioToolAdapter:
             enforce_agent_resource_scope(None)
         if not self.requires_authority_binding:
             arguments = self._arguments_for_request(request)
-            # At most three total calls (initial + two reductions), and only for an
-            # explicitly configured read-only tool. Each reducer must make a real,
-            # JSON-safe change; the hard response-frame cap is never raised.
+            # Chunk recovery is tool-specific: callers define stable page/chunk
+            # boundaries and an explicit merge contract. Never guess pagination
+            # fields or return a partial page as if it were the complete result.
+            if self.read_only_response_chunker is not None:
+                try:
+                    return self._invoke_unchecked(request, arguments=arguments)
+                except AdapterUnavailable as exc:
+                    if "exceeded the configured character limit" not in str(exc):
+                        raise
+                try:
+                    planned = self.read_only_response_chunker(dict(arguments))
+                    if isinstance(planned, (str, bytes)) or not isinstance(planned, Sequence):
+                        raise TypeError("chunker must return a sequence of argument mappings")
+                    if not 2 <= len(planned) <= 8:
+                        raise ValueError("chunk recovery must produce between 2 and 8 chunks")
+                    chunks: list[dict[str, Any]] = []
+                    fingerprints: set[str] = set()
+                    for chunk in planned:
+                        if not isinstance(chunk, Mapping):
+                            raise TypeError("each recovery chunk must be an argument mapping")
+                        snapshot = json.loads(json.dumps(dict(chunk), ensure_ascii=False, allow_nan=False))
+                        if not isinstance(snapshot, dict):
+                            raise TypeError("recovery chunk must be a JSON object")
+                        fingerprint = json.dumps(snapshot, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+                        if fingerprint in fingerprints:
+                            raise ValueError("chunk recovery must not repeat an identical chunk")
+                        fingerprints.add(fingerprint)
+                        chunks.append(snapshot)
+                except Exception as recovery_error:
+                    raise AdapterUnavailable(
+                        "MCP oversized response could not be split into a bounded, valid read-only chunk plan"
+                    ) from recovery_error
+                chunk_results: list[Mapping[str, Any]] = []
+                # Each child call retains the same hard frame cap. If any chunk is
+                # still oversized, abort the whole recovery instead of returning
+                # incomplete merged data.
+                for chunk in chunks:
+                    chunk_results.append(self._invoke_unchecked(request, arguments=chunk))
+                try:
+                    merged = self.read_only_response_merger(chunk_results)
+                    if not isinstance(merged, Mapping):
+                        raise TypeError("chunk merger must return a mapping")
+                    merged_snapshot = json.loads(json.dumps(dict(merged), ensure_ascii=False, allow_nan=False))
+                    if not isinstance(merged_snapshot, dict):
+                        raise TypeError("merged response must be a JSON object")
+                    return merged_snapshot
+                except Exception as merge_error:
+                    raise AdapterUnavailable(
+                        "MCP oversized response chunks were fetched but could not be safely merged; no partial result accepted"
+                    ) from merge_error
+            # Legacy reduction is bounded to three total calls and remains opt-in
+            # for read-only tools. Callers needing complete coverage should use the
+            # chunker+merger contract above instead of narrowing result scope.
             for attempt in range(3):
                 try:
                     return self._invoke_unchecked(request, arguments=arguments)
