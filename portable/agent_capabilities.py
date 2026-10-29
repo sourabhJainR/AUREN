@@ -132,7 +132,20 @@ class CapabilityFabric:
             if cap.requires_network and not network_allowed:
                 if not cap.fallback:
                     raise RuntimeError(f"network required and no safe fallback: {name}")
-                selected = self._caps[cap.fallback]
+                selected = self._caps.get(cap.fallback)
+                if selected is None:
+                    raise RuntimeError(f"configured fallback is unavailable: {name}")
+                # A fallback is not safe merely because it has a different name.
+                # Re-apply all relevant gates so a network-denied request cannot
+                # silently route to another network-dependent capability.
+                if selected.requires_network:
+                    raise RuntimeError(
+                        f"network denied and configured fallback still requires network: {name} -> {selected.name}"
+                    )
+                if _RISK_ORDER[selected.risk] > _RISK_ORDER[max_risk]:
+                    raise PermissionError(f"fallback exceeds risk budget: {name} -> {selected.name}")
+                if selected.requires_sandbox and not sandbox_available:
+                    raise PermissionError(f"fallback requires sandbox: {name} -> {selected.name}")
             if selected.name not in seen:
                 result.append(selected)
                 seen.add(selected.name)
@@ -336,6 +349,49 @@ class PersistentMemory:
                     (project, like, like, like, intent_digest, intent_digest, branch, branch,
                      source_revision, source_revision, limit)).fetchall()
         return [self._record(r) for r in rows]
+
+    def get_by_ids(
+        self, project: str, memory_ids: Iterable[str], *,
+        intent_digest: str | None = None, branch: str | None = None,
+        source_revision: str | None = None, limit: int = 100,
+    ) -> list[MemoryRecord]:
+        """Fetch explicitly required, active memories without query-term filtering.
+
+        Scope filters match search(): unscoped records remain eligible, while
+        branch/revision-specific records require the matching caller scope.
+        IDs are bounded and results are returned in caller order.
+        """
+        if not isinstance(project, str) or not project.strip():
+            raise ValueError("project is required")
+        if type(limit) is not int or not 1 <= limit <= 500:
+            raise ValueError("limit must be an integer between 1 and 500")
+        ids = tuple(dict.fromkeys(
+            item.strip() for item in memory_ids
+            if isinstance(item, str) and item.strip()
+        ))
+        if len(ids) > limit:
+            raise ValueError("too many required memory IDs")
+        if not ids:
+            return []
+        for name, value in (("branch", branch), ("source_revision", source_revision)):
+            if value is not None and (not isinstance(value, str) or not value.strip()):
+                raise ValueError(f"{name} must be a non-empty string when supplied")
+        columns = (
+            "id,project,category,text,intent_digest,confidence,verified,created_at,"
+            "branch,source_revision,retracted_at,retraction_reason"
+        )
+        placeholders = ",".join("?" for _ in ids)
+        with self._lock, self._connection() as db:
+            rows = db.execute(
+                f"SELECT {columns} FROM memory WHERE project=? AND id IN ({placeholders}) "
+                "AND retracted_at IS NULL AND (? IS NULL OR intent_digest=?) "
+                "AND (branch IS NULL OR (? IS NOT NULL AND branch=?)) "
+                "AND (source_revision IS NULL OR (? IS NOT NULL AND source_revision=?) )",
+                (project.strip(), *ids, intent_digest, intent_digest, branch, branch,
+                 source_revision, source_revision),
+            ).fetchall()
+        by_id = {row[0]: self._record(row) for row in rows}
+        return [by_id[item] for item in ids if item in by_id]
 
     def retract(self, project: str, memory_id: str, *, reason: str) -> MemoryRecord:
         if not isinstance(project, str) or not project.strip():

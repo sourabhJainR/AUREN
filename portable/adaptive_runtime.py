@@ -16,6 +16,7 @@ from .capability_fabric import Capability, CapabilityFabric, ProviderAdapter, Pr
 from .context_graph import ContextGraph
 from .context_engine import ContextEngine
 from .memory_orchestrator import MemoryOrchestrator
+from .task_aware_routing import make_receipt, recall_for_task, select_resources
 from .engineering_design_guard import EngineeringDesignGuard
 from .context_resolver import ContextResolution, ContextResolver
 from .cognitive_controller import CognitiveController
@@ -171,8 +172,9 @@ class AdaptiveRuntime:
         engine = ContextEngine()
         # Keep the orchestrator's retrieval budget no larger than the packer's
         # item budget; the engine separately enforces item-count and output caps.
-        recall = self.memory_orchestrator(project_root).recall(
-            task, task_id=task_id, budget_chars=min(budget_chars, engine.policy.max_chars),
+        _, recall = recall_for_task(
+            self.memory_orchestrator(project_root), task, task_id=task_id,
+            budget_chars=min(budget_chars, engine.policy.max_chars),
             required_memory_ids=required_memory_ids,
         )
         items = self.memory_orchestrator(project_root).context_items(recall)
@@ -210,9 +212,8 @@ class AdaptiveRuntime:
         if type(recall_budget_chars) is not int or recall_budget_chars < 1:
             raise ValueError("recall_budget_chars must be a positive integer")
         orchestrator = self.memory_orchestrator(project_root)
-        recall = orchestrator.recall(
-            task,
-            task_id=task_id,
+        _, recall = recall_for_task(
+            orchestrator, task, task_id=task_id,
             budget_chars=recall_budget_chars,
             required_memory_ids=required_memory_ids,
         )
@@ -970,6 +971,50 @@ class AdaptiveRuntime:
 
     def recover(self, session_id: str, next_stage: str = "execute") -> SessionCheckpoint | None:
         return self.session_store.recover(session_id, next_stage=next_stage)
+
+
+    def route_task_context(
+        self,
+        project_root: Path | str,
+        task: str,
+        *,
+        memory_options: Mapping[str, Any] | None = None,
+        resource_candidates: Sequence[Any] = (),
+        required_capabilities: Iterable[str] = (),
+        max_risk: str = "medium",
+        max_cost: float | None = None,
+        max_latency_ms: int | None = None,
+        max_resource_candidates: int = 3,
+        require_measured_quality: bool = False,
+    ) -> dict[str, Any]:
+        """Route task memory and advertised resources through canonical owners.
+
+        Resource metadata is advisory only; this method does not execute or
+        authorize resources. Dispatch must enforce policy again at the boundary.
+        """
+        plan, recall = recall_for_task(
+            self.memory_orchestrator(project_root), task, **dict(memory_options or {}),
+        )
+        required = tuple(required_capabilities)
+        candidates = tuple(resource_candidates)
+        resource_decision = None
+        if candidates or required:
+            resource_decision = select_resources(
+                candidates,
+                required_capabilities=required,
+                max_risk=max_risk,
+                max_cost=max_cost,
+                max_latency_ms=max_latency_ms,
+                max_candidates=max_resource_candidates,
+                require_measured_quality=require_measured_quality,
+            )
+        receipt = make_receipt(task, plan, recall, resource_decision)
+        return {
+            "plan": plan,
+            "recall": recall,
+            "resources": resource_decision,
+            "receipt": receipt,
+        }
 
 
 __all__ = ["AdaptiveRuntime"]

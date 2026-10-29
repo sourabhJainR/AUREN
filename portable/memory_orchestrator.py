@@ -323,11 +323,13 @@ class MemoryOrchestrator:
     def _ephemeral_recall(
         self, kind: str, query: str, task_id: str | None, intent_digest: str | None = None,
         branch: str | None = None, source_revision: str | None = None,
+        required_memory_ids: Iterable[str] = (),
     ) -> list[MemoryEnvelope]:
         now = time.time()
         target = self._working if kind == "working" else self._sensory
         scope = str(task_id or "default")
         terms = self._terms(query)
+        required_ids = frozenset(required_memory_ids)
         with self._lock:
             expired = [key for key, item in target.items() if item.expires_at is not None and item.expires_at <= now]
             for key in expired:
@@ -339,7 +341,7 @@ class MemoryOrchestrator:
                 and (intent_digest is None or item.intent_digest == intent_digest)
                 and (item.branch is None or item.branch == branch)
                 and (item.source_revision is None or item.source_revision == source_revision)
-                and (not terms or terms.intersection(self._terms(item.text)))
+                and (not terms or terms.intersection(self._terms(item.text)) or item.memory_id in required_ids)
             ]
         items.sort(key=lambda item: (item.verified, item.confidence, item.created_at), reverse=True)
         return items
@@ -380,11 +382,24 @@ class MemoryOrchestrator:
                 self.project, query, intent_digest=intent_digest,
                 branch=branch, source_revision=source_revision, limit=100,
             )
+            # Explicitly required IDs must not disappear merely because their text
+            # shares no terms with the current query. Fetch only those exact IDs,
+            # under the same project/intent/branch/revision scope, then merge.
+            if required_ids:
+                required_records = self.memory.get_by_ids(
+                    self.project, tuple(required_ids), intent_digest=intent_digest,
+                    branch=branch, source_revision=source_revision,
+                    limit=min(500, max(100, len(required_ids))),
+                )
+                by_id = {record.id: record for record in durable_records}
+                by_id.update({record.id: record for record in required_records})
+                durable_records = list(by_id.values())
             self._metrics["durable_searches"] += 1
         for kind in kind_list:
             if kind in EPHEMERAL_KINDS:
                 candidates.extend(self._ephemeral_recall(
                     kind, query, task_id, intent_digest, branch, source_revision,
+                    required_memory_ids=required_ids,
                 ))
             elif kind == "kv_cache":
                 if self.cache is not None:

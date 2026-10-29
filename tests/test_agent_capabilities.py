@@ -24,6 +24,15 @@ class AgentCapabilityTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             fabric.plan(["web_search"], network_allowed=False)
 
+    def test_capability_fallback_cannot_bypass_network_denial(self):
+        fabric = CapabilityFabric()
+        # The configured browser fallback is web_search, which also requires
+        # network. A fallback name alone is not evidence of a safe local route.
+        with self.assertRaisesRegex(RuntimeError, "fallback still requires network"):
+            fabric.plan(["browser"], network_allowed=False, sandbox_available=True)
+        with self.assertRaisesRegex(RuntimeError, "fallback still requires network"):
+            fabric.plan(["x_search"], network_allowed=False, sandbox_available=True)
+
     def test_provider_adapter_registry_prefers_priority_then_name(self):
         registry = ProviderAdapterRegistry([
             ProviderAdapter("zeta", frozenset({"text"}), priority=2),
