@@ -466,7 +466,7 @@ class VibeCodingHostTests(unittest.TestCase):
                 "    except Exception: continue\n"
                 "    if msg.get('method') == 'initialize':\n"
                 "        print(json.dumps({'jsonrpc':'2.0','id':msg['id'],'result':{'protocolVersion':'2024-11-05','capabilities':{},'serverInfo':{'name':'flood','version':'1'}}}), flush=True)\n"
-                "        for n in range(1000): print(json.dumps({'jsonrpc':'2.0','method':'notifications/progress','params':{'n':n}}), flush=True)\n"
+                "        sys.stdout.writelines(json.dumps({'jsonrpc':'2.0','method':'notifications/progress','params':{'n':n}}) + '\\n' for n in range(1000)); sys.stdout.flush()\n"
                 "    elif msg.get('method') == 'tools/call':\n"
                 "        print(json.dumps({'jsonrpc':'2.0','id':msg['id'],'result':{'structuredContent':{'ok':True}}}), flush=True)\n",
                 encoding="utf-8",
@@ -478,8 +478,20 @@ class VibeCodingHostTests(unittest.TestCase):
                 requires_authority_binding=False,
                 trusted_workspace_root=project,
             )
-            with self.assertRaisesRegex(AdapterUnavailable, "bounded response queue"):
-                adapter({"state": {"workspace_root": str(project)}, "intent": "test"})
+            original_read_response = MCPStdioToolAdapter._read_response
+
+            def allow_flood_to_fill_queue(stream, responses, request_id, timeout):
+                result = original_read_response(stream, responses, request_id, timeout)
+                if request_id == 1:
+                    # Let the bounded reader queue fill before the consumer waits
+                    # for the tool result; otherwise a fast Windows runner may
+                    # drain each flushed notification and make this test racy.
+                    time.sleep(0.2)
+                return result
+
+            with patch.object(MCPStdioToolAdapter, "_read_response", side_effect=allow_flood_to_fill_queue):
+                with self.assertRaisesRegex(AdapterUnavailable, "bounded response queue"):
+                    adapter({"state": {"workspace_root": str(project)}, "intent": "test"})
 
     def test_mcp_stdio_adapter_calls_real_json_rpc_tool_and_research_requires_source_urls(self):
         with tempfile.TemporaryDirectory() as temp:
