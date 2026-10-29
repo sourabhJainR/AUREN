@@ -38,7 +38,7 @@ class GraphTaskContextRoutingTests(unittest.TestCase):
         team = GraphAgentTeam(graph, task_context_router=route)
         result = team.run("task-1", "implement bounded MCP response handling", {})
 
-        self.assertEqual(result.status.value, "success")
+        self.assertEqual(result.status.value, "accepted")
         self.assertIn("policy and rollback", observed["auren_task_memory_context"])
         self.assertEqual(observed["auren_task_routing_receipt"]["memory_ids"], ["m1"])
         self.assertEqual(observed["auren_task_routing_receipt"]["query_digest"], "digest-only")
