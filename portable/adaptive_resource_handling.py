@@ -78,3 +78,24 @@ def sample_items(items: Iterable[str], limit: int) -> list[str]:
         return [values[0]]
     indices = {round(i * (len(values) - 1) / (limit - 1)) for i in range(limit)}
     return [values[i] for i in sorted(indices)]
+
+
+def adaptive_context_limit(base_limit: int, pressure: dict[str, float]) -> int:
+    """Reduce optional context under measured CPU/memory/queue pressure.
+
+    Thresholds are deterministic policy knobs, not learned claims. Learning may
+    tune them only after paired task-success and critical-evidence evaluations.
+    """
+    if base_limit < 1:
+        raise ValueError("base_limit must be positive")
+    observed = []
+    for key in ("cpu_pressure", "memory_pressure", "queue_pressure"):
+        value = pressure.get(key)
+        if isinstance(value, (int, float)):
+            observed.append(max(0.0, min(1.0, float(value))))
+    peak = max(observed, default=0.0)
+    if peak >= 0.85:
+        return max(256, base_limit // 2)
+    if peak >= 0.70:
+        return max(256, (base_limit * 3) // 4)
+    return base_limit
