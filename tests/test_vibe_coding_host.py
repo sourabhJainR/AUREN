@@ -477,7 +477,7 @@ class VibeCodingHostTests(unittest.TestCase):
         self.assertIsNone(frame)
         self.assertTrue(oversized)
         self.assertEqual(metadata["observed_chars_at_least"], 9001)
-        self.assertEqual(stream.read_sizes, [4096, 4096, 809])
+        self.assertEqual(stream.read_sizes, [2251, 2251, 2251, 2248])
 
     def test_mcp_stdout_frame_is_reassembled_from_bounded_chunks(self):
         class ChunkedLine:
