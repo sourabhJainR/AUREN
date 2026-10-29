@@ -6,7 +6,7 @@ canonical MemoryOrchestrator and already-discovered capability metadata.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 import hashlib
 import json
 import math
@@ -222,7 +222,9 @@ def select_resources(
             reason = "permission not granted"
         elif candidate.privacy_compatible is not True:
             reason = "privacy constraints not satisfied"
-        elif candidate.risk not in risk_order or risk_order[candidate.risk] > risk_order[max_risk]:
+        elif not isinstance(candidate.risk, str) or candidate.risk not in risk_order:
+            reason = "invalid risk metadata"
+        elif risk_order[candidate.risk] > risk_order[max_risk]:
             reason = "risk exceeds policy"
         elif candidate.network_required and not candidate.network_allowed:
             reason = "network not allowed"
