@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
@@ -190,6 +191,33 @@ class AgentExecutionGuardTests(unittest.TestCase):
             self.assertEqual(controller.task(allowed.id).state, "completed")
             self.assertEqual((root / "allowed.txt").read_text(encoding="utf-8"), "allowed")
 
+
+    def test_direct_controller_submission_requires_host_verifier_before_persistence(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            controller = ExecutionController(root)
+            controller.register_handler(
+                "tests.test_agent_execution_guard.assigned_filesystem_handler",
+                assigned_filesystem_handler,
+                execution_class="read_only",
+                agent_action_class="edit_assigned_paths",
+            )
+            assignment = self._payload(("allowed.txt",))["_auren_agent_assignment"]
+            with self.assertRaisesRegex(
+                AgentAssignmentScopeDenied, "host-owned assignment authorization verifier is required"
+            ):
+                controller.submit(
+                    "tests.test_agent_execution_guard.assigned_filesystem_handler",
+                    {
+                        "resource": "allowed.txt", "path": "allowed.txt",
+                        "workspace_root": str(root), "content": "must not write",
+                        "_auren_agent_assignment": assignment,
+                    },
+                )
+            with sqlite3.connect(controller.db_path) as db:
+                count = db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0]
+            self.assertEqual(count, 0)
+            self.assertFalse((root / "allowed.txt").exists())
 
     def test_assignment_action_class_must_match_registered_handler_before_submission(self):
         with tempfile.TemporaryDirectory() as directory:
