@@ -125,6 +125,28 @@ class TaskAwareRoutingTests(unittest.TestCase):
         self.assertEqual(("a", "b"), first.selected)
         self.assertEqual("lower-ranked eligible candidate", dict(first.rejected)["c"])
 
+    def test_malformed_boolean_and_nonfinite_resource_metadata_fail_closed(self):
+        bad_flags = ResourceCandidate(
+            "bad-flag", "plugin", frozenset({"search"}), available=True,
+            permission_granted="false", privacy_compatible=True, risk="low",
+        )
+        bad_quality = ResourceCandidate(
+            "nan-quality", "plugin", frozenset({"search"}), available=True,
+            permission_granted=True, privacy_compatible=True, risk="low",
+            measured_quality=float("nan"),
+        )
+        decision = select_resources(
+            [bad_flags, bad_quality], required_capabilities={"search"},
+        )
+        self.assertEqual((), decision.selected)
+        rejected = dict(decision.rejected)
+        self.assertEqual("invalid boolean policy metadata", rejected["bad-flag"])
+        self.assertEqual("invalid quality measurement", rejected["nan-quality"])
+
+    def test_nonfinite_budget_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "max_cost"):
+            select_resources([], required_capabilities=(), max_cost=float("nan"))
+
     def test_receipt_contains_digests_and_ids_not_memory_text(self):
         saved = self.orchestrator.remember(
             "semantic", "secret project detail should not enter receipt",
