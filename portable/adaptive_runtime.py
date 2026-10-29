@@ -973,8 +973,6 @@ class AdaptiveRuntime:
         return self.session_store.recover(session_id, next_stage=next_stage)
 
 
-__all__ = ["AdaptiveRuntime"]
-
     def route_task_context(
         self,
         project_root: Path | str,
@@ -1018,3 +1016,5 @@ __all__ = ["AdaptiveRuntime"]
             "receipt": receipt,
         }
 
+
+__all__ = ["AdaptiveRuntime"]
