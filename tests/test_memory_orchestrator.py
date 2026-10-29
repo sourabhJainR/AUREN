@@ -405,7 +405,7 @@ class MemoryOrchestratorTests(unittest.TestCase):
             allow_sampling=True, requires_full_coverage=False,
         )
         self.assertEqual("engineering", result.plan.task_class)
-        self.assertFalse(result.plan.sampling_allowed)
+        self.assertTrue(result.plan.sampling_allowed)
         self.assertIn(saved.memory_id, result.receipt["selected_memory_ids"])
         self.assertEqual([saved.memory_id], result.receipt["required_memory_ids"])
         self.assertLessEqual(result.receipt["chars_used"], result.receipt["budget_chars"])
