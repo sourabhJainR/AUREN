@@ -205,6 +205,7 @@ def enforce_agent_resource_scope(relative_path: Any) -> None:
 
 
 __all__ = [
-    "AgentAssignmentScopeDenied", "agent_assignment_scope",\n    "deny_unscoped_subprocess_for_assigned_agent",
+    "AgentAssignmentScopeDenied", "agent_assignment_scope",
+    "deny_unscoped_subprocess_for_assigned_agent",
     "enforce_agent_resource_scope", "validate_agent_assignment_for_dispatch",
 ]
