@@ -466,7 +466,7 @@ class VibeCodingHostTests(unittest.TestCase):
                 "    except Exception: continue\n"
                 "    if msg.get('method') == 'initialize':\n"
                 "        print(json.dumps({'jsonrpc':'2.0','id':msg['id'],'result':{'protocolVersion':'2024-11-05','capabilities':{},'serverInfo':{'name':'flood','version':'1'}}}), flush=True)\n"
-                "        sys.stdout.writelines(json.dumps({'jsonrpc':'2.0','method':'notifications/progress','params':{'n':n}}) + '\n' for n in range(1000)); sys.stdout.flush()\n"
+                "        sys.stdout.writelines(json.dumps({'jsonrpc':'2.0','method':'notifications/progress','params':{'n':n}}) + '\\n' for n in range(1000)); sys.stdout.flush()\n"
                 "    elif msg.get('method') == 'tools/call':\n"
                 "        print(json.dumps({'jsonrpc':'2.0','id':msg['id'],'result':{'structuredContent':{'ok':True}}}), flush=True)\n",
                 encoding="utf-8",
