@@ -455,6 +455,28 @@ class VibeCodingHostTests(unittest.TestCase):
             self.assertEqual(reductions, [{"limit": 3}, {"limit": 2}])
             self.assertEqual(adapter.max_response_chars, 220)
 
+    def test_mcp_adaptive_recovery_has_one_overall_deadline(self):
+        with tempfile.TemporaryDirectory() as temp:
+            project = Path(temp) / "project"
+            project.mkdir()
+            adapter = MCPStdioToolAdapter(
+                argv=(sys.executable, "-c", "pass"),
+                tool_name="bounded",
+                argument_map={"limit": "$limit"},
+                timeout_seconds=1,
+                requires_authority_binding=False,
+                trusted_workspace_root=project,
+                read_only_response_reducer=lambda args: {**args, "limit": args["limit"] - 1},
+            )
+            with patch("portable.vibe_coding_host.time.monotonic", side_effect=[0.0, 0.0, 4.0]):
+                with patch.object(
+                    adapter, "_invoke_unchecked",
+                    side_effect=AdapterUnavailable("MCP response exceeded the configured character limit"),
+                ) as invoke:
+                    with self.assertRaisesRegex(AdapterUnavailable, "overall deadline"):
+                        adapter({"limit": 2, "state": {"workspace_root": str(project)}})
+            self.assertEqual(invoke.call_count, 1)
+
     def test_mcp_response_reducer_is_rejected_for_authority_bound_tools(self):
         with self.assertRaisesRegex(ValueError, "only allowed for operator-declared read-only"):
             MCPStdioToolAdapter(
