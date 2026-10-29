@@ -29,7 +29,10 @@ from typing import Any, Callable, Mapping, Sequence
 from urllib.parse import urlparse
 
 from .action_governance import ActionGovernanceGateway, ActionRequest, ApprovalReceipt
-from .agent_execution_guard import enforce_agent_resource_scope
+from .agent_execution_guard import (
+    deny_unscoped_subprocess_for_assigned_agent,
+    enforce_agent_resource_scope,
+)
 from .execution_boundary import ExecutionAuthorityBinding, execute_bound_action
 from .runtime_recovery import RuntimeExecutionGuard
 from .provider_fabric import ProviderFabric
@@ -1124,6 +1127,13 @@ class MCPStdioToolAdapter:
                 enforce_agent_resource_scope(selector)
         else:
             enforce_agent_resource_scope(None)
+
+        # An MCP server is an arbitrary child process. A validated resource
+        # selector and trusted cwd do not confine its filesystem, network, or
+        # credential access. Until the host supplies an independently verified
+        # assignment-aware sandbox, deny this launch before authority dispatch.
+        deny_unscoped_subprocess_for_assigned_agent()
+
         if not self.requires_authority_binding:
             arguments = self._arguments_for_request(request)
             # Chunk recovery is tool-specific: callers define stable page/chunk
