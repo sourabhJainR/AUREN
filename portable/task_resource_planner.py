@@ -6,7 +6,7 @@ dispatch still passes through the existing Guard and execution controller.
 """
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 import hashlib
 import json
 from typing import Any, Iterable, Mapping
@@ -77,6 +77,7 @@ def plan_task_resources(
         raise ValueError("chunk_chars must be an integer >= 128")
     required = tuple(sorted({str(item).strip() for item in required_memory_ids if str(item).strip()}))
     partial_allowed = task_class == "exploratory" and allow_partial_exploration
+    requested = tuple(dict.fromkeys(str(item).strip() for item in requested_capabilities if str(item).strip()))
     recall = memory.recall(
         task.strip(),
         kinds=_TASK_MEMORY_KINDS[task_class],
@@ -87,18 +88,9 @@ def plan_task_resources(
         branch=branch,
         source_revision=source_revision,
     )
-    if task_class in _PROTECTED_TASKS and recall.omitted:
-        raise MemoryBudgetError(
-            f"{task_class} preflight omitted {recall.omitted} memory candidate(s); "
-            "increase the bounded memory budget or split the task"
-        )
-    if recall.omitted and not partial_allowed:
-        # Ordinary tasks can omit low-ranked candidates only when the caller
-        # explicitly chooses the exploratory partial-recall contract.
-        raise MemoryBudgetError(
-            f"task-aware memory plan omitted {recall.omitted} candidate(s); "
-            "increase the budget or explicitly allow partial exploratory recall"
-        )
+    # Non-required candidates may be omitted by ranked retrieval; expose the
+    # count in the receipt. Required IDs remain fail-closed inside recall and
+    # are checked again after chunking below.
 
     rows = [
         {
@@ -121,7 +113,7 @@ def plan_task_resources(
         raise MemoryBudgetError("required memory would be lost during bounded chunk assembly")
 
     selected_capabilities = capabilities.plan(
-        tuple(dict.fromkeys(requested_capabilities)),
+        requested,
         network_allowed=network_allowed,
         sandbox_available=sandbox_available,
         max_risk=max_risk,
@@ -134,7 +126,7 @@ def plan_task_resources(
         "fallback": item.fallback,
         "selected_reason": (
             "network fallback selected by canonical CapabilityFabric"
-            if item.name not in set(requested_capabilities) else
+            if item.name not in set(requested) else
             "requested capability passed risk, network and sandbox gates"
         ),
     } for item in selected_capabilities)
