@@ -642,7 +642,7 @@
   "radar_refresh": {
     "reviewed_at": "2026-10-28",
     "baseline_main_sha": "7d88fa277d996f977a9cdff4e36308010c1e9f09",
-    "status": "Research refresh adds current long-horizon and live-tool evaluation signals; current-main post-merge verification and exact-head CI must be recorded separately. Deployment and independent-evaluation gates remain blocked.",
+    "status": "candidate signals only; research refresh adds current long-horizon and live-tool evaluation signals; current-main post-merge verification and exact-head CI must be recorded separately. Deployment and independent-evaluation gates remain blocked.",
     "policy": "External announcements and benchmark reports are leads, not proof of equivalent AUREN capability. Keep adapters opt-in; no runtime framework dependency; no default pack promotion without paired value, independent evaluation, and rollback.",
     "status_vocabulary": {
       "implementation": "Code path exists; does not imply tests or deployment.",
