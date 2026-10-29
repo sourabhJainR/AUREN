@@ -2,13 +2,15 @@ from pathlib import Path
 import sqlite3
 from datetime import datetime, timedelta, timezone
 import json
+import hashlib
+import pytest
 import os
 import subprocess
 import time
 import sys
 from threading import Event, Thread
 
-from portable.execution_controller import ExecutionController, LeaseLostError
+from portable.execution_controller import ExecutionController, LeaseLostError, WorkKeyConflict
 from portable.provider_operation_lifecycle import ProviderOutcomeBlocked
 
 def test_process_death_running_task_recovers_in_fresh_process(tmp_path: Path):
@@ -117,7 +119,7 @@ def test_legacy_task_schema_adds_fencing_columns_without_losing_rows(tmp_path: P
     with sqlite3.connect(controller.db_path) as db:
         columns = {row[1] for row in db.execute("PRAGMA table_info(tasks)")}
         row = db.execute("SELECT id,state,lease_generation,lease_token FROM tasks WHERE id='legacy-task'").fetchone()
-    assert {"lease_generation", "lease_token"} <= columns
+    assert {"lease_generation", "lease_token", "deadline_seconds"} <= columns
     assert row == ("legacy-task", "pending", 0, None)
 
 
@@ -349,13 +351,57 @@ def test_deadline_validation_and_stable_work_key_deadline_replay(tmp_path: Path)
         name, {"id": "deadline-idempotency"}, work_key="test:deadline-idempotency", deadline_seconds=30,
     )
     replay = controller.submit(
-        name, {"id": "deadline-idempotency"}, work_key="test:deadline-idempotency", deadline_seconds=60,
+        name, {"id": "deadline-idempotency"}, work_key="test:deadline-idempotency", deadline_seconds=30.0,
     )
     assert replay.id == first.id
     assert replay.deadline_at == first.deadline_at
+    with pytest.raises(WorkKeyConflict, match="deadline policy"):
+        controller.submit(
+            name, {"id": "deadline-idempotency"}, work_key="test:deadline-idempotency", deadline_seconds=60,
+        )
+    with pytest.raises(WorkKeyConflict, match="deadline policy"):
+        controller.submit(name, {"id": "deadline-idempotency"}, work_key="test:deadline-idempotency")
     restarted = ExecutionController(tmp_path)
     restored = restarted.task(first.id)
     assert restored is not None and restored.deadline_at == first.deadline_at
+    replayed_after_restart = restarted.submit(
+        name, {"id": "deadline-idempotency"}, work_key="test:deadline-idempotency", deadline_seconds=30,
+    )
+    assert replayed_after_restart.id == first.id
+    assert replayed_after_restart.deadline_at == first.deadline_at
+
+
+def test_legacy_work_key_without_deadline_policy_remains_compatible(tmp_path: Path):
+    controller = ExecutionController(tmp_path)
+    name = "tests.test_execution_controller_restart.deadline_validation_handler"
+    controller.register_handler(name, deadline_validation_handler, execution_class="read_only")
+    task = controller.submit(
+        name, {"id": "legacy-deadline"}, work_key="test:legacy-deadline",
+    )
+    with sqlite3.connect(controller.db_path) as db:
+        payload_row = db.execute("SELECT payload FROM tasks WHERE id=?", (task.id,)).fetchone()
+        payload = json.loads(payload_row[0])
+        legacy_intent = json.dumps(
+            {"handler": name, "goal": f"execute durable handler: {name}", "payload": payload},
+            sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False,
+        )
+        legacy_digest = hashlib.sha256(legacy_intent.encode("utf-8")).hexdigest()
+        db.execute(
+            "UPDATE tasks SET intent_digest=?,deadline_seconds=NULL WHERE id=?",
+            (legacy_digest, task.id),
+        )
+
+    restarted = ExecutionController(tmp_path)
+    restarted.register_handler(name, deadline_validation_handler, execution_class="read_only")
+    replay = restarted.submit(
+        name, {"id": "legacy-deadline"}, work_key="test:legacy-deadline",
+    )
+    assert replay.id == task.id
+    assert replay.deadline_at is None
+    with pytest.raises(WorkKeyConflict, match="deadline policy"):
+        restarted.submit(
+            name, {"id": "legacy-deadline"}, work_key="test:legacy-deadline", deadline_seconds=30,
+        )
 
 
 def test_handler_interruption_after_cancellation_commits_cancelled_state(tmp_path: Path):
