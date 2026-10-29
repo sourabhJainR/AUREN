@@ -63,7 +63,8 @@ class BoundedMCPStdoutByteBudgetTests(unittest.TestCase):
         self.assertIsNone(frame)
         self.assertTrue(oversized)
         self.assertGreaterEqual(metadata["observed_bytes_at_least"], 20)
-        self.assertLessEqual(max(stream.calls), 4096)
+        self.assertLessEqual(max(stream.calls), 6)
+        self.assertLessEqual(metadata["observed_bytes_at_least"], 23)
         self.assertNotIn("sample_prefix", metadata)
         self.assertNotIn("sample_suffix", metadata)
 
@@ -282,19 +283,21 @@ class VibeCodingHostTests(unittest.TestCase):
         class OversizedWithoutNewline:
             def __init__(self):
                 self.read_sizes = []
+                self.total_chars = 0
 
             def readline(self, size):
                 self.read_sizes.append(size)
-                if len(self.read_sizes) == 1:
-                    return "x" * size
-                raise AssertionError("oversized frame reader must not wait for a newline")
+                self.total_chars += size
+                return "x" * size
 
         stream = OversizedWithoutNewline()
         frame, oversized, metadata = _read_bounded_mcp_stdout_frame(stream, 10)
         self.assertIsNone(frame)
         self.assertTrue(oversized)
-        self.assertEqual(stream.read_sizes, [11])
         self.assertEqual(metadata["observed_chars_at_least"], 11)
+        self.assertEqual(stream.total_chars, 11)
+        self.assertLessEqual(max(stream.read_sizes), 3)
+        self.assertLessEqual(len(stream.read_sizes), 7)
         self.assertNotIn("sample_prefix", metadata)
         self.assertNotIn("sample_suffix", metadata)
         self.assertEqual(len(metadata["observed_prefix_sha256"]), 64)
