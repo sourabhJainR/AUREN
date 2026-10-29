@@ -12,7 +12,7 @@ from portable.state_graph import build_crew_plan, default_crew_definitions, _dis
 from portable.crew_adapters import GraphHandoffController,TaskRetryBudget, merge_retry_budget_snapshots
 from portable.agent_memory import AgentMemory
 from portable.context_engine import ContextEngine,ContextPolicy,handoff_from_output
-from portable.adaptive_resource_handling import bounded_text
+from portable.adaptive_resource_handling import adaptive_context_limit, bounded_text
 from portable.dream_memory import DreamMemory
 from portable.learning_steward import LearningSteward
 from portable.persistent_memory import PersistentMemory
@@ -705,6 +705,9 @@ class GraphAgentTeam:
                         "adapted": bool(execution_adaptation_payload),
                     },
                 }
+                context_limit=adaptive_context_limit(memory.context.policy.output_chars, decision.pressure)
+                execution_plan["resource_context_budget_chars"]=context_limit
+                execution_plan["resource_pressure_peak"]=max((float(decision.pressure.get(key,0.0) or 0.0) for key in ("cpu_pressure","memory_pressure","queue_pressure")),default=0.0)
                 verification_choice=type("_Verification",(),{"level":max_verification_depth(pathway.verification_depth, decision.inference_depth, execution_mode(mode_name).verification_depth)})()
                 retry_choice=type("_Retry",(),{"selected":pathway.retry_action if execution_mode(mode_name).retry_policy == "stop" else execution_mode(mode_name).retry_policy})()
                 world_state = self._record_world_state(agent=agent, task=task, intent_digest=intent_digest, run_nonce=run_nonce, decision=decision,
@@ -729,7 +732,7 @@ class GraphAgentTeam:
                         evidence_ids=[f"local:{agent.name}:{local.status}"],
                     )
                 relevant=set(agent.depends_on); relevant.add("planner")
-                shared_context=memory.compact_text(relevant_agents=relevant)
+                shared_context=memory.compact_text(relevant_agents=relevant,limit=context_limit)
                 historical=guidance(memory.project_root,task,limit=2400)
                 private=AgentMemory(memory.project_root,agent.name,run_id=intent_digest).read(limit=2200)
                 focus=LearningSteward(memory.project_root,run_id=intent_digest,task=task).prompt() if agent.name=="learning-steward" else ""
