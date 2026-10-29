@@ -10,7 +10,7 @@ from portable.agency_state_graph import Checkpoint, InMemoryCheckpointStore
 from portable.task_planner import TaskPlan
 from portable.benchmark_task_dispatch import BenchmarkExecutionRequest
 from portable.engineering_design_guard import PRINCIPLE_FAMILY_IDS
-from portable.adaptive_resource_handling import bounded_text, iter_text_chunks, sample_items
+from portable.adaptive_resource_handling import adaptive_context_limit, bounded_text, iter_text_chunks, sample_items
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -60,6 +60,15 @@ class AdaptiveResourceHandlingTests(unittest.TestCase):
         self.assertIn("adaptive resource handling", first)
         self.assertTrue(first.startswith("START"))
         self.assertTrue(first.endswith("END"))
+
+    def test_context_budget_adapts_to_measured_pressure_without_expanding(self):
+        self.assertEqual(adaptive_context_limit(4200, {}), 4200)
+        self.assertEqual(adaptive_context_limit(4200, {"cpu_pressure": 0.72}), 3150)
+        self.assertEqual(adaptive_context_limit(4200, {"memory_pressure": 0.91}), 2100)
+        self.assertEqual(adaptive_context_limit(4200, {"queue_pressure": 1.5}), 2100)
+        self.assertEqual(adaptive_context_limit(4200, {"cpu_pressure": -1}), 4200)
+        with self.assertRaises(ValueError):
+            adaptive_context_limit(0, {})
 
     def test_sampling_is_deterministic_and_preserves_edges(self):
         self.assertEqual(sample_items([str(i) for i in range(10)], 3), ["0", "4", "9"])
