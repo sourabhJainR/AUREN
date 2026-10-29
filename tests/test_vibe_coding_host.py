@@ -44,6 +44,51 @@ from portable.vibe_coding_host import (
     _drain_bounded_mcp_stderr_line,
 )
 
+class BoundedMCPStdoutByteBudgetTests(unittest.TestCase):
+    def test_unicode_frame_hits_utf8_byte_budget_before_character_budget(self):
+        class TextStream:
+            def __init__(self, text):
+                self.text = text
+                self.calls = []
+
+            def readline(self, size):
+                self.calls.append(size)
+                value, self.text = self.text[:size], self.text[size:]
+                return value
+
+        stream = TextStream("雪" * 20 + "\n")
+        frame, oversized, metadata = _read_bounded_mcp_stdout_frame(
+            stream, max_chars=1000, max_bytes=20,
+        )
+        self.assertIsNone(frame)
+        self.assertTrue(oversized)
+        self.assertGreaterEqual(metadata["observed_bytes_at_least"], 20)
+        self.assertLessEqual(max(stream.calls), 6)
+        self.assertLessEqual(metadata["observed_bytes_at_least"], 23)
+        self.assertNotIn("sample_prefix", metadata)
+        self.assertNotIn("sample_suffix", metadata)
+
+    def test_ascii_frame_within_both_budgets_is_preserved(self):
+        class TextStream:
+            def __init__(self, text):
+                self.text = text
+
+            def readline(self, size):
+                value, self.text = self.text[:size], self.text[size:]
+                return value
+
+        frame, oversized, metadata = _read_bounded_mcp_stdout_frame(
+            TextStream('{"ok":true}\n'), max_chars=32, max_bytes=32,
+        )
+        self.assertEqual(frame, '{"ok":true}')
+        self.assertFalse(oversized)
+        self.assertIsNone(metadata)
+
+    def test_invalid_byte_budget_is_rejected(self):
+        with self.assertRaises(ValueError):
+            _read_bounded_mcp_stdout_frame(type("Stream", (), {"readline": lambda self, size: ""})(), 10, 0)
+
+
 class BoundedMCPStderrDrainTests(unittest.TestCase):
     def test_long_stderr_line_ending_in_newline_does_not_consume_next_line(self):
         class NoExtraRead:
@@ -238,21 +283,23 @@ class VibeCodingHostTests(unittest.TestCase):
         class OversizedWithoutNewline:
             def __init__(self):
                 self.read_sizes = []
+                self.total_chars = 0
 
             def readline(self, size):
                 self.read_sizes.append(size)
-                if len(self.read_sizes) == 1:
-                    return "x" * size
-                raise AssertionError("oversized frame reader must not wait for a newline")
+                self.total_chars += size
+                return "x" * size
 
         stream = OversizedWithoutNewline()
         frame, oversized, metadata = _read_bounded_mcp_stdout_frame(stream, 10)
         self.assertIsNone(frame)
         self.assertTrue(oversized)
-        self.assertEqual(stream.read_sizes, [11])
         self.assertEqual(metadata["observed_chars_at_least"], 11)
-        self.assertEqual(len(metadata["sample_prefix"]), 11)
-        self.assertEqual(metadata["sample_suffix"], metadata["sample_prefix"])
+        self.assertEqual(stream.total_chars, 11)
+        self.assertLessEqual(max(stream.read_sizes), 3)
+        self.assertLessEqual(len(stream.read_sizes), 7)
+        self.assertNotIn("sample_prefix", metadata)
+        self.assertNotIn("sample_suffix", metadata)
         self.assertEqual(len(metadata["observed_prefix_sha256"]), 64)
         self.assertFalse(metadata["frame_complete"])
 
@@ -430,7 +477,7 @@ class VibeCodingHostTests(unittest.TestCase):
         self.assertIsNone(frame)
         self.assertTrue(oversized)
         self.assertEqual(metadata["observed_chars_at_least"], 9001)
-        self.assertEqual(stream.read_sizes, [4096, 4096, 809])
+        self.assertEqual(stream.read_sizes, [2251, 2251, 2251, 2248])
 
     def test_mcp_stdout_frame_is_reassembled_from_bounded_chunks(self):
         class ChunkedLine:
