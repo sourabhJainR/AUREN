@@ -295,8 +295,8 @@ class VibeCodingHostTests(unittest.TestCase):
         self.assertTrue(oversized)
         self.assertEqual(stream.read_sizes, [11])
         self.assertEqual(metadata["observed_chars_at_least"], 11)
-        self.assertEqual(len(metadata["sample_prefix"]), 11)
-        self.assertEqual(metadata["sample_suffix"], metadata["sample_prefix"])
+        self.assertNotIn("sample_prefix", metadata)
+        self.assertNotIn("sample_suffix", metadata)
         self.assertEqual(len(metadata["observed_prefix_sha256"]), 64)
         self.assertFalse(metadata["frame_complete"])
 
