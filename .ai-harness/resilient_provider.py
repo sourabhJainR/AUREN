@@ -14,6 +14,12 @@ import tempfile
 import time
 from pathlib import Path
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.append(str(REPO_ROOT))
+
+from portable.agent_execution_guard import AgentAssignmentScopeDenied, deny_unscoped_subprocess_for_assigned_agent
+
 TRANSIENT_MARKERS = (
     "response stopped arriving",
     "response stopped",
@@ -89,6 +95,12 @@ def main() -> int:
     if not command:
         print("No provider command supplied", file=sys.stderr)
         return 2
+
+    try:
+        deny_unscoped_subprocess_for_assigned_agent()
+    except AgentAssignmentScopeDenied as exc:
+        print(f"AUREN resilient provider blocked: {exc}", file=sys.stderr)
+        return 78
 
     prompt_path = Path(args.prompt_file).resolve()
     original = prompt_path.read_text(encoding="utf-8")

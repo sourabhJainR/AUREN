@@ -13,6 +13,10 @@ import time
 from pathlib import Path
 from typing import Any
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.append(str(REPO_ROOT))
+
 from runtime.agent_turn import (
     AgentTurnStateMachine,
     CACHE_PREFIX,
@@ -22,6 +26,7 @@ from runtime.agent_turn import (
     USAGE_PREFIX,
 )
 from security_gate import SecurityGateError, safe_environment, validate_prompt_file, validate_provider_command
+from portable.agent_execution_guard import AgentAssignmentScopeDenied, deny_unscoped_subprocess_for_assigned_agent
 
 
 def is_analysis_only(prompt: str) -> bool:
@@ -225,6 +230,12 @@ def main() -> int:
     if not command:
         print("No provider command supplied", file=sys.stderr)
         return 2
+
+    try:
+        deny_unscoped_subprocess_for_assigned_agent()
+    except AgentAssignmentScopeDenied as exc:
+        print(f"SECURITY GATE: {exc}", file=sys.stderr)
+        return 78
 
     run_dir = Path(os.environ.get("HARNESS_RUN_DIR", str(Path(args.prompt_file).parent))).resolve()
     try:
