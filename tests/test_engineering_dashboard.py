@@ -261,3 +261,156 @@ def test_dashboard_event_payload_has_a_hard_encoded_size_limit():
         else:
             raise AssertionError("oversized event must be rejected")
         assert not dashboard.event_path.exists()
+
+
+
+def _write_dashboard_task_store(path, rows):
+    import sqlite3
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(path) as db:
+        db.execute(
+            "CREATE TABLE tasks (id TEXT PRIMARY KEY, state TEXT NOT NULL, updated_at TEXT NOT NULL, payload TEXT NOT NULL DEFAULT '{}')"
+        )
+        db.executemany(
+            "INSERT INTO tasks (id,state,updated_at,payload) VALUES (?,?,?,?)",
+            [(task_id, state, "2026-10-29T14:00:00+00:00", "{}") for task_id, state in rows],
+        )
+
+
+def test_dashboard_does_not_claim_terminal_success_when_journal_disagrees_with_controller(tmp_path, monkeypatch):
+    from portable.engineering_dashboard import EngineeringDashboard
+    from portable.progress_journal import ProgressJournal
+
+    monkeypatch.setattr("portable.engineering_dashboard.canonical_auren_home", lambda: tmp_path / "home")
+    state_dir = tmp_path / ".auren"
+    _write_dashboard_task_store(state_dir / "execution.sqlite3", [("task-1", "completed")])
+    journal = ProgressJournal(state_dir / "progress.jsonl")
+    journal.record("task-1", "attempt_started", state="running", stage="dispatch", message="worker started")
+
+    rows = EngineeringDashboard(tmp_path).snapshot().as_dict()["tasks"]["progress"]
+    row = next(item for item in rows if item["task_id"] == "task-1")
+    assert row["state"] == "unknown"
+    assert row["canonical_state"] == "completed"
+    assert row["reported_state"] == "running"
+    assert row["status_category"] == "unknown"
+    assert row["status_conflict"] is True
+    assert row["next_action"]
+
+
+def test_dashboard_uses_canonical_pending_state_over_stale_journal_projection(tmp_path, monkeypatch):
+    from portable.engineering_dashboard import EngineeringDashboard
+    from portable.progress_journal import ProgressJournal
+
+    monkeypatch.setattr("portable.engineering_dashboard.canonical_auren_home", lambda: tmp_path / "home")
+    state_dir = tmp_path / ".auren"
+    _write_dashboard_task_store(state_dir / "execution.sqlite3", [("task-pending", "pending")])
+    (state_dir / "progress.jsonl").write_text("", encoding="utf-8")
+    monkeypatch.setattr(
+        ProgressJournal, "list_snapshots",
+        lambda self, stale_after_seconds=60: [{
+            "task_id": "task-pending", "state": "stale", "reported_state": "running",
+            "stale": True, "has_progress": True, "last_update": "2026-10-29T12:00:00+00:00",
+            "seconds_since_update": 7200, "progress_percent": None, "completed_units": None,
+            "total_units": None, "event_count": 2, "next_action": "inspect worker health",
+        }],
+    )
+
+    rows = EngineeringDashboard(tmp_path).snapshot().as_dict()["tasks"]["progress"]
+    row = next(item for item in rows if item["task_id"] == "task-pending")
+    assert row["state"] == "queued"
+    assert row["canonical_state"] == "pending"
+    assert row["status_category"] == "queued"
+    assert row["stale"] is False
+    assert row["status_conflict"] is False
+
+
+def test_dashboard_fails_closed_when_local_and_executive_task_stores_disagree(tmp_path, monkeypatch):
+    from portable.engineering_dashboard import EngineeringDashboard
+
+    home = tmp_path / "home"
+    monkeypatch.setattr("portable.engineering_dashboard.canonical_auren_home", lambda: home)
+    _write_dashboard_task_store(tmp_path / ".auren" / "execution.sqlite3", [("shared-task", "blocked_reconciliation")])
+    _write_dashboard_task_store(home / "executive" / ".auren" / "execution.sqlite3", [("shared-task", "cancelled")])
+
+    rows = EngineeringDashboard(tmp_path).snapshot().as_dict()["tasks"]["progress"]
+    row = next(item for item in rows if item["task_id"] == "shared-task")
+    assert row["state"] == "unknown"
+    assert row["status_category"] == "unknown"
+    assert row["status_conflict"] is True
+    assert "reconcile" in row["next_action"]
+
+
+def test_dashboard_preserves_cancelled_and_failed_without_inventing_timeout_or_score(tmp_path, monkeypatch):
+    from portable.engineering_dashboard import EngineeringDashboard
+    from portable.progress_journal import ProgressJournal
+
+    monkeypatch.setattr("portable.engineering_dashboard.canonical_auren_home", lambda: tmp_path / "home")
+    states = [("task-cancelled", "cancelled"), ("task-failed", "failed")]
+    state_dir = tmp_path / ".auren"
+    _write_dashboard_task_store(state_dir / "execution.sqlite3", states)
+    journal = ProgressJournal(state_dir / "progress.jsonl")
+    for task_id, state in states:
+        journal.record(task_id, "task_terminal", state=state, stage="terminal", message="durable outcome")
+
+    dashboard = EngineeringDashboard(tmp_path)
+    rows = dashboard.snapshot().as_dict()["tasks"]["progress"]
+    by_id = {item["task_id"]: item for item in rows}
+    for task_id, state in states:
+        assert by_id[task_id]["state"] == state
+        assert by_id[task_id]["status_category"] == state
+        assert by_id[task_id]["status_conflict"] is False
+    assert dashboard._progress_status_category("timed_out") == "timed_out"
+    assert dashboard._progress_status_category("unscored") == "unscored"
+
+
+def test_dashboard_missing_terminal_journal_is_unknown_not_success(tmp_path, monkeypatch):
+    from portable.engineering_dashboard import EngineeringDashboard
+
+    monkeypatch.setattr("portable.engineering_dashboard.canonical_auren_home", lambda: tmp_path / "home")
+    _write_dashboard_task_store(tmp_path / ".auren" / "execution.sqlite3", [("task-no-journal", "completed")])
+
+    rows = EngineeringDashboard(tmp_path).snapshot().as_dict()["tasks"]["progress"]
+    row = next(item for item in rows if item["task_id"] == "task-no-journal")
+    assert row["state"] == "unknown"
+    assert row["canonical_state"] == "completed"
+    assert row["status_conflict"] is True
+    assert row["has_progress"] is False
+
+
+def test_dashboard_unreadable_configured_task_store_blocks_terminal_projection(tmp_path, monkeypatch):
+    from portable.engineering_dashboard import EngineeringDashboard
+    from portable.progress_journal import ProgressJournal
+
+    home = tmp_path / "home"
+    monkeypatch.setattr("portable.engineering_dashboard.canonical_auren_home", lambda: home)
+    state_dir = tmp_path / ".auren"
+    _write_dashboard_task_store(state_dir / "execution.sqlite3", [("task-1", "completed")])
+    journal = ProgressJournal(state_dir / "progress.jsonl")
+    journal.record("task-1", "task_terminal", state="completed", stage="terminal", message="receipt")
+    unreadable = home / "executive" / ".auren" / "execution.sqlite3"
+    unreadable.parent.mkdir(parents=True, exist_ok=True)
+    unreadable.write_bytes(b"not a sqlite database")
+
+    rows = EngineeringDashboard(tmp_path).snapshot().as_dict()["tasks"]["progress"]
+    row = next(item for item in rows if item["task_id"] == "task-1")
+    assert row["state"] == "unknown"
+    assert row["status_category"] == "unknown"
+    assert row["status_conflict"] is True
+    assert "unreadable canonical task store" in row["next_action"]
+    assert any(item["task_id"] == "canonical-task-store-integrity" for item in rows)
+
+
+def test_dashboard_adds_status_category_to_journal_only_rows(tmp_path, monkeypatch):
+    from portable.engineering_dashboard import EngineeringDashboard
+    from portable.progress_journal import ProgressJournal
+
+    monkeypatch.setattr("portable.engineering_dashboard.canonical_auren_home", lambda: tmp_path / "home")
+    state_dir = tmp_path / ".auren"
+    journal = ProgressJournal(state_dir / "progress.jsonl")
+    journal.record("journal-only", "approval_requested", state="blocked", stage="approval", message="waiting for approval")
+
+    rows = EngineeringDashboard(tmp_path).snapshot().as_dict()["tasks"]["progress"]
+    row = next(item for item in rows if item["task_id"] == "journal-only")
+    assert row["status_category"] == "blocked"
+    assert row["state_source"] == "progress_journal"
+    assert row["canonical_state"] is None
