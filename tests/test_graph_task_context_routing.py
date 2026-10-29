@@ -18,7 +18,7 @@ class GraphTaskContextRoutingTests(unittest.TestCase):
             return {
                 "plan": {"task_type": "coding", "kinds": ["working", "procedural"], "budget_chars": 256},
                 "recall": type("Recall", (), {"text": "[MEMORY id=m1]policy and rollback[/MEMORY]"})(),
-                "resources": None,
+                "resources": {"selected": ["core-memory"], "rejected": []},
                 "receipt": {
                     "task_type": "coding",
                     "query_digest": "digest-only",
@@ -43,6 +43,7 @@ class GraphTaskContextRoutingTests(unittest.TestCase):
         self.assertEqual(observed["auren_task_routing_receipt"]["memory_ids"], ["m1"])
         self.assertEqual(observed["auren_task_routing_receipt"]["query_digest"], "digest-only")
         self.assertEqual(observed["auren_task_memory_plan"]["task_type"], "coding")
+        self.assertEqual(observed["auren_task_resource_decision"]["selected"], ["core-memory"])
         self.assertNotIn("intent", observed["auren_task_routing_receipt"])
 
     def test_malformed_router_fails_before_graph_node_dispatch(self):
