@@ -26,9 +26,8 @@ class AssignedSubprocessScopeTests(unittest.TestCase):
                         invoker("run the assigned task", timeout_seconds=1)
                     popen.assert_not_called()
 
-    def test_unassigned_execution_keeps_existing_process_policy(self):
-        # The new check is intentionally assignment-specific. Ordinary calls
-        # continue through the existing command, timeout, and output guardrails.
+    def test_unassigned_scope_guard_is_noop(self):
+        # The helper itself is a no-op when no assignment scope is active.
         from portable.agent_execution_guard import deny_unscoped_subprocess_for_assigned_agent
 
         deny_unscoped_subprocess_for_assigned_agent()
