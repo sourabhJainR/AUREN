@@ -269,7 +269,7 @@ def test_active_task_cancellation_reaches_handler_and_rejects_success(tmp_path: 
     outcomes = []
     worker = Thread(target=lambda: outcomes.append(controller.run_once(task.id)), daemon=True)
     worker.start()
-    assert _RESTART_HANDLER_STARTED.wait(timeout=10), "handler did not start within bounded preflight window"
+    assert _RESTART_HANDLER_STARTED.wait(timeout=3), "handler did not start"
     assert controller.request_cancellation(task.id, reason="test cancellation")
     worker.join(timeout=5)
     assert not worker.is_alive(), "cancellation-aware handler did not exit"
