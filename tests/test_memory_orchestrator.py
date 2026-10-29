@@ -375,6 +375,50 @@ class MemoryOrchestratorTests(unittest.TestCase):
                 self.assertLessEqual(cache.stats()["pages"], 16)
             store.close()
 
+    def test_task_aware_plan_disables_sampling_for_security_and_release_work(self):
+        plan = self.coordinator.plan_for_task(
+            "Explore options for security guardrail bypass recovery",
+            allow_sampling=True, requires_full_coverage=False, budget_chars=900,
+            required_memory_ids=("policy-1", "rollback-1"),
+        )
+        self.assertEqual("security", plan.task_class)
+        self.assertEqual("high", plan.sensitivity)
+        self.assertFalse(plan.sampling_allowed)
+        self.assertEqual(("policy-1", "rollback-1"), plan.required_memory_ids)
+        self.assertEqual(900, plan.budget_chars)
+        self.assertIn("procedural", plan.kinds)
+
+        release = self.coordinator.plan_for_task(
+            "Deploy production release", allow_sampling=True, requires_full_coverage=False,
+        )
+        self.assertEqual("delivery", release.task_class)
+        self.assertFalse(release.sampling_allowed)
+
+    def test_task_aware_recall_emits_secret_free_receipt_and_preserves_required_context(self):
+        saved = self.coordinator.remember(
+            "semantic", "acceptance policy and rollback evidence must be retained",
+            source="verified-contract", approved=True, verified=True,
+        )
+        result = self.coordinator.recall_for_task(
+            "implement repository change with regression tests",
+            required_memory_ids=(saved.memory_id,), budget_chars=500,
+            allow_sampling=True, requires_full_coverage=False,
+        )
+        self.assertEqual("engineering", result.plan.task_class)
+        self.assertTrue(result.plan.sampling_allowed)
+        self.assertIn(saved.memory_id, result.receipt["selected_memory_ids"])
+        self.assertEqual([saved.memory_id], result.receipt["required_memory_ids"])
+        self.assertLessEqual(result.receipt["chars_used"], result.receipt["budget_chars"])
+        self.assertNotIn("text", result.receipt)
+        self.assertNotIn("source", result.receipt)
+        self.assertNotIn("prompt", result.receipt)
+
+    def test_task_aware_plan_rejects_invalid_budget_and_blank_intent(self):
+        with self.assertRaises(ValueError):
+            self.coordinator.plan_for_task(" ")
+        with self.assertRaises(ValueError):
+            self.coordinator.plan_for_task("code change", budget_chars=0)
+
     def test_invalid_inputs_fail_early(self):
         with self.assertRaises(ValueError):
             self.coordinator.remember("unknown", "text", source="test")
