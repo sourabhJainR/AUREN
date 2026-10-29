@@ -954,13 +954,25 @@ def _read_bounded_mcp_stdout_frame(
     chunks: list[str] = []
     total_chars = 0
     total_bytes = 0
+    # Cap every read against the total byte budget. Use the observed prefix
+    # width to avoid geometrically shrinking reads on ASCII or multibyte text.
+    # The reader still checks actual encoded bytes after each bounded chunk and
+    # stops immediately on overflow; it never drains the untrusted frame.
+    max_chunk_chars = min(4096, max(1, max_bytes // 4 + 1))
     while total_chars <= max_chars and total_bytes <= max_bytes:
-        # UTF-8 code points can occupy up to four bytes. Bound each read by
-        # the remaining byte budget as well as the character budget, limiting
-        # worst-case overshoot to one code point instead of a 4096-char chunk.
         remaining_bytes = max_bytes - total_bytes
-        byte_safe_chars = max(1, remaining_bytes // 4 + 1)
-        size = min(4096, max_chars - total_chars + 1, byte_safe_chars)
+        if total_chars:
+            observed_bytes_per_char = max(1.0, total_bytes / total_chars)
+            estimated_remaining_chars = max(
+                1, int(remaining_bytes / observed_bytes_per_char) + 1,
+            )
+        else:
+            estimated_remaining_chars = max_chunk_chars
+        size = min(
+            max_chunk_chars,
+            max_chars - total_chars + 1,
+            estimated_remaining_chars,
+        )
         part = stream.readline(size)
         if not part:
             if not chunks:
