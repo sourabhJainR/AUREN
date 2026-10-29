@@ -1113,12 +1113,6 @@ class MCPStdioToolAdapter:
         if not isinstance(request, Mapping):
             raise ValueError("MCP request must be a mapping")
 
-        # An MCP server is an arbitrary child process. A validated resource
-        # selector and trusted cwd do not confine its filesystem, network, or
-        # credential access. Until the host supplies an independently verified
-        # assignment-aware sandbox, deny this launch before authority dispatch.
-        deny_unscoped_subprocess_for_assigned_agent()
-
         # Assigned-agent scope is enforced before authority resolution or process
         # launch. Check every explicit selector so an allowed declaration cannot
         # mask a different path that the same call targets.
@@ -1133,6 +1127,13 @@ class MCPStdioToolAdapter:
                 enforce_agent_resource_scope(selector)
         else:
             enforce_agent_resource_scope(None)
+
+        # An MCP server is an arbitrary child process. A validated resource
+        # selector and trusted cwd do not confine its filesystem, network, or
+        # credential access. Until the host supplies an independently verified
+        # assignment-aware sandbox, deny this launch before authority dispatch.
+        deny_unscoped_subprocess_for_assigned_agent()
+
         if not self.requires_authority_binding:
             arguments = self._arguments_for_request(request)
             # Chunk recovery is tool-specific: callers define stable page/chunk
