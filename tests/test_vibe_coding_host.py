@@ -44,6 +44,50 @@ from portable.vibe_coding_host import (
     _drain_bounded_mcp_stderr_line,
 )
 
+class BoundedMCPStdoutByteBudgetTests(unittest.TestCase):
+    def test_unicode_frame_hits_utf8_byte_budget_before_character_budget(self):
+        class TextStream:
+            def __init__(self, text):
+                self.text = text
+                self.calls = []
+
+            def readline(self, size):
+                self.calls.append(size)
+                value, self.text = self.text[:size], self.text[size:]
+                return value
+
+        stream = TextStream("雪" * 20 + "\n")
+        frame, oversized, metadata = _read_bounded_mcp_stdout_frame(
+            stream, max_chars=1000, max_bytes=20,
+        )
+        self.assertIsNone(frame)
+        self.assertTrue(oversized)
+        self.assertGreaterEqual(metadata["observed_bytes_at_least"], 20)
+        self.assertLessEqual(max(stream.calls), 256)
+        self.assertNotIn("sample_prefix", metadata)
+        self.assertNotIn("sample_suffix", metadata)
+
+    def test_ascii_frame_within_both_budgets_is_preserved(self):
+        class TextStream:
+            def __init__(self, text):
+                self.text = text
+
+            def readline(self, size):
+                value, self.text = self.text[:size], self.text[size:]
+                return value
+
+        frame, oversized, metadata = _read_bounded_mcp_stdout_frame(
+            TextStream('{"ok":true}\n'), max_chars=32, max_bytes=32,
+        )
+        self.assertEqual(frame, '{"ok":true}')
+        self.assertFalse(oversized)
+        self.assertIsNone(metadata)
+
+    def test_invalid_byte_budget_is_rejected(self):
+        with self.assertRaises(ValueError):
+            _read_bounded_mcp_stdout_frame(type("Stream", (), {"readline": lambda self, size: ""})(), 10, 0)
+
+
 class BoundedMCPStderrDrainTests(unittest.TestCase):
     def test_long_stderr_line_ending_in_newline_does_not_consume_next_line(self):
         class NoExtraRead:
