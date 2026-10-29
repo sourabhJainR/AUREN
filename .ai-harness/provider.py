@@ -13,6 +13,10 @@ import time
 from pathlib import Path
 from typing import Any
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.append(str(REPO_ROOT))
+
 from runtime.agent_turn import (
     AgentTurnStateMachine,
     CACHE_PREFIX,
