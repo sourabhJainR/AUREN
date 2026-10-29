@@ -936,42 +936,63 @@ def build_mcp_authority_dispatch(
 
 
 def _read_bounded_mcp_stdout_frame(
-    stream: Any, max_chars: int,
+    stream: Any, max_chars: int, max_bytes: int | None = None,
 ) -> tuple[str | None, bool, dict[str, Any] | None]:
-    """Read a bounded frame in chunks; sample only observed characters if oversized.
+    """Read one newline-delimited frame under character and UTF-8 byte budgets.
 
-    Reads are capped at 4096 characters and total buffering at max_chars + 1.
-    Never drain an untrusted stream after the limit is crossed: it may be infinite.
-    Oversize diagnostics describe only the bounded prefix read, not the full frame.
+    Text streams count characters, not wire bytes. Enforce both limits so Unicode
+    payloads cannot use a larger memory budget than ASCII payloads. Reads use
+    small fixed chunks; once either cap is crossed, stop immediately and report
+    only bounded prefix metadata. Never drain an untrusted or infinite frame.
     """
     if type(max_chars) is not int or isinstance(max_chars, bool) or max_chars < 1:
         raise ValueError("MCP frame character limit must be a positive integer")
+    if max_bytes is None:
+        max_bytes = max_chars
+    if type(max_bytes) is not int or isinstance(max_bytes, bool) or max_bytes < 1:
+        raise ValueError("MCP frame byte limit must be a positive integer")
     chunks: list[str] = []
-    total = 0
-    while total <= max_chars:
-        size = min(4096, max_chars - total + 1)
+    total_chars = 0
+    total_bytes = 0
+    # Cap every read against the total byte budget. Use the observed prefix
+    # width to avoid geometrically shrinking reads on ASCII or multibyte text.
+    # The reader still checks actual encoded bytes after each bounded chunk and
+    # stops immediately on overflow; it never drains the untrusted frame.
+    max_chunk_chars = min(4096, max(1, max_bytes // 4 + 1))
+    while total_chars <= max_chars and total_bytes <= max_bytes:
+        remaining_bytes = max_bytes - total_bytes
+        if total_chars:
+            observed_bytes_per_char = max(1.0, total_bytes / total_chars)
+            estimated_remaining_chars = max(
+                1, int(remaining_bytes / observed_bytes_per_char) + 1,
+            )
+        else:
+            estimated_remaining_chars = max_chunk_chars
+        size = min(
+            max_chunk_chars,
+            max_chars - total_chars + 1,
+            estimated_remaining_chars,
+        )
         part = stream.readline(size)
         if not part:
             if not chunks:
                 return None, False, None
             return "".join(chunks).rstrip("\n"), False, None
-        total += len(part)
+        total_chars += len(part)
+        total_bytes += len(part.encode("utf-8", errors="replace"))
         chunks.append(part)
-        if total > max_chars:
+        if total_chars > max_chars or total_bytes > max_bytes:
             observed = "".join(chunks)
-            sample_window = observed[:4096]
             metadata = {
-                "observed_chars_at_least": total,
+                "observed_chars_at_least": total_chars,
+                "observed_bytes_at_least": total_bytes,
                 "observed_prefix_sha256": hashlib.sha256(observed.encode("utf-8", errors="replace")).hexdigest(),
-                "sample_prefix": sample_window[:96],
-                "sample_suffix": observed[-96:],
                 "frame_complete": observed.endswith("\n"),
             }
             return None, True, metadata
         if part.endswith("\n"):
             return "".join(chunks).rstrip("\n"), False, None
     return None, True, None
-
 
 def _drain_bounded_mcp_stderr_line(stream: Any, line: str, chunk_chars: int = 4096) -> None:
     """Finish only an oversized diagnostic line, never consume the next line."""
@@ -992,6 +1013,7 @@ class MCPStdioToolAdapter:
         self, *, argv: Sequence[str], tool_name: str, argument_map: Mapping[str, Any] | None = None,
         timeout_seconds: int = 30, env_allowlist: Sequence[str] = (),
         max_response_chars: int = 12000,
+        max_response_bytes: int | None = None,
         max_aggregate_response_chars: int | None = None,
         requires_authority_binding: bool = True,
         trusted_workspace_root: str | Path | None = None,
@@ -1011,6 +1033,10 @@ class MCPStdioToolAdapter:
             raise ValueError("MCP timeout must be between 1 and 300 seconds")
         if not isinstance(max_response_chars, int) or isinstance(max_response_chars, bool) or not 1 <= max_response_chars <= 1_000_000:
             raise ValueError("MCP response limit must be between 1 and 1000000 characters")
+        if max_response_bytes is None:
+            max_response_bytes = max_response_chars
+        if type(max_response_bytes) is not int or isinstance(max_response_bytes, bool) or not 1 <= max_response_bytes <= 4_000_000:
+            raise ValueError("MCP response byte limit must be between 1 and 4000000 bytes")
         if max_aggregate_response_chars is None:
             max_aggregate_response_chars = min(max_response_chars * 4, 8_000_000)
         if (
@@ -1045,6 +1071,7 @@ class MCPStdioToolAdapter:
         self.timeout_seconds = timeout_seconds
         self.env_allowlist = tuple(env_allowlist)
         self.max_response_chars = max_response_chars
+        self.max_response_bytes = max_response_bytes
         self.requires_authority_binding = requires_authority_binding
         self.trusted_workspace_root = (
             Path(trusted_workspace_root).expanduser().resolve()
@@ -1069,12 +1096,13 @@ class MCPStdioToolAdapter:
                         metadata = json.loads(line.split(":", 1)[1])
                         detail = (
                             f" (observed_chars_at_least={metadata.get('observed_chars_at_least', 'unknown')}, "
+                            f"observed_bytes_at_least={metadata.get('observed_bytes_at_least', 'unknown')}, "
                             f"observed_prefix_sha256={metadata.get('observed_prefix_sha256', 'unknown')})"
                         )
                     except (TypeError, ValueError, json.JSONDecodeError):
                         detail = ""
                 raise AdapterUnavailable(
-                    "MCP response exceeded the configured character limit" + detail
+                    "MCP response exceeded the configured character limit or UTF-8 byte limit" + detail
                 )
             if line == MCPStdioToolAdapter._QUEUE_OVERFLOW_RESPONSE:
                 raise AdapterUnavailable("MCP server exceeded the bounded response queue; dispatch aborted")
@@ -1143,7 +1171,7 @@ class MCPStdioToolAdapter:
                 try:
                     return self._invoke_unchecked(request, arguments=arguments)
                 except AdapterUnavailable as exc:
-                    if "exceeded the configured character limit" not in str(exc):
+                    if "MCP response exceeded the configured" not in str(exc):
                         raise
                 try:
                     planned = self.read_only_response_chunker(dict(arguments))
@@ -1219,7 +1247,7 @@ class MCPStdioToolAdapter:
                 except AdapterUnavailable as exc:
                     if (
                         self.read_only_response_reducer is None
-                        or "exceeded the configured character limit" not in str(exc)
+                        or "MCP response exceeded the configured" not in str(exc)
                     ):
                         raise
                     if attempt == 2:
@@ -1335,7 +1363,7 @@ class MCPStdioToolAdapter:
             assert proc.stdout is not None
             while True:
                 frame, oversized, metadata = _read_bounded_mcp_stdout_frame(
-                    proc.stdout, self.max_response_chars,
+                    proc.stdout, self.max_response_chars, self.max_response_bytes,
                 )
                 if oversized:
                     # Never drain an untrusted oversized frame: it may be an
