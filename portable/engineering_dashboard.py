@@ -547,8 +547,75 @@ class EngineeringDashboard:
                 continue
         return found
 
+    @staticmethod
+    def _progress_status_category(state: Any) -> str:
+        value = str(state or "unknown").strip().lower()
+        if value in {"completed", "failed", "cancelled", "timed_out", "unscored", "stale", "unknown"}:
+            return value
+        if value in {"blocked", "blocked_reconciliation", "blocked_quota", "blocked_approval", "waiting_approval"}:
+            return "blocked"
+        if value in {"pending", "queued", "waiting_quota"}:
+            return "queued"
+        if value == "running":
+            return "running"
+        if value == "recovering":
+            return "recovering"
+        return "unknown"
+
+    def _canonical_task_states(self) -> tuple[dict[str, dict[str, Any]], set[str], bool]:
+        """Read task status from existing controller databases without mutating them."""
+        candidates = (
+            self.root / ".auren" / "execution.sqlite3",
+            canonical_auren_home() / "executive" / ".auren" / "execution.sqlite3",
+        )
+        states: dict[str, dict[str, Any]] = {}
+        conflicts: set[str] = set()
+        unreadable_store = False
+        for path in candidates:
+            if not path.is_file():
+                continue
+            try:
+                uri = f"file:{path.as_posix()}?mode=ro"
+                with closing(sqlite3.connect(uri, uri=True, timeout=0.5)) as db:
+                    db.execute("PRAGMA query_only=ON")
+                    exists = db.execute(
+                        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='tasks'"
+                    ).fetchone()
+                    if exists is None:
+                        continue
+                    columns = {row[1] for row in db.execute("PRAGMA table_info(tasks)").fetchall()}
+                    if not {"id", "state"} <= columns:
+                        unreadable_store = True
+                        continue
+                    updated_column = "updated_at" if "updated_at" in columns else "NULL"
+                    ordering = "updated_at DESC" if "updated_at" in columns else "rowid DESC"
+                    rows = db.execute(
+                        f"SELECT id,state,{updated_column} FROM tasks ORDER BY {ordering} LIMIT 1000"
+                    ).fetchall()
+            except (OSError, sqlite3.Error):
+                # If a configured store exists but cannot be read, another store's
+                # apparent terminal state is not enough to claim a verified outcome.
+                unreadable_store = True
+                continue
+            for raw_id, raw_state, updated_at in rows:
+                task_id = str(raw_id or "").strip()
+                if not task_id:
+                    continue
+                candidate = {
+                    "state": str(raw_state or "unknown").strip().lower() or "unknown",
+                    "updated_at": str(updated_at or ""),
+                }
+                previous = states.get(task_id)
+                if previous is None:
+                    states[task_id] = candidate
+                elif previous["state"] != candidate["state"]:
+                    conflicts.add(task_id)
+                elif candidate["updated_at"] > previous["updated_at"]:
+                    states[task_id] = candidate
+        return states, conflicts, unreadable_store
+
     def _progress_snapshots(self) -> list[dict[str, Any]]:
-        """Expose supervisor journal snapshots; never infer progress from model text."""
+        """Project journal progress, reconciled against canonical task state."""
         home = canonical_auren_home()
         candidates = (
             self.root / ".auren" / "progress.jsonl",
@@ -574,6 +641,141 @@ class EngineeringDashboard:
                 }]
             for row in rows:
                 snapshots[str(row.get("task_id", "unknown"))] = row
+
+        canonical_states, conflicts, unreadable_store = self._canonical_task_states()
+        final_states = {"completed", "failed", "cancelled", "timed_out", "unscored"}
+        if unreadable_store:
+            # A second configured store could contain a conflicting durable state.
+            # Do not let journal-only rows or the readable store turn this into green.
+            for task_id, row in snapshots.items():
+                row["reported_state"] = row.get("reported_state", row.get("state", "unknown"))
+                row["state"] = "unknown"
+                row["canonical_state"] = "unknown"
+                row["state_source"] = "unreadable_durable_store"
+                row["status_category"] = "unknown"
+                row["status_conflict"] = True
+                row["stale"] = False
+                row["next_action"] = "inspect unreadable canonical task store before trusting progress or retrying"
+            for task_id, state_row in canonical_states.items():
+                if task_id not in snapshots:
+                    snapshots[task_id] = {
+                        "task_id": task_id, "state": "unknown", "reported_state": None,
+                        "canonical_state": "unknown", "state_source": "unreadable_durable_store",
+                        "status_category": "unknown", "status_conflict": True, "has_progress": False,
+                        "last_update": state_row.get("updated_at"), "seconds_since_update": None,
+                        "stale": False, "progress_percent": None, "completed_units": None,
+                        "total_units": None, "event_count": 0,
+                        "next_action": "inspect unreadable canonical task store before trusting progress or retrying",
+                    }
+            snapshots.setdefault("canonical-task-store-integrity", {
+                "task_id": "canonical-task-store-integrity", "state": "unknown",
+                "reported_state": None, "canonical_state": "unknown",
+                "state_source": "unreadable_durable_store", "status_category": "unknown",
+                "status_conflict": True, "has_progress": False, "last_update": None,
+                "seconds_since_update": None, "stale": False, "progress_percent": None,
+                "completed_units": None, "total_units": None, "event_count": 0,
+                "next_action": "inspect unreadable canonical task store before trusting progress or retrying",
+            })
+        else:
+            for task_id in set(canonical_states) | conflicts:
+                canonical = canonical_states.get(task_id, {}).get("state", "unknown")
+                updated_at = canonical_states.get(task_id, {}).get("updated_at")
+                row = snapshots.get(task_id)
+                if task_id in conflicts:
+                    row = row or {
+                        "task_id": task_id, "reported_state": None, "has_progress": False,
+                        "last_update": updated_at, "event_count": 0,
+                    }
+                    row["reported_state"] = row.get("reported_state", row.get("state"))
+                    row["state"] = "unknown"
+                    row["canonical_state"] = "unknown"
+                    row["state_source"] = "conflicting_durable_stores"
+                    row["status_category"] = "unknown"
+                    row["status_conflict"] = True
+                    row["stale"] = False
+                    row["next_action"] = "reconcile conflicting durable task records before retry"
+                    snapshots[task_id] = row
+                    continue
+
+                if row is None:
+                    uncertain = canonical in final_states or canonical in {"running", "unknown"}
+                    display_state = "unknown" if uncertain else ("queued" if canonical == "pending" else canonical)
+                    row = {
+                        "task_id": task_id,
+                        "state": display_state,
+                        "reported_state": None,
+                        "canonical_state": canonical,
+                        "state_source": "execution_controller",
+                        "status_category": self._progress_status_category(display_state),
+                        "status_conflict": uncertain,
+                        "has_progress": False,
+                        "last_update": updated_at,
+                        "seconds_since_update": None,
+                        "stale": False,
+                        "progress_percent": None,
+                        "completed_units": None,
+                        "total_units": None,
+                        "event_count": 0,
+                        "next_action": (
+                            "reconcile the missing progress receipt before reporting a terminal outcome"
+                            if canonical in final_states else
+                            "inspect worker lease and journal before reporting active execution"
+                            if canonical == "running" else
+                            "inspect the missing progress journal before trusting progress"
+                        ),
+                    }
+                    snapshots[task_id] = row
+                    continue
+
+                reported = str(row.get("reported_state", row.get("state", "unknown")) or "unknown").lower()
+                row["reported_state"] = reported
+                row["canonical_state"] = canonical
+                row["state_source"] = "execution_controller"
+                row["status_conflict"] = False
+
+                if canonical in final_states:
+                    if reported == canonical:
+                        row["state"] = canonical
+                        row["stale"] = False
+                        row["next_action"] = None
+                    else:
+                        row["state"] = "unknown"
+                        row["stale"] = False
+                        row["status_conflict"] = True
+                        row["next_action"] = "reconcile the terminal task receipt and progress journal before reporting an outcome"
+                elif canonical == "running":
+                    if reported in final_states or reported == "unknown":
+                        row["state"] = "unknown"
+                        row["stale"] = False
+                        row["status_conflict"] = True
+                        row["next_action"] = "inspect the canonical task lease and reconcile contradictory progress before retry"
+                    elif row.get("stale") or reported == "stale":
+                        row["state"] = "stale"
+                        row["stale"] = True
+                        row["next_action"] = "inspect worker health and deadline; recover or fail visibly"
+                    else:
+                        row["state"] = "running"
+                        row["stale"] = False
+                        row["next_action"] = None
+                else:
+                    if reported in final_states:
+                        row["state"] = "unknown"
+                        row["stale"] = False
+                        row["status_conflict"] = True
+                        row["next_action"] = "reconcile contradictory terminal progress before reporting a result"
+                    else:
+                        row["state"] = "queued" if canonical == "pending" else canonical
+                        row["stale"] = False
+                        if self._progress_status_category(canonical) == "blocked":
+                            row["next_action"] = "resolve the durable blocker before dispatch"
+                row["status_category"] = self._progress_status_category(row.get("state"))
+
+        for row in snapshots.values():
+            row.setdefault("reported_state", row.get("state", "unknown"))
+            row.setdefault("canonical_state", None)
+            row.setdefault("state_source", "progress_journal")
+            row.setdefault("status_conflict", False)
+            row.setdefault("status_category", self._progress_status_category(row.get("state")))
         for task_id, row in snapshots.items():
             profile = profile_bindings.get(task_id)
             if profile is None:
