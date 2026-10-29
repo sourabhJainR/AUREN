@@ -414,3 +414,41 @@ def test_dashboard_adds_status_category_to_journal_only_rows(tmp_path, monkeypat
     assert row["status_category"] == "blocked"
     assert row["state_source"] == "progress_journal"
     assert row["canonical_state"] is None
+
+
+def test_dashboard_reconciles_journal_task_beyond_recent_task_window(tmp_path, monkeypatch):
+    import sqlite3
+    from portable.engineering_dashboard import EngineeringDashboard
+    from portable.progress_journal import ProgressJournal
+
+    monkeypatch.setattr("portable.engineering_dashboard.canonical_auren_home", lambda: tmp_path / "home")
+    state_dir = tmp_path / ".auren"
+    state_dir.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(state_dir / "execution.sqlite3") as db:
+        db.execute(
+            "CREATE TABLE tasks (id TEXT PRIMARY KEY, state TEXT NOT NULL, updated_at TEXT NOT NULL, payload TEXT NOT NULL DEFAULT '{}')"
+        )
+        db.execute(
+            "INSERT INTO tasks (id,state,updated_at,payload) VALUES (?,?,?,?)",
+            ("old-task", "pending", "2026-10-01T00:00:00+00:00", "{}"),
+        )
+        db.executemany(
+            "INSERT INTO tasks (id,state,updated_at,payload) VALUES (?,?,?,?)",
+            [
+                (f"recent-{index}", "pending", "2026-10-29T15:00:00+00:00", "{}")
+                for index in range(1000)
+            ],
+        )
+    journal = ProgressJournal(state_dir / "progress.jsonl")
+    journal.record(
+        "old-task", "stale-terminal", state="completed",
+        stage="terminal", message="stale terminal projection",
+    )
+
+    rows = EngineeringDashboard(tmp_path).snapshot().as_dict()["tasks"]["progress"]
+    row = next(item for item in rows if item["task_id"] == "old-task")
+    assert row["state"] == "unknown"
+    assert row["canonical_state"] == "pending"
+    assert row["reported_state"] == "completed"
+    assert row["status_conflict"] is True
+    assert "reconcile" in row["next_action"]

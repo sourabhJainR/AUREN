@@ -562,7 +562,9 @@ class EngineeringDashboard:
             return "recovering"
         return "unknown"
 
-    def _canonical_task_states(self) -> tuple[dict[str, dict[str, Any]], set[str], bool]:
+    def _canonical_task_states(
+        self, journal_task_ids: set[str] | None = None
+    ) -> tuple[dict[str, dict[str, Any]], set[str], bool]:
         """Read task status from existing controller databases without mutating them."""
         candidates = (
             self.root / ".auren" / "execution.sqlite3",
@@ -592,6 +594,32 @@ class EngineeringDashboard:
                     rows = db.execute(
                         f"SELECT id,state,{updated_column} FROM tasks ORDER BY {ordering} LIMIT 1000"
                     ).fetchall()
+                    # Keep the recent-task view bounded, but always reconcile every
+                    # task already present in the journal. Otherwise an old task
+                    # outside the recent 1000 could retain a stale terminal status.
+                    rows_by_id = {
+                        str(row[0] or "").strip(): row
+                        for row in rows
+                        if str(row[0] or "").strip()
+                    }
+                    if journal_task_ids:
+                        requested_ids = sorted({
+                            str(task_id).strip()
+                            for task_id in journal_task_ids
+                            if str(task_id).strip()
+                        })
+                        for offset in range(0, len(requested_ids), 400):
+                            batch = requested_ids[offset:offset + 400]
+                            placeholders = ",".join("?" for _ in batch)
+                            exact_rows = db.execute(
+                                f"SELECT id,state,{updated_column} FROM tasks WHERE id IN ({placeholders})",
+                                batch,
+                            ).fetchall()
+                            for row in exact_rows:
+                                task_id = str(row[0] or "").strip()
+                                if task_id:
+                                    rows_by_id[task_id] = row
+                    rows = list(rows_by_id.values())
             except (OSError, sqlite3.Error):
                 # If a configured store exists but cannot be read, another store's
                 # apparent terminal state is not enough to claim a verified outcome.
@@ -642,7 +670,7 @@ class EngineeringDashboard:
             for row in rows:
                 snapshots[str(row.get("task_id", "unknown"))] = row
 
-        canonical_states, conflicts, unreadable_store = self._canonical_task_states()
+        canonical_states, conflicts, unreadable_store = self._canonical_task_states(set(snapshots))
         final_states = {"completed", "failed", "cancelled", "timed_out", "unscored"}
         if unreadable_store:
             # A second configured store could contain a conflicting durable state.
