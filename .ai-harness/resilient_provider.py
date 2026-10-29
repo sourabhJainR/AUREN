@@ -14,6 +14,10 @@ import tempfile
 import time
 from pathlib import Path
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.append(str(REPO_ROOT))
+
 from portable.agent_execution_guard import AgentAssignmentScopeDenied, deny_unscoped_subprocess_for_assigned_agent
 
 TRANSIENT_MARKERS = (
