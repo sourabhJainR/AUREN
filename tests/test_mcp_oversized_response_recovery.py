@@ -73,3 +73,103 @@ class MCPOversizedResponseRecoveryTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+
+class MCPBoundedChunkRecoveryContractTests(unittest.TestCase):
+    @staticmethod
+    def _write_paged_server(path: Path) -> None:
+        source = r"""
+import json, sys
+for line in sys.stdin:
+    try: message = json.loads(line)
+    except Exception: continue
+    if message.get("method") == "initialize":
+        response = {"jsonrpc":"2.0","id":message["id"],"result":{"protocolVersion":"2024-11-05","capabilities":{},"serverInfo":{"name":"chunk-contract-test","version":"1"}}}
+        print(json.dumps(response), flush=True)
+    elif message.get("method") == "tools/call":
+        query = message.get("params", {}).get("arguments", {}).get("query")
+        if query == "all":
+            result = {"structuredContent":{"items":["x" * 1800]}}
+        elif query == "page-a":
+            result = {"structuredContent":{"items":["a" * 700]}}
+        elif query == "page-b":
+            result = {"structuredContent":{"items":["b" * 700]}}
+        else:
+            result = {"structuredContent":{"items":[]}}
+        print(json.dumps({"jsonrpc":"2.0","id":message["id"],"result":result}), flush=True)
+"""
+        path.write_text(source, encoding="utf-8")
+
+    def _adapter(self, root: Path, *, aggregate_limit: int):
+        server = root / "chunk_server.py"
+        self._write_paged_server(server)
+        return MCPStdioToolAdapter(
+            argv=(sys.executable, str(server)),
+            tool_name="search",
+            argument_map={"query": "$intent"},
+            timeout_seconds=5,
+            max_response_chars=1200,
+            max_aggregate_response_chars=aggregate_limit,
+            requires_authority_binding=False,
+            trusted_workspace_root=root,
+            read_only_response_chunker=lambda _args: [
+                {"query": "page-a"}, {"query": "page-b"},
+            ],
+            read_only_response_merger=lambda pages: {
+                "items": [item for page in pages for item in page["items"]],
+            },
+        )
+
+    def test_explicit_read_only_chunks_recover_without_accepting_partial_result(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            adapter = self._adapter(root, aggregate_limit=3000)
+            result = adapter({
+                "stage": "research", "intent": "all",
+                "state": {"workspace_root": str(root)},
+            })
+            self.assertEqual(len(result["items"]), 2)
+            self.assertEqual([item[0] for item in result["items"]], ["a", "b"])
+
+    def test_chunk_results_cannot_exceed_aggregate_budget(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            adapter = self._adapter(root, aggregate_limit=1200)
+            with self.assertRaisesRegex(AdapterUnavailable, "aggregate response budget"):
+                adapter({
+                    "stage": "research", "intent": "all",
+                    "state": {"workspace_root": str(root)},
+                })
+
+    def test_chunk_plan_rejects_duplicate_chunks(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            server = root / "unused.py"
+            server.write_text("", encoding="utf-8")
+            adapter = MCPStdioToolAdapter(
+                argv=(sys.executable, str(server)),
+                tool_name="search",
+                timeout_seconds=5,
+                max_response_chars=1200,
+                requires_authority_binding=False,
+                trusted_workspace_root=root,
+                read_only_response_chunker=lambda _args: [
+                    {"query": "same"}, {"query": "same"},
+                ],
+                read_only_response_merger=lambda pages: {"pages": list(pages)},
+            )
+            # First call is intentionally oversized, then the duplicate plan is rejected.
+            server.write_text(
+                "import json,sys\n"
+                "for line in sys.stdin:\n"
+                " m=json.loads(line)\n"
+                " if m.get('method')=='initialize': print(json.dumps({'jsonrpc':'2.0','id':m['id'],'result':{'protocolVersion':'2024-11-05','capabilities':{},'serverInfo':{'name':'x','version':'1'}}}),flush=True)\n"
+                " elif m.get('method')=='tools/call': print(json.dumps({'jsonrpc':'2.0','id':m['id'],'result':{'structuredContent':{'items':['x'*1800]}}}),flush=True)\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(AdapterUnavailable, "valid read-only chunk plan"):
+                adapter({
+                    "stage": "research", "intent": "all",
+                    "state": {"workspace_root": str(root)},
+                })
