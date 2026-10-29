@@ -18,6 +18,12 @@ The result is a recommendation only. It never installs, invokes, authorizes, or 
 
 `make_receipt` records a task digest, selected memory IDs/kinds, budget and omissions, plus resource decision reasons and policy digest. It deliberately excludes task text and memory content. The caller should send this receipt through the existing runtime/evidence audit owner and attach a verified outcome before any learning update. Do not treat a routing receipt alone as proof of task success.
 
+## Graph/crew stage integration
+
+The canonical `portable.state_graph.GraphAgentTeam` accepts an operator-injected `task_context_router`. Bind it from the runtime composition root with `AdaptiveRuntime.make_task_context_router(project_root, ...)` and pass the returned callback to the GraphAgentTeam constructor. The callback is constructor-owned; a task payload cannot install or replace it.
+
+Before any graph node or crew proposal is dispatched, the router must return a canonical memory recall, plan and redacted receipt. The graph stage context receives bounded `auren_task_memory_context`, `auren_task_memory_plan` and `auren_task_routing_receipt` fields. Malformed or incomplete routing results stop before node dispatch. Resource selection remains advisory; execution Guard and authorization checks still run at the actual dispatch boundary. Existing callers without an injected router retain compatibility, so production composition roots must explicitly wire this callback and validate the receipt in their integration tests.
+
 ## Production integration gates
 
 - Invoke routing from the canonical graph/crew stage context builder, not from a parallel orchestrator.
