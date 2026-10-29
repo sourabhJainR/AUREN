@@ -67,5 +67,16 @@ Use `portable.adaptive_runtime.AdaptiveRuntime.memory_orchestrator(project_root)
 Retrieval must obey a hard character budget, use task/intent scope, prioritize required/verified/relevant items, and fail closed if required memory is missing or does not fit. Idle reads and metrics must not invoke a model or provider. Eviction and TTL apply only to disposable process-local state; durable records, graph lineage, evidence receipts and rollback data are not evicted by the coordinator. Use the repository's standard `unittest` patterns. Passive dataclass DTOs may use the established class-level `# pragma: no cover` pattern; behavior belongs in the orchestrator and must be tested.
 
 
+## Task-aware memory and capability preflight
+
+`AdaptiveRuntime.plan_task_resources(...)` composes the existing `MemoryOrchestrator` and canonical `CapabilityFabric` for a bounded task-scoped plan. It selects task-appropriate memory kinds, honors required memory IDs, carries record/evidence IDs through bounded context chunks, and emits a digest over the selected memory IDs, omissions, budget, chunk plan and capability decisions. The plan is inspectable and does not contain full prompts in its digest.
+
+Use `task_class` explicitly (`implementation`, `planning`, `research`, `review`, `security`, `incident`, or `exploratory`). Required memory that is absent or does not fit fails closed. Lower-ranked non-required candidates may be omitted by bounded retrieval, but the receipt exposes the omission count. Chunking splits oversized memory context at Unicode code-point boundaries and preserves record IDs, evidence references and part markers; it is not lossy summarization.
+
+The plan may recommend bounded chunk streaming, fresh-context handoffs and batching independent capabilities. Sampling is only marked as permissible when the caller explicitly opts into partial exploratory work. This function does not sample content, dispatch a provider, install a tool, grant authority, or replace the execution Guard. Capability candidates pass the canonical risk/network/sandbox checks; a fallback is rejected if it reintroduces a network requirement when network access is denied.
+
+Rollback: stop calling `plan_task_resources` and use the existing explicit memory/capability APIs. No stored memory schema or existing execution authority changes. Validate changes with `tests/test_task_resource_planner.py` and the full exact-head required CI set before merge.
+
+
 ## Proactive design recommendation
 `AdaptiveRuntime.recommend_design(project_root, intent, changed_paths=..., risk=...)` delegates to the existing `EngineeringDesignGuard.recommend_approaches` and inspects local manifests plus a bounded source scan. It returns an advisory algorithm/workflow/pattern recommendation, trade-offs, reuse candidates, verification and rollback guidance. Unknown stacks/versions are surfaced rather than guessed; recommendations do not add dependencies or authorize a change.
