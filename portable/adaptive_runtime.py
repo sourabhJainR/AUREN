@@ -172,8 +172,9 @@ class AdaptiveRuntime:
         engine = ContextEngine()
         # Keep the orchestrator's retrieval budget no larger than the packer's
         # item budget; the engine separately enforces item-count and output caps.
-        recall = self.memory_orchestrator(project_root).recall(
-            task, task_id=task_id, budget_chars=min(budget_chars, engine.policy.max_chars),
+        _, recall = recall_for_task(
+            self.memory_orchestrator(project_root), task, task_id=task_id,
+            budget_chars=min(budget_chars, engine.policy.max_chars),
             required_memory_ids=required_memory_ids,
         )
         items = self.memory_orchestrator(project_root).context_items(recall)
@@ -211,9 +212,8 @@ class AdaptiveRuntime:
         if type(recall_budget_chars) is not int or recall_budget_chars < 1:
             raise ValueError("recall_budget_chars must be a positive integer")
         orchestrator = self.memory_orchestrator(project_root)
-        recall = orchestrator.recall(
-            task,
-            task_id=task_id,
+        _, recall = recall_for_task(
+            orchestrator, task, task_id=task_id,
             budget_chars=recall_budget_chars,
             required_memory_ids=required_memory_ids,
         )
