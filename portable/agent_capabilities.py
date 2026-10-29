@@ -132,7 +132,21 @@ class CapabilityFabric:
             if cap.requires_network and not network_allowed:
                 if not cap.fallback:
                     raise RuntimeError(f"network required and no safe fallback: {name}")
-                selected = self._caps[cap.fallback]
+                selected = self._caps.get(cap.fallback)
+                if selected is None:
+                    raise RuntimeError(f"configured fallback is unavailable: {name}")
+                # A fallback is not safe merely because it has a different name.
+                # Re-apply every relevant gate to the fallback itself so a
+                # network-denied request cannot silently route to another
+                # network-dependent capability.
+                if selected.requires_network:
+                    raise RuntimeError(
+                        f"network denied and configured fallback still requires network: {name} -> {selected.name}"
+                    )
+                if _RISK_ORDER[selected.risk] > _RISK_ORDER[max_risk]:
+                    raise PermissionError(f"fallback exceeds risk budget: {name} -> {selected.name}")
+                if selected.requires_sandbox and not sandbox_available:
+                    raise PermissionError(f"fallback requires sandbox: {name} -> {selected.name}")
             if selected.name not in seen:
                 result.append(selected)
                 seen.add(selected.name)
