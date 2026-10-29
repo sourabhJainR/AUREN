@@ -955,7 +955,7 @@ def _read_bounded_mcp_stdout_frame(
     total_chars = 0
     total_bytes = 0
     while total_chars <= max_chars and total_bytes <= max_bytes:
-        size = min(256, max_chars - total_chars + 1)
+        size = min(4096, max_chars - total_chars + 1)
         part = stream.readline(size)
         if not part:
             if not chunks:
@@ -1085,7 +1085,7 @@ class MCPStdioToolAdapter:
                     except (TypeError, ValueError, json.JSONDecodeError):
                         detail = ""
                 raise AdapterUnavailable(
-                    "MCP response exceeded the configured character/byte limit" + detail
+                    "MCP response exceeded the configured character limit or UTF-8 byte limit" + detail
                 )
             if line == MCPStdioToolAdapter._QUEUE_OVERFLOW_RESPONSE:
                 raise AdapterUnavailable("MCP server exceeded the bounded response queue; dispatch aborted")
@@ -1154,7 +1154,7 @@ class MCPStdioToolAdapter:
                 try:
                     return self._invoke_unchecked(request, arguments=arguments)
                 except AdapterUnavailable as exc:
-                    if "exceeded the configured character/byte limit" not in str(exc):
+                    if "exceeded the configured character limit or UTF-8 byte limit" not in str(exc):
                         raise
                 try:
                     planned = self.read_only_response_chunker(dict(arguments))
@@ -1230,7 +1230,7 @@ class MCPStdioToolAdapter:
                 except AdapterUnavailable as exc:
                     if (
                         self.read_only_response_reducer is None
-                        or "exceeded the configured character/byte limit" not in str(exc)
+                        or "exceeded the configured character limit or UTF-8 byte limit" not in str(exc)
                     ):
                         raise
                     if attempt == 2:
