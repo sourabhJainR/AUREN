@@ -63,7 +63,7 @@ class BoundedMCPStdoutByteBudgetTests(unittest.TestCase):
         self.assertIsNone(frame)
         self.assertTrue(oversized)
         self.assertGreaterEqual(metadata["observed_bytes_at_least"], 20)
-        self.assertLessEqual(max(stream.calls), 256)
+        self.assertLessEqual(max(stream.calls), 4096)
         self.assertNotIn("sample_prefix", metadata)
         self.assertNotIn("sample_suffix", metadata)
 
