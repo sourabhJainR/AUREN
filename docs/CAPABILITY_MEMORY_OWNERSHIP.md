@@ -64,8 +64,6 @@ Use `portable.adaptive_runtime.AdaptiveRuntime.memory_orchestrator(project_root)
 | Meta-memory | Read-only bounded counters and cache/recall metrics | Do not recursively persist telemetry as memories |
 | KV-style cache | Existing content-addressed `ContextPageCache` | Process-local; not durable memory or a provider GPU KV cache |
 
-Task-aware entry point: `MemoryOrchestrator.plan_for_task(...)` deterministically chooses a memory-kind set, sensitivity class, freshness scope and hard character budget from the task intent. `recall_for_task(...)` executes that plan through the same canonical recall path and emits a compact receipt containing selected IDs/kinds, omissions, budget use and strategy—not memory text, prompts or source payloads. Sampling is opt-in and remains disabled for security-sensitive, delivery/release, migration, incident and full-coverage tasks. This is a memory-routing primitive, not a provider authorization or resource-selection grant; capability discovery remains read-only and execution must still pass the existing Guard and authority boundary.
-
 Retrieval must obey a hard character budget, use task/intent scope, prioritize required/verified/relevant items, and fail closed if required memory is missing or does not fit. Idle reads and metrics must not invoke a model or provider. Eviction and TTL apply only to disposable process-local state; durable records, graph lineage, evidence receipts and rollback data are not evicted by the coordinator. Use the repository's standard `unittest` patterns. Passive dataclass DTOs may use the established class-level `# pragma: no cover` pattern; behavior belongs in the orchestrator and must be tested.
 
 
