@@ -1251,7 +1251,7 @@ class MCPStdioToolAdapter:
                         or aggregate_bytes > self.max_aggregate_response_bytes
                     ):
                         raise AdapterUnavailable(
-                            "MCP chunk recovery exceeded the aggregate response character or byte budget; "
+                            "MCP chunk recovery exceeded the aggregate response budget (character or byte); "
                             "no partial result accepted"
                         )
                     chunk_results.append(chunk_snapshot)
