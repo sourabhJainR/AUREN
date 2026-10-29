@@ -169,6 +169,21 @@ def validate_agent_assignment_for_dispatch(
     return tuple(clean_scope)
 
 
+def deny_unscoped_subprocess_for_assigned_agent() -> None:
+    """Fail closed when assigned work attempts an arbitrary child-process launch.
+
+    A subprocess can read or mutate resources outside the assignment even when
+    its working directory is in scope. Until a host sandbox binds filesystem,
+    network, and credential access to the assignment, do not treat cwd as proof
+    of confinement. Unassigned tasks retain the existing controller policy.
+    """
+    if _ACTIVE_ASSIGNMENT_SCOPE.get() is not None:
+        raise AgentAssignmentScopeDenied(
+            "assigned agent subprocess launch is blocked because the child process "
+            "cannot prove enforcement of the exact delegated resource scope"
+        )
+
+
 @contextmanager
 def agent_assignment_scope(scope: tuple[str, ...] | None) -> Iterator[None]:
     """Bind verified exact-path scope to synchronous adapter calls in this context."""
@@ -191,5 +206,6 @@ def enforce_agent_resource_scope(relative_path: Any) -> None:
 
 __all__ = [
     "AgentAssignmentScopeDenied", "agent_assignment_scope",
+    "deny_unscoped_subprocess_for_assigned_agent",
     "enforce_agent_resource_scope", "validate_agent_assignment_for_dispatch",
 ]

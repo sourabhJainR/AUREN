@@ -16,6 +16,7 @@ import time
 from pathlib import Path
 from typing import Mapping, Sequence
 from .extension_policy import ExtensionInvocationDenied, evaluate_invocation
+from .agent_execution_guard import deny_unscoped_subprocess_for_assigned_agent
 
 
 class SubprocessProviderError(RuntimeError):
@@ -297,6 +298,10 @@ class SubprocessProviderInvoker:
         return self(prompt, effective_timeout, cancel_event=cancel_event)
 
     def __call__(self, prompt: str, timeout_seconds: int | float, *, cancel_event: threading.Event | None = None) -> str:
+        # Assignment scope is not a sandbox: an arbitrary child can access paths outside cwd.
+        # Deny before extension-policy checks or process creation until a host-enforced
+        # scoped executor is supplied.
+        deny_unscoped_subprocess_for_assigned_agent()
         extension_decision = None
         if self.is_extension:
             extension_decision = evaluate_invocation(
