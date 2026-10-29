@@ -168,6 +168,21 @@ class EngineeringPlanRecoveryBridgeTests(unittest.TestCase):
             self.assertEqual(initial.digest, checkpoint.payload["run_digest"])
             self.assertEqual(initial.revision, checkpoint.payload["run_revision"])
 
+    def test_checkpoint_head_metadata_mismatch_blocks_resume(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            bridge = self.make_bridge(Path(tmp))
+            plan = sample_plan()
+            bridge.start(plan)
+            checkpoint = bridge.ledger.get_checkpoint(plan.run_id, bridge.PHASE)
+            bridge.ledger.checkpoint(
+                plan.run_id, bridge.PHASE, status=checkpoint.status,
+                head_sha="stale-source-revision", payload=checkpoint.payload,
+            )
+            with self.assertRaisesRegex(
+                EngineeringPlanCheckpointMismatch, "checkpoint mismatch for head_sha"
+            ):
+                bridge.load_verified(plan.run_id)
+
     def test_evidence_gated_task_completion_publishes_verified_checkpoint(self):
         with tempfile.TemporaryDirectory() as tmp:
             bridge = self.make_bridge(Path(tmp))
