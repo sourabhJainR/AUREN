@@ -1116,7 +1116,7 @@ class MCPStdioToolAdapter:
         state = request.get("state", {})
         selectors: list[Any] = []
         for source in (request, state if isinstance(state, Mapping) else {}):
-            for key in ("resource", "path", "file_path"):
+            for key in ("resource", "path", "file_path", "target_path", "workspace_path", "relative_path", "repository_path"):
                 if key in source and source[key] is not None:
                     selectors.append(source[key])
         if selectors:
