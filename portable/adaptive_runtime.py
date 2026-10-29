@@ -16,6 +16,7 @@ from .capability_fabric import Capability, CapabilityFabric, ProviderAdapter, Pr
 from .context_graph import ContextGraph
 from .context_engine import ContextEngine
 from .memory_orchestrator import MemoryOrchestrator
+from .task_aware_routing import make_receipt, recall_for_task, select_resources
 from .engineering_design_guard import EngineeringDesignGuard
 from .context_resolver import ContextResolution, ContextResolver
 from .cognitive_controller import CognitiveController
@@ -973,3 +974,45 @@ class AdaptiveRuntime:
 
 
 __all__ = ["AdaptiveRuntime"]
+
+    def route_task_context(
+        self,
+        project_root: Path | str,
+        task: str,
+        *,
+        memory_options: Mapping[str, Any] | None = None,
+        resource_candidates: Sequence[Any] = (),
+        required_capabilities: Iterable[str] = (),
+        max_risk: str = "medium",
+        max_cost: float | None = None,
+        max_latency_ms: int | None = None,
+        max_resource_candidates: int = 3,
+        require_measured_quality: bool = False,
+    ) -> dict[str, Any]:
+        """Route task memory and advertised resources through canonical owners.
+
+        Resource metadata is advisory only; this method does not execute or
+        authorize resources. Dispatch must enforce policy again at the boundary.
+        """
+        plan, recall = recall_for_task(
+            self.memory_orchestrator(project_root), task, **dict(memory_options or {}),
+        )
+        resource_decision = None
+        if resource_candidates or tuple(required_capabilities):
+            resource_decision = select_resources(
+                tuple(resource_candidates),
+                required_capabilities=required_capabilities,
+                max_risk=max_risk,
+                max_cost=max_cost,
+                max_latency_ms=max_latency_ms,
+                max_candidates=max_resource_candidates,
+                require_measured_quality=require_measured_quality,
+            )
+        receipt = make_receipt(task, plan, recall, resource_decision)
+        return {
+            "plan": plan,
+            "recall": recall,
+            "resources": resource_decision,
+            "receipt": receipt,
+        }
+
