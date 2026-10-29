@@ -335,7 +335,9 @@ class GraphAgentTeamTests(unittest.TestCase):
             active = 0
             peak = 0
             lock = threading.Lock()
-            rendezvous = threading.Barrier(2, timeout=2.0)
+            # Windows CI can need more than two seconds to schedule both workers;
+            # the peak-concurrency assertion below still fails if they run sequentially.
+            rendezvous = threading.Barrier(2, timeout=10.0)
 
             def invoke(agent, prompt):
                 nonlocal active, peak
