@@ -10,6 +10,7 @@ from portable.agency_state_graph import Checkpoint, InMemoryCheckpointStore
 from portable.task_planner import TaskPlan
 from portable.benchmark_task_dispatch import BenchmarkExecutionRequest
 from portable.engineering_design_guard import PRINCIPLE_FAMILY_IDS
+from portable.adaptive_resource_handling import adaptive_context_limit, bounded_text, iter_text_chunks, sample_items
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -39,6 +40,57 @@ def principle_verification_receipt(intent_digest: str, code_revision: str) -> di
         json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()
     return payload
+
+
+class AdaptiveResourceHandlingTests(unittest.TestCase):
+    def test_chunking_is_bounded_and_round_trips_streamed_text(self):
+        source = "0123456789" * 1700
+        chunks = list(iter_text_chunks(source, 257))
+        self.assertTrue(all(0 < len(chunk) <= 257 for chunk in chunks))
+        self.assertEqual("".join(chunks), source)
+
+    def test_bounded_text_is_deterministic_and_marks_lossy_sampling(self):
+        source = "START\n" + ("ordinary detail\n" * 500) + "SECURITY: preserve this constraint\n" + ("tail detail\n" * 500) + "END"
+        first, strategy = bounded_text(source, 500)
+        second, second_strategy = bounded_text(source, 500)
+        self.assertEqual(first, second)
+        self.assertEqual(strategy, "head_tail_critical_sample")
+        self.assertEqual(strategy, second_strategy)
+        self.assertLessEqual(len(first), 500)
+        self.assertIn("adaptive resource handling", first)
+        self.assertTrue(first.startswith("START"))
+        self.assertTrue(first.endswith("END"))
+
+    def test_context_budget_adapts_to_measured_pressure_without_expanding(self):
+        self.assertEqual(adaptive_context_limit(4200, {}), 4200)
+        self.assertEqual(adaptive_context_limit(4200, {"cpu_pressure": 0.72}), 3150)
+        self.assertEqual(adaptive_context_limit(4200, {"memory_pressure": 0.91}), 2100)
+        self.assertEqual(adaptive_context_limit(4200, {"queue_pressure": 1.5}), 2100)
+        self.assertEqual(adaptive_context_limit(4200, {"cpu_pressure": -1}), 4200)
+        with self.assertRaises(ValueError):
+            adaptive_context_limit(0, {})
+
+    def test_sampling_is_deterministic_and_preserves_edges(self):
+        self.assertEqual(sample_items([str(i) for i in range(10)], 3), ["0", "4", "9"])
+        self.assertEqual(sample_items(["a", "b"], 5), ["a", "b"])
+
+    def test_shared_memory_records_oversized_entry_adaptation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            memory = SharedTaskMemory(Path(tmp) / "memory.jsonl", "oversized-entry", max_chars=1400)
+            original = "BEGIN\n" + ("large tool output and ordinary context\n" * 2000) + "END"
+            item_id = memory.publish(agent="worker", role="qa", kind="tool-output", text=original,
+                                      evidence=["run:123"], confidence=0.8)
+            rows = memory.snapshot(10)
+            self.assertEqual(len(rows), 1)
+            row = rows[0]
+            self.assertEqual(row["id"], item_id)
+            self.assertTrue(row["text_truncated"])
+            self.assertEqual(row["text_original_chars"], len(original))
+            self.assertNotEqual(row["text_strategy"], "complete")
+            self.assertIn("adaptive resource handling", row["text"])
+            self.assertLessEqual(memory._size(rows), memory.max_chars)
+            compact = memory.compact_text(limit=300)
+            self.assertLessEqual(len(compact), 300)
 
 
 class GraphAgentTeamTests(unittest.TestCase):

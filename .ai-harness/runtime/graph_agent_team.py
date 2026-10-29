@@ -12,6 +12,7 @@ from portable.state_graph import build_crew_plan, default_crew_definitions, _dis
 from portable.crew_adapters import GraphHandoffController,TaskRetryBudget, merge_retry_budget_snapshots
 from portable.agent_memory import AgentMemory
 from portable.context_engine import ContextEngine,ContextPolicy,handoff_from_output
+from portable.adaptive_resource_handling import adaptive_context_limit, bounded_text
 from portable.dream_memory import DreamMemory
 from portable.learning_steward import LearningSteward
 from portable.persistent_memory import PersistentMemory
@@ -149,7 +150,27 @@ class SharedTaskMemory:
         if not clean: raise ValueError("shared memory text is required")
         payload={"schema_version":1,"intent_digest":self.intent_digest,"agent":agent,"role":role,"kind":kind,"text":clean,
                  "evidence":sorted(set(evidence or [])),"confidence":max(0.0,min(1.0,float(confidence))),"created_at":time.time()}
+        payload["text_truncated"]=False
+        payload["text_original_chars"]=len(clean)
+        payload["text_strategy"]="complete"
         payload["id"]=hashlib.sha256(json.dumps(payload,sort_keys=True,default=str).encode()).hexdigest()[:20]
+        # The aggregate memory budget is a hard ceiling. Adapt oversized entries
+        # before persistence and record that context was sampled; never silently
+        # claim the shortened payload is the complete source artifact.
+        if self._size([payload]) > self.max_chars:
+            target=max(1,self.max_chars-512)
+            while target > 1:
+                bounded,strategy=bounded_text(clean,target)
+                candidate=dict(payload,text=bounded,text_truncated=True,text_strategy=strategy)
+                candidate["id"]=hashlib.sha256(json.dumps({k:v for k,v in candidate.items() if k!="id"},sort_keys=True,default=str).encode()).hexdigest()[:20]
+                if self._size([candidate]) <= self.max_chars:
+                    payload=candidate
+                    break
+                target=max(1,target//2)
+            else:
+                raise ValueError("memory budget is too small for a truthful bounded entry")
+            if self._size([payload]) > self.max_chars:
+                raise ValueError("bounded memory entry exceeds the hard memory budget")
         with self._lock,_file_lock(self._process_lock):
             rows=self.snapshot(self.max_entries); rows.append(payload); rows=rows[-self.max_entries:]
             while rows and self._size(rows)>self.max_chars: rows.pop(0)
@@ -170,7 +191,8 @@ class SharedTaskMemory:
         rows=self.snapshot(self.max_entries)
         if relevant_agents is not None: rows=[r for r in rows if str(r.get("agent","")) in relevant_agents]
         packed=self.context.pack(self.context.from_memory(rows))
-        if limit and len(packed)>limit: return packed[:max(200,limit-40)]+"\n...[context compacted]"
+        if limit and len(packed)>limit:
+            packed,_strategy=bounded_text(packed,limit)
         return packed
 
 def _private_memory(output):
@@ -683,6 +705,9 @@ class GraphAgentTeam:
                         "adapted": bool(execution_adaptation_payload),
                     },
                 }
+                context_limit=adaptive_context_limit(memory.context.policy.output_chars, decision.pressure)
+                execution_plan["resource_context_budget_chars"]=context_limit
+                execution_plan["resource_pressure_peak"]=max((float(decision.pressure.get(key,0.0) or 0.0) for key in ("cpu_pressure","memory_pressure","queue_pressure")),default=0.0)
                 verification_choice=type("_Verification",(),{"level":max_verification_depth(pathway.verification_depth, decision.inference_depth, execution_mode(mode_name).verification_depth)})()
                 retry_choice=type("_Retry",(),{"selected":pathway.retry_action if execution_mode(mode_name).retry_policy == "stop" else execution_mode(mode_name).retry_policy})()
                 world_state = self._record_world_state(agent=agent, task=task, intent_digest=intent_digest, run_nonce=run_nonce, decision=decision,
@@ -707,7 +732,7 @@ class GraphAgentTeam:
                         evidence_ids=[f"local:{agent.name}:{local.status}"],
                     )
                 relevant=set(agent.depends_on); relevant.add("planner")
-                shared_context=memory.compact_text(relevant_agents=relevant)
+                shared_context=memory.compact_text(relevant_agents=relevant,limit=context_limit)
                 historical=guidance(memory.project_root,task,limit=2400)
                 private=AgentMemory(memory.project_root,agent.name,run_id=intent_digest).read(limit=2200)
                 focus=LearningSteward(memory.project_root,run_id=intent_digest,task=task).prompt() if agent.name=="learning-steward" else ""
