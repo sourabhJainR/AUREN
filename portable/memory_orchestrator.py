@@ -56,6 +56,33 @@ class MemoryEnvelope:  # pragma: no cover - passive DTO; behavior is covered thr
 
 
 @dataclass(frozen=True, slots=True)
+class TaskMemoryPlan:
+    """Deterministic, inspectable memory budget plan for one graph/crew task."""
+
+    task_class: str
+    kinds: tuple[str, ...]
+    task_id: str | None
+    intent_digest: str | None
+    branch: str | None
+    source_revision: str | None
+    required_memory_ids: tuple[str, ...]
+    budget_chars: int
+    sensitivity: str
+    freshness: str
+    sampling_allowed: bool
+    strategy: str
+
+
+@dataclass(frozen=True, slots=True)
+class TaskMemoryResult:
+    """Recall result plus a secret-free decision receipt suitable for audit."""
+
+    plan: TaskMemoryPlan
+    recall: "MemoryRecall"
+    receipt: Mapping[str, Any]
+
+
+@dataclass(frozen=True, slots=True)
 class MemoryWriteResult:  # pragma: no cover - passive DTO; behavior is covered through the orchestrator
     status: str
     kind: str
@@ -481,6 +508,111 @@ class MemoryOrchestrator:
         self._metrics["cache_misses"] += cache_misses
         self._metrics["budget_omissions"] += omitted
         return MemoryRecall(tuple(selected), rendered, len(rendered), budget_chars, cache_hits, cache_misses, omitted)
+
+    @staticmethod
+    def plan_for_task(
+        intent: str,
+        *,
+        task_id: str | None = None,
+        intent_digest: str | None = None,
+        branch: str | None = None,
+        source_revision: str | None = None,
+        required_memory_ids: Iterable[str] = (),
+        budget_chars: int = 8_000,
+        allow_sampling: bool = False,
+        requires_full_coverage: bool = True,
+    ) -> TaskMemoryPlan:
+        """Create a deterministic plan; task text is classification input, never authority.
+
+        Sampling is opt-in and is forcibly disabled for security, policy, release,
+        migration, acceptance, incident, or full-coverage work. Required memory IDs
+        are carried unchanged to recall, which fails closed if any cannot fit.
+        """
+        if not isinstance(intent, str) or not intent.strip():
+            raise ValueError("intent must be a non-empty string")
+        if type(budget_chars) is not int or isinstance(budget_chars, bool) or budget_chars < 1:
+            raise ValueError("budget_chars must be a positive integer")
+        for name, value in (("task_id", task_id), ("intent_digest", intent_digest),
+                            ("branch", branch), ("source_revision", source_revision)):
+            if value is not None and (not isinstance(value, str) or not value.strip()):
+                raise ValueError(f"{name} must be a non-empty string when supplied")
+        required = tuple(dict.fromkeys(str(value).strip() for value in required_memory_ids if str(value).strip()))
+        text = intent.casefold()
+        security_terms = ("security", "guardrail", "permission", "secret", "sandbox", "policy", "authorization")
+        delivery_terms = ("release", "deploy", "migration", "rollback", "acceptance", "production", "incident")
+        research_terms = ("research", "explore", "hypothesis", "brainstorm", "discovery")
+        engineering_terms = ("code", "implement", "bug", "test", "refactor", "repository", "build", "compile")
+        security_sensitive = any(term in text for term in security_terms)
+        full_coverage = requires_full_coverage or security_sensitive or any(term in text for term in delivery_terms)
+        if security_sensitive:
+            task_class, sensitivity = "security", "high"
+        elif any(term in text for term in delivery_terms):
+            task_class, sensitivity = "delivery", "high"
+        elif any(term in text for term in research_terms):
+            task_class, sensitivity = "research", "normal"
+        elif any(term in text for term in engineering_terms):
+            task_class, sensitivity = "engineering", "normal"
+        else:
+            task_class, sensitivity = "general", "normal"
+        if task_class in {"security", "delivery"}:
+            kinds = ("working", "prospective", "procedural", "semantic", "episodic", "hierarchical", "reflective")
+        elif task_class == "engineering":
+            kinds = ("working", "procedural", "semantic", "episodic", "hierarchical", "prospective")
+        elif task_class == "research":
+            kinds = ("working", "semantic", "episodic", "hierarchical", "procedural")
+        else:
+            kinds = ("working", "prospective", "episodic", "procedural", "semantic", "hierarchical", "reflective")
+        sampling_allowed = bool(allow_sampling) and not full_coverage
+        freshness = "branch-and-revision" if branch or source_revision else ("intent-scoped" if intent_digest else "project-scoped")
+        return TaskMemoryPlan(
+            task_class=task_class, kinds=kinds, task_id=task_id,
+            intent_digest=intent_digest, branch=branch, source_revision=source_revision,
+            required_memory_ids=required, budget_chars=budget_chars,
+            sensitivity=sensitivity, freshness=freshness,
+            sampling_allowed=sampling_allowed,
+            strategy="bounded-ranked-recall; preserve-required-context; fail-closed-on-budget",
+        )
+
+    def recall_for_task(
+        self,
+        intent: str,
+        *,
+        task_id: str | None = None,
+        intent_digest: str | None = None,
+        branch: str | None = None,
+        source_revision: str | None = None,
+        required_memory_ids: Iterable[str] = (),
+        budget_chars: int = 8_000,
+        allow_sampling: bool = False,
+        requires_full_coverage: bool = True,
+    ) -> TaskMemoryResult:
+        """Plan and execute task-aware recall through the existing canonical memory owner."""
+        plan = self.plan_for_task(
+            intent, task_id=task_id, intent_digest=intent_digest, branch=branch,
+            source_revision=source_revision, required_memory_ids=required_memory_ids,
+            budget_chars=budget_chars, allow_sampling=allow_sampling,
+            requires_full_coverage=requires_full_coverage,
+        )
+        recall = self.recall(
+            intent, kinds=plan.kinds, task_id=plan.task_id,
+            intent_digest=plan.intent_digest, branch=plan.branch,
+            source_revision=plan.source_revision, required_memory_ids=plan.required_memory_ids,
+            budget_chars=plan.budget_chars,
+        )
+        receipt: dict[str, Any] = {
+            "task_class": plan.task_class,
+            "sensitivity": plan.sensitivity,
+            "freshness": plan.freshness,
+            "selected_memory_ids": [item.memory_id for item in recall.memories],
+            "selected_kinds": list(dict.fromkeys(item.kind for item in recall.memories)),
+            "required_memory_ids": list(plan.required_memory_ids),
+            "omitted_count": recall.omitted,
+            "chars_used": recall.chars_used,
+            "budget_chars": recall.budget_chars,
+            "sampling_allowed": plan.sampling_allowed,
+            "strategy": plan.strategy,
+        }
+        return TaskMemoryResult(plan=plan, recall=recall, receipt=receipt)
 
     @staticmethod
     def context_items(recall: MemoryRecall) -> list[ContextItem]:
