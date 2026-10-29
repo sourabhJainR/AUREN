@@ -24,7 +24,6 @@ _TASK_MEMORY_KINDS: dict[str, tuple[str, ...]] = {
     "incident": ("working", "prospective", "episodic", "procedural", "semantic", "hierarchical"),
     "exploratory": ("working", "episodic", "semantic", "reflective", "sensory", "kv_cache"),
 }
-_PROTECTED_TASKS = frozenset({"implementation", "review", "security", "incident"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,6 +107,7 @@ def plan_task_resources(
         for item in recall.memories
     ]
     chunks = chunk_memory_context(rows, max_chars=chunk_chars)
+    evidence_by_id = {str(row["id"]): tuple(row.get("evidence_ids", ())) for row in rows}
     emitted_ids = {record_id for chunk in chunks for record_id in chunk.record_ids}
     if set(required) - emitted_ids:
         raise MemoryBudgetError("required memory would be lost during bounded chunk assembly")
@@ -165,7 +165,7 @@ def plan_task_resources(
         chunks=tuple({
             "text": chunk.text,
             "record_ids": tuple(chunk.record_ids),
-            "evidence_ids": tuple(chunk.evidence_ids),
+            "evidence_ids": tuple(sorted({evidence_id for record_id in chunk.record_ids for evidence_id in evidence_by_id.get(record_id, ())})),
             "index": chunk.index,
             "total": chunk.total,
         } for chunk in chunks),
