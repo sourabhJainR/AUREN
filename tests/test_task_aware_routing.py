@@ -64,7 +64,7 @@ class TaskAwareRoutingTests(unittest.TestCase):
             source="approved-run", approved=True, verified=True,
         )
         plan, recall = recall_for_task(
-            self.orchestrator, "hello", task_type="conversation",
+            self.orchestrator, "procedural recovery note", task_type="conversation",
             required_memory_ids=(saved.memory_id,), budget_chars=300,
         )
         self.assertIn("procedural", plan.kinds)
