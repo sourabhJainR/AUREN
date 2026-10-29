@@ -858,6 +858,15 @@ class GraphAgentTeam:
                 raise ValueError("task context routing receipt cannot be empty")
             state["auren_task_memory_context"] = recall_text
             state["auren_task_routing_receipt"] = receipt_payload
+            resource_decision = routed.get("resources")
+            if resource_decision is None:
+                state["auren_task_resource_decision"] = None
+            elif hasattr(resource_decision, "__dataclass_fields__"):
+                state["auren_task_resource_decision"] = asdict(resource_decision)
+            elif isinstance(resource_decision, Mapping):
+                state["auren_task_resource_decision"] = dict(resource_decision)
+            else:
+                raise ValueError("task context routing resource decision must be a mapping or dataclass")
             if hasattr(memory_plan, "__dataclass_fields__"):
                 state["auren_task_memory_plan"] = asdict(memory_plan)
             elif isinstance(memory_plan, Mapping):
