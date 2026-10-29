@@ -95,7 +95,7 @@ def adaptive_context_limit(base_limit: int, pressure: dict[str, float]) -> int:
             observed.append(max(0.0, min(1.0, float(value))))
     peak = max(observed, default=0.0)
     if peak >= 0.85:
-        return max(256, base_limit // 2)
+        return max(1, base_limit // 2)
     if peak >= 0.70:
-        return max(256, (base_limit * 3) // 4)
+        return max(1, (base_limit * 3) // 4)
     return base_limit
