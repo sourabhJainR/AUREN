@@ -158,6 +158,51 @@ class AdaptiveRuntime:
                 )
             return self._memory_orchestrators[project_key]
 
+    def plan_task_resources(
+        self,
+        project_root: Path | str,
+        task: str,
+        requested_capabilities: Iterable[str],
+        *,
+        task_class: str = "implementation",
+        task_id: str | None = None,
+        intent_digest: str | None = None,
+        required_memory_ids: Sequence[str] = (),
+        branch: str | None = None,
+        source_revision: str | None = None,
+        memory_budget_chars: int = 8_000,
+        chunk_chars: int = 4_200,
+        network_allowed: bool = False,
+        sandbox_available: bool = True,
+        max_risk: str = "high",
+        allow_partial_exploration: bool = False,
+    ):
+        """Build a bounded task-aware memory/resource plan using canonical owners.
+
+        This is a planning receipt, not an authorization token. Every action
+        must still pass the existing ExecutionController and Guard at dispatch.
+        """
+        from .task_resource_planner import plan_task_resources
+
+        return plan_task_resources(
+            self.memory_orchestrator(project_root),
+            self.capability_fabric,
+            task,
+            requested_capabilities,
+            task_class=task_class,
+            task_id=task_id,
+            intent_digest=intent_digest,
+            required_memory_ids=required_memory_ids,
+            branch=branch,
+            source_revision=source_revision,
+            memory_budget_chars=memory_budget_chars,
+            chunk_chars=chunk_chars,
+            network_allowed=network_allowed,
+            sandbox_available=sandbox_available,
+            max_risk=max_risk,
+            allow_partial_exploration=allow_partial_exploration,
+        )
+
     def pack_memory_context(
         self,
         project_root: Path | str,
