@@ -70,6 +70,18 @@ class TaskAwareRoutingTests(unittest.TestCase):
         self.assertIn("procedural", plan.kinds)
         self.assertIn(saved.memory_id, [item.memory_id for item in recall.memories])
 
+    def test_required_memory_respects_branch_scope_even_when_id_is_known(self):
+        saved = self.orchestrator.remember(
+            "procedural", "release procedure from feature branch",
+            source="approved-run", approved=True, verified=True, branch="feature/safe",
+        )
+        with self.assertRaises(MemoryBudgetError):
+            recall_for_task(
+                self.orchestrator, "unrelated query", task_type="conversation",
+                required_memory_ids=(saved.memory_id,), branch="feature/other",
+                budget_chars=500,
+            )
+
     def test_required_memory_budget_failure_is_not_silently_downgraded(self):
         saved = self.orchestrator.remember(
             "semantic", "critical policy context must not be truncated",
