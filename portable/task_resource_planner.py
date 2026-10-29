@@ -75,7 +75,6 @@ def plan_task_resources(
     if type(chunk_chars) is not int or chunk_chars < 128:
         raise ValueError("chunk_chars must be an integer >= 128")
     required = tuple(sorted({str(item).strip() for item in required_memory_ids if str(item).strip()}))
-    partial_allowed = task_class == "exploratory" and allow_partial_exploration
     requested = tuple(dict.fromkeys(str(item).strip() for item in requested_capabilities if str(item).strip()))
     recall = memory.recall(
         task.strip(),
