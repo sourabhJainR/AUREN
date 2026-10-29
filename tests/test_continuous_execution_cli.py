@@ -64,3 +64,45 @@ def test_continuous_cli_wires_recovery_ledger_for_ci_repair(monkeypatch, tmp_pat
     assert captured["supervisor"]["repair_handler"] == "tests.handlers.repair"
     assert captured["run_options"]["max_cycles"] == 1
     assert json.loads(capsys.readouterr().out)["audit_chain_valid"] is True
+
+
+def _continuous_status_handler(_payload):
+    return {"success": True, "evidence": ["continuous-cli-status-test"]}
+
+
+def test_continuous_cli_status_projects_canonical_task_rows_after_restart(tmp_path, capsys):
+    import gc
+
+    from portable.execution_controller import ExecutionController
+
+    controller = ExecutionController(tmp_path)
+    handler_name = "tests.test_continuous_execution_cli._continuous_status_handler"
+    controller.register_handler(
+        handler_name, _continuous_status_handler, execution_class="read_only"
+    )
+    pending = controller.submit(
+        handler_name, {"case": "pending"},
+        goal="CLI status reads durable task rows",
+        work_key="AUREN:test:continuous-cli-status-pending",
+    )
+    completed = controller.submit(
+        handler_name, {"case": "completed"},
+        goal="CLI status reads durable task rows",
+        work_key="AUREN:test:continuous-cli-status-completed",
+    )
+    controller.run_once(completed.id)
+    assert controller.task(pending.id).state == "pending"
+    assert controller.task(completed.id).state == "completed"
+    del controller
+    gc.collect()
+
+    assert auren_cli.main([
+        "continuous", "status", "--project-root", str(tmp_path),
+    ]) == 0
+    status = json.loads(capsys.readouterr().out)
+    assert status["state"] == "stopped"
+    assert status["task_counts"] == {"completed": 1, "pending": 1}
+    assert [row["task_id"] for row in status["pending_tasks"]] == [pending.id]
+    assert status["pending_tasks"][0]["state"] == "pending"
+    assert [row["task_id"] for row in status["recent_terminal_tasks"]] == [completed.id]
+    assert status["recent_terminal_tasks"][0]["state"] == "completed"
