@@ -65,7 +65,7 @@ class EngineeringPlanRecoveryBridge:
                 head_sha=plan.source_revision, payload=payload,
             )
         else:
-            self._verify_checkpoint(stored_plan, run, existing.payload)
+            self._verify_checkpoint(stored_plan, run, existing.payload, head_sha=existing.head_sha)
             if existing.status in {"blocked", "rolled_back"}:
                 raise EngineeringPlanCheckpointMismatch(
                     f"plan checkpoint is {existing.status}; explicit recovery decision is required"
@@ -78,7 +78,7 @@ class EngineeringPlanRecoveryBridge:
         checkpoint = self.ledger.get_checkpoint(run_id, self.PHASE)
         if checkpoint is None:
             raise EngineeringPlanCheckpointMismatch("canonical recovery checkpoint is missing")
-        self._verify_checkpoint(plan, run, checkpoint.payload)
+        self._verify_checkpoint(plan, run, checkpoint.payload, head_sha=checkpoint.head_sha)
         if checkpoint.status in {"blocked", "rolled_back"}:
             raise EngineeringPlanCheckpointMismatch(
                 f"plan checkpoint is {checkpoint.status}; explicit recovery decision is required"
@@ -86,8 +86,13 @@ class EngineeringPlanRecoveryBridge:
         return plan, run
 
     def _verify_checkpoint(
-        self, plan: EngineeringPlan, run: EngineeringPlanRun, payload: Mapping[str, Any]
+        self, plan: EngineeringPlan, run: EngineeringPlanRun, payload: Mapping[str, Any],
+        *, head_sha: str | None = None,
     ) -> None:
+        if head_sha != plan.source_revision:
+            raise EngineeringPlanCheckpointMismatch(
+                "plan checkpoint mismatch for head_sha; refusing implicit resume"
+            )
         expected = self._checkpoint_payload(plan, run, next_safe_action=str(payload.get("next_safe_action", "")))
         for key in ("contract", "plan_digest", "run_digest", "run_revision", "source_revision", "store_path"):
             if payload.get(key) != expected[key]:
