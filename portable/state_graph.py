@@ -647,6 +647,7 @@ class GraphAgentTeam:
         independent_handoff_reviewer: Callable[[CrewHandoff], Mapping[str, Any]] | None = None,
         independent_handoff_reviewer_id: str | None = None,
         independent_handoff_reviewer_version: str | None = None,
+        task_context_router: Callable[[str, str, Mapping[str, Any]], Mapping[str, Any]] | None = None,
     ) -> None:
         if handoff_checkpoint_writer is not None and not callable(handoff_checkpoint_writer):
             raise TypeError("handoff_checkpoint_writer must be callable")
@@ -663,6 +664,9 @@ class GraphAgentTeam:
             independent_handoff_reviewer_id not in (None, "") or independent_handoff_reviewer_version not in (None, "")
         ):
             raise ValueError("reviewer identity cannot be set without an independent handoff reviewer")
+        if task_context_router is not None and not callable(task_context_router):
+            raise TypeError("task_context_router must be callable")
+        self.task_context_router = task_context_router
         self.graph = graph
         self.handoff_checkpoint_writer = handoff_checkpoint_writer
         self.require_durable_handoffs = require_durable_handoffs
@@ -831,6 +835,35 @@ class GraphAgentTeam:
                 raise ValueError("durable resume checkpoint lacks runtime recovery budget; explicit recovery is required")
             if isinstance(saved_provider_resume, Mapping):
                 state["auren_provider_resume_state"] = dict(saved_provider_resume)
+        # The router is injected by the trusted runtime composition root, never
+        # accepted from task payload/context. It runs before crew dispatch and must
+        # return canonical memory/resource owners' decision plus a redacted receipt.
+        if self.task_context_router is not None:
+            routed = self.task_context_router(task_id, intent, dict(state))
+            if not isinstance(routed, Mapping):
+                raise TypeError("task context router must return a mapping")
+            recall = routed.get("recall")
+            receipt = routed.get("receipt")
+            memory_plan = routed.get("plan")
+            recall_text = getattr(recall, "text", None)
+            if not isinstance(recall_text, str):
+                raise ValueError("task context routing must return canonical memory recall text")
+            if hasattr(receipt, "__dataclass_fields__"):
+                receipt_payload = asdict(receipt)
+            elif isinstance(receipt, Mapping):
+                receipt_payload = dict(receipt)
+            else:
+                raise ValueError("task context routing must return an inspectable receipt")
+            if not receipt_payload:
+                raise ValueError("task context routing receipt cannot be empty")
+            state["auren_task_memory_context"] = recall_text
+            state["auren_task_routing_receipt"] = receipt_payload
+            if hasattr(memory_plan, "__dataclass_fields__"):
+                state["auren_task_memory_plan"] = asdict(memory_plan)
+            elif isinstance(memory_plan, Mapping):
+                state["auren_task_memory_plan"] = dict(memory_plan)
+            else:
+                raise ValueError("task context routing must return a memory plan")
         # Reserved fields are overwritten, so caller payloads cannot self-authorize
         # a different crew plan or broaden the declared crew authority.
         state["auren_crew_plan"] = plan.to_payload()
