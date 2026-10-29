@@ -332,6 +332,47 @@ class VibeCodingHostTests(unittest.TestCase):
                     adapter({"page": 0, "state": {"workspace_root": str(project)}})
             self.assertEqual(invoke.call_count, 3)
 
+    def test_mcp_chunk_recovery_enforces_utf8_byte_budget_before_merge(self):
+        with tempfile.TemporaryDirectory() as temp:
+            project = Path(temp) / "project"
+            project.mkdir()
+            merger_calls = []
+
+            def merge(results):
+                merger_calls.append(True)
+                return {"items": list(results)}
+
+            adapter = MCPStdioToolAdapter(
+                argv=(sys.executable, "-c", "pass"),
+                tool_name="read-only-bounded",
+                argument_map={"page": "$page"},
+                timeout_seconds=3,
+                max_response_chars=100,
+                max_response_bytes=200,
+                max_aggregate_response_chars=500,
+                max_aggregate_response_bytes=300,
+                requires_authority_binding=False,
+                trusted_workspace_root=project,
+                read_only_response_chunker=lambda _args: [{"page": 1}, {"page": 2}],
+                read_only_response_merger=merge,
+            )
+            # Each UTF-8 JSON result fits its per-frame byte cap, but the pair
+            # exceeds the aggregate byte budget while remaining under char budget.
+            chunk_result = {"data": "雪" * 60}
+            with patch.object(
+                adapter,
+                "_invoke_unchecked",
+                side_effect=[
+                    AdapterUnavailable("MCP response exceeded the configured character limit"),
+                    chunk_result,
+                    chunk_result,
+                ],
+            ) as invoke:
+                with self.assertRaisesRegex(AdapterUnavailable, "character or byte budget"):
+                    adapter({"page": 0, "state": {"workspace_root": str(project)}})
+            self.assertEqual(invoke.call_count, 3)
+            self.assertEqual(merger_calls, [], "partial chunks must never reach the merger")
+
     def test_mcp_aggregate_response_limit_must_not_be_below_frame_limit(self):
         with tempfile.TemporaryDirectory() as temp:
             with self.assertRaisesRegex(ValueError, "at least the frame limit"):
