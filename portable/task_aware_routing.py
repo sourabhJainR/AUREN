@@ -175,10 +175,15 @@ def select_resources(
     risk_order = {"low": 0, "medium": 1, "high": 2, "critical": 3}
     if max_risk not in risk_order:
         raise ValueError("invalid max_risk")
-    if max_cost is not None and max_cost < 0:
-        raise ValueError("max_cost must be non-negative")
-    if max_latency_ms is not None and max_latency_ms < 0:
-        raise ValueError("max_latency_ms must be non-negative")
+    if max_cost is not None and (
+        isinstance(max_cost, bool) or not isinstance(max_cost, (int, float))
+        or not math.isfinite(max_cost) or max_cost < 0
+    ):
+        raise ValueError("max_cost must be a finite non-negative number")
+    if max_latency_ms is not None and (
+        type(max_latency_ms) is not int or max_latency_ms < 0
+    ):
+        raise ValueError("max_latency_ms must be a non-negative integer")
     if type(max_candidates) is not int or max_candidates < 1:
         raise ValueError("max_candidates must be a positive integer")
     required = frozenset(str(item).strip().lower() for item in required_capabilities if str(item).strip())
