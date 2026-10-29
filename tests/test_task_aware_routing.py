@@ -108,6 +108,47 @@ class TaskAwareRoutingTests(unittest.TestCase):
         with self.assertRaisesRegex(TypeError, "unsupported memory routing options"):
             recall_for_task(self.orchestrator, "coding task", invent_new_policy=True)
 
+    def test_sampling_is_opt_in_and_denied_for_security_or_delivery_work(self):
+        security = plan_memory(
+            "explore security guardrail behavior", allow_sampling=True,
+            requires_full_coverage=False, branch="feature/guard",
+        )
+        self.assertEqual("security", security.task_type)
+        self.assertEqual("high", security.sensitivity)
+        self.assertTrue(security.full_coverage)
+        self.assertFalse(security.sampling_allowed)
+        self.assertEqual("branch-and-revision", security.freshness)
+
+        release = plan_memory(
+            "implement production release", task_type="coding",
+            allow_sampling=True, requires_full_coverage=False,
+        )
+        self.assertEqual("high", release.sensitivity)
+        self.assertFalse(release.sampling_allowed)
+
+        exploratory = plan_memory(
+            "research alternative algorithms", task_type="research",
+            allow_sampling=True, requires_full_coverage=False,
+        )
+        self.assertTrue(exploratory.sampling_allowed)
+        self.assertFalse(exploratory.full_coverage)
+
+    def test_routing_receipt_records_safety_decisions_without_task_text(self):
+        plan, recall = recall_for_task(
+            self.orchestrator, "research alternative algorithms",
+            task_type="research", allow_sampling=True, requires_full_coverage=False,
+            budget_chars=300,
+        )
+        receipt = make_receipt("research alternative algorithms", plan, recall)
+        self.assertEqual("normal", receipt.sensitivity)
+        self.assertTrue(receipt.sampling_allowed)
+        self.assertEqual("project-scoped", receipt.freshness)
+        self.assertFalse(hasattr(receipt, "task"))
+
+    def test_sampling_controls_require_real_booleans(self):
+        with self.assertRaisesRegex(TypeError, "must be booleans"):
+            plan_memory("research", allow_sampling="yes")
+
     def test_resource_selection_checks_policy_before_ranking(self):
         candidates = [
             ResourceCandidate(
