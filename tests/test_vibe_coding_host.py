@@ -171,7 +171,7 @@ class VibeCodingHostTests(unittest.TestCase):
 
             self.assertFalse(marker.exists(), "invalid assignment selectors must be denied before Popen")
 
-    def test_assigned_mcp_resource_inside_scope_can_dispatch(self):
+    def test_assigned_mcp_resource_is_denied_before_launch_without_host_sandbox(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             server = root / "fake_mcp.py"
@@ -185,12 +185,15 @@ class VibeCodingHostTests(unittest.TestCase):
             )
 
             with agent_assignment_scope(("allowed.txt",)):
-                result = tool({
-                    "resource": "allowed.txt",
-                    "state": {"workspace_root": str(root)},
-                })
-
-            self.assertEqual(result, {"ok": True})
+                with patch("portable.vibe_coding_host.subprocess.Popen") as popen:
+                    with self.assertRaisesRegex(
+                        AgentAssignmentScopeDenied, "cannot prove enforcement"
+                    ):
+                        tool({
+                            "resource": "allowed.txt",
+                            "state": {"workspace_root": str(root)},
+                        })
+                    popen.assert_not_called()
 
     def test_isolated_worktree_never_mutates_source_checkout_and_rollback_requires_authority(self):
         with tempfile.TemporaryDirectory() as temp:
