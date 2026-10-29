@@ -989,6 +989,7 @@ class MCPStdioToolAdapter:
         self, *, argv: Sequence[str], tool_name: str, argument_map: Mapping[str, Any] | None = None,
         timeout_seconds: int = 30, env_allowlist: Sequence[str] = (),
         max_response_chars: int = 12000,
+        max_aggregate_response_chars: int | None = None,
         requires_authority_binding: bool = True,
         trusted_workspace_root: str | Path | None = None,
         authority_dispatch: Callable[
@@ -1007,6 +1008,17 @@ class MCPStdioToolAdapter:
             raise ValueError("MCP timeout must be between 1 and 300 seconds")
         if not isinstance(max_response_chars, int) or isinstance(max_response_chars, bool) or not 1 <= max_response_chars <= 1_000_000:
             raise ValueError("MCP response limit must be between 1 and 1000000 characters")
+        if max_aggregate_response_chars is None:
+            max_aggregate_response_chars = min(max_response_chars * 4, 8_000_000)
+        if (
+            not isinstance(max_aggregate_response_chars, int)
+            or isinstance(max_aggregate_response_chars, bool)
+            or not max_response_chars <= max_aggregate_response_chars <= 8_000_000
+        ):
+            raise ValueError(
+                "MCP aggregate response limit must be at least the frame limit and at most 8000000 characters"
+            )
+        self.max_aggregate_response_chars = max_aggregate_response_chars
         self.argv = tuple(argv)
         self.tool_name = tool_name
         self.argument_map = dict(argument_map or {"request": "$request"})
@@ -1147,11 +1159,30 @@ class MCPStdioToolAdapter:
                         "MCP oversized response could not be split into a bounded, valid read-only chunk plan"
                     ) from recovery_error
                 chunk_results: list[Mapping[str, Any]] = []
-                # Each child call retains the same hard frame cap. If any chunk is
-                # still oversized, abort the whole recovery instead of returning
-                # incomplete merged data.
+                aggregate_chars = 0
+                # Each child call retains the same hard frame cap. Bound the sum
+                # of decoded chunk results as well: individually safe chunks must
+                # not bypass the memory budget when combined.
                 for chunk in chunks:
-                    chunk_results.append(self._invoke_unchecked(request, arguments=chunk))
+                    chunk_result = self._invoke_unchecked(request, arguments=chunk)
+                    try:
+                        chunk_snapshot = json.loads(
+                            json.dumps(dict(chunk_result), ensure_ascii=False, allow_nan=False)
+                        )
+                        chunk_chars = len(json.dumps(
+                            chunk_snapshot, ensure_ascii=False, separators=(",", ":"), allow_nan=False
+                        ))
+                    except (TypeError, ValueError) as result_error:
+                        raise AdapterUnavailable(
+                            "MCP chunk result was not valid bounded JSON; no partial result accepted"
+                        ) from result_error
+                    aggregate_chars += chunk_chars
+                    if aggregate_chars > self.max_aggregate_response_chars:
+                        raise AdapterUnavailable(
+                            "MCP chunk recovery exceeded the aggregate response budget; "
+                            "no partial result accepted"
+                        )
+                    chunk_results.append(chunk_snapshot)
                 try:
                     merged = self.read_only_response_merger(chunk_results)
                     if not isinstance(merged, Mapping):
@@ -1159,6 +1190,11 @@ class MCPStdioToolAdapter:
                     merged_snapshot = json.loads(json.dumps(dict(merged), ensure_ascii=False, allow_nan=False))
                     if not isinstance(merged_snapshot, dict):
                         raise TypeError("merged response must be a JSON object")
+                    merged_chars = len(json.dumps(
+                        merged_snapshot, ensure_ascii=False, separators=(",", ":"), allow_nan=False
+                    ))
+                    if merged_chars > self.max_aggregate_response_chars:
+                        raise ValueError("merged response exceeds the aggregate response budget")
                     return merged_snapshot
                 except Exception as merge_error:
                     raise AdapterUnavailable(
