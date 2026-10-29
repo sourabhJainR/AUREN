@@ -10,7 +10,7 @@
 | Registered task handler | ExecutionController final Guard recheck and durable dispatch receipt (PR #978) | No change to controller boundary in this PR | Prove all production handler registrations are classified and nested actions cannot escape the boundary |
 | Direct action gateway | ActionGovernanceGateway.execute; reviewed callsite registry in portable/execution_boundary.py; AST regression in tests/test_execution_boundary.py | Durable policy/version/identity/scope/approval/provider-operation/outcome evidence primitive; legacy unbound adapters now reject policy-classified external effects even when a ledger exists | Wire equivalent enforcement to every real provider/MCP/filesystem/network adapter and prove denial before the actual side effect |
 | Provider operation | portable/provider_operation_lifecycle.py, portable/side_effect_ledger.py, gateway preflight | GuardActionEvidenceLedger records pending/unknown outcomes and refuses recovery from a broken chain | Wire the ledger to every real provider adapter and verify remote outcome before terminal success |
-| MCP/tool dispatch | `portable/vibe_coding_host.py:MCPStdioToolAdapter`; `ProviderOperationLifecycle` wraps side-effect stages | Consequential MCP capabilities require host-derived context and an authorization bound to the exact configured tool name, executable argv digest, environment-allowlist digest, timeout, resolved arguments digest, request digest, task guard and matching provider-operation claim before `Popen`. Oversized stdout frames enforce both a character cap and a UTF-8 byte cap (defaulting to the same numeric budget), read in fixed chunks, and stop immediately when either limit is crossed instead of draining an untrusted stream. Oversize diagnostics contain bounded counts and a prefix digest, not sampled payload text. Read-only recovery uses explicit bounded reduction or chunk/merge contracts; a separate aggregate budget caps combined chunk results and merged output, and any overflow rejects the entire result rather than returning partial data. `tests/test_vibe_coding_host.py` covers bounded no-newline reads and aggregate-budget rejection. | The resolver must use host-owned identity/repository context and map the bound tool call to an explicit capability/action; remote outcome lookup/reconciliation and OS isolation remain separate gates |
+| MCP/tool dispatch | `portable/vibe_coding_host.py:MCPStdioToolAdapter`; `ProviderOperationLifecycle` wraps side-effect stages | Consequential MCP capabilities require host-derived context and an authorization bound to the exact configured tool name, executable argv digest, environment-allowlist digest, timeout, resolved arguments digest, request digest, task guard and matching provider-operation claim before `Popen`. Oversized stdout frames enforce both a character cap and a UTF-8 byte cap (defaulting to the same numeric budget), read in fixed chunks, and stop immediately when either limit is crossed instead of draining an untrusted stream. Oversize diagnostics contain bounded counts and a prefix digest, not sampled payload text. Read-only recovery uses explicit bounded reduction or chunk/merge contracts; separate aggregate character and UTF-8 byte budgets cap combined chunk results and merged output, and any overflow rejects the entire result rather than returning partial data. `tests/test_vibe_coding_host.py` covers bounded no-newline reads and aggregate-budget rejection. | The resolver must use host-owned identity/repository context and map the bound tool call to an explicit capability/action; remote outcome lookup/reconciliation and OS isolation remain separate gates |
 | Subprocess | Existing supervised subprocess and sandbox adapters | Policy primitives can scope the authorized action before an adapter runs | Enumerate every subprocess launch API and prove argv, environment, cwd, credentials, timeout, cancellation, and child process behavior are mediated |
 | Filesystem | Existing repository-relative path validation in authority-bound APIs | Resource matching and delegated capability scope can be captured in evidence | Cover direct open/read/write/delete, symlink traversal, path races, temporary files, and file descriptors; application checks alone are not containment |
 | Network | Existing provider clients and adapters | Exact/glob network scope, validated IPv4/IPv6 CIDR policy matching against an explicit `network_ip` context, and durable rate-limit primitive | Still wire trusted destination resolution into every adapter; add DNS rebinding controls, socket-level enforcement, and per-adapter denial-before-connect tests. Missing/invalid `network_ip` with a CIDR rule fails closed. |
@@ -231,9 +231,9 @@ Oversized frames and response-queue floods now share a fail-closed signaling pat
 ## Oversized MCP frame diagnosis and safe recovery (2026-10-28)
 
 The MCP stdout reader now samples only the bounded prefix already read when a frame
-crosses the configured limit. It records the observed character lower bound, a digest
-of the observed prefix, bounded prefix/suffix samples, and whether the sampled read
-ended at a newline. It does not claim this digest represents the complete frame.
+crosses the configured limit. It records observed character and byte lower bounds, a SHA-256 digest of the
+bounded observed prefix, and whether the prefix ended at a newline. It never
+retains or logs sampled payload text, and the digest does not represent the complete frame.
 Sampled payload text is not copied into raised exception messages.
 
 The reader immediately signals a fatal protocol condition and the caller terminates
@@ -253,18 +253,20 @@ limit. It never accepts truncated JSON, raises the ceiling automatically, or
 replays a consequential call to recover output. For operator-declared read-only
 tools only, an optional adapter-owned `read_only_response_reducer` may make one
 recovery attempt after an oversized response: reduce page/batch size, project
-only needed fields, request a bounded sample, or narrow the query. The reduced
-arguments must be JSON-safe and different from the original; the normal frame
-cap and timeout apply unchanged on the retry. A second oversized response fails
-closed.
+only needed fields, request a bounded sample, or narrow the query. The reduced arguments must be JSON-safe and different from the prior arguments;
+the normal frame cap and timeout apply unchanged. Recovery allows at most two
+reductions (three calls total), all within one overall deadline; a still-oversized
+response fails closed.
 
 This is a controlled adaptation hook, not a universal MCP pagination protocol.
 Each configured reducer must match that tool's documented argument schema and
 must preserve the question's meaning. Sampling must be labeled as a sample;
 it cannot be used as complete evidence for security, evaluation, or release
 gates. Batch splitting and streaming belong in tool-specific adapters when the
-provider exposes cursors/chunks. Merge partial results only when ordering,
-deduplication, completeness, and provenance are defined. If a tool has no safe
+provider exposes cursors/chunks. Chunk recovery is bounded to 2–8 distinct chunks;
+both the aggregate character budget and aggregate UTF-8 byte budget apply to all
+serialized chunk results and the merged output. Merge partial results only when
+ordering, deduplication, completeness, and provenance are defined. If a tool has no safe
 reduction mechanism, narrow the request explicitly or leave the action blocked.
 
 Regression coverage proves that a read-only oversized response can be retried
