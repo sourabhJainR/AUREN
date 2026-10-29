@@ -380,6 +380,18 @@ class MemoryOrchestrator:
                 self.project, query, intent_digest=intent_digest,
                 branch=branch, source_revision=source_revision, limit=100,
             )
+            # Explicitly required IDs must not disappear merely because their text
+            # shares no terms with the current query. Fetch only those exact IDs,
+            # under the same project/intent/branch/revision scope, then merge.
+            if required_ids:
+                required_records = self.memory.get_by_ids(
+                    self.project, tuple(required_ids), intent_digest=intent_digest,
+                    branch=branch, source_revision=source_revision,
+                    limit=min(1000, max(100, len(required_ids))),
+                )
+                by_id = {record.id: record for record in durable_records}
+                by_id.update({record.id: record for record in required_records})
+                durable_records = list(by_id.values())
             self._metrics["durable_searches"] += 1
         for kind in kind_list:
             if kind in EPHEMERAL_KINDS:
