@@ -400,7 +400,7 @@ class MemoryOrchestratorTests(unittest.TestCase):
             source="verified-contract", approved=True, verified=True,
         )
         result = self.coordinator.recall_for_task(
-            "implement repository change with acceptance policy",
+            "implement repository change with regression tests",
             required_memory_ids=(saved.memory_id,), budget_chars=500,
             allow_sampling=True, requires_full_coverage=False,
         )
