@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import tempfile
+from contextlib import closing
 import unittest
 from pathlib import Path
 
@@ -214,7 +215,7 @@ class AgentExecutionGuardTests(unittest.TestCase):
                         "_auren_agent_assignment": assignment,
                     },
                 )
-            with sqlite3.connect(controller.db_path) as db:
+            with closing(sqlite3.connect(controller.db_path)) as db, db:
                 count = db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0]
             self.assertEqual(count, 0)
             self.assertFalse((root / "allowed.txt").exists())
@@ -309,7 +310,7 @@ class AgentExecutionGuardTests(unittest.TestCase):
                         "_auren_agent_assignment": assignment,
                     },
                 )
-            with sqlite3.connect(controller.db_path) as db:
+            with closing(sqlite3.connect(controller.db_path)) as db, db:
                 count = db.execute("SELECT COUNT(*) FROM tasks").fetchone()[0]
             self.assertEqual(count, 0)
             self.assertFalse((root / "allowed.txt").exists())
