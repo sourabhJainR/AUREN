@@ -31,6 +31,10 @@ class TaskAwareRoutingTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "unsupported task type"):
             plan_memory("do work", task_type="unknown")
 
+    def test_classifier_does_not_match_partial_words(self):
+        self.assertEqual("conversation", classify_task("classify this memory request")[0])
+        self.assertEqual("coding", classify_task("class implementation")[0])
+
     def test_task_kinds_are_purposeful_and_deduplicated(self):
         coding = plan_memory("implement feature", task_type="coding", include_sensory=True)
         self.assertIn("procedural", coding.kinds)
