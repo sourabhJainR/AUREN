@@ -278,6 +278,12 @@ fail-closed behavior. Do not increase the default response ceiling to mask
 oversized payloads.
 
 
+## Adaptive MCP recovery total deadline (2026-10-29)
+
+Read-only reducer and chunk/merge recovery now share one overall wall-clock deadline capped at three configured per-call timeouts and 300 seconds. Each subprocess initialization and tool response uses the smaller of the normal per-call timeout and the remaining overall budget. Once the shared budget expires, AUREN stops launching further chunks/reductions and rejects the result; no partial merged result is returned. The hard per-frame and aggregate-output limits remain unchanged, and consequential/authority-bound calls remain ineligible for adaptive replay.
+
+Regression coverage injects an expired deadline after the first oversized response and verifies no second recovery call is launched. Rollback: revert the shared-deadline plumbing, regression, and this note together; retain per-frame limits and fail-closed oversized-frame handling.
+
 ## MCP stderr chunk-drain correctness (2026-10-28)
 
 The stderr reader drains an oversized diagnostic line in fixed-size chunks and stops at that line's newline. It must not consume the next diagnostic line or wait on it because an escaped newline was compared as literal backslash-plus-n. Stdout frame limits, queue limits, and the one-shot read-only reducer remain unchanged.
