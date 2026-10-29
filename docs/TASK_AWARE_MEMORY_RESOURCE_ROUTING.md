@@ -6,7 +6,7 @@ AUREN's task-aware routing primitives live in `portable.task_aware_routing`. The
 
 Use `plan_memory(task, task_type=...)` to create a bounded, inspectable memory plan. Explicit task type wins over deterministic keyword classification. Supported task types are conversation, coding, debugging, research, planning, decision, operations, and review.
 
-Use `recall_for_task(orchestrator, task, ...)` to apply the plan through the canonical orchestrator. Required memory IDs are passed through unchanged, so the orchestrator's fail-closed budget behavior remains authoritative. Callers can supply task/intent/branch/revision scope and opt in to short-lived sensory or reflective memory. Defaults intentionally omit sensory, reflective and KV-cache memories unless they are requested by the task policy.
+Use `recall_for_task(orchestrator, task, ...)` to apply the plan through the canonical orchestrator. `AdaptiveRuntime.pack_memory_context` and `pack_memory_context_chunks` now use this route, so existing bounded context packing receives task-specific memory kinds without changing the canonical store. Required memory IDs are passed through unchanged, so the orchestrator's fail-closed budget behavior remains authoritative. Callers can supply task/intent/branch/revision scope and opt in to short-lived sensory or reflective memory. Defaults intentionally omit sensory, reflective and KV-cache memories unless they are requested by the task policy.
 
 ## Resource routing
 
@@ -27,4 +27,4 @@ The result is a recommendation only. It never installs, invokes, authorizes, or 
 - Compare against the existing route on paired tasks: task success, missed-signal rate, cost, latency, omissions and uncertainty.
 - Keep default changes behind a rollbackable configuration until regression and holdout evidence passes.
 
-This module supplies the deterministic routing primitive and regression tests. It does not claim that every graph/crew dispatch is already wired to it or that external production isolation has been verified.
+This change wires task-aware memory selection into the runtime's bounded context packers and exposes `AdaptiveRuntime.route_task_context` for combined memory/resource decisions. It does not claim every direct graph/crew dispatch consumes resource decisions, nor that external production isolation has been verified.
