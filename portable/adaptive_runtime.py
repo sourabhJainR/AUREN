@@ -997,11 +997,13 @@ __all__ = ["AdaptiveRuntime"]
         plan, recall = recall_for_task(
             self.memory_orchestrator(project_root), task, **dict(memory_options or {}),
         )
+        required = tuple(required_capabilities)
+        candidates = tuple(resource_candidates)
         resource_decision = None
-        if resource_candidates or tuple(required_capabilities):
+        if candidates or required:
             resource_decision = select_resources(
-                tuple(resource_candidates),
-                required_capabilities=required_capabilities,
+                candidates,
+                required_capabilities=required,
                 max_risk=max_risk,
                 max_cost=max_cost,
                 max_latency_ms=max_latency_ms,
