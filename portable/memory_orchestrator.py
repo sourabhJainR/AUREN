@@ -387,7 +387,7 @@ class MemoryOrchestrator:
                 required_records = self.memory.get_by_ids(
                     self.project, tuple(required_ids), intent_digest=intent_digest,
                     branch=branch, source_revision=source_revision,
-                    limit=min(1000, max(100, len(required_ids))),
+                    limit=min(500, max(100, len(required_ids))),
                 )
                 by_id = {record.id: record for record in durable_records}
                 by_id.update({record.id: record for record in required_records})
