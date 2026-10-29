@@ -1017,4 +1017,47 @@ class AdaptiveRuntime:
         }
 
 
+    def make_task_context_router(
+        self,
+        project_root: Path | str,
+        *,
+        memory_options: Mapping[str, Any] | None = None,
+        resource_candidates: Sequence[Any] = (),
+        required_capabilities: Iterable[str] = (),
+        max_risk: str = "medium",
+        max_cost: float | None = None,
+        max_latency_ms: int | None = None,
+        max_resource_candidates: int = 3,
+        require_measured_quality: bool = False,
+    ):
+        """Bind task-aware routing to a trusted GraphAgentTeam composition root.
+
+        The returned callback is passed to GraphAgentTeam's constructor. It binds
+        a resolved project root and operator-provided resource metadata; the
+        task payload cannot replace the callback or widen its policy options.
+        """
+        root = Path(project_root).expanduser().resolve()
+        options = dict(memory_options or {})
+        candidates = tuple(resource_candidates)
+        required = tuple(required_capabilities)
+
+        def route(task_id: str, task: str, _context: Mapping[str, Any]) -> dict[str, Any]:
+            scoped_options = dict(options)
+            scoped_options["task_id"] = task_id
+            return self.route_task_context(
+                root,
+                task,
+                memory_options=scoped_options,
+                resource_candidates=candidates,
+                required_capabilities=required,
+                max_risk=max_risk,
+                max_cost=max_cost,
+                max_latency_ms=max_latency_ms,
+                max_resource_candidates=max_resource_candidates,
+                require_measured_quality=require_measured_quality,
+            )
+
+        return route
+
+
 __all__ = ["AdaptiveRuntime"]
