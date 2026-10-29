@@ -1154,7 +1154,7 @@ class MCPStdioToolAdapter:
                 try:
                     return self._invoke_unchecked(request, arguments=arguments)
                 except AdapterUnavailable as exc:
-                    if "exceeded the configured character limit or UTF-8 byte limit" not in str(exc):
+                    if "MCP response exceeded the configured" not in str(exc):
                         raise
                 try:
                     planned = self.read_only_response_chunker(dict(arguments))
