@@ -13,6 +13,8 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
+import threading
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
@@ -193,6 +195,57 @@ def _final_revision_binding(manifest: dict[str, Any]) -> str:
     return ""
 
 
+
+_TASK_CONTEXT_RUNTIME = None
+_TASK_CONTEXT_RUNTIME_LOCK = threading.RLock()
+
+
+def _default_task_context_router(project_root: Path):
+    """Return the canonical AdaptiveRuntime router for the default harness team.
+
+    One runtime instance owns the existing memory database and capability
+    catalog. The project root is host-derived, never task/model supplied.
+    """
+    global _TASK_CONTEXT_RUNTIME
+    with _TASK_CONTEXT_RUNTIME_LOCK:
+        if _TASK_CONTEXT_RUNTIME is None:
+            from portable.adaptive_runtime import AdaptiveRuntime
+            from portable.orchestration import Graph
+
+            _TASK_CONTEXT_RUNTIME = AdaptiveRuntime(Graph([]))
+        runtime = _TASK_CONTEXT_RUNTIME
+    return runtime.make_task_context_router(project_root)
+
+
+def _build_task_context_prompt(base_prompt: str, *, router, task_id: str, task: str) -> str:
+    """Inject bounded canonical task memory before any graph/crew agent dispatch."""
+    if not callable(router):
+        raise TypeError("trusted task context router is required")
+    if not isinstance(task_id, str) or not task_id.strip():
+        raise ValueError("supervisor-issued task ID is required for task context routing")
+    if not isinstance(task, str) or not task.strip():
+        raise ValueError("task is required for task context routing")
+    routed = router(task_id, task, {})
+    if not isinstance(routed, Mapping):
+        raise ValueError("task context router returned no canonical routing result")
+    recall = routed.get("recall")
+    recall_text = getattr(recall, "text", None)
+    receipt = routed.get("receipt")
+    if not isinstance(recall_text, str) or not isinstance(receipt, Mapping):
+        raise ValueError("task context routing omitted canonical recall text or receipt")
+    receipt_payload = dict(receipt)
+    # Keep the receipt content-free: only its structured digest/selection metadata
+    # is passed to agents. The memory text is separately bounded by the router.
+    receipt_text = json.dumps(receipt_payload, ensure_ascii=False, sort_keys=True, default=str)
+    return (
+        base_prompt
+        + "\\n\\n## Canonical task-aware memory context\\n"
+        + recall_text
+        + "\\n\\n## Task routing receipt (redacted metadata)\\n"
+        + receipt_text
+    )
+
+
 def _phase_team(route: dict[str, Any], phase: str, graph_types):
     AgentSpec, GraphAgentTeam = graph_types
     risk = str(route.get("risk", "low"))
@@ -331,6 +384,17 @@ def _install_graph_team_bridge() -> None:
                 intent_digest = hashlib.sha256(task.encode("utf-8")).hexdigest()
 
             base_prompt = prompt_file.read_text(encoding="utf-8")
+            # The run directory is created by the harness and remains stable
+            # across resume. Never accept a model-provided task identity.
+            supervisor_task_id = manifest.get("task_id") or manifest.get("run_id") or run_dir.name
+            if not isinstance(supervisor_task_id, str) or not supervisor_task_id.strip():
+                raise ValueError("stable supervisor task identity is required for task-aware routing")
+            project_root = Path(__file__).resolve().parents[2]
+            task_context_router = _default_task_context_router(project_root)
+            base_prompt = _build_task_context_prompt(
+                base_prompt, router=task_context_router,
+                task_id=supervisor_task_id, task=task,
+            )
             team = _phase_team(route, phase, (AgentSpec, GraphAgentTeam))
             memory = SharedTaskMemory(run_dir / "graph-team-memory.jsonl", intent_digest)
             started = engine.time.monotonic()
