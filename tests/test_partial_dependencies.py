@@ -127,5 +127,27 @@ class PartialDependencyTests(unittest.TestCase):
         self.assertNotEqual(strict.digest(), partial.digest())
 
 
+    def test_partial_synthesis_evaluator_rejection_fails_critical_join(self):
+        graph = Graph([
+            Node("required", NodeKind.DETERMINISTIC, lambda _state: {"ok": True}),
+            Node(
+                "optional", NodeKind.DETERMINISTIC,
+                lambda _state: (_ for _ in ()).throw(TimeoutError("optional source down")),
+                critical=False,
+            ),
+            Node(
+                "synthesis", NodeKind.JOIN,
+                lambda state: {"partial": bool(state["auren_partial_dependencies"])},
+                depends_on=("required", "optional"),
+                evaluator=lambda _output: False,
+                allow_partial_dependencies=True,
+            ),
+        ])
+        run = Orchestrator(graph).run("partial-evaluator-reject", "build stock brief")
+        self.assertEqual(run.results["synthesis"].status, NodeStatus.FAILED)
+        self.assertEqual(run.status, RunStatus.FAILED)
+
+
+
 if __name__ == "__main__":
     unittest.main()
