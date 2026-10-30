@@ -140,7 +140,65 @@ def assemble_response(manifest: ResponseManifest, chunks: Iterable[ResponseChunk
     return text
 
 
+@dataclass(frozen=True, slots=True)
+class DeliveryReceipt:
+    response_id: str
+    acknowledged_chunks: int
+    total_chunks: int
+    total_bytes: int
+    resumed_from: int
+    complete: bool
+
+
+def deliver_response(text: str, *, task_id: str, journal: object, send_chunk: object,
+                     max_bytes: int = 12_000, cancelled: object = None,
+                     deadline: float | None = None) -> DeliveryReceipt:
+    """Send bounded chunks; journal only exact receiver-confirmed acknowledgements.
+
+    send_chunk(chunk, idempotency_key) must return a mapping echoing response_id,
+    index and sha256. Unknown outcomes are never treated as acknowledgements.
+    """
+    import time
+    from collections.abc import Mapping as MappingABC
+    if not isinstance(task_id, str) or not task_id.strip():
+        raise ValueError("task_id is required")
+    if not callable(send_chunk):
+        raise TypeError("send_chunk must be callable")
+    if cancelled is not None and not callable(cancelled):
+        raise TypeError("cancelled must be callable")
+    manifest, chunks = chunk_response(text, max_bytes=max_bytes)
+    assemble_response(manifest, chunks)
+    checkpoint = journal.response_delivery_checkpoint(task_id, manifest.response_id)
+    acknowledged = checkpoint["acknowledged_index"]
+    if checkpoint.get("total_chunks") not in (None, manifest.total_chunks):
+        raise ResponseDeliveryError("persisted acknowledgement manifest does not match response")
+    resumed_from = acknowledged
+    for chunk in chunks_after(chunks, acknowledged):
+        if cancelled is not None and cancelled():
+            raise ResponseDeliveryError("response delivery cancelled; resume from last confirmed acknowledgement")
+        if deadline is not None and time.monotonic() >= deadline:
+            raise TimeoutError("response delivery deadline expired; resume from last confirmed acknowledgement")
+        key = f"{manifest.response_id}:{chunk.index}:{chunk.sha256}"
+        ack = send_chunk(chunk, key)
+        if not isinstance(ack, MappingABC):
+            raise ResponseDeliveryError("receiver acknowledgement is unknown; resolve by idempotency key before replay")
+        if (ack.get("response_id") != chunk.response_id or ack.get("index") != chunk.index
+                or ack.get("sha256") != chunk.sha256):
+            raise ResponseDeliveryError("receiver acknowledgement does not match the exact response chunk")
+        journal.record_response_chunk_ack(task_id, response_id=manifest.response_id,
+            acknowledged_index=chunk.index, total_chunks=manifest.total_chunks,
+            response_sha256=manifest.sha256)
+        acknowledged = chunk.index
+    final = journal.response_delivery_checkpoint(task_id, manifest.response_id)
+    complete = (final.get("acknowledged_index") == manifest.total_chunks
+        and final.get("total_chunks") == manifest.total_chunks
+        and final.get("response_sha256") == manifest.sha256)
+    return DeliveryReceipt(manifest.response_id, acknowledged, manifest.total_chunks,
+        manifest.total_bytes, resumed_from, complete)
+
+
 __all__ = [
     "ResponseChunk", "ResponseDeliveryError", "ResponseManifest",
     "assemble_response", "chunk_response", "chunks_after",
+    "DeliveryReceipt", "deliver_response",
 ]
