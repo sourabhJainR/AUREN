@@ -650,7 +650,7 @@
   "radar_refresh": {
     "reviewed_at": "2026-10-30",
     "baseline_main_sha": "3094fb0bdbebfb19702a000cc6e3577e9eb4f39d",
-    "status": "Candidate signals only; research signals refreshed through 2026-10-30. Current main has 23 successful and 2 skipped check-runs, six successful push workflows, and verified portable artifact digests. Skips remain skipped. Deployment and independent-evaluation gates remain blocked.",
+    "status": "candidate signals only; research signals refreshed through 2026-10-30. Current main has 23 successful and 2 skipped check-runs, six successful push workflows, and verified portable artifact digests. Skips remain skipped. Deployment and independent-evaluation gates remain blocked.",
     "policy": "External announcements and benchmark reports are leads, not proof of equivalent AUREN capability. Reuse the canonical supervisor, TaskPlan, StateGraph, ExecutionController, Guard, ProgressJournal, LearningSteward and Arena. No duplicate orchestrator or external runtime dependency. Keep adapters opt-in; no default pack promotion without paired measured value, independent evaluation and rollback. Discovery never grants authority.",
     "status_vocabulary": {
       "implementation": "Code path exists; does not imply tests or deployment.",
