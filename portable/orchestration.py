@@ -89,6 +89,7 @@ class Node:
     risk: str = "medium"
     inputs: tuple[str, ...] = ()
     outputs: tuple[str, ...] = ()
+    allow_partial_dependencies: bool = False
 
 
 @dataclass
@@ -100,6 +101,7 @@ class NodeResult:
     evidence: list[Evidence] = field(default_factory=list)
     error: str | None = None
     repair_count: int = 0
+    partial_dependencies: tuple[str, ...] = ()
 
 
 @dataclass
@@ -303,6 +305,8 @@ class Graph:
                 raise ValueError(f"node {node.name} must have a positive attempt budget")
             if node.risk not in {"low", "medium", "high", "critical"}:
                 raise ValueError(f"node {node.name} has invalid risk class: {node.risk}")
+            if node.allow_partial_dependencies and node.evaluator is None:
+                raise ValueError(f"node {node.name} must define an evaluator when accepting partial dependencies")
         visiting: set[str] = set()
         visited: set[str] = set()
 
@@ -335,7 +339,7 @@ class Graph:
         return ordered
 
     def digest(self) -> str:
-        payload = [{"name": n.name, "kind": n.kind.value, "depends_on": list(n.depends_on), "max_attempts": n.max_attempts, "risk": n.risk, "inputs": list(n.inputs), "outputs": list(n.outputs)} for n in self.order()]
+        payload = [{"name": n.name, "kind": n.kind.value, "depends_on": list(n.depends_on), "max_attempts": n.max_attempts, "risk": n.risk, "inputs": list(n.inputs), "outputs": list(n.outputs), "allow_partial_dependencies": n.allow_partial_dependencies} for n in self.order()]
         return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
 
 
@@ -518,11 +522,23 @@ class Orchestrator:
 
         for node in self.graph.order():
             dependency_results = [run.results[name] for name in node.depends_on]
-            if any(
-                result.status in {NodeStatus.FAILED, NodeStatus.BLOCKED, NodeStatus.SKIPPED}
-                for result in dependency_results
-            ):
-                reason = "dependency failed or was skipped"
+            failed_dependencies = [
+                result for result in dependency_results
+                if result.status == NodeStatus.FAILED
+            ]
+            blocking_dependencies = [
+                result for result in dependency_results
+                if result.status in {NodeStatus.BLOCKED, NodeStatus.SKIPPED}
+                or (
+                    result.status == NodeStatus.FAILED
+                    and (
+                        self.graph.nodes[result.node].critical
+                        or not node.allow_partial_dependencies
+                    )
+                )
+            ]
+            if blocking_dependencies:
+                reason = "dependency failed, was blocked, or was skipped"
                 result = NodeResult(node.name, NodeStatus.SKIPPED, error=reason)
                 run.results[node.name] = result
                 run.trajectory.append({"node": node.name, "status": result.status.value, "reason": reason})
@@ -532,6 +548,27 @@ class Orchestrator:
                         f"critical dependency failure before {node.name}",
                     ))
                 continue
+
+            partial_dependency_names = tuple(
+                result.node for result in failed_dependencies
+                if node.allow_partial_dependencies
+                and not self.graph.nodes[result.node].critical
+            )
+            state["auren_partial_dependencies"] = [
+                {
+                    "node": result.node,
+                    "status": result.status.value,
+                    "error_type": result.error.split(":", 1)[0] if result.error else "unknown",
+                }
+                for result in failed_dependencies
+                if result.node in partial_dependency_names
+            ]
+            if partial_dependency_names:
+                run.trajectory.append({
+                    "event": "partial_dependencies_accepted",
+                    "node": node.name,
+                    "dependencies": list(partial_dependency_names),
+                })
 
             attempt_limit = self._adaptive_attempt_limit(node, state)
             run.trajectory.append({
@@ -565,6 +602,14 @@ class Orchestrator:
                 if callable(persist_guard):
                     persist_guard(guard.snapshot())
                 return run
+            result.partial_dependencies = partial_dependency_names
+            if partial_dependency_names:
+                partial_evidence = Evidence(
+                    "partial-dependencies-accepted",
+                    json.dumps({"node": node.name, "dependencies": list(partial_dependency_names)}, sort_keys=True, separators=(",", ":")),
+                    node.name,
+                )
+                result.evidence.append(partial_evidence)
             run.results[node.name] = result
             state["auren_runtime_guard"] = guard.snapshot()
             persist_guard = state.get("auren_runtime_guard_persist")
@@ -860,7 +905,7 @@ class Orchestrator:
             "environment_fingerprint": run.environment_fingerprint,
             "graph_digest": self.graph.digest(),
             "trajectory": run.trajectory,
-            "nodes": {name: {"status": result.status.value, "attempts": result.attempts, "repair_count": result.repair_count, "evidence": [item.digest for item in result.evidence]} for name, result in run.results.items()},
+            "nodes": {name: {"status": result.status.value, "attempts": result.attempts, "repair_count": result.repair_count, "partial_dependencies": list(result.partial_dependencies), "evidence": [item.digest for item in result.evidence]} for name, result in run.results.items()},
             "evidence": [item.digest for item in run.evidence],
             "learning_signal": self.learning_signal(run).__dict__,
             "learned_candidates": run.learned_candidates,
