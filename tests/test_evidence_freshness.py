@@ -74,5 +74,49 @@ class EvidenceFreshnessTests(unittest.TestCase):
             self.assertEqual(plan.selected.provider, "agent")
 
 
+    def test_external_freshness_uses_source_observation_when_publish_time_is_missing(self):
+        now = datetime(2026, 10, 30, 12, 0, tzinfo=timezone.utc)
+        policy = EvidenceFreshnessPolicy(max_age_seconds=3600)
+        weight = policy.external_weight(
+            published_at=None,
+            observed_at="2026-10-30T11:30:00+00:00",
+            retrieved_at="2026-10-30T12:00:00+00:00",
+            now=now,
+        )
+        self.assertGreater(weight, 0.0)
+        self.assertLess(weight, 1.0)
+
+    def test_external_retrieval_timestamp_alone_does_not_claim_freshness(self):
+        now = datetime(2026, 10, 30, 12, 0, tzinfo=timezone.utc)
+        policy = EvidenceFreshnessPolicy(max_age_seconds=3600)
+        self.assertEqual(
+            policy.external_weight(
+                published_at=None, observed_at=None,
+                available_at=None, retrieved_at=now.isoformat(), now=now,
+            ),
+            0.0,
+        )
+
+    def test_external_freshness_prefers_availability_and_rejects_stale_source(self):
+        now = datetime(2026, 10, 30, 12, 0, tzinfo=timezone.utc)
+        policy = EvidenceFreshnessPolicy(max_age_seconds=3600)
+        weight = policy.external_weight(
+            available_at="2026-10-30T09:00:00+00:00",
+            published_at="2026-10-30T11:59:00+00:00",
+            observed_at="2026-10-30T11:59:00+00:00",
+            now=now,
+        )
+        self.assertEqual(weight, 0.0)
+
+    def test_external_future_and_malformed_timestamps_fail_closed(self):
+        now = datetime(2026, 10, 30, 12, 0, tzinfo=timezone.utc)
+        policy = EvidenceFreshnessPolicy(max_age_seconds=3600)
+        self.assertEqual(
+            policy.external_weight(observed_at="2026-10-30T12:01:00+00:00", now=now),
+            0.0,
+        )
+        self.assertEqual(policy.external_weight(observed_at="not-a-time", now=now), 0.0)
+
+
 if __name__ == "__main__":
     unittest.main()
