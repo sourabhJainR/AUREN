@@ -130,6 +130,80 @@ class ProgressJournalTests(unittest.TestCase):
             with self.assertRaisesRegex(ProgressJournalCorruption, "UTF-8"):
                 ProgressJournal(path).snapshot("task")
 
+    def test_response_chunk_acknowledgements_resume_after_restart(self):
+        from portable.response_delivery import chunk_response, chunks_after
+
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "progress.jsonl"
+            journal = ProgressJournal(path)
+            manifest, chunks = chunk_response("A long response that must be delivered losslessly. " * 20, max_bytes=80)
+            journal.record("delivery", "started", stage="response")
+            journal.record_response_chunk_ack(
+                "delivery", response_id=manifest.response_id, response_sha256=manifest.sha256,
+                acknowledged_index=1, total_chunks=manifest.total_chunks,
+            )
+            restarted = ProgressJournal(path)
+            checkpoint = restarted.response_delivery_checkpoint("delivery", manifest.response_id)
+            self.assertEqual(checkpoint["acknowledged_index"], 1)
+            self.assertEqual(chunks_after(chunks, checkpoint["acknowledged_index"])[0].index, 2)
+            restarted.record_response_chunk_ack(
+                "delivery", response_id=manifest.response_id, response_sha256=manifest.sha256,
+                acknowledged_index=2, total_chunks=manifest.total_chunks,
+            )
+            self.assertEqual(
+                ProgressJournal(path).response_delivery_checkpoint("delivery", manifest.response_id)["acknowledged_index"],
+                2,
+            )
+
+    def test_response_chunk_ack_is_idempotent_and_rejects_gaps_or_manifest_changes(self):
+        with tempfile.TemporaryDirectory() as temp:
+            journal = ProgressJournal(Path(temp) / "progress.jsonl")
+            digest = "a" * 64
+            first = journal.record_response_chunk_ack(
+                "delivery", response_id=digest, response_sha256=digest,
+                acknowledged_index=1, total_chunks=3,
+            )
+            duplicate = journal.record_response_chunk_ack(
+                "delivery", response_id=digest, response_sha256=digest,
+                acknowledged_index=1, total_chunks=3,
+            )
+            self.assertEqual(first.sequence, duplicate.sequence)
+            with self.assertRaisesRegex(ValueError, "contiguous"):
+                journal.record_response_chunk_ack(
+                    "delivery", response_id=digest, response_sha256=digest,
+                    acknowledged_index=3, total_chunks=3,
+                )
+            with self.assertRaisesRegex(ValueError, "manifest changed"):
+                journal.record_response_chunk_ack(
+                    "delivery", response_id=digest, response_sha256=digest,
+                    acknowledged_index=2, total_chunks=4,
+                )
+            with self.assertRaisesRegex(ValueError, "match"):
+                journal.record_response_chunk_ack(
+                    "delivery", response_id=digest, response_sha256="b" * 64,
+                    acknowledged_index=2, total_chunks=3,
+                )
+
+    def test_response_delivery_checkpoint_rejects_corrupt_ack_history(self):
+        from portable.progress_journal import ProgressJournalCorruption
+
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "progress.jsonl"
+            journal = ProgressJournal(path)
+            digest = "c" * 64
+            journal.record_response_chunk_ack(
+                "delivery", response_id=digest, response_sha256=digest,
+                acknowledged_index=1, total_chunks=3,
+            )
+            with path.open("a", encoding="utf-8") as stream:
+                import json
+                row = json.loads(path.read_text(encoding="utf-8").splitlines()[0])
+                row["sequence"] = 2
+                row["completed_units"] = 3
+                stream.write(json.dumps(row) + "\n")
+            with self.assertRaisesRegex(ProgressJournalCorruption, "not contiguous"):
+                ProgressJournal(path).response_delivery_checkpoint("delivery", digest)
+
     def test_invalid_progress_units_rejected(self):
         with tempfile.TemporaryDirectory() as temp:
             with self.assertRaises(ValueError):

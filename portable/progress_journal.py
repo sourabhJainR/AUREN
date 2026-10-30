@@ -265,6 +265,75 @@ class ProgressJournal:
         finally:
             self._lock.release()
 
+    @staticmethod
+    def _validate_response_digest(value: str, field: str) -> str:
+        if not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{64}", value):
+            raise ValueError(f"{field} must be a lowercase SHA-256 digest")
+        return value
+
+    def record_response_chunk_ack(
+        self, task_id: str, *, response_id: str, acknowledged_index: int,
+        total_chunks: int, response_sha256: str,
+    ) -> ProgressEvent:
+        """Durably acknowledge the next contiguous, integrity-bound response chunk.
+
+        The response body stays in its canonical artifact/host buffer. This journal
+        stores only its digest and contiguous acknowledgement cursor, so a restart
+        can resume without persisting duplicate response content.
+        """
+        response_id = self._validate_response_digest(response_id, "response_id")
+        response_sha256 = self._validate_response_digest(response_sha256, "response_sha256")
+        if response_id != response_sha256:
+            raise ValueError("response_id must match the whole-response SHA-256 digest")
+        if type(total_chunks) is not int or total_chunks < 1:
+            raise ValueError("total_chunks must be a positive integer")
+        if type(acknowledged_index) is not int or not 1 <= acknowledged_index <= total_chunks:
+            raise ValueError("acknowledged_index must be within the response chunk range")
+        stage = f"response-delivery:{response_id}"
+        rows = [row for row in self._events() if row["task_id"] == task_id
+                and row["stage"] == stage and row["event"] == "response_chunk_acknowledged"]
+        previous = rows[-1] if rows else None
+        if previous is not None:
+            if previous.get("total_units") != total_chunks or previous.get("evidence_ref") != f"sha256:{response_sha256}":
+                raise ValueError("response manifest changed while resuming chunk delivery")
+            prior_index = previous.get("completed_units")
+            if acknowledged_index == prior_index:
+                return ProgressEvent(**previous)
+            if acknowledged_index != prior_index + 1:
+                raise ValueError("response chunk acknowledgements must be contiguous and monotonic")
+        elif acknowledged_index != 1:
+            raise ValueError("first response chunk acknowledgement must start at index 1")
+        return self.record(
+            task_id, "response_chunk_acknowledged", state="running",
+            stage=stage, message=f"acknowledged response chunk {acknowledged_index}/{total_chunks}",
+            completed_units=acknowledged_index, total_units=total_chunks,
+            evidence_ref=f"sha256:{response_sha256}",
+        )
+
+    def response_delivery_checkpoint(self, task_id: str, response_id: str) -> dict[str, Any]:
+        """Return the verified contiguous acknowledgement cursor for restart/resume."""
+        response_id = self._validate_response_digest(response_id, "response_id")
+        stage = f"response-delivery:{response_id}"
+        rows = [row for row in self._events() if row["task_id"] == task_id
+                and row["stage"] == stage and row["event"] == "response_chunk_acknowledged"]
+        if not rows:
+            return {"task_id": task_id, "response_id": response_id,
+                    "acknowledged_index": 0, "total_chunks": None, "response_sha256": None}
+        first = rows[0]
+        total = first.get("total_units")
+        digest_ref = first.get("evidence_ref")
+        if type(total) is not int or total < 1 or digest_ref != f"sha256:{response_id}":
+            raise ProgressJournalCorruption("response delivery checkpoint has an invalid manifest")
+        expected = 1
+        for row in rows:
+            if (row.get("total_units") != total or row.get("evidence_ref") != digest_ref
+                    or row.get("completed_units") != expected):
+                raise ProgressJournalCorruption("response delivery acknowledgements are not contiguous")
+            expected += 1
+        return {"task_id": task_id, "response_id": response_id,
+                "acknowledged_index": expected - 1, "total_chunks": total,
+                "response_sha256": response_id}
+
     def record_provider_event(self, payload: Mapping[str, Any]) -> ProgressEvent:
         """Project allowlisted provider lifecycle metadata into canonical task progress.
 

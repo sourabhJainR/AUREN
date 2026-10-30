@@ -56,3 +56,7 @@ delivery guarantees.
 
 Rollback: remove the adapter integration and return to the prior bounded-output
 path; retain artifact integrity checks and never restore silent truncation.
+
+## Durable resume integration
+
+The transport primitive is paired with `ProgressJournal.record_response_chunk_ack(...)` for host workflows that deliver a response over multiple acknowledged writes. Persist only the whole-response digest, total chunk count and highest contiguous acknowledged index; keep response bytes in the canonical artifact or delivery buffer. After restart, call `response_delivery_checkpoint(...)` and pass its acknowledged index to `chunks_after(...)`. The journal rejects skipped/reordered acknowledgements, duplicate delivery is idempotent, and a changed manifest cannot reuse an old cursor. Do not mark the parent task complete until the receiver has acknowledged the final chunk and the host has verified the whole-response digest. This is a reusable durable cursor API; each host adapter must still wire its actual transport acknowledgement to it.
