@@ -228,8 +228,7 @@ def _build_task_context_prompt(base_prompt: str, *, router, task_id: str, task: 
     routed = router(task_id, task, {})
     if not isinstance(routed, Mapping):
         raise ValueError("task context router returned no canonical routing result")
-    recall = routed.get("recall")
-    recall_text = getattr(recall, "text", None)
+    recall_text = getattr(routed.get("recall"), "text", None)
     receipt = routed.get("receipt")
     if not isinstance(recall_text, str):
         raise ValueError("task context routing omitted canonical recall text")
@@ -239,17 +238,14 @@ def _build_task_context_prompt(base_prompt: str, *, router, task_id: str, task: 
         receipt_payload = asdict(receipt)
     else:
         raise ValueError("task context routing omitted a structured routing receipt")
-    # Keep the receipt content-free: only its structured digest/selection metadata
-    # is passed to agents. The memory text is separately bounded by the router.
     receipt_text = json.dumps(receipt_payload, ensure_ascii=False, sort_keys=True, default=str)
     return (
         base_prompt
-        + "\\n\\n## Canonical task-aware memory context\\n"
+        + "\n\n## Canonical task-aware memory context\n"
         + recall_text
-        + "\\n\\n## Task routing receipt (redacted metadata)\\n"
+        + "\n\n## Task routing receipt (redacted metadata)\n"
         + receipt_text
     )
-
 
 def _phase_team(route: dict[str, Any], phase: str, graph_types):
     AgentSpec, GraphAgentTeam = graph_types
