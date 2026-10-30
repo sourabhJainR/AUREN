@@ -111,6 +111,16 @@ def _claim_postgres(dsn, table_name, attestation_id, operation_id, binding):
     return registry.claim(attestation_id, binding=binding, operation_id=operation_id)
 
 
+def _lookup_postgres(dsn, table_name, attestation_id, operation_id, binding):
+    import psycopg
+
+    registry = PostgreSQLAttestationReplayRegistry(
+        lambda: psycopg.connect(dsn),
+        table_name=table_name,
+    )
+    return registry.lookup_claim(attestation_id, binding=binding, operation_id=operation_id)
+
+
 class PostgreSQLAttestationReplayRegistryTests(unittest.TestCase):
     def test_shared_registry_clients_have_one_winner_and_idempotent_same_operation(self):
         store = {}
@@ -306,6 +316,81 @@ class PostgreSQLAttestationReplayRegistryTests(unittest.TestCase):
         finally:
             with psycopg.connect(dsn) as connection:
                 connection.execute(f"DROP TABLE IF EXISTS {table_name}")
+
+
+    @unittest.skipUnless(os.environ.get("AUREN_TEST_POSTGRES_DSN"), "real PostgreSQL service is not configured")
+    def test_real_postgres_lost_commit_ack_reconciles_from_a_fresh_process(self):
+        import psycopg
+
+        dsn = os.environ["AUREN_TEST_POSTGRES_DSN"]
+        table_name = "a_replay_" + uuid4().hex[:24]
+        binding = _binding()
+        attestation_id = "lost-ack-" + uuid4().hex
+        operation_id = "claim-" + uuid4().hex
+
+        class LostCommitAcknowledgement:
+            def __init__(self, connection):
+                self.connection = connection
+
+            def cursor(self):
+                return self.connection.cursor()
+
+            def commit(self):
+                self.connection.commit()
+                # Simulate the network dropping the commit response after the
+                # database has durably accepted the transaction.
+                raise OSError("simulated lost PostgreSQL commit acknowledgement")
+
+            def rollback(self):
+                return self.connection.rollback()
+
+            def close(self):
+                return self.connection.close()
+
+        calls = 0
+
+        def connection_factory():
+            nonlocal calls
+            calls += 1
+            connection = psycopg.connect(dsn)
+            # Registry construction performs schema setup first. Wrap only the
+            # subsequent claim connection so setup itself remains successful.
+            return LostCommitAcknowledgement(connection) if calls == 2 else connection
+
+        registry = PostgreSQLAttestationReplayRegistry(
+            connection_factory, table_name=table_name,
+        )
+        try:
+            with self.assertRaises(ReplayClaimOutcomeUnknown) as caught:
+                registry.claim(attestation_id, binding=binding, operation_id=operation_id)
+            self.assertEqual(attestation_id, caught.exception.attestation_id)
+            self.assertEqual(operation_id, caught.exception.operation_id)
+
+            # A separate spawned process and fresh database connection must
+            # reconcile the exact operation, not create a second claim.
+            with ProcessPoolExecutor(
+                max_workers=1,
+                mp_context=multiprocessing.get_context("spawn"),
+            ) as pool:
+                reconciled = pool.submit(
+                    _lookup_postgres, dsn, table_name, attestation_id,
+                    operation_id, binding,
+                ).result(timeout=20)
+            self.assertTrue(reconciled)
+
+            restarted = PostgreSQLAttestationReplayRegistry(
+                lambda: psycopg.connect(dsn), table_name=table_name,
+            )
+            self.assertTrue(restarted.claim(
+                attestation_id, binding=binding, operation_id=operation_id,
+            ))
+            self.assertFalse(restarted.claim(
+                attestation_id, binding=binding, operation_id=operation_id + "-replay",
+            ))
+        finally:
+            with psycopg.connect(dsn) as connection:
+                connection.execute(f"DROP TABLE IF EXISTS {table_name}")
+
 
 
 if __name__ == "__main__":
