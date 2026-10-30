@@ -231,9 +231,14 @@ def _build_task_context_prompt(base_prompt: str, *, router, task_id: str, task: 
     recall = routed.get("recall")
     recall_text = getattr(recall, "text", None)
     receipt = routed.get("receipt")
-    if not isinstance(recall_text, str) or not isinstance(receipt, Mapping):
-        raise ValueError("task context routing omitted canonical recall text or receipt")
-    receipt_payload = dict(receipt)
+    if not isinstance(recall_text, str):
+        raise ValueError("task context routing omitted canonical recall text")
+    if isinstance(receipt, Mapping):
+        receipt_payload = dict(receipt)
+    elif hasattr(receipt, "__dataclass_fields__"):
+        receipt_payload = asdict(receipt)
+    else:
+        raise ValueError("task context routing omitted a structured routing receipt")
     # Keep the receipt content-free: only its structured digest/selection metadata
     # is passed to agents. The memory text is separately bounded by the router.
     receipt_text = json.dumps(receipt_payload, ensure_ascii=False, sort_keys=True, default=str)
