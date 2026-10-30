@@ -44,16 +44,16 @@ class ResponseDeliveryTransportTests(unittest.TestCase):
         source = "payload " * 100
         seen = []
 
-        def disconnect_after_two(chunk):
+        def receive(chunk):
             seen.append(chunk.index)
-            if chunk.index == 3:
-                raise OSError("connection dropped before acknowledgement")
             return self.ack(chunk)
 
-        with self.assertRaises(DeliveryOutcomeUnknown):
-            deliver_response("task-2", source, receiver=disconnect_after_two,
-                             journal=self.journal, max_chunk_bytes=40)
-        first_attempt = list(seen)
+        with self.assertRaises(DeliveryBlocked):
+            deliver_response(
+                "task-2", source, receiver=receive, journal=self.journal,
+                max_chunk_bytes=40,
+                consume_shared_budget=lambda size: len(seen) < 2,
+            )
         resumed = []
         receipt = deliver_response(
             "task-2", source,
@@ -62,7 +62,23 @@ class ResponseDeliveryTransportTests(unittest.TestCase):
         )
         self.assertEqual(resumed, list(range(3, receipt.total_chunks + 1)))
         self.assertEqual(receipt.resumed_from_chunk, 2)
-        self.assertEqual(first_attempt, [1, 2, 3])
+        self.assertEqual(seen, [1, 2])
+
+    def test_ambiguous_send_is_durably_blocked_from_automatic_replay(self):
+        calls = []
+
+        def disconnect(chunk):
+            calls.append(chunk.index)
+            raise OSError("connection dropped after send")
+
+        with self.assertRaises(DeliveryOutcomeUnknown):
+            deliver_response("task-ambiguous", "remote result",
+                             receiver=disconnect, journal=self.journal)
+        with self.assertRaises(DeliveryBlocked):
+            deliver_response("task-ambiguous", "remote result",
+                             receiver=lambda chunk: calls.append(chunk.index),
+                             journal=self.journal)
+        self.assertEqual(calls, [1])
 
     def test_mismatched_ack_blocks_without_advancing_cursor(self):
         with self.assertRaises(DeliveryOutcomeUnknown):
