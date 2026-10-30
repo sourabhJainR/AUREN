@@ -74,3 +74,41 @@ def test_node_exception_has_live_error_span_not_only_post_run_summary(tmp_path: 
     assert finished
     assert finished[-1]["span"]["status"] == "error"
     assert finished[-1]["span"]["output"]["error_type"] == "RuntimeError"
+
+
+def test_partial_dependency_acceptance_is_bound_to_canonical_trace(tmp_path: Path) -> None:
+    path = tmp_path / "partial-dependency-trace.jsonl"
+
+    def fail_optional_news(_state):
+        raise RuntimeError("api_key=must-not-leak")
+
+    graph = StateGraph.from_nodes([
+        Node("fundamentals", NodeKind.AGENT, lambda _state: {"price": 10}),
+        Node("news", NodeKind.AGENT, fail_optional_news, critical=False),
+        Node(
+            "synthesis", NodeKind.JOIN,
+            lambda state: {
+                "partial": bool(state["auren_partial_dependencies"]),
+                "price": state["fundamentals"]["price"],
+            },
+            depends_on=("fundamentals", "news"),
+            evaluator=lambda output: output["partial"] and output["price"] == 10,
+            allow_partial_dependencies=True,
+        ),
+    ])
+    tracer = Tracer(LocalExporter(path, enabled=True))
+
+    result = graph.run("task-partial", "synthesize partial stock evidence", tracer=tracer)
+
+    assert result.status == RunStatus.ACCEPTED
+    assert result.results["synthesis"].partial_dependencies == ("news",)
+    records = _trace_records(path)
+    synthesis = [
+        record for record in records
+        if record.get("event_type") == "span_updated"
+        and (record.get("span") or {}).get("name") == "supervisor_node:synthesis"
+    ]
+    assert synthesis
+    assert synthesis[-1]["span"]["metadata"]["partial_dependencies"] == ["news"]
+    assert synthesis[-1]["span"]["output"]["partial_dependencies"] == ["news"]
+    assert "api_key=must-not-leak" not in path.read_text(encoding="utf-8")
