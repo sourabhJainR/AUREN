@@ -10,7 +10,7 @@ AUREN may continue a synthesis or aggregation node after an optional provider fa
 - A failed critical dependency remains blocking.
 - `BLOCKED` and `SKIPPED` dependencies always remain blocking. Partial mode is not a way around authority, budget, cancellation or prerequisite gates.
 - The node receives the exact failed dependency identities in `auren_partial_dependencies`. It receives only the error type, never raw provider exception text.
-- The result records accepted partial dependency identities in NodeResult, evidence, trajectory and replay.
+- The result records accepted partial dependency identities in NodeResult, evidence, trajectory and replay. The canonical StateGraph trace binds those identities to the downstream node span and records the partial-node count on the supervisor run. Raw provider exception text is not exported.
 - The policy is included in the graph digest so a strict and partial-capable graph cannot share an identity.
 
 ## Intended use
