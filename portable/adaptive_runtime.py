@@ -986,6 +986,8 @@ class AdaptiveRuntime:
         max_latency_ms: int | None = None,
         max_resource_candidates: int = 3,
         require_measured_quality: bool = False,
+        require_fresh_resource_metadata: bool = False,
+        max_resource_metadata_age_seconds: int = 900,
     ) -> dict[str, Any]:
         """Route task memory and advertised resources through canonical owners.
 
@@ -1007,6 +1009,8 @@ class AdaptiveRuntime:
                 max_latency_ms=max_latency_ms,
                 max_candidates=max_resource_candidates,
                 require_measured_quality=require_measured_quality,
+                require_fresh_metadata=require_fresh_resource_metadata,
+                max_metadata_age_seconds=max_resource_metadata_age_seconds,
             )
         receipt = make_receipt(task, plan, recall, resource_decision)
         return {
@@ -1029,6 +1033,8 @@ class AdaptiveRuntime:
         max_latency_ms: int | None = None,
         max_resource_candidates: int = 3,
         require_measured_quality: bool = False,
+        require_fresh_resource_metadata: bool = False,
+        max_resource_metadata_age_seconds: int = 900,
     ):
         """Bind task-aware routing to a trusted GraphAgentTeam composition root.
 
@@ -1055,6 +1061,8 @@ class AdaptiveRuntime:
                 max_latency_ms=max_latency_ms,
                 max_resource_candidates=max_resource_candidates,
                 require_measured_quality=require_measured_quality,
+                require_fresh_resource_metadata=require_fresh_resource_metadata,
+                max_resource_metadata_age_seconds=max_resource_metadata_age_seconds,
             )
 
         return route

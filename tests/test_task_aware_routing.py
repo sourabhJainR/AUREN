@@ -178,6 +178,61 @@ class TaskAwareRoutingTests(unittest.TestCase):
         self.assertEqual("privacy constraints not satisfied", rejected["privacy-mismatch"])
         self.assertEqual(64, len(decision.policy_digest))
 
+    def test_resource_freshness_gate_rejects_stale_unknown_and_future_metadata(self):
+        now = 10_000.0
+        candidates = [
+            ResourceCandidate(
+                "fresh", "builtin", frozenset({"search"}),
+                available=True, permission_granted=True, privacy_compatible=True,
+                risk="low", estimated_cost=0.2, estimated_latency_ms=100,
+                measured_quality=0.8, metadata_observed_at=9_900.0,
+            ),
+            ResourceCandidate(
+                "stale", "plugin", frozenset({"search"}),
+                available=True, permission_granted=True, privacy_compatible=True,
+                risk="low", estimated_cost=0.1, estimated_latency_ms=50,
+                measured_quality=1.0, metadata_observed_at=7_000.0,
+            ),
+            ResourceCandidate(
+                "unknown", "provider", frozenset({"search"}),
+                available=True, permission_granted=True, privacy_compatible=True,
+                risk="low", estimated_cost=0.1, estimated_latency_ms=50,
+                measured_quality=0.9,
+            ),
+            ResourceCandidate(
+                "future", "tool", frozenset({"search"}),
+                available=True, permission_granted=True, privacy_compatible=True,
+                risk="low", estimated_cost=0.1, estimated_latency_ms=50,
+                measured_quality=0.9, metadata_observed_at=10_001.0,
+            ),
+        ]
+        decision = select_resources(
+            candidates, required_capabilities={"search"}, max_risk="low",
+            max_cost=1.0, max_latency_ms=500, require_measured_quality=True,
+            require_fresh_metadata=True, max_metadata_age_seconds=300, now_epoch=now,
+        )
+        self.assertEqual(("fresh",), decision.selected)
+        rejected = dict(decision.rejected)
+        self.assertEqual("metadata stale", rejected["stale"])
+        self.assertEqual("metadata freshness unknown", rejected["unknown"])
+        self.assertEqual("invalid metadata timestamp", rejected["future"])
+
+    def test_resource_freshness_policy_is_part_of_decision_digest(self):
+        candidate = ResourceCandidate(
+            "fresh", "builtin", frozenset({"search"}),
+            available=True, permission_granted=True, privacy_compatible=True,
+            risk="low", estimated_cost=0.2, estimated_latency_ms=100,
+            measured_quality=0.8, metadata_observed_at=9_900.0,
+        )
+        loose = select_resources(
+            [candidate], required_capabilities={"search"}, now_epoch=10_000.0,
+        )
+        strict = select_resources(
+            [candidate], required_capabilities={"search"}, now_epoch=10_000.0,
+            require_fresh_metadata=True, max_metadata_age_seconds=300,
+        )
+        self.assertNotEqual(loose.policy_digest, strict.policy_digest)
+
     def test_unknown_cost_or_latency_is_not_assumed_within_a_hard_budget(self):
         candidate = ResourceCandidate(
             "unknown-cost", "tool", frozenset({"search"}),
