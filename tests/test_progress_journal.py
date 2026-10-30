@@ -200,7 +200,7 @@ class ProgressJournalTests(unittest.TestCase):
                 row = json.loads(path.read_text(encoding="utf-8").splitlines()[0])
                 row["sequence"] = 2
                 row["completed_units"] = 3
-                stream.write(json.dumps(row) + "\\n")
+                stream.write(json.dumps(row) + "\n")
             with self.assertRaisesRegex(ProgressJournalCorruption, "not contiguous"):
                 ProgressJournal(path).response_delivery_checkpoint("delivery", digest)
 
