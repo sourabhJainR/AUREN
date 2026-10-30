@@ -661,7 +661,7 @@
     "signals": [
       {
         "id": "long_running_host_sandbox",
-        "source_date": "2026-09-10; 2026-09-24; 2026-10-07; 2026-10-20; 2026-10-21; 2026-10-23; 2026-10-27; 2026-10-28; 2026-10-21",
+        "source_date": "2026-09-10; 2026-09-24; 2026-10-07; 2026-10-20; 2026-10-21; 2026-10-23; 2026-10-27; 2026-10-28",
         "sources": [
           "https://www.docker.com/press-release/cloud-sandboxes-extending-secure-ai-agent-isolation-beyond-the-laptop/",
           "https://www.akamai.com/newsroom/press-release/akamai-launches-ai-inference-service-and-agent-execution-environment",
@@ -782,7 +782,7 @@
       },
       {
         "id": "agent_coordination_action_oversight",
-        "source_date": "2026-10-01; 2026-10-20; 2026-10-21; 2026-10-23; 2026-10-27; prior research tracked in #1038; 2026-10-28; 2026-10-21",
+        "source_date": "2026-10-01; 2026-10-20; 2026-10-21; 2026-10-23; 2026-10-27; prior research tracked in #1038; 2026-10-28",
         "sources": [
           "https://github.blog/changelog/2026-10-01-dynamic-workflows-in-copilot-cli-and-the-copilot-app/",
           "https://www.anthropic.com/research/multiagent-systems",
