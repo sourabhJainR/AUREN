@@ -578,8 +578,8 @@
       "pending": 0
     },
     "skipped_checks": [
-      "Production AI Harness Hardening (path-filtered check)",
-      "Durable Runtime Integration (path-filtered check)"
+      "hardening (path-filtered; skipped, not passed)",
+      "Durable runtime (${{ matrix.os }}, Python ${{ matrix.python-version }}) (path-filtered; skipped, not passed)"
     ],
     "post_merge_push_workflows": {
       "total": 6,
