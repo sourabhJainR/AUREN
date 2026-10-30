@@ -558,7 +558,7 @@ class Orchestrator:
                 {
                     "node": result.node,
                     "status": result.status.value,
-                    "error": result.error,
+                    "error_type": result.error.split(":", 1)[0] if result.error else "unknown",
                 }
                 for result in failed_dependencies
                 if result.node in partial_dependency_names
