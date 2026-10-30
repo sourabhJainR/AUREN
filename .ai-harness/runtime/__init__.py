@@ -420,6 +420,7 @@ def _install_graph_team_bridge() -> None:
                 ),
                 principle_verification=manifest.get("principle_verification"),
                 require_principle_verification=manifest.get("require_principle_verification", False),
+                supervisor_task_id=supervisor_task_id,
             )
             result["phase"] = phase
             result["duration_seconds"] = round(engine.time.monotonic() - started, 3)
