@@ -64,5 +64,49 @@ class ResponseDeliveryTests(unittest.TestCase):
                 chunk_response("content", max_bytes=budget)
 
 
+    def test_delivery_persists_only_exact_receiver_ack_and_resumes(self):
+        from portable.progress_journal import ProgressJournal
+        from portable.response_delivery import deliver_response
+        with tempfile.TemporaryDirectory() as temp:
+            journal = ProgressJournal(Path(temp) / "progress.jsonl")
+            calls = []
+            def receiver(chunk, key):
+                calls.append((chunk.index, key))
+                if chunk.index == 2 and len(calls) == 2:
+                    raise TimeoutError("receiver outcome unknown")
+                return {"response_id": chunk.response_id, "index": chunk.index, "sha256": chunk.sha256}
+            payload = "alpha " * 30
+            with self.assertRaises(TimeoutError):
+                deliver_response(payload, task_id="task", journal=journal, send_chunk=receiver, max_bytes=40)
+            digest = __import__("hashlib").sha256(payload.encode()).hexdigest()
+            self.assertEqual(journal.response_delivery_checkpoint("task", digest)["acknowledged_index"], 1)
+            receipt = deliver_response(payload, task_id="task", journal=journal, send_chunk=receiver, max_bytes=40)
+            self.assertTrue(receipt.complete)
+            self.assertEqual(receipt.resumed_from, 1)
+
+    def test_delivery_rejects_unknown_and_mismatched_acknowledgements(self):
+        from portable.progress_journal import ProgressJournal
+        from portable.response_delivery import deliver_response, ResponseDeliveryError
+        with tempfile.TemporaryDirectory() as temp:
+            journal = ProgressJournal(Path(temp) / "progress.jsonl")
+            def bad(chunk, key):
+                return {"response_id": chunk.response_id, "index": chunk.index + 1, "sha256": chunk.sha256}
+            with self.assertRaisesRegex(ResponseDeliveryError, "does not match"):
+                deliver_response("payload " * 20, task_id="task", journal=journal, send_chunk=bad, max_bytes=40)
+            with self.assertRaisesRegex(ResponseDeliveryError, "unknown"):
+                deliver_response("payload " * 20, task_id="task", journal=journal, send_chunk=lambda c, k: None, max_bytes=40)
+
+    def test_delivery_cancellation_does_not_ack_unsent_chunks(self):
+        from portable.progress_journal import ProgressJournal
+        from portable.response_delivery import deliver_response, ResponseDeliveryError
+        with tempfile.TemporaryDirectory() as temp:
+            journal = ProgressJournal(Path(temp) / "progress.jsonl")
+            def receiver(chunk, key):
+                return {"response_id": chunk.response_id, "index": chunk.index, "sha256": chunk.sha256}
+            with self.assertRaisesRegex(ResponseDeliveryError, "cancelled"):
+                deliver_response("payload " * 20, task_id="task", journal=journal, send_chunk=receiver,
+                                 max_bytes=40, cancelled=lambda: True)
+
+
 if __name__ == "__main__":
     unittest.main()
