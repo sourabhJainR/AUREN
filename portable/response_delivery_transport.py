@@ -65,6 +65,17 @@ def deliver_response(
     if total_bytes > max_total_bytes:
         raise DeliveryBlocked("response exceeds configured total byte budget; split the task or raise an approved budget")
     manifest, chunks = chunk_response(text, max_bytes=max_chunk_bytes)
+    delivery_stage = f"response-delivery:{manifest.response_id}"
+    if any(
+        row.get("task_id") == task_id
+        and row.get("stage") == delivery_stage
+        and row.get("event") == "response_chunk_outcome_unknown"
+        for row in journal._events()
+    ):
+        raise DeliveryBlocked(
+            "an earlier chunk has an unknown remote outcome; reconcile receiver status "
+            "under a new operator-approved task before retrying"
+        )
     checkpoint = journal.response_delivery_checkpoint(task_id, manifest.response_id)
     acknowledged = checkpoint["acknowledged_index"]
     known_total = checkpoint["total_chunks"]
@@ -86,19 +97,37 @@ def deliver_response(
         peak_in_flight = max(peak_in_flight, chunk.utf8_bytes)
         try:
             ack = receiver(chunk)
-        except BaseException as exc:
+        except Exception as exc:
+            journal.record(
+                task_id, "response_chunk_outcome_unknown", state="blocked",
+                stage=delivery_stage,
+                message=f"receiver outcome unknown for chunk {chunk.index}; automatic replay disabled",
+                evidence_ref=f"sha256:{manifest.sha256}",
+            )
             raise DeliveryOutcomeUnknown(
-                "receiver outcome is unknown; query receiver status or use its idempotency key before retrying"
+                "receiver outcome is unknown; automatic replay is blocked until receiver status is reconciled"
             ) from exc
         if not isinstance(ack, Mapping):
-            raise DeliveryOutcomeUnknown("receiver returned no verifiable acknowledgement")
+            journal.record(
+                task_id, "response_chunk_outcome_unknown", state="blocked",
+                stage=delivery_stage,
+                message=f"receiver returned no verifiable acknowledgement for chunk {chunk.index}",
+                evidence_ref=f"sha256:{manifest.sha256}",
+            )
+            raise DeliveryOutcomeUnknown("receiver returned no verifiable acknowledgement; automatic replay is blocked")
         expected = {
             "response_id": manifest.response_id,
             "index": chunk.index,
             "chunk_sha256": chunk.sha256,
         }
         if any(ack.get(key) != value for key, value in expected.items()):
-            raise DeliveryOutcomeUnknown("receiver acknowledgement does not match the exact chunk")
+            journal.record(
+                task_id, "response_chunk_outcome_unknown", state="blocked",
+                stage=delivery_stage,
+                message=f"receiver acknowledgement mismatch for chunk {chunk.index}; automatic replay disabled",
+                evidence_ref=f"sha256:{manifest.sha256}",
+            )
+            raise DeliveryOutcomeUnknown("receiver acknowledgement mismatch; automatic replay is blocked")
         # Persist only after the receiver has confirmed this exact chunk.
         journal.record_response_chunk_ack(
             task_id,
