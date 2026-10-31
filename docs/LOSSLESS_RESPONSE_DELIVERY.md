@@ -46,6 +46,21 @@ it preserves the original text exactly and provides end-to-end integrity checks.
 6. Mark the task complete only after artifact validation and delivery state are
    both complete. If interrupted, resume at the next unacknowledged chunk.
 
+## Bounded host worker admission
+
+The HTTP delivery supervisor admits at most eight active delivery workers per host
+process. A saturated host leaves additional durable delivery tasks pending; it does
+not fail, discard, replay, or mark them complete. A later status/next poll can retry
+admission after a worker exits. The delivery status response exposes active workers,
+the configured worker limit, available slots, saturation state, and an in-process
+saturation-event count. The counter is operational telemetry and resets when the
+host process restarts; it is not an audit ledger.
+
+This bounds concurrent delivery work, while each pull request remains synchronous
+and offers at most one chunk at a time. It does not claim a bounded number of durable
+pending tasks or a global cross-process worker quota. Hosts that need those stronger
+limits must enforce them at their deployment admission boundary.
+
 ## Boundaries and rollback
 
 This module is a deterministic transport primitive. It does not prove that a
