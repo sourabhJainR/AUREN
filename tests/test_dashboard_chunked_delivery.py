@@ -10,6 +10,7 @@ from types import SimpleNamespace
 
 from portable import dashboard_server
 from portable.agency_release_lifecycle import ArtifactStore
+from portable.response_delivery_artifacts import ResponseArtifactRepository
 from portable.progress_journal import ProgressJournal
 from portable.hybrid_model_router import HybridModelRouter
 
@@ -20,6 +21,7 @@ def _start_server(monkeypatch, root: Path, result):
     runtime_root = root / ".auren"
     handler = type("ChunkDeliveryTestHandler", (dashboard_server._Handler,), {
         "artifact_store": ArtifactStore(runtime_root / "releases"),
+        "response_repository": ResponseArtifactRepository(ArtifactStore(runtime_root / "releases")),
         "progress_journal": ProgressJournal(runtime_root / "progress.jsonl"),
     })
     server = ThreadingHTTPServer(("127.0.0.1", 0), handler)

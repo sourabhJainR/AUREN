@@ -4,18 +4,18 @@ import argparse
 import hashlib
 import json
 import re
-import tempfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
-from .agency_release_lifecycle import ArtifactRef, ArtifactStore
+from .agency_release_lifecycle import ArtifactStore
 from .engineering_dashboard import EngineeringDashboard
 from .muxin_session_adapter import LocalModelDiscovery, MuxinSessionAdapter
 from .hybrid_model_router import HybridModelRouter, TaskRouteRequest
 from .agency_observability_ops import observability_snapshot
 from .identity_compat import canonical_runtime_home
 from .progress_journal import ProgressJournal
-from .response_delivery import assemble_response, chunk_response
+from .response_delivery import assemble_response
+from .response_delivery_artifacts import ResponseArtifactRepository
 
 MAX_API_RESPONSE_BYTES = 4_000_000
 MAX_CHUNKED_RESPONSE_BYTES = 16_000_000
@@ -54,6 +54,7 @@ class _Handler(BaseHTTPRequestHandler):
     ui_root = UI_ROOT
     control_center_path = CONTROL_CENTER
     artifact_store = None
+    response_repository = None
     progress_journal = None
 
     def _send(self, status, body, content_type, *, extra_headers=None):
@@ -137,41 +138,44 @@ class _Handler(BaseHTTPRequestHandler):
         return "dashboard-response:" + response_id
 
     def _persist_response_artifact(self, response_id, body):
-        if self.artifact_store is None:
-            raise RuntimeError("canonical artifact store is unavailable")
-        with tempfile.TemporaryDirectory(prefix="auren-response-") as directory:
-            source = Path(directory) / "response.json"
-            source.write_bytes(body)
-            ref = self.artifact_store.stage(source, "dashboard-response:" + response_id)
-        if ref.digest != response_id:
-            raise RuntimeError("response artifact digest does not match its response identity")
-        return ref
+        if self.response_repository is None or self.progress_journal is None:
+            raise RuntimeError("canonical response artifact repository is unavailable")
+        stored = self.response_repository.stage(
+            body.decode("utf-8"), max_chunk_bytes=MAX_DELIVERY_CHUNK_BYTES,
+        )
+        task_id = self._delivery_task_id(response_id)
+        stage = "response-artifact:" + response_id
+        existing = [
+            row for row in self.progress_journal._events()
+            if row.get("task_id") == task_id and row.get("event") == "response_artifact_staged"
+            and row.get("stage") == stage
+        ]
+        if not existing:
+            self.progress_journal.record(
+                task_id, "response_artifact_staged", state="running",
+                stage=stage, message="immutable response artifact staged",
+                evidence_ref="sha256:" + stored.artifact.digest,
+            )
+        return stored
 
     def _load_delivery(self, response_id):
         if not re.fullmatch(r"[0-9a-f]{64}", response_id):
             raise ValueError("invalid response identity")
-        if self.artifact_store is None or self.progress_journal is None:
+        if self.response_repository is None or self.progress_journal is None:
             raise RuntimeError("durable response delivery is not configured")
-        metadata_path = self.artifact_store.artifacts / (response_id + ".json")
-        if not metadata_path.is_file():
+        task_id = self._delivery_task_id(response_id)
+        stage = "response-artifact:" + response_id
+        rows = [
+            row for row in self.progress_journal._events()
+            if row.get("task_id") == task_id and row.get("event") == "response_artifact_staged"
+            and row.get("stage") == stage
+        ]
+        if not rows:
             raise FileNotFoundError("response artifact is unavailable")
-        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-        artifact = metadata.get("artifact") if isinstance(metadata, dict) else None
-        if not isinstance(artifact, dict):
-            raise RuntimeError("response artifact metadata is invalid")
-        ref = ArtifactRef(**artifact)
-        if ref.digest != response_id:
-            raise RuntimeError("response artifact reference does not match the requested identity")
-        self.artifact_store._verify_ref(ref)
-        response_path = Path(ref.path) / "response.json"
-        body = response_path.read_bytes()
-        if hashlib.sha256(body).hexdigest() != response_id:
-            raise RuntimeError("response artifact integrity check failed")
-        response_text = body.decode("utf-8")
-        manifest, chunks = chunk_response(response_text, max_bytes=MAX_DELIVERY_CHUNK_BYTES)
-        if manifest.sha256 != response_id:
-            raise RuntimeError("response manifest digest does not match its artifact")
-        return ref, response_text, manifest, chunks
+        evidence_ref = rows[-1].get("evidence_ref")
+        if not isinstance(evidence_ref, str) or not re.fullmatch(r"sha256:[0-9a-f]{64}", evidence_ref):
+            raise RuntimeError("response artifact reference is invalid")
+        return self.response_repository.load(response_id, evidence_ref[7:])
 
     def _delivery_checkpoint(self, response_id):
         return self.progress_journal.response_delivery_checkpoint(
@@ -185,7 +189,8 @@ class _Handler(BaseHTTPRequestHandler):
             return
         response_id, action = match.groups()
         try:
-            _ref, _text, manifest, chunks = self._load_delivery(response_id)
+            stored = self._load_delivery(response_id)
+            manifest, chunks = stored.manifest, stored.chunks
             checkpoint = self._delivery_checkpoint(response_id)
             acknowledged = checkpoint["acknowledged_index"]
             if checkpoint.get("total_chunks") not in (None, manifest.total_chunks):
@@ -232,7 +237,8 @@ class _Handler(BaseHTTPRequestHandler):
         response_id, action = match.groups()
         try:
             payload = self._read_json_request(max_bytes=16_384)
-            _ref, response_text, manifest, chunks = self._load_delivery(response_id)
+            stored = self._load_delivery(response_id)
+            manifest, chunks = stored.manifest, stored.chunks
             checkpoint = self._delivery_checkpoint(response_id)
             acknowledged = checkpoint["acknowledged_index"]
             if payload.get("response_sha256") != manifest.sha256:
@@ -320,17 +326,16 @@ class _Handler(BaseHTTPRequestHandler):
             }
             accepts_chunked = CHUNKED_RESPONSE_ACCEPT in self.headers.get("Accept", "")
             if accepts_chunked:
-                if self.artifact_store is None or self.progress_journal is None:
+                if self.response_repository is None or self.progress_journal is None:
                     self._send_delivery_json(503, {"error": "durable chunked delivery is not configured"})
                     return
                 body = _encode_bounded_json(
                     response_payload, max_bytes=MAX_CHUNKED_RESPONSE_BYTES,
                 )
-                response_text = body.decode("utf-8")
-                manifest, _chunks = chunk_response(
-                    response_text, max_bytes=MAX_DELIVERY_CHUNK_BYTES,
-                )
-                ref = self._persist_response_artifact(manifest.response_id, body)
+                response_id = hashlib.sha256(body).hexdigest()
+                stored = self._persist_response_artifact(response_id, body)
+                manifest = stored.manifest
+                ref = stored.artifact
                 self._send_delivery_json(202, {
                     "delivery_mode": "chunked-pull-v1",
                     "response_id": manifest.response_id,
@@ -428,11 +433,13 @@ def serve(project_root=".", host="127.0.0.1", port=8765):
     control_center = MuxinSessionAdapter(project_root, dashboard=dashboard)
     runtime_root = Path(project_root).expanduser().resolve() / ".auren"
     artifact_store = ArtifactStore(runtime_root / "releases")
+    response_repository = ResponseArtifactRepository(artifact_store)
     progress_journal = ProgressJournal(runtime_root / "progress.jsonl")
     handler = type("AERDashboardHandler", (_Handler,), {
         "dashboard": dashboard, "control_center": control_center,
         "ui_root": UI_ROOT, "control_center_path": CONTROL_CENTER,
-        "artifact_store": artifact_store, "progress_journal": progress_journal,
+        "artifact_store": artifact_store, "response_repository": response_repository,
+        "progress_journal": progress_journal,
     })
     server = ThreadingHTTPServer((host, port), handler)
     print(f"AUREN Engineering Console: http://{host}:{port}")

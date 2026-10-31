@@ -69,8 +69,12 @@ The local dashboard now supports an explicit pull-and-ack contract when the call
 bounded atomic JSON and keeps its existing response headers.
 
 For the chunked mode, the host serializes the complete response under a 16 MB UTF-8 budget,
-stages it in the existing content-addressed `ArtifactStore` under the project `.auren/releases`
-root, and returns a digest-bound manifest. It does not put response bytes in the progress journal.
+stages an immutable directory containing the manifest and UTF-8 chunk files in the existing
+content-addressed `ArtifactStore` under the project `.auren/releases` root, and returns a
+digest-bound manifest. A bounded in-process cache avoids rehashing the full artifact for every
+chunk request; after restart, the artifact is revalidated before it is cached. The progress journal
+stores only the artifact digest reference and receiver-confirmed acknowledgement cursor, never
+response bytes.
 The client then:
 
 1. Fetches `GET /api/delivery/{response_id}/next`. Reads do not advance the cursor.
