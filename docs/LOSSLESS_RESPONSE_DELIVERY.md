@@ -71,8 +71,9 @@ bounded atomic JSON and keeps its existing response headers.
 For the chunked mode, the host serializes the complete response under a 16 MB UTF-8 budget,
 stages an immutable directory containing the manifest and UTF-8 chunk files in the existing
 content-addressed `ArtifactStore` under the project `.auren/releases` root, and returns a
-digest-bound manifest. A bounded in-process cache avoids rehashing the full artifact for every
-chunk request; after restart, the artifact is revalidated before it is cached. The progress journal
+digest-bound manifest. The response digest identifies content; a unique delivery ID isolates each
+receiver session so two deliveries of identical bytes cannot share an acknowledgement cursor. A
+bounded in-process cache avoids rehashing the full artifact for every chunk request; after restart, the artifact is revalidated before it is cached. The progress journal
 stores only the artifact digest reference and receiver-confirmed acknowledgement cursor, never
 response bytes.
 The client then:
