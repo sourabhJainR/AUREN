@@ -381,7 +381,10 @@ class _Handler(BaseHTTPRequestHandler):
                 query = parse_qs(urlparse(self.path).query, keep_blank_values=False)
                 offset = int(query.get("offset", ["0"])[0])
                 limit = int(query.get("limit", ["50"])[0])
-                self._send_api_json(200, self.control_center.session_snapshot(offset=offset, limit=limit))
+                payload = self.control_center.session_snapshot(offset=offset, limit=limit)
+                self._send_api_json(200, payload)
+            except (TypeError, ValueError):
+                self._send(400, b'{"error":"invalid session pagination bounds"}', "application/json; charset=utf-8")
             except Exception:
                 self._send(503, b'{"error":"durable session snapshot unavailable"}', "application/json; charset=utf-8")
             return
