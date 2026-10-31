@@ -155,8 +155,10 @@ def deliver_response(text: str, *, task_id: str, journal: object, send_chunk: ob
                      deadline: float | None = None) -> DeliveryReceipt:
     """Send bounded chunks; journal only exact receiver-confirmed acknowledgements.
 
-    send_chunk(chunk, idempotency_key) must return a mapping echoing response_id,
-    index and sha256. Unknown outcomes are never treated as acknowledgements.
+    task_id must identify an already-running supervisor task; this helper never
+    creates or revives task state. send_chunk(chunk, idempotency_key) must return
+    a mapping echoing response_id, index and sha256. Unknown outcomes are never
+    treated as acknowledgements.
     """
     import time
     from collections.abc import Mapping as MappingABC
