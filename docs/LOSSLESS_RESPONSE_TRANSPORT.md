@@ -21,3 +21,17 @@ No sampling is permitted for acceptance, security, policy, evaluator, holdout, m
 ## Rollback
 
 Remove the adapter and its tests together. Keep the existing chunker, byte caps, MCP frame rejection, process-tree cleanup, and acknowledgement journal. Never restore unbounded buffering or silent truncation.
+
+
+## Host delivery inventory update
+
+The local Engineering Console HTTP API now uses a bounded incremental JSON encoder with a 4,000,000-byte UTF-8 ceiling. It does not silently truncate a response. Oversized API results return a small 502 error that explicitly says the endpoint is atomic and does not support chunk acknowledgements. The response headers expose the same disposition:
+
+- `X-AUREN-Delivery-Mode: atomic-json`
+- `X-AUREN-Chunk-Ack: unsupported`
+
+This is an explicit fail-closed disposition, not a claim that the dashboard is resumable. The browser currently consumes one complete JSON response and has no receiver-side status/ack contract. Do not send chunks over this endpoint or advance a durable cursor based only on a socket write.
+
+MCP stdio remains an atomic JSON-RPC frame. Oversized frames continue to be rejected and the child process tree is terminated; chunking is not applied to the frame. Read-only MCP pagination is a query-level adaptation, not response-delivery acknowledgement.
+
+The reusable acknowledged transport remains available for a host adapter that supplies a real receiver acknowledgement and reconciliation/status lookup. No such browser or MCP receiver contract is enabled by this change. #1140 remains open until a supported host transport is integrated and restart/resume is proven at that adapter boundary.
