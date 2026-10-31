@@ -162,6 +162,7 @@ class _Handler(BaseHTTPRequestHandler):
         if self.response_repository is None or self.progress_journal is None:
             raise RuntimeError("durable response delivery is not configured")
         task_id = self._delivery_task_id(response_id, delivery_id)
+        self.delivery_supervisor.start(task_id)
         artifact_digest = self.progress_journal.response_artifact_reference(task_id, response_id)
         if artifact_digest is None:
             raise FileNotFoundError("response artifact is unavailable")
