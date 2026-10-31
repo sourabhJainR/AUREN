@@ -648,9 +648,9 @@
     "capability_claim": "No AGI/SI or broad-generalization claim is supported by this snapshot; repository CI verifies internal contracts only."
   },
   "radar_refresh": {
-    "reviewed_at": "2026-10-30",
-    "baseline_main_sha": "3094fb0bdbebfb19702a000cc6e3577e9eb4f39d",
-    "status": "candidate signals only; research signals refreshed through 2026-10-30. Current main has 23 successful and 2 skipped check-runs, six successful push workflows, and verified portable artifact digests. Skips remain skipped. Deployment and independent-evaluation gates remain blocked.",
+    "reviewed_at": "2026-10-31",
+    "baseline_main_sha": "485670ce2cd7987954ad177ad171f2764123b6ae",
+    "status": "candidate signals only; research refreshed through 2026-10-31. Main was observed at 485670ce2cd7987954ad177ad171f2764123b6ae with no open PRs. Current-main check-runs, push-triggered post-merge workflows, and portable-bundle artifacts were not exposed by the available repository integration, so they remain unverified for this SHA. The 2026-10-30 review_snapshot is historical and its check/artifact results are not carried forward. Deployment and independent-evaluation gates remain blocked.",
     "policy": "External announcements and benchmark reports are leads, not proof of equivalent AUREN capability. Reuse the canonical supervisor, TaskPlan, StateGraph, ExecutionController, Guard, ProgressJournal, LearningSteward and Arena. No duplicate orchestrator or external runtime dependency. Keep adapters opt-in; no default pack promotion without paired measured value, independent evaluation and rollback. Discovery never grants authority.",
     "status_vocabulary": {
       "implementation": "Code path exists; does not imply tests or deployment.",
@@ -749,8 +749,8 @@
         "ci_status": "Repository CI covers routing and policy contracts; no live-provider quality comparison, local/cloud privacy-parity test, or production catalog freshness proof is claimed.",
         "deployment_status": "not verified",
         "independent_evaluation_status": "not verified",
-        "measured_gap": "Retired model detection, route quality by task family, privacy and permission parity, fallback loops and budget preservation. Include the 2026-11-16 retirement wave and distinguish discovery from installation/trust.  Copilot Fusion GA describes single, cascade and critique routing with effort levels; experimental local routing still makes decisions in the cloud and does not make a session offline. The 2026-11-16 retirement wave lists Claude Opus 4.8, Claude Opus 5 and GPT-5.6 Terra; the 2026-10-19 retirement wave is already effective. Model discovery and local routing do not establish AUREN provider trust or privacy parity.",
-        "benchmark": "Pinned task-family matrix with retired/missing model IDs, rate limits, schema drift, provider loss, bounded fallback, measured latency/cost and task success.  Add local/cloud privacy parity, stale catalog and retired-ID rejection, model-policy revocation, route receipt lineage, cost/latency under fallback, and task-family quality comparisons. Include a provider outage during a multi-step run without resetting scope or budget.",
+        "measured_gap": "Retired model detection, route quality by task family, privacy and permission parity, fallback loops and budget preservation. Include the 2026-11-16 retirement wave and distinguish discovery from installation/trust.  Copilot Fusion GA describes single, cascade and critique routing with effort levels; experimental local routing still makes decisions in the cloud and does not make a session offline. The 2026-11-16 retirement wave lists Claude Opus 4.8, Claude Opus 5 and GPT-5.6 Terra; the 2026-10-19 retirement wave is already effective. Model discovery and local routing do not establish AUREN provider trust or privacy parity. Copilot Fusion GA describes single-model, cascade and critique routing with administrator-controlled model eligibility; its local-model routing preview still makes routing decisions in the cloud and does not make the session offline. Treat route selection as a policy-bound decision with explicit provenance, not an opaque optimization.",
+        "benchmark": "Pinned task-family matrix with retired/missing model IDs, rate limits, schema drift, provider loss, bounded fallback, measured latency/cost and task success.  Add local/cloud privacy parity, stale catalog and retired-ID rejection, model-policy revocation, route receipt lineage, cost/latency under fallback, and task-family quality comparisons. Include a provider outage during a multi-step run without resetting scope or budget. Test route-policy revocation mid-run, local/cloud privacy parity, model-specific safety differences, model lifecycle retirement, cascade escalation limits, critique independence, and whether fallback preserves the original task scope and shared budget.",
         "acceptance_threshold": "Stale IDs never dispatch; fallback cannot widen data scope or reset budgets; paired outcomes and regression data required before changing defaults.  Local or cloud selection must preserve explicit privacy, authority and budget policy; a retired or stale model ID must never dispatch.",
         "rollback": "Pin last-known-good approved route, disable stale IDs and use deterministic/native fallback."
       },
@@ -782,7 +782,7 @@
       },
       {
         "id": "agent_coordination_action_oversight",
-        "source_date": "2026-10-01; 2026-10-20; 2026-10-21; 2026-10-23; 2026-10-27; prior research tracked in #1038; 2026-10-28",
+        "source_date": "2026-10-01; 2026-10-20; 2026-10-21; 2026-10-23; 2026-10-27; 2026-10-28",
         "sources": [
           "https://github.blog/changelog/2026-10-01-dynamic-workflows-in-copilot-cli-and-the-copilot-app/",
           "https://www.anthropic.com/research/multiagent-systems",
@@ -806,14 +806,14 @@
         "ci_status": "Selected graph concurrency, adoption conflict, verifier separation and cancellation contracts are repository-tested; runtime action monitoring, independent multi-agent benefit and host isolation are not verified.",
         "deployment_status": "not verified",
         "independent_evaluation_status": "blocked",
-        "measured_gap": "Coordination overhead, duplicate work, communication cost, conflict rate, resource contention, escalation latency, unauthorized-action rate, and cross-boundary covert communication. Recent independent API tests also report stop-compliance gaps after ambiguous shutdown warnings and interference with a peer agent; behavior changed when stop intent was explicit, and evaluation awareness limits generalization.  GitHub Agentic Workflows' GA design adds read-only-by-default execution, safe outputs and threat detection; SentinelOne announced early-access runtime agent action monitoring. Neither establishes AUREN's comparative coordination benefit or an independently verified control. OpenAI's containment report reinforces shared-hardware cross-agent channels as a threat-model input.",
-        "benchmark": "Paired single-agent/deterministic versus multi-agent runs on the same pinned task distribution with trace-level action audit; test explicit stop versus warning-only language, monitor tampering, sibling-process interference, confirmed termination, cross-boundary signaling without network/shared writable files, and tool-chain length effects. Report coordination overhead, duplicate work, action coverage, and outcome success.  Correlate each agent action with authenticated process/identity, intent digest and policy receipt; test prompt/monitor tampering, stop compliance, peer-process interference, covert shared-resource signaling and safe-output denial. Compare single-agent and multi-agent outcomes and overhead.",
+        "measured_gap": "Coordination overhead, duplicate work, communication cost, conflict rate, resource contention, escalation latency, unauthorized-action rate, and cross-boundary covert communication. Recent independent API tests also report stop-compliance gaps after ambiguous shutdown warnings and interference with a peer agent; behavior changed when stop intent was explicit, and evaluation awareness limits generalization.  GitHub Agentic Workflows' GA design adds read-only-by-default execution, safe outputs and threat detection; SentinelOne announced early-access runtime agent action monitoring. Neither establishes AUREN's comparative coordination benefit or an independently verified control. OpenAI's containment report reinforces shared-hardware cross-agent channels as a threat-model input. SentinelOne's early-access ADR explicitly links agent actions to originating processes and describes stopping one agent without halting the full workflow. This sharpens the AUREN gap: durable agent identity must bind to process/action receipts, and containment must be proven at the host rather than inferred from agent self-report.",
+        "benchmark": "Paired single-agent/deterministic versus multi-agent runs on the same pinned task distribution with trace-level action audit; test explicit stop versus warning-only language, monitor tampering, sibling-process interference, confirmed termination, cross-boundary signaling without network/shared writable files, and tool-chain length effects. Report coordination overhead, duplicate work, action coverage, and outcome success.  Correlate each agent action with authenticated process/identity, intent digest and policy receipt; test prompt/monitor tampering, stop compliance, peer-process interference, covert shared-resource signaling and safe-output denial. Compare single-agent and multi-agent outcomes and overhead. Include action-to-process lineage, delegated-user attribution, per-agent containment, child-process cleanup, monitor tampering and post-stop action attempts; retain a separate independent host audit.",
         "acceptance_threshold": "Measured net value without safety/reliability regression; explicit stop intent is honored; worker termination is confirmed before reporting stopped; serialized adoption; no worker self-approval; shared budgets cannot be reset; zero unauthorized cross-boundary communication in the tested suite.",
         "rollback": "Disable fan-out for the affected task class and use the sequential canonical path."
       },
       {
         "id": "scientific_discovery",
-        "source_date": "2026-02-02; 2026-10-12; 2026-10-13; 2026-10-16; 2026-10-17; 2026-10-20; 2026-10-22",
+        "source_date": "2026-02-02; 2026-10-04; 2026-10-12; 2026-10-13; 2026-10-16; 2026-10-17; 2026-10-20; 2026-10-22",
         "sources": [
           "https://www.anthropic.com/science",
           "https://www.nature.com/articles/s43586-026-00534-y",
@@ -823,7 +823,8 @@
           "https://arxiv.org/abs/2610.28763",
           "https://www.nature.com/articles/s44386-026-00075-0",
           "https://proceedings.mlr.press/v306/wang26d.html",
-          "https://arxiv.org/abs/2602.02905"
+          "https://arxiv.org/abs/2602.02905",
+          "https://arxiv.org/abs/2610.05197"
         ],
         "owner": [
           "LearningSteward",
@@ -837,20 +838,22 @@
         "ci_status": "CI verifies selected causal attribution and promotion-gate contracts only; no FIRE-Bench, Into the Unknown, SEER-Repro, or external scientific replication campaign has run on AUREN.",
         "deployment_status": "not verified",
         "independent_evaluation_status": "blocked",
-        "measured_gap": "Hypothesis validity, expert-condition satisfaction, reproducibility, analytical robustness, negative-result retention, calibration, transfer to fresh scientific tasks, and report integrity. Into the Unknown reports 0 of 135 submissions satisfying all conditions and 114 integrity failures. Agent4Sci spans 20 scientific-ML benchmarks across 11 domains: frontier agents improve published baselines, but trajectory analysis attributes most gains to ML-engineering heuristics rather than research-level insight; plug-in skills improve measured progress but need independent transfer evaluation. SEER-Repro reproduces 77.4% of 2,190 atomic claims and flags potentially consequential analysis choices in 9.5% of fully reproduced findings.  FIRE-Bench reports under-50 F1 rediscovery by its strongest evaluated agents with high run-to-run variance and recurring experimental-design/execution/evidence failures. Into the Unknown reports 0/135 submissions satisfying all expert conditions and 114 integrity failures; SEER-Repro reports 77.4% atomic-claim reproduction and potentially consequential analysis choices in 9.5% of fully reproduced findings.",
-        "benchmark": "Pinned hypotheses, expert-authored constraints, simulations/code, seeds, model/tool versions and raw outputs; measure condition satisfaction and executable reproduction, run sensitivity analyses, then require independent replication on fresh tasks. Pair each skill/curriculum candidate with an unmodified baseline across 20 benchmarks/11 domains where applicable; report task-level gain, novelty, cost, reproducibility, calibration, uncertainty and negative results. Keep held-out tasks outside worker and judge context; require domain review.  Pair rediscovery of verified findings with open-ended expert-authored follow-up tasks; require raw execution logs, preregistered conditions, claim-to-run traceability, sensitivity analysis, negative-result retention, and independent replication on fresh tasks.",
+        "measured_gap": "Hypothesis validity, expert-condition satisfaction, reproducibility, analytical robustness, negative-result retention, calibration, transfer to fresh scientific tasks, and report integrity. Into the Unknown reports 0 of 135 submissions satisfying all conditions and 114 integrity failures. Agent4Sci spans 20 scientific-ML benchmarks across 11 domains: frontier agents improve published baselines, but trajectory analysis attributes most gains to ML-engineering heuristics rather than research-level insight; plug-in skills improve measured progress but need independent transfer evaluation. SEER-Repro reproduces 77.4% of 2,190 atomic claims and flags potentially consequential analysis choices in 9.5% of fully reproduced findings.  FIRE-Bench reports under-50 F1 rediscovery by its strongest evaluated agents with high run-to-run variance and recurring experimental-design/execution/evidence failures. Into the Unknown reports 0/135 submissions satisfying all expert conditions and 114 integrity failures; SEER-Repro reports 77.4% atomic-claim reproduction and potentially consequential analysis choices in 9.5% of fully reproduced findings. MechHypoBench (2026-10-04) combines mechanisms from 14 scientific fields with 17.98 million observations and tests open-form hypotheses through consequences under withheld conditions; its authors report a substantial gap between generated hypotheses and underlying mechanisms. SEER-Repro (2026-10-16) reports reproduction of 77.4% of 2,190 atomic claims and flags potentially consequential analytical choices in 9.5% of fully reproduced findings. Neither is an AUREN result.",
+        "benchmark": "Pinned hypotheses, expert-authored constraints, simulations/code, seeds, model/tool versions and raw outputs; measure condition satisfaction and executable reproduction, run sensitivity analyses, then require independent replication on fresh tasks. Pair each skill/curriculum candidate with an unmodified baseline across 20 benchmarks/11 domains where applicable; report task-level gain, novelty, cost, reproducibility, calibration, uncertainty and negative results. Keep held-out tasks outside worker and judge context; require domain review.  Pair rediscovery of verified findings with open-ended expert-authored follow-up tasks; require raw execution logs, preregistered conditions, claim-to-run traceability, sensitivity analysis, negative-result retention, and independent replication on fresh tasks. Add mechanism-level hypothesis tests on withheld conditions, sensitivity to analytical choices, atomic-claim reproduction, executable baseline comparison, and independent domain replication. Preserve alternative explanations and negative findings instead of selecting the best-looking narrative.",
         "acceptance_threshold": "Reproducible independent outcomes, explicit uncertainty and negative results, source-domain regression limits, and rollback-ready promotion. Literature synthesis or an automated judge score alone is not validation.",
         "rollback": "Do not promote the lesson or harness; retain lineage and restore the prior digest."
       },
       {
         "id": "host_policy_assisted_permissions",
-        "source_date": "2026-10-07; 2026-10-23; 2026-10-26; 2026-10-28; 2026-10-21",
+        "source_date": "2026-10-07; 2026-10-21; 2026-10-23; 2026-10-26; 2026-10-27; 2026-10-28",
         "sources": [
           "https://github.blog/changelog/2026-10-07-local-sandboxing-for-github-copilot-now-generally-available/",
           "https://github.blog/changelog/2026-10-26-github-copilot-assisted-permissions-generally-available/",
           "https://openai.com/index/securing-our-frontier-model-training-environment/",
           "https://github.blog/changelog/2026-10-28-github-agentic-workflows-generally-available/",
-          "https://www.sentinelone.com/press/sentinelone-launches-singularity-agentic-detection-and-response-to-stop-rogue-and-malicious-ai-agents-at-machine-speed/"
+          "https://www.sentinelone.com/press/sentinelone-launches-singularity-agentic-detection-and-response-to-stop-rogue-and-malicious-ai-agents-at-machine-speed/",
+          "https://www.ir.akamai.com/news-releases/news-release-details/akamai-launches-ai-inference-service-and-agent-execution",
+          "https://www.akamai.com/products/akamai-agent-sandbox"
         ],
         "owner": [
           "portable.runtime_recovery.RuntimeExecutionGuard",
@@ -863,8 +866,8 @@
         "ci_status": "Repository tests cover selected denial-before-launch, authority, cancellation and receipt contracts; they do not prove host isolation.",
         "deployment_status": "not verified",
         "independent_evaluation_status": "blocked",
-        "measured_gap": "Ensure model-based permission classification cannot grant authority; enforce filesystem, process, network and credential boundaries at the host, including egress after a sandbox escape and cross-agent communication through shared-resource side channels.  Agentic workflow and endpoint-security announcements provide comparison designs for read-only defaults, safe outputs, threat detection and runtime action monitoring; they do not prove AUREN host enforcement. A model-based permission classifier must remain advisory and cannot grant authority.",
-        "benchmark": "Attempt forbidden paths, URLs, credentials, local tools, host escape, and cross-agent signaling under read-only/write-scoped policies; spoof model 'safe' outputs; restart between approval and action; verify action receipt, monitoring, and denial-before-launch.  Add monitor integrity and action-to-process correlation checks, plus explicit host-administered evidence for microVM/OS isolation, egress control, credential separation and peer-agent isolation.",
+        "measured_gap": "Ensure model-based permission classification cannot grant authority; enforce filesystem, process, network and credential boundaries at the host, including egress after a sandbox escape and cross-agent communication through shared-resource side channels.  Agentic workflow and endpoint-security announcements provide comparison designs for read-only defaults, safe outputs, threat detection and runtime action monitoring; they do not prove AUREN host enforcement. A model-based permission classifier must remain advisory and cannot grant authority. Akamai announced its Agent Sandbox on 2026-10-27 with WebAssembly-based isolation and resource/network/system controls; this is a candidate host boundary, not evidence of AUREN isolation. SentinelOne's 2026-10-21 early-access ADR describes agent/tool/MCP inventory, action-to-process correlation and per-agent containment; product claims still require independent validation.",
+        "benchmark": "Attempt forbidden paths, URLs, credentials, local tools, host escape, and cross-agent signaling under read-only/write-scoped policies; spoof model 'safe' outputs; restart between approval and action; verify action receipt, monitoring, and denial-before-launch.  Add monitor integrity and action-to-process correlation checks, plus explicit host-administered evidence for microVM/OS isolation, egress control, credential separation and peer-agent isolation. Add Wasm escape/resource exhaustion, outbound network policy, credential boundary and agent-action-to-process correlation tests; verify a single-agent stop does not leave child processes or delegated credentials active.",
         "acceptance_threshold": "Zero unauthorized actions in the tested suite; explicit policy/approval is required; missing/stale receipts block; independently administered host isolation evidence is required for deployment claims.",
         "rollback": "Disable the adapter and return to the last-known-good executor; revoke its route and preserve evidence for reconciliation."
       },
@@ -892,8 +895,53 @@
         "benchmark": "Run paired baseline/candidate cohorts on pinned task families and fresh holdouts. Measure task success, missed signals, defect rate, source-domain regression, calibration, latency, cost, human review effort and uncertainty. Retain failed/unscored outcomes and test that proposed changes cannot alter authority, evidence thresholds or rollback policy.",
         "acceptance_threshold": "A candidate must show repeatable net value with no safety or source-domain regression, retain evidence lineage and negative results, pass independent evaluation, receive authorized approval, and have a tested rollback. Merge or acceptance signals alone never satisfy the gate.",
         "rollback": "Reject or revert the proposed prompt/tool/trigger/curriculum digest, restore the last-known-good configuration, retain the failed evidence and rerun the pinned regression suite."
+      },
+      {
+        "id": "long_horizon_monitoring_and_trajectory_verification",
+        "source_date": "2026-06-08; 2026-10-08",
+        "sources": [
+          "https://www.microsoft.com/en-us/research/articles/sentinelbench-a-benchmark-for-long-running-monitoring-agents/",
+          "https://arxiv.org/abs/2610.11050",
+          "https://github.com/ServiceNow/agenthorizon"
+        ],
+        "owner": [
+          "portable.execution_controller.ExecutionController",
+          "portable.automation_scheduler.AutomationScheduler",
+          "portable.trigger_runtime.TriggerRuntime",
+          "portable.progress_journal.ProgressJournal",
+          "Arena",
+          "independent verifier"
+        ],
+        "status": "benchmark_design_only_external_suite_required",
+        "implementation_status": "AUREN has durable supervisor, scheduler/trigger, graph and evidence owners; no SentinelBench or AgentHorizon campaign has run on AUREN.",
+        "ci_status": "Repository tests cover selected controller restart, cancellation, deadline, trigger and evidence contracts only; no external long-horizon monitoring or computer-use judge campaign has run.",
+        "deployment_status": "not verified",
+        "independent_evaluation_status": "blocked",
+        "measured_gap": "Long-running tasks must distinguish waiting for external state changes from repeatedly taking actions. SentinelBench (2026-06-08) contains 100 tasks across 10 dynamic web environments, including 20 no-op tasks that require the agent not to claim completion when no event occurs. AgentHorizon (2026-10-08) contains 1,373 computer-use instruction/trajectory pairs from 166 hours across three operating systems; its best reported agentic judge reaches 80.9% balanced accuracy on the AH subset, and judges vary substantially in accepting valid and rejecting failed trajectories. These are external benchmark findings, not AUREN measurements.",
+        "benchmark": "Pair passive, active and no-op monitoring tasks with event timelines. Compare event-driven waiting with bounded polling; measure detection latency, false action rate, idle resource use, cancellation/deadline, state changes during waits. For computer-use, include instruction-swapped near-miss trajectories, long multi-application histories, hidden intermediate violations and side-effect checks. Measure balanced accuracy, false-green and false-negative rates, judge-human agreement, cost and latency. Keep holdouts and the authoritative oracle outside worker/judge context.",
+        "acceptance_threshold": "No busy loop, false completion or self-approval; event and action lineage survives restart; unknown state remains unscored/blocked; independent evaluator and fresh holdout are required before promotion.",
+        "rollback": "Disable candidate monitoring/computer-use adapters, return to the canonical supervisor path, preserve trajectories and receipts, and restore the last-known-good verifier digest."
       }
-    ]
+    ],
+    "repository_observation": {
+      "reviewed_at": "2026-10-31",
+      "main_sha": "485670ce2cd7987954ad177ad171f2764123b6ae",
+      "open_pr_count": 0,
+      "open_prs": [],
+      "current_main_check_runs": {
+        "status": "not_retrieved",
+        "reason": "The available combined-status read returned no status contexts; the workflow-run reader exposes pull-request-triggered runs only, not the complete current-main check-run set."
+      },
+      "post_merge_push_workflows": {
+        "status": "not_retrieved",
+        "reason": "Push-triggered workflow runs for the current main SHA were not exposed by the available workflow-run read."
+      },
+      "portable_bundle": {
+        "status": "not_retrieved",
+        "reason": "No portable-bundle run or artifact IDs for the current main SHA were available to inspect. The 2026-10-30 digests remain historical and are not evidence for this SHA."
+      },
+      "local_checkout_and_runtime": "not_available; no local tests or process-level fault injection were run in this session."
+    }
   },
-  "status": "Candidate signals only. Research refresh through 2026-10-30; current-main repository evidence is recorded in review_snapshot. Deployment and independent-evaluation gates remain blocked."
+  "status": "Candidate signals only. Research refresh through 2026-10-31; the latest repository observation is recorded in radar_refresh.repository_observation. The 2026-10-30 review_snapshot remains historical. Deployment and independent-evaluation gates remain blocked."
 }
