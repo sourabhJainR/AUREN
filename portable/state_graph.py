@@ -558,6 +558,7 @@ class StateGraph:
                     status = "unknown"
                     attempts = repairs = evidence_count = 0
                     error_type = None
+                    partial_dependencies = []
                 else:
                     status = {
                         NodeStatus.PASSED: "ok",
@@ -571,6 +572,7 @@ class StateGraph:
                     repairs = node_result.repair_count
                     evidence_count = len(node_result.evidence)
                     error_type = "node_error" if node_result.error else None
+                    partial_dependencies = list(node_result.partial_dependencies)
                 lowered = node.name.lower()
                 if "research" in lowered or "retriev" in lowered:
                     phase = "research"
@@ -600,6 +602,7 @@ class StateGraph:
                         "repairs": repairs,
                         "evidence_count": evidence_count,
                         "error_present": error_type is not None,
+                        "partial_dependencies": partial_dependencies,
                     },
                     parent_id=root.span_id, phase=phase,
                     actor_id="auren.state_graph_supervisor",
@@ -608,6 +611,7 @@ class StateGraph:
                 span.finish({
                     "canonical_node_status": status,
                     "error_type": error_type,
+                    "partial_dependencies": partial_dependencies,
                 }, status if status in {"ok", "error", "blocked", "skipped", "running", "unknown"} else "unknown")
             root.finish({
                 "canonical_run_status": result.status.value,
@@ -617,10 +621,12 @@ class StateGraph:
                 "evidence_count": len(result.evidence),
                 "learned_candidate_count": len(result.learned_candidates),
                 "node_result_count": len(result.results),
+                "partial_dependency_node_count": sum(bool(item.partial_dependencies) for item in result.results.values()),
             }, "ok" if result.status == RunStatus.ACCEPTED else "blocked" if result.status == RunStatus.BLOCKED else "error")
             trace.metadata["canonical_run_status"] = result.status.value
             trace.metadata["canonical_stop_reason"] = result.stop_reason
             trace.metadata["learning_candidate_count"] = len(result.learned_candidates)
+            trace.metadata["partial_dependency_node_count"] = sum(bool(item.partial_dependencies) for item in result.results.values())
             # Candidate generation is a learning signal, not proof that a candidate
             # was persisted, evaluated in isolation, or safely promoted.
             tracer.end(trace, "ok" if result.status == RunStatus.ACCEPTED else "blocked" if result.status == RunStatus.BLOCKED else "error")
