@@ -121,7 +121,7 @@ def test_chunked_route_supports_acknowledged_resume_after_server_restart(monkeyp
 
     # Simulate an abrupt host exit. The next host may reclaim only after the
     # durable worker lease and heartbeat are expired.
-    task_id = dashboard_server._Handler._delivery_task_id(response_id, manifest["delivery_id"])
+    task_id = server.RequestHandlerClass._delivery_task_id(response_id, manifest["delivery_id"])
     with sqlite3.connect(tmp_path / ".auren" / "execution.sqlite3") as db:
         db.execute(
             "UPDATE tasks SET lease_until=?,heartbeat_at=? WHERE id=?",
