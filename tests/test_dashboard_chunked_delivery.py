@@ -19,9 +19,10 @@ def _start_server(monkeypatch, root: Path, result):
     if result is not None:
         monkeypatch.setattr(HybridModelRouter, "route", lambda _self, _request: result)
     runtime_root = root / ".auren"
+    store = ArtifactStore(runtime_root / "releases")
     handler = type("ChunkDeliveryTestHandler", (dashboard_server._Handler,), {
-        "artifact_store": ArtifactStore(runtime_root / "releases"),
-        "response_repository": ResponseArtifactRepository(ArtifactStore(runtime_root / "releases")),
+        "artifact_store": store,
+        "response_repository": ResponseArtifactRepository(store),
         "progress_journal": ProgressJournal(runtime_root / "progress.jsonl"),
     })
     server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
@@ -101,6 +102,8 @@ def test_chunked_route_supports_acknowledged_resume_after_server_restart(monkeyp
         }
         status, _, ack_result = _request(server, "POST", manifest["ack"], first_ack)
         assert status == 200 and ack_result["acknowledged_index"] == 1
+        task_id = server.RequestHandlerClass._delivery_task_id(response_id)
+        assert server.RequestHandlerClass.progress_journal.snapshot(task_id)["state"] == "running"
         # Duplicate acknowledgement is idempotent.
         status, _, duplicate = _request(server, "POST", manifest["ack"], first_ack)
         assert status == 200 and duplicate["acknowledged_index"] == 1
@@ -177,5 +180,39 @@ def test_chunked_ack_rejects_gaps_and_wrong_manifest(monkeypatch, tmp_path):
         wrong_manifest = dict(gap, chunk_index=1, total_chunks=manifest["total_chunks"] + 1)
         status, _, _ = _request(server, "POST", manifest["ack"], wrong_manifest)
         assert status == 409
+    finally:
+        _stop_server(server, thread)
+
+
+def test_tampered_response_artifact_blocks_delivery_after_restart(monkeypatch, tmp_path):
+    result = SimpleNamespace(
+        provider="test", model="fixture", success=True, attempts=1, latency_ms=1.0,
+        resource_usage={}, fallback_reason=None, result={"answer": "evidence-" * 5000}, error=None,
+    )
+    server, thread = _start_server(monkeypatch, tmp_path, result)
+    try:
+        status, _, manifest = _request(
+            server, "POST", "/api/route", {"task": "tamper check"},
+            headers={"Accept": dashboard_server.CHUNKED_RESPONSE_ACCEPT},
+        )
+        assert status == 202
+        artifact_root = tmp_path / ".auren" / "releases" / "artifacts" / manifest["artifact"]["digest"]
+        chunk_path = artifact_root / "chunks" / "00000001.utf8"
+        chunk_path.write_text("tampered", encoding="utf-8")
+    finally:
+        _stop_server(server, thread)
+
+    # A new process has no verified in-memory cache and must reject the
+    # corrupted content-addressed artifact rather than send altered bytes.
+    server, thread = _start_server(monkeypatch, tmp_path, None)
+    try:
+        status, _, payload = _request(server, "GET", manifest["next"])
+        assert status == 503
+        assert "automatic replay is blocked" in payload["error"]
+        task_id = server.RequestHandlerClass._delivery_task_id(manifest["response_id"])
+        checkpoint = server.RequestHandlerClass.progress_journal.response_delivery_checkpoint(
+            task_id, manifest["response_id"],
+        )
+        assert checkpoint["acknowledged_index"] == 0
     finally:
         _stop_server(server, thread)
