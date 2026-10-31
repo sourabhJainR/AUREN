@@ -16,8 +16,10 @@ from .execution_controller import (
 
 
 _HANDLER = "portable.response_delivery.await_receiver"
+MAX_ACTIVE_DELIVERY_WORKERS = 8
 _THREADS: dict[tuple[str, str], threading.Thread] = {}
 _THREADS_LOCK = threading.Lock()
+_SATURATION_COUNT = 0
 
 
 def await_receiver_acknowledgement(payload: Mapping[str, Any]) -> dict[str, Any]:
@@ -144,7 +146,26 @@ class ResponseDeliverySupervisor:
             raise RuntimeError("supervisor delivery task is unavailable")
         return str(row[0])
 
-    def start(self, task_id: str) -> None:
+    @staticmethod
+    def capacity_snapshot() -> dict[str, int | bool]:
+        """Return bounded worker capacity and in-process saturation telemetry."""
+        with _THREADS_LOCK:
+            active = sum(1 for thread in _THREADS.values() if thread.is_alive())
+            return {
+                "active_workers": active,
+                "worker_limit": MAX_ACTIVE_DELIVERY_WORKERS,
+                "available_workers": max(0, MAX_ACTIVE_DELIVERY_WORKERS - active),
+                "saturated": active >= MAX_ACTIVE_DELIVERY_WORKERS,
+                "saturation_events": _SATURATION_COUNT,
+            }
+
+    def start(self, task_id: str) -> bool:
+        """Start a pending delivery only when a bounded worker slot is available.
+
+        Saturation leaves the durable task pending. A later host poll may retry;
+        no task is dropped, marked failed, or implicitly completed.
+        """
+        global _SATURATION_COUNT
         task = self.controller.task(task_id)
         if task is None:
             raise FileNotFoundError("supervisor delivery task is unavailable")
@@ -157,36 +178,33 @@ class ResponseDeliverySupervisor:
                 try:
                     lease = datetime.fromisoformat(str(row[0]))
                 except ValueError:
-                    return
+                    return False
                 if lease.tzinfo is None or lease > datetime.now(timezone.utc):
-                    return
+                    return False
             self.controller.recover_stale(
                 task_id, reason="delivery host restarted; prior worker lease expired",
                 stale_after_seconds=1,
             )
             task = self.controller.task(task_id)
         if task is None or task.state != "pending":
-            return
+            return False
 
         key = (str(self.controller.db_path), task_id)
         with _THREADS_LOCK:
             active = _THREADS.get(key)
-        if active is not None and active.is_alive():
-            # Do not hold the registry lock while joining: the old worker needs
-            # that lock to remove its own completed thread entry.
-            active.join(timeout=1.0)
-            if active.is_alive():
-                return
-        with _THREADS_LOCK:
-            active = _THREADS.get(key)
             if active is not None and active.is_alive():
-                return
+                return True
+            active_count = sum(1 for thread in _THREADS.values() if thread.is_alive())
+            if active_count >= MAX_ACTIVE_DELIVERY_WORKERS:
+                _SATURATION_COUNT += 1
+                return False
             thread = threading.Thread(
                 target=self._run, args=(key, task_id),
                 name="auren-response-delivery-" + task_id[:8], daemon=True,
             )
             _THREADS[key] = thread
             thread.start()
+            return True
 
     def _run(self, key: tuple[str, str], task_id: str) -> None:
         try:
