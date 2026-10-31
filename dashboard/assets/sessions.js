@@ -26,7 +26,8 @@
     if (state.filter === "active") return active(row);
     if (state.filter === "complete") return ["complete","completed","verified","passed"].includes(status);
     if (state.filter === "blocked") return ["blocked","failed","cancelled","canceled"].includes(status);
-    if (state.filter === "unverified") return ["unverified","unknown","stale"].includes(status);
+    if (state.filter === "stale") return status === "stale";
+    if (state.filter === "unverified") return ["unverified","unknown"].includes(status);
     return true;
   };
   function metric(label, value, hint) {
@@ -39,6 +40,7 @@
       metric("Active sessions", c.active ?? "—", "Running or waiting"),
       metric("Completed", c.completed ?? "—", "Checkpoint says complete"),
       metric("Blocked", c.blocked ?? "—", "Needs recovery or review"),
+      metric("Stale", c.stale ?? "—", "No recent checkpoint heartbeat"),
       metric("Unverified", c.unverified ?? "—", "State needs inspection"),
       metric("Durable tasks", c.tasks ?? "—", "Supervisor journal records")
     ].join("");
@@ -50,7 +52,7 @@
     const percent = Math.max(0, Math.min(100, Number(row.progress) || 0));
     const details = [
       ["Task ID", row.task_id], ["Stage", row.stage], ["Provider", row.active_provider],
-      ["Attempt", row.attempt], ["Updated", time(row.updated_at)], ["Checkpoint", (row.state_digest || "").slice(0, 14) || "—"]
+      ["Attempt", row.attempt], ["Updated", time(row.updated_at)], ["Last seen", age(row.seconds_since_update)], ["Checkpoint", (row.state_digest || "").slice(0, 14) || "—"]
     ];
     const batchText = (row.completed_batches || []).length || (row.remaining_batches || []).length
       ? '<div class="session-batches"><strong>' + completed + ' completed</strong> · ' + remaining + ' remaining</div>' : "";
