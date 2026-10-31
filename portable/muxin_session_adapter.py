@@ -66,18 +66,20 @@ class MuxinSessionAdapter:
             "kind": item.kind,
         } for item in recall.memories]
 
-    def sessions(self) -> list[dict[str, Any]]:
+    def _verified_sessions(self) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
         try:
-            paths = sorted(self.session_store.root.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
+            paths = sorted(
+                self.session_store.root.glob("*.json"),
+                key=lambda path: path.stat().st_mtime,
+                reverse=True,
+            )
         except OSError:
             return rows
-        for path in paths[:_MAX_SESSIONS]:
+        expected_project_key = self.session_store.project_key(self.project_root)
+        for path in paths:
             checkpoint = self.session_store.load(path.stem)
-            if checkpoint is None:
-                continue
-            expected_project_key = self.session_store.project_key(self.project_root)
-            if checkpoint.project_key != expected_project_key:
+            if checkpoint is None or checkpoint.project_key != expected_project_key:
                 continue
             if checkpoint.project_root:
                 try:
@@ -87,6 +89,35 @@ class MuxinSessionAdapter:
                     continue
             rows.append(self._session_record(checkpoint))
         return rows
+
+    def sessions(self) -> list[dict[str, Any]]:
+        """Return the legacy bounded first page for existing callers."""
+        return self._verified_sessions()[:_MAX_SESSIONS]
+
+    def session_page(self, *, offset: int = 0, limit: int = 50) -> dict[str, Any]:
+        """Return a bounded page plus inventory-wide counts from verified checkpoints."""
+        if type(offset) is not int or offset < 0:
+            raise ValueError("offset must be a non-negative integer")
+        if type(limit) is not int or not 1 <= limit <= _MAX_SESSIONS:
+            raise ValueError(f"limit must be between 1 and {_MAX_SESSIONS}")
+        rows = self._verified_sessions()
+        page = rows[offset:offset + limit]
+        counts = {
+            "sessions": len(rows),
+            "active": sum(row["status"] in {"running", "waiting"} for row in rows),
+            "completed": sum(row["status"] == "complete" for row in rows),
+            "blocked": sum(row["status"] == "blocked" for row in rows),
+            "stale": sum(row["status"] == "stale" for row in rows),
+            "unverified": sum(row["status"] == "unverified" for row in rows),
+        }
+        return {
+            "offset": offset,
+            "limit": limit,
+            "total": len(rows),
+            "has_more": offset + len(page) < len(rows),
+            "sessions": page,
+            "counts": counts,
+        }
 
     @staticmethod
     def _session_record(checkpoint: SessionCheckpoint) -> dict[str, Any]:
@@ -126,15 +157,16 @@ class MuxinSessionAdapter:
             "evidence": [],
         }
 
-    def session_snapshot(self) -> dict[str, Any]:
+    def session_snapshot(self, *, offset: int = 0, limit: int = 50) -> dict[str, Any]:
         """Return a bounded, privacy-safe live view of durable sessions and tasks.
 
         This endpoint deliberately avoids memory recall and model discovery so the
         dashboard can poll frequently without triggering unrelated runtime work.
         """
         dashboard = self.dashboard.live_session_projection()
+        inventory = self.session_page(offset=offset, limit=limit)
         sessions = []
-        for raw in self.sessions():
+        for raw in inventory["sessions"]:
             row = {
                 key: raw.get(key) for key in (
                     "session_id", "task_id", "stage", "status", "progress",
@@ -165,21 +197,18 @@ class MuxinSessionAdapter:
             {key: row.get(key) for key in plan_fields if key in row}
             for row in dashboard.get("plan_runs", [])
         ]
-        active = sum(row["status"] in {"running", "waiting"} for row in sessions)
-        completed = sum(row["status"] == "complete" for row in sessions)
-        blocked = sum(row["status"] == "blocked" for row in sessions)
-        unverified = sum(row["status"] == "unverified" for row in sessions)
-        stale = sum(row["status"] == "stale" for row in sessions)
+        counts = inventory["counts"]
         return {
             "schema_version": 1,
             "generated_at": dashboard.get("generated_at"),
             "project": dashboard.get("project"),
             "source": "durable session checkpoints, supervisor progress journal and verified plan store",
             "counts": {
-                "sessions": len(sessions), "active": active,
-                "completed": completed, "blocked": blocked, "stale": stale,
-                "unverified": unverified, "tasks": len(tasks),
-                "plan_runs": len(plans),
+                **counts, "tasks": len(tasks), "plan_runs": len(plans),
+            },
+            "pagination": {
+                "offset": inventory["offset"], "limit": inventory["limit"],
+                "total": inventory["total"], "has_more": inventory["has_more"],
             },
             "sessions": sessions,
             "tasks": tasks,
