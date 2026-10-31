@@ -10,6 +10,7 @@ from typing import Any, Mapping
 
 from .execution_controller import (
     ExecutionController,
+    LeaseLostError,
     TaskCancellationRequested,
 )
 
@@ -41,8 +42,22 @@ def await_receiver_acknowledgement(payload: Mapping[str, Any]) -> dict[str, Any]
     from .progress_journal import ProgressJournal
 
     journal = ProgressJournal(Path(journal_path))
+    db_path = payload.get("controller_db_path")
+    with sqlite3.connect(db_path) as db:
+        lease_row = db.execute(
+            "SELECT state,lease_generation,lease_token FROM tasks WHERE id=?", (task_id,)
+        ).fetchone()
+    if lease_row is None or lease_row[0] != "running" or not lease_row[2]:
+        raise LeaseLostError("response delivery worker has no active supervisor lease")
+    owned_generation, owned_token = int(lease_row[1]), str(lease_row[2])
     cancel_event = payload.get("auren_cancel_event")
     while True:
+        with sqlite3.connect(db_path) as db:
+            current = db.execute(
+                "SELECT state,lease_generation,lease_token FROM tasks WHERE id=?", (task_id,)
+            ).fetchone()
+        if current is None or current[0] != "running" or int(current[1]) != owned_generation or current[2] != owned_token:
+            raise LeaseLostError("response delivery supervisor lease was replaced; stale worker stopped")
         if cancel_event is not None and cancel_event.is_set():
             raise TaskCancellationRequested("response delivery cancelled by supervisor")
         rows = [row for row in journal._events() if row.get("task_id") == task_id]
@@ -154,7 +169,9 @@ class ResponseDeliverySupervisor:
         with _THREADS_LOCK:
             active = _THREADS.get(key)
             if active is not None and active.is_alive():
-                return
+                active.join(timeout=1.0)
+                if active.is_alive():
+                    return
             thread = threading.Thread(
                 target=self._run, args=(key, task_id),
                 name="auren-response-delivery-" + task_id[:8], daemon=True,
