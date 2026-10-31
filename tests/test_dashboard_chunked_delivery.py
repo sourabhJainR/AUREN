@@ -475,3 +475,66 @@ def test_concurrent_duplicate_acknowledgements_are_idempotent(monkeypatch, tmp_p
         assert len(rows) == 1
     finally:
         _stop_server(server, thread)
+
+
+def test_host_boundary_cancellation_keeps_parent_nonterminal_until_supervisor_confirms(monkeypatch, tmp_path):
+    result = SimpleNamespace(
+        provider="test", model="fixture", success=True, attempts=1, latency_ms=1.0,
+        resource_usage={}, fallback_reason=None, result={"answer": "cancel me " * 3000}, error=None,
+    )
+    server, thread = _start_server(monkeypatch, tmp_path, result)
+    try:
+        status, _, manifest = _request(
+            server, "POST", "/api/route", {"task": "cancellation fixture"},
+            headers={"Accept": dashboard_server.CHUNKED_RESPONSE_ACCEPT},
+        )
+        assert status == 202
+        task_id = server.RequestHandlerClass._delivery_task_id(
+            manifest["response_id"], manifest["delivery_id"]
+        )
+        status, _, receipt = _request(server, "POST", manifest["cancel"], {
+            "response_sha256": manifest["response_sha256"],
+            "total_chunks": manifest["total_chunks"],
+        })
+        assert status == 202 and receipt["cancellation_requested"] is True
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline:
+            state = server.RequestHandlerClass.delivery_supervisor.state(task_id)
+            if state == "cancelled":
+                break
+            time.sleep(0.02)
+        assert state == "cancelled"
+        status, _, _ = _request(server, "GET", manifest["next"])
+        assert status == 409
+    finally:
+        _stop_server(server, thread)
+
+
+def test_host_boundary_deadline_expires_parent_without_receiver_ack(monkeypatch, tmp_path):
+    result = SimpleNamespace(
+        provider="test", model="fixture", success=True, attempts=1, latency_ms=1.0,
+        resource_usage={}, fallback_reason=None, result={"answer": "deadline fixture " * 3000}, error=None,
+    )
+    server, thread = _start_server(
+        monkeypatch, tmp_path, result, delivery_deadline_seconds=0.25
+    )
+    try:
+        status, _, manifest = _request(
+            server, "POST", "/api/route", {"task": "deadline fixture"},
+            headers={"Accept": dashboard_server.CHUNKED_RESPONSE_ACCEPT},
+        )
+        assert status == 202
+        task_id = server.RequestHandlerClass._delivery_task_id(
+            manifest["response_id"], manifest["delivery_id"]
+        )
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline:
+            state = server.RequestHandlerClass.delivery_supervisor.state(task_id)
+            if state == "failed":
+                break
+            time.sleep(0.02)
+        assert state == "failed"
+        status, _, _ = _request(server, "GET", manifest["next"])
+        assert status == 409
+    finally:
+        _stop_server(server, thread)
