@@ -94,14 +94,18 @@ class MuxinSessionAdapter:
         """Return the legacy bounded first page for existing callers."""
         return self._verified_sessions()[:_MAX_SESSIONS]
 
-    def session_page(self, *, offset: int = 0, limit: int = 50) -> dict[str, Any]:
-        """Return a bounded page plus inventory-wide counts from verified checkpoints."""
+    def session_page(self, *, offset: int = 0, limit: int = 50, query: str = "", status: str = "all") -> dict[str, Any]:
+        """Return a bounded, globally filtered page and unfiltered inventory counts."""
         if type(offset) is not int or offset < 0:
             raise ValueError("offset must be a non-negative integer")
         if type(limit) is not int or not 1 <= limit <= _MAX_SESSIONS:
             raise ValueError(f"limit must be between 1 and {_MAX_SESSIONS}")
+        if not isinstance(query, str) or len(query) > 200:
+            raise ValueError("session search query must be at most 200 characters")
+        allowed_statuses = {"all", "active", "complete", "blocked", "stale", "unverified"}
+        if status not in allowed_statuses:
+            raise ValueError("unsupported session status filter")
         rows = self._verified_sessions()
-        page = rows[offset:offset + limit]
         counts = {
             "sessions": len(rows),
             "active": sum(row["status"] in {"running", "waiting"} for row in rows),
@@ -110,11 +114,38 @@ class MuxinSessionAdapter:
             "stale": sum(row["status"] == "stale" for row in rows),
             "unverified": sum(row["status"] == "unverified" for row in rows),
         }
+        normalized_query = query.strip().casefold()
+        def matches(row: dict[str, Any]) -> bool:
+            row_status = row["status"]
+            if status == "active" and row_status not in {"running", "waiting"}:
+                return False
+            if status == "complete" and row_status != "complete":
+                return False
+            if status == "blocked" and row_status != "blocked":
+                return False
+            if status == "stale" and row_status != "stale":
+                return False
+            if status == "unverified" and row_status != "unverified":
+                return False
+            if normalized_query:
+                searchable = " ".join(str(value) for value in (
+                    row.get("session_id"), row.get("task_id"), row.get("stage"),
+                    row.get("status"), row.get("active_provider"),
+                    *(row.get("completed_batches") or []),
+                    *(row.get("remaining_batches") or []),
+                )).casefold()
+                if normalized_query not in searchable:
+                    return False
+            return True
+        filtered = [row for row in rows if matches(row)]
+        page = filtered[offset:offset + limit]
         return {
             "offset": offset,
             "limit": limit,
-            "total": len(rows),
-            "has_more": offset + len(page) < len(rows),
+            "total": len(filtered),
+            "has_more": offset + len(page) < len(filtered),
+            "query": query,
+            "status_filter": status,
             "sessions": page,
             "counts": counts,
         }
@@ -157,14 +188,14 @@ class MuxinSessionAdapter:
             "evidence": [],
         }
 
-    def session_snapshot(self, *, offset: int = 0, limit: int = 50) -> dict[str, Any]:
+    def session_snapshot(self, *, offset: int = 0, limit: int = 50, query: str = "", status: str = "all") -> dict[str, Any]:
         """Return a bounded, privacy-safe live view of durable sessions and tasks.
 
         This endpoint deliberately avoids memory recall and model discovery so the
         dashboard can poll frequently without triggering unrelated runtime work.
         """
         dashboard = self.dashboard.live_session_projection()
-        inventory = self.session_page(offset=offset, limit=limit)
+        inventory = self.session_page(offset=offset, limit=limit, query=query, status=status)
         sessions = []
         for raw in inventory["sessions"]:
             row = {
@@ -209,6 +240,7 @@ class MuxinSessionAdapter:
             "pagination": {
                 "offset": inventory["offset"], "limit": inventory["limit"],
                 "total": inventory["total"], "has_more": inventory["has_more"],
+                "query": inventory["query"], "status_filter": inventory["status_filter"],
             },
             "sessions": sessions,
             "tasks": tasks,

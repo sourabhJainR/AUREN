@@ -3,7 +3,7 @@
   const safe = value => String(value ?? "").replace(/[&<>"']/g, ch => ({
     "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
   }[ch]));
-  const state = { snapshot: null, busy: false, filter: "all", query: "", offset: 0, limit: 50 };
+  const state = { snapshot: null, busy: false, filter: "all", query: "", offset: 0, limit: 50, refreshAgain: false };
   const time = value => {
     if (value === null || value === undefined || value === "") return "—";
     const date = typeof value === "number" ? new Date(value * 1000) : new Date(value);
@@ -94,8 +94,8 @@
     const data = state.snapshot;
     if (!data) return;
     renderMetrics(data);
-    const sessions = (data.sessions || []).filter(matches);
-    byId("session-count").textContent = sessions.length + " of " + (data.pagination?.total ?? (data.sessions || []).length) + " on this page";
+    const sessions = data.sessions || [];
+    byId("session-count").textContent = (data.pagination?.total ?? sessions.length) + " matching sessions";
     const page = data.pagination || {offset:0,limit:state.limit,total:(data.sessions || []).length,has_more:false};
     const pageNumber = Math.floor(page.offset / page.limit) + 1;
     const pageCount = Math.max(1, Math.ceil(page.total / page.limit));
@@ -114,10 +114,11 @@
     byId("sessions-updated").textContent = "Updated " + new Date(data.generated_at).toLocaleTimeString();
   }
   async function refresh() {
-    if (state.busy) return;
+    if (state.busy) { state.refreshAgain = true; return; }
     state.busy = true;
     try {
-      const response = await fetch("/api/sessions?offset=" + state.offset + "&limit=" + state.limit, {cache:"no-store"});
+      const params = new URLSearchParams({offset:String(state.offset),limit:String(state.limit),q:state.query,status:state.filter});
+      const response = await fetch("/api/sessions?" + params.toString(), {cache:"no-store"});
       if (!response.ok) throw new Error("HTTP " + response.status);
       state.snapshot = await response.json();
       state.offset = state.snapshot.pagination?.offset ?? state.offset;
@@ -127,13 +128,23 @@
       byId("session-list").innerHTML = '<div class="empty session-empty">The durable session service could not be read. Existing data is not cleared or marked complete.</div>';
     } finally {
       state.busy = false;
+      if (state.refreshAgain) {
+        state.refreshAgain = false;
+        refresh();
+      }
     }
   }
+  let searchTimer = null;
   byId("session-search").addEventListener("input", event => {
-    state.query = event.target.value.trim().toLowerCase(); render();
+    state.query = event.target.value.trim();
+    state.offset = 0;
+    window.clearTimeout(searchTimer);
+    searchTimer = window.setTimeout(refresh, 250);
   });
   byId("session-filter").addEventListener("change", event => {
-    state.filter = event.target.value; render();
+    state.filter = event.target.value;
+    state.offset = 0;
+    refresh();
   });
   byId("session-refresh").addEventListener("click", refresh);
   byId("session-page-prev").addEventListener("click", () => { state.offset = Math.max(0, state.offset - state.limit); refresh(); });

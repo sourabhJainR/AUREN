@@ -4,7 +4,7 @@ The Engineering Console is a read-only observability surface over AUREN's existi
 
 ## Live session control center
 
-The Sessions tab polls the read-only `GET /api/sessions` endpoint every four seconds. It combines project-scoped durable session checkpoints, supervisor progress journal rows and digest-verified plan-run summaries. Session checkpoints are paginated (50 per request by default), with inventory-wide counts and explicit previous/next navigation so larger inventories are not silently truncated. Search and state filters apply to the visible page. Active, completed, blocked, stale and unverified records remain distinct. The endpoint uses an allowlist projection and excludes session intent, raw error text, task messages, plan goals, prompts and credentials. A failed refresh is shown as unavailable; it does not clear or complete previously observed work.
+The Sessions tab polls the read-only `GET /api/sessions` endpoint every four seconds. It combines project-scoped durable session checkpoints, supervisor progress journal rows and digest-verified plan-run summaries. Session checkpoints are paginated (50 per request by default), with inventory-wide counts and explicit previous/next navigation so larger inventories are not silently truncated. Search and state filters are applied to the full verified inventory before pagination, so results and page totals remain correct across large histories. Active, completed, blocked, stale and unverified records remain distinct. The endpoint uses an allowlist projection and excludes session intent, raw error text, task messages, plan goals, prompts and credentials. A failed refresh is shown as unavailable; it does not clear or complete previously observed work.
 
 ## Run from an installed AUREN
 
