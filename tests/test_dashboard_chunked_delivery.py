@@ -290,7 +290,7 @@ def test_blocked_delivery_cannot_accept_late_ack_or_complete(monkeypatch, tmp_pa
         headers = {"Accept": dashboard_server.CHUNKED_RESPONSE_ACCEPT}
         status, _, manifest = _request(server, "POST", "/api/route", {"task": "blocked ack"}, headers=headers)
         assert status == 202
-        task_id = dashboard_server._Handler._delivery_task_id(manifest["response_id"], manifest["delivery_id"])
+        task_id = server.RequestHandlerClass._delivery_task_id(manifest["response_id"], manifest["delivery_id"])
         journal = server.RequestHandlerClass.progress_journal
         status, _, offered = _request(server, "GET", manifest["next"])
         assert status == 200
@@ -320,7 +320,7 @@ def test_blocked_delivery_cannot_accept_late_ack_or_complete(monkeypatch, tmp_pa
             server, "POST", "/api/route", {"task": "blocked completion"}, headers=headers,
         )
         assert status == 202
-        complete_task_id = dashboard_server._Handler._delivery_task_id(
+        complete_task_id = server.RequestHandlerClass._delivery_task_id(
             complete_manifest["response_id"], complete_manifest["delivery_id"],
         )
         while True:
@@ -368,7 +368,7 @@ def test_stale_delivery_cannot_accept_ack_or_complete(monkeypatch, tmp_path):
         headers = {"Accept": dashboard_server.CHUNKED_RESPONSE_ACCEPT}
         status, _, manifest = _request(server, "POST", "/api/route", {"task": "stale ack"}, headers=headers)
         assert status == 202
-        task_id = dashboard_server._Handler._delivery_task_id(manifest["response_id"], manifest["delivery_id"])
+        task_id = server.RequestHandlerClass._delivery_task_id(manifest["response_id"], manifest["delivery_id"])
         journal = server.RequestHandlerClass.progress_journal
         status, _, offered = _request(server, "GET", manifest["next"])
         assert status == 200
@@ -398,7 +398,7 @@ def test_stale_delivery_cannot_accept_ack_or_complete(monkeypatch, tmp_path):
             server, "POST", "/api/route", {"task": "stale completion"}, headers=headers,
         )
         assert status == 202
-        complete_task_id = dashboard_server._Handler._delivery_task_id(
+        complete_task_id = server.RequestHandlerClass._delivery_task_id(
             complete_manifest["response_id"], complete_manifest["delivery_id"],
         )
         while True:
