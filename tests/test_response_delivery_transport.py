@@ -19,6 +19,9 @@ class ResponseDeliveryTransportTests(unittest.TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
+    def start_task(self, task_id):
+        self.journal.record(task_id, "delivery_started", state="running", stage="response-delivery")
+
     @staticmethod
     def ack(chunk):
         return {
@@ -28,6 +31,7 @@ class ResponseDeliveryTransportTests(unittest.TestCase):
         }
 
     def test_delivers_with_one_chunk_backpressure_and_durable_acks(self):
+        self.start_task("task-1")
         source = ("line with unicode 東京🙂\n" * 100)
         seen = []
         receipt = deliver_response(
@@ -41,6 +45,7 @@ class ResponseDeliveryTransportTests(unittest.TestCase):
         self.assertEqual(checkpoint["acknowledged_index"], receipt.total_chunks)
 
     def test_restart_resumes_after_last_acknowledged_chunk(self):
+        self.start_task("task-2")
         source = "payload " * 100
         seen = []
 
@@ -65,6 +70,7 @@ class ResponseDeliveryTransportTests(unittest.TestCase):
         self.assertEqual(seen, [1, 2])
 
     def test_ambiguous_send_is_durably_blocked_from_automatic_replay(self):
+        self.start_task("task-ambiguous")
         calls = []
 
         def disconnect(chunk):
@@ -81,6 +87,7 @@ class ResponseDeliveryTransportTests(unittest.TestCase):
         self.assertEqual(calls, [1])
 
     def test_mismatched_ack_blocks_without_advancing_cursor(self):
+        self.start_task("task-3")
         with self.assertRaises(DeliveryOutcomeUnknown):
             deliver_response(
                 "task-3", "important result",
@@ -96,6 +103,7 @@ class ResponseDeliveryTransportTests(unittest.TestCase):
         )
 
     def test_cancel_and_shared_budget_stop_before_next_send(self):
+        self.start_task("task-4")
         calls = []
         with self.assertRaises(DeliveryBlocked):
             deliver_response(
