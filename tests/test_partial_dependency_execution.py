@@ -51,7 +51,8 @@ class PartialDependencyExecutionTests(unittest.TestCase):
         )
         self.assertEqual(result.results["synthesis"].status, NodeStatus.SKIPPED)
         self.assertEqual(called, [])
-        self.assertEqual(result.status, RunStatus.FAILED)\n        self.assertTrue(result.stop_reason)
+        self.assertEqual(result.status, RunStatus.FAILED)
+        self.assertTrue(result.stop_reason)
 
     def test_blocked_or_skipped_dependency_cannot_be_accepted_as_partial(self):
         called = []
