@@ -75,3 +75,39 @@ class SessionControlCenterTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+    def test_global_search_and_status_filters_apply_before_pagination(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            store = SessionStore(root / "sessions")
+            project_key = store.project_key(root)
+            for index in range(123):
+                store.save(SessionCheckpoint(
+                    session_id=f"session-{index:03d}",
+                    task_id=f"task-{index:03d}",
+                    project_key=project_key,
+                    stage="completed" if index % 3 == 0 else "running",
+                    active_provider="provider-special" if index == 121 else "provider-default",
+                    project_root=str(root),
+                    completed_batches=["acceptance-suite"] if index == 121 else [],
+                ))
+            adapter = MuxinSessionAdapter(root, session_store=store, dashboard=_Dashboard())
+            search = adapter.session_snapshot(query="provider-special", offset=0, limit=10)
+            self.assertEqual(search["pagination"]["total"], 1)
+            self.assertEqual(search["sessions"][0]["session_id"], "session-121")
+            self.assertEqual(search["counts"]["sessions"], 123)
+            complete = adapter.session_snapshot(status="complete", offset=0, limit=20)
+            self.assertEqual(complete["pagination"]["total"], 41)
+            self.assertTrue(all(row["status"] == "complete" for row in complete["sessions"]))
+            batch = adapter.session_snapshot(query="acceptance-suite", offset=0, limit=10)
+            self.assertEqual([row["session_id"] for row in batch["sessions"]], ["session-121"])
+
+    def test_session_filter_validation_is_fail_closed(self):
+        adapter = MuxinSessionAdapter(".", session_store=SessionStore("/tmp/auren-test-sessions"), dashboard=_Dashboard())
+        for query, status in (("x" * 201, "all"), ("", "running")):
+            try:
+                adapter.session_snapshot(query=query, status=status)
+            except ValueError:
+                pass
+            else:
+                raise AssertionError("invalid session filter was accepted")
