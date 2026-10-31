@@ -197,6 +197,20 @@ class _Handler(BaseHTTPRequestHandler):
                     "state": terminal_state,
                 })
                 return
+            if snapshot.get("state") != "running":
+                if terminal_state == "completed" and all_acknowledged:
+                    self._send_delivery_json(200, {
+                        "response_id": response_id, "delivery_id": delivery_id,
+                        "all_chunks_acknowledged": True, "complete": True,
+                        "acknowledged_index": acknowledged,
+                        "total_chunks": manifest.total_chunks,
+                    })
+                    return
+                self._send_delivery_json(409, {
+                    "error": "delivery is not runnable; reconcile its durable state before resuming",
+                    "state": terminal_state,
+                })
+                return
             if all_acknowledged:
                 self._send_delivery_json(200, {
                     "response_id": response_id, "delivery_id": delivery_id,
@@ -270,11 +284,18 @@ class _Handler(BaseHTTPRequestHandler):
             if hashlib.sha256(verified.encode("utf-8")).hexdigest() != payload.get("response_sha256"):
                 raise ValueError("receiver completion digest mismatch")
             snapshot = self.progress_journal.snapshot(task_id)
-            if snapshot.get("state") != "completed":
+            state = snapshot.get("reported_state", snapshot.get("state"))
+            if state == "completed":
+                if snapshot.get("evidence_ref") != "sha256:" + manifest.sha256:
+                    raise ValueError("existing completion receipt does not match response digest")
+            else:
+                if snapshot.get("state") != "running" or state != "running":
+                    raise RuntimeError("delivery is not running; reconcile before completion")
                 self.progress_journal.record(
                     task_id, "response_delivery_completed", state="completed",
                     stage="response-delivery", message="receiver confirmed complete response",
                     evidence_ref="sha256:" + manifest.sha256,
+                    expected_sequence=snapshot.get("sequence"),
                 )
             self._send_delivery_json(200, {
                 "completed": True, "response_id": response_id, "delivery_id": delivery_id,
