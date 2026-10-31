@@ -312,8 +312,13 @@ class _Handler(BaseHTTPRequestHandler):
             snapshot = self.progress_journal.snapshot(task_id)
             state = snapshot.get("reported_state", snapshot.get("state"))
             if state == "completed":
-                if snapshot.get("evidence_ref") != "sha256:" + manifest.sha256:
-                    raise ValueError("existing completion receipt does not match response digest")
+                history = [row for row in self.progress_journal._events() if row.get("task_id") == task_id]
+                if not any(
+                    row.get("event") == "response_delivery_receiver_acknowledged"
+                    and row.get("evidence_ref") == "sha256:" + manifest.sha256
+                    for row in history
+                ):
+                    raise ValueError("existing supervisor completion has no matching receiver digest receipt")
             else:
                 if snapshot.get("state") != "running" or state != "running":
                     raise RuntimeError("delivery is not running; reconcile before completion")
