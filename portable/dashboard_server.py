@@ -11,6 +11,30 @@ from .hybrid_model_router import HybridModelRouter, TaskRouteRequest
 from .agency_observability_ops import observability_snapshot
 from .identity_compat import canonical_runtime_home
 
+MAX_API_RESPONSE_BYTES = 4_000_000
+
+
+class ApiResponseTooLarge(ValueError):
+    """The atomic local HTTP response cannot be delivered within its byte cap."""
+
+
+def _encode_bounded_json(payload, *, max_bytes: int = MAX_API_RESPONSE_BYTES) -> bytes:
+    if type(max_bytes) is not int or max_bytes < 1:
+        raise ValueError("max_bytes must be a positive integer")
+    encoder = json.JSONEncoder(
+        ensure_ascii=False, separators=(",", ":"), allow_nan=False,
+    )
+    chunks = []
+    total = 0
+    for part in encoder.iterencode(payload):
+        encoded = part.encode("utf-8")
+        total += len(encoded)
+        if total > max_bytes:
+            raise ApiResponseTooLarge("serialized API response exceeds the atomic delivery byte limit")
+        chunks.append(encoded)
+    return b"".join(chunks)
+
+
 UI_ROOT = Path(__file__).resolve().parent.parent / "dashboard"
 CONTROL_CENTER = Path(__file__).resolve().parent.parent / "site" / "control-center.html"
 
@@ -21,14 +45,35 @@ class _Handler(BaseHTTPRequestHandler):
     ui_root = UI_ROOT
     control_center_path = CONTROL_CENTER
 
-    def _send(self, status, body, content_type):
+    def _send(self, status, body, content_type, *, extra_headers=None):
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
+        for name, value in (extra_headers or {}).items():
+            self.send_header(name, value)
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
+    def _send_api_json(self, status, payload):
+        headers = {
+            "X-AUREN-Delivery-Mode": "atomic-json",
+            "X-AUREN-Chunk-Ack": "unsupported",
+        }
+        try:
+            body = _encode_bounded_json(payload)
+        except ApiResponseTooLarge:
+            status = 502
+            body = (
+                b'{"error":"API response exceeds the configured atomic delivery limit",'
+                b'"delivery":{"mode":"atomic-json","chunk_ack_supported":false,'
+                b'"action":"split the task or configure an explicitly acknowledgement-capable receiver"}}'
+            )
+        except (TypeError, ValueError):
+            status = 503
+            body = b'{"error":"API response could not be serialized safely"}'
+        self._send(status, body, "application/json; charset=utf-8", extra_headers=headers)
 
     def _origin_is_local(self):
         origin = self.headers.get("Origin")
@@ -78,13 +123,12 @@ class _Handler(BaseHTTPRequestHandler):
                 timeout_seconds=min(120.0, max(0.1, float(payload.get("timeout_seconds", 30.0)))),
             )
             result = HybridModelRouter().route(request)
-            body = json.dumps({
+            self._send_api_json(200 if result.success else 503, {
                 "provider": result.provider, "model": result.model, "success": result.success,
                 "attempts": result.attempts, "latency_ms": result.latency_ms,
                 "resource_usage": result.resource_usage, "fallback_reason": result.fallback_reason,
                 "result": result.result, "error": result.error,
-            }, separators=(",", ":")).encode()
-            self._send(200 if result.success else 503, body, "application/json; charset=utf-8")
+            })
         except (ValueError, TypeError, json.JSONDecodeError) as exc:
             self._send(400, json.dumps({"error": str(exc)}).encode(), "application/json; charset=utf-8")
         except Exception:
@@ -95,14 +139,12 @@ class _Handler(BaseHTTPRequestHandler):
         if not self._guard_api_origin(path):
             return
         if path == "/api/dashboard":
-            body = json.dumps(self.dashboard.snapshot().as_dict(), separators=(",", ":")).encode()
-            self._send(200, body, "application/json; charset=utf-8")
+            self._send_api_json(200, self.dashboard.snapshot().as_dict())
             return
         if path == "/api/observability":
             try:
                 trace_path = canonical_runtime_home() / "observability" / "traces.jsonl"
-                body = json.dumps(observability_snapshot(trace_path), separators=(",", ":")).encode()
-                self._send(200, body, "application/json; charset=utf-8")
+                self._send_api_json(200, observability_snapshot(trace_path))
             except Exception:
                 self._send(503, b'{"error":"observability snapshot unavailable"}', "application/json; charset=utf-8")
             return
@@ -110,14 +152,13 @@ class _Handler(BaseHTTPRequestHandler):
             try:
                 snapshot = self.control_center.snapshot()
                 snapshot["models"] = LocalModelDiscovery().discover()
-                body = json.dumps(snapshot, separators=(",", ":")).encode()
-                self._send(200, body, "application/json; charset=utf-8")
+                self._send_api_json(200, snapshot)
             except Exception:
                 # Keep the local console responsive; report a bounded error without internals.
                 self._send(503, b'{"error":"control center snapshot unavailable"}', "application/json; charset=utf-8")
             return
         if path == "/api/health":
-            self._send(200, b'{"status":"ok"}', "application/json; charset=utf-8")
+            self._send_api_json(200, {"status": "ok"})
             return
         if path == "/control-center":
             self._serve(self.control_center_path, "text/html; charset=utf-8")
