@@ -1812,9 +1812,11 @@ class ExecutionController:
                 raise RuntimeError("approval-gated task cannot complete without its own durable completed receipt")
 
     def _handler_payload(self, task: DurableTask, base_payload: Mapping[str, Any] | None = None) -> dict[str, Any]:
-        """Inject supervisor identity only for explicitly approval-aware handlers."""
+        """Inject immutable supervisor identity; full approval context remains opt-in."""
         payload = dict(base_payload if base_payload is not None else task.payload)
         payload.pop("_auren_execution_context", None)
+        payload.pop("auren_task_id", None)
+        payload["auren_task_id"] = task.id
         if payload.get("auren_approval_aware") is True:
             payload["_auren_execution_context"] = {
                 "task_id": task.id, "work_unit_id": task.work_unit_id, "attempt": task.attempts,

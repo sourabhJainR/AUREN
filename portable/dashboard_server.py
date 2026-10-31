@@ -8,6 +8,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 from uuid import uuid4
+from threading import Event, Lock, Thread
+import time
 from .agency_release_lifecycle import ArtifactStore
 from .engineering_dashboard import EngineeringDashboard
 from .muxin_session_adapter import LocalModelDiscovery, MuxinSessionAdapter
@@ -17,6 +19,9 @@ from .identity_compat import canonical_runtime_home
 from .progress_journal import ProgressJournal
 from .response_delivery import assemble_response
 from .response_delivery_artifacts import ResponseArtifactRepository
+from .execution_controller import ExecutionController, WorkKeyConflict
+from .dashboard_delivery_task import HANDLER_NAME as DASHBOARD_DELIVERY_HANDLER
+from .dashboard_delivery_task import dashboard_response_delivery_handler
 
 MAX_API_RESPONSE_BYTES = 4_000_000
 MAX_CHUNKED_RESPONSE_BYTES = 16_000_000
@@ -57,6 +62,11 @@ class _Handler(BaseHTTPRequestHandler):
     artifact_store = None
     response_repository = None
     progress_journal = None
+    execution_controller = None
+    project_root = None
+    delivery_workers = {}
+    delivery_workers_lock = Lock()
+    delivery_task_ids = set()
 
     def _send(self, status, body, content_type, *, extra_headers=None):
         self.send_response(status)
@@ -135,99 +145,148 @@ class _Handler(BaseHTTPRequestHandler):
         return value
 
     @staticmethod
-    def _delivery_task_id(response_id, delivery_id):
-        return "dashboard-response:" + response_id + ":" + delivery_id
+    def _delivery_task_id(response_id, delivery_id=None):
+        """Resolve the delivery identity to the controller-generated task ID."""
+        task_id = delivery_id if delivery_id is not None else response_id
+        if not isinstance(task_id, str) or not re.fullmatch(r"[0-9a-f]{32}", task_id):
+            raise ValueError("invalid supervisor delivery task identity")
+        return task_id
 
-    def _persist_response_artifact(self, response_id, delivery_id, body):
-        if self.response_repository is None or self.progress_journal is None:
-            raise RuntimeError("canonical response artifact repository is unavailable")
-        stored = self.response_repository.stage(
-            body.decode("utf-8"), max_chunk_bytes=MAX_DELIVERY_CHUNK_BYTES,
-        )
-        task_id = self._delivery_task_id(response_id, delivery_id)
-        self.progress_journal.record_response_artifact(
-            task_id, response_id=response_id, artifact_sha256=stored.artifact.digest,
-        )
-        return stored
+    def _start_delivery_worker(self, task_id):
+        controller = self.execution_controller
+        if controller is None:
+            raise RuntimeError("supervisor execution controller is unavailable")
+        workers = type(self).delivery_workers
+        with type(self).delivery_workers_lock:
+            current = workers.get(task_id)
+            if current is not None and current.is_alive():
+                return
+            worker = Thread(
+                target=_run_delivery_task, args=(controller, task_id),
+                name="auren-dashboard-delivery-" + task_id[:8], daemon=True,
+            )
+            workers[task_id] = worker
+            type(self).delivery_task_ids.add(task_id)
+            worker.start()
 
-    def _load_delivery(self, response_id, delivery_id):
-        if not re.fullmatch(r"[0-9a-f]{64}", response_id):
-            raise ValueError("invalid response identity")
-        if self.response_repository is None or self.progress_journal is None:
-            raise RuntimeError("durable response delivery is not configured")
-        task_id = self._delivery_task_id(response_id, delivery_id)
-        artifact_digest = self.progress_journal.response_artifact_reference(task_id, response_id)
-        if artifact_digest is None:
-            raise FileNotFoundError("response artifact is unavailable")
-        return self.response_repository.load(response_id, artifact_digest)
+    def _load_delivery(self, delivery_id, response_id=None):
+        task_id = self._delivery_task_id(delivery_id)
+        if self.execution_controller is None or self.response_repository is None or self.progress_journal is None:
+            raise RuntimeError("supervisor-owned response delivery is not configured")
+        if self.execution_controller.task(task_id) is None:
+            raise FileNotFoundError("supervisor delivery task is unavailable")
+        artifact = self.progress_journal.response_artifact_manifest(task_id)
+        if artifact is None:
+            raise FileNotFoundError("response artifact is not ready")
+        if response_id is not None and artifact["response_id"] != response_id:
+            raise ValueError("response identity does not match the supervisor task")
+        return self.response_repository.load(artifact["response_id"], artifact["artifact_sha256"])
 
-    def _delivery_checkpoint(self, response_id, delivery_id):
+    def _delivery_checkpoint(self, delivery_id, response_id):
         return self.progress_journal.response_delivery_checkpoint(
-            self._delivery_task_id(response_id, delivery_id), response_id,
+            self._delivery_task_id(delivery_id), response_id,
         )
 
     def _handle_delivery_get(self, path):
-        match = re.fullmatch(r"/api/delivery/([0-9a-f]{64})/([0-9a-f]{32})/(next|status)", path)
+        match = re.fullmatch(r"/api/delivery/([0-9a-f]{32})/(next|status)", path)
         if not match:
             self._send(404, b'{"error":"not found"}', "application/json")
             return
-        response_id, delivery_id, action = match.groups()
+        delivery_id, action = match.groups()
+        task_id = self._delivery_task_id(delivery_id)
         try:
-            stored = self._load_delivery(response_id, delivery_id)
-            manifest, chunks = stored.manifest, stored.chunks
-            checkpoint = self._delivery_checkpoint(response_id, delivery_id)
-            acknowledged = checkpoint["acknowledged_index"]
-            if checkpoint.get("total_chunks") not in (None, manifest.total_chunks):
-                raise RuntimeError("delivery acknowledgement manifest mismatch")
-            snapshot = self.progress_journal.snapshot(
-                self._delivery_task_id(response_id, delivery_id),
-            )
-            terminal_state = snapshot.get("reported_state", snapshot.get("state"))
-            all_acknowledged = acknowledged == manifest.total_chunks
+            controller = self.execution_controller
+            task = controller.task(task_id) if controller is not None else None
+            if task is None:
+                raise FileNotFoundError("supervisor delivery task is unavailable")
+            snapshot = self.progress_journal.snapshot(task_id)
+            artifact = self.progress_journal.response_artifact_manifest(task_id)
             if action == "status":
+                if artifact is None:
+                    state = "queued" if task.state == "pending" else snapshot.get("state", task.state)
+                    self._send_delivery_json(200, {
+                        "delivery_id": delivery_id, "ready": False, "complete": False,
+                        "delivery_complete": False, "state": state, "task_state": task.state,
+                    })
+                    return
+                stored = self._load_delivery(delivery_id)
+                manifest = stored.manifest
+                checkpoint = self._delivery_checkpoint(delivery_id, manifest.response_id)
+                acknowledged = checkpoint["acknowledged_index"]
+                all_acknowledged = acknowledged == manifest.total_chunks
+                receiver_confirmed = self.progress_journal.response_delivery_confirmation(
+                    task_id, manifest.response_id, manifest.total_chunks,
+                )
+                journal_state = snapshot.get("reported_state", snapshot.get("state"))
+                if task.state == "completed":
+                    if journal_state != "completed" or not receiver_confirmed or not all_acknowledged:
+                        raise RuntimeError("supervisor task and receiver receipt are inconsistent")
+                    state, complete = "completed", True
+                elif task.state == "blocked_reconciliation":
+                    state, complete = "blocked", False
+                elif task.state in {"failed", "cancelled"}:
+                    if journal_state != task.state:
+                        raise RuntimeError("supervisor terminal state is not reconciled to the progress journal")
+                    state, complete = task.state, False
+                elif task.state == "running":
+                    state, complete = snapshot.get("state", "unknown"), False
+                else:
+                    state, complete = task.state, False
                 self._send_delivery_json(200, {
-                    "response_id": response_id,
-                    "delivery_id": delivery_id,
+                    "delivery_id": delivery_id, "ready": True,
+                    "response_id": manifest.response_id,
                     "response_sha256": manifest.sha256,
                     "total_chunks": manifest.total_chunks,
                     "total_bytes": manifest.total_bytes,
                     "acknowledged_index": acknowledged,
                     "all_chunks_acknowledged": all_acknowledged,
-                    "complete": terminal_state == "completed",
-                    "state": terminal_state,
+                    "receiver_confirmed": receiver_confirmed,
+                    "delivery_complete": receiver_confirmed and all_acknowledged,
+                    "complete": complete, "state": state, "task_state": task.state,
+                    "next": "/api/delivery/" + delivery_id + "/next",
+                    "status": "/api/delivery/" + delivery_id + "/status",
+                    "ack": "/api/delivery/" + delivery_id + "/ack",
+                    "complete_url": "/api/delivery/" + delivery_id + "/complete",
                 })
                 return
-            if snapshot.get("state") != "running":
-                if terminal_state == "completed" and all_acknowledged:
-                    self._send_delivery_json(200, {
-                        "response_id": response_id, "delivery_id": delivery_id,
-                        "all_chunks_acknowledged": True, "complete": True,
-                        "acknowledged_index": acknowledged,
-                        "total_chunks": manifest.total_chunks,
-                    })
-                    return
+
+            stored = self._load_delivery(delivery_id)
+            manifest, chunks = stored.manifest, stored.chunks
+            checkpoint = self._delivery_checkpoint(delivery_id, manifest.response_id)
+            acknowledged = checkpoint["acknowledged_index"]
+            all_acknowledged = acknowledged == manifest.total_chunks
+            receiver_confirmed = self.progress_journal.response_delivery_confirmation(
+                task_id, manifest.response_id, manifest.total_chunks,
+            )
+            if task.state == "completed":
+                if snapshot.get("reported_state") != "completed" or not receiver_confirmed or not all_acknowledged:
+                    raise RuntimeError("completed supervisor task has no matching receiver receipt")
+                self._send_delivery_json(200, {
+                    "response_id": manifest.response_id, "delivery_id": delivery_id,
+                    "all_chunks_acknowledged": True, "delivery_complete": True, "complete": True,
+                    "acknowledged_index": acknowledged, "total_chunks": manifest.total_chunks,
+                })
+                return
+            if task.state != "running" or snapshot.get("state") != "running":
                 self._send_delivery_json(409, {
-                    "error": "delivery is not runnable; reconcile its durable state before resuming",
-                    "state": terminal_state,
+                    "error": "delivery parent is not running; reconcile its durable supervisor state",
+                    "state": snapshot.get("state", task.state), "task_state": task.state,
                 })
                 return
             if all_acknowledged:
                 self._send_delivery_json(200, {
-                    "response_id": response_id, "delivery_id": delivery_id,
-                    "all_chunks_acknowledged": True,
-                    "complete": terminal_state == "completed",
-                    "acknowledged_index": acknowledged,
+                    "response_id": manifest.response_id, "delivery_id": delivery_id,
+                    "all_chunks_acknowledged": True, "delivery_complete": receiver_confirmed,
+                    "complete": False, "acknowledged_index": acknowledged,
                     "total_chunks": manifest.total_chunks,
                 })
                 return
             chunk = chunks[acknowledged]
             self._send_delivery_json(200, {
-                "response_id": response_id,
+                "response_id": manifest.response_id, "delivery_id": delivery_id,
                 "response_sha256": manifest.sha256,
-                "chunk_index": chunk.index,
-                "total_chunks": manifest.total_chunks,
-                "chunk_sha256": chunk.sha256,
-                "text": chunk.text,
+                "chunk_index": chunk.index, "total_chunks": manifest.total_chunks,
+                "chunk_sha256": chunk.sha256, "text": chunk.text,
                 "utf8_bytes": chunk.utf8_bytes,
             })
         except FileNotFoundError:
@@ -238,23 +297,31 @@ class _Handler(BaseHTTPRequestHandler):
             self._send_delivery_json(503, {"error": "response delivery state unavailable; automatic replay is blocked"})
 
     def _handle_delivery_post(self, path):
-        match = re.fullmatch(r"/api/delivery/([0-9a-f]{64})/([0-9a-f]{32})/(ack|complete)", path)
+        match = re.fullmatch(r"/api/delivery/([0-9a-f]{32})/(ack|complete)", path)
         if not match:
             self._send(404, b'{"error":"not found"}', "application/json")
             return
-        response_id, delivery_id, action = match.groups()
+        delivery_id, action = match.groups()
+        task_id = self._delivery_task_id(delivery_id)
         try:
             payload = self._read_json_request(max_bytes=16_384)
-            stored = self._load_delivery(response_id, delivery_id)
+            controller = self.execution_controller
+            task = controller.task(task_id) if controller is not None else None
+            if task is None:
+                raise FileNotFoundError("supervisor delivery task is unavailable")
+            stored = self._load_delivery(delivery_id)
             manifest, chunks = stored.manifest, stored.chunks
-            checkpoint = self._delivery_checkpoint(response_id, delivery_id)
+            checkpoint = self._delivery_checkpoint(delivery_id, manifest.response_id)
             acknowledged = checkpoint["acknowledged_index"]
             if payload.get("response_sha256") != manifest.sha256:
                 raise ValueError("response digest mismatch")
             supplied_total = payload.get("total_chunks")
             if isinstance(supplied_total, bool) or not isinstance(supplied_total, int) or supplied_total != manifest.total_chunks:
                 raise ValueError("response chunk count mismatch")
-            task_id = self._delivery_task_id(response_id, delivery_id)
+            snapshot = self.progress_journal.snapshot(task_id)
+            receiver_confirmed = self.progress_journal.response_delivery_confirmation(
+                task_id, manifest.response_id, manifest.total_chunks,
+            )
             if action == "ack":
                 index = payload.get("chunk_index")
                 chunk_digest = payload.get("chunk_sha256")
@@ -265,52 +332,70 @@ class _Handler(BaseHTTPRequestHandler):
                     raise ValueError("chunk digest mismatch")
                 if index not in {acknowledged, acknowledged + 1}:
                     raise ValueError("acknowledgements must be contiguous")
-                snapshot = self.progress_journal.snapshot(task_id)
-                state = snapshot.get("reported_state", snapshot.get("state"))
-                if state == "completed":
-                    if index != acknowledged or acknowledged != manifest.total_chunks:
+                if task.state == "completed":
+                    if not (
+                        snapshot.get("reported_state") == "completed"
+                        and index == acknowledged == manifest.total_chunks
+                        and receiver_confirmed
+                    ):
                         raise ValueError("completed delivery only accepts an exact duplicate final acknowledgement")
-                elif state != "running":
-                    raise ValueError("delivery is not running")
-                elif snapshot.get("state") != "running":
-                    raise RuntimeError("delivery is stale; reconcile before acknowledging")
+                elif task.state != "running" or snapshot.get("state") != "running":
+                    raise RuntimeError("delivery parent is not running; reconcile before acknowledging")
                 self.progress_journal.record_response_chunk_ack(
-                    task_id, response_id=response_id,
+                    task_id, response_id=manifest.response_id,
                     acknowledged_index=index, total_chunks=manifest.total_chunks,
                     response_sha256=manifest.sha256,
                 )
                 self._send_delivery_json(200, {
-                    "acknowledged": True, "response_id": response_id, "delivery_id": delivery_id,
-                    "acknowledged_index": index, "chunk_sha256": chunk.sha256,
+                    "acknowledged": True, "response_id": manifest.response_id,
+                    "delivery_id": delivery_id, "acknowledged_index": index,
+                    "chunk_sha256": chunk.sha256,
                 })
                 return
+
+            if task.state == "completed" and snapshot.get("reported_state") == "completed":
+                if not receiver_confirmed or acknowledged != manifest.total_chunks:
+                    raise ValueError("completed supervisor task has no matching receiver confirmation")
+                self._send_delivery_json(200, {
+                    "completed": True, "receiver_confirmed": True,
+                    "response_id": manifest.response_id, "delivery_id": delivery_id,
+                    "response_sha256": manifest.sha256,
+                    "acknowledged_index": acknowledged, "total_chunks": manifest.total_chunks,
+                })
+                return
+            if task.state != "running" or snapshot.get("state") != "running":
+                raise RuntimeError("delivery parent is not running; reconcile before completion")
             if acknowledged != manifest.total_chunks:
                 raise ValueError("receiver has not acknowledged every chunk")
-            # The receiver sends this only after reassembling and hashing its
-            # persisted chunks. The server independently verifies its immutable
-            # source artifact and the digest supplied by the receiver.
             verified = assemble_response(manifest, chunks)
             if hashlib.sha256(verified.encode("utf-8")).hexdigest() != payload.get("response_sha256"):
                 raise ValueError("receiver completion digest mismatch")
-            snapshot = self.progress_journal.snapshot(task_id)
-            state = snapshot.get("reported_state", snapshot.get("state"))
-            if state == "completed":
-                if snapshot.get("evidence_ref") != "sha256:" + manifest.sha256:
-                    raise ValueError("existing completion receipt does not match response digest")
-            else:
-                if snapshot.get("state") != "running" or state != "running":
-                    raise RuntimeError("delivery is not running; reconcile before completion")
-                self.progress_journal.record(
-                    task_id, "response_delivery_completed", state="completed",
-                    stage="response-delivery", message="receiver confirmed complete response",
-                    evidence_ref="sha256:" + manifest.sha256,
-                    expected_sequence=snapshot.get("sequence"),
+            self.progress_journal.record_response_delivery_confirmation(
+                task_id, response_id=manifest.response_id,
+                total_chunks=manifest.total_chunks, response_sha256=manifest.sha256,
+            )
+            wait_until = time.monotonic() + 2.0
+            current = task
+            while time.monotonic() < wait_until:
+                current = controller.task(task_id)
+                latest = self.progress_journal.snapshot(task_id)
+                if current is None or current.state in {"completed", "failed", "cancelled", "blocked_reconciliation"}:
+                    break
+                time.sleep(0.02)
+            latest = self.progress_journal.snapshot(task_id)
+            completed = (
+                current is not None and current.state == "completed"
+                and latest.get("reported_state") == "completed"
+                and self.progress_journal.response_delivery_confirmation(
+                    task_id, manifest.response_id, manifest.total_chunks,
                 )
-            self._send_delivery_json(200, {
-                "completed": True, "response_id": response_id, "delivery_id": delivery_id,
-                "response_sha256": manifest.sha256,
-                "acknowledged_index": acknowledged,
-                "total_chunks": manifest.total_chunks,
+            )
+            self._send_delivery_json(200 if completed else 202, {
+                "completed": completed, "receiver_confirmed": True,
+                "delivery_complete": True, "response_id": manifest.response_id,
+                "delivery_id": delivery_id, "response_sha256": manifest.sha256,
+                "acknowledged_index": acknowledged, "total_chunks": manifest.total_chunks,
+                "task_state": current.state if current is not None else "unknown",
             })
         except (ValueError, TypeError, json.JSONDecodeError):
             self._send_delivery_json(409, {"error": "delivery acknowledgement rejected"})
@@ -341,6 +426,89 @@ class _Handler(BaseHTTPRequestHandler):
                 max_attempts=min(3, max(1, int(payload.get("max_attempts", 2)))),
                 timeout_seconds=min(120.0, max(0.1, float(payload.get("timeout_seconds", 30.0)))),
             )
+            accepts_chunked = CHUNKED_RESPONSE_ACCEPT in self.headers.get("Accept", "")
+            if accepts_chunked:
+                controller = self.execution_controller
+                if controller is None or self.response_repository is None or self.progress_journal is None:
+                    self._send_delivery_json(503, {"error": "supervisor-owned chunked delivery is not configured"})
+                    return
+                idempotency_key = self.headers.get("Idempotency-Key") or uuid4().hex
+                if not re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", idempotency_key):
+                    self._send_delivery_json(400, {"error": "invalid idempotency key"})
+                    return
+                delivery_timeout = payload.get("delivery_timeout_seconds", 300.0)
+                if (
+                    isinstance(delivery_timeout, bool)
+                    or not isinstance(delivery_timeout, (int, float))
+                    or not 1.0 <= float(delivery_timeout) <= 600.0
+                ):
+                    self._send_delivery_json(400, {"error": "delivery timeout must be between 1 and 600 seconds"})
+                    return
+                task_payload = {
+                    "project_root": str(Path(self.project_root or ".").expanduser().resolve()),
+                    "task": request.task, "capability": request.capability,
+                    "privacy": request.privacy, "max_attempts": request.max_attempts,
+                    "timeout_seconds": request.timeout_seconds,
+                }
+                work_key = "dashboard-response:" + hashlib.sha256(idempotency_key.encode("utf-8")).hexdigest()
+                try:
+                    durable_task = controller.submit(
+                        DASHBOARD_DELIVERY_HANDLER, task_payload,
+                        goal="route and deliver a bounded dashboard response",
+                        work_key=work_key, deadline_seconds=float(delivery_timeout),
+                    )
+                except WorkKeyConflict:
+                    self._send_delivery_json(409, {
+                        "error": "idempotency key is already bound to a different response request",
+                    })
+                    return
+                delivery_id = durable_task.id
+                self._start_delivery_worker(delivery_id)
+                ready_by = time.monotonic() + 5.0
+                artifact = self.progress_journal.response_artifact_manifest(delivery_id)
+                while artifact is None and time.monotonic() < ready_by:
+                    current = controller.task(delivery_id)
+                    if current is None or current.state in {"failed", "cancelled", "blocked_reconciliation"}:
+                        break
+                    time.sleep(0.02)
+                    artifact = self.progress_journal.response_artifact_manifest(delivery_id)
+                status_url = "/api/delivery/" + delivery_id + "/status"
+                if artifact is None:
+                    current = controller.task(delivery_id)
+                    if current is not None and current.state in {"failed", "cancelled", "blocked_reconciliation"}:
+                        self._send_delivery_json(503, {
+                            "error": "supervisor response task did not produce a verified artifact",
+                            "delivery_id": delivery_id, "task_state": current.state,
+                            "status": status_url,
+                        })
+                        return
+                    self._send_delivery_json(202, {
+                        "delivery_mode": "chunked-pull-v1", "ready": False,
+                        "delivery_id": delivery_id, "idempotency_key": idempotency_key,
+                        "status": status_url,
+                    })
+                    return
+                stored = self._load_delivery(delivery_id)
+                manifest, ref = stored.manifest, stored.artifact
+                self._send_delivery_json(202, {
+                    "delivery_mode": "chunked-pull-v1", "ready": True,
+                    "response_id": manifest.response_id, "delivery_id": delivery_id,
+                    "idempotency_key": idempotency_key,
+                    "response_sha256": manifest.sha256,
+                    "total_chunks": manifest.total_chunks,
+                    "total_chars": manifest.total_chars,
+                    "total_bytes": manifest.total_bytes,
+                    "chunk_bytes": MAX_DELIVERY_CHUNK_BYTES,
+                    "artifact": {
+                        "artifact_id": ref.artifact_id, "digest": ref.digest,
+                        "size": ref.size, "layout": ref.layout,
+                    },
+                    "next": "/api/delivery/" + delivery_id + "/next",
+                    "status": status_url,
+                    "ack": "/api/delivery/" + delivery_id + "/ack",
+                    "complete": "/api/delivery/" + delivery_id + "/complete",
+                })
+                return
             result = HybridModelRouter().route(request)
             response_payload = {
                 "provider": result.provider, "model": result.model, "success": result.success,
@@ -348,46 +516,6 @@ class _Handler(BaseHTTPRequestHandler):
                 "resource_usage": result.resource_usage, "fallback_reason": result.fallback_reason,
                 "result": result.result, "error": result.error,
             }
-            accepts_chunked = CHUNKED_RESPONSE_ACCEPT in self.headers.get("Accept", "")
-            if accepts_chunked:
-                if self.response_repository is None or self.progress_journal is None:
-                    self._send_delivery_json(503, {"error": "durable chunked delivery is not configured"})
-                    return
-                try:
-                    body = _encode_bounded_json(
-                        response_payload, max_bytes=MAX_CHUNKED_RESPONSE_BYTES,
-                    )
-                except ApiResponseTooLarge:
-                    raise
-                except (TypeError, ValueError):
-                    self._send_delivery_json(503, {"error": "routing response could not be serialized safely"})
-                    return
-                response_id = hashlib.sha256(body).hexdigest()
-                delivery_id = uuid4().hex
-                stored = self._persist_response_artifact(response_id, delivery_id, body)
-                manifest = stored.manifest
-                ref = stored.artifact
-                self._send_delivery_json(202, {
-                    "delivery_mode": "chunked-pull-v1",
-                    "response_id": manifest.response_id,
-                    "delivery_id": delivery_id,
-                    "response_sha256": manifest.sha256,
-                    "total_chunks": manifest.total_chunks,
-                    "total_chars": manifest.total_chars,
-                    "total_bytes": manifest.total_bytes,
-                    "chunk_bytes": MAX_DELIVERY_CHUNK_BYTES,
-                    "artifact": {
-                        "artifact_id": ref.artifact_id,
-                        "digest": ref.digest,
-                        "size": ref.size,
-                        "layout": ref.layout,
-                    },
-                    "next": "/api/delivery/" + manifest.response_id + "/" + delivery_id + "/next",
-                    "status": "/api/delivery/" + manifest.response_id + "/" + delivery_id + "/status",
-                    "ack": "/api/delivery/" + manifest.response_id + "/" + delivery_id + "/ack",
-                    "complete": "/api/delivery/" + manifest.response_id + "/" + delivery_id + "/complete",
-                })
-                return
             self._send_api_json(200 if result.success else 503, response_payload)
         except ApiResponseTooLarge:
             self._send_api_json(502, {
@@ -474,22 +602,57 @@ class _Handler(BaseHTTPRequestHandler):
         return
 
 
+def _run_delivery_task(controller, task_id):
+    """Run one bounded durable task; its terminal state remains in controller storage."""
+    try:
+        controller.run_once(task_id)
+    except Exception:
+        # run_once records durable failure or leaves an uncertain lease for recovery.
+        # The HTTP status endpoint reads that canonical state; no success is inferred here.
+        return
+
+
+def _run_recovery_slice(controller, stop_event):
+    """Resume eligible dashboard tasks in one bounded supervisor-owned cycle."""
+    try:
+        controller.run_continuously(
+            stop_event=stop_event, batch_size=10, idle_sleep_seconds=4.0,
+            max_cycles=1000, max_idle_cycles=100,
+        )
+    except Exception:
+        return
+
+
 def serve(project_root=".", host="127.0.0.1", port=8765):
     if host not in {"127.0.0.1", "localhost"}:
         raise ValueError("dashboard server only binds to loopback; remote access requires a separately secured deployment")
-    dashboard = EngineeringDashboard(project_root)
-    control_center = MuxinSessionAdapter(project_root, dashboard=dashboard)
-    runtime_root = Path(project_root).expanduser().resolve() / ".auren"
+    project_path = Path(project_root).expanduser().resolve()
+    dashboard = EngineeringDashboard(project_path)
+    control_center = MuxinSessionAdapter(project_path, dashboard=dashboard)
+    runtime_root = project_path / ".auren"
+    controller = ExecutionController(project_path)
+    controller.register_handler(
+        DASHBOARD_DELIVERY_HANDLER, dashboard_response_delivery_handler,
+        execution_class="read_only",
+    )
     artifact_store = ArtifactStore(runtime_root / "releases")
     response_repository = ResponseArtifactRepository(artifact_store)
-    progress_journal = ProgressJournal(runtime_root / "progress.jsonl")
-    handler = type("AERDashboardHandler", (_Handler,), {
+    progress_journal = controller.progress_journal
+    handler = type("AURENDashboardHandler", (_Handler,), {
         "dashboard": dashboard, "control_center": control_center,
         "ui_root": UI_ROOT, "control_center_path": CONTROL_CENTER,
         "artifact_store": artifact_store, "response_repository": response_repository,
-        "progress_journal": progress_journal,
+        "progress_journal": progress_journal, "execution_controller": controller,
+        "project_root": project_path, "delivery_workers": {},
+        "delivery_workers_lock": Lock(), "delivery_task_ids": set(),
     })
     server = ThreadingHTTPServer((host, port), handler)
+    recovery_stop = Event()
+    recovery_thread = Thread(
+        target=_run_recovery_slice, args=(controller, recovery_stop),
+        name="auren-dashboard-recovery", daemon=True,
+    )
+    recovery_thread.start()
     print(f"AUREN Engineering Console: http://{host}:{port}")
     try:
         server.serve_forever()
@@ -497,6 +660,8 @@ def serve(project_root=".", host="127.0.0.1", port=8765):
         pass
     finally:
         server.server_close()
+        recovery_stop.set()
+        recovery_thread.join(timeout=2)
 
 
 def main():

@@ -294,20 +294,148 @@ class ProgressJournal:
             evidence_ref=evidence_ref,
         )
 
+    def response_artifact_manifest(self, task_id: str) -> dict[str, str] | None:
+        """Return the one immutable response manifest bound to a supervisor task."""
+        rows = [row for row in self._events() if row["task_id"] == task_id
+                and row["event"] == "response_artifact_staged"]
+        if not rows:
+            return None
+        manifests: dict[str, str] = {}
+        for row in rows:
+            stage = row.get("stage")
+            evidence_ref = row.get("evidence_ref")
+            if not isinstance(stage, str) or not stage.startswith("response-artifact:"):
+                raise ProgressJournalCorruption("response artifact stage is invalid")
+            response_id = stage.removeprefix("response-artifact:")
+            self._validate_response_digest(response_id, "response_id")
+            if not isinstance(evidence_ref, str) or not re.fullmatch(
+                r"artifact-sha256:[0-9a-f]{64}", evidence_ref,
+            ):
+                raise ProgressJournalCorruption("response artifact reference is invalid")
+            artifact_digest = evidence_ref.removeprefix("artifact-sha256:")
+            prior = manifests.setdefault(response_id, artifact_digest)
+            if prior != artifact_digest:
+                raise ProgressJournalCorruption("response artifact reference changed in journal history")
+        if len(manifests) != 1:
+            raise ProgressJournalCorruption("one supervisor task is bound to multiple response artifacts")
+        response_id, artifact_digest = next(iter(manifests.items()))
+        return {"response_id": response_id, "artifact_sha256": artifact_digest}
+
     def response_artifact_reference(self, task_id: str, response_id: str) -> str | None:
         """Return the verified immutable artifact digest bound to a response."""
         response_id = self._validate_response_digest(response_id, "response_id")
-        stage = f"response-artifact:{response_id}"
-        rows = [row for row in self._events() if row["task_id"] == task_id
-                and row["stage"] == stage and row["event"] == "response_artifact_staged"]
-        if not rows:
+        manifest = self.response_artifact_manifest(task_id)
+        if manifest is None:
             return None
-        expected = rows[0].get("evidence_ref")
-        if not isinstance(expected, str) or not re.fullmatch(r"artifact-sha256:[0-9a-f]{64}", expected):
-            raise ProgressJournalCorruption("response artifact reference is invalid")
-        if any(row.get("evidence_ref") != expected for row in rows):
-            raise ProgressJournalCorruption("response artifact reference changed in journal history")
-        return expected.removeprefix("artifact-sha256:")
+        if manifest["response_id"] != response_id:
+            raise ProgressJournalCorruption("response artifact identity differs from the requested response")
+        return manifest["artifact_sha256"]
+
+    def begin_response_generation(self, task_id: str, request_sha256: str) -> bool:
+        """Record the one permitted provider dispatch; return False on a prior attempt."""
+        request_sha256 = self._validate_response_digest(request_sha256, "request_sha256")
+        stage = "response-generation"
+        for _attempt in range(8):
+            task_rows = [row for row in self._events() if row["task_id"] == task_id]
+            if not task_rows or task_rows[-1]["state"] != "running":
+                raise ValueError("response generation requires a running supervisor task")
+            rows = [row for row in task_rows
+                    if row["stage"] == stage and row["event"] == "response_generation_started"]
+            if rows:
+                expected = f"sha256:{request_sha256}"
+                if any(row.get("evidence_ref") != expected for row in rows):
+                    raise ProgressJournalCorruption("response generation intent changed after dispatch")
+                return False
+            expected_sequence = int(task_rows[-1]["sequence"])
+            try:
+                self.record(
+                    task_id, "response_generation_started", state="running",
+                    stage=stage, message="provider response generation started",
+                    evidence_ref=f"sha256:{request_sha256}",
+                    expected_sequence=expected_sequence,
+                )
+                return True
+            except RuntimeError as exc:
+                if str(exc) != "progress journal changed during reconciliation; retry":
+                    raise
+        raise TimeoutError("response generation intent changed repeatedly; provider dispatch is blocked")
+
+    def record_response_delivery_confirmation(
+        self, task_id: str, *, response_id: str, total_chunks: int,
+        response_sha256: str,
+    ) -> ProgressEvent:
+        """Persist receiver confirmation without finalizing its supervisor parent."""
+        response_id = self._validate_response_digest(response_id, "response_id")
+        response_sha256 = self._validate_response_digest(response_sha256, "response_sha256")
+        if response_id != response_sha256:
+            raise ValueError("response_id must match the whole-response SHA-256 digest")
+        if type(total_chunks) is not int or total_chunks < 1:
+            raise ValueError("total_chunks must be a positive integer")
+        if self.response_artifact_reference(task_id, response_id) is None:
+            raise ValueError("receiver confirmation has no bound immutable response artifact")
+        stage = f"response-delivery:{response_id}"
+        expected_ref = f"sha256:{response_sha256}"
+        for _attempt in range(8):
+            task_rows = [row for row in self._events() if row["task_id"] == task_id]
+            if not task_rows or task_rows[-1]["state"] != "running":
+                raise ValueError("receiver confirmation requires a running supervisor task")
+            checkpoint = self.response_delivery_checkpoint(task_id, response_id)
+            if (checkpoint["acknowledged_index"] != total_chunks
+                    or checkpoint.get("total_chunks") != total_chunks
+                    or checkpoint.get("response_sha256") != response_sha256):
+                raise ValueError("receiver confirmation requires the complete contiguous acknowledgement cursor")
+            rows = [row for row in task_rows
+                    if row["stage"] == stage and row["event"] == "response_delivery_receiver_confirmed"]
+            if rows:
+                if any(
+                    row.get("evidence_ref") != expected_ref
+                    or row.get("total_units") != total_chunks
+                    or row.get("completed_units") != total_chunks
+                    for row in rows
+                ):
+                    raise ProgressJournalCorruption("receiver completion receipt contradicts the response manifest")
+                return ProgressEvent(**rows[-1])
+            expected_sequence = int(task_rows[-1]["sequence"])
+            try:
+                return self.record(
+                    task_id, "response_delivery_receiver_confirmed", state="running",
+                    stage=stage, message="receiver confirmed the complete response digest",
+                    completed_units=total_chunks, total_units=total_chunks,
+                    evidence_ref=expected_ref, expected_sequence=expected_sequence,
+                )
+            except RuntimeError as exc:
+                if str(exc) != "progress journal changed during reconciliation; retry":
+                    raise
+        raise TimeoutError("receiver completion receipt changed repeatedly; task remains nonterminal")
+
+    def response_delivery_confirmation(
+        self, task_id: str, response_id: str, total_chunks: int,
+    ) -> bool:
+        """Verify the durable receiver receipt and its complete acknowledgement cursor."""
+        response_id = self._validate_response_digest(response_id, "response_id")
+        if type(total_chunks) is not int or total_chunks < 1:
+            raise ValueError("total_chunks must be a positive integer")
+        stage = f"response-delivery:{response_id}"
+        rows = [row for row in self._events() if row["task_id"] == task_id
+                and row["stage"] == stage and row["event"] == "response_delivery_receiver_confirmed"]
+        if not rows:
+            return False
+        expected_ref = f"sha256:{response_id}"
+        if any(
+            row.get("evidence_ref") != expected_ref
+            or row.get("total_units") != total_chunks
+            or row.get("completed_units") != total_chunks
+            for row in rows
+        ):
+            raise ProgressJournalCorruption("receiver completion receipt is stale or contradictory")
+        checkpoint = self.response_delivery_checkpoint(task_id, response_id)
+        if (checkpoint["acknowledged_index"] != total_chunks
+                or checkpoint.get("total_chunks") != total_chunks
+                or checkpoint.get("response_sha256") != response_id):
+            raise ProgressJournalCorruption("receiver completion receipt has no complete acknowledgement cursor")
+        if self.response_artifact_reference(task_id, response_id) is None:
+            raise ProgressJournalCorruption("receiver completion receipt has no immutable response artifact")
+        return True
 
     def record_response_chunk_ack(
         self, task_id: str, *, response_id: str, acknowledged_index: int,
