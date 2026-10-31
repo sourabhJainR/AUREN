@@ -9,7 +9,6 @@ from pathlib import Path
 import re
 import tempfile
 import threading
-from typing import Any
 
 from .agency_release_lifecycle import ArtifactRef, ArtifactStore
 from .response_delivery import (
@@ -109,7 +108,7 @@ class ResponseArtifactRepository:
                 raise ResponseDeliveryError("response artifact identity or layout is invalid")
             root = Path(ref.path)
             payload = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
-            if not isinstance(payload, dict) or payload.get("schema_version") != 1:
+            if not isinstance(payload, dict) or type(payload.get("schema_version")) is not int or payload.get("schema_version") != 1:
                 raise ResponseDeliveryError("response artifact manifest schema is invalid")
             if payload.get("response_id") != response_id or payload.get("sha256") != response_id:
                 raise ResponseDeliveryError("response artifact identity does not match its manifest")
@@ -128,7 +127,7 @@ class ResponseArtifactRepository:
                 raise ResponseDeliveryError("response artifact manifest bounds are invalid")
             chunks = []
             for expected, entry in enumerate(entries, start=1):
-                if not isinstance(entry, dict) or entry.get("index") != expected:
+                if not isinstance(entry, dict) or type(entry.get("index")) is not int or entry.get("index") != expected:
                     raise ResponseDeliveryError("response artifact chunk index is invalid")
                 name = entry.get("file")
                 digest = entry.get("sha256")
