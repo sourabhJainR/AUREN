@@ -32,3 +32,6 @@
 .session-task .muted{overflow-wrap:anywhere}
 @media(max-width:900px){.session-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.session-grid{grid-template-columns:1fr}}
 @media(max-width:560px){.session-toolbar{flex-wrap:wrap}.session-toolbar input{flex-basis:100%}.session-toolbar select{flex:1}.session-detail{grid-template-columns:1fr 1fr}.session-task{grid-template-columns:1fr}}
+
+.session-refresh-button{border:1px solid #2a3957;background:#1b2742;color:#e8edf7;padding:10px 15px;border-radius:9px;cursor:pointer;font-weight:600}
+.session-refresh-button:hover{background:#263756}
