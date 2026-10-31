@@ -334,6 +334,19 @@ class ProgressJournal:
             rows = [row for row in task_rows
                     if row["stage"] == stage and row["event"] == "response_chunk_acknowledged"]
             previous = rows[-1] if rows else None
+            current_state = task_rows[-1]["state"] if task_rows else "unknown"
+            # A delivery checkpoint can advance only while its journal task is
+            # running. Late acknowledgements must not revive blocked, recovering,
+            # stale, failed, or cancelled deliveries. The exact final ack remains
+            # idempotent after a successful completion.
+            if (
+                current_state == "completed"
+                and previous is not None
+                and acknowledged_index == previous.get("completed_units")
+            ):
+                return ProgressEvent(**previous)
+            if current_state != "running":
+                raise ValueError("cannot acknowledge response chunks while delivery is not running")
             if previous is not None:
                 if previous.get("total_units") != total_chunks or previous.get("evidence_ref") != f"sha256:{response_sha256}":
                     raise ValueError("response manifest changed while resuming chunk delivery")
