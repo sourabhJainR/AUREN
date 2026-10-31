@@ -75,7 +75,9 @@ digest-bound manifest. The response digest identifies content; a unique delivery
 receiver session so two deliveries of identical bytes cannot share an acknowledgement cursor. A
 bounded in-process cache avoids rehashing the full artifact for every chunk request; after restart, the artifact is revalidated before it is cached. The progress journal
 stores only the artifact digest reference and receiver-confirmed acknowledgement cursor, never
-response bytes.
+response bytes. Cursor updates use optimistic sequence checks under the journal's cross-process
+append lock, so concurrent duplicate acknowledgements remain idempotent and cannot create a
+corrupt duplicate history.
 The client then:
 
 1. Fetches `GET /api/delivery/{response_id}/{delivery_id}/next`. Reads do not advance the cursor.
