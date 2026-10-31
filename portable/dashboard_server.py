@@ -312,9 +312,15 @@ class _Handler(BaseHTTPRequestHandler):
                 if self.response_repository is None or self.progress_journal is None:
                     self._send_delivery_json(503, {"error": "durable chunked delivery is not configured"})
                     return
-                body = _encode_bounded_json(
-                    response_payload, max_bytes=MAX_CHUNKED_RESPONSE_BYTES,
-                )
+                try:
+                    body = _encode_bounded_json(
+                        response_payload, max_bytes=MAX_CHUNKED_RESPONSE_BYTES,
+                    )
+                except ApiResponseTooLarge:
+                    raise
+                except (TypeError, ValueError):
+                    self._send_delivery_json(503, {"error": "routing response could not be serialized safely"})
+                    return
                 response_id = hashlib.sha256(body).hexdigest()
                 stored = self._persist_response_artifact(response_id, body)
                 manifest = stored.manifest
