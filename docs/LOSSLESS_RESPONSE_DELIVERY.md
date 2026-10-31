@@ -60,3 +60,41 @@ path; retain artifact integrity checks and never restore silent truncation.
 ## Durable resume integration
 
 The transport primitive is paired with `ProgressJournal.record_response_chunk_ack(...)` for host workflows that deliver a response over multiple acknowledged writes. Persist only the whole-response digest, total chunk count and highest contiguous acknowledged index; keep response bytes in the canonical artifact or delivery buffer. After restart, call `response_delivery_checkpoint(...)` and pass its acknowledged index to `chunks_after(...)`. The journal rejects skipped/reordered acknowledgements, duplicate delivery is idempotent, and a changed manifest cannot reuse an old cursor. Do not mark the parent task complete until the receiver has acknowledged the final chunk and the host has verified the whole-response digest. This is a reusable durable cursor API; each host adapter must still wire its actual transport acknowledgement to it.
+
+
+## Dashboard HTTP chunk protocol (opt-in)
+
+The local dashboard now supports an explicit pull-and-ack contract when the caller sends
+`Accept: application/vnd.auren.chunked+json` to `POST /api/route`. The legacy request remains
+bounded atomic JSON and keeps its existing response headers.
+
+For the chunked mode, the host serializes the complete response under a 16 MB UTF-8 budget,
+stages an immutable directory containing the manifest and UTF-8 chunk files in the existing
+content-addressed `ArtifactStore` under the project `.auren/releases` root, and returns a
+digest-bound manifest. The response digest identifies content; a unique delivery ID isolates each
+receiver session so two deliveries of identical bytes cannot share an acknowledgement cursor. A
+bounded in-process cache avoids rehashing the full artifact for every chunk request; after restart, the artifact is revalidated before it is cached. The progress journal
+stores only the artifact digest reference and receiver-confirmed acknowledgement cursor, never
+response bytes.
+The client then:
+
+1. Fetches `GET /api/delivery/{response_id}/{delivery_id}/next`. Reads do not advance the cursor.
+2. Persists the exact chunk on the receiver before calling `POST /api/delivery/{response_id}/{delivery_id}/ack`
+   with the response digest, contiguous index, total count, and chunk digest.
+3. Uses `GET /api/delivery/{response_id}/{delivery_id}/status` after reconnect/restart. The server returns the
+   last receiver-confirmed contiguous index; a repeated ack for that same chunk is idempotent.
+4. Reassembles and hashes the full response on the receiver, then calls
+   `POST /api/delivery/{response_id}/{delivery_id}/complete`. The host independently verifies its immutable
+   artifact and records a terminal delivery receipt only after all chunks are acknowledged.
+
+The acknowledgement endpoint trusts the client to send an ack only after receiver-side durable
+acceptance; the protocol cannot inspect the client's storage. Clients must not ack after merely
+receiving bytes into a transient buffer. The delivery journal is the same project-scoped
+`.auren/progress.jsonl` used by `ExecutionController`; its task key includes both response digest and unique delivery ID; the body is stored only in the existing
+content-addressed release artifact store. The dashboard route itself is not a supervisor task,
+so this delivery receipt does not falsely complete an unrelated parent execution task.
+
+MCP stdio remains an atomic JSON-RPC frame and is not chunked. The chunked HTTP mode is opt-in;
+legacy clients retain atomic JSON with the existing 4 MB cap. A 16 MB total cap and 12 KB chunks
+bound host memory and transfer units. If the client cannot durably store chunks or verify the final
+digest, it must stop without posting completion.

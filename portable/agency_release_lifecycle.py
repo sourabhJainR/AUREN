@@ -53,6 +53,26 @@ class ArtifactStore:
         files = [p for p in path.rglob("*") if p.is_file()]
         actual = self._digest(files[0]) if ref.layout == "file" and len(files) == 1 else self._digest(path)
         if actual != ref.digest: raise RuntimeError(f"artifact digest verification failed: {ref.digest}")
+    def resolve(self, digest: str) -> ArtifactRef:
+        """Load and verify an immutable artifact by its content digest."""
+        if not isinstance(digest, str) or len(digest) != 64 or any(
+            character not in "0123456789abcdef" for character in digest
+        ):
+            raise ValueError("artifact digest must be a lowercase SHA-256 digest")
+        metadata_path = self.artifacts / f"{digest}.json"
+        try:
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+            artifact = metadata.get("artifact") if isinstance(metadata, dict) else None
+            if not isinstance(artifact, dict):
+                raise ValueError("artifact metadata is invalid")
+            ref = ArtifactRef(**artifact)
+        except (OSError, json.JSONDecodeError, TypeError, KeyError, ValueError) as exc:
+            raise RuntimeError("content-addressed artifact metadata is unavailable or invalid") from exc
+        if ref.digest != digest:
+            raise RuntimeError("artifact metadata digest does not match its key")
+        self._verify_ref(ref)
+        return ref
+
     def _existing_digest(self, destination: Path, source_was_file: bool) -> str:
         if source_was_file:
             files = [p for p in destination.rglob("*") if p.is_file()]

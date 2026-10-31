@@ -271,6 +271,42 @@ class ProgressJournal:
             raise ValueError(f"{field} must be a lowercase SHA-256 digest")
         return value
 
+    def record_response_artifact(
+        self, task_id: str, *, response_id: str, artifact_sha256: str,
+    ) -> ProgressEvent:
+        """Bind a response digest to its immutable canonical artifact reference."""
+        response_id = self._validate_response_digest(response_id, "response_id")
+        artifact_sha256 = self._validate_response_digest(artifact_sha256, "artifact_sha256")
+        stage = f"response-artifact:{response_id}"
+        rows = [row for row in self._events() if row["task_id"] == task_id
+                and row["stage"] == stage and row["event"] == "response_artifact_staged"]
+        evidence_ref = f"artifact-sha256:{artifact_sha256}"
+        if rows:
+            previous = rows[-1]
+            if previous.get("evidence_ref") != evidence_ref:
+                raise ValueError("response artifact reference changed for an existing response")
+            return ProgressEvent(**previous)
+        return self.record(
+            task_id, "response_artifact_staged", state="running",
+            stage=stage, message="immutable response artifact staged",
+            evidence_ref=evidence_ref,
+        )
+
+    def response_artifact_reference(self, task_id: str, response_id: str) -> str | None:
+        """Return the verified immutable artifact digest bound to a response."""
+        response_id = self._validate_response_digest(response_id, "response_id")
+        stage = f"response-artifact:{response_id}"
+        rows = [row for row in self._events() if row["task_id"] == task_id
+                and row["stage"] == stage and row["event"] == "response_artifact_staged"]
+        if not rows:
+            return None
+        expected = rows[0].get("evidence_ref")
+        if not isinstance(expected, str) or not re.fullmatch(r"artifact-sha256:[0-9a-f]{64}", expected):
+            raise ProgressJournalCorruption("response artifact reference is invalid")
+        if any(row.get("evidence_ref") != expected for row in rows):
+            raise ProgressJournalCorruption("response artifact reference changed in journal history")
+        return expected.removeprefix("artifact-sha256:")
+
     def record_response_chunk_ack(
         self, task_id: str, *, response_id: str, acknowledged_index: int,
         total_chunks: int, response_sha256: str,
