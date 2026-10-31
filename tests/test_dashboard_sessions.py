@@ -99,13 +99,21 @@ def test_dashboard_sessions_endpoint_serves_live_snapshot_and_rejects_foreign_or
     thread.start()
     try:
         connection = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=3)
-        connection.request("GET", "/api/sessions")
+        connection.request("GET", "/api/sessions?offset=50&limit=25")
         response = connection.getresponse()
         payload = json.loads(response.read().decode("utf-8"))
         connection.close()
         assert response.status == 200
         assert payload["schema_version"] == 1
-        assert payload["sessions"] == []
+        assert payload["pagination"] == {"offset": 50, "limit": 25, "total": 75, "has_more": False}
+        assert payload["sessions"] == [{"session_id": "session-50"}]
+
+        connection = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=3)
+        connection.request("GET", "/api/sessions?offset=-1&limit=25")
+        response = connection.getresponse()
+        response.read()
+        connection.close()
+        assert response.status == 400
 
         connection = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=3)
         connection.request("GET", "/api/sessions", headers={"Origin": "https://attacker.example"})
