@@ -120,7 +120,7 @@ class MuxinSessionAdapter:
         This endpoint deliberately avoids memory recall and model discovery so the
         dashboard can poll frequently without triggering unrelated runtime work.
         """
-        dashboard = self.dashboard.snapshot().as_dict()
+        dashboard = self.dashboard.live_session_projection()
         sessions = []
         for raw in self.sessions():
             row = {
