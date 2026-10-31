@@ -93,9 +93,12 @@ class MuxinSessionAdapter:
         stage = (checkpoint.stage or "unknown").strip().lower()
         progress = stage_progress(stage)
         known_stages = set(_STAGE_ORDER) | _TERMINAL_FAILURES
+        age_seconds = max(0.0, time.time() - float(checkpoint.updated_at))
+        stale = stage in known_stages and stage not in _TERMINAL_FAILURES | {"completed", "verified", "queued"} and age_seconds > 60
         status = "blocked" if stage in _TERMINAL_FAILURES or checkpoint.last_error else (
             "complete" if stage in {"completed", "verified"} else
             "waiting" if stage == "queued" else
+            "stale" if stale else
             "running" if stage in known_stages else "unverified"
         )
         return {
@@ -107,6 +110,8 @@ class MuxinSessionAdapter:
             "attempt": checkpoint.attempt,
             "active_provider": checkpoint.active_provider,
             "updated_at": checkpoint.updated_at,
+            "seconds_since_update": round(age_seconds, 1),
+            "stale": stale,
             "completed_batches": list(checkpoint.completed_batches),
             "remaining_batches": list(checkpoint.remaining_batches),
             "last_error": checkpoint.last_error,
@@ -126,7 +131,7 @@ class MuxinSessionAdapter:
             row = {
                 key: raw.get(key) for key in (
                     "session_id", "task_id", "stage", "status", "progress",
-                    "attempt", "active_provider", "updated_at",
+                    "attempt", "active_provider", "updated_at", "seconds_since_update", "stale",
                     "completed_batches", "remaining_batches", "state_digest",
                 )
             }
@@ -157,6 +162,7 @@ class MuxinSessionAdapter:
         completed = sum(row["status"] == "complete" for row in sessions)
         blocked = sum(row["status"] == "blocked" for row in sessions)
         unverified = sum(row["status"] == "unverified" for row in sessions)
+        stale = sum(row["status"] == "stale" for row in sessions)
         return {
             "schema_version": 1,
             "generated_at": dashboard.get("generated_at"),
@@ -164,7 +170,7 @@ class MuxinSessionAdapter:
             "source": "durable session checkpoints, supervisor progress journal and verified plan store",
             "counts": {
                 "sessions": len(sessions), "active": active,
-                "completed": completed, "blocked": blocked,
+                "completed": completed, "blocked": blocked, "stale": stale,
                 "unverified": unverified, "tasks": len(tasks),
                 "plan_runs": len(plans),
             },
