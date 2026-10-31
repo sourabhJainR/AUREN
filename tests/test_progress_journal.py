@@ -231,6 +231,22 @@ class ProgressJournalTests(unittest.TestCase):
                     acknowledged_index=1, total_chunks=2,
                 )
 
+            incomplete = ProgressJournal(Path(temp) / "incomplete.jsonl")
+            incomplete.record("partial", "started", state="running", stage="response")
+            incomplete.record_response_chunk_ack(
+                "partial", response_id=digest, response_sha256=digest,
+                acknowledged_index=1, total_chunks=2,
+            )
+            incomplete.record(
+                "partial", "incorrect_terminal_state", state="completed",
+                stage="response-delivery", evidence_ref=f"sha256:{digest}",
+            )
+            with self.assertRaisesRegex(ValueError, "not running"):
+                incomplete.record_response_chunk_ack(
+                    "partial", response_id=digest, response_sha256=digest,
+                    acknowledged_index=1, total_chunks=2,
+                )
+
     def test_invalid_progress_units_rejected(self):
         with tempfile.TemporaryDirectory() as temp:
             with self.assertRaises(ValueError):
