@@ -149,7 +149,10 @@ class _Handler(BaseHTTPRequestHandler):
         stored = self.response_repository.stage(
             body.decode("utf-8"), max_chunk_bytes=MAX_DELIVERY_CHUNK_BYTES,
         )
-        task_id = self.delivery_supervisor.create(response_id, delivery_id, stored.artifact.digest)
+        task_id = self.delivery_supervisor.create(
+            response_id, delivery_id, stored.artifact.digest,
+            deadline_seconds=getattr(self, "delivery_deadline_seconds", 600.0),
+        )
         self.progress_journal.record_response_artifact(
             task_id, response_id=response_id, artifact_sha256=stored.artifact.digest,
         )
