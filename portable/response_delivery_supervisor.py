@@ -23,6 +23,14 @@ def await_receiver_acknowledgement(payload: Mapping[str, Any]) -> dict[str, Any]
     """Keep the supervisor parent nonterminal until a digest-bound receiver receipt exists."""
     journal_path = payload.get("journal_path")
     task_id = payload.get("task_id")
+    if not isinstance(task_id, str) or not task_id:
+        db_path = payload.get("controller_db_path")
+        work_key = payload.get("work_key")
+        if not isinstance(db_path, str) or not isinstance(work_key, str):
+            raise ValueError("response delivery supervisor binding is incomplete")
+        with sqlite3.connect(db_path) as db:
+            row = db.execute("SELECT id FROM tasks WHERE work_key=?", (work_key,)).fetchone()
+        task_id = str(row[0]) if row else None
     response_id = payload.get("response_id")
     digest = payload.get("response_sha256")
     if not all(isinstance(value, str) and value for value in (journal_path, task_id, response_id, digest)):
@@ -92,7 +100,9 @@ class ResponseDeliverySupervisor:
             task = self.controller.submit(
                 _HANDLER,
                 {
-                    "task_id": "assigned-after-submit",
+                    "task_id": None,
+                    "controller_db_path": str(self.controller.db_path),
+                    "work_key": work_key,
                     "response_id": response_id,
                     "delivery_id": delivery_id,
                     "response_sha256": digest,
@@ -102,18 +112,6 @@ class ResponseDeliverySupervisor:
                 work_key=work_key,
                 deadline_seconds=deadline_seconds,
             )
-            # The handler receives its authoritative ID from the durable task envelope
-            # at dispatch, not from a client request.
-            with sqlite3.connect(self.controller.db_path) as task_db:
-                row_payload = task_db.execute("SELECT payload FROM tasks WHERE id=?", (task.id,)).fetchone()
-                if row_payload is None:
-                    raise RuntimeError("supervisor task disappeared after submission")
-                envelope = json.loads(row_payload[0])
-                envelope["task_id"] = task.id
-                task_db.execute("UPDATE tasks SET payload=? WHERE id=?", (
-                    json.dumps(envelope, sort_keys=True, separators=(",", ":"), ensure_ascii=False),
-                    task.id,
-                ))
             db.execute(
                 "INSERT INTO deliveries(response_id,delivery_id,task_id,response_sha256) VALUES(?,?,?,?)",
                 (response_id, delivery_id, task.id, digest),
