@@ -112,3 +112,91 @@ def test_partial_dependency_acceptance_is_bound_to_canonical_trace(tmp_path: Pat
     assert synthesis[-1]["span"]["metadata"]["partial_dependencies"] == ["news"]
     assert synthesis[-1]["span"]["output"]["partial_dependencies"] == ["news"]
     assert "api_key=must-not-leak" not in path.read_text(encoding="utf-8")
+
+
+def test_evaluator_and_repair_spans_are_nested_under_each_real_attempt(tmp_path: Path) -> None:
+    path = tmp_path / "evaluation-repair-traces.jsonl"
+    attempts = []
+
+    def run(_state):
+        attempts.append(len(attempts) + 1)
+        return {"attempt": attempts[-1]}
+
+    graph = StateGraph.from_nodes([
+        Node(
+            "implementation",
+            NodeKind.AGENT,
+            run,
+            max_attempts=2,
+            evaluator=lambda output: output["attempt"] == 2,
+            repair=lambda output, _state: output,
+        ),
+    ])
+    tracer = Tracer(LocalExporter(path, enabled=True))
+
+    result = graph.run("task-evaluation", "trace evaluator and repair lifecycle", tracer=tracer)
+
+    assert result.status == RunStatus.ACCEPTED
+    assert result.results["implementation"].attempts == 2
+    assert result.results["implementation"].repair_count == 1
+    records = _trace_records(path)
+    root = next(
+        record["span"]["span_id"] for record in records
+        if record.get("event_type") == "span_started"
+        and (record.get("span") or {}).get("name") == "supervisor"
+    )
+    started = {
+        record["span"]["metadata"]["attempt_number"]: record["span"]["span_id"]
+        for record in records
+        if record.get("event_type") == "span_started"
+        and (record.get("span") or {}).get("name") == "node_execution:implementation"
+    }
+    evaluations = [
+        record["span"] for record in records
+        if record.get("event_type") == "span_updated"
+        and (record.get("span") or {}).get("name") == "node_evaluation:implementation"
+    ]
+    repairs = [
+        record["span"] for record in records
+        if record.get("event_type") == "span_updated"
+        and (record.get("span") or {}).get("name") == "node_repair:implementation"
+    ]
+    assert [item["status"] for item in evaluations] == ["rejected", "ok"]
+    assert [item["parent_id"] for item in evaluations] == [root, root]
+    assert len(repairs) == 1
+    assert repairs[0]["parent_id"] == root
+    terminal = [record for record in records if record.get("event_type") == "trace_finished"]
+    assert terminal
+    coverage = terminal[-1]["metadata"]["lifecycle_coverage"]
+    assert coverage["configured_evaluator_count"] == 1
+    assert coverage["observed_evaluator_span_count"] == 2
+    assert coverage["configured_repair_count"] == 1
+    assert coverage["observed_repair_span_count"] == 1
+    assert coverage["external_learning_persistence"] == "not_instrumented_by_state_graph"
+
+
+def test_evaluator_exception_is_visible_without_leaking_exception_text(tmp_path: Path) -> None:
+    path = tmp_path / "evaluator-error-traces.jsonl"
+
+    def reject_with_secret(_output):
+        raise ValueError("api_key=must-not-leak")
+
+    graph = StateGraph.from_nodes([
+        Node("verify", NodeKind.AGENT, lambda _state: {"ready": True}, evaluator=reject_with_secret),
+    ])
+    tracer = Tracer(LocalExporter(path, enabled=True))
+    result = graph.run("task-evaluator-error", "trace evaluator exception", tracer=tracer)
+
+    assert result.status == RunStatus.FAILED
+    records = _trace_records(path)
+    errors = [
+        record["span"] for record in records
+        if record.get("event_type") == "span_updated"
+        and (record.get("span") or {}).get("name") == "node_evaluation:verify"
+    ]
+    assert errors
+    assert errors[-1]["status"] == "error"
+    assert errors[-1]["terminal_reason"] == "ValueError"
+    assert "api_key=must-not-leak" not in path.read_text(encoding="utf-8")
+    terminal = [record for record in records if record.get("event_type") == "trace_finished"]
+    assert terminal[-1]["metadata"]["lifecycle_coverage"]["observed_evaluator_span_count"] == 1
