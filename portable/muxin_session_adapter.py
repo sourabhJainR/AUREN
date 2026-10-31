@@ -93,8 +93,15 @@ class MuxinSessionAdapter:
         stage = (checkpoint.stage or "unknown").strip().lower()
         progress = stage_progress(stage)
         known_stages = set(_STAGE_ORDER) | _TERMINAL_FAILURES
-        age_seconds = max(0.0, time.time() - float(checkpoint.updated_at))
-        stale = stage in known_stages and stage not in _TERMINAL_FAILURES | {"completed", "verified", "queued"} and age_seconds > 60
+        try:
+            age_seconds = max(0.0, time.time() - float(checkpoint.updated_at))
+        except (TypeError, ValueError, OverflowError):
+            age_seconds = None
+        stale = (
+            stage in known_stages
+            and stage not in _TERMINAL_FAILURES | {"completed", "verified", "queued"}
+            and (age_seconds is None or age_seconds > 60)
+        )
         status = "blocked" if stage in _TERMINAL_FAILURES or checkpoint.last_error else (
             "complete" if stage in {"completed", "verified"} else
             "waiting" if stage == "queued" else
@@ -110,7 +117,7 @@ class MuxinSessionAdapter:
             "attempt": checkpoint.attempt,
             "active_provider": checkpoint.active_provider,
             "updated_at": checkpoint.updated_at,
-            "seconds_since_update": round(age_seconds, 1),
+            "seconds_since_update": round(age_seconds, 1) if age_seconds is not None else None,
             "stale": stale,
             "completed_batches": list(checkpoint.completed_batches),
             "remaining_batches": list(checkpoint.remaining_batches),
