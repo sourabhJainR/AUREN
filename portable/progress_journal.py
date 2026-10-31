@@ -343,12 +343,14 @@ class ProgressJournal:
                 raise ValueError("response manifest changed while resuming chunk delivery")
             # A delivery checkpoint can advance only while its journal task is
             # running. Late acknowledgements must not revive blocked, recovering,
-            # stale, failed, or cancelled deliveries. The exact final ack remains
-            # idempotent after a successful completion.
+            # failed, or cancelled deliveries. Host adapters must reject derived
+            # stale state before calling this method. Only the exact final ack is
+            # idempotent after successful completion.
             if (
                 current_state == "completed"
                 and previous is not None
-                and acknowledged_index == previous.get("completed_units")
+                and previous.get("completed_units") == total_chunks
+                and acknowledged_index == total_chunks
             ):
                 return ProgressEvent(**previous)
             if current_state != "running":
