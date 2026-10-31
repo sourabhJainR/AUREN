@@ -16,7 +16,7 @@ from .bounded_crew_dispatch import BoundedCrewDispatcher
 from .orchestration import Graph, Node, NodeKind, NodeStatus, OrchestrationRun, Orchestrator, RunStatus
 from .crew_adapters import CrewHandoff, GraphHandoffController, TaskRetryBudget, rollback_readiness
 from .runtime_recovery import ExecutionBudgetExceeded, RuntimeExecutionGuard
-from .agency_observability import Tracer
+from .agency_observability import Tracer, bind_trace_context
 
 _FORBIDDEN_CREW_AUTHORITIES = frozenset({
     "merge", "promote", "self_approve", "approve_own_work", "bypass_review",
@@ -500,6 +500,25 @@ class StateGraph:
             phase="supervisor", actor_id="auren.state_graph_supervisor",
             source_revision=str(source_revision) if source_revision else None,
         )
+        def record_lifecycle_coverage():
+            tool_spans = sum(span.phase == "tool" for span in trace.spans)
+            provider_spans = sum(span.phase == "provider" for span in trace.spans)
+            gaps = []
+            if tool_spans == 0:
+                gaps.append("provider_tool_adapters")
+            gaps.append("external_learning_persistence")
+            trace.metadata["phase_coverage_gaps"] = gaps
+            trace.metadata["lifecycle_coverage"] = {
+                "node_count": len(self.graph.order()),
+                "configured_evaluator_count": sum(node.evaluator is not None for node in self.graph.order()),
+                "observed_evaluator_span_count": sum(span.name.startswith("node_evaluation:") for span in trace.spans),
+                "configured_repair_count": sum(node.repair is not None for node in self.graph.order()),
+                "observed_repair_span_count": sum(span.name.startswith("node_repair:") for span in trace.spans),
+                "provider_tool_adapter_spans": tool_spans,
+                "provider_operation_spans": provider_spans,
+                "external_learning_persistence": "not_instrumented_by_state_graph",
+            }
+
         try:
             # Wrap the actual node callables, rather than reconstructing every node
             # span only after the run. This leaves durable start/error events when a
@@ -548,7 +567,8 @@ class StateGraph:
                     )
                     active_execution_spans[_node.name] = execution_span
                     try:
-                        output = _node.run(node_state)
+                        with bind_trace_context(trace, execution_span.span_id):
+                            output = _node.run(node_state)
                     except BaseException as exc:
                         execution_span.finish(
                             {"execution_status": "error", "error_type": type(exc).__name__},
@@ -689,15 +709,7 @@ class StateGraph:
             trace.metadata["canonical_stop_reason"] = result.stop_reason
             trace.metadata["learning_candidate_count"] = len(result.learned_candidates)
             trace.metadata["partial_dependency_node_count"] = sum(bool(item.partial_dependencies) for item in result.results.values())
-            trace.metadata["lifecycle_coverage"] = {
-                "node_count": len(self.graph.order()),
-                "configured_evaluator_count": sum(node.evaluator is not None for node in self.graph.order()),
-                "observed_evaluator_span_count": sum(span.name.startswith("node_evaluation:") for span in trace.spans),
-                "configured_repair_count": sum(node.repair is not None for node in self.graph.order()),
-                "observed_repair_span_count": sum(span.name.startswith("node_repair:") for span in trace.spans),
-                "provider_tool_adapter_spans": sum(span.phase == "tool" for span in trace.spans),
-                "external_learning_persistence": "not_instrumented_by_state_graph",
-            }
+            record_lifecycle_coverage()
             # Candidate generation is a learning signal, not proof that a candidate
             # was persisted, evaluated in isolation, or safely promoted.
             tracer.end(trace, "ok" if result.status == RunStatus.ACCEPTED else "blocked" if result.status == RunStatus.BLOCKED else "error")
@@ -706,15 +718,7 @@ class StateGraph:
             root.finish({"error_type": type(exc).__name__}, "error", type(exc).__name__)
             trace.metadata["canonical_run_status"] = "error"
             trace.metadata["terminal_reason"] = type(exc).__name__
-            trace.metadata["lifecycle_coverage"] = {
-                "node_count": len(self.graph.order()),
-                "configured_evaluator_count": sum(node.evaluator is not None for node in self.graph.order()),
-                "observed_evaluator_span_count": sum(span.name.startswith("node_evaluation:") for span in trace.spans),
-                "configured_repair_count": sum(node.repair is not None for node in self.graph.order()),
-                "observed_repair_span_count": sum(span.name.startswith("node_repair:") for span in trace.spans),
-                "provider_tool_adapter_spans": sum(span.phase == "tool" for span in trace.spans),
-                "external_learning_persistence": "not_instrumented_by_state_graph",
-            }
+            record_lifecycle_coverage()
             tracer.end(trace, "error")
             raise
 
