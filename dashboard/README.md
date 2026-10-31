@@ -4,6 +4,15 @@ The AUREN Engineering Console is a local, read-only web UI for understanding wha
 
 It reads existing AUREN state and repository intelligence. It does not become a second orchestrator, scheduler, policy engine, memory store, or execution authority.
 
+
+## Live session control center
+
+The main Engineering Console includes a **Sessions** tab backed by the read-only `GET /api/sessions` endpoint. It polls every four seconds and projects the existing project-scoped session checkpoints, supervisor progress journal, and digest-verified plan-run store. It does not create a second session database or execute tasks.
+
+The view separates active, completed, blocked, and unverified sessions; includes task/stage/provider/attempt timestamps and completed or remaining batches; and shows supervisor task progress, stale-state guidance, and plan task counts. Search and status filters are browser-side. A failed refresh is shown as unavailable and does not clear or complete previously observed work.
+
+The endpoint uses an allowlist projection. It does not return session intent, raw error text, task messages, plan goals, prompts, or credentials. Checkpoint digests and safe identifiers remain visible for correlation. The endpoint remains behind the dashboard's loopback-origin guard and bounded atomic JSON response limit. If the response exceeds that limit, the API fails closed rather than truncating the session list.
+
 ## Unified AUREN × Muxin control center
 
 The unified control center is served by the installed AUREN dashboard server at **http://127.0.0.1:8765/control-center**. Start the server first; keep its terminal/process running while using the browser.
