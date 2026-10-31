@@ -144,18 +144,9 @@ class _Handler(BaseHTTPRequestHandler):
             body.decode("utf-8"), max_chunk_bytes=MAX_DELIVERY_CHUNK_BYTES,
         )
         task_id = self._delivery_task_id(response_id)
-        stage = "response-artifact:" + response_id
-        existing = [
-            row for row in self.progress_journal._events()
-            if row.get("task_id") == task_id and row.get("event") == "response_artifact_staged"
-            and row.get("stage") == stage
-        ]
-        if not existing:
-            self.progress_journal.record(
-                task_id, "response_artifact_staged", state="running",
-                stage=stage, message="immutable response artifact staged",
-                evidence_ref="sha256:" + stored.artifact.digest,
-            )
+        self.progress_journal.record_response_artifact(
+            task_id, response_id=response_id, artifact_sha256=stored.artifact.digest,
+        )
         return stored
 
     def _load_delivery(self, response_id):
@@ -164,18 +155,10 @@ class _Handler(BaseHTTPRequestHandler):
         if self.response_repository is None or self.progress_journal is None:
             raise RuntimeError("durable response delivery is not configured")
         task_id = self._delivery_task_id(response_id)
-        stage = "response-artifact:" + response_id
-        rows = [
-            row for row in self.progress_journal._events()
-            if row.get("task_id") == task_id and row.get("event") == "response_artifact_staged"
-            and row.get("stage") == stage
-        ]
-        if not rows:
+        artifact_digest = self.progress_journal.response_artifact_reference(task_id, response_id)
+        if artifact_digest is None:
             raise FileNotFoundError("response artifact is unavailable")
-        evidence_ref = rows[-1].get("evidence_ref")
-        if not isinstance(evidence_ref, str) or not re.fullmatch(r"sha256:[0-9a-f]{64}", evidence_ref):
-            raise RuntimeError("response artifact reference is invalid")
-        return self.response_repository.load(response_id, evidence_ref[7:])
+        return self.response_repository.load(response_id, artifact_digest)
 
     def _delivery_checkpoint(self, response_id):
         return self.progress_journal.response_delivery_checkpoint(

@@ -254,5 +254,27 @@ class ProgressJournalTests(unittest.TestCase):
             self.assertTrue(snapshot["decision_required"])
             self.assertEqual(snapshot["stage"], "approval")
 
+    def test_response_artifact_reference_is_durable_and_idempotent(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "progress.jsonl"
+            journal = ProgressJournal(path)
+            response_id = "a" * 64
+            artifact_digest = "b" * 64
+            first = journal.record_response_artifact(
+                "delivery", response_id=response_id, artifact_sha256=artifact_digest,
+            )
+            duplicate = ProgressJournal(path).record_response_artifact(
+                "delivery", response_id=response_id, artifact_sha256=artifact_digest,
+            )
+            self.assertEqual(first.sequence, duplicate.sequence)
+            self.assertEqual(
+                ProgressJournal(path).response_artifact_reference("delivery", response_id),
+                artifact_digest,
+            )
+            with self.assertRaisesRegex(ValueError, "reference changed"):
+                journal.record_response_artifact(
+                    "delivery", response_id=response_id, artifact_sha256="c" * 64,
+                )
+
 if __name__ == "__main__":
     unittest.main()

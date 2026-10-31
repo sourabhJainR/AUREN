@@ -19,10 +19,9 @@ def _start_server(monkeypatch, root: Path, result):
     if result is not None:
         monkeypatch.setattr(HybridModelRouter, "route", lambda _self, _request: result)
     runtime_root = root / ".auren"
-    store = ArtifactStore(runtime_root / "releases")
     handler = type("ChunkDeliveryTestHandler", (dashboard_server._Handler,), {
-        "artifact_store": store,
-        "response_repository": ResponseArtifactRepository(store),
+        "artifact_store": ArtifactStore(runtime_root / "releases"),
+        "response_repository": ResponseArtifactRepository(ArtifactStore(runtime_root / "releases")),
         "progress_journal": ProgressJournal(runtime_root / "progress.jsonl"),
     })
     server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
