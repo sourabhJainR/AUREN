@@ -258,6 +258,84 @@ def test_identical_response_bodies_use_independent_receiver_cursors(monkeypatch,
         _stop_server(server, thread)
 
 
+
+def test_blocked_delivery_cannot_accept_late_ack_or_complete(monkeypatch, tmp_path):
+    result = SimpleNamespace(
+        provider="test", model="fixture", success=True, attempts=1, latency_ms=1.0,
+        resource_usage={}, fallback_reason=None, result={"answer": "blocked-delivery-" * 5000}, error=None,
+    )
+    server, thread = _start_server(monkeypatch, tmp_path, result)
+    try:
+        headers = {"Accept": dashboard_server.CHUNKED_RESPONSE_ACCEPT}
+        status, _, manifest = _request(server, "POST", "/api/route", {"task": "blocked ack"}, headers=headers)
+        assert status == 202
+        task_id = dashboard_server._Handler._delivery_task_id(manifest["response_id"], manifest["delivery_id"])
+        journal = server.RequestHandlerClass.progress_journal
+        status, _, offered = _request(server, "GET", manifest["next"])
+        assert status == 200
+        ack = {
+            "chunk_index": offered["chunk_index"],
+            "chunk_sha256": offered["chunk_sha256"],
+            "response_sha256": manifest["response_sha256"],
+            "total_chunks": manifest["total_chunks"],
+        }
+        journal.record(
+            task_id, "delivery_reconciliation_required", state="blocked",
+            stage="reconciliation", message="operator reconciliation required",
+        )
+        status, _, _ = _request(server, "POST", manifest["ack"], ack)
+        assert status == 409
+        status, _, blocked_offer = _request(server, "GET", manifest["next"])
+        assert status == 409
+        assert blocked_offer["state"] == "blocked"
+        snapshot = journal.snapshot(task_id)
+        assert snapshot["reported_state"] == "blocked"
+        assert not any(
+            row["task_id"] == task_id and row["event"] == "response_chunk_acknowledged"
+            for row in journal._events()
+        )
+
+        status, _, complete_manifest = _request(
+            server, "POST", "/api/route", {"task": "blocked completion"}, headers=headers,
+        )
+        assert status == 202
+        complete_task_id = dashboard_server._Handler._delivery_task_id(
+            complete_manifest["response_id"], complete_manifest["delivery_id"],
+        )
+        while True:
+            status, _, chunk = _request(server, "GET", complete_manifest["next"])
+            assert status == 200
+            if chunk.get("all_chunks_acknowledged"):
+                break
+            ack = {
+                "chunk_index": chunk["chunk_index"],
+                "chunk_sha256": chunk["chunk_sha256"],
+                "response_sha256": complete_manifest["response_sha256"],
+                "total_chunks": complete_manifest["total_chunks"],
+            }
+            status, _, _ = _request(server, "POST", complete_manifest["ack"], ack)
+            assert status == 200
+
+        journal.record(
+            complete_task_id, "delivery_reconciliation_required", state="blocked",
+            stage="reconciliation", message="operator reconciliation required",
+        )
+        complete = {
+            "response_sha256": complete_manifest["response_sha256"],
+            "total_chunks": complete_manifest["total_chunks"],
+        }
+        status, _, rejected = _request(server, "POST", complete_manifest["complete"], complete)
+        assert status == 503
+        assert "completion is not confirmed" in rejected["error"]
+        final = journal.snapshot(complete_task_id)
+        assert final["reported_state"] == "blocked"
+        assert not any(
+            row["task_id"] == complete_task_id and row["event"] == "response_delivery_completed"
+            for row in journal._events()
+        )
+    finally:
+        _stop_server(server, thread)
+
 def test_concurrent_duplicate_acknowledgements_are_idempotent(monkeypatch, tmp_path):
     result = SimpleNamespace(
         provider="test", model="fixture", success=True, attempts=1, latency_ms=1.0,
