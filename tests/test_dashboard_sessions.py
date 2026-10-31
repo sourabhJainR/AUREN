@@ -4,6 +4,8 @@ import http.client
 import json
 from http.server import ThreadingHTTPServer
 from pathlib import Path
+import hashlib
+import time
 from threading import Thread
 
 from portable.dashboard_server import _Handler
@@ -53,16 +55,31 @@ def test_session_snapshot_combines_checkpoints_and_safe_journal_projection(tmp_p
             remaining_batches=["integration"] if stage == "testing" else [],
         ))
 
+    stale = SessionCheckpoint(
+        session_id="stale-session", task_id="task-stale", project_key=project_key,
+        stage="running", project_root=str(tmp_path), updated_at=time.time() - 120,
+    )
+    stale_payload = stale.__dict__.copy()
+    stale_payload["state_digest"] = ""
+    stale.state_digest = hashlib.sha256(
+        json.dumps(stale_payload, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    store.root.mkdir(parents=True, exist_ok=True)
+    store.path(stale.session_id).write_text(
+        json.dumps(stale.__dict__), encoding="utf-8",
+    )
+
     adapter = MuxinSessionAdapter(tmp_path, session_store=store, dashboard=_Dashboard())
     payload = adapter.session_snapshot()
     assert payload["counts"] == {
-        "sessions": 3, "active": 1, "completed": 1, "blocked": 1,
+        "sessions": 4, "active": 1, "completed": 1, "blocked": 1, "stale": 1,
         "unverified": 0, "tasks": 1, "plan_runs": 1,
     }
     assert {row["session_id"] for row in payload["sessions"]} == {
-        "active-session", "completed-session", "blocked-session",
+        "active-session", "completed-session", "blocked-session", "stale-session",
     }
     assert next(row for row in payload["sessions"] if row["session_id"] == "blocked-session")["error_present"]
+    assert next(row for row in payload["sessions"] if row["session_id"] == "stale-session")["status"] == "stale"
     serialized = json.dumps(payload)
     assert "sensitive-error" not in serialized
     assert "private prompt" not in serialized
