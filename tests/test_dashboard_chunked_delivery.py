@@ -122,7 +122,7 @@ def test_chunked_route_supports_acknowledged_resume_after_server_restart(monkeyp
         while True:
             status, _, chunk = _request(server, "GET", manifest["next"])
             assert status == 200
-            if chunk.get("complete"):
+            if chunk.get("all_chunks_acknowledged"):
                 break
             assert chunk["chunk_index"] == len(parts) + 1
             parts.append(chunk["text"])
@@ -141,6 +141,12 @@ def test_chunked_route_supports_acknowledged_resume_after_server_restart(monkeyp
         assert len(assembled.encode("utf-8")) == manifest["total_bytes"]
         parsed = json.loads(assembled)
         assert parsed["result"]["answer"] == answer
+
+        status, _, pre_complete = _request(server, "GET", manifest["status"])
+        assert status == 200
+        assert pre_complete["all_chunks_acknowledged"] is True
+        assert pre_complete["complete"] is False
+        assert pre_complete["state"] == "running"
 
         complete = {
             "response_sha256": response_id,

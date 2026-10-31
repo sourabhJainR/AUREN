@@ -179,6 +179,11 @@ class _Handler(BaseHTTPRequestHandler):
             acknowledged = checkpoint["acknowledged_index"]
             if checkpoint.get("total_chunks") not in (None, manifest.total_chunks):
                 raise RuntimeError("delivery acknowledgement manifest mismatch")
+            snapshot = self.progress_journal.snapshot(
+                self._delivery_task_id(response_id, delivery_id),
+            )
+            terminal_state = snapshot.get("reported_state", snapshot.get("state"))
+            all_acknowledged = acknowledged == manifest.total_chunks
             if action == "status":
                 self._send_delivery_json(200, {
                     "response_id": response_id,
@@ -187,12 +192,16 @@ class _Handler(BaseHTTPRequestHandler):
                     "total_chunks": manifest.total_chunks,
                     "total_bytes": manifest.total_bytes,
                     "acknowledged_index": acknowledged,
-                    "complete": acknowledged == manifest.total_chunks,
+                    "all_chunks_acknowledged": all_acknowledged,
+                    "complete": terminal_state == "completed",
+                    "state": terminal_state,
                 })
                 return
-            if acknowledged >= manifest.total_chunks:
+            if all_acknowledged:
                 self._send_delivery_json(200, {
-                    "response_id": response_id, "complete": True,
+                    "response_id": response_id, "delivery_id": delivery_id,
+                    "all_chunks_acknowledged": True,
+                    "complete": terminal_state == "completed",
                     "acknowledged_index": acknowledged,
                     "total_chunks": manifest.total_chunks,
                 })
