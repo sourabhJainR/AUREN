@@ -505,6 +505,8 @@ class StateGraph:
             # span only after the run. This leaves durable start/error events when a
             # node raises or the supervisor stops before a final OrchestrationRun.
             traced_nodes = []
+            active_execution_spans = {}
+            attempt_counts = {}
             for node in self.graph.order():
                 lowered_name = node.name.lower()
                 if "research" in lowered_name or "retriev" in lowered_name:
@@ -529,15 +531,22 @@ class StateGraph:
                     node_phase = "implementation" if node.kind == NodeKind.AGENT else "supervisor"
 
                 def traced_run(node_state, *, _node=node, _phase=node_phase):
+                    attempt_number = attempt_counts.get(_node.name, 0) + 1
+                    attempt_counts[_node.name] = attempt_number
                     execution_span = trace.span(
                         "node_execution:" + _node.name,
                         _node.kind.value,
-                        metadata={"execution_status": "started", "attempt_budget": _node.max_attempts},
+                        metadata={
+                            "execution_status": "started",
+                            "attempt_budget": _node.max_attempts,
+                            "attempt_number": attempt_number,
+                        },
                         parent_id=root.span_id,
                         phase=_phase,
                         actor_id="auren.state_graph_supervisor",
                         source_revision=str(source_revision) if source_revision else None,
                     )
+                    active_execution_spans[_node.name] = execution_span
                     try:
                         output = _node.run(node_state)
                     except BaseException as exc:
@@ -549,7 +558,60 @@ class StateGraph:
                     execution_span.finish({"execution_status": "returned"}, "ok")
                     return output
 
-                traced_nodes.append(replace(node, run=traced_run))
+                traced_evaluator = None
+                if node.evaluator is not None:
+                    def traced_evaluator(output, *, _node=node, _evaluator=node.evaluator):
+                        parent = active_execution_spans.get(_node.name)
+                        evaluation_span = trace.span(
+                            "node_evaluation:" + _node.name,
+                            "evaluator",
+                            metadata={"attempt_number": attempt_counts.get(_node.name, 0)},
+                            parent_id=root.span_id,
+                            phase="evaluation",
+                            actor_id="auren.supervisor_evaluator",
+                            source_revision=str(source_revision) if source_revision else None,
+                        )
+                        try:
+                            verdict = _evaluator(output)
+                        except BaseException as exc:
+                            evaluation_span.finish(
+                                {"error_type": type(exc).__name__}, "error", type(exc).__name__,
+                            )
+                            raise
+                        accepted = bool(verdict)
+                        evaluation_span.finish(
+                            {"accepted": accepted},
+                            "ok" if accepted else "rejected",
+                            None if accepted else "evaluator_rejected",
+                        )
+                        return verdict
+
+                traced_repair = None
+                if node.repair is not None:
+                    def traced_repair(output, repair_state, *, _node=node, _repair=node.repair):
+                        parent = active_execution_spans.get(_node.name)
+                        repair_span = trace.span(
+                            "node_repair:" + _node.name,
+                            "repair",
+                            metadata={"attempt_number": attempt_counts.get(_node.name, 0)},
+                            parent_id=root.span_id,
+                            phase="repair",
+                            actor_id="auren.supervisor_repair",
+                            source_revision=str(source_revision) if source_revision else None,
+                        )
+                        try:
+                            candidate = _repair(output, repair_state)
+                        except BaseException as exc:
+                            repair_span.finish(
+                                {"error_type": type(exc).__name__}, "error", type(exc).__name__,
+                            )
+                            raise
+                        repair_span.finish({"repair_candidate_returned": True}, "ok")
+                        return candidate
+
+                traced_nodes.append(replace(
+                    node, run=traced_run, evaluator=traced_evaluator, repair=traced_repair,
+                ))
             traced_graph = Graph(traced_nodes)
             result = Orchestrator(traced_graph, max_total_attempts=max_total_attempts).run(task_id, intent, state)
             for node in self.graph.order():
@@ -627,6 +689,15 @@ class StateGraph:
             trace.metadata["canonical_stop_reason"] = result.stop_reason
             trace.metadata["learning_candidate_count"] = len(result.learned_candidates)
             trace.metadata["partial_dependency_node_count"] = sum(bool(item.partial_dependencies) for item in result.results.values())
+            trace.metadata["lifecycle_coverage"] = {
+                "node_count": len(self.graph.order()),
+                "configured_evaluator_count": sum(node.evaluator is not None for node in self.graph.order()),
+                "observed_evaluator_span_count": sum(span.name.startswith("node_evaluation:") for span in trace.spans),
+                "configured_repair_count": sum(node.repair is not None for node in self.graph.order()),
+                "observed_repair_span_count": sum(span.name.startswith("node_repair:") for span in trace.spans),
+                "provider_tool_adapter_spans": sum(span.phase == "tool" for span in trace.spans),
+                "external_learning_persistence": "not_instrumented_by_state_graph",
+            }
             # Candidate generation is a learning signal, not proof that a candidate
             # was persisted, evaluated in isolation, or safely promoted.
             tracer.end(trace, "ok" if result.status == RunStatus.ACCEPTED else "blocked" if result.status == RunStatus.BLOCKED else "error")
@@ -635,6 +706,15 @@ class StateGraph:
             root.finish({"error_type": type(exc).__name__}, "error", type(exc).__name__)
             trace.metadata["canonical_run_status"] = "error"
             trace.metadata["terminal_reason"] = type(exc).__name__
+            trace.metadata["lifecycle_coverage"] = {
+                "node_count": len(self.graph.order()),
+                "configured_evaluator_count": sum(node.evaluator is not None for node in self.graph.order()),
+                "observed_evaluator_span_count": sum(span.name.startswith("node_evaluation:") for span in trace.spans),
+                "configured_repair_count": sum(node.repair is not None for node in self.graph.order()),
+                "observed_repair_span_count": sum(span.name.startswith("node_repair:") for span in trace.spans),
+                "provider_tool_adapter_spans": sum(span.phase == "tool" for span in trace.spans),
+                "external_learning_persistence": "not_instrumented_by_state_graph",
+            }
             tracer.end(trace, "error")
             raise
 
