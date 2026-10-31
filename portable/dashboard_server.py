@@ -497,6 +497,8 @@ def serve(project_root=".", host="127.0.0.1", port=8765):
     artifact_store = ArtifactStore(runtime_root / "releases")
     response_repository = ResponseArtifactRepository(artifact_store)
     progress_journal = ProgressJournal(runtime_root / "progress.jsonl")
+    controller = ExecutionController(project_root)
+    delivery_supervisor = ResponseDeliverySupervisor(controller, runtime_root / "progress.jsonl")
     handler = type("AERDashboardHandler", (_Handler,), {
         "dashboard": dashboard, "control_center": control_center,
         "ui_root": UI_ROOT, "control_center_path": CONTROL_CENTER,
