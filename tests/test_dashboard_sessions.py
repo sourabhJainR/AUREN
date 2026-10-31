@@ -90,7 +90,7 @@ def test_session_snapshot_combines_checkpoints_and_safe_journal_projection(tmp_p
 
 def test_dashboard_sessions_endpoint_serves_live_snapshot_and_rejects_foreign_origin():
     class _ControlCenter:
-        def session_snapshot(self):
+        def session_snapshot(self, *, offset=0, limit=50):
             return {"schema_version": 1, "sessions": [], "tasks": [], "plan_runs": []}
 
     handler = type("SessionDashboardHandler", (_Handler,), {"control_center": _ControlCenter()})
@@ -117,3 +117,46 @@ def test_dashboard_sessions_endpoint_serves_live_snapshot_and_rejects_foreign_or
         server.shutdown()
         server.server_close()
         thread.join(timeout=3)
+
+
+def test_session_inventory_paginates_without_dropping_completed_records(tmp_path):
+    store = SessionStore(tmp_path / "sessions")
+    project_key = store.project_key(tmp_path)
+    for index in range(123):
+        store.save(SessionCheckpoint(
+            session_id=f"session-{index:03d}",
+            task_id=f"task-{index:03d}",
+            project_key=project_key,
+            stage="completed" if index % 3 == 0 else "running",
+            project_root=str(tmp_path),
+        ))
+    adapter = MuxinSessionAdapter(tmp_path, session_store=store, dashboard=_Dashboard())
+    first = adapter.session_snapshot(offset=0, limit=50)
+    second = adapter.session_snapshot(offset=50, limit=50)
+    third = adapter.session_snapshot(offset=100, limit=50)
+    all_ids = [
+        row["session_id"]
+        for page in (first, second, third)
+        for row in page["sessions"]
+    ]
+    assert len(all_ids) == 123
+    assert len(set(all_ids)) == 123
+    assert first["pagination"] == {
+        "offset": 0, "limit": 50, "total": 123, "has_more": True,
+    }
+    assert second["pagination"]["has_more"] is True
+    assert third["pagination"]["has_more"] is False
+    assert first["counts"]["sessions"] == 123
+    assert first["counts"]["completed"] == 41
+    assert first["counts"]["active"] == 82
+
+
+def test_session_pagination_rejects_invalid_bounds(tmp_path):
+    adapter = MuxinSessionAdapter(tmp_path, session_store=SessionStore(tmp_path / "sessions"), dashboard=_Dashboard())
+    for offset, limit in ((-1, 10), (0, 0), (0, 101), (True, 10)):
+        try:
+            adapter.session_snapshot(offset=offset, limit=limit)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"invalid pagination accepted: offset={offset}, limit={limit}")
