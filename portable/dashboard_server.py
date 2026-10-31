@@ -7,6 +7,7 @@ import re
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
+from uuid import uuid4
 from .agency_release_lifecycle import ArtifactStore
 from .engineering_dashboard import EngineeringDashboard
 from .muxin_session_adapter import LocalModelDiscovery, MuxinSessionAdapter
@@ -134,53 +135,54 @@ class _Handler(BaseHTTPRequestHandler):
         return value
 
     @staticmethod
-    def _delivery_task_id(response_id):
-        return "dashboard-response:" + response_id
+    def _delivery_task_id(response_id, delivery_id):
+        return "dashboard-response:" + response_id + ":" + delivery_id
 
-    def _persist_response_artifact(self, response_id, body):
+    def _persist_response_artifact(self, response_id, delivery_id, body):
         if self.response_repository is None or self.progress_journal is None:
             raise RuntimeError("canonical response artifact repository is unavailable")
         stored = self.response_repository.stage(
             body.decode("utf-8"), max_chunk_bytes=MAX_DELIVERY_CHUNK_BYTES,
         )
-        task_id = self._delivery_task_id(response_id)
+        task_id = self._delivery_task_id(response_id, delivery_id)
         self.progress_journal.record_response_artifact(
             task_id, response_id=response_id, artifact_sha256=stored.artifact.digest,
         )
         return stored
 
-    def _load_delivery(self, response_id):
+    def _load_delivery(self, response_id, delivery_id):
         if not re.fullmatch(r"[0-9a-f]{64}", response_id):
             raise ValueError("invalid response identity")
         if self.response_repository is None or self.progress_journal is None:
             raise RuntimeError("durable response delivery is not configured")
-        task_id = self._delivery_task_id(response_id)
+        task_id = self._delivery_task_id(response_id, delivery_id)
         artifact_digest = self.progress_journal.response_artifact_reference(task_id, response_id)
         if artifact_digest is None:
             raise FileNotFoundError("response artifact is unavailable")
         return self.response_repository.load(response_id, artifact_digest)
 
-    def _delivery_checkpoint(self, response_id):
+    def _delivery_checkpoint(self, response_id, delivery_id):
         return self.progress_journal.response_delivery_checkpoint(
-            self._delivery_task_id(response_id), response_id,
+            self._delivery_task_id(response_id, delivery_id), response_id,
         )
 
     def _handle_delivery_get(self, path):
-        match = re.fullmatch(r"/api/delivery/([0-9a-f]{64})/(next|status)", path)
+        match = re.fullmatch(r"/api/delivery/([0-9a-f]{64})/([0-9a-f]{32})/(next|status)", path)
         if not match:
             self._send(404, b'{"error":"not found"}', "application/json")
             return
-        response_id, action = match.groups()
+        response_id, delivery_id, action = match.groups()
         try:
-            stored = self._load_delivery(response_id)
+            stored = self._load_delivery(response_id, delivery_id)
             manifest, chunks = stored.manifest, stored.chunks
-            checkpoint = self._delivery_checkpoint(response_id)
+            checkpoint = self._delivery_checkpoint(response_id, delivery_id)
             acknowledged = checkpoint["acknowledged_index"]
             if checkpoint.get("total_chunks") not in (None, manifest.total_chunks):
                 raise RuntimeError("delivery acknowledgement manifest mismatch")
             if action == "status":
                 self._send_delivery_json(200, {
                     "response_id": response_id,
+                    "delivery_id": delivery_id,
                     "response_sha256": manifest.sha256,
                     "total_chunks": manifest.total_chunks,
                     "total_bytes": manifest.total_bytes,
@@ -213,23 +215,23 @@ class _Handler(BaseHTTPRequestHandler):
             self._send_delivery_json(503, {"error": "response delivery state unavailable; automatic replay is blocked"})
 
     def _handle_delivery_post(self, path):
-        match = re.fullmatch(r"/api/delivery/([0-9a-f]{64})/(ack|complete)", path)
+        match = re.fullmatch(r"/api/delivery/([0-9a-f]{64})/([0-9a-f]{32})/(ack|complete)", path)
         if not match:
             self._send(404, b'{"error":"not found"}', "application/json")
             return
-        response_id, action = match.groups()
+        response_id, delivery_id, action = match.groups()
         try:
             payload = self._read_json_request(max_bytes=16_384)
-            stored = self._load_delivery(response_id)
+            stored = self._load_delivery(response_id, delivery_id)
             manifest, chunks = stored.manifest, stored.chunks
-            checkpoint = self._delivery_checkpoint(response_id)
+            checkpoint = self._delivery_checkpoint(response_id, delivery_id)
             acknowledged = checkpoint["acknowledged_index"]
             if payload.get("response_sha256") != manifest.sha256:
                 raise ValueError("response digest mismatch")
             supplied_total = payload.get("total_chunks")
             if isinstance(supplied_total, bool) or not isinstance(supplied_total, int) or supplied_total != manifest.total_chunks:
                 raise ValueError("response chunk count mismatch")
-            task_id = self._delivery_task_id(response_id)
+            task_id = self._delivery_task_id(response_id, delivery_id)
             if action == "ack":
                 index = payload.get("chunk_index")
                 chunk_digest = payload.get("chunk_sha256")
@@ -246,7 +248,7 @@ class _Handler(BaseHTTPRequestHandler):
                     response_sha256=manifest.sha256,
                 )
                 self._send_delivery_json(200, {
-                    "acknowledged": True, "response_id": response_id,
+                    "acknowledged": True, "response_id": response_id, "delivery_id": delivery_id,
                     "acknowledged_index": index, "chunk_sha256": chunk.sha256,
                 })
                 return
@@ -266,7 +268,7 @@ class _Handler(BaseHTTPRequestHandler):
                     evidence_ref="sha256:" + manifest.sha256,
                 )
             self._send_delivery_json(200, {
-                "completed": True, "response_id": response_id,
+                "completed": True, "response_id": response_id, "delivery_id": delivery_id,
                 "response_sha256": manifest.sha256,
                 "acknowledged_index": acknowledged,
                 "total_chunks": manifest.total_chunks,
@@ -322,12 +324,14 @@ class _Handler(BaseHTTPRequestHandler):
                     self._send_delivery_json(503, {"error": "routing response could not be serialized safely"})
                     return
                 response_id = hashlib.sha256(body).hexdigest()
-                stored = self._persist_response_artifact(response_id, body)
+                delivery_id = uuid4().hex
+                stored = self._persist_response_artifact(response_id, delivery_id, body)
                 manifest = stored.manifest
                 ref = stored.artifact
                 self._send_delivery_json(202, {
                     "delivery_mode": "chunked-pull-v1",
                     "response_id": manifest.response_id,
+                    "delivery_id": delivery_id,
                     "response_sha256": manifest.sha256,
                     "total_chunks": manifest.total_chunks,
                     "total_chars": manifest.total_chars,
@@ -339,10 +343,10 @@ class _Handler(BaseHTTPRequestHandler):
                         "size": ref.size,
                         "layout": ref.layout,
                     },
-                    "next": "/api/delivery/" + manifest.response_id + "/next",
-                    "status": "/api/delivery/" + manifest.response_id + "/status",
-                    "ack": "/api/delivery/" + manifest.response_id + "/ack",
-                    "complete": "/api/delivery/" + manifest.response_id + "/complete",
+                    "next": "/api/delivery/" + manifest.response_id + "/" + delivery_id + "/next",
+                    "status": "/api/delivery/" + manifest.response_id + "/" + delivery_id + "/status",
+                    "ack": "/api/delivery/" + manifest.response_id + "/" + delivery_id + "/ack",
+                    "complete": "/api/delivery/" + manifest.response_id + "/" + delivery_id + "/complete",
                 })
                 return
             self._send_api_json(200 if result.success else 503, response_payload)

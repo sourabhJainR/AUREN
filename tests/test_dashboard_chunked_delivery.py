@@ -102,7 +102,7 @@ def test_chunked_route_supports_acknowledged_resume_after_server_restart(monkeyp
         }
         status, _, ack_result = _request(server, "POST", manifest["ack"], first_ack)
         assert status == 200 and ack_result["acknowledged_index"] == 1
-        task_id = server.RequestHandlerClass._delivery_task_id(response_id)
+        task_id = server.RequestHandlerClass._delivery_task_id(response_id, manifest["delivery_id"])
         assert server.RequestHandlerClass.progress_journal.snapshot(task_id)["state"] == "running"
         # Duplicate acknowledgement is idempotent.
         status, _, duplicate = _request(server, "POST", manifest["ack"], first_ack)
@@ -150,7 +150,7 @@ def test_chunked_route_supports_acknowledged_resume_after_server_restart(monkeyp
         assert status == 200 and receipt["completed"] is True
         status, _, final = _request(server, "GET", manifest["status"])
         assert status == 200 and final["complete"] is True
-        task_id = dashboard_server._Handler._delivery_task_id(response_id)
+        task_id = dashboard_server._Handler._delivery_task_id(response_id, manifest["delivery_id"])
         assert server.RequestHandlerClass.progress_journal.snapshot(task_id)["state"] == "completed"
     finally:
         _stop_server(server, thread)
@@ -209,7 +209,7 @@ def test_tampered_response_artifact_blocks_delivery_after_restart(monkeypatch, t
         status, _, payload = _request(server, "GET", manifest["next"])
         assert status == 503
         assert "automatic replay is blocked" in payload["error"]
-        task_id = server.RequestHandlerClass._delivery_task_id(manifest["response_id"])
+        task_id = server.RequestHandlerClass._delivery_task_id(manifest["response_id"], manifest["delivery_id"])
         checkpoint = server.RequestHandlerClass.progress_journal.response_delivery_checkpoint(
             task_id, manifest["response_id"],
         )

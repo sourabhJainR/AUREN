@@ -77,19 +77,19 @@ stores only the artifact digest reference and receiver-confirmed acknowledgement
 response bytes.
 The client then:
 
-1. Fetches `GET /api/delivery/{response_id}/next`. Reads do not advance the cursor.
-2. Persists the exact chunk on the receiver before calling `POST /api/delivery/{response_id}/ack`
+1. Fetches `GET /api/delivery/{response_id}/{delivery_id}/next`. Reads do not advance the cursor.
+2. Persists the exact chunk on the receiver before calling `POST /api/delivery/{response_id}/{delivery_id}/ack`
    with the response digest, contiguous index, total count, and chunk digest.
-3. Uses `GET /api/delivery/{response_id}/status` after reconnect/restart. The server returns the
+3. Uses `GET /api/delivery/{response_id}/{delivery_id}/status` after reconnect/restart. The server returns the
    last receiver-confirmed contiguous index; a repeated ack for that same chunk is idempotent.
 4. Reassembles and hashes the full response on the receiver, then calls
-   `POST /api/delivery/{response_id}/complete`. The host independently verifies its immutable
+   `POST /api/delivery/{response_id}/{delivery_id}/complete`. The host independently verifies its immutable
    artifact and records a terminal delivery receipt only after all chunks are acknowledged.
 
 The acknowledgement endpoint trusts the client to send an ack only after receiver-side durable
 acceptance; the protocol cannot inspect the client's storage. Clients must not ack after merely
 receiving bytes into a transient buffer. The delivery journal is the same project-scoped
-`.auren/progress.jsonl` used by `ExecutionController`; the body is stored only in the existing
+`.auren/progress.jsonl` used by `ExecutionController`; its task key includes both response digest and unique delivery ID; the body is stored only in the existing
 content-addressed release artifact store. The dashboard route itself is not a supervisor task,
 so this delivery receipt does not falsely complete an unrelated parent execution task.
 
