@@ -521,6 +521,10 @@ class Orchestrator:
         critical_failures: list[tuple[RunStatus, str, str]] = []
 
         for node in self.graph.order():
+            # Partial dependency context is scoped to one node invocation. A
+            # prior synthesis must never leak its missing-source list into an
+            # unrelated downstream or sibling node.
+            state["auren_partial_dependencies"] = []
             dependency_results = [run.results[name] for name in node.depends_on]
             failed_dependencies = [
                 result for result in dependency_results
