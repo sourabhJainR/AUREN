@@ -158,6 +158,7 @@ class ProgressJournalTests(unittest.TestCase):
     def test_response_chunk_ack_is_idempotent_and_rejects_gaps_or_manifest_changes(self):
         with tempfile.TemporaryDirectory() as temp:
             journal = ProgressJournal(Path(temp) / "progress.jsonl")
+            journal.record("delivery", "started", state="running", stage="response")
             digest = "a" * 64
             first = journal.record_response_chunk_ack(
                 "delivery", response_id=digest, response_sha256=digest,
@@ -190,6 +191,7 @@ class ProgressJournalTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "progress.jsonl"
             journal = ProgressJournal(path)
+            journal.record("delivery", "started", state="running", stage="response")
             digest = "c" * 64
             journal.record_response_chunk_ack(
                 "delivery", response_id=digest, response_sha256=digest,
@@ -197,8 +199,8 @@ class ProgressJournalTests(unittest.TestCase):
             )
             with path.open("a", encoding="utf-8") as stream:
                 import json
-                row = json.loads(path.read_text(encoding="utf-8").splitlines()[0])
-                row["sequence"] = 2
+                row = json.loads(path.read_text(encoding="utf-8").splitlines()[-1])
+                row["sequence"] = 3
                 row["completed_units"] = 3
                 stream.write(json.dumps(row) + "\n")
             with self.assertRaisesRegex(ProgressJournalCorruption, "not contiguous"):
