@@ -28,6 +28,10 @@ def _binding(**overrides):
     return value
 
 
+class FakeUniqueViolation(RuntimeError):
+    sqlstate = "23505"
+
+
 class FakeCursor:
     def __init__(self, connection):
         self.connection = connection
@@ -47,7 +51,7 @@ class FakeCursor:
                 self.result = None
                 return
             if any(row["claim_operation_id"] == operation_id for row in self.connection.store.values()):
-                raise RuntimeError("claim operation ID is already bound to another attestation")
+                raise FakeUniqueViolation("claim operation ID is already bound to another attestation")
             self.connection.store[attestation_id] = {
                 "binding_digest": binding_digest,
                 "attestation_digest": attestation_digest,
@@ -83,9 +87,10 @@ class FakeCursor:
 
 
 class FakeConnection:
-    def __init__(self, store, *, fail_commit=False):
+    def __init__(self, store, *, fail_commit=False, fail_close=False):
         self.store = store
         self.fail_commit = fail_commit
+        self.fail_close = fail_close
 
     def cursor(self):
         return FakeCursor(self)
@@ -98,7 +103,8 @@ class FakeConnection:
         pass
 
     def close(self):
-        pass
+        if self.fail_close:
+            raise OSError("connection close failed after commit")
 
 
 def _claim_postgres(dsn, table_name, attestation_id, operation_id, binding):
@@ -109,6 +115,15 @@ def _claim_postgres(dsn, table_name, attestation_id, operation_id, binding):
         table_name=table_name,
     )
     return registry.claim(attestation_id, binding=binding, operation_id=operation_id)
+
+
+
+def _claim_postgres_status(dsn, table_name, attestation_id, operation_id, binding):
+    try:
+        claimed = _claim_postgres(dsn, table_name, attestation_id, operation_id, binding)
+        return "claimed" if claimed else "replayed"
+    except ReplayClaimConflict:
+        return "conflict"
 
 
 def _lookup_postgres(dsn, table_name, attestation_id, operation_id, binding):
@@ -146,7 +161,7 @@ class PostgreSQLAttestationReplayRegistryTests(unittest.TestCase):
         store = {}
         registry = PostgreSQLAttestationReplayRegistry(lambda: FakeConnection(store))
         registry.claim("attestation-3", binding=_binding(), operation_id="claim-3")
-        with self.assertRaisesRegex(RuntimeError, "operation ID is already bound"):
+        with self.assertRaisesRegex(ReplayClaimConflict, "operation ID is already bound"):
             registry.claim("attestation-4", binding=_binding(), operation_id="claim-3")
 
     def test_unknown_commit_outcome_fails_closed_and_reconciles_same_operation(self):
@@ -240,6 +255,36 @@ class PostgreSQLAttestationReplayRegistryTests(unittest.TestCase):
         )
         self.assertIs(verifier.replay_registry, registry)
 
+
+    def test_confirmed_commit_is_not_changed_to_unknown_by_close_failure(self):
+        store = {}
+        connections = [
+            FakeConnection(store),
+            FakeConnection(store, fail_close=True),
+            FakeConnection(store),
+        ]
+        registry = PostgreSQLAttestationReplayRegistry(
+            lambda: connections.pop(0),
+        )
+        self.assertTrue(registry.claim(
+            "attestation-close", binding=_binding(), operation_id="claim-close",
+        ))
+        self.assertTrue(registry.lookup_claim(
+            "attestation-close", binding=_binding(), operation_id="claim-close",
+        ))
+
+    def test_lookup_backend_failure_remains_unknown_and_fails_closed(self):
+        registry = PostgreSQLAttestationReplayRegistry(lambda: FakeConnection({}))
+
+        def unavailable():
+            raise ConnectionError("shared PostgreSQL unavailable")
+
+        registry._connection_factory = unavailable
+        with self.assertRaises(ConnectionError):
+            registry.lookup_claim(
+                "attestation-unavailable", binding=_binding(), operation_id="claim-unavailable",
+            )
+
     def test_invalid_table_name_is_rejected(self):
         with self.assertRaises(ValueError):
             PostgreSQLAttestationReplayRegistry(lambda: FakeConnection({}), table_name="bad; DROP TABLE x")
@@ -317,6 +362,41 @@ class PostgreSQLAttestationReplayRegistryTests(unittest.TestCase):
             with psycopg.connect(dsn) as connection:
                 connection.execute(f"DROP TABLE IF EXISTS {table_name}")
 
+
+
+    @unittest.skipUnless(os.environ.get("AUREN_TEST_POSTGRES_DSN"), "real PostgreSQL service is not configured")
+    def test_real_postgres_operation_id_is_single_winner_across_distinct_attestations(self):
+        import psycopg
+
+        dsn = os.environ["AUREN_TEST_POSTGRES_DSN"]
+        table_name = "a_replay_" + uuid4().hex[:24]
+        binding = _binding()
+        operation_id = "shared-operation-" + uuid4().hex
+        attestation_ids = ["attestation-" + uuid4().hex, "attestation-" + uuid4().hex]
+        registry = PostgreSQLAttestationReplayRegistry(lambda: psycopg.connect(dsn), table_name=table_name)
+        try:
+            with ProcessPoolExecutor(
+                max_workers=2,
+                mp_context=multiprocessing.get_context("spawn"),
+            ) as pool:
+                outcomes = list(pool.map(
+                    _claim_postgres_status,
+                    [dsn, dsn],
+                    [table_name, table_name],
+                    attestation_ids,
+                    [operation_id, operation_id],
+                    [binding, binding],
+                ))
+            self.assertCountEqual(["claimed", "conflict"], outcomes)
+            with psycopg.connect(dsn) as connection:
+                rows = connection.execute(
+                    f"SELECT COUNT(*) FROM {table_name} WHERE claim_operation_id = %s",
+                    (operation_id,),
+                ).fetchone()
+            self.assertEqual(1, rows[0])
+        finally:
+            with psycopg.connect(dsn) as connection:
+                connection.execute(f"DROP TABLE IF EXISTS {table_name}")
 
     @unittest.skipUnless(os.environ.get("AUREN_TEST_POSTGRES_DSN"), "real PostgreSQL service is not configured")
     def test_real_postgres_lost_commit_ack_reconciles_from_a_fresh_process(self):

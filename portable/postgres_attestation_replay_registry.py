@@ -261,7 +261,13 @@ class PostgreSQLAttestationReplayRegistry:
                 raise ReplayClaimOutcomeUnknown(identifier, operation, binding_digest) from exc
             return claimed
         finally:
-            connection.close()
+            # A close failure after a confirmed commit must not turn a known
+            # durable claim into an ambiguous caller-visible result. Commit
+            # failures are already surfaced as ReplayClaimOutcomeUnknown.
+            try:
+                connection.close()
+            except Exception:
+                pass
 
     def lookup_claim(
         self,
