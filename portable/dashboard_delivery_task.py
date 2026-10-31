@@ -89,7 +89,7 @@ def dashboard_response_delivery_handler(payload: Mapping[str, Any]) -> dict[str,
             max_attempts=int(payload.get("max_attempts", 2)),
             timeout_seconds=timeout_seconds,
         )
-        result = HybridModelRouter().route(request)
+        result = HybridModelRouter().route_supervised(request, execution_payload=payload)
         if cancel_event is not None and cancel_event.is_set():
             raise InterruptedError("response generation returned after supervisor cancellation")
         if type(result.success) is not bool:

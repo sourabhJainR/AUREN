@@ -372,3 +372,21 @@ def test_absolute_deadline_flows_through_graph_team_and_model_router(tmp_path: P
     remaining = _GRAPH_ROUTER_GUARD_REMAINING[0]
     assert isinstance(remaining, (int, float)) and 0 < remaining <= 8.0
     assert 0 < _GRAPH_ROUTER_REQUESTS[0].timeout_seconds < 8.0, "model request timeout must be capped by the shared absolute deadline"
+
+
+
+_TASK_ID_CAPTURE = []
+
+
+def task_identity_handler(payload):
+    _TASK_ID_CAPTURE.append(payload.get("auren_task_id"))
+    return {"success": True, "detail": "supervisor task identity observed"}
+
+
+def test_controller_injects_unspoofable_supervisor_task_identity(tmp_path: Path):
+    _TASK_ID_CAPTURE.clear()
+    controller = ExecutionController(tmp_path)
+    name = _register(controller, task_identity_handler)
+    task = controller.submit(name, {"auren_task_id": "caller-supplied-spoof"})
+    controller.run_once(task.id)
+    assert _TASK_ID_CAPTURE == [task.id]
