@@ -90,12 +90,13 @@ def test_session_snapshot_combines_checkpoints_and_safe_journal_projection(tmp_p
 
 def test_dashboard_sessions_endpoint_serves_live_snapshot_and_rejects_foreign_origin():
     class _ControlCenter:
-        def session_snapshot(self, *, offset=0, limit=50):
+        def session_snapshot(self, *, offset=0, limit=50, query="", status="all"):
             return {
                 "schema_version": 1,
                 "pagination": {
                     "offset": offset, "limit": limit, "total": 75,
-                    "has_more": offset + limit < 75,
+                    "has_more": offset + limit < 75, "query": query,
+                    "status_filter": status,
                 },
                 "sessions": [{"session_id": f"session-{offset}"}],
                 "tasks": [], "plan_runs": [],
@@ -107,13 +108,13 @@ def test_dashboard_sessions_endpoint_serves_live_snapshot_and_rejects_foreign_or
     thread.start()
     try:
         connection = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=3)
-        connection.request("GET", "/api/sessions?offset=50&limit=25")
+        connection.request("GET", "/api/sessions?offset=50&limit=25&q=engineer&status=complete")
         response = connection.getresponse()
         payload = json.loads(response.read().decode("utf-8"))
         connection.close()
         assert response.status == 200
         assert payload["schema_version"] == 1
-        assert payload["pagination"] == {"offset": 50, "limit": 25, "total": 75, "has_more": False}
+        assert payload["pagination"] == {"offset": 50, "limit": 25, "total": 75, "has_more": False, "query": "engineer", "status_filter": "complete"}
         assert payload["sessions"] == [{"session_id": "session-50"}]
 
         connection = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=3)
@@ -176,3 +177,28 @@ def test_session_pagination_rejects_invalid_bounds(tmp_path):
             pass
         else:
             raise AssertionError(f"invalid pagination accepted: offset={offset}, limit={limit}")
+
+
+def test_session_search_and_status_filter_cover_full_inventory(tmp_path):
+    store = SessionStore(tmp_path / "sessions")
+    project_key = store.project_key(tmp_path)
+    for index in range(123):
+        store.save(SessionCheckpoint(
+            session_id=f"session-{index:03d}",
+            task_id=f"task-{index:03d}",
+            project_key=project_key,
+            stage="completed" if index % 3 == 0 else "running",
+            active_provider="special-provider" if index == 121 else "default-provider",
+            project_root=str(tmp_path),
+            completed_batches=["release-validation"] if index == 121 else [],
+        ))
+    adapter = MuxinSessionAdapter(tmp_path, session_store=store, dashboard=_Dashboard())
+    searched = adapter.session_snapshot(query="special-provider", limit=10)
+    assert searched["pagination"]["total"] == 1
+    assert searched["sessions"][0]["session_id"] == "session-121"
+    assert searched["counts"]["sessions"] == 123
+    completed = adapter.session_snapshot(status="complete", limit=10)
+    assert completed["pagination"]["total"] == 41
+    assert all(row["status"] == "complete" for row in completed["sessions"])
+    batch = adapter.session_snapshot(query="release-validation")
+    assert [row["session_id"] for row in batch["sessions"]] == ["session-121"]
