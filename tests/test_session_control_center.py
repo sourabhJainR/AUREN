@@ -53,7 +53,6 @@ class SessionControlCenterTests(unittest.TestCase):
         self.assertEqual(result["models"], [])
         self.assertIn("latency_ms", result)
 
-
     def test_checkpoint_recovery_clears_error_and_increments_attempt(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -71,11 +70,6 @@ class SessionControlCenterTests(unittest.TestCase):
             self.assertIsNone(recovered.last_error)
             self.assertIsNotNone(store.load("recover-1"))
 
-
-
-if __name__ == "__main__":
-    unittest.main()
-
     def test_global_search_and_status_filters_apply_before_pagination(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -91,23 +85,25 @@ if __name__ == "__main__":
                     project_root=str(root),
                     completed_batches=["acceptance-suite"] if index == 121 else [],
                 ))
-            adapter = MuxinSessionAdapter(root, session_store=store, dashboard=_Dashboard())
-            search = adapter.session_snapshot(query="provider-special", offset=0, limit=10)
-            self.assertEqual(search["pagination"]["total"], 1)
+            adapter = MuxinSessionAdapter(root, session_store=store)
+            search = adapter.session_page(query="provider-special", offset=0, limit=10)
+            self.assertEqual(search["total"], 1)
             self.assertEqual(search["sessions"][0]["session_id"], "session-121")
             self.assertEqual(search["counts"]["sessions"], 123)
-            complete = adapter.session_snapshot(status="complete", offset=0, limit=20)
-            self.assertEqual(complete["pagination"]["total"], 41)
+            complete = adapter.session_page(status="complete", offset=0, limit=20)
+            self.assertEqual(complete["total"], 41)
             self.assertTrue(all(row["status"] == "complete" for row in complete["sessions"]))
-            batch = adapter.session_snapshot(query="acceptance-suite", offset=0, limit=10)
+            batch = adapter.session_page(query="acceptance-suite", offset=0, limit=10)
             self.assertEqual([row["session_id"] for row in batch["sessions"]], ["session-121"])
 
     def test_session_filter_validation_is_fail_closed(self):
-        adapter = MuxinSessionAdapter(".", session_store=SessionStore("/tmp/auren-test-sessions"), dashboard=_Dashboard())
-        for query, status in (("x" * 201, "all"), ("", "running")):
-            try:
-                adapter.session_snapshot(query=query, status=status)
-            except ValueError:
-                pass
-            else:
-                raise AssertionError("invalid session filter was accepted")
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            adapter = MuxinSessionAdapter(root, session_store=SessionStore(root / "sessions"))
+            for query, status in (("x" * 201, "all"), ("", "running")):
+                with self.assertRaises(ValueError):
+                    adapter.session_page(query=query, status=status)
+
+
+if __name__ == "__main__":
+    unittest.main()
