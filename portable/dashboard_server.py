@@ -404,6 +404,7 @@ class _Handler(BaseHTTPRequestHandler):
                     "status": "/api/delivery/" + manifest.response_id + "/" + delivery_id + "/status",
                     "ack": "/api/delivery/" + manifest.response_id + "/" + delivery_id + "/ack",
                     "complete": "/api/delivery/" + manifest.response_id + "/" + delivery_id + "/complete",
+                    "cancel": "/api/delivery/" + manifest.response_id + "/" + delivery_id + "/cancel",
                 })
                 return
             self._send_api_json(200 if result.success else 503, response_payload)
