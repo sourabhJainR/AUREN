@@ -34,8 +34,8 @@ class _Snapshot:
 
 
 class _Dashboard:
-    def snapshot(self):
-        return _Snapshot()
+    def live_session_projection(self):
+        return _Snapshot().as_dict()
 
 
 def test_session_snapshot_combines_checkpoints_and_safe_journal_projection(tmp_path):
