@@ -650,7 +650,7 @@
   "radar_refresh": {
     "reviewed_at": "2026-10-31",
     "baseline_main_sha": "485670ce2cd7987954ad177ad171f2764123b6ae",
-    "status": "Candidate signals only; research refreshed through 2026-10-31. Main was observed at 485670ce2cd7987954ad177ad171f2764123b6ae with no open PRs. Current-main check-runs, push-triggered post-merge workflows, and portable-bundle artifacts were not exposed by the available repository integration, so they remain unverified for this SHA. The 2026-10-30 review_snapshot is historical and its check/artifact results are not carried forward. Deployment and independent-evaluation gates remain blocked.",
+    "status": "candidate signals only; research refreshed through 2026-10-31. Main was observed at 485670ce2cd7987954ad177ad171f2764123b6ae with no open PRs. Current-main check-runs, push-triggered post-merge workflows, and portable-bundle artifacts were not exposed by the available repository integration, so they remain unverified for this SHA. The 2026-10-30 review_snapshot is historical and its check/artifact results are not carried forward. Deployment and independent-evaluation gates remain blocked.",
     "policy": "External announcements and benchmark reports are leads, not proof of equivalent AUREN capability. Reuse the canonical supervisor, TaskPlan, StateGraph, ExecutionController, Guard, ProgressJournal, LearningSteward and Arena. No duplicate orchestrator or external runtime dependency. Keep adapters opt-in; no default pack promotion without paired measured value, independent evaluation and rollback. Discovery never grants authority.",
     "status_vocabulary": {
       "implementation": "Code path exists; does not imply tests or deployment.",
