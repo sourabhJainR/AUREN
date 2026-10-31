@@ -149,8 +149,7 @@ class ResponseDeliverySupervisor:
         if task is None:
             raise FileNotFoundError("supervisor delivery task is unavailable")
         if task.state == "running":
-            # A running task is owned by its current lease. Reclaim only after
-            # both the lease and heartbeat are stale; never start a second worker.
+            # Reclaim only after both the lease and heartbeat are stale.
             with sqlite3.connect(self.controller.db_path) as db:
                 row = db.execute("SELECT lease_until FROM tasks WHERE id=?", (task_id,)).fetchone()
             if row and row[0]:
@@ -161,17 +160,27 @@ class ResponseDeliverySupervisor:
                     return
                 if lease.tzinfo is None or lease > datetime.now(timezone.utc):
                     return
-            self.controller.recover_stale(task_id, reason="delivery host restarted; prior worker lease expired", stale_after_seconds=1)
+            self.controller.recover_stale(
+                task_id, reason="delivery host restarted; prior worker lease expired",
+                stale_after_seconds=1,
+            )
             task = self.controller.task(task_id)
         if task is None or task.state != "pending":
             return
+
         key = (str(self.controller.db_path), task_id)
         with _THREADS_LOCK:
             active = _THREADS.get(key)
+        if active is not None and active.is_alive():
+            # Do not hold the registry lock while joining: the old worker needs
+            # that lock to remove its own completed thread entry.
+            active.join(timeout=1.0)
+            if active.is_alive():
+                return
+        with _THREADS_LOCK:
+            active = _THREADS.get(key)
             if active is not None and active.is_alive():
-                active.join(timeout=1.0)
-                if active.is_alive():
-                    return
+                return
             thread = threading.Thread(
                 target=self._run, args=(key, task_id),
                 name="auren-response-delivery-" + task_id[:8], daemon=True,
