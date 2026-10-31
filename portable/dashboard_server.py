@@ -376,6 +376,12 @@ class _Handler(BaseHTTPRequestHandler):
         if path.startswith("/api/delivery/"):
             self._handle_delivery_get(path)
             return
+        if path == "/api/sessions":
+            try:
+                self._send_api_json(200, self.control_center.session_snapshot())
+            except Exception:
+                self._send(503, b'{"error":"durable session snapshot unavailable"}', "application/json; charset=utf-8")
+            return
         if path == "/api/dashboard":
             self._send_api_json(200, self.dashboard.snapshot().as_dict())
             return
