@@ -345,7 +345,6 @@ def test_stale_delivery_cannot_accept_ack_or_complete(monkeypatch, tmp_path):
     server, thread = _start_server(monkeypatch, tmp_path, result)
     try:
         headers = {"Accept": dashboard_server.CHUNKED_RESPONSE_ACCEPT}
-        journal = None
         status, _, manifest = _request(server, "POST", "/api/route", {"task": "stale ack"}, headers=headers)
         assert status == 202
         task_id = dashboard_server._Handler._delivery_task_id(manifest["response_id"], manifest["delivery_id"])
