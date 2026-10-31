@@ -91,7 +91,15 @@ def test_session_snapshot_combines_checkpoints_and_safe_journal_projection(tmp_p
 def test_dashboard_sessions_endpoint_serves_live_snapshot_and_rejects_foreign_origin():
     class _ControlCenter:
         def session_snapshot(self, *, offset=0, limit=50):
-            return {"schema_version": 1, "sessions": [], "tasks": [], "plan_runs": []}
+            return {
+                "schema_version": 1,
+                "pagination": {
+                    "offset": offset, "limit": limit, "total": 75,
+                    "has_more": offset + limit < 75,
+                },
+                "sessions": [{"session_id": f"session-{offset}"}],
+                "tasks": [], "plan_runs": [],
+            }
 
     handler = type("SessionDashboardHandler", (_Handler,), {"control_center": _ControlCenter()})
     server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
