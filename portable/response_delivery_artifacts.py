@@ -86,10 +86,10 @@ class ResponseArtifactRepository:
                 json.dumps(manifest_payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n",
                 encoding="utf-8",
             )
-            ref = self.store.stage(root, "response:" + manifest.response_id)
-        stored = StoredResponse(ref, manifest, chunks)
-        with self._lock:
-            self._remember((manifest.response_id, ref.digest), stored)
+            with self._lock:
+                ref = self.store.stage(root, "response:" + manifest.response_id)
+                stored = StoredResponse(ref, manifest, chunks)
+                self._remember((manifest.response_id, ref.digest), stored)
         return stored
 
     def load(self, response_id: str, artifact_digest: str) -> StoredResponse:
@@ -105,8 +105,8 @@ class ResponseArtifactRepository:
                 return cached
 
             ref = self.store.resolve(artifact_digest)
-            if ref.layout != "directory":
-                raise ResponseDeliveryError("response artifact must use the directory layout")
+            if ref.layout != "directory" or ref.artifact_id != "response:" + response_id:
+                raise ResponseDeliveryError("response artifact identity or layout is invalid")
             root = Path(ref.path)
             payload = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
             if not isinstance(payload, dict) or payload.get("schema_version") != 1:
