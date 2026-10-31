@@ -237,7 +237,8 @@ class _Handler(BaseHTTPRequestHandler):
             acknowledged = checkpoint["acknowledged_index"]
             if payload.get("response_sha256") != manifest.sha256:
                 raise ValueError("response digest mismatch")
-            if payload.get("total_chunks") != manifest.total_chunks:
+            supplied_total = payload.get("total_chunks")
+            if isinstance(supplied_total, bool) or not isinstance(supplied_total, int) or supplied_total != manifest.total_chunks:
                 raise ValueError("response chunk count mismatch")
             task_id = self._delivery_task_id(response_id)
             if action == "ack":
