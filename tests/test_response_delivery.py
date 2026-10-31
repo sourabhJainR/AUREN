@@ -71,6 +71,7 @@ class ResponseDeliveryTests(unittest.TestCase):
         from portable.response_delivery import deliver_response
         with tempfile.TemporaryDirectory() as temp:
             journal = ProgressJournal(Path(temp) / "progress.jsonl")
+            journal.record("task", "started", state="running", stage="response-delivery")
             calls = []
             def receiver(chunk, key):
                 calls.append((chunk.index, key))
@@ -91,6 +92,7 @@ class ResponseDeliveryTests(unittest.TestCase):
         from portable.response_delivery import deliver_response, ResponseDeliveryError
         with tempfile.TemporaryDirectory() as temp:
             journal = ProgressJournal(Path(temp) / "progress.jsonl")
+            journal.record("task", "started", state="running", stage="response-delivery")
             def bad(chunk, key):
                 return {"response_id": chunk.response_id, "index": chunk.index + 1, "sha256": chunk.sha256}
             with self.assertRaisesRegex(ResponseDeliveryError, "does not match"):
@@ -103,6 +105,7 @@ class ResponseDeliveryTests(unittest.TestCase):
         from portable.response_delivery import deliver_response, ResponseDeliveryError
         with tempfile.TemporaryDirectory() as temp:
             journal = ProgressJournal(Path(temp) / "progress.jsonl")
+            journal.record("task", "started", state="running", stage="response-delivery")
             def receiver(chunk, key):
                 return {"response_id": chunk.response_id, "index": chunk.index, "sha256": chunk.sha256}
             with self.assertRaisesRegex(ResponseDeliveryError, "cancelled"):

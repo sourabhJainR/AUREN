@@ -316,8 +316,9 @@ class ProgressJournal:
         """Durably acknowledge the next contiguous, integrity-bound response chunk.
 
         Optimistic sequence checks serialize read/validate/append transitions
-        across threads and processes. The journal stores only the cursor and
-        digest; response bytes remain in the canonical artifact store.
+        across threads and processes. The task must already be running; this
+        method never creates or revives a blocked delivery. The journal stores
+        only the cursor and digest; response bytes remain in the canonical artifact store.
         """
         response_id = self._validate_response_digest(response_id, "response_id")
         response_sha256 = self._validate_response_digest(response_sha256, "response_sha256")
@@ -334,9 +335,27 @@ class ProgressJournal:
             rows = [row for row in task_rows
                     if row["stage"] == stage and row["event"] == "response_chunk_acknowledged"]
             previous = rows[-1] if rows else None
+            current_state = task_rows[-1]["state"] if task_rows else "unknown"
+            if previous is not None and (
+                previous.get("total_units") != total_chunks
+                or previous.get("evidence_ref") != f"sha256:{response_sha256}"
+            ):
+                raise ValueError("response manifest changed while resuming chunk delivery")
+            # A delivery checkpoint can advance only while its journal task is
+            # running. Late acknowledgements must not revive blocked, recovering,
+            # failed, or cancelled deliveries. Host adapters must reject derived
+            # stale state before calling this method. Only the exact final ack is
+            # idempotent after successful completion.
+            if (
+                current_state == "completed"
+                and previous is not None
+                and previous.get("completed_units") == total_chunks
+                and acknowledged_index == total_chunks
+            ):
+                return ProgressEvent(**previous)
+            if current_state != "running":
+                raise ValueError("cannot acknowledge response chunks while delivery is not running")
             if previous is not None:
-                if previous.get("total_units") != total_chunks or previous.get("evidence_ref") != f"sha256:{response_sha256}":
-                    raise ValueError("response manifest changed while resuming chunk delivery")
                 prior_index = previous.get("completed_units")
                 if acknowledged_index == prior_index:
                     return ProgressEvent(**previous)

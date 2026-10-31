@@ -158,6 +158,7 @@ class ProgressJournalTests(unittest.TestCase):
     def test_response_chunk_ack_is_idempotent_and_rejects_gaps_or_manifest_changes(self):
         with tempfile.TemporaryDirectory() as temp:
             journal = ProgressJournal(Path(temp) / "progress.jsonl")
+            journal.record("delivery", "started", state="running", stage="response")
             digest = "a" * 64
             first = journal.record_response_chunk_ack(
                 "delivery", response_id=digest, response_sha256=digest,
@@ -190,6 +191,7 @@ class ProgressJournalTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "progress.jsonl"
             journal = ProgressJournal(path)
+            journal.record("delivery", "started", state="running", stage="response")
             digest = "c" * 64
             journal.record_response_chunk_ack(
                 "delivery", response_id=digest, response_sha256=digest,
@@ -197,12 +199,53 @@ class ProgressJournalTests(unittest.TestCase):
             )
             with path.open("a", encoding="utf-8") as stream:
                 import json
-                row = json.loads(path.read_text(encoding="utf-8").splitlines()[0])
-                row["sequence"] = 2
+                row = json.loads(path.read_text(encoding="utf-8").splitlines()[-1])
+                row["sequence"] = 3
                 row["completed_units"] = 3
                 stream.write(json.dumps(row) + "\n")
             with self.assertRaisesRegex(ProgressJournalCorruption, "not contiguous"):
                 ProgressJournal(path).response_delivery_checkpoint("delivery", digest)
+
+
+    def test_completed_delivery_accepts_only_exact_duplicate_final_ack(self):
+        with tempfile.TemporaryDirectory() as temp:
+            journal = ProgressJournal(Path(temp) / "progress.jsonl")
+            digest = "d" * 64
+            journal.record("delivery", "started", state="running", stage="response")
+            final_ack = journal.record_response_chunk_ack(
+                "delivery", response_id=digest, response_sha256=digest,
+                acknowledged_index=1, total_chunks=1,
+            )
+            journal.record(
+                "delivery", "response_delivery_completed", state="completed",
+                stage="response-delivery", evidence_ref=f"sha256:{digest}",
+            )
+            duplicate = journal.record_response_chunk_ack(
+                "delivery", response_id=digest, response_sha256=digest,
+                acknowledged_index=1, total_chunks=1,
+            )
+            self.assertEqual(final_ack.sequence, duplicate.sequence)
+            with self.assertRaisesRegex(ValueError, "manifest changed"):
+                journal.record_response_chunk_ack(
+                    "delivery", response_id=digest, response_sha256=digest,
+                    acknowledged_index=1, total_chunks=2,
+                )
+
+            incomplete = ProgressJournal(Path(temp) / "incomplete.jsonl")
+            incomplete.record("partial", "started", state="running", stage="response")
+            incomplete.record_response_chunk_ack(
+                "partial", response_id=digest, response_sha256=digest,
+                acknowledged_index=1, total_chunks=2,
+            )
+            incomplete.record(
+                "partial", "incorrect_terminal_state", state="completed",
+                stage="response-delivery", evidence_ref=f"sha256:{digest}",
+            )
+            with self.assertRaisesRegex(ValueError, "not running"):
+                incomplete.record_response_chunk_ack(
+                    "partial", response_id=digest, response_sha256=digest,
+                    acknowledged_index=1, total_chunks=2,
+                )
 
     def test_invalid_progress_units_rejected(self):
         with tempfile.TemporaryDirectory() as temp:
