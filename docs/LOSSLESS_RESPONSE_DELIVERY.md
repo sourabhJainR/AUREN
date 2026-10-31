@@ -89,7 +89,10 @@ The client then:
 
 The acknowledgement endpoint trusts the client to send an ack only after receiver-side durable
 acceptance; the protocol cannot inspect the client's storage. Clients must not ack after merely
-receiving bytes into a transient buffer. The delivery journal is the same project-scoped
+receiving bytes into a transient buffer. A blocked, recovering, stale, failed or cancelled delivery
+cannot accept a late acknowledgement or be finalized by the completion endpoint. The host requires
+a running durable delivery state and sequence-fences the final completion write; recovery must
+reconcile the artifact and acknowledgement journal before the delivery can continue. The delivery journal is the same project-scoped
 `.auren/progress.jsonl` used by `ExecutionController`; its task key includes both response digest and unique delivery ID; the body is stored only in the existing
 content-addressed release artifact store. The dashboard route itself is not a supervisor task,
 so this delivery receipt does not falsely complete an unrelated parent execution task.
