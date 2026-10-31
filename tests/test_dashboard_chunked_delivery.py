@@ -7,12 +7,16 @@ import json
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 from threading import Thread
+import sqlite3
+import time
 from types import SimpleNamespace
 
 from portable import dashboard_server
 from portable.agency_release_lifecycle import ArtifactStore
 from portable.response_delivery_artifacts import ResponseArtifactRepository
 from portable.progress_journal import ProgressJournal
+from portable.execution_controller import ExecutionController
+from portable.response_delivery_supervisor import ResponseDeliverySupervisor
 from portable.hybrid_model_router import HybridModelRouter
 
 
@@ -25,6 +29,9 @@ def _start_server(monkeypatch, root: Path, result):
         "artifact_store": store,
         "response_repository": ResponseArtifactRepository(store),
         "progress_journal": ProgressJournal(runtime_root / "progress.jsonl"),
+        "delivery_supervisor": ResponseDeliverySupervisor(
+            ExecutionController(root), runtime_root / "progress.jsonl"
+        ),
     })
     server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
     thread = Thread(target=server.serve_forever, daemon=True)
@@ -154,10 +161,15 @@ def test_chunked_route_supports_acknowledged_resume_after_server_restart(monkeyp
             "total_chunks": manifest["total_chunks"],
         }
         status, _, receipt = _request(server, "POST", manifest["complete"], complete)
-        assert status == 200 and receipt["completed"] is True
-        status, _, final = _request(server, "GET", manifest["status"])
+        assert status == 202 and receipt["accepted"] is True
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline:
+            status, _, final = _request(server, "GET", manifest["status"])
+            if status == 200 and final["complete"]:
+                break
+            time.sleep(0.02)
         assert status == 200 and final["complete"] is True
-        task_id = dashboard_server._Handler._delivery_task_id(response_id, manifest["delivery_id"])
+        assert server.RequestHandlerClass.delivery_supervisor.state(task_id) == "completed"
         assert server.RequestHandlerClass.progress_journal.snapshot(task_id)["state"] == "completed"
     finally:
         _stop_server(server, thread)
