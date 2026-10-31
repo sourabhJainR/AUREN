@@ -14,10 +14,10 @@ class PartialDependencyExecutionTests(unittest.TestCase):
             }]}
 
         graph = Graph([
-            Node("optional_news", NodeKind.TOOL,
+            Node("optional_news", NodeKind.DETERMINISTIC,
                  lambda _state: (_ for _ in ()).throw(RuntimeError("provider unavailable")),
                  critical=False),
-            Node("required_fundamentals", NodeKind.TOOL, lambda _state: {"price": 10}),
+            Node("required_fundamentals", NodeKind.DETERMINISTIC, lambda _state: {"price": 10}),
             Node("synthesis", NodeKind.AGENT, synthesize,
                  depends_on=("optional_news", "required_fundamentals"),
                  evaluator=lambda output: output.get("accepted") is True,
@@ -36,10 +36,10 @@ class PartialDependencyExecutionTests(unittest.TestCase):
     def test_critical_failure_blocks_partial_synthesis(self):
         called = []
         graph = Graph([
-            Node("critical_fundamentals", NodeKind.TOOL,
+            Node("critical_fundamentals", NodeKind.DETERMINISTIC,
                  lambda _state: (_ for _ in ()).throw(RuntimeError("fundamentals unavailable")),
                  critical=True),
-            Node("optional_news", NodeKind.TOOL, lambda _state: {"stories": []}, critical=False),
+            Node("optional_news", NodeKind.DETERMINISTIC, lambda _state: {"stories": []}, critical=False),
             Node("synthesis", NodeKind.AGENT,
                  lambda _state: called.append("ran") or {"accepted": True},
                  depends_on=("critical_fundamentals", "optional_news"),
@@ -56,10 +56,10 @@ class PartialDependencyExecutionTests(unittest.TestCase):
     def test_blocked_or_skipped_dependency_cannot_be_accepted_as_partial(self):
         called = []
         graph = Graph([
-            Node("critical_root", NodeKind.TOOL,
+            Node("critical_root", NodeKind.DETERMINISTIC,
                  lambda _state: (_ for _ in ()).throw(RuntimeError("root unavailable")),
                  critical=True),
-            Node("blocked_optional", NodeKind.TOOL, lambda _state: {"unexpected": True},
+            Node("blocked_optional", NodeKind.DETERMINISTIC, lambda _state: {"unexpected": True},
                  depends_on=("critical_root",), critical=False),
             Node("synthesis", NodeKind.AGENT,
                  lambda _state: called.append("ran") or {"accepted": True},
@@ -77,10 +77,10 @@ class PartialDependencyExecutionTests(unittest.TestCase):
     def test_partial_dependency_context_does_not_leak_to_unrelated_node(self):
         later_context = []
         graph = Graph([
-            Node("optional_news", NodeKind.TOOL,
+            Node("optional_news", NodeKind.DETERMINISTIC,
                  lambda _state: (_ for _ in ()).throw(RuntimeError("provider unavailable")),
                  critical=False),
-            Node("required_fundamentals", NodeKind.TOOL, lambda _state: {"price": 10}),
+            Node("required_fundamentals", NodeKind.DETERMINISTIC, lambda _state: {"price": 10}),
             Node("synthesis", NodeKind.AGENT,
                  lambda state: {"partial_count": len(state["auren_partial_dependencies"])},
                  depends_on=("optional_news", "required_fundamentals"),
