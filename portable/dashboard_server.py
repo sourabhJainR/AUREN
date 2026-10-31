@@ -15,6 +15,8 @@ from .hybrid_model_router import HybridModelRouter, TaskRouteRequest
 from .agency_observability_ops import observability_snapshot
 from .identity_compat import canonical_runtime_home
 from .progress_journal import ProgressJournal
+from .execution_controller import ExecutionController
+from .response_delivery_supervisor import ResponseDeliverySupervisor
 from .response_delivery import assemble_response
 from .response_delivery_artifacts import ResponseArtifactRepository
 
@@ -57,6 +59,7 @@ class _Handler(BaseHTTPRequestHandler):
     artifact_store = None
     response_repository = None
     progress_journal = None
+    delivery_supervisor = None
 
     def _send(self, status, body, content_type, *, extra_headers=None):
         self.send_response(status)
@@ -134,9 +137,11 @@ class _Handler(BaseHTTPRequestHandler):
             raise ValueError("request body must be a JSON object")
         return value
 
-    @staticmethod
-    def _delivery_task_id(response_id, delivery_id):
-        return "dashboard-response:" + response_id + ":" + delivery_id
+    @classmethod
+    def _delivery_task_id(cls, response_id, delivery_id):
+        if cls.delivery_supervisor is None:
+            raise RuntimeError("trusted supervisor delivery integration is unavailable")
+        return cls.delivery_supervisor.task_id(response_id, delivery_id)
 
     def _persist_response_artifact(self, response_id, delivery_id, body):
         if self.response_repository is None or self.progress_journal is None:
@@ -144,10 +149,14 @@ class _Handler(BaseHTTPRequestHandler):
         stored = self.response_repository.stage(
             body.decode("utf-8"), max_chunk_bytes=MAX_DELIVERY_CHUNK_BYTES,
         )
-        task_id = self._delivery_task_id(response_id, delivery_id)
+        task_id = self.delivery_supervisor.create(
+            response_id, delivery_id, stored.artifact.digest,
+            deadline_seconds=getattr(self, "delivery_deadline_seconds", 600.0),
+        )
         self.progress_journal.record_response_artifact(
             task_id, response_id=response_id, artifact_sha256=stored.artifact.digest,
         )
+        self.delivery_supervisor.start(task_id)
         return stored
 
     def _load_delivery(self, response_id, delivery_id):
@@ -156,6 +165,7 @@ class _Handler(BaseHTTPRequestHandler):
         if self.response_repository is None or self.progress_journal is None:
             raise RuntimeError("durable response delivery is not configured")
         task_id = self._delivery_task_id(response_id, delivery_id)
+        self.delivery_supervisor.start(task_id)
         artifact_digest = self.progress_journal.response_artifact_reference(task_id, response_id)
         if artifact_digest is None:
             raise FileNotFoundError("response artifact is unavailable")
@@ -182,7 +192,7 @@ class _Handler(BaseHTTPRequestHandler):
             snapshot = self.progress_journal.snapshot(
                 self._delivery_task_id(response_id, delivery_id),
             )
-            terminal_state = snapshot.get("reported_state", snapshot.get("state"))
+            terminal_state = self.delivery_supervisor.state(self._delivery_task_id(response_id, delivery_id))
             all_acknowledged = acknowledged == manifest.total_chunks
             if action == "status":
                 self._send_delivery_json(200, {
@@ -238,7 +248,7 @@ class _Handler(BaseHTTPRequestHandler):
             self._send_delivery_json(503, {"error": "response delivery state unavailable; automatic replay is blocked"})
 
     def _handle_delivery_post(self, path):
-        match = re.fullmatch(r"/api/delivery/([0-9a-f]{64})/([0-9a-f]{32})/(ack|complete)", path)
+        match = re.fullmatch(r"/api/delivery/([0-9a-f]{64})/([0-9a-f]{32})/(ack|complete|cancel)", path)
         if not match:
             self._send(404, b'{"error":"not found"}', "application/json")
             return
@@ -255,6 +265,13 @@ class _Handler(BaseHTTPRequestHandler):
             if isinstance(supplied_total, bool) or not isinstance(supplied_total, int) or supplied_total != manifest.total_chunks:
                 raise ValueError("response chunk count mismatch")
             task_id = self._delivery_task_id(response_id, delivery_id)
+            if action == "cancel":
+                accepted = self.delivery_supervisor.cancel(task_id)
+                self._send_delivery_json(202 if accepted else 409, {
+                    "cancellation_requested": accepted,
+                    "state": self.delivery_supervisor.state(task_id),
+                })
+                return
             if action == "ack":
                 index = payload.get("chunk_index")
                 chunk_digest = payload.get("chunk_sha256")
@@ -295,19 +312,25 @@ class _Handler(BaseHTTPRequestHandler):
             snapshot = self.progress_journal.snapshot(task_id)
             state = snapshot.get("reported_state", snapshot.get("state"))
             if state == "completed":
-                if snapshot.get("evidence_ref") != "sha256:" + manifest.sha256:
-                    raise ValueError("existing completion receipt does not match response digest")
+                history = [row for row in self.progress_journal._events() if row.get("task_id") == task_id]
+                if not any(
+                    row.get("event") == "response_delivery_receiver_acknowledged"
+                    and row.get("evidence_ref") == "sha256:" + manifest.sha256
+                    for row in history
+                ):
+                    raise ValueError("existing supervisor completion has no matching receiver digest receipt")
             else:
                 if snapshot.get("state") != "running" or state != "running":
                     raise RuntimeError("delivery is not running; reconcile before completion")
                 self.progress_journal.record(
-                    task_id, "response_delivery_completed", state="completed",
-                    stage="response-delivery", message="receiver confirmed complete response",
+                    task_id, "response_delivery_receiver_acknowledged", state="running",
+                    stage="response-delivery", message="receiver acknowledgement verified; supervisor finalization pending",
                     evidence_ref="sha256:" + manifest.sha256,
                     expected_sequence=snapshot.get("sequence"),
                 )
-            self._send_delivery_json(200, {
-                "completed": True, "response_id": response_id, "delivery_id": delivery_id,
+            self._send_delivery_json(202, {
+                "completed": self.delivery_supervisor.state(task_id) == "completed",
+                "accepted": True, "response_id": response_id, "delivery_id": delivery_id,
                 "response_sha256": manifest.sha256,
                 "acknowledged_index": acknowledged,
                 "total_chunks": manifest.total_chunks,
@@ -386,6 +409,7 @@ class _Handler(BaseHTTPRequestHandler):
                     "status": "/api/delivery/" + manifest.response_id + "/" + delivery_id + "/status",
                     "ack": "/api/delivery/" + manifest.response_id + "/" + delivery_id + "/ack",
                     "complete": "/api/delivery/" + manifest.response_id + "/" + delivery_id + "/complete",
+                    "cancel": "/api/delivery/" + manifest.response_id + "/" + delivery_id + "/cancel",
                 })
                 return
             self._send_api_json(200 if result.success else 503, response_payload)
@@ -483,11 +507,14 @@ def serve(project_root=".", host="127.0.0.1", port=8765):
     artifact_store = ArtifactStore(runtime_root / "releases")
     response_repository = ResponseArtifactRepository(artifact_store)
     progress_journal = ProgressJournal(runtime_root / "progress.jsonl")
+    controller = ExecutionController(project_root)
+    delivery_supervisor = ResponseDeliverySupervisor(controller, runtime_root / "progress.jsonl")
     handler = type("AERDashboardHandler", (_Handler,), {
         "dashboard": dashboard, "control_center": control_center,
         "ui_root": UI_ROOT, "control_center_path": CONTROL_CENTER,
         "artifact_store": artifact_store, "response_repository": response_repository,
         "progress_journal": progress_journal,
+        "delivery_supervisor": delivery_supervisor,
     })
     server = ThreadingHTTPServer((host, port), handler)
     print(f"AUREN Engineering Console: http://{host}:{port}")
