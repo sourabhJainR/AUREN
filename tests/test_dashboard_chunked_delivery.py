@@ -216,3 +216,36 @@ def test_tampered_response_artifact_blocks_delivery_after_restart(monkeypatch, t
         assert checkpoint["acknowledged_index"] == 0
     finally:
         _stop_server(server, thread)
+
+
+def test_identical_response_bodies_use_independent_receiver_cursors(monkeypatch, tmp_path):
+    result = SimpleNamespace(
+        provider="test", model="fixture", success=True, attempts=1, latency_ms=1.0,
+        resource_usage={}, fallback_reason=None, result={"answer": "same-evidence-" * 4000}, error=None,
+    )
+    server, thread = _start_server(monkeypatch, tmp_path, result)
+    try:
+        headers = {"Accept": dashboard_server.CHUNKED_RESPONSE_ACCEPT}
+        status, _, first = _request(server, "POST", "/api/route", {"task": "receiver one"}, headers=headers)
+        assert status == 202
+        status, _, second = _request(server, "POST", "/api/route", {"task": "receiver two"}, headers=headers)
+        assert status == 202
+        assert first["response_id"] == second["response_id"]
+        assert first["delivery_id"] != second["delivery_id"]
+
+        status, _, chunk = _request(server, "GET", first["next"])
+        assert status == 200 and chunk["chunk_index"] == 1
+        ack = {
+            "chunk_index": 1, "chunk_sha256": chunk["chunk_sha256"],
+            "response_sha256": first["response_sha256"],
+            "total_chunks": first["total_chunks"],
+        }
+        status, _, _ = _request(server, "POST", first["ack"], ack)
+        assert status == 200
+
+        status, _, first_status = _request(server, "GET", first["status"])
+        assert status == 200 and first_status["acknowledged_index"] == 1
+        status, _, second_status = _request(server, "GET", second["status"])
+        assert status == 200 and second_status["acknowledged_index"] == 0
+    finally:
+        _stop_server(server, thread)
