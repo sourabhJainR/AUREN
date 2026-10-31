@@ -15,6 +15,7 @@ from typing import Any, Mapping
 from .agency_release_lifecycle import ArtifactStore
 from .hybrid_model_router import HybridModelRouter, TaskRouteRequest
 from .progress_journal import ProgressJournal
+from .provider_operation_lifecycle import ProviderOutcomeBlocked
 from .response_delivery import assemble_response
 from .response_delivery_artifacts import ResponseArtifactRepository
 
@@ -69,7 +70,7 @@ def dashboard_response_delivery_handler(payload: Mapping[str, Any]) -> dict[str,
             request_data, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False,
         ).encode("utf-8")).hexdigest()
         if not journal.begin_response_generation(task_id, request_sha256):
-            raise RuntimeError(
+            raise ProviderOutcomeBlocked(
                 "provider dispatch was previously started without a durable response artifact; "
                 "outcome is unknown and automatic replay is blocked"
             )

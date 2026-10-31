@@ -432,7 +432,12 @@ class _Handler(BaseHTTPRequestHandler):
                 if controller is None or self.response_repository is None or self.progress_journal is None:
                     self._send_delivery_json(503, {"error": "supervisor-owned chunked delivery is not configured"})
                     return
-                idempotency_key = self.headers.get("Idempotency-Key") or uuid4().hex
+                idempotency_key = self.headers.get("Idempotency-Key") or hashlib.sha256(
+                    json.dumps(
+                        payload, sort_keys=True, separators=(",", ":"),
+                        ensure_ascii=False, allow_nan=False,
+                    ).encode("utf-8")
+                ).hexdigest()
                 if not re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", idempotency_key):
                     self._send_delivery_json(400, {"error": "invalid idempotency key"})
                     return

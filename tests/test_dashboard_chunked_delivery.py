@@ -76,7 +76,7 @@ def _stop_server(server, thread, *, cancel=True):
         for task_id in list(getattr(handler, "delivery_task_ids", set())):
             task = controller.task(task_id)
             snapshot = journal.snapshot(task_id)
-            if task is not None and task.state in {"pending", "running"} and snapshot.get("state") in {"queued", "running"}:
+            if task is not None and task.state in {"pending", "running"}:
                 controller.request_cancellation(task_id, reason="dashboard test cleanup")
         for worker in list(getattr(handler, "delivery_workers", {}).values()):
             worker.join(timeout=2)
@@ -237,6 +237,7 @@ def test_tampered_response_artifact_blocks_delivery_after_restart(monkeypatch, t
         resource_usage={}, fallback_reason=None, result={"answer": "evidence-" * 5000}, error=None,
     )
     server, thread = _start_server(monkeypatch, tmp_path, result)
+    original_handler = server.RequestHandlerClass
     try:
         status, _, manifest = _request(
             server, "POST", "/api/route", {"task": "tamper check"},
@@ -249,8 +250,8 @@ def test_tampered_response_artifact_blocks_delivery_after_restart(monkeypatch, t
     finally:
         _stop_server(server, thread, cancel=False)
 
-    # A new process has no verified in-memory cache and must reject the
-    # corrupted content-addressed artifact rather than send altered bytes.
+    # A new HTTP server/controller instance has no verified in-memory cache and
+    # must reject the corrupted content-addressed artifact rather than send altered bytes.
     server, thread = _start_server(monkeypatch, tmp_path, None)
     try:
         status, _, payload = _request(server, "GET", manifest["next"])
@@ -263,6 +264,11 @@ def test_tampered_response_artifact_blocks_delivery_after_restart(monkeypatch, t
         assert checkpoint["acknowledged_index"] == 0
     finally:
         _stop_server(server, thread)
+        original_handler.execution_controller.request_cancellation(
+            manifest["delivery_id"], reason="tampered artifact test cleanup",
+        )
+        for worker in original_handler.delivery_workers.values():
+            worker.join(timeout=2)
 
 
 def test_identical_response_bodies_use_independent_receiver_cursors(monkeypatch, tmp_path):
@@ -683,8 +689,6 @@ def test_uncertain_generation_marker_blocks_provider_replay_after_restart(monkey
     import json
     import sqlite3
     from datetime import datetime, timezone, timedelta
-    import pytest
-
     root = tmp_path
     controller = ExecutionController(root)
     controller.register_handler(
@@ -722,8 +726,9 @@ def test_uncertain_generation_marker_blocks_provider_replay_after_restart(monkey
     def must_not_route(_self, _request, **_kwargs):
         raise AssertionError("unknown provider outcome must never be replayed automatically")
     monkeypatch.setattr(HybridModelRouter, "route", must_not_route)
-    with pytest.raises(RuntimeError, match="outcome is unknown"):
-        recovered.run_once(task.id)
+    recovered.run_once(task.id)
     current = recovered.task(task.id)
-    assert current is not None and current.state == "failed"
-    assert recovered.progress_journal.snapshot(task.id)["reported_state"] == "failed"
+    assert current is not None and current.state == "blocked_reconciliation"
+    snapshot = recovered.progress_journal.snapshot(task.id)
+    assert snapshot["reported_state"] == "blocked"
+    assert "automatic replay is blocked" in snapshot["message"]
