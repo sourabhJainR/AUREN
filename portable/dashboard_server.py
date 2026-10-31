@@ -1,17 +1,26 @@
 """Zero-dependency local AUREN engineering dashboard server."""
 from __future__ import annotations
 import argparse
+import hashlib
 import json
+import re
+import tempfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
+from .agency_release_lifecycle import ArtifactRef, ArtifactStore
 from .engineering_dashboard import EngineeringDashboard
 from .muxin_session_adapter import LocalModelDiscovery, MuxinSessionAdapter
 from .hybrid_model_router import HybridModelRouter, TaskRouteRequest
 from .agency_observability_ops import observability_snapshot
 from .identity_compat import canonical_runtime_home
+from .progress_journal import ProgressJournal
+from .response_delivery import assemble_response, chunk_response
 
 MAX_API_RESPONSE_BYTES = 4_000_000
+MAX_CHUNKED_RESPONSE_BYTES = 16_000_000
+MAX_DELIVERY_CHUNK_BYTES = 12_000
+CHUNKED_RESPONSE_ACCEPT = "application/vnd.auren.chunked+json"
 
 
 class ApiResponseTooLarge(ValueError):
@@ -44,6 +53,8 @@ class _Handler(BaseHTTPRequestHandler):
     control_center = None
     ui_root = UI_ROOT
     control_center_path = CONTROL_CENTER
+    artifact_store = None
+    progress_journal = None
 
     def _send(self, status, body, content_type, *, extra_headers=None):
         self.send_response(status)
@@ -101,19 +112,196 @@ class _Handler(BaseHTTPRequestHandler):
             return False
         return True
 
+
+    def _send_delivery_json(self, status, payload):
+        body = _encode_bounded_json(payload, max_bytes=MAX_API_RESPONSE_BYTES)
+        self._send(status, body, "application/json; charset=utf-8", extra_headers={
+            "X-AUREN-Delivery-Mode": "chunked-pull-v1",
+            "X-AUREN-Chunk-Ack": "receiver-confirmed",
+        })
+
+    def _read_json_request(self, *, max_bytes):
+        length = int(self.headers.get("Content-Length", "0"))
+        if length < 1 or length > max_bytes:
+            raise ValueError("request body size is outside the allowed limit")
+        raw = self.rfile.read(length)
+        if len(raw) != length:
+            raise ValueError("request body ended before Content-Length")
+        value = json.loads(raw.decode("utf-8"))
+        if not isinstance(value, dict):
+            raise ValueError("request body must be a JSON object")
+        return value
+
+    @staticmethod
+    def _delivery_task_id(response_id):
+        return "dashboard-response:" + response_id
+
+    def _persist_response_artifact(self, response_id, body):
+        if self.artifact_store is None:
+            raise RuntimeError("canonical artifact store is unavailable")
+        with tempfile.TemporaryDirectory(prefix="auren-response-") as directory:
+            source = Path(directory) / "response.json"
+            source.write_bytes(body)
+            ref = self.artifact_store.stage(source, "dashboard-response:" + response_id)
+        if ref.digest != response_id:
+            raise RuntimeError("response artifact digest does not match its response identity")
+        return ref
+
+    def _load_delivery(self, response_id):
+        if not re.fullmatch(r"[0-9a-f]{64}", response_id):
+            raise ValueError("invalid response identity")
+        if self.artifact_store is None or self.progress_journal is None:
+            raise RuntimeError("durable response delivery is not configured")
+        metadata_path = self.artifact_store.artifacts / (response_id + ".json")
+        if not metadata_path.is_file():
+            raise FileNotFoundError("response artifact is unavailable")
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        artifact = metadata.get("artifact") if isinstance(metadata, dict) else None
+        if not isinstance(artifact, dict):
+            raise RuntimeError("response artifact metadata is invalid")
+        ref = ArtifactRef(**artifact)
+        if ref.digest != response_id:
+            raise RuntimeError("response artifact reference does not match the requested identity")
+        self.artifact_store._verify_ref(ref)
+        response_path = Path(ref.path) / "response.json"
+        body = response_path.read_bytes()
+        if hashlib.sha256(body).hexdigest() != response_id:
+            raise RuntimeError("response artifact integrity check failed")
+        response_text = body.decode("utf-8")
+        manifest, chunks = chunk_response(response_text, max_bytes=MAX_DELIVERY_CHUNK_BYTES)
+        if manifest.sha256 != response_id:
+            raise RuntimeError("response manifest digest does not match its artifact")
+        return ref, response_text, manifest, chunks
+
+    def _delivery_checkpoint(self, response_id):
+        return self.progress_journal.response_delivery_checkpoint(
+            self._delivery_task_id(response_id), response_id,
+        )
+
+    def _handle_delivery_get(self, path):
+        match = re.fullmatch(r"/api/delivery/([0-9a-f]{64})/(next|status)", path)
+        if not match:
+            self._send(404, b'{"error":"not found"}', "application/json")
+            return
+        response_id, action = match.groups()
+        try:
+            _ref, _text, manifest, chunks = self._load_delivery(response_id)
+            checkpoint = self._delivery_checkpoint(response_id)
+            acknowledged = checkpoint["acknowledged_index"]
+            if checkpoint.get("total_chunks") not in (None, manifest.total_chunks):
+                raise RuntimeError("delivery acknowledgement manifest mismatch")
+            if action == "status":
+                self._send_delivery_json(200, {
+                    "response_id": response_id,
+                    "response_sha256": manifest.sha256,
+                    "total_chunks": manifest.total_chunks,
+                    "total_bytes": manifest.total_bytes,
+                    "acknowledged_index": acknowledged,
+                    "complete": acknowledged == manifest.total_chunks,
+                })
+                return
+            if acknowledged >= manifest.total_chunks:
+                self._send_delivery_json(200, {
+                    "response_id": response_id, "complete": True,
+                    "acknowledged_index": acknowledged,
+                    "total_chunks": manifest.total_chunks,
+                })
+                return
+            chunk = chunks[acknowledged]
+            self._send_delivery_json(200, {
+                "response_id": response_id,
+                "response_sha256": manifest.sha256,
+                "chunk_index": chunk.index,
+                "total_chunks": manifest.total_chunks,
+                "chunk_sha256": chunk.sha256,
+                "text": chunk.text,
+                "utf8_bytes": chunk.utf8_bytes,
+            })
+        except FileNotFoundError:
+            self._send_delivery_json(404, {"error": "response artifact not found"})
+        except (ValueError, TypeError, json.JSONDecodeError):
+            self._send_delivery_json(400, {"error": "invalid delivery request"})
+        except Exception:
+            self._send_delivery_json(503, {"error": "response delivery state unavailable; automatic replay is blocked"})
+
+    def _handle_delivery_post(self, path):
+        match = re.fullmatch(r"/api/delivery/([0-9a-f]{64})/(ack|complete)", path)
+        if not match:
+            self._send(404, b'{"error":"not found"}', "application/json")
+            return
+        response_id, action = match.groups()
+        try:
+            payload = self._read_json_request(max_bytes=16_384)
+            _ref, response_text, manifest, chunks = self._load_delivery(response_id)
+            checkpoint = self._delivery_checkpoint(response_id)
+            acknowledged = checkpoint["acknowledged_index"]
+            if payload.get("response_sha256") != manifest.sha256:
+                raise ValueError("response digest mismatch")
+            if payload.get("total_chunks") != manifest.total_chunks:
+                raise ValueError("response chunk count mismatch")
+            task_id = self._delivery_task_id(response_id)
+            if action == "ack":
+                index = payload.get("chunk_index")
+                chunk_digest = payload.get("chunk_sha256")
+                if isinstance(index, bool) or not isinstance(index, int) or not 1 <= index <= manifest.total_chunks:
+                    raise ValueError("invalid chunk index")
+                chunk = chunks[index - 1]
+                if chunk_digest != chunk.sha256:
+                    raise ValueError("chunk digest mismatch")
+                if index not in {acknowledged, acknowledged + 1}:
+                    raise ValueError("acknowledgements must be contiguous")
+                self.progress_journal.record_response_chunk_ack(
+                    task_id, response_id=response_id,
+                    acknowledged_index=index, total_chunks=manifest.total_chunks,
+                    response_sha256=manifest.sha256,
+                )
+                self._send_delivery_json(200, {
+                    "acknowledged": True, "response_id": response_id,
+                    "acknowledged_index": index, "chunk_sha256": chunk.sha256,
+                })
+                return
+            if acknowledged != manifest.total_chunks:
+                raise ValueError("receiver has not acknowledged every chunk")
+            # The receiver sends this only after reassembling and hashing its
+            # persisted chunks. The server independently verifies its immutable
+            # source artifact and the digest supplied by the receiver.
+            verified = assemble_response(manifest, chunks)
+            if hashlib.sha256(verified.encode("utf-8")).hexdigest() != payload.get("response_sha256"):
+                raise ValueError("receiver completion digest mismatch")
+            snapshot = self.progress_journal.snapshot(task_id)
+            if snapshot.get("state") != "completed":
+                self.progress_journal.record(
+                    task_id, "response_delivery_completed", state="completed",
+                    stage="response-delivery", message="receiver confirmed complete response",
+                    evidence_ref="sha256:" + manifest.sha256,
+                )
+            self._send_delivery_json(200, {
+                "completed": True, "response_id": response_id,
+                "response_sha256": manifest.sha256,
+                "acknowledged_index": acknowledged,
+                "total_chunks": manifest.total_chunks,
+            })
+        except (ValueError, TypeError, json.JSONDecodeError):
+            self._send_delivery_json(409, {"error": "delivery acknowledgement rejected"})
+        except FileNotFoundError:
+            self._send_delivery_json(404, {"error": "response artifact not found"})
+        except Exception:
+            self._send_delivery_json(503, {"error": "delivery state unavailable; completion is not confirmed"})
+
+
     def do_POST(self):
         path = urlparse(self.path).path
         if not self._guard_api_origin(path):
+            return
+        if path.startswith("/api/delivery/"):
+            self._handle_delivery_post(path)
             return
         if path != "/api/route":
             self._send(404, b'{"error":"not found"}', "application/json")
             return
         try:
-            length = int(self.headers.get("Content-Length", "0"))
-            if length < 1 or length > 65536:
-                raise ValueError("request body size is outside the allowed limit")
-            payload = json.loads(self.rfile.read(length).decode("utf-8"))
-            if not isinstance(payload, dict) or not isinstance(payload.get("task"), str) or not payload["task"].strip():
+            payload = self._read_json_request(max_bytes=65536)
+            if not isinstance(payload.get("task"), str) or not payload["task"].strip():
                 raise ValueError("task must be a non-empty string")
             request = TaskRouteRequest(
                 task=payload["task"][:60000],
@@ -123,11 +311,50 @@ class _Handler(BaseHTTPRequestHandler):
                 timeout_seconds=min(120.0, max(0.1, float(payload.get("timeout_seconds", 30.0)))),
             )
             result = HybridModelRouter().route(request)
-            self._send_api_json(200 if result.success else 503, {
+            response_payload = {
                 "provider": result.provider, "model": result.model, "success": result.success,
                 "attempts": result.attempts, "latency_ms": result.latency_ms,
                 "resource_usage": result.resource_usage, "fallback_reason": result.fallback_reason,
                 "result": result.result, "error": result.error,
+            }
+            accepts_chunked = CHUNKED_RESPONSE_ACCEPT in self.headers.get("Accept", "")
+            if accepts_chunked:
+                if self.artifact_store is None or self.progress_journal is None:
+                    self._send_delivery_json(503, {"error": "durable chunked delivery is not configured"})
+                    return
+                body = _encode_bounded_json(
+                    response_payload, max_bytes=MAX_CHUNKED_RESPONSE_BYTES,
+                )
+                response_text = body.decode("utf-8")
+                manifest, _chunks = chunk_response(
+                    response_text, max_bytes=MAX_DELIVERY_CHUNK_BYTES,
+                )
+                ref = self._persist_response_artifact(manifest.response_id, body)
+                self._send_delivery_json(202, {
+                    "delivery_mode": "chunked-pull-v1",
+                    "response_id": manifest.response_id,
+                    "response_sha256": manifest.sha256,
+                    "total_chunks": manifest.total_chunks,
+                    "total_chars": manifest.total_chars,
+                    "total_bytes": manifest.total_bytes,
+                    "chunk_bytes": MAX_DELIVERY_CHUNK_BYTES,
+                    "artifact": {
+                        "artifact_id": ref.artifact_id,
+                        "digest": ref.digest,
+                        "size": ref.size,
+                        "layout": ref.layout,
+                    },
+                    "next": "/api/delivery/" + manifest.response_id + "/next",
+                    "status": "/api/delivery/" + manifest.response_id + "/status",
+                    "ack": "/api/delivery/" + manifest.response_id + "/ack",
+                    "complete": "/api/delivery/" + manifest.response_id + "/complete",
+                })
+                return
+            self._send_api_json(200 if result.success else 503, response_payload)
+        except ApiResponseTooLarge:
+            self._send_api_json(502, {
+                "error": "chunked API response exceeds the configured total byte budget",
+                "delivery": {"mode": "bounded", "chunk_ack_supported": False},
             })
         except (ValueError, TypeError, json.JSONDecodeError) as exc:
             self._send(400, json.dumps({"error": str(exc)}).encode(), "application/json; charset=utf-8")
@@ -137,6 +364,9 @@ class _Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         path = urlparse(self.path).path
         if not self._guard_api_origin(path):
+            return
+        if path.startswith("/api/delivery/"):
+            self._handle_delivery_get(path)
             return
         if path == "/api/dashboard":
             self._send_api_json(200, self.dashboard.snapshot().as_dict())
@@ -195,9 +425,13 @@ def serve(project_root=".", host="127.0.0.1", port=8765):
         raise ValueError("dashboard server only binds to loopback; remote access requires a separately secured deployment")
     dashboard = EngineeringDashboard(project_root)
     control_center = MuxinSessionAdapter(project_root, dashboard=dashboard)
+    runtime_root = Path(project_root).expanduser().resolve() / ".auren"
+    artifact_store = ArtifactStore(runtime_root / "releases")
+    progress_journal = ProgressJournal(runtime_root / "progress.jsonl")
     handler = type("AERDashboardHandler", (_Handler,), {
         "dashboard": dashboard, "control_center": control_center,
         "ui_root": UI_ROOT, "control_center_path": CONTROL_CENTER,
+        "artifact_store": artifact_store, "progress_journal": progress_journal,
     })
     server = ThreadingHTTPServer((host, port), handler)
     print(f"AUREN Engineering Console: http://{host}:{port}")
