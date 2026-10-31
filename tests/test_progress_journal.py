@@ -206,6 +206,31 @@ class ProgressJournalTests(unittest.TestCase):
             with self.assertRaisesRegex(ProgressJournalCorruption, "not contiguous"):
                 ProgressJournal(path).response_delivery_checkpoint("delivery", digest)
 
+
+    def test_completed_delivery_accepts_only_exact_duplicate_final_ack(self):
+        with tempfile.TemporaryDirectory() as temp:
+            journal = ProgressJournal(Path(temp) / "progress.jsonl")
+            digest = "d" * 64
+            journal.record("delivery", "started", state="running", stage="response")
+            final_ack = journal.record_response_chunk_ack(
+                "delivery", response_id=digest, response_sha256=digest,
+                acknowledged_index=1, total_chunks=1,
+            )
+            journal.record(
+                "delivery", "response_delivery_completed", state="completed",
+                stage="response-delivery", evidence_ref=f"sha256:{digest}",
+            )
+            duplicate = journal.record_response_chunk_ack(
+                "delivery", response_id=digest, response_sha256=digest,
+                acknowledged_index=1, total_chunks=1,
+            )
+            self.assertEqual(final_ack.sequence, duplicate.sequence)
+            with self.assertRaisesRegex(ValueError, "manifest changed"):
+                journal.record_response_chunk_ack(
+                    "delivery", response_id=digest, response_sha256=digest,
+                    acknowledged_index=1, total_chunks=2,
+                )
+
     def test_invalid_progress_units_rejected(self):
         with tempfile.TemporaryDirectory() as temp:
             with self.assertRaises(ValueError):
