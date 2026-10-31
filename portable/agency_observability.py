@@ -7,6 +7,8 @@ immutable; privacy filtering runs before persistence.
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
+from contextvars import ContextVar
 import hashlib
 import hmac
 import json
@@ -263,6 +265,32 @@ class Trace:
         canonical = json.dumps(_safe(data), sort_keys=True, separators=(",", ":"), allow_nan=False)
         data["event_digest"] = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
         return data
+
+
+_TRACE_CONTEXT: ContextVar[tuple[Trace, str] | None] = ContextVar(
+    "auren_observability_trace_context", default=None,
+)
+
+
+@contextmanager
+def bind_trace_context(trace: Trace, parent_span_id: str):
+    """Bind the active supervisor trace for nested provider/tool lifecycle calls."""
+    if not isinstance(trace, Trace):
+        raise TypeError("trace context requires a Trace")
+    if not isinstance(parent_span_id, str) or not parent_span_id:
+        raise ValueError("trace context parent span ID is required")
+    if not any(span.span_id == parent_span_id for span in trace.spans):
+        raise ValueError("trace context parent span must belong to the trace")
+    token = _TRACE_CONTEXT.set((trace, parent_span_id))
+    try:
+        yield
+    finally:
+        _TRACE_CONTEXT.reset(token)
+
+
+def current_trace_context() -> tuple[Trace, str] | None:
+    """Return the current trace and explicit parent span, if a graph bound one."""
+    return _TRACE_CONTEXT.get()
 
 
 class LocalExporter:
