@@ -53,7 +53,9 @@ def deliver_response(
     """Deliver losslessly with one-chunk backpressure and durable ack checkpoints.
 
     This adapter is only for receivers whose protocol explicitly supports chunks.
-    MCP stdio frames and other atomic protocols must retain their frame-level cap.
+    task_id must identify an already-running supervisor task; this adapter never
+    creates or revives task state. MCP stdio frames and other atomic protocols
+    must retain their frame-level cap.
     """
     if not isinstance(task_id, str) or not task_id.strip():
         raise ValueError("task_id must be non-empty")
