@@ -76,7 +76,6 @@ class ResponseDeliverySupervisor:
         except KeyError:
             self.controller.register_handler(
                 _HANDLER, await_receiver_acknowledgement, execution_class="read_only",
-                guard_action="response.delivery.await_receiver",
             )
 
     def create(self, response_id: str, delivery_id: str, digest: str, *, deadline_seconds: float = 600.0) -> str:
