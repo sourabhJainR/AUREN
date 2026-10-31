@@ -114,6 +114,65 @@ class MuxinSessionAdapter:
             "evidence": [],
         }
 
+    def session_snapshot(self) -> dict[str, Any]:
+        """Return a bounded, privacy-safe live view of durable sessions and tasks.
+
+        This endpoint deliberately avoids memory recall and model discovery so the
+        dashboard can poll frequently without triggering unrelated runtime work.
+        """
+        dashboard = self.dashboard.snapshot().as_dict()
+        sessions = []
+        for raw in self.sessions():
+            row = {
+                key: raw.get(key) for key in (
+                    "session_id", "task_id", "stage", "status", "progress",
+                    "attempt", "active_provider", "updated_at",
+                    "completed_batches", "remaining_batches", "state_digest",
+                )
+            }
+            row["error_present"] = bool(raw.get("last_error"))
+            sessions.append(row)
+
+        task_fields = (
+            "task_id", "state", "reported_state", "canonical_state",
+            "status_category", "status_conflict", "stage", "last_update",
+            "seconds_since_update", "stale", "progress_percent",
+            "completed_units", "total_units", "sequence", "event_count",
+            "priority", "parent_task_id", "decision_required", "next_action",
+            "workflow_profile_status",
+        )
+        tasks = [
+            {key: row.get(key) for key in task_fields if key in row}
+            for row in dashboard.get("tasks", {}).get("progress", [])
+        ]
+        plan_fields = (
+            "run_id", "status", "revision", "task_counts",
+            "evidence_count", "source_revision",
+        )
+        plans = [
+            {key: row.get(key) for key in plan_fields if key in row}
+            for row in dashboard.get("plan_runs", [])
+        ]
+        active = sum(row["status"] in {"running", "waiting"} for row in sessions)
+        completed = sum(row["status"] == "complete" for row in sessions)
+        blocked = sum(row["status"] == "blocked" for row in sessions)
+        unverified = sum(row["status"] == "unverified" for row in sessions)
+        return {
+            "schema_version": 1,
+            "generated_at": dashboard.get("generated_at"),
+            "project": dashboard.get("project"),
+            "source": "durable session checkpoints, supervisor progress journal and verified plan store",
+            "counts": {
+                "sessions": len(sessions), "active": active,
+                "completed": completed, "blocked": blocked,
+                "unverified": unverified, "tasks": len(tasks),
+                "plan_runs": len(plans),
+            },
+            "sessions": sessions,
+            "tasks": tasks,
+            "plan_runs": plans,
+        }
+
     def snapshot(self) -> dict[str, Any]:
         dashboard = self.dashboard.snapshot().as_dict()
         sessions = self.sessions()
